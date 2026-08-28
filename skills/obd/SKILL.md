@@ -1,8 +1,8 @@
 ---
-name: object
+name: obd
 description: >
-  Object Service assistant — query TVU Object Service for tangibles, objects, and media stream metadata.
-  Use this skill when the user runs /ela:object, wants to look up a tangible by tangible ID, search objects,
+  Object Service (objectd) — query TVU Object Service for objects AND tangibles, plus media stream metadata. An object (19-digit numeric id) holds one or more tangibles (32-hex ids); both are readable here.
+  Use this skill when the user runs /ela:obd, wants to look up a tangible by tangible ID, search objects,
   or inspect ObjectService data. Also trigger for: "find tangible", "look up object", "search tangible ID",
   "查找切片", "查询对象", "object service查询".
 ---
@@ -30,6 +30,18 @@ with the bearer — any 200 is `ok`, 401/403 is `auth failed`.
 **Base URL**: `{TVU_OBJECT_SERVICE_HOST}/route-object/object-service/base`
 
 **Auth header**: `Authorization: Bearer {TVU_CC_BEARER_TOKEN}`
+
+## Which endpoint — decide from the id shape, then say which you used
+
+| id looks like | try first | then |
+|---|---|---|
+| 19 digits (`1508530325419069440`) | **object** | tangible |
+| 32 hex (`cf71e6d7cd0d415cad016f114f3bd750`) | **tangible** | object |
+| anything else / a name | search (Feature 4) | — |
+
+An empty `result` with HTTP 200 means "not this kind" — fall through to the other endpoint before
+reporting not found. Always state which endpoint answered. An object's `tangibleInfo[]` lists its
+tangibles; a tangible's `objectId` points back — show both directions when present.
 
 ---
 
