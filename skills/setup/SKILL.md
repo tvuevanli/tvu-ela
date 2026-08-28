@@ -60,7 +60,7 @@ ENV=$(python3 -c "import json;print(json.load(open('$HOME/.claude/ela/site.json'
 python3 "${CLAUDE_PLUGIN_ROOT}/skills/jira/jiraread.py"  --env-file "$ENV" --jql 'project = MH ORDER BY updated DESC' --limit 1
 python3 "${CLAUDE_PLUGIN_ROOT}/skills/kb/kb.py"          --env-file "$ENV" search "MediaHub" 2>&1 | head -3
 # slack: needs a permalink to read; probe auth only if one is at hand
-# obd: GET <TVU_OBJECT_SERVICE_HOST>/route-object/object-service/base/object/<known id> with the bearer — see skills/obd/SKILL.md
+# objsvc: GET <TVU_OBJECT_SERVICE_HOST>/route-object/object-service/base/object/<known id> with the bearer — see skills/objsvc/SKILL.md
 ```
 
 Report a table: sense · key(s) present · probe result (`ok` / `auth failed` / `unreachable`).

@@ -27,7 +27,7 @@ The install is a cached copy. After editing this repo: `/plugin update ela`.
 | `/ela:jira` | 1 | read an issue (links, subtasks, comments) or run JQL — read-only |
 | `/ela:slack` | 1 | read a thread by permalink — read-only |
 | `/ela:kb` | 1 | read / search Outline; write on explicit confirm |
-| `/ela:obd` | 1 | Object Service (objectd): objects and their tangibles, by id or search |
+| `/ela:objsvc` | 1 | Object Service API: objects and their tangibles, by id or search (not objectd — a different service) |
 | `/ela:task` | 2 | one piece of work Evan implements: worktree, tier, delegation to the area's stack, evidence, ledger |
 | `/ela:map` | 1 | build / re-verify `ela-knowledge/map/{host,absent}.yaml` against disk |
 
