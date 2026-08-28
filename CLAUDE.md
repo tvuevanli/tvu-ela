@@ -89,7 +89,7 @@ written locally unless he says so; nothing is synced.
 | `skills/task` | for work Evan implements: worktree · tier · **delegation** to the area's stack (headless session in the counterpart's repo) or ela's own implementer · evidence check · ledger | 2 |
 | `skills/breakdown` | requirement → layer-tagged lanes with owners; two depths — *knowledge* (docs/KB/map only) or *code* (plus the relevant services' source via a read-only analyst); produces a plan, publishes only on confirm | 3 |
 | `skills/brief` | Evan's queue: blocked, stale, unrouted — against the two cadence KPIs | 4 |
-| `agents/` | roster; an agent exists only when a skill needs isolation, parallelism or a tool restriction | 2+ |
+| `agents/` | roster — created when the first agent is needed; every `.md` in it is loaded as an agent, so no README lives there (rule in `ROADMAP.md`) | 3+ |
 | `hooks/` `policy/` | portable guards; full protocols once phases need them | 4–5 |
 
 ## Hard rules

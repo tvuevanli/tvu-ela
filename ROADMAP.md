@@ -59,6 +59,13 @@ admin (`mha`); graph build. `hooks/` gains the portable guards (`Bash(git push:*
 
 **Exit:** a breakdown plan lands in Jira in one confirmed step with no manual re-routing.
 
+## Agents — admission rule
+No agent exists until a skill needs work that is **isolated**, **parallel**, or **tool-restricted**.
+A persona is not a reason; coordination is the main session. Expected: a read-only *analyst*
+(Phase 3, `Read Grep Glob Bash` + code-graph tools), a read-only *reviewer* and per-stack
+*implementers* for repo-local / bare lanes (Phase 2–5). Plain names. **Every `.md` under `agents/`
+is loaded as an agent** — no README there.
+
 ## Deliberately never
 Web UI · launcher script · orchestration prose · editing a counterpart's repo · copying others'
 knowledge · pushing to a shared lane · designing around Helm's or mht's retirement.
