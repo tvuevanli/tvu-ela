@@ -28,8 +28,11 @@ optional base lane override.
 
 ## 0 — site + ticket
 Read `~/.claude/ela/site.json` (`projects`, `map`, `env`, `runtime` — default `~/ela-runtime`).
-`python3 "${CLAUDE_PLUGIN_ROOT}/skills/jira/jiraread.py" --env-file <env> <KEY> --deep` → note
-type, status, parent, subtasks, linked tickets, the layer token in the title (`[App]` `[UI]` …).
+`python3 "${CLAUDE_PLUGIN_ROOT}/skills/jira/jiraread.py" --env-file <env> <KEY> --deep > <runtime>/<key-lower>/ticket.md`
+→ note type, status, parent, subtasks, linked tickets, the layer token in the title (`[App]` `[UI]` …).
+The dump file is handed to the child by path: `--agent X` limits the child to X's `tools:` frontmatter
+(mediahub-agent's agents have no Skill tool), so the child **cannot read Jira itself**. A verbatim dump
+by path is not paraphrase — it satisfies their "paths, not retelling" rule.
 
 ## 1 — locate
 Read `<map>/host.yaml`; find `repos[name == <repo>]`. Missing → run `/ela:map` first, do not
@@ -40,7 +43,7 @@ guess. Take: `path` (base clone), `area`, `governance`, `stack` (team-stack only
 ## 2 — worktree + tier
 ```bash
 WT=<runtime>/<key-lower>/<repo>          # last path segment == repo dir name (their guards match on it)
-git -C <path> fetch origin --prune
+git -C <path> fetch origin --prune        # also before any read-only analysis: base clones lag origin
 git -C <path> worktree add -b evan/<key-lower> "$WT" origin/<lane>
 ```
 Tier for the repo (from `ela-knowledge/decisions/` or the area's registry; default **draft-only**):
@@ -63,7 +66,7 @@ hooks load; the worktree is attached with `--add-dir`.
 ```bash
 SID=$(uuidgen)
 cat > "$WT/../prompt.txt" <<PROMPT
-Task: <KEY> — <title>. Jira: <url>.
+Task: <KEY> — <title>. Jira: <url>. Verbatim ticket dump (read it first): <runtime>/<key-lower>/ticket.md
 Target worktree (the ONLY place code may change): $WT   (branch evan/<key>, from origin/<lane>)
 Follow this repo's own workflow end to end for this repo — every gate, artefact and write-back your
 rules require (change directory, contract if any, KB, QA report, go-live checklist). Work on the
@@ -84,9 +87,16 @@ claude -p --session-id "$SID" --agent <their router, e.g. CodeAgent> \
 prompt as a tool name (observed: "Input must be provided either through stdin or as a prompt
 argument"). Never put the prompt after `--allowedTools`.
 ```
-Allowlist presets (`--allowedTools`):
-- `draft-only`: `Read,Grep,Glob,Edit,Write,MultiEdit,Agent,Bash(node *),Bash(npm *),Bash(npx *),Bash(mvn *),Bash(python3 *),Bash(git status*),Bash(git diff*),Bash(git log*),Bash(git add *),Bash(git commit *),Bash(git worktree list*),Bash(git show*),Bash(git branch*),Bash(ls*),Bash(cat*),Bash(find*),Bash(grep*),Bash(rg*)`
-- `branch-only`: the above + `Bash(git push -u origin evan/*)`
+Permission envelope = `--allowedTools` **plus** `--disallowedTools` (deny wins). Prefix patterns must
+match the real command shape — `Bash(git log*)` does **not** match `git -C <path> log`, so git is
+granted broadly and pushes are denied explicitly:
+
+- `draft-only`:
+  `--allowedTools "Read,Grep,Glob,Edit,Write,MultiEdit,Agent,Bash(git *),Bash(node *),Bash(npm *),Bash(npx *),Bash(mvn *),Bash(python3 *),Bash(ls*),Bash(cat*),Bash(find*),Bash(grep*),Bash(rg*),Bash(wc*),Bash(head*),Bash(sed -n*)"`
+  `--disallowedTools "Bash(git push*),Bash(git -C * push*),Bash(git remote add*),Bash(git remote set-url*)"`
+- `branch-only`: same, but the disallow list drops `push` and the prompt states the only branch is `evan/<key>`
+  (a pattern cannot express "push only this branch"; §4 verifies no other ref moved).
+- read-only analysis (no worktree, e.g. their `jira-analyst`): drop `Edit,Write,MultiEdit`; keep the git deny list.
 Never `--dangerously-skip-permissions`.
 
 **Loop:** stream the output. On `QUESTION:` → show Evan verbatim, take his answer, then
