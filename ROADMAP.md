@@ -16,7 +16,19 @@ Manifests, `CLAUDE.md` (boundaries first), this file.
 **Not built:** agents, writes to product repos, orchestration.
 **Exit:** `/ela:map` runs twice in a row with an empty drift table; every repo has a governance value.
 
-## 2 — breakdown
+## 2 — task · next
+`/ela:task <KEY> <repo>`: for work Evan implements himself. Read the ticket first-hand → locate the
+repo in the map → per-task worktree from `origin/<lane>` under `~/ela-runtime/<task>/<repo>` → write
+tier → **delegate by governance**: team-stack → a headless session started in the counterpart's repo
+(`claude -p --agent <their router> --add-dir <worktree>`) so their agents, hooks and workflow run,
+with ela relaying any confirmation they need and resuming the session; repo-local / bare → ela
+implements in the worktree under the repo's own files. Then verify artefacts and evidence by the
+target's standard (their change dir, their test line, no push), and write the ledger entry.
+
+**Exit:** MH-2191-class work end to end with the counterpart's artefacts present and no manual
+session switch.
+
+## 3 — breakdown
 `/ela:breakdown`: Jira/Slack input + Evan's own framing → a plan of layer-tagged lanes
 (`[Infra] [J2N] [Media] [App] [UI] [QA] [Design]`) each with owner (from the map + team roster),
 dependency order, and verification. The plan lands in `ela-knowledge/breakdowns/<key>/plan.md`.
@@ -30,31 +42,22 @@ Two depths, chosen per request and recorded in the plan header:
 
 A knowledge-depth plan states which lanes it could not confirm without code; a code-depth plan cites
 the files it read. Neither depth writes to any repo or to Jira.
-**Publishing to Jira is Phase 4** — until then Evan creates the tickets from the plan.
+**Publishing to Jira is Phase 5** — until then Evan creates the tickets from the plan.
 
 **Exit:** one real requirement's plan matches what Evan would have written by hand.
 
-## 3 — brief
+## 4 — brief
 `/ela:brief`: Evan's queue from Jira directly — unrouted, blocked, stale In-Progress — against the
 two cadence KPIs (complex tickets broken down same day; In-Progress updated within 24h). Read-only.
 
 **Exit:** a week in which the brief is the first thing read and nothing it missed came up later.
 
-## 4 — actions
+## 5 — actions
 Writes to live systems, each behind an explicit confirm and idempotent: create/assign Jira
 subtasks **directly to their owners** from a breakdown plan; Slack drafts; Outline writes; MediaHub
 admin (`mha`); graph build. `hooks/` gains the portable guards (`Bash(git push:*)` deny).
 
 **Exit:** a breakdown plan lands in Jira in one confirmed step with no manual re-routing.
-
-## 5 — task
-`/ela:task`: for work Evan implements himself — per-task worktree, write tier
-(`none | draft-only | branch-only | mr-gated`, machine-enforced), run record in
-`ela-knowledge/ledger/`, evidence protocol by the target repo's standard, handoff block for
-team-stack lanes.
-
-**Exit:** one `[App]` ticket end to end: ela prepares → handoff → `mediahub-agent` implements →
-ela verifies evidence → ledger entry.
 
 ## Deliberately never
 Web UI · launcher script · orchestration prose · editing a counterpart's repo · copying others'

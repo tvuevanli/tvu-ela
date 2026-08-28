@@ -28,6 +28,7 @@ The install is a cached copy. After editing this repo: `/plugin update ela`.
 | `/ela:slack` | 1 | read a thread by permalink — read-only |
 | `/ela:kb` | 1 | read / search Outline; write on explicit confirm |
 | `/ela:object` | 1 | query Object Service — tangibles, objects, stream metadata |
+| `/ela:task` | 2 | one piece of work Evan implements: worktree, tier, delegation to the area's stack, evidence, ledger |
 | `/ela:map` | 1 | build / re-verify `ela-knowledge/map/{host,absent}.yaml` against disk |
 
 Start the session where the target's rules live (`CLAUDE.md` → *The operating rule*); ela's skills

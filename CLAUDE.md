@@ -52,7 +52,9 @@ team-stack lanes, and hence ela as a plugin: the only thing present on both side
 
 ## What ela does not do
 
-- Implement in a team-stack repo. It prepares (worktree, tier, context), prints the handoff, stops.
+- Implement in a team-stack repo itself. It prepares (worktree, tier, context) and **delegates**: a
+  headless session started in the counterpart's repo, so their agents, hooks and workflow run — ela
+  supplies the task, the worktree and the permission envelope, then verifies the artefacts.
 - Edit a counterpart's repo (`helm`, `mediahub-agent`, `tvu-engineering-team`). That is a conversation.
 - Copy knowledge in — not theirs, not the team's. Paths and URLs only.
 - Orchestrate in prose. The platform sequences agents; ela states invariants.
@@ -84,9 +86,9 @@ written locally unless he says so; nothing is synced.
 | `skills/jira` `slack` `kb` `object` | **senses** — first-hand, read-only (`kb` also writes, confirm-gated). Their scripts are sense implementations, not product code | 1 |
 | `skills/map` | `/ela:map` — build and re-verify the map against disk | 1 |
 | `skills/setup` | `/ela:setup` — guided creation/repair of the site dir, probes every sense | 1 |
-| `skills/breakdown` | requirement → layer-tagged lanes with owners; two depths — *knowledge* (docs/KB/map only) or *code* (plus the relevant services' source via a read-only analyst); produces a plan, publishes only on confirm | 2 |
-| `skills/brief` | Evan's queue: blocked, stale, unrouted — against the two cadence KPIs | 3 |
-| `skills/task` | worktree · tier · handoff for work Evan implements | 5 |
+| `skills/task` | for work Evan implements: worktree · tier · **delegation** to the area's stack (headless session in the counterpart's repo) or ela's own implementer · evidence check · ledger | 2 |
+| `skills/breakdown` | requirement → layer-tagged lanes with owners; two depths — *knowledge* (docs/KB/map only) or *code* (plus the relevant services' source via a read-only analyst); produces a plan, publishes only on confirm | 3 |
+| `skills/brief` | Evan's queue: blocked, stale, unrouted — against the two cadence KPIs | 4 |
 | `agents/` | roster; an agent exists only when a skill needs isolation, parallelism or a tool restriction | 2+ |
 | `hooks/` `policy/` | portable guards; full protocols once phases need them | 4–5 |
 
@@ -95,7 +97,7 @@ written locally unless he says so; nothing is synced.
 1. **The map is a claim; disk is the fact.** Disagree → fix the map.
 2. **Cite, never copy.**
 3. **Evidence outranks report**, judged by the *target repo's* standard.
-4. **One task, one worktree, one session**; pathspec commits only (Phase 5).
+4. **One task, one worktree, one session**; pathspec commits only.
 5. **One phase at a time.**
 6. **Commits record conclusions, not the path to them.** Work in the tree; commit one concern at a
    time; propose the commit list before committing. Direction changes go to
@@ -105,3 +107,6 @@ written locally unless he says so; nothing is synced.
 
 English throughout. Plain names, not titles — `ela` is a name, not an acronym. Describe Evan's
 responsibility, never a title.
+
+Every command starts with `ela`: one plugin today (`/ela:*`); if a shareable subset is ever split
+out, the second plugin is `ela-<subset>` (`/ela-senses:*`) in the same marketplace — never a bare name.
