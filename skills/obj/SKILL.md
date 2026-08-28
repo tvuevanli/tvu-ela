@@ -39,8 +39,10 @@ with the bearer — any 200 is `ok`, 401/403 is `auth failed`.
 | 32 hex (`cf71e6d7cd0d415cad016f114f3bd750`) | **tangible** | object |
 | anything else / a name | search (Feature 4) | — |
 
-An empty `result` with HTTP 200 means "not this kind" — fall through to the other endpoint before
-reporting not found. Always state which endpoint answered. An object's `tangibleInfo[]` lists its
+**Response shapes differ.** `/object/<id>` wraps: `{errorCode, errorInfo, result:{…}}`. `/tangible/<id>`
+returns the tangible **bare** (top-level `tangibleId`, `tangibleType`, `objectId`, `extraInfo`…). A miss is
+HTTP 200 with an empty body (tangible) or an empty `result` (object) — fall through to the other endpoint
+before reporting not found. A tangible can be queried on its own; it carries `objectId` back to its object. Always state which endpoint answered. An object's `tangibleInfo[]` lists its
 tangibles; a tangible's `objectId` points back — show both directions when present.
 
 ---
