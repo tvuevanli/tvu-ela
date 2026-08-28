@@ -41,11 +41,21 @@ guess. Take: `path` (base clone), `area`, `governance`, `stack` (team-stack only
 `mediahub-agent/workspace.json`; else the repo's default branch). `--lane` overrides.
 
 ## 2 — worktree + tier
+Where the worktree lives is decided by governance — **the counterpart's convention wins**:
+
+| governance | worktree path | why |
+|---|---|---|
+| team-stack | `<area root>/<repo>-<key-lower>` e.g. `~/projects/mh-app/media-hub-front-mh-2191` | mediahub-agent's own convention (`<service>-<suffix>` in the workspace root): its `resolve-workspace.cjs` lists only worktrees under that root, its `feign-contract-guard` matches the `<service>-` prefix, and CodeAgent accepts only paths that script reports |
+| repo-local / bare | `<runtime>/<key-lower>/<repo>` (site `runtime`, default `~/ela-runtime`) | nobody there constrains location; keep ela's own place |
+
 ```bash
-WT=<runtime>/<key-lower>/<repo>          # last path segment == repo dir name (their guards match on it)
 git -C <path> fetch origin --prune        # also before any read-only analysis: base clones lag origin
 git -C <path> worktree add -b evan/<key-lower> "$WT" origin/<lane>
 ```
+The base clone is never `--add-dir`ed to the child, so it is structurally unwritable from there —
+isolation by permission scope, not by instruction. Remove the worktree at close so the counterpart's
+root does not accumulate task dirs.
+
 Tier for the repo (from `ela-knowledge/decisions/` or the area's registry; default **draft-only**):
 
 | tier | child may | never |
@@ -67,7 +77,7 @@ hooks load; the worktree is attached with `--add-dir`.
 SID=$(uuidgen)
 cat > "$WT/../prompt.txt" <<PROMPT
 Task: <KEY> — <title>. Jira: <url>. Verbatim ticket dump (read it first): <runtime>/<key-lower>/ticket.md
-Target worktree (the ONLY place code may change): $WT   (branch evan/<key>, from origin/<lane>)
+Target worktree (the ONLY place code may change): $WT   (branch evan/<key>, from origin/<lane>; it is a git worktree of the base checkout — run node scripts/resolve-workspace.cjs and you will see it listed with its owner)
 Follow this repo's own workflow end to end for this repo — every gate, artefact and write-back your
 rules require (change directory, contract if any, KB, QA report, go-live checklist). Work on the
 worktree path above, not on the base checkout.
