@@ -7,7 +7,7 @@ next. Nothing is built ahead of its phase.
 Manifests, `CLAUDE.md` (boundaries first), this file.
 
 ## 1 — senses + map · current
-- **Senses**: `/ela:jira` · `/ela:slack` · `/ela:kb` · `/ela:objsvc`. First-hand, read-only
+- **Senses**: `/ela:jira` · `/ela:slack` · `/ela:kb` · `/ela:obj`. First-hand, read-only
   (`kb` writes on confirm). Credentials from `~/.claude/ela/.env`, copied once from their previous
   homes; no runtime dependency on Helm or the old `~/.claude/skills`.
 - **Map**: `/ela:map` → `ela-knowledge/map/host.yaml` (repos on this machine, with governance shape
