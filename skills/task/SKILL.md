@@ -62,12 +62,7 @@ hooks load; the worktree is attached with `--add-dir`.
 
 ```bash
 SID=$(uuidgen)
-cd <stack> && \
-JIRA_ENV_FILE=<env> SLACK_ENV_FILE=<env> OUTLINE_ENV_FILE=<env> \
-claude -p --session-id "$SID" --agent <their router, e.g. CodeAgent> \
-  --add-dir "$WT" --output-format stream-json \
-  --allowedTools "<preset for tier>" \
-  "$(cat <<PROMPT
+cat > "$WT/../prompt.txt" <<PROMPT
 Task: <KEY> — <title>. Jira: <url>.
 Target worktree (the ONLY place code may change): $WT   (branch evan/<key>, from origin/<lane>)
 Follow this repo's own workflow end to end for this repo — every gate, artefact and write-back your
@@ -78,7 +73,16 @@ starting with QUESTION: and stop.
 When done, print DONE: followed by the list of artefacts you created (absolute paths) and the exact
 test command + result line.
 PROMPT
-)"
+cd <stack> && \
+JIRA_ENV_FILE=<env> SLACK_ENV_FILE=<env> OUTLINE_ENV_FILE=<env> \
+claude -p --session-id "$SID" --agent <their router, e.g. CodeAgent> \
+  --add-dir "$WT" --output-format stream-json \
+  --allowedTools "<preset for tier>" \
+  < "$WT/../prompt.txt"
+```
+**The prompt goes in on stdin.** `--allowedTools` is variadic and will swallow a trailing positional
+prompt as a tool name (observed: "Input must be provided either through stdin or as a prompt
+argument"). Never put the prompt after `--allowedTools`.
 ```
 Allowlist presets (`--allowedTools`):
 - `draft-only`: `Read,Grep,Glob,Edit,Write,MultiEdit,Agent,Bash(node *),Bash(npm *),Bash(npx *),Bash(mvn *),Bash(python3 *),Bash(git status*),Bash(git diff*),Bash(git log*),Bash(git add *),Bash(git commit *),Bash(git worktree list*),Bash(git show*),Bash(git branch*),Bash(ls*),Bash(cat*),Bash(find*),Bash(grep*),Bash(rg*)`
@@ -86,7 +90,7 @@ Allowlist presets (`--allowedTools`):
 Never `--dangerously-skip-permissions`.
 
 **Loop:** stream the output. On `QUESTION:` → show Evan verbatim, take his answer, then
-`claude -p --resume "$SID" --agent <router> --add-dir "$WT" --allowedTools "<same>" "<answer>"`.
+`echo "<answer>" | claude -p --resume "$SID" --agent <router> --add-dir "$WT" --allowedTools "<same>"`.
 On `DONE:` → §4. If the child cannot proceed headless (interactive-only step), print the **handoff
 block** — worktree, branch, tier, owner, `cd <stack> && claude` + `/add-dir $WT` — and stop.
 
