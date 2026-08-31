@@ -110,3 +110,7 @@ responsibility, never a title.
 
 Every command starts with `ela`: one plugin today (`/ela:*`); if a shareable subset is ever split
 out, the second plugin is `ela-<subset>` (`/ela-senses:*`) in the same marketplace — never a bare name.
+
+Skill names are **short words, not abbreviations**. Prefer the whole word when it is already short
+(`object`, `task`, `map`); a truncation (`obj`, `obd`) saves three characters and costs the reader a
+guess — `obd` read as `objectd`, a different service owned by someone else.
