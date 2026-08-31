@@ -45,8 +45,9 @@ Two depths, chosen per request and recorded in the plan header:
 | **code** | the above **plus the relevant services' source** in the checkouts named by the map — call sites, contracts, tests | lanes that touch inter-service seams, anything where "which service" is not obvious | first agent: a tool-restricted, read-only analyst per repo |
 
 A knowledge-depth plan states which lanes it could not confirm without code; a code-depth plan cites
-the files it read. Neither depth writes to any repo or to Jira.
-**Publishing to Jira is Phase 5** — until then Evan creates the tickets from the plan.
+the files it read. Neither depth writes to any repo. Jira publication happens only on Evan's
+explicit "create them", per-batch confirmed, through the jira capability's own gates — assigned
+**directly to the lane owners**. What remains Phase 5 is the streamlined one-step form.
 
 **Exit:** one real requirement's plan matches what Evan would have written by hand.
 
@@ -68,10 +69,10 @@ subcommands, no second implementation.
 
 ## Agents — admission rule
 No agent exists until a skill needs work that is **isolated**, **parallel**, or **tool-restricted**.
-A persona is not a reason; coordination is the main session. Expected: a read-only *analyst*
-(Phase 3, `Read Grep Glob Bash` + code-graph tools), a read-only *reviewer* and per-stack
-*implementers* for repo-local / bare lanes (Phase 2–5). Plain names. **Every `.md` under `agents/`
-is loaded as an agent** — no README there.
+A persona is not a reason; coordination is the main session. Exists: *analyst* (read-only,
+`Read Grep Glob Bash`, admitted for `/ela:breakdown` code depth — tool-restricted). Expected: a
+read-only *reviewer* and per-stack *implementers* for repo-local / bare lanes (Phase 2–5). Plain
+names. **Every `.md` under `agents/` is loaded as an agent** — no README there.
 
 ## Deliberately never
 Web UI · launcher script · orchestration prose · editing a counterpart's repo · copying others'

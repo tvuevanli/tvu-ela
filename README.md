@@ -29,6 +29,7 @@ The install is a cached copy. After editing this repo: `/plugin update ela`.
 | `/ela:kb` | 1 | read / search Outline; write on explicit confirm |
 | `/ela:object` | 1 | Object Service API: objects and their tangibles, by id or search (not objectd — a different service) |
 | `/ela:task` | 2 | one piece of work Evan implements: worktree, tier, delegation to the area's stack, evidence, ledger |
+| `/ela:breakdown` | 3 | requirement → layer-tagged lanes with owners, order, verification; knowledge or code depth; plan in ela-knowledge, Jira publication on confirm |
 | `/ela:map` | 1 | build / re-verify `ela-knowledge/map/{host,absent}.yaml` against disk |
 
 Start the session where the target's rules live (`CLAUDE.md` → *The operating rule*); ela's skills
