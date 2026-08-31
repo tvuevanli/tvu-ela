@@ -4,10 +4,11 @@ description: Run one piece of implementation work Evan owns end to end — read 
 user-invocable: true
 ---
 
-# /ela:task <KEY> <repo> [--lane <branch>] — implement under the owner's rules, from here
+# /ela:task <KEY | --source "…"> <repo> [--lane <branch>] — implement under the owner's rules, from here
 
-Self-contained. Arguments: a Jira key, the target repo's directory name as it appears in the map,
-optional base lane override.
+Self-contained. Arguments: a Jira key **or** a source (a Slack permalink, or a verbal one-liner —
+a ticket is not required to start; see §0), the target repo's directory name as it appears in the
+map, optional base lane override.
 
 ## Invariants
 - **Read first-hand.** The ticket is read with `/ela:jira`; the repo is located from the map. No
@@ -26,13 +27,28 @@ optional base lane override.
   regeneration — those are their rules on their files.)
 - **Evidence over report.** "Tests pass" is verified against the target's own standard (see §4).
 
-## 0 — site + ticket
+## 0 — site + source
 Read `~/.claude/ela/site.json` (`projects`, `map`, `env`, `runtime` — default `~/ela-runtime`).
-`python3 "${CLAUDE_PLUGIN_ROOT}/skills/jira/jira.py" --env-file <env> read <KEY> --deep > <runtime>/<key-lower>/ticket.md`
+The task id is `<key-lower>` when a Jira key is given, else a short kebab slug from the source.
+
+**With a Jira key:**
+`python3 "${CLAUDE_PLUGIN_ROOT}/skills/jira/jira.py" --env-file <env> read <KEY> --deep > <runtime>/<id>/ticket.md`
 → note type, status, parent, subtasks, linked tickets, the layer token in the title (`[App]` `[UI]` …).
-The dump file is handed to the child by path: `--agent X` limits the child to X's `tools:` frontmatter
-(mediahub-agent's agents have no Skill tool), so the child **cannot read Jira itself**. A verbatim dump
-by path is not paraphrase — it satisfies their "paths, not retelling" rule.
+**Route up before going down:** if the ticket plainly crosses layers/areas and has neither subtasks
+nor a plan in `<records>/breakdowns/`, stop and point to `/ela:breakdown <KEY>` — implementing one
+slice of an unsplit requirement is how scope drifts.
+
+**Without a ticket** (`--source`): a ticket is not a precondition — counterparts accept a recorded
+source of type `jira / slack / verbal` (mediahub-agent `CLAUDE.md` §OpenSpec: verbal = one-line
+description + date, never empty). A Slack permalink → dump the thread with the slack capability to
+`<runtime>/<id>/source.md`; a verbal one-liner → write it there with today's date. The delegation
+prompt's first line then cites `Source: slack <permalink>` or `Source: verbal — "<one-liner>"
+(recorded YYYY-MM-DD)` instead of a Jira url. If the work later grows other people's lanes, create
+the ticket then (`jira.py create`, confirm-gated) — coordination is what tickets are for.
+
+Either way the dump file is handed to the child by path: `--agent X` limits the child to X's
+`tools:` frontmatter (mediahub-agent's agents have no Skill tool), so the child **cannot read Jira
+itself**. A verbatim dump by path is not paraphrase — it satisfies their "paths, not retelling" rule.
 
 ## 1 — locate
 Read `<map>/host.yaml`; find `repos[name == <repo>]`. Missing → run `/ela:map` first, do not
@@ -76,7 +92,8 @@ hooks load; the worktree is attached with `--add-dir`.
 ```bash
 SID=$(uuidgen)
 cat > "$WT/../prompt.txt" <<PROMPT
-Task: <KEY> — <title>. Jira: <url>. Verbatim ticket dump (read it first): <runtime>/<key-lower>/ticket.md
+Task: <KEY or slug> — <title>. Source: <Jira url | slack <permalink> | verbal — "<one-liner>" (recorded YYYY-MM-DD)>.
+Verbatim source dump (read it first): <runtime>/<id>/ticket.md (or source.md)
 Target worktree (the ONLY place code may change): $WT   (branch evan/<key>, from origin/<lane>; it is a git worktree of the base checkout — run node scripts/resolve-workspace.cjs and you will see it listed with its owner)
 Follow this repo's own workflow end to end for this repo — every gate, artefact and write-back your
 rules require (change directory, contract if any, KB, QA report, go-live checklist). Work on the

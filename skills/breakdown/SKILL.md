@@ -92,7 +92,14 @@ The exemplar is MH-3513: background, a signed placement decision, constraints, s
 subtasks. Reasoning stays in the plan; tickets get conclusions.
 
 ## 5 — publish to Jira (only when Evan says "create them")
-For each lane, run the create **without `--apply`** and show the batch:
+No ticket yet (the plan's `key` is a slug)? Create the parent first — same gate:
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/skills/jira/jira.py" --env-file <env> create \
+        --summary '<requirement>' --description '<summary + decisions + link to plan>'
+```
+
+Then for each lane, run the create **without `--apply`** and show the batch:
 
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/skills/jira/jira.py" --env-file <env> create-subtask \
