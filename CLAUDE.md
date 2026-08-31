@@ -50,6 +50,28 @@ A worktree carries `CLAUDE.md` and `.claude/` with it; a sibling repo's agents, 
 not — Claude Code loads them only for the session's project directory. Hence the session switch for
 team-stack lanes, and hence ela as a plugin: the only thing present on both sides.
 
+## Capability layers and exposure
+
+ela is a capability substrate: one implementation, thin adapters. Helm ops, the Slack app (whose
+callback is Helm), and Claude sessions are wrappers around the same capabilities — never
+re-implementations.
+
+| Layer | Form | Holds |
+|---|---|---|
+| **L0 site** | `~/.claude/ela/` | machine paths + credentials |
+| **L1 atomic** | one CLI per capability: `skills/<name>/<name>.py`, subcommands, `--json`, meaningful exit codes, **stdlib-only** | deterministic work, no LLM: read, search, create, query |
+| **L2 composite** | skills (`breakdown`, `task`, `brief`) | judgment work, run by a Claude session; calls L1, never a raw API |
+| **L3 adapters** | CLI for humans and programs · `SKILL.md` for Claude sessions · an MCP server (`.mcp.json`, built when the first LLM-side consumer outside ela lands) · a caller's `subprocess` / `claude -p` | translation only — zero business logic |
+
+- Business logic lives in L1/L2 only. An adapter that grows a Jira-specific `if` is a bug.
+- **Safety gates live in L1** — closed title vocabulary, idempotency/duplicate detection, dry-run
+  default with explicit `--apply`. No caller may bypass them.
+- **Confirm gates live in the adapter** — a `SKILL.md` asks Evan; a page shows a button; a bot asks
+  in the thread. `--apply` is only ever sent after that adapter's confirm.
+- The dependency arrow points one way: callers → ela. ela reads first-hand sources only.
+- A `SKILL.md` is documentation for a Claude session, never the capability. Anything a non-LLM
+  caller needs must exist as the script.
+
 ## What ela does not do
 
 - Implement in a team-stack repo itself. It prepares (worktree, tier, context) and **delegates**: a
@@ -83,7 +105,7 @@ written locally unless he says so; nothing is synced.
 
 | Path | Holds | Phase |
 |---|---|---|
-| `skills/jira` `slack` `kb` `obj` | **senses** — first-hand, read-only (`kb` also writes, confirm-gated). Their scripts are sense implementations, not product code | 1 |
+| `skills/jira` `slack` `kb` `object` | **senses** — first-hand, read-first (`kb` and `jira create-subtask` write, confirm-gated). Their scripts are L1 capabilities, not product code | 1 |
 | `skills/map` | `/ela:map` — build and re-verify the map against disk | 1 |
 | `skills/setup` | `/ela:setup` — guided creation/repair of the site dir, probes every sense | 1 |
 | `skills/task` | for work Evan implements: worktree · tier · **delegation** to the area's stack (headless session in the counterpart's repo) or ela's own implementer · evidence check · ledger | 2 |

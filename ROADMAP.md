@@ -7,9 +7,13 @@ next. Nothing is built ahead of its phase.
 Manifests, `CLAUDE.md` (boundaries first), this file.
 
 ## 1 — senses + map · current
-- **Senses**: `/ela:jira` · `/ela:slack` · `/ela:kb` · `/ela:object`. First-hand, read-only
-  (`kb` writes on confirm). Credentials from `~/.claude/ela/.env`, copied once from their previous
-  homes; no runtime dependency on Helm or the old `~/.claude/skills`.
+- **Senses**: `/ela:jira` · `/ela:slack` · `/ela:kb` · `/ela:object`. First-hand, read-first
+  (`kb` and `jira create-subtask` write on confirm). Credentials from `~/.claude/ela/.env`, copied
+  once from their previous homes; no runtime dependency on Helm or the old `~/.claude/skills`.
+- **L1 shape** (see `CLAUDE.md` — capability layers): each sense grows into a subcommand CLI with
+  `--json` as callers need it — `jira.py` first. Write *atoms* may exist as CLI early (dry-run
+  default, safety gates in the script); what stays phased is their **composite/automated use**
+  (Phase 5).
 - **Map**: `/ela:map` → `ela-knowledge/map/host.yaml` (repos on this machine, with governance shape
   and owner) and `absent.yaml` (known to exist, not here — with owner and location).
 
@@ -56,6 +60,9 @@ two cadence KPIs (complex tickets broken down same day; In-Progress updated with
 Writes to live systems, each behind an explicit confirm and idempotent: create/assign Jira
 subtasks **directly to their owners** from a breakdown plan; Slack drafts; Outline writes; MediaHub
 admin (`mha`); graph build. `hooks/` gains the portable guards (`Bash(git push:*)` deny).
+When the first LLM-side consumer outside ela lands (Helm chat, the Slack app's headless sessions),
+wrap the L1 CLIs in one MCP server declared in the plugin's `.mcp.json` — tools map 1:1 to
+subcommands, no second implementation.
 
 **Exit:** a breakdown plan lands in Jira in one confirmed step with no manual re-routing.
 
