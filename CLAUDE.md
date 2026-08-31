@@ -105,7 +105,7 @@ written locally unless he says so; nothing is synced.
 
 | Path | Holds | Phase |
 |---|---|---|
-| `skills/jira` `slack` `kb` `object` | **senses** — first-hand, read-first (`kb` and `jira create-subtask` write, confirm-gated). Their scripts are L1 capabilities, not product code | 1 |
+| `skills/jira` `slack` `kb` `object` `figma` | **senses** — first-hand, read-first (`kb` and `jira create-subtask` write, confirm-gated). Their scripts are L1 capabilities, not product code | 1 |
 | `skills/map` | `/ela:map` — build and re-verify the map against disk | 1 |
 | `skills/setup` | `/ela:setup` — guided creation/repair of the site dir, probes every sense | 1 |
 | `skills/task` | for work Evan implements: worktree · tier · **delegation** to the area's stack (headless session in the counterpart's repo) or ela's own implementer · evidence check · ledger | 2 |

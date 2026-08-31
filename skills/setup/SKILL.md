@@ -47,6 +47,7 @@ Keys and where each comes from when absent:
 | `SLACK_BOT_TOKEN` | the workspace's Slack app → OAuth & Permissions → Bot User OAuth Token (`xoxb-…`) |
 | `OUTLINE_URL` `OUTLINE_TOKEN` | Outline (kb.tvunetworks.com) → Settings → API tokens |
 | `TVU_OBJECT_SERVICE_HOST` `TVU_CC_BEARER_TOKEN` | Object Service host + a CC bearer token from a logged-in session |
+| `FIGMA_TOKEN` | Figma → Settings → Security → Personal access tokens (read scope) |
 
 Procedure: list which keys are present; for each missing one say where to get it and ask Evan to
 paste it **into the file himself** or hand it to you for a single `printf >>` — then `chmod 600`.
@@ -59,6 +60,7 @@ once, and say so; ela does not keep reading the other file.
 ENV=$(python3 -c "import json;print(json.load(open('$HOME/.claude/ela/site.json'))['env'])")
 python3 "${CLAUDE_PLUGIN_ROOT}/skills/jira/jira.py"  --env-file "$ENV" jql 'project = MH ORDER BY updated DESC' --limit 1
 python3 "${CLAUDE_PLUGIN_ROOT}/skills/kb/kb.py"          --env-file "$ENV" search "MediaHub" 2>&1 | head -3
+python3 "${CLAUDE_PLUGIN_ROOT}/skills/figma/figma.py" --env-file "$ENV" me
 # slack: needs a permalink to read; probe auth only if one is at hand
 # object: GET <TVU_OBJECT_SERVICE_HOST>/route-object/object-service/base/object/<known id> with the bearer — see skills/object/SKILL.md
 ```
