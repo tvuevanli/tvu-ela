@@ -419,6 +419,76 @@ def resolve_assignee(creds, email):
     return hits[0]["accountId"], hits[0].get("displayName", email)
 
 
+def cmd_create(creds, args):
+    """Create a parent-level issue. No layer-token requirement — tokens mark
+    single-layer subtasks; a parent carries the cross-layer scope."""
+    result = {
+        "project": args.project,
+        "type": args.type,
+        "summary": args.summary,
+        "dry_run": not args.apply,
+        "created": False,
+        "key": None,
+        "url": None,
+        "duplicate_of": None,
+    }
+    if not args.summary.strip():
+        print("summary must not be empty", file=sys.stderr)
+        sys.exit(2)
+
+    # Idempotency: an open issue in the project with the same normalized
+    # summary is the same request.
+    want = _norm(args.summary)
+    quoted = args.summary.replace('"', '\\"')
+    data = api_get(creds, "/rest/api/3/search/jql", {
+        "jql": (f'project = {args.project} AND statusCategory != Done '
+                f'AND summary ~ "\\"{quoted}\\"" ORDER BY created DESC'),
+        "maxResults": 20, "fields": "summary",
+    })
+    for i in data.get("issues") or []:
+        if _norm((i.get("fields") or {}).get("summary")) == want:
+            result["duplicate_of"] = i.get("key")
+            result["url"] = f"{creds['JIRA_BASE_URL']}/browse/{i.get('key')}"
+            if args.json:
+                print(json.dumps(result, ensure_ascii=False))
+            else:
+                print(f"already exists: {i.get('key')}  {result['url']}")
+            return
+
+    account_id, assignee_name = resolve_assignee(creds, args.assignee)
+    result["assignee"] = assignee_name
+
+    if not args.apply:
+        if args.json:
+            print(json.dumps(result, ensure_ascii=False))
+        else:
+            print(f"DRY RUN — would create in {args.project}:")
+            print(f"  type      {args.type}")
+            print(f"  summary   {args.summary}")
+            print(f"  assignee  {assignee_name}")
+            if args.description:
+                print(f"  description  {len(args.description)} chars")
+            print("pass --apply to create")
+        return
+
+    fields = {
+        "project": {"key": args.project},
+        "issuetype": {"name": args.type},
+        "summary": args.summary,
+        "assignee": {"accountId": account_id},
+    }
+    if args.description:
+        fields["description"] = text_to_adf(args.description)
+    resp = api_post(creds, "/rest/api/3/issue", {"fields": fields})
+    result["created"] = True
+    result["key"] = resp.get("key")
+    result["url"] = f"{creds['JIRA_BASE_URL']}/browse/{resp.get('key')}"
+    if args.json:
+        print(json.dumps(result, ensure_ascii=False))
+    else:
+        print(f"created {result['key']}  {result['url']}  → {assignee_name}")
+
+
 def cmd_create_subtask(creds, args):
     result = {
         "parent": args.parent.upper(),
@@ -514,6 +584,22 @@ def main():
     p.add_argument("--limit", type=int, default=50)
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_jql)
+
+    p = sub.add_parser(
+        "create",
+        help="create one parent-level issue — dry-run unless --apply")
+    p.add_argument("--project", default="MH", help="project key (default MH)")
+    p.add_argument("--type", default="Task",
+                   help="issue type name (default Task; also Bug, Story)")
+    p.add_argument("--summary", required=True,
+                   help="title; a parent carries cross-layer scope, no token required")
+    p.add_argument("--description", help="plain text; rendered as ADF paragraphs")
+    p.add_argument("--assignee",
+                   help="assignee email (default: the token's own account)")
+    p.add_argument("--apply", action="store_true",
+                   help="actually create; without it, validate and report only")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_create)
 
     p = sub.add_parser(
         "create-subtask",

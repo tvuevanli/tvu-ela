@@ -12,6 +12,8 @@ adapter; other callers (Helm ops, an MCP server) invoke the same script.
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/skills/jira/jira.py" --env-file <env> read <key-or-url>
 python3 "${CLAUDE_PLUGIN_ROOT}/skills/jira/jira.py" --env-file <env> jql '<JQL>' [--limit N]
+python3 "${CLAUDE_PLUGIN_ROOT}/skills/jira/jira.py" --env-file <env> create \
+        --summary 'TITLE' [--project MH] [--type Task] [--description TEXT] [--assignee EMAIL] [--apply]
 python3 "${CLAUDE_PLUGIN_ROOT}/skills/jira/jira.py" --env-file <env> create-subtask \
         --parent MH-XXXX --summary '[Token] action' [--description TEXT] [--assignee EMAIL] [--apply]
 ```
@@ -31,7 +33,13 @@ and every comment.
 
 Key / status / assignee / summary rows. `--limit N` (default 50), `--json`.
 
-## create-subtask — the only write, and it is gated twice
+## create — parent-level issue, gated twice
+
+Same gates as create-subtask minus the token rule (a parent carries cross-layer scope, so its
+title is free-form; single-layer tokens belong on subtasks). Idempotent against open issues in the
+project with the same title. **Dry-run default; the confirm gate below applies before `--apply`.**
+
+## create-subtask — gated twice
 
 **Safety gate (in the script, no caller can skip it):**
 - the title must start with exactly one of
