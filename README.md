@@ -10,7 +10,7 @@ no knowledge. `CLAUDE.md` says what it is and is not; `ROADMAP.md` says what exi
 /plugin install ela@ela
 ```
 
-The install is a cached copy. After editing this repo: `/plugin update ela`.
+The install is a cached copy, refreshed only on a version change: bump `plugin.json`, then `/plugin update ela` (or `claude plugin update ela`).
 
 ## Site directory — `~/.claude/ela/` (never committed)
 

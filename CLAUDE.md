@@ -93,7 +93,7 @@ re-implementations.
 
 | What | Where | Notes |
 |---|---|---|
-| definitions | `~/projects/ela` — installed as plugin `ela@ela` from a directory marketplace | install is a **cached copy**; after editing run `/plugin update ela` |
+| definitions | `~/projects/ela` — installed as plugin `ela@ela` from a directory marketplace | install is a **cached copy**, refreshed only on a version change: bump `plugin.json` then `/plugin update ela` (or `claude plugin update ela`) |
 | records | `~/projects/ela-knowledge` (git, never a plugin) | map · decisions · breakdowns · ledger · docs |
 | site dir | `~/.claude/ela/` — `site.json` (machine paths) and `.env` (credentials, mode 600) | never committed anywhere |
 | shared knowledge | Outline, `helm/knowledge`, counterparts' KBs | cited by URL/path |
