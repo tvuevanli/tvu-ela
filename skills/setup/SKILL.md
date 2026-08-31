@@ -57,7 +57,7 @@ once, and say so; ela does not keep reading the other file.
 
 ```bash
 ENV=$(python3 -c "import json;print(json.load(open('$HOME/.claude/ela/site.json'))['env'])")
-python3 "${CLAUDE_PLUGIN_ROOT}/skills/jira/jiraread.py"  --env-file "$ENV" --jql 'project = MH ORDER BY updated DESC' --limit 1
+python3 "${CLAUDE_PLUGIN_ROOT}/skills/jira/jira.py"  --env-file "$ENV" jql 'project = MH ORDER BY updated DESC' --limit 1
 python3 "${CLAUDE_PLUGIN_ROOT}/skills/kb/kb.py"          --env-file "$ENV" search "MediaHub" 2>&1 | head -3
 # slack: needs a permalink to read; probe auth only if one is at hand
 # object: GET <TVU_OBJECT_SERVICE_HOST>/route-object/object-service/base/object/<known id> with the bearer — see skills/object/SKILL.md

@@ -24,7 +24,7 @@ The install is a cached copy. After editing this repo: `/plugin update ela`.
 | skill | phase | does |
 |---|---|---|
 | `/ela:setup` | 1 | first run / repair of `~/.claude/ela/` — paths, credentials, read-only probe of every sense |
-| `/ela:jira` | 1 | read an issue (links, subtasks, comments) or run JQL — read-only |
+| `/ela:jira` | 1 | read an issue (links, subtasks, comments), run JQL, or create a subtask (dry-run default, confirm-gated) |
 | `/ela:slack` | 1 | read a thread by permalink — read-only |
 | `/ela:kb` | 1 | read / search Outline; write on explicit confirm |
 | `/ela:object` | 1 | Object Service API: objects and their tangibles, by id or search (not objectd — a different service) |

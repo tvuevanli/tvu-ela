@@ -28,7 +28,7 @@ optional base lane override.
 
 ## 0 — site + ticket
 Read `~/.claude/ela/site.json` (`projects`, `map`, `env`, `runtime` — default `~/ela-runtime`).
-`python3 "${CLAUDE_PLUGIN_ROOT}/skills/jira/jiraread.py" --env-file <env> <KEY> --deep > <runtime>/<key-lower>/ticket.md`
+`python3 "${CLAUDE_PLUGIN_ROOT}/skills/jira/jira.py" --env-file <env> read <KEY> --deep > <runtime>/<key-lower>/ticket.md`
 → note type, status, parent, subtasks, linked tickets, the layer token in the title (`[App]` `[UI]` …).
 The dump file is handed to the child by path: `--agent X` limits the child to X's `tools:` frontmatter
 (mediahub-agent's agents have no Skill tool), so the child **cannot read Jira itself**. A verbatim dump

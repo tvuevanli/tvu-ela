@@ -1,25 +1,55 @@
 ---
 name: jira
-description: Read a Jira issue (description, links, subtasks, comments) or run a JQL search, read-only. Use when the user pastes a Jira URL (tvunetworks.atlassian.net/browse/...), names a ticket key (MH-1234, FB-9693), or asks what a ticket says. Also trigger for "read this ticket", "what's in MH-xxxx", "看看这个 ticket", "查一下 jira".
+description: Jira capability — read an issue (description, links, subtasks, comments), run a JQL search, or create a subtask behind an explicit confirm. Use when the user pastes a Jira URL (tvunetworks.atlassian.net/browse/...), names a ticket key (MH-1234, FB-9693), asks what a ticket says, or asks to create a subtask under a parent. Also trigger for "read this ticket", "what's in MH-xxxx", "create a subtask", "看看这个 ticket", "查一下 jira", "建子任务".
 ---
 
-# Read a Jira issue by key or URL
+# Jira — read, search, create-subtask
+
+The capability is `jira.py` — an L1 atomic CLI (subcommands, `--json`, exit
+codes 0 ok / 1 API error / 2 validation). This file is the Claude-session
+adapter; other callers (Helm ops, an MCP server) invoke the same script.
 
 ```bash
-python3 "\${CLAUDE_PLUGIN_ROOT}/skills/jira/jiraread.py" <key-or-url>
+python3 "${CLAUDE_PLUGIN_ROOT}/skills/jira/jira.py" --env-file <env> read <key-or-url>
+python3 "${CLAUDE_PLUGIN_ROOT}/skills/jira/jira.py" --env-file <env> jql '<JQL>' [--limit N]
+python3 "${CLAUDE_PLUGIN_ROOT}/skills/jira/jira.py" --env-file <env> create-subtask \
+        --parent MH-XXXX --summary '[Token] action' [--description TEXT] [--assignee EMAIL] [--apply]
 ```
+
+## read
 
 Prints identity (type/status/priority/assignee/reporter/dates/labels/components/
 parent), the description rendered from ADF, issue links, subtasks, attachments,
 and every comment.
 
-Options:
-
 - `--deep` — after the issue, also print each linked issue, subtask, and parent.
   Use when the user asks about "related tickets".
 - `--no-comments` — identity + description only; good for bulk reads.
-- `--jql '<JQL>'` — search instead of reading one issue; prints key / status /
-  assignee / summary rows. `--limit N` (default 50).
+- `--json` — raw fields + comments as one JSON object, for machine callers.
+
+## jql
+
+Key / status / assignee / summary rows. `--limit N` (default 50), `--json`.
+
+## create-subtask — the only write, and it is gated twice
+
+**Safety gate (in the script, no caller can skip it):**
+- the title must start with exactly one of
+  `[Infra] [J2N] [Media] [App] [UI] [QA] [Design]` followed by the action —
+  no dash separator, no invented tokens;
+- idempotent: an existing subtask with the same title is reported
+  (`already exists: MH-XXXX`) and nothing is created — safe to retry;
+- **dry-run is the default.** Without `--apply` it validates, resolves the
+  assignee, and prints what would be created.
+
+**Confirm gate (yours, in this session):** never pass `--apply` until Evan has
+seen the dry-run output (or an equivalent listing of parent + title + assignee)
+and explicitly confirmed. One confirmation covers the batch it was shown for,
+nothing later.
+
+Assignee defaults to the token's own account (Evan); `--assignee <email>` must
+match exactly one Jira user or the call fails. Cross-layer scope belongs on the
+parent ticket — a subtask carries exactly one token.
 
 ## Credentials
 
@@ -27,13 +57,6 @@ Read `~/.claude/ela/site.json` → `env` (the path of ela's credential file, mod
 `--env-file`. That file is ela's own — copied once from wherever the tokens lived before; nothing
 here depends on another tool's config. The script reads only `JIRA_BASE_URL / JIRA_EMAIL / JIRA_TOKEN` from it. Missing or expired
 → run `/ela:setup`.
-
-## Scope
-
-Read-only by design — `GET /rest/api/3/issue/{key}`, `.../comment`, and
-`/rest/api/3/search/jql`. It cannot create, transition, comment, or edit.
-Writing to Jira is a separate, outward-facing action and must not be added to
-this skill silently.
 
 ## Turning a ticket into knowledge
 
