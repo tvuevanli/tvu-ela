@@ -10,7 +10,7 @@ Usage:
     jira.py read https://tvunetworks.atlassian.net/browse/MH-3454
     jira.py jql 'project=MH AND text ~ "CSC"' [--limit 50] [--json]
     jira.py create-subtask --parent MH-3513 --summary '[App] ...' \
-            [--description TEXT] [--assignee EMAIL] [--apply] [--json]
+            [--description TEXT] [--assignee EMAIL|ACCOUNTID] [--apply] [--json]
 
 Writes are dry-run by default; --apply performs the create. Safety gates
 (title token vocabulary, duplicate detection) live here and cannot be
@@ -404,19 +404,24 @@ def _norm(s):
     return " ".join((s or "").split()).casefold()
 
 
-def resolve_assignee(creds, email):
-    """Email → accountId; without an email, the token's own account (Evan)."""
-    if not email:
+def resolve_assignee(creds, who):
+    """Email or accountId → accountId; without either, the token's own account."""
+    if not who:
         me = api_get(creds, "/rest/api/3/myself")
         return me["accountId"], f"{me.get('displayName')} (self)"
-    users = api_get(creds, "/rest/api/3/user/search", {"query": email})
+    if "@" not in who:
+        # Jira hides most users' email addresses; an accountId works directly.
+        u = api_get(creds, "/rest/api/3/user", {"accountId": who})
+        return u["accountId"], u.get("displayName", who)
+    users = api_get(creds, "/rest/api/3/user/search", {"query": who})
     hits = [u for u in users
-            if (u.get("emailAddress") or "").casefold() == email.casefold()]
+            if (u.get("emailAddress") or "").casefold() == who.casefold()]
     if len(hits) != 1:
-        print(f"assignee {email!r}: {len(hits)} exact match(es) "
-              f"among {len(users)} result(s) — not resolved", file=sys.stderr)
+        print(f"assignee {who!r}: {len(hits)} exact match(es) "
+              f"among {len(users)} result(s) — not resolved; "
+              f"pass the accountId instead", file=sys.stderr)
         sys.exit(2)
-    return hits[0]["accountId"], hits[0].get("displayName", email)
+    return hits[0]["accountId"], hits[0].get("displayName", who)
 
 
 def cmd_create(creds, args):
@@ -595,7 +600,8 @@ def main():
                    help="title; a parent carries cross-layer scope, no token required")
     p.add_argument("--description", help="plain text; rendered as ADF paragraphs")
     p.add_argument("--assignee",
-                   help="assignee email (default: the token's own account)")
+                   help="assignee email or accountId "
+                        "(default: the token's own account)")
     p.add_argument("--apply", action="store_true",
                    help="actually create; without it, validate and report only")
     p.add_argument("--json", action="store_true")
@@ -609,7 +615,8 @@ def main():
                    help="'[Token] action' — token from the seven-layer vocabulary")
     p.add_argument("--description", help="plain text; rendered as ADF paragraphs")
     p.add_argument("--assignee",
-                   help="assignee email (default: the token's own account)")
+                   help="assignee email or accountId "
+                        "(default: the token's own account)")
     p.add_argument("--issuetype", default="Sub-task",
                    help="issue type name (default Sub-task; MH verified id 10124)")
     p.add_argument("--apply", action="store_true",
