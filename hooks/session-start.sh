@@ -1,12 +1,17 @@
 #!/usr/bin/env bash
-# ela SessionStart hook — read-only. Prints context for the session; never writes anything.
-# Output: context/evan.md · latest blueprint decisions + status · which mapped repo/area the cwd is in.
+# ela SessionStart hook. Prints context for the session: context/evan.md · latest blueprint decisions + status ·
+# which mapped repo/area the cwd is in. Its one write is the knowledge-base catch-up snapshot (session-stop.sh),
+# for sessions that ended without their SessionEnd hook. It never touches the ela repo or any live system.
 set -u
 ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 SITE="$HOME/.claude/ela/site.json"
 CWD="${CLAUDE_PROJECT_DIR:-$PWD}"
 
 cat "$ROOT/context/evan.md" 2>/dev/null
+
+# catch-up: a session that ended without its SessionEnd hook leaves the knowledge base dirty — snapshot it first.
+# Only on startup|resume: a clear or compaction mid-task must not commit half-written files (ELA_NO_CATCHUP=1).
+[ -n "${ELA_NO_CATCHUP:-}" ] || "$ROOT/hooks/session-stop.sh" 2>/dev/null || true
 
 [ -f "$SITE" ] || { echo; echo "ela: site file missing — run /ela:setup"; exit 0; }
 
@@ -31,39 +36,32 @@ if os.path.isdir(dec):
     if files:
         print("Recent decisions (blueprint/decisions/): " + ", ".join(f[:-3] for f in files[-6:]))
 
-# Which mapped repo or area is the cwd in? Minimal parse of host.yaml: areas (2-space keys) and
-# repos (list items). The longest matching path wins, so a repo beats its area.
-host = os.path.join(s.get("map", ""), "host.yaml")
-if os.path.isfile(host):
-    entries, cur, section = [], None, None
-    for l in open(host):
-        if re.match(r"^\w[\w_-]*:", l):
-            section = l.split(":")[0]; cur = None
-            continue
-        if section == "areas":
-            m = re.match(r"^  (\S+):\s*$", l)
-            if m:
-                cur = {"kind": "area", "name": m.group(1)}; entries.append(cur); continue
-            m = re.match(r"^    (path|governance|stack):\s*(.+?)\s*$", l)
-            if m and cur: cur[m.group(1)] = m.group(2)
-        elif section == "repos":
-            m = re.match(r"^- name:\s*(.+?)\s*$", l)
-            if m:
-                cur = {"kind": "repo", "name": m.group(1)}; entries.append(cur); continue
-            m = re.match(r"^  (path|governance|stack|area):\s*(.+?)\s*$", l)
-            if m and cur: cur[m.group(1)] = m.group(2)
-    best = None
-    for e in entries:
-        p = e.get("path")
-        if p and (cwd == p or cwd.startswith(p.rstrip("/") + "/")):
-            if best is None or len(p) > len(best["path"]):
-                best = e
-    if best:
-        gov = best.get("governance", "unknown")
-        extra = f", stack {best['stack']}" if best.get("stack") else ""
-        where = f"repo '{best['name']}'" + (f" (area {best['area']})" if best.get("area") else "") if best["kind"] == "repo" else f"area '{best['name']}'"
-        print(f"cwd {cwd} is in {where} — governance {gov}{extra}. Rules are bound to the location: follow that repo's own files.")
-    else:
-        print(f"cwd {cwd} is not inside any mapped repo or area (host.yaml). Only ela's own rules apply here.")
+# Which checkout is the cwd in? From the survey cache; a hook must not survey (git across every checkout
+# takes longer than the hook's timeout) — it says when the cache is stale and lets `ela survey` refresh it.
+cache = os.path.expanduser("~/.claude/ela/map/host.json")
+stale = False
+try:
+    import time
+    stale = not os.path.isfile(cache) or time.time() - os.path.getmtime(cache) > 86400
+    repos = json.load(open(cache)).get("repos", [])
+except Exception:
+    repos = []
+if stale:
+    print("Survey cache missing or older than a day — run `ela survey` to refresh it.")
+best = None
+for r in repos:
+    p = r.get("path", "")
+    if p and (cwd == p or cwd.startswith(p.rstrip("/") + "/")):
+        if best is None or len(p) > len(best["path"]):
+            best = r
+code_root = s.get("code") or os.path.join(s.get("projects", ""), "code")
+work_root = s.get("work") or os.path.join(s.get("projects", ""), "work")
+if best:
+    where = "code/ (read-only — changes go to a work/ worktree)" if best["path"].startswith(code_root + "/") else ("work/ (a task worktree)" if best["path"].startswith(work_root + "/") else "Evan's own")
+    print(f"cwd {cwd} is in repo '{best['name']}' — governance {best.get('governance','?')}, branch {best.get('branch','?')}, {where}. Rules are bound to the location: follow that repo's own files.")
+elif cwd.startswith(code_root + "/"):
+    print(f"cwd {cwd} is under code/ but not a surveyed checkout — run map.py survey.")
+else:
+    print(f"cwd {cwd} is not inside any surveyed checkout. Only ela's own rules apply here.")
 PY
 exit 0

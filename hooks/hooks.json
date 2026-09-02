@@ -1,14 +1,36 @@
 {
-  "description": "ela — session context injection: who Evan is, where the knowledge base is, which area and governance the cwd belongs to.",
+  "description": "ela — SessionStart: context injection plus a catch-up snapshot of the knowledge base if a previous session left it dirty. SessionEnd: snapshot the knowledge base (one commit, pushed) when dirty.",
   "hooks": {
     "SessionStart": [
       {
-        "matcher": "startup|resume|clear|compact",
+        "matcher": "startup|resume",
         "hooks": [
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh",
+            "timeout": 30
+          }
+        ]
+      },
+      {
+        "matcher": "clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "ELA_NO_CATCHUP=1 ${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh",
             "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/session-stop.sh",
+            "timeout": 60
           }
         ]
       }
