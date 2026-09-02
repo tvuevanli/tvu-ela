@@ -33,7 +33,8 @@ This is how ela knows Evan in any directory without an agent or a global CLAUDE.
 | `/ela:jira` | 1 | read an issue (links, subtasks, comments), run JQL, or create an issue / subtask (dry-run default, confirm-gated) |
 | `/ela:slack` | 1 | read a thread by permalink; list channels; history, mentions and unanswered scans — read-only |
 | `/ela:kb` | 1 | read / search Outline; write on explicit confirm |
-| `/ela:object` | 1 | Object Service API: objects and their tangibles, by id or search (not objectd — a different service) |
+| `/ela:object` | 1 | Object Service API: objects and their tangibles, by id or search (`object.py get · ids · search`; not objectd — a different service) |
+| `/ela:graph` | 1 | UR graph and process first-hand (J2N + Pilot), no environment to set: node table in pipeline order with process ids, box ips, images; a process's live record; a user's graphs; graphs carrying an object |
 | `/ela:figma` | 1 | read a design: file tree, node subtree + text layers, comments, rendered image — read-only |
 | `/ela:report` | 4 | digest a posted report thread into what Evan must act on, decide, and pin — cross-checked against Jira |
 | `/ela:route` | 4 | a bug in, a name out: implicated service, owner, or the first checker with the exact discriminating check |

@@ -7,7 +7,9 @@ next. Nothing is built ahead of its phase.
 Manifests, `CLAUDE.md` (boundaries first), this file.
 
 ## 1 — senses + map · current
-- **Senses**: `/ela:jira` · `/ela:slack` · `/ela:kb` · `/ela:object`. First-hand, read-first
+- **Senses**: `/ela:jira` · `/ela:slack` · `/ela:kb` · `/ela:object` · `/ela:figma` · `/ela:graph` (added
+  2026-09-02: what `ura` did by hand — J2N graphs and Pilot processes, probing environments stable-first
+  and reporting the env the data names). First-hand, read-first
   (`kb` and `jira create-subtask` write on confirm). Credentials from `~/.claude/ela/.env`, copied
   once from their previous homes; no runtime dependency on Helm or the old `~/.claude/skills`.
 - **L1 shape** (see `CLAUDE.md` — capability layers): each sense grows into a subcommand CLI with
