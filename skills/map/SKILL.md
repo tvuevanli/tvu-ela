@@ -1,16 +1,16 @@
 ---
 name: map
-description: Build or re-verify ela's map of the world — every repo on this machine (host.yaml), everything known to exist that is NOT here (absent.yaml), and the service table (services.yaml: docker image → process types → owners → repos) — against the filesystem; find where a service's code is and clone what is missing from the LAN GitLab. Use when starting in an unfamiliar area, when a repo was added/moved/renamed, when a counterpart's registry disagrees with disk, or on "what do we have", "where is X", "is Y checked out", "update the map", "地图", "盘点仓库".
+description: Build or re-verify ela's map of the world — every repo on this machine (the survey cache), everything known to exist that is NOT here (absent.yaml), and the service table (services.yaml: docker image → process types → owners → repos) — against the filesystem; find where a service's code is and clone what is missing from the LAN GitLab. Use when starting in an unfamiliar area, when a repo was added/moved/renamed, when a counterpart's registry disagrees with disk, or on "what do we have", "where is X", "is Y checked out", "update the map", "地图", "盘点仓库".
 user-invocable: true
 ---
 
 # /ela:map — the map is a claim, the filesystem is the fact
 
-Self-contained. Produces three YAML files in the knowledge base (`map/host.yaml`, `map/absent.yaml`, `map/services.yaml`). Read-only everywhere else; `map.py clone` is the one action, and it only adds a checkout.
+Self-contained. Knowledge: `map/services.yaml` and `map/absent.yaml`. Cache: `~/.claude/ela/map/host.json` (rebuilt by `map.py survey`). Read-only everywhere else; `clone`, `sync --ref` and `worktree` are the actions, and none of them edits a checkout.
 
 ## Invariants
-- **Read-only over product repos.** `git` queries and file reads only; never edit, commit, fetch
-  into, or create files in any repo other than the `map` dir.
+- **No edits in a checkout.** `git` queries and file reads; `sync` fetches and `worktree` adds a
+  worktree, nothing else touches a repo — never edit, stage or commit inside `code/`.
 - **Disk wins.** Map and disk disagree → change the map.
 - **Absent is a first-class fact.** Known-to-exist-but-not-here is recorded with owner and location,
   never dropped. Analysis that reaches an absent repo says so and stops.
@@ -19,137 +19,74 @@ Self-contained. Produces three YAML files in the knowledge base (`map/host.yaml`
   content, never by the name.
 - **Cite, never copy.** Record where each fact was verified (path or command).
 
-## The script — find, services, probe, clone
+## The layout, and the script that keeps it
+Every checkout that is not Evan's lives at **`<code>/<alias>/<remote path>`** — the placement rule; the alias is a function of
+the remote's (host, group), defined only in `~/.claude/ela/site.json` — `media` · `web` · `mx` ·
+`lr/rx` · `lr/receiver` · `github/<org>`. No categories, no judgment; one exception table
+(`dir_names`) where a team stack requires a directory name. `work/<KEY>/<repo>` is where code is
+changed; `lab/` holds experiments without an upstream; `archive/` is not surveyed.
+
+What is on disk is a **cache**, not knowledge: `survey` rebuilds `~/.claude/ela/map/host.json` in
+seconds. The knowledge base keeps only what cannot be derived: `map/services.yaml` (docker image →
+slugs · GM names · process types → owners → repos) and `map/absent.yaml`.
 ```bash
 MAP="python3 ${CLAUDE_PLUGIN_ROOT}/skills/map/map.py"
-$MAP find <repo|image|process type>     # local path(s) and owners, or where it can be cloned from
-$MAP services [--image X | --type T]     # services.yaml: image → process types → owners → repos
-$MAP probe media/<name> …               # ssh ls-remote on the LAN GitLab — the API lists only public projects
-$MAP clone media/<path> [--dry-run]      # GitLab-first; placed by the mds layout rule (imatrix/ · ai/ · standalone/ · reference/shells/)
-$MAP missing                            # absent.yaml, one line each
+$MAP survey                              # scan code/ work/ lab/ + Evan's repos → cache; reports misplaced / unaliased / dirty
+$MAP find <repo|image|process type>      # paths, owners, slugs, or where to clone from
+$MAP services [--image X | --type T]     # the service table
+$MAP where <alias>/<path>                # the directory a remote maps to (no network)
+$MAP probe <alias>/<path> …              # ssh ls-remote — the media GitLab's API lists only public projects
+$MAP clone <alias>/<path> [--dry-run]    # into its place; imatrix sibling links kept
+$MAP sync <repo> [--ref R]               # fetch; branch, ahead/behind, dirty, recent tags; check out a ref (code/ only, clean only)
+$MAP worktree <repo> <KEY>               # branch evan/<key>; work/<KEY>/<repo>, or beside the repo when a stack requires it
+$MAP coverage                            # is the code we usually need on disk? per image and per alias
+$MAP missing                             # absent.yaml, one line each
 ```
-`clone` changes disk only; run this skill afterwards so host.yaml records what arrived. `services.yaml`
-is hand-maintained from the taxonomy in `others/agentic-observability/docs/reference-module-taxonomy.md`
-plus probes and investigations; the image name is the codebase fingerprint.
+`slug` (Evan's convention, from Helm) · `gm_name` (what GM registers) · `service_id` are three
+different things and stay apart in services.yaml.
 
-**Enumeration of the media group** still needs a read token for `10.12.23.181` — until then the
-group is probed by name (`probe`), never listed, and `enumeration: probed` stays on the area.
-**Naming trap:** tvu-catalog's `unified-resources` is Paul Shen's Go monorepo, not `ur-infra`.
+**Enumeration of the media group** still needs a read token for the media GitLab — until then the
+group is probed by name, never listed. **Naming trap:** tvu-catalog's `unified-resources` is Paul
+Shen's Go monorepo, not the `mx` group.
 
 ## Step 0 — site file
-Read `~/.claude/ela/site.json`: `projects`, `map`, `map_sources` (`mediahub_agent_workspace`,
-`tvu_catalog_modules`, `helm_service_catalog`, `team_roster`). Missing file or missing
-`projects`/`map` → stop; run `/ela:setup`. Never guess a root.
+Read `~/.claude/ela/site.json`. Required: `projects`, `hosts` (the two GitLab addresses; GitHub is
+built in). Everything else has a default derived from `projects` (`code`, `work`, `lab`, `records`,
+`map`, `aliases`, `dir_names`, `stacks`, `map_sources`). Missing file → `/ela:setup`. Never guess a root.
 
-## Step 1 — survey disk → `host.yaml`
-Walk `projects` into aggregators (`mh-app/`, `ur/`, `mds/`, `lr/`, `others/`, `prototypes/`, and
-any dir that itself contains git repos). Aggregators nest — `mds/` holds `AI/`, `github/`,
-`playeroftvu-deps/` — so descend until the directories are repos. Per git repo:
+## Step 1 — survey disk → the cache
+`$MAP survey`. It walks `<code>`, `<work>`, `<lab>` and Evan's three repos, records remote · branch ·
+dirty · last commit · worktrees · rule files · governance per checkout, and reports three kinds of
+drift: **misplaced** (a checkout whose remote says it belongs elsewhere under `<code>`), **no alias**
+(a remote whose (host, group) has no entry — ask Evan for the alias, never invent one), **dirty in
+code/** (edits belong in `<work>`). A clean survey prints one line.
 
-| field | how |
-|---|---|
-| `path` `area` | absolute; area = the **top-level** aggregator (`root` if top-level); a sub-grouping such as `playeroftvu-deps/` shows only in `path` |
-| `remote` `branch` `dirty` `last_commit` | `git remote get-url origin` · `rev-parse --abbrev-ref HEAD` · `status --porcelain \| wc -l` · `log -1 --format='%ad %an' --date=short` |
-| `worktrees` | `git worktree list` minus the main entry |
-| `governance` | taxonomy below, with the evidence seen |
-| `federate` | the rule files found in the repo (`CLAUDE.md`, `.claude/settings.json`, `AGENTS.md`, `openspec/`, `.husky/`) |
-| `owner` | from the area's own source of truth (`mediahub_agent_workspace`, `team_roster`, the repo's `CLAUDE.md`); else `unknown` — never invent |
+## Step 2 — the service table and the absent
+- `map/services.yaml`: one entry per docker image — slugs (Evan's convention), GM names, service ids,
+  process types, owners, repos as GitLab group paths. Local dirs are derived, never written. Sources:
+  Helm's `docker-service-map.md`, the taxonomy in agentic-observability, probes, investigations. Update
+  it when a service appears in GM, when a probe finds a repo, when an investigation pins where the code
+  is. Cite the source line.
+- `map/absent.yaml`: what is known to exist and is not on disk — with owner, why it matters, what was
+  probed. Every `map_sources` entry (mediahub-agent's `workspace.json` incl. `outOfScopeServices`,
+  tvu-catalog modules, Helm's service catalog) is checked against the cache: declared and not on disk →
+  an entry. Found later → the entry goes.
 
-Non-git directories → `non_repos` with size and a one-line purpose; never treated as projects.
-
-### Governance taxonomy
+## Step 3 — governance, per checkout
 | value | evidence |
 |---|---|
-| `team-stack` | a **sibling resource repo** in the same area holds `.claude/agents/` + skills/hooks and no product code (`mediahub-agent` for `mh-app`), or the area's team ships an agent plugin (`tvu-engineering-team` for `mds`). Record `stack:`. |
-| `repo-local` | the repo itself carries any `federate` file |
-| `bare` | README only, or nothing |
-| `read-only` | Evan declared it; never inferred |
-
-`team-stack` repos usually also have repo-local files — record `team-stack` and still list `federate`.
-
-### Area block
-Per area: `path`, `governance`, `stack` (if team-stack), `humans` (from `team_roster` / the area's own registry), `host` (git host, when it differs — `mds` is on `10.12.23.181:22222`).
-
-### Host precedence and mirrors
-Some repos are reachable on more than one host — GitLab `10.12.23.181:22222` (LAN) and GitHub
-`tvunetworks-com`. Treat the host as part of the repo's identity.
-
-| rule | why |
-|---|---|
-| Acquire from GitLab when the repo exists there; GitHub only when it does not | GitLab is on the LAN, so clones are far faster |
-| Resolve the path by refs before cloning — `git ls-remote <url>`, compare branches and tags | one host can carry several paths for one name, and the richer ref set is the product source, not the shell |
-| Every checkout on disk is its own entry — `authoritative: true` on the source, `mirror_of` on the copy | the survey must list what is on disk; folding a copy into the source hides staleness and hides decoys |
-| State the divergence as a measurement | `git log -1 --format='%h %ad'` on both, plus `diff -rq -x .git \| wc -l` |
-
-Three divergence shapes, all seen in `mds`, all needing different handling:
-
-| shape | signature | handling |
-|---|---|---|
-| **identical** | same HEAD, zero content diff | note the mirror, use either |
-| **stale mirror** | same lineage, one side months behind | authoritative = the advanced side; the other is read-only reference |
-| **different repo under one name** | unrelated commit subjects or a different tree layout | two entries, never merged; say what each actually is |
-
-A repo present only on GitHub is a normal fact, not a gap — record the host and move on.
-
-**Enumeration gap.** The GitLab API on `10.12.23.181` answers anonymously, but only about public
-projects — and that is worse than a refusal, because the answer looks complete. Measured 2026-09-01:
-`/api/v4/groups/media/projects` returned 2 entries, neither of them a product repo, while
-`/api/v4/groups/media%2Fimatrix` and `%2FAI` — where the repos actually live — returned 404 and
-`/groups/media/subgroups` returned `[]`. `git ls-remote` over SSH is the only enumeration that sees
-them, and it can only confirm names it is given — so a group listing is **never** recorded as
-complete. Record `enumeration: probed` plus the candidate list used, and ask Evan for the group's
-listing or a token before claiming an area is fully mapped.
-
-## Step 2 — the known-absent → `absent.yaml`
-For each `map_sources` entry, list what it declares and check for a local checkout (match on repo /
-dir name; honour aliases such as `tvucc-media` = Eureka `media-mx`):
-- `mediahub_agent_workspace` → `services[].dir`, `frontends[].dir`, and **`outOfScopeServices`**
-  (real Feign callers of in-scope services — the absences that bite hardest).
-- `tvu_catalog_modules` → one per `*.yaml`.
-- `helm_service_catalog` → each service entry with a repo reference.
-
-Each absence: `name`, `declared_by`, `owner`, `location`, `why_it_matters` (one line, e.g. "inbound
-Feign caller of orchestration"), `verified`.
-
-## Step 3 — diff against the existing map
-If the files exist, compare field by field and report: **moved/renamed** · **gone** · **new** ·
-**lane drift** · **governance drift** · **absent↔present**. Then write both files with `verified:`
-dates.
+| `team-stack` | the alias has a stack in `site.json` (`web` → mediahub-agent). The stack's tooling decides worktree placement and names |
+| `repo-local` | the checkout carries `CLAUDE.md`, `.claude/`, `AGENTS.md` or `openspec/` |
+| `bare` | nothing |
+| `read-only` | Evan declared it |
 
 ## Step 4 — output
-1. one line of totals: repos · non-repos · absent · drift count
-2. the drift table (empty is good)
-3. absences whose `why_it_matters` names an in-scope caller
-4. anything unclassifiable, with the exact evidence — never a guess
+1. survey line: repos · misplaced · unaliased · dirty
+2. services with no repo on disk, and absent entries that a probe could resolve
+3. anything unclassifiable, with the exact evidence — never a guess
 
-**Phase 1 exit:** two consecutive runs with an empty drift table.
-
-## Schema (abridged)
-```yaml
-# host.yaml
-verified: 2026-08-28
-areas:
-  mh-app: { path: /home/evan/projects/mh-app, governance: team-stack,
-            stack: /home/evan/projects/mh-app/mediahub-agent,
-            humans: "Andy Zhao (backend) · Summer Chen (frontend)" }
-repos:
-  - { name: mx-service, area: mh-app, path: /home/evan/projects/mh-app/mx-service,
-      remote: git@10.12.22.173:webteam/mx-service.git, branch: release2.1, dirty: 0, worktrees: [],
-      governance: team-stack, federate: [CLAUDE.md, .claude/], owner: "Andy Zhao", verified: 2026-08-28 }
-  - { name: libplayer, area: mds, path: /home/evan/projects/mds/playeroftvu-deps/libplayer,
-      remote: ssh://git@10.12.23.181:22222/media/imatrix/prj/libplayer.git, branch: main,
-      dirty: 0, last_commit: 2026-07-22 shawnpan, authoritative: true, verified: 2026-09-01 }
-  - { name: libplayer, area: mds, path: /home/evan/projects/mds/github/libplayer,
-      remote: git@github.com:tvunetworks-com/libplayer.git, branch: main,
-      dirty: 0, last_commit: 2025-12-24 jasson, mirror_of: "libplayer@10.12.23.181",
-      drift: "stale: 2025-12-24 vs 2026-07-22, 48 entries differ", verified: 2026-09-01 }
-non_repos:
-  - { path: /home/evan/projects/_analysis, size: 7.5M, note: "architecture analysis artefacts" }
-
-# absent.yaml
-verified: 2026-08-28
-absent:
-  - { name: tvugo, declared_by: mediahub_agent_workspace.outOfScopeServices, owner: unknown,
-      location: unknown, verified: 2026-08-28,
-      why_it_matters: "calls tvucc-media, mx-service (/feign/stopByObjectId, shared DB+Redis), workflow-engine" }
-```
+### Same name, several repos
+One name resolves to several remotes: the iMatrix product source (`media/imatrix/prj/<name>`, rich
+ref set, no vendored `depends/`) and its CI shell (`media/<name>`, single branch, vendored
+`depends/`), plus GitHub mirrors. Under the layout rule they land in different directories by
+construction; `services.yaml` says which is the module source. Judge by refs and content, never by name.
