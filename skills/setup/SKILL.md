@@ -10,6 +10,8 @@ Self-contained. Never prints a secret value; only key names and probe results.
 
 ## Invariants
 - Everything you write goes under `~/.claude/ela/` only. Never into the plugin, never into a repo.
+- Host addresses (`hosts`) live **only** here. No tracked file names a git host by address; documents
+  say "the media GitLab" / "the web GitLab" and point at `site.json`.
 - `.env` is mode `600`. Show which keys exist, never their values.
 - Probes are read-only calls. No probe writes anywhere.
 
@@ -19,10 +21,19 @@ Target shape:
 
 ```json
 {
-  "projects": "<root that holds the area dirs, e.g. ~/projects>",
+  "projects": "<root — holds ela, ela-knowledge, helm and the three roots below>",
+  "code":     "<projects>/code     — every checkout that is not Evan's, at code/<alias>/<remote path>; never edited in place",
+  "work":     "<projects>/work     — one task, one dir: work/<KEY>/<repo> worktrees (or symlinks to a stack's own place)",
+  "lab":      "<projects>/lab      — experiments without an upstream owner",
   "records":  "<ela-knowledge repo>",
-  "map":      "<records>/map",
+  "map":      "<records>/map        — services.yaml · absent.yaml (knowledge); the disk survey is a cache at ~/.claude/ela/map/host.json",
   "env":      "~/.claude/ela/.env",
+  "hosts":    { "<name>": { "url": "<git host url>", "matches": ["<hostnames as they appear in remotes>"] } },
+  "aliases":  { "<alias>": { "host": "<hosts key>", "group": "<gitlab group or * for a github org root>" } },
+  "dir_names": { "<alias>/<remote name>": "<alias>/<dir name a team stack requires>" },
+  "stacks":   { "<alias>": "<path of the team stack repo that governs that alias>" },
+  "emails":   { "me": "<Evan's address>", "<alias>": "<a colleague's address — `ela graphs li`>" },
+  "services": { "jenkins": { "url": "<Jenkins root>" }, "userservice": { "url": "<GM userservice, prod>" }, "userservice-test": { "url": "<GM userservice, QA>" } },
   "map_sources": {
     "mediahub_agent_workspace": "<mh-app>/mediahub-agent/workspace.json",
     "tvu_catalog_modules":      "<tvu-knowledge>/tvu-catalog/catalog/modules",
@@ -48,6 +59,10 @@ Keys and where each comes from when absent:
 | `OUTLINE_URL` `OUTLINE_TOKEN` | Outline (kb.tvunetworks.com) → Settings → API tokens |
 | `TVU_OBJECT_SERVICE_HOST` `TVU_CC_BEARER_TOKEN` | Object Service host + a CC bearer token from a logged-in session |
 | `FIGMA_TOKEN` | Figma → Settings → Security → Personal access tokens (read scope) |
+| `UR_ACCESS_KEY` | UR access key — a JSON blob, copied verbatim on one line; `UR_BASE_HOST` (optional, default UR host) and `UR_ENV_ORDER` (optional comma list overriding the probe order `prod3,prod2,test2`) |
+| `TVU_SSH_USER` `TVU_SSH_PASSWORD` | box ssh for `graph connect` / `exec` (user defaults to the operate account) |
+| `USERSERVICE_ADMIN_SID` | optional — prod release reads (`bundles · envs · builds`): the SID cookie from a logged-in browser session on userservice; expires, re-paste on HTTP 402 |
+| `TVUTEST_ACCOUNT` `TVUTEST_PASSWORD` `TVUTEST_SID` | QA release reads (`--qa`): a tvutest account; `ela release login` prints the SID (2h) to paste as `TVUTEST_SID` |
 
 Procedure: list which keys are present; for each missing one say where to get it and ask Evan to
 paste it **into the file himself** or hand it to you for a single `printf >>` — then `chmod 600`.
@@ -61,12 +76,15 @@ ENV=$(python3 -c "import json;print(json.load(open('$HOME/.claude/ela/site.json'
 python3 "${CLAUDE_PLUGIN_ROOT}/skills/jira/jira.py"  --env-file "$ENV" jql 'project = MH ORDER BY updated DESC' --limit 1
 python3 "${CLAUDE_PLUGIN_ROOT}/skills/kb/kb.py"          --env-file "$ENV" search "MediaHub" 2>&1 | head -3
 python3 "${CLAUDE_PLUGIN_ROOT}/skills/figma/figma.py" --env-file "$ENV" me
-# slack: needs a permalink to read; probe auth only if one is at hand
-# object: GET <TVU_OBJECT_SERVICE_HOST>/route-object/object-service/base/object/<known id> with the bearer — see skills/object/SKILL.md
+python3 "${CLAUDE_PLUGIN_ROOT}/skills/slack/slack.py" --env-file "$ENV" whoami            # auth + JIRA_EMAIL → user id
+python3 "${CLAUDE_PLUGIN_ROOT}/skills/graph/graph.py" --env-file "$ENV" graphs --pages 1 --limit 1     # UR key (graphs of `me` from site.json emails); or: ela graphs
+python3 "${CLAUDE_PLUGIN_ROOT}/skills/release/release.py" --env-file "$ENV" envs           # userservice SID; or: ela versions
+python3 "${CLAUDE_PLUGIN_ROOT}/skills/release/release.py" --env-file "$ENV" builds mediahub-backend --limit 1   # Jenkins; or: ela builds mediahub-backend
+# object: python3 "${CLAUDE_PLUGIN_ROOT}/skills/object/object.py" --env-file "$ENV" get <known id> — the only read; see skills/object/SKILL.md
 ```
 
 Report a table: sense · key(s) present · probe result (`ok` / `auth failed` / `unreachable`).
 Anything not `ok` → point back to §2 for that key. Stop there; do not retry with guessed values.
 
 ## 4. Done when
-All four senses probe `ok`, `site.json` paths all resolve, `.env` is mode 600. Say so in one line.
+Every sense probes `ok` (optional keys may be absent — say which), `site.json` paths all resolve, `.env` is mode 600. Say so in one line.

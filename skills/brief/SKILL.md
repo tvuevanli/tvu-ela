@@ -57,12 +57,12 @@ debt, not someone else's.
 
 ```bash
 $SLACK channels --json                                   # what the bot can see; DMs are never visible — say so
-$SLACK history C06553EE44X --since 24h --json            # #prj_dev_mediahub: report threads posted since yesterday
-$SLACK mentions --since 48h --channels C06553EE44X,C0BS83BRU3D,C07BVLXFKED,CRY6XQQ7J --json
+$SLACK history '#prj_dev_mediahub' --since 24h --json    # report threads posted since yesterday
+$SLACK mentions --since 48h --channels '#prj_dev_mediahub,#dev-unified-resources,#boundary-agent-integration,#engineering-and-support-collaboration' --json
                                                          # threads that mention Evan; answered = he replied after the last mention
-$SLACK unanswered --since 7d --channels C06553EE44X,C0BS83BRU3D,C07BVLXFKED --json
+$SLACK unanswered --since 7d --channels '#prj_dev_mediahub,#dev-unified-resources,#boundary-agent-integration,#engineering-and-support-collaboration' --json
                                                          # threads Evan started that nobody else answered (no reply fetch: parents carry reply_users)
-$SLACK history C06553EE44X --since 7d --threads --json   # for the decisions lane, only when that lane runs
+$SLACK history '#prj_dev_mediahub' --since 7d --threads --json   # for the decisions lane, only when that lane runs
 ```
 
 | lane | fact | judgment | drafted action → skill |
@@ -73,8 +73,9 @@ $SLACK history C06553EE44X --since 7d --threads --json   # for the decisions lan
 | **decisions** | Evan's own replies in the 7-day window that rule something (Chinese cues: 先…再…, 不做, 不改, 我来, 就这样, 既然…; English: `Let's …`, `we will not`, `decided`) in threads whose text carries **no** Jira key | is it a durable decision others act on? | "record" → `records/decisions/<date>-<slug>.md` via Evan's word, or `$JIRA comment <key> --text '<the ruling, verbatim, with the permalink>'` dry-run |
 
 Slack scans cost one call per thread that was active in the window; the channel lists above are the
-ones Evan posts in (his messages: 339 of 352 in #prj_dev_mediahub over a month). Widen `--channels`
-only when he asks; a full 13-channel scan takes minutes.
+ones Evan posts in — nearly all of his messages are in #prj_dev_mediahub (as of 2026-09-02); the rest
+are named in `site.json` `channels`. Widen `--channels` only when he asks; a full scan of every channel
+the bot sees takes minutes.
 
 ## 3 — rank and write
 Order: triage OVERDUE → waiting (product / QA / partner, > 1 day) → cadence RED → reports →

@@ -60,7 +60,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/skills/jira/jira.py" --env-file <env> jql 'key in
 
 Flag against the two KPIs: a new High still unassigned or untokenized; a reopened ticket whose
 assignee no longer matches the work; a decision thread stalled past its own named date.
-Owners come from the roster file and `<map>/host.yaml` — read, never remembered.
+Owners come from the roster file and `<map>/services.yaml` — read, never remembered.
 
 ## 3 — output (Chinese; keys, quotes and TC ids verbatim)
 1. **一行判定** — builds/envs, pass/fail totals as the report states them.

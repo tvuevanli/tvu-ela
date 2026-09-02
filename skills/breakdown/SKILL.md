@@ -19,7 +19,7 @@ framing is first-class input — it often carries the decision the sources lack.
   question, record the answer signed and dated (`— Evan YYYY-MM-DD`). Never decide for him, never
   leave one implicit in a lane.
 - **The plan is the deliverable; Jira is a publication.** This skill writes only
-  `ela-knowledge/records/breakdowns/<KEY>/plan.md`. It never touches a product repo, and creates Jira
+  `<records>/records/breakdowns/<KEY>/plan.md`. It never touches a product repo, and creates Jira
   subtasks only through §5's gate.
 - **Owners are read, not remembered.** Token → owner from the roster file at run time; repo → owner
   from the map. A missing owner is `unknown`, never a guess.
@@ -35,8 +35,8 @@ python3 "${CLAUDE_PLUGIN_ROOT}/skills/jira/jira.py"  --env-file <env> read <KEY>
 python3 "${CLAUDE_PLUGIN_ROOT}/skills/slack/slack.py" --env-file <env> read <permalink>    # per link
 ```
 
-Read the roster file (`team_roster`) for token → owner/email, and `<map>/host.yaml` for areas,
-governance, repo owners. When a thread and a ticket disagree, say so — the thread is live context,
+Read the roster file (`team_roster`) for token → owner/email, `<map>/services.yaml` for repo owners,
+and `map.py find <name>` for where each repo is and its governance. When a thread and a ticket disagree, say so — the thread is live context,
 the ticket is the record.
 
 ## 1 — split test

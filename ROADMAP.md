@@ -8,16 +8,19 @@ Manifests, `CLAUDE.md` (boundaries first), this file.
 
 ## 1 — senses + map · current
 - **Senses**: `/ela:jira` · `/ela:slack` · `/ela:kb` · `/ela:object` · `/ela:figma` · `/ela:graph` (added
-  2026-09-02: what `ura` did by hand — J2N graphs and Pilot processes, probing environments stable-first
-  and reporting the env the data names). First-hand, read-first
-  (`kb` and `jira create-subtask` write on confirm). Credentials from `~/.claude/ela/.env`, copied
+  2026-09-02: what `ura` did by hand — J2N graphs and Pilot processes, probing environments in order
+  `prod3 → prod2 → test2` and reporting the env the data names; `connect · exec · start · stop` for the
+  shell, y/N-gated) · `/ela:release` (GM bundles, versions per env, Jenkins builds, drift). First-hand,
+  read-first (`kb` and the `jira` write atoms are dry-run by default and write only with `--apply`, on confirm). Credentials from `~/.claude/ela/.env`, copied
   once from their previous homes; no runtime dependency on Helm or the old `~/.claude/skills`.
 - **L1 shape** (see `CLAUDE.md` — capability layers): each sense grows into a subcommand CLI with
   `--json` as callers need it — `jira.py` first. Write *atoms* may exist as CLI early (dry-run
   default, safety gates in the script); what stays phased is their **composite/automated use**
   (Phase 5).
-- **Map**: `/ela:map` → `ela-knowledge/map/host.yaml` (repos on this machine, with governance shape
-  and owner) and `absent.yaml` (known to exist, not here — with owner and location).
+- **Map**: `/ela:map` → `ela-knowledge/map/services.yaml` (image → slugs · GM names · owners → repos) and
+  `absent.yaml` (known to exist, not here); what is on disk is a cache (`map.py survey`), never knowledge.
+  Layout (2026-09-02): `code/<alias>/<remote path>` for everything that is not Evan's, `work/<KEY>/<repo>`
+  for changes, `lab/` for experiments; aliases and hosts only in `site.json`.
 
 - **Session context** (added 2026-09-02): `hooks/session-start.sh` injects `context/evan.md`, the
   latest `blueprint/` decisions and status, and the cwd's mapped area. No global agent — the plan
@@ -28,7 +31,7 @@ Manifests, `CLAUDE.md` (boundaries first), this file.
 
 ## 2 — task · next
 `/ela:task <KEY> <repo>`: for work Evan implements himself. Read the ticket first-hand → locate the
-repo in the map → per-task worktree from `origin/<lane>` under `~/ela-runtime/<task>/<repo>` → write
+repo in the map → per-task worktree from `origin/<lane>` under `<work>/<KEY>/<repo>` → write
 tier → **delegate by governance**: team-stack → a headless session started in the counterpart's repo
 (`claude -p --agent <their router> --add-dir <worktree>`) so their agents, hooks and workflow run,
 with ela relaying any confirmation they need and resuming the session; repo-local / bare → ela
@@ -41,7 +44,7 @@ session switch.
 ## 3 — breakdown
 `/ela:breakdown`: Jira/Slack input + Evan's own framing → a plan of layer-tagged lanes
 (`[Infra] [J2N] [Media] [App] [UI] [QA] [Design]`) each with owner (from the map + team roster),
-dependency order, and verification. The plan lands in `ela-knowledge/breakdowns/<key>/plan.md`.
+dependency order, and verification. The plan lands in `<records>/records/breakdowns/<KEY>/plan.md`.
 
 Two depths, chosen per request and recorded in the plan header:
 

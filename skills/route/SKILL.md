@@ -14,7 +14,7 @@ Self-contained. Argument: a ticket key or URL. Multiple keys → route each inde
   re-derive what the report already measured.
 - **Route on evidence, not on vocabulary.** An error message names its *thrower*, not its owner.
   Find the emitter in code before naming a person.
-- **Owners are read, never remembered**: `map_sources.team_roster`, `<map>/host.yaml`, and the
+- **Owners are read, never remembered**: `map_sources.team_roster`, `<map>/services.yaml`, and the
   area's own registry (`mediahub-agent/workspace.json`) — in that order of specificity.
 - **Uncertainty is a first-class verdict.** When not certain, the output is not a guess but a
   *first checker*: the person whose single cheapest check discriminates the hypotheses — plus the
@@ -33,7 +33,7 @@ them), timestamps, environment, what the reporter excluded, linked tickets (prio
 ## 1 — locate the seam in code (the map names the checkouts)
 Trace the symptom to its emitters — read-only grep across the mapped repos:
 ```bash
-grep -rn "<error code or message>" --include=*.java --include=*.js --include=*.py <checkouts from host.yaml>
+grep -rn "<error code or message>" --include=*.java --include=*.js --include=*.py <checkouts from `map.py find <name>`>
 ```
 Distinguish **thrower** (where the exception text lives), **wrapper** (who repackages it into
 the code the user saw), and **actor** (who performs the state change that made it fail — cleanup
@@ -54,8 +54,8 @@ python3 "${CLAUDE_PLUGIN_ROOT}/skills/jira/jira.py" --env-file <env> assign <KEY
 - **first checker**: the person whose ONE check discriminates — chosen by cost of the check, not
   by likelihood of the hypothesis. State the exact check (log grep for the recorded id, a DB
   lookup, a config read) and what each outcome routes to.
-- the dry-run assigns to the first checker, with a comment-ready sentence stating the question
-  they are being asked to answer (Evan posts it himself; ela does not write Jira comments).
+- the dry-run assigns to the first checker, with a drafted comment stating the question they are
+  being asked to answer (`jira.py comment <KEY> --text …` dry-run; `--apply` only on Evan's word).
 
 ## 3 — confirm gate
 Show the verdict and the dry-run. `--apply` only on Evan's explicit confirm, per the jira

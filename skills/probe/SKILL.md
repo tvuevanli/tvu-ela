@@ -41,7 +41,7 @@ MAP="python3 ${CLAUDE_PLUGIN_ROOT}/skills/map/map.py"
    image tags — they pin the version under investigation.
 3. **The implicated service.** `$MAP find <image|process type|service word>` → owners and repos with
    local paths. No repo → `$MAP probe media/<name> media/imatrix/prj/<name>` and, if it answers,
-   `$MAP clone <path>` (GitLab, LAN, placed by the mds layout rule). If nothing answers, the service
+   `$MAP clone <path>` (GitLab, LAN, placed at `<code>/<alias>/<remote path>`). If nothing answers, the service
    goes to the routing step as "code not reachable" and the absent list gets an entry.
 4. **The version.** `git -C <path> log -1 --format='%h %ad'` and tags vs the image tag from step 2.
 

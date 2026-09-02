@@ -28,11 +28,11 @@ map, optional base lane override.
 - **Evidence over report.** "Tests pass" is verified against the target's own standard (see §4).
 
 ## 0 — site + source
-Read `~/.claude/ela/site.json` (`projects`, `map`, `env`, `runtime` — default `~/ela-runtime`).
+Read `~/.claude/ela/site.json` (`code`, `work`, `map`, `env`, `records`). Ticket dumps and prompt files go in `<work>/<KEY>/`.
 The task id is `<key-lower>` when a Jira key is given, else a short kebab slug from the source.
 
 **With a Jira key:**
-`python3 "${CLAUDE_PLUGIN_ROOT}/skills/jira/jira.py" --env-file <env> read <KEY> --deep > <runtime>/<id>/ticket.md`
+`python3 "${CLAUDE_PLUGIN_ROOT}/skills/jira/jira.py" --env-file <env> read <KEY> --deep > <work>/<KEY>/ticket.md`
 → note type, status, parent, subtasks, linked tickets, the layer token in the title (`[App]` `[UI]` …).
 **Route up before going down:** if the ticket plainly crosses layers/areas and has neither subtasks
 nor a plan in `<records>/records/breakdowns/`, stop and point to `/ela:breakdown <KEY>` — implementing one
@@ -41,7 +41,7 @@ slice of an unsplit requirement is how scope drifts.
 **Without a ticket** (`--source`): a ticket is not a precondition — counterparts accept a recorded
 source of type `jira / slack / verbal` (mediahub-agent `CLAUDE.md` §OpenSpec: verbal = one-line
 description + date, never empty). A Slack permalink → dump the thread with the slack capability to
-`<runtime>/<id>/source.md`; a verbal one-liner → write it there with today's date. The delegation
+`<work>/<KEY>/source.md`; a verbal one-liner → write it there with today's date. The delegation
 prompt's first line then cites `Source: slack <permalink>` or `Source: verbal — "<one-liner>"
 (recorded YYYY-MM-DD)` instead of a Jira url. If the work later grows other people's lanes, create
 the ticket then (`jira.py create`, confirm-gated) — coordination is what tickets are for.
@@ -51,26 +51,27 @@ Either way the dump file is handed to the child by path: `--agent X` limits the 
 itself**. A verbatim dump by path is not paraphrase — it satisfies their "paths, not retelling" rule.
 
 ## 1 — locate
-Read `<map>/host.yaml`; find `repos[name == <repo>]`. Missing → run `/ela:map` first, do not
-guess. Take: `path` (base clone), `area`, `governance`, `stack` (team-stack only), `federate`,
-`owner`, and the area's lane for this repo (from the counterpart's registry when it has one —
-`mediahub-agent/workspace.json`; else the repo's default branch). `--lane` overrides.
+`python3 "${CLAUDE_PLUGIN_ROOT}/skills/map/map.py" find <repo>` (the survey cache, rebuilt by
+`map.py survey`). Missing → run `/ela:map` first, do not guess. Take: `path` (base clone),
+`governance`, `federate`; `stack` from `site.json` `stacks` (team-stack only); `owner` from
+`<map>/services.yaml`; and the area's lane for this repo (from the counterpart's registry when it
+has one — `mediahub-agent/workspace.json`; else the repo's default branch). `--lane` overrides.
 
 ## 2 — worktree + tier
-Where the worktree lives is decided by governance — **the counterpart's convention wins**:
-
-| governance | worktree path | why |
-|---|---|---|
-| team-stack | `<area root>/<repo>-<key-lower>` e.g. `~/projects/mh-app/media-hub-front-mh-2191` | mediahub-agent's own convention (`<service>-<suffix>` in the workspace root): its `resolve-workspace.cjs` lists only worktrees under that root, its `feign-contract-guard` matches the `<service>-` prefix, and CodeAgent accepts only paths that script reports |
-| repo-local / bare | `<runtime>/<key-lower>/<repo>` (site `runtime`, default `~/ela-runtime`) | nobody there constrains location; keep ela's own place |
-
+One command decides where the worktree lives and keeps one place to look:
 ```bash
-git -C <path> fetch origin --prune        # also before any read-only analysis: base clones lag origin
-git -C <path> worktree add -b evan/<key-lower> "$WT" origin/<lane>
+python3 "${CLAUDE_PLUGIN_ROOT}/skills/map/map.py" worktree <repo> <KEY> [--base origin/<lane>]
 ```
-The base clone is never `--add-dir`ed to the child, so it is structurally unwritable from there —
-isolation by permission scope, not by instruction. Remove the worktree at close so the counterpart's
-root does not accumulate task dirs.
+Branch `evan/<key-lower>` from the base ref. The physical place follows governance — **the
+counterpart's convention wins**:
+
+| governance | physical worktree | `work/` view |
+|---|---|---|
+| team-stack (`site.json` `stacks`, e.g. `web` → mediahub-agent) | beside the repo in its workspace root: `code/web/<repo>-<key-lower>`. Verified 2026-09-02: `resolve-workspace.cjs` attributes a directory only when its path equals one that a backend service's `git worktree list` reports, and it drops symlinks before checking — a worktree in `work/` is invisible to it. Frontend worktrees are never attributed by that script wherever they live (their limitation) | `work/<KEY>/<repo>` is a symlink to it |
+| repo-local / bare | `work/<KEY>/<repo>` | itself |
+
+`code/` main checkouts never carry edits; every change happens in the worktree. Remove the
+worktree at close so the counterpart's tooling stops listing it.
 
 Tier for the repo (from `<records>/records/decisions/` or the area's registry; default **draft-only**):
 
@@ -91,10 +92,10 @@ hooks load; the worktree is attached with `--add-dir`.
 
 ```bash
 SID=$(uuidgen)
-cat > "$WT/../prompt.txt" <<PROMPT
+cat > "<work>/<KEY>/prompt.txt" <<PROMPT
 Task: <KEY or slug> — <title>. Source: <Jira url | slack <permalink> | verbal — "<one-liner>" (recorded YYYY-MM-DD)>.
-Verbatim source dump (read it first): <runtime>/<id>/ticket.md (or source.md)
-Target worktree (the ONLY place code may change): $WT   (branch evan/<key>, from origin/<lane>; it is a git worktree of the base checkout — run node scripts/resolve-workspace.cjs and you will see it listed with its owner)
+Verbatim source dump (read it first): <work>/<KEY>/ticket.md (or source.md)
+Target worktree (the ONLY place code may change): $WT   (branch evan/<key-lower>, from origin/<lane>; it is a git worktree of the base checkout in your workspace root — run node scripts/resolve-workspace.cjs and you will see it listed with its owner)
 Follow this repo's own workflow end to end for this repo — every gate, artefact and write-back your
 rules require (change directory, contract if any, KB, QA report, go-live checklist). Work on the
 worktree path above, not on the base checkout.
@@ -104,7 +105,7 @@ When done, print DONE: followed by the list of artefacts you created (absolute p
 test command + result line.
 PROMPT
 cd <stack> && \
-JIRA_ENV_FILE=<env> SLACK_ENV_FILE=<env> OUTLINE_ENV_FILE=<env> \
+ELA_ENV_FILE=<env> JIRA_ENV_FILE=<env> SLACK_ENV_FILE=<env> OUTLINE_ENV_FILE=<env> \
 claude -p --session-id "$SID" --agent <their router, e.g. CodeAgent> \
   --add-dir "$WT" --output-format stream-json \
   --allowedTools "<preset for tier>" \
@@ -113,7 +114,7 @@ claude -p --session-id "$SID" --agent <their router, e.g. CodeAgent> \
 **The prompt goes in on stdin.** `--allowedTools` is variadic and will swallow a trailing positional
 prompt as a tool name (observed: "Input must be provided either through stdin or as a prompt
 argument"). Never put the prompt after `--allowedTools`.
-```
+
 Permission envelope = `--allowedTools` **plus** `--disallowedTools` (deny wins). Prefix patterns must
 match the real command shape — `Bash(git log*)` does **not** match `git -C <path> log`, so git is
 granted broadly and pushes are denied explicitly:

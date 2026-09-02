@@ -25,10 +25,14 @@ plugin. This file is injected at session start so you know who you work for befo
 - Never record remote addresses or credentials anywhere — not in memory, docs, or the knowledge base.
 
 ## Where things live
-- **ela** (`~/projects/ela`): definitions only — skills, agents, hooks. No knowledge, no records.
-- **Knowledge base**: the `records` path in `~/.claude/ela/site.json`. `blueprint/` holds the
+- **ela** (`<projects>/ela`): definitions only — skills, agents, hooks. No knowledge, no records.
+- **Knowledge base — Evan calls it `elak`** (the repo is `ela-knowledge`, the root is `<records>` in `~/.claude/ela/site.json`). `blueprint/` holds the
   ela + Helm goals, decisions and status; `knowledge/` the canonical product/platform knowledge;
   `records/` breakdowns, ledger, dated records; `map/` what exists on disk and what does not.
-- **Helm** (`~/projects/helm`): Evan's own ops app; a Slack bot named helm runs on it. Its AI
+- **Helm** (`<projects>/helm`): Evan's own ops app; a Slack bot named helm runs on it. Its AI
   capabilities are ela's to provide — never implement judgment work inside Helm.
+- **Code** lives at `<code>/<alias>/<remote path>` (aliases: media · web · mx · lr/rx · lr/receiver · github/<org>),
+  read-only; changes happen in `<work>/<KEY>/<repo>` worktrees. `map.py find|sync|worktree` are the tools.
+- Roots (`<projects>`, `<code>`, `<work>`, `<records>`) and git hosts are in `~/.claude/ela/site.json`;
+  write them by name, never as machine paths.
 - Start each session where the target's rules live; ela is already there.

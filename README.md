@@ -6,7 +6,7 @@ no knowledge. `CLAUDE.md` says what it is and is not; `ROADMAP.md` says what exi
 ## Install (once, this machine)
 
 ```
-/plugin marketplace add ~/projects/ela
+/plugin marketplace add <projects>/ela
 /plugin install ela@ela
 ```
 
@@ -16,8 +16,19 @@ The install is a cached copy, refreshed only on a version change: bump `plugin.j
 
 | file | holds |
 |---|---|
-| `site.json` | machine paths: projects root, records repo, map dir, sources the map reads |
-| `.env` | credentials the senses need (`JIRA_*`, `SLACK_BOT_TOKEN`, `OUTLINE_*`, `TVU_*`), mode 600 |
+| `site.json` | machine paths: the roots (`projects`, `code`, `work`, `lab`, `records`), map dir, git hosts and aliases, sources the map reads |
+| `.env` | credentials the senses need (`JIRA_*`, `SLACK_BOT_TOKEN`, `OUTLINE_*`, `TVU_*`, `UR_*`, `TVUTEST_*`, `USERSERVICE_ADMIN_SID`), mode 600 |
+
+## The `ela` command — no Claude session needed
+```
+ln -s <projects>/ela/bin/ela ~/.local/bin/ela      # once
+ela MH-3568        ela 01M1GD1FEG0Q4E1761A7XTBZR4        ela <32-hex process>        ela <19-digit object>
+ela graphs         ela graph <id>     ela process <id>     ela find copier     ela sync tvu264 --ref 1.0.49
+ela jira jql '…' --json    ela slack mentions --since 48h    ela coverage    ela help
+```
+Short flat verbs; an id is recognised by its shape; `graphs` defaults to you. `--json` everywhere.
+ura's reads and actions are here: `ela connect · exec · start · stop <id>` (`start`/`stop` ask y/N; typing the
+command at the shell is the confirm). ura is retired once they are tested.
 
 ## Session context
 
@@ -33,8 +44,9 @@ This is how ela knows Evan in any directory without an agent or a global CLAUDE.
 | `/ela:jira` | 1 | read an issue (links, subtasks, comments), run JQL, or create an issue / subtask (dry-run default, confirm-gated) |
 | `/ela:slack` | 1 | read a thread by permalink; list channels; history, mentions and unanswered scans — read-only |
 | `/ela:kb` | 1 | read / search Outline; write on explicit confirm |
-| `/ela:object` | 1 | Object Service API: objects and their tangibles, by id or search (`object.py get · ids · search`; not objectd — a different service) |
+| `/ela:object` | 1 | Object Service API: an object or a tangible by id (`object.py get` — the only read; batch and search endpoints answer 404; not objectd — a different service) |
 | `/ela:graph` | 1 | UR graph and process first-hand (J2N + Pilot), no environment to set: node table in pipeline order with process ids, box ips, images; a process's live record; a user's graphs; graphs carrying an object |
+| `/ela:release` | 1 | release facts first-hand — GM bundles and their bill of materials, versions per env, Jenkins builds (version · branch · sha), drift between the newest bundle and the service table; `ela bundles · bundle · versions · builds · drift` |
 | `/ela:probe` | 3 | deep, read-only bug investigation: ticket → graph facts → implicated service via the service table → code (cloned if missing) → root cause with file:line → drafted comments for reporter and owner |
 | `/ela:figma` | 1 | read a design: file tree, node subtree + text layers, comments, rendered image — read-only |
 | `/ela:report` | 4 | digest a posted report thread into what Evan must act on, decide, and pin — cross-checked against Jira |
@@ -42,7 +54,7 @@ This is how ela knows Evan in any directory without an agent or a global CLAUDE.
 | `/ela:brief` | 4 | the morning brief: stale In-Progress, unrouted new tickets, complex tickets not broken down, report threads, threads waiting on Evan, threads he wrote alone, decisions made in Slack without a ticket — ranked, each with a drafted action; read-only |
 | `/ela:task` | 2 | one piece of work Evan implements: worktree, tier, delegation to the area's stack, evidence, ledger |
 | `/ela:breakdown` | 3 | requirement → layer-tagged lanes with owners, order, verification; knowledge or code depth; plan in ela-knowledge, Jira publication on confirm |
-| `/ela:map` | 1 | build / re-verify `ela-knowledge/map/{host,absent,services}.yaml` against disk; `map.py find · services · probe · clone` locates code and pulls what is missing from the LAN GitLab |
+| `/ela:map` | 1 | the code layout (`code/<alias>/<remote path>`, `work/<KEY>/<repo>`) and the script that keeps it: `survey` (cache) · `find` · `services` · `where` · `probe` · `clone` · `sync` · `worktree` |
 
 Start the session where the target's rules live (`CLAUDE.md` → *The operating rule*); ela's skills
 are there because the plugin follows you.
@@ -51,7 +63,7 @@ are there because the plugin follows you.
 
 1. **`/ela:breakdown <ticket / permalink / your framing>`** — anything new goes here first. A ticket
    is not required. Single-lane? It says so and hands straight to `/ela:task`. Otherwise: lanes,
-   owners, order, your decisions signed — plan in `ela-knowledge/breakdowns/`.
+   owners, order, your decisions signed — plan in `<records>/records/breakdowns/<KEY>/plan.md`.
 2. **Publish on your confirm** — parent ticket if none exists, then one subtask per lane, assigned
    **directly to the lane owner** (`jira.py create` / `create-subtask`; dry-run shown first, always).
 3. **Your own lane: `/ela:task <KEY> <repo>`** — worktree, tier, delegation by governance
@@ -64,4 +76,4 @@ stops and points up when handed an unsplit multi-layer ticket.
 
 ## Records
 
-`~/projects/ela-knowledge` (git): `blueprint/` (ela + Helm goals, decisions, status) · `knowledge/` (canonical knowledge: products, platform, engineering, tooling) · `records/` (breakdowns, ledger, dated records) · `map/`.
+`<records>` (`<projects>/ela-knowledge`, git): `blueprint/` (ela + Helm goals, decisions, status) · `knowledge/` (canonical knowledge: products, platform, engineering, tooling) · `records/` (breakdowns, ledger, dated records) · `map/`.
