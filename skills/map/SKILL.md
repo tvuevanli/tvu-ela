@@ -1,12 +1,12 @@
 ---
 name: map
-description: Build or re-verify ela's map of the world — every repo on this machine (host.yaml) and everything known to exist that is NOT here (absent.yaml) — against the filesystem. Use when starting in an unfamiliar area, when a repo was added/moved/renamed, when a counterpart's registry disagrees with disk, or on "what do we have", "where is X", "is Y checked out", "update the map", "地图", "盘点仓库".
+description: Build or re-verify ela's map of the world — every repo on this machine (host.yaml), everything known to exist that is NOT here (absent.yaml), and the service table (services.yaml: docker image → process types → owners → repos) — against the filesystem; find where a service's code is and clone what is missing from the LAN GitLab. Use when starting in an unfamiliar area, when a repo was added/moved/renamed, when a counterpart's registry disagrees with disk, or on "what do we have", "where is X", "is Y checked out", "update the map", "地图", "盘点仓库".
 user-invocable: true
 ---
 
 # /ela:map — the map is a claim, the filesystem is the fact
 
-Self-contained. Produces two YAML files in the records repo. Read-only everywhere else.
+Self-contained. Produces three YAML files in the knowledge base (`map/host.yaml`, `map/absent.yaml`, `map/services.yaml`). Read-only everywhere else; `map.py clone` is the one action, and it only adds a checkout.
 
 ## Invariants
 - **Read-only over product repos.** `git` queries and file reads only; never edit, commit, fetch
@@ -18,6 +18,23 @@ Self-contained. Produces two YAML files in the records repo. Read-only everywher
   paths on one remote, with overlapping but divergent content. Identity is proven by refs and
   content, never by the name.
 - **Cite, never copy.** Record where each fact was verified (path or command).
+
+## The script — find, services, probe, clone
+```bash
+MAP="python3 ${CLAUDE_PLUGIN_ROOT}/skills/map/map.py"
+$MAP find <repo|image|process type>     # local path(s) and owners, or where it can be cloned from
+$MAP services [--image X | --type T]     # services.yaml: image → process types → owners → repos
+$MAP probe media/<name> …               # ssh ls-remote on the LAN GitLab — the API lists only public projects
+$MAP clone media/<path> [--dry-run]      # GitLab-first; placed by the mds layout rule (imatrix/ · ai/ · standalone/ · reference/shells/)
+$MAP missing                            # absent.yaml, one line each
+```
+`clone` changes disk only; run this skill afterwards so host.yaml records what arrived. `services.yaml`
+is hand-maintained from the taxonomy in `agentic-observability/docs/reference-module-taxonomy.md`
+plus probes and investigations; the image name is the codebase fingerprint.
+
+**Enumeration of the media group** still needs a read token for `10.12.23.181` — until then the
+group is probed by name (`probe`), never listed, and `enumeration: probed` stays on the area.
+**Naming trap:** tvu-catalog's `unified-resources` is Paul Shen's Go monorepo, not `ur-infra`.
 
 ## Step 0 — site file
 Read `~/.claude/ela/site.json`: `projects`, `map`, `map_sources` (`mediahub_agent_workspace`,

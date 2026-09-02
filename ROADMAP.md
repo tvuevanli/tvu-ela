@@ -67,6 +67,14 @@ unanswered · whoami`). Definitions are stated in the skill so they can be argue
 
 **Exit:** two weeks in which the brief is the first thing read and nothing it missed came up later.
 
+## 3b — probe · built 2026-09-02
+`/ela:probe`: the deep check — ticket or symptom → runtime facts (`graph.py`) → implicated service by
+image (`map/services.yaml`) → code, cloned from the LAN GitLab if missing (`map.py clone`) → the
+read-only analyst reads with specific questions → root cause with file:line → drafted comments, each
+behind its own confirm. Modelled on the MH-3568 investigation (copier `addScteStream`).
+
+**Exit:** three investigations whose root cause held when the owner read the code.
+
 ## 5 — actions
 Writes to live systems, each behind an explicit confirm and idempotent: create/assign Jira
 subtasks **directly to their owners** from a breakdown plan; Slack drafts; Outline writes; MediaHub
