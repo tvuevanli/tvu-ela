@@ -17,6 +17,10 @@ Manifests, `CLAUDE.md` (boundaries first), this file.
 - **Map**: `/ela:map` → `ela-knowledge/map/host.yaml` (repos on this machine, with governance shape
   and owner) and `absent.yaml` (known to exist, not here — with owner and location).
 
+- **Session context** (added 2026-09-02): `hooks/session-start.sh` injects `context/evan.md`, the
+  latest `blueprint/` decisions and status, and the cwd's mapped area. No global agent — the plan
+  (`ela-knowledge/blueprint/`) records why.
+
 **Not built:** agents, writes to product repos, orchestration.
 **Exit:** `/ela:map` runs twice in a row with an empty drift table; every repo has a governance value.
 
@@ -64,6 +68,8 @@ admin (`mha`); graph build. `hooks/` gains the portable guards (`Bash(git push:*
 When the first LLM-side consumer outside ela lands (Helm chat, the Slack app's headless sessions),
 wrap the L1 CLIs in one MCP server declared in the plugin's `.mcp.json` — tools map 1:1 to
 subcommands, no second implementation.
+The headless entry for judgment capabilities (`bin/ela run <capability> … --json`, a JSON envelope
+around `claude -p` with ela's own permission envelope) lands here too, with its first non-LLM caller.
 
 **Exit:** a breakdown plan lands in Jira in one confirmed step with no manual re-routing.
 

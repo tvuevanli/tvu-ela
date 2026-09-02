@@ -19,6 +19,12 @@ The install is a cached copy, refreshed only on a version change: bump `plugin.j
 | `site.json` | machine paths: projects root, records repo, map dir, sources the map reads |
 | `.env` | credentials the senses need (`JIRA_*`, `SLACK_BOT_TOKEN`, `OUTLINE_*`, `TVU_*`), mode 600 |
 
+## Session context
+
+Every session starts with `hooks/session-start.sh` (SessionStart hook): who Evan is (`context/evan.md`), the
+latest blueprint decisions and status from the knowledge base, and which mapped area the cwd is in. Read-only.
+This is how ela knows Evan in any directory without an agent or a global CLAUDE.md.
+
 ## Skills
 
 | skill | phase | does |
@@ -55,4 +61,4 @@ stops and points up when handed an unsplit multi-layer ticket.
 
 ## Records
 
-`~/projects/ela-knowledge` (git): map · decisions · breakdowns · ledger · docs.
+`~/projects/ela-knowledge` (git): `blueprint/` (ela + Helm goals, decisions, status) · `knowledge/` (canonical knowledge: products, platform, engineering, tooling) · `records/` (breakdowns, ledger, dated records) · `map/`.

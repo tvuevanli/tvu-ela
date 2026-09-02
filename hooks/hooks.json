@@ -1,0 +1,17 @@
+{
+  "description": "ela — session context injection: who Evan is, where the knowledge base is, which area and governance the cwd belongs to.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
