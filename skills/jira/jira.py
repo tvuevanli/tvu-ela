@@ -11,6 +11,10 @@ Usage:
     jira.py jql 'project=MH AND text ~ "CSC"' [--limit 50] [--json]
     jira.py create-subtask --parent MH-3513 --summary '[App] ...' \
             [--description TEXT] [--assignee EMAIL|ACCOUNTID] [--apply] [--json]
+    jira.py comment MH-1 [MH-2 …] --text '…' | --from-file f   [--apply]   # identical text is never re-posted
+    jira.py transition MH-1 [MH-2 …] --to Review               [--apply]   # transition looked up by target status
+    jira.py label MH-1 [MH-2 …] --add a,b --remove c           [--apply]   # only the delta is written
+    jira.py link MH-1 MH-2 --type Blocks|"is blocked by"|Relates [--apply]  # existing link of that type is a no-op
 
 Writes are dry-run by default; --apply performs the create. Safety gates
 (title token vocabulary, duplicate detection) live here and cannot be
@@ -614,6 +618,158 @@ def cmd_create_subtask(creds, args):
         print(f"created {result['key']}  {result['url']}  → {assignee_name}")
 
 
+# ── write atoms: comment · transition · label · link ─────────────────────────
+# Every atom: dry-run by default, --apply to execute, idempotent (a repeat is a
+# no-op that says so), one JSON result shape. Confirmation UX is the caller's.
+
+def _keys(targets):
+    return [extract_key(t) for t in targets]
+
+
+def _issue(creds, key, fields):
+    return api_get(creds, f"/rest/api/3/issue/{key}", {"fields": fields}).get("fields") or {}
+
+
+def _emit(args, result, text_lines):
+    if args.json:
+        print(json.dumps(result, ensure_ascii=False))
+    else:
+        for line in text_lines:
+            print(line)
+
+
+def cmd_comment(creds, args):
+    """Post one comment to one or more issues. Idempotent on identical text."""
+    text = args.text
+    if args.from_file:
+        with open(args.from_file, encoding="utf-8") as fh:
+            text = fh.read().rstrip("\n")
+    if not (text or "").strip():
+        sys.exit("comment: empty text")
+    results, lines = [], []
+    for key in _keys(args.targets):
+        existing = fetch_comments(creds, key)
+        dup = next((c for c in existing if _norm(body_text(c.get("body"))) == _norm(text)), None)
+        r = {"key": key, "dry_run": not args.apply, "posted": False,
+             "duplicate_of": (dup or {}).get("id"), "chars": len(text)}
+        if dup:
+            lines.append(f"{key}: identical comment already posted ({(dup.get('created') or '')[:16]}) — skipped")
+        elif not args.apply:
+            lines += [f"DRY RUN — comment on {key} ({len(text)} chars):", "  " + text.replace("\n", "\n  ")]
+        else:
+            resp = api_post(creds, f"/rest/api/3/issue/{key}/comment", {"body": text_to_adf(text)})
+            r["posted"], r["comment_id"] = True, resp.get("id")
+            lines.append(f"{key}: comment posted (id {resp.get('id')})")
+        results.append(r)
+    if not args.apply and any(not r["duplicate_of"] for r in results):
+        lines.append("pass --apply to post")
+    _emit(args, {"results": results} if len(results) > 1 else results[0], lines)
+
+
+def cmd_transition(creds, args):
+    """Move issues to a target status by name; the transition is looked up, never guessed."""
+    results, lines = [], []
+    for key in _keys(args.targets):
+        f = _issue(creds, key, "summary,status")
+        cur = name_of(f.get("status"), "name")
+        r = {"key": key, "from": cur, "to": args.to, "dry_run": not args.apply, "changed": False}
+        if _norm(cur) == _norm(args.to):
+            lines.append(f"{key}: already {cur}")
+            results.append(r); continue
+        trans = api_get(creds, f"/rest/api/3/issue/{key}/transitions").get("transitions") or []
+        hit = next((t for t in trans if _norm((t.get("to") or {}).get("name")) == _norm(args.to)), None)
+        if not hit:
+            opts = ", ".join(sorted({(t.get("to") or {}).get("name", "?") for t in trans}))
+            r["error"] = f"no transition from {cur} to {args.to}; available: {opts}"
+            lines.append(f"{key}: {r['error']}")
+            results.append(r); continue
+        r["transition"] = hit.get("name")
+        if not args.apply:
+            lines.append(f"DRY RUN — {key}  {f.get('summary','')}\n  status  {cur} -> {args.to}  (transition '{hit.get('name')}')")
+        else:
+            api_post(creds, f"/rest/api/3/issue/{key}/transitions", {"transition": {"id": hit["id"]}})
+            r["changed"] = True
+            lines.append(f"{key}: {cur} -> {args.to}")
+        results.append(r)
+    if not args.apply and any(not r["changed"] and "error" not in r and _norm(r["from"]) != _norm(r["to"]) for r in results):
+        lines.append("pass --apply to transition")
+    if any("error" in r for r in results) and not args.json:
+        sys.exit(2) if all("error" in r for r in results) else None
+    _emit(args, {"results": results} if len(results) > 1 else results[0], lines)
+
+
+def cmd_label(creds, args):
+    """Add and/or remove labels. Idempotent: only the actual delta is written."""
+    add = [x.strip() for x in (args.add or "").split(",") if x.strip()]
+    rem = [x.strip() for x in (args.remove or "").split(",") if x.strip()]
+    if not add and not rem:
+        sys.exit("label: nothing to do — pass --add and/or --remove")
+    results, lines = [], []
+    for key in _keys(args.targets):
+        f = _issue(creds, key, "summary,labels")
+        cur = f.get("labels") or []
+        to_add = [x for x in add if x not in cur]
+        to_rem = [x for x in rem if x in cur]
+        r = {"key": key, "labels": cur, "add": to_add, "remove": to_rem, "dry_run": not args.apply, "changed": False}
+        if not to_add and not to_rem:
+            lines.append(f"{key}: labels already as requested ({' '.join(cur) or 'none'})")
+        elif not args.apply:
+            lines.append(f"DRY RUN — {key}  {f.get('summary','')}\n  labels  {' '.join(cur) or '(none)'}"
+                         + (f"\n  + {' '.join(to_add)}" if to_add else "") + (f"\n  - {' '.join(to_rem)}" if to_rem else ""))
+        else:
+            ops = [{"add": x} for x in to_add] + [{"remove": x} for x in to_rem]
+            _request(creds, f"/rest/api/3/issue/{key}", payload={"update": {"labels": ops}}, method="PUT")
+            r["changed"] = True
+            lines.append(f"{key}: labels " + " ".join((["+" + x for x in to_add] + ["-" + x for x in to_rem])))
+        results.append(r)
+    if not args.apply and any(r["add"] or r["remove"] for r in results):
+        lines.append("pass --apply to change labels")
+    _emit(args, {"results": results} if len(results) > 1 else results[0], lines)
+
+
+def _link_types(creds):
+    return api_get(creds, "/rest/api/3/issueLinkType").get("issueLinkTypes") or []
+
+
+def _resolve_link(creds, phrase):
+    """'Blocks' | 'blocks' | 'is blocked by' | 'relates to' | 'contains' … → (type name, direction).
+    direction 'outward' means <key> <outward phrase> <other>; 'inward' the reverse."""
+    for t in _link_types(creds):
+        if _norm(phrase) == _norm(t["name"]) or _norm(phrase) == _norm(t["outward"]):
+            return t, "outward"
+        if _norm(phrase) == _norm(t["inward"]):
+            return t, "inward"
+    names = ", ".join(f"{t['name']} ({t['outward']} / {t['inward']})" for t in _link_types(creds) if "WBSGantt" not in t["name"])
+    sys.exit(f"link: unknown type or phrase {phrase!r}; use one of: {names}")
+
+
+def cmd_link(creds, args):
+    """Link <key> to <other>: '<key> <phrase> <other>'. Idempotent per (type, pair)."""
+    key, other = extract_key(args.target), extract_key(args.other)
+    t, direction = _resolve_link(creds, args.type)
+    f = _issue(creds, key, "summary,issuelinks")
+    exists = None
+    for l in f.get("issuelinks") or []:
+        if (l.get("type") or {}).get("name") != t["name"]:
+            continue
+        o = (l.get("outwardIssue") or {}).get("key"); i = (l.get("inwardIssue") or {}).get("key")
+        if (direction == "outward" and o == other) or (direction == "inward" and i == other):
+            exists = l; break
+    phrase = t["outward"] if direction == "outward" else t["inward"]
+    r = {"key": key, "other": other, "type": t["name"], "reads": f"{key} {phrase} {other}", "dry_run": not args.apply, "created": False,
+         "existing_link_id": (exists or {}).get("id")}
+    if exists:
+        _emit(args, r, [f"{key} {phrase} {other}: link already exists"]); return
+    if not args.apply:
+        _emit(args, r, [f"DRY RUN — {key} {phrase} {other}  ({t['name']})", "pass --apply to link"]); return
+    payload = {"type": {"name": t["name"]},
+               "outwardIssue": {"key": key if direction == "outward" else other},
+               "inwardIssue": {"key": other if direction == "outward" else key}}
+    api_post(creds, "/rest/api/3/issueLink", payload)
+    r["created"] = True
+    _emit(args, r, [f"linked: {key} {phrase} {other}"])
+
+
 def main():
     ap = argparse.ArgumentParser(
         description="Jira capability: read, search, gated writes.")
@@ -675,6 +831,29 @@ def main():
                    help="actually create; without it, validate and report only")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_create_subtask)
+
+    p = sub.add_parser("comment", help="post one comment to one or more issues — dry-run unless --apply; identical text is not re-posted")
+    p.add_argument("targets", nargs="+", help="issue keys or browse URLs")
+    p.add_argument("--text", help="plain text; paragraphs become ADF paragraphs")
+    p.add_argument("--from-file", help="read the text from a file instead")
+    p.add_argument("--apply", action="store_true"); p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_comment)
+
+    p = sub.add_parser("transition", help="move issues to a status by name — dry-run unless --apply; already there is a no-op")
+    p.add_argument("targets", nargs="+"); p.add_argument("--to", required=True, help='target status name, e.g. "In Progress", Review, Done')
+    p.add_argument("--apply", action="store_true"); p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_transition)
+
+    p = sub.add_parser("label", help="add/remove labels — dry-run unless --apply; only the delta is written")
+    p.add_argument("targets", nargs="+"); p.add_argument("--add", help="comma-separated"); p.add_argument("--remove", help="comma-separated")
+    p.add_argument("--apply", action="store_true"); p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_label)
+
+    p = sub.add_parser("link", help="link two issues — dry-run unless --apply; an existing link of that type is a no-op")
+    p.add_argument("target"); p.add_argument("other")
+    p.add_argument("--type", required=True, help='link type or phrase: Relates · Blocks · "is blocked by" · Duplicate · Cloners · "contains" · "is contained in" · "implements"')
+    p.add_argument("--apply", action="store_true"); p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_link)
 
     args = ap.parse_args()
     creds = load_env(args.env_file)
