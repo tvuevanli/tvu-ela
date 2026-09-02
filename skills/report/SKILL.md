@@ -26,7 +26,7 @@ Self-contained. Argument: a Slack permalink to the report thread (the daily aggr
 Read `~/.claude/ela/site.json` → `env`, `map`, `map_sources.team_roster`.
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/skills/slack/slackread.py" --env-file <env> <permalink>
+python3 "${CLAUDE_PLUGIN_ROOT}/skills/slack/slack.py" --env-file <env> read <permalink>
 ```
 
 The daily aggregate is several reports stitched by a bot, often split "(1/3)" — read all

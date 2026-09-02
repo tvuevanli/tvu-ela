@@ -1,16 +1,24 @@
 ---
 name: slack
-description: Read a Slack message and its thread by permalink, read-only. Use when the user pastes a Slack link (tvunetworks.slack.com/archives/...) or asks what a Slack message/thread says. Also trigger for "read this slack", "what does this thread say", "看看这条 Slack".
+description: Slack capability, read-only — a thread by permalink, the channels the bot can see, a channel's recent history, threads that mention Evan and whether he answered, threads he started that nobody answered. Use when the user pastes a Slack link (tvunetworks.slack.com/archives/...), asks what a thread says, or asks "who is waiting on me in Slack", "最近谁 @ 我了", "这个频道昨天说了什么", "看看这条 Slack".
 user-invocable: true
 ---
 
-# Read a Slack thread by permalink
+# Slack — read-only sense
 
 ```bash
-python3 "\${CLAUDE_PLUGIN_ROOT}/skills/slack/slackread.py" <permalink>
+SLACK="python3 ${CLAUDE_PLUGIN_ROOT}/skills/slack/slack.py --env-file <env>"
+$SLACK read <permalink>                 # root message and every reply, real names resolved
+$SLACK channels                         # channels the bot is a member of — DMs are never visible
+$SLACK history <channel> --since 24h    # top-level messages; --threads adds replies; channel = id or #name
+$SLACK mentions --since 48h --channels C06553EE44X,C0BS83BRU3D   # who mentioned Evan; answered = he replied after the last mention
+$SLACK unanswered --since 7d --channels C06553EE44X               # threads Evan started that nobody else replied to
+$SLACK whoami                           # Evan's user id, from JIRA_EMAIL in the env file
 ```
 
-Prints the root message and every threaded reply, with real names resolved.
+Every subcommand takes `--json`. `--since` is `48h`, `7d` or `YYYY-MM-DD`. Exit codes: 0 ok · 2 usage ·
+4 auth · 5 remote error. Scans cost one call per thread that was active in the window, so pass
+`--channels` — Evan's own channels — unless he asks for a full sweep (minutes, 13 channels).
 
 ## Credentials
 

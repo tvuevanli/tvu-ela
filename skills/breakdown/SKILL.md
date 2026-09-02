@@ -32,7 +32,7 @@ Read `~/.claude/ela/site.json` (`env`, `map`, `records`, `map_sources.team_roste
 
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/skills/jira/jira.py"  --env-file <env> read <KEY> --deep   # per key
-python3 "${CLAUDE_PLUGIN_ROOT}/skills/slack/slackread.py" --env-file <env> <permalink>    # per link
+python3 "${CLAUDE_PLUGIN_ROOT}/skills/slack/slack.py" --env-file <env> read <permalink>    # per link
 ```
 
 Read the roster file (`team_roster`) for token → owner/email, and `<map>/host.yaml` for areas,
