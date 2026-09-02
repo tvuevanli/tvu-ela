@@ -360,19 +360,34 @@ def cmd_read(creds, args):
 
 
 def cmd_jql(creds, args):
-    data = api_get(creds, "/rest/api/3/search/jql", {
-        "jql": args.jql,
-        "maxResults": args.limit,
-        "fields": "summary,status,assignee,issuetype,updated",
-    })
-    issues = data.get("issues") or []
+    # /search/jql pages at 100; follow nextPageToken until --limit rows or the last page.
+    issues, token = [], None
+    while len(issues) < args.limit:
+        params = {
+            "jql": args.jql,
+            "maxResults": min(100, args.limit - len(issues)),
+            "fields": "summary,status,assignee,reporter,issuetype,priority,labels,parent,subtasks,created,updated",
+        }
+        if token:
+            params["nextPageToken"] = token
+        data = api_get(creds, "/rest/api/3/search/jql", params)
+        issues += data.get("issues") or []
+        token = data.get("nextPageToken")
+        if not token or data.get("isLast"):
+            break
     if args.json:
         rows = [{
             "key": i.get("key"),
             "summary": (i.get("fields") or {}).get("summary", ""),
             "status": name_of((i.get("fields") or {}).get("status"), "name"),
             "assignee": name_of((i.get("fields") or {}).get("assignee")),
+            "reporter": name_of((i.get("fields") or {}).get("reporter")),
             "type": name_of((i.get("fields") or {}).get("issuetype"), "name"),
+            "priority": name_of((i.get("fields") or {}).get("priority"), "name"),
+            "labels": (i.get("fields") or {}).get("labels") or [],
+            "parent": ((i.get("fields") or {}).get("parent") or {}).get("key"),
+            "subtasks": len((i.get("fields") or {}).get("subtasks") or []),
+            "created": (i.get("fields") or {}).get("created"),
             "updated": (i.get("fields") or {}).get("updated"),
         } for i in issues]
         print(json.dumps({"jql": args.jql, "count": len(rows), "issues": rows},
@@ -615,7 +630,7 @@ def main():
 
     p = sub.add_parser("jql", help="search; key/status/assignee/summary rows")
     p.add_argument("jql")
-    p.add_argument("--limit", type=int, default=50)
+    p.add_argument("--limit", type=int, default=50, help="max rows; pages of 100 are followed up to this")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_jql)
 
