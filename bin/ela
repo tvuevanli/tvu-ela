@@ -1,0 +1,105 @@
+#!/usr/bin/env python3
+"""ela — Evan's assistant at the shell. One word, short verbs, no Claude session needed.
+
+  ela <id|url>              the shortest form: MH-3568 · 01M1GD1F… (graph) · 32-hex (process, then tangible) · 19 digits (object)
+                            · a Slack permalink · a Jira URL — recognised by shape and read first-hand
+  ela graph <id> [-d] [-c]  node table in pipeline order; -d box location/id + image, -c connections (env read from the data)
+  ela process <id>          one process's live record          ela box <id>
+  ela graphs [me|li|email]  a user's graphs (default: me)      ela resolve <id> [--email …]
+  ela jira <read|jql|comment|transition|label|link|assign|create|create-subtask> …
+  ela slack <read|channels|history|mentions|unanswered|whoami> …
+  ela object <id>           object or tangible
+  ela find <name>           repos, images, process types, slugs, GM names matching   ela coverage
+  ela where <alias/path|repo|slug|image>   the checkout path(s)   ela probe <alias/path>…   ela clone <alias/path>   ela sync <repo> [--ref R]
+  ela worktree <repo> <KEY> ela survey                ela missing               ela services
+  ela bundles [mh2.1@]      GM bundles, newest first          ela bundle <name|id>     its bill of materials
+  ela versions [service]    versions per env (userservice)    ela builds <job|service>  Jenkins builds: version, branch, sha
+  ela drift                 newest bundle's GM names vs services.yaml     ela release login   (tvutest SID)
+  ela kb <search|read|tree|write|update|delete> …   Outline (writes dry-run; --apply on Evan's word)    ela figma …
+  ela envs                  the UR probe order         ela site   (rarely) the site config: roots, host names, aliases, emails
+
+Every verb forwards to the capability script under skills/<cap>/<cap>.py with the site's env file;
+`--json` works everywhere.
+  ela connect <ip|box|process>   ssh to the box (root)      ela exec <process>   docker exec into it
+  ela start <process> --url U --format F --shm S      ela stop <process>       (Sender working process; asks y/N)
+"""
+import json, os, re, subprocess, sys
+
+ROOT = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+SITE = os.path.expanduser("~/.claude/ela/site.json")
+
+# verb → (capability, subcommand or None = pass verb through)
+VERBS = {
+    "graph": ("graph", "graph"), "process": ("graph", "process"), "box": ("graph", "box"),
+    "graphs": ("graph", "graphs"), "resolve": ("graph", "resolve"), "envs": ("graph", "envs"),
+    "connect": ("graph", "connect"), "exec": ("graph", "exec"), "start": ("graph", "start"), "stop": ("graph", "stop"),
+    "jira": ("jira", None), "slack": ("slack", None), "object": ("object", "get"),
+    "find": ("map", "find"), "where": ("map", "where"), "probe": ("map", "probe"), "clone": ("map", "clone"),
+    "sync": ("map", "sync"), "worktree": ("map", "worktree"), "survey": ("map", "survey"),
+    "coverage": ("map", "coverage"), "missing": ("map", "missing"), "services": ("map", "services"),
+    "kb": ("kb", None), "figma": ("figma", None),
+    "bundles": ("release", "bundles"), "bundle": ("release", "bundle"), "versions": ("release", "envs"), "builds": ("release", "builds"),
+    "drift": ("release", "drift"), "release": ("release", None),
+}
+
+
+def site():
+    try:
+        return json.load(open(SITE))
+    except Exception:
+        sys.exit("no ~/.claude/ela/site.json — run /ela:setup in a Claude session")
+
+
+def run(cap, args, env_file):
+    script = os.path.join(ROOT, "skills", cap, f"{cap}.py")
+    if not os.path.isfile(script):
+        sys.exit(f"capability {cap} has no script yet ({script})")
+    argv = ["python3", script, "--env-file", env_file, *args] if cap != "map" else ["python3", script, *args]
+    os.execvp(argv[0], argv)
+
+
+def by_shape(token):
+    if re.fullmatch(r"[A-Z][A-Z0-9]+-\d+", token) or "atlassian.net/browse/" in token:
+        return "jira", ["read", token]
+    if "slack.com/archives/" in token:
+        return "slack", ["read", token]
+    if re.fullmatch(r"[0-9A-Z]{26}", token):
+        return "graph", ["graph", token]
+    if re.fullmatch(r"[0-9a-f]{32}", token):
+        return "graph", ["resolve", token]          # process first; graph.py says when to try the tangible
+    if re.fullmatch(r"\d{19}", token):
+        return "graph", ["resolve", token]          # object → its running graphs
+    if re.fullmatch(r"[0-9a-f]{16}", token):
+        return "object", ["get", token]
+    return None, None
+
+
+def show_env(s):
+    print(f"projects  {s.get('projects')}")
+    for k in ("code", "work", "lab", "records", "map", "env"):
+        print(f"{k:<9} {s.get(k) or '(default)'}")
+    print("hosts     " + ", ".join(s.get("hosts", {})) )
+    print("aliases   " + ", ".join(f"{k}→{v.get('host','?')}/{v.get('group','')}" for k, v in s.get("aliases", {}).items()))
+    print("emails    " + ", ".join(f"{k}={v}" for k, v in s.get("emails", {}).items()))
+
+
+def main():
+    args = sys.argv[1:]
+    if not args or args[0] in ("-h", "--help", "help"):
+        print(__doc__.strip()); return
+    s = site()
+    env_file = s.get("env") or os.path.expanduser("~/.claude/ela/.env")
+    verb, rest = args[0], args[1:]
+    if verb == "site":
+        show_env(s); return
+    if verb in VERBS:
+        cap, sub = VERBS[verb]
+        run(cap, ([sub] if sub else []) + rest, env_file)
+    cap, argv = by_shape(verb)
+    if cap:
+        run(cap, argv + rest, env_file)
+    sys.exit(f"ela: unknown verb or id shape: {verb!r}. Try `ela help`.")
+
+
+if __name__ == "__main__":
+    main()
