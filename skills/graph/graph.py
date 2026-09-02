@@ -1,25 +1,32 @@
 #!/usr/bin/env python3
-"""UR graph capability — read-only. L1: subcommands, --json, meaningful exit codes, stdlib only.
+"""UR graph capability. L1: subcommands, --json, meaningful exit codes, stdlib only. Reads are first-hand;
+the four actions (connect · exec · start · stop) are Evan's hand at the shell — start/stop ask y/N.
 
 What Evan's `ura` does by hand, without setting an environment first: a graph or process id is
-probed across environments in a fixed order (stable prod first) until one answers.
+probed across environments in a fixed order (MediaHub 2.1 prod first) until one answers.
 
-  graph    <graphId>  [--env X | --all]   node table in pipeline order: type, process, box ip, image, shm edges
+  graph    <graphId>  [-e X | --all] [-d] [-c]   node table in pipeline order; -d box location/id + image, -c connections
   process  <processId> [--env X]           one process: type, box public/private ip, control port, box id
   box      <boxId>     [--env X]           one box
-  graphs   <email>    [--env X | --all]    graphs owned by an email
+  graphs   [email|alias] [--env X | --all] graphs owned by an email; no argument = me (site.json `emails`)
   resolve  <id> [--email owner]            detect the id shape and route: graph · process · object → its running graphs (via Object Service tangibles)
   envs                                     the probe order
+  connect  <ip|boxId|processId> [--env]    ssh to the box as root            (ura connect)
+  exec     <processId> [--env]             docker exec -it -w /var/log <pid> bash on its box   (ura exec)
+  start    <processId> --url U --format F --shm S [--name N] [--yes]   start a Sender working process   (ura start)
+  stop     <processId> [--yes]             stop a Sender working process    (ura stop)
 
 Environments live in the URL path: https://ur.tvunetworks.com/<env>/j2n/… and …/<env>/pilot/….
-Probe order (first answer wins): UR_ENV_ORDER in the env file, else prod8, prod3, test2, then the rest.
-Credentials: UR_ACCESS_KEY (+ UR_BASE_HOST) from $UR_ACCESS_KEY → $ELA_ENV_FILE → --env-file.
+Probe order (first answer wins): UR_ENV_ORDER in the env file (comma-separated), else prod3, prod2, test2.
+Credentials: UR_ACCESS_KEY (+ UR_BASE_HOST) from $UR_ACCESS_KEY → --env-file → $ELA_ENV_FILE.
 Exit codes: 0 ok · 2 usage · 3 not found on any env · 4 auth · 5 remote error.
 """
-import argparse, json, os, re, signal, sys, urllib.error, urllib.parse, urllib.request
+import argparse, json, os, re, shutil, signal, sys, urllib.error, urllib.parse, urllib.request
 
 EX_USAGE, EX_NOTFOUND, EX_AUTH, EX_REMOTE = 2, 3, 4, 5
-DEFAULT_ORDER = ["prod8", "prod3", "test2", "prod2", "prod4", "prod5", "prod6", "prod7", "prod9", "prod10", "test1", "test"]
+# Probe order — three envs cover everything Evan touches: prod3 (MediaHub 2.1, answers 2.0 too), prod2 (older
+# prod), test2 (test). Sequential fallback; a miss costs one round-trip per env. Override with UR_ENV_ORDER.
+DEFAULT_ORDER = ["prod3", "prod2", "test2"]
 ALIASES = {"p": "prod", "t": "test", "t2": "test2", "t1": "test1"}
 
 
@@ -167,6 +174,69 @@ def parse_graph(v):
             "errors": st.get("errors") or [], "nodes": [nodes[i] for i in order], "edges": edges}
 
 
+TTY = sys.stdout.isatty()
+def _c(code, text):
+    return f"\033[{code}m{text}\033[0m" if TTY else str(text)
+BOLD, DIM, CYAN, GREEN = "1", "2", "36", "32"
+
+
+def enrich_nodes(ur, env, nodes):
+    """One Pilot nodeOrigins call per node: control port, box id and the box's cloud placement."""
+    for n in nodes:
+        n.update({"control_port": 0, "box_type": "", "platform": "", "region": ""})
+        if not n["process_id"]:
+            continue
+        st, body = ur.get(env, f"/pilot/api/v1/nodeOrigins/{n['process_id']}/nodeOrginsByNodeDetails")
+        if st != 200 or not isinstance(body, dict):
+            continue
+        box = body.get("box") if isinstance(body.get("box"), dict) else {}
+        n["public_ip"] = n["public_ip"] or _none(body.get("publicIp")) or box.get("publicIpv4") or ""
+        n["private_ip"] = n["private_ip"] or _none(body.get("privateIp")) or box.get("privateIpv4") or ""
+        n["control_port"] = _none(body.get("mediaBoxControlPort")) or _none(body.get("controlPort")) or 0
+        n["box_id"] = _none(body.get("boxId")) or box.get("id") or n["box_id"]
+        n["box_type"], n["platform"], n["region"] = box.get("type") or "", box.get("platform") or "", box.get("region") or ""
+    return nodes
+
+
+def box_location(n):
+    if n.get("box_type") == "ManagedCloud":
+        return " / ".join(x for x in (n.get("platform"), n.get("region")) if x) or "ManagedCloud"
+    return n.get("box_type") or ""
+
+
+def print_graph(a, via, g):
+    title = " · ".join(x for x in [g["business_type"], g["business_name"], g["email"]] if x)
+    print(_c(BOLD, f"Graph: {g['graph_id'] or a.graph_id}") + f"  env {g['env'] or '?'} (answered via {via})  {g['phase']}  {title}")
+    if g["object_id"]:
+        print(_c(DIM, f"object {g['object_id']}  business {g['business_id']}  app {g['app']}  created {g['created_at'][:19]}"))
+    print()
+    cols = [("Node", 5), ("Type", 18), ("Process ID", 32), ("Public IP", 15), ("Private IP", 15), ("Control Port", 12)]
+    if a.detail:
+        cols += [("Box Location", 20), ("Box ID", 32)]
+    print(_c(BOLD, "  " + "  ".join(f"{h:<{w}}" for h, w in cols)))
+    print(_c(DIM, "  " + "  ".join("─" * w for _, w in cols)))
+    for i, n in enumerate(g["nodes"], 1):
+        row = [_c(CYAN, f"{'[' + str(i) + ']':<5}"), _c(BOLD, f"{n['type'][:18]:<18}"), _c(DIM, f"{n['process_id']:<32}"),
+               f"{n['public_ip'] or '(none)':<15}", f"{n['private_ip'] or '(none)':<15}", _c(GREEN, f"{n['control_port'] or 'N/A':<12}")]
+        if a.detail:
+            row += [f"{box_location(n) or '(none)':<20}", _c(DIM, n['box_id'] or '(none)')]
+        print("  " + "  ".join(row))
+        if a.detail:
+            print(_c(DIM, f"  {'':<5}  {'':<18}  {n['image'] or '(no image)'}   {n['name']}"))
+    if a.connections and g["edges"]:
+        idx = {n["name"]: i for i, n in enumerate(g["nodes"], 1)}
+        print(); print(_c(BOLD, "  Connections")); print(_c(DIM, "  " + "─" * 58))
+        for e in sorted(g["edges"], key=lambda e: (idx.get(e["from"], 999), idx.get(e["to"], 999))):
+            fi, ti = idx.get(e["from"]), idx.get(e["to"])
+            ft = g["nodes"][fi - 1]["type"] if fi else e["from"]
+            tt = g["nodes"][ti - 1]["type"] if ti else e["to"]
+            print(f"  {_c(CYAN, '[' + str(fi or '?') + ']')} {ft:<18} {_c(DIM, '──')} {(','.join(e['shm']) or 'N/A'):<32} {_c(DIM, '──►')} {_c(CYAN, '[' + str(ti or '?') + ']')} {tt}")
+    errs = [x for n in g["nodes"] for x in n["errors"]] + g["errors"]
+    if errs:
+        print(); print("  errors: " + "; ".join(str(x)[:120] for x in errs[:5]))
+    print()
+
+
 def cmd_graph(ur, a):
     path = f"/j2n/api/v1-beta1/graphs/{a.graph_id}"
     if a.all:
@@ -185,22 +255,12 @@ def cmd_graph(ur, a):
         if a.raw:
             print(json.dumps(v, ensure_ascii=False, indent=1)); return
         results = [(env, parse_graph(v))]
+    for via, g in results:
+        enrich_nodes(ur, via, g["nodes"])
     if a.json:
         print(json.dumps({"graph_id": a.graph_id, "results": [dict(via=e, **g) for e, g in results]}, ensure_ascii=False)); return
     for via, g in results:
-        title = " · ".join(x for x in [g["business_type"], g["business_name"], g["email"]] if x)
-        print(f"# graph {a.graph_id}  env {g['env'] or '?'} (answered via {via})  {g['phase']}  {title}")
-        if g["object_id"]:
-            print(f"object {g['object_id']}  business {g['business_id']}  app {g['app']}  created {g['created_at'][:19]}")
-        print(f"{'#':<3}{'node':<28}{'type':<22}{'process':<34}{'box ip':<16}image")
-        for i, n in enumerate(g["nodes"], 1):
-            print(f"{i:<3}{n['name'][:27]:<28}{n['type'][:21]:<22}{n['process_id']:<34}{n['public_ip']:<16}{n['image']}")
-        if g["edges"]:
-            print("edges: " + "  ".join(f"{e['from'][:24]}→{e['to'][:24]}" + (f"[{','.join(e['shm'])}]" if e['shm'] else "") for e in g["edges"]))
-        errs = [x for n in g["nodes"] for x in n["errors"]] + g["errors"]
-        if errs:
-            print("errors: " + "; ".join(str(x)[:120] for x in errs[:5]))
-        print()
+        print_graph(a, via, g)
 
 
 # ── process / box ─────────────────────────────────────────────────────────────
@@ -233,7 +293,7 @@ def cmd_process(ur, a):
     via, body = ur.probe(path, a.env, accept=live)
     if not via:
         print(f"process {a.process_id}: no live record on {', '.join([normalise(a.env)] if a.env else ur.order)} "
-              "(a deleted process answers with an empty skeleton). A 32-hex id can also be an Object Service tangible — try `/ela:object`.",
+              "(a deleted process answers with an empty skeleton). A 32-hex id can also be an Object Service tangible — try `ela object <id>` (`/ela:object`).",
               file=sys.stderr); sys.exit(EX_NOTFOUND)
     if a.raw:
         print(json.dumps(body, ensure_ascii=False, indent=1)); return
@@ -266,7 +326,26 @@ def cmd_box(ur, a):
 
 # ── graphs by email ───────────────────────────────────────────────────────────
 
+def resolve_email(who, env_file):
+    """'me' | 'li' | an alias from site.json `emails` | an address | nothing (→ me)."""
+    try:
+        emails = json.load(open(os.path.expanduser("~/.claude/ela/site.json"))).get("emails", {})
+    except Exception:
+        emails = {}
+    who = (who or "me").strip()
+    if "@" in who:
+        return who
+    if who in emails:
+        return emails[who]
+    if who == "me":
+        me = env_value("JIRA_EMAIL", env_file)
+        if me:
+            return me
+    print(f"unknown email alias {who!r}; known: {', '.join(emails) or 'none'} (site.json `emails`)", file=sys.stderr); sys.exit(EX_USAGE)
+
+
 def cmd_graphs(ur, a):
+    a.email = resolve_email(a.email, a.env_file)
     envs = ur.order if a.all else ([normalise(a.env)] if a.env else ur.order)
     out, seen = [], set()
     for e in envs:
@@ -335,7 +414,7 @@ def object_graphs(env_file, oid):
 def cmd_resolve(ur, a):
     kind = detect(a.id)
     if kind == "graph":
-        a.graph_id, a.all, a.raw = a.id, False, False; return cmd_graph(ur, a)
+        a.graph_id, a.all, a.raw, a.detail, a.connections = a.id, False, False, False, False; return cmd_graph(ur, a)
     if kind == "process":
         a.process_id, a.raw = a.id, False; return cmd_process(ur, a)
     if kind == "object":
@@ -345,7 +424,7 @@ def cmd_resolve(ur, a):
             info = og["_object"]
             print(f"# object {a.id}  {info['name']}  runs in {len(graphs)} graph(s): {', '.join(graphs)}\n", flush=True)
             for g in graphs:
-                a.graph_id, a.all, a.raw = g, False, False
+                a.graph_id, a.all, a.raw, a.detail, a.connections = g, False, False, False, False
                 try:
                     cmd_graph(ur, a)
                 except SystemExit:
@@ -361,32 +440,168 @@ def cmd_resolve(ur, a):
     print(f"unrecognised id shape: {a.id} (graph = 26 chars A-Z0-9, process = 32 hex, object = 19 digits)", file=sys.stderr); sys.exit(EX_USAGE)
 
 
+# ── actions (ura's connect · exec · start · stop). A human typing the command is the confirm;
+#    an LLM caller must pass --yes, and a Claude session asks Evan first. ─────────────────────
+
+def _ssh_creds(env_file):
+    user = env_value("TVU_SSH_USER", env_file) or "operate_sh"
+    pw = env_value("TVU_SSH_PASSWORD", env_file)
+    if not pw:
+        print("no TVU_SSH_PASSWORD in the env file — run /ela:setup", file=sys.stderr); sys.exit(EX_AUTH)
+    return user, pw
+
+
+def _box_ip_for(ur, env_file, ident, env=None):
+    """ip | box id | process id → (ip, via)."""
+    if re.fullmatch(r"\d+\.\d+\.\d+\.\d+", ident):
+        return ident, "given"
+    if not re.fullmatch(r"[0-9a-f]{32}", ident):
+        print(f"{ident}: expected an IPv4, a 32-hex box id or a 32-hex process id", file=sys.stderr); sys.exit(EX_USAGE)
+    via, body = ur.probe(f"/pilot/api/v1/nodeOrigins/{ident}/nodeOrginsByNodeDetails", env, accept=lambda b: isinstance(b, dict) and _none(b.get("graphId")) is not None)
+    if via:
+        p = parse_process(body)
+        ip = p["public_ip"]
+        if not ip:  # the live process record often lacks ips; the graph node carries them
+            g_via, g = ur.probe(f"/j2n/api/v1-beta1/graphs/{p['graph_id']}", None, accept=lambda b: bool(((unwrap(b) or {}).get("spec") or {}).get("nodes")))
+            if g_via:
+                for n in parse_graph(unwrap(g))["nodes"]:
+                    if n["process_id"] == ident:
+                        ip = n["public_ip"]
+        if ip:
+            return ip, f"process on {p['env'] or via}"
+    via, body = ur.probe(f"/pilot/api/v1/boxes/{ident}", env, accept=lambda b: isinstance(b, dict) and bool(b))
+    if via:
+        ip = body.get("publicIpv4") or body.get("publicIp") or (body.get("box") or {}).get("publicIpv4") or body.get("ip")
+        if ip:
+            return ip, f"box on {via}"
+    print(f"{ident}: no ip found as process or box", file=sys.stderr); sys.exit(EX_NOTFOUND)
+
+
+def _ssh(user, pw, ip, remote_cmd):
+    """The password travels in the environment, never in an argv: SSHPASS for sshpass -e, and LC_ELA_SUDO
+    for the remote sudo — sshd's default AcceptEnv accepts LC_*. If the box rejects it, sudo prompts on the tty."""
+    os.environ["LC_ELA_SUDO"] = pw
+    base = ["ssh", "-t", "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=10", "-o", "SendEnv=LC_ELA_SUDO", f"{user}@{ip}", remote_cmd]
+    if shutil.which("sshpass"):
+        os.environ["SSHPASS"] = pw
+        os.execvp("sshpass", ["sshpass", "-e", *base])
+    print("sshpass not installed — you will be asked for the password", file=sys.stderr)
+    os.execvp("ssh", base)
+
+
+def _sudo(cmd):
+    """Remote: unlock sudo with the password from the environment (silently, if it arrived), then run cmd as root."""
+    return f"printf '%s\\n' \"$LC_ELA_SUDO\" | sudo -S -p '' true 2>/dev/null; unset LC_ELA_SUDO; sudo -p 'sudo password: ' {cmd}"
+
+
+def cmd_connect(ur, a):
+    user, pw = _ssh_creds(a.env_file)
+    ip, via = _box_ip_for(ur, a.env_file, a.target, a.env)
+    print(f"→ ssh {user}@{ip} (root)   [{via}]", file=sys.stderr)
+    _ssh(user, pw, ip, _sudo("su -"))
+
+
+def cmd_exec(ur, a):
+    if not re.fullmatch(r"[0-9a-f]{32}", a.process_id):
+        print("exec takes a 32-hex process id", file=sys.stderr); sys.exit(EX_USAGE)
+    user, pw = _ssh_creds(a.env_file)
+    ip, via = _box_ip_for(ur, a.env_file, a.process_id, a.env)
+    print(f"→ ssh {user}@{ip} → docker exec -it -w /var/log {a.process_id} bash   [{via}]", file=sys.stderr)
+    _ssh(user, pw, ip, _sudo(f"docker exec -it -w /var/log {a.process_id} bash"))
+
+
+def _control_endpoint(ur, a):
+    via, body = ur.probe(f"/pilot/api/v1/nodeOrigins/{a.process_id}/nodeOrginsByNodeDetails", a.env, accept=lambda b: isinstance(b, dict) and _none(b.get("graphId")) is not None)
+    if not via:
+        print(f"{a.process_id}: no live process record", file=sys.stderr); sys.exit(EX_NOTFOUND)
+    p = parse_process(body)
+    ip, port = p["public_ip"], p["control_port"]
+    if not ip:
+        ip, _ = _box_ip_for(ur, a.env_file, a.process_id, a.env)
+    if not ip or not port:
+        print(f"{a.process_id}: publicIp={ip or '-'} controlPort={port or 0} — the process may not be running", file=sys.stderr); sys.exit(EX_NOTFOUND)
+    return ip, port, p
+
+
+def _post(url, payload):
+    req = urllib.request.Request(url, data=json.dumps(payload).encode(), headers={"Content-Type": "application/json"}, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=20) as r:
+            raw = r.read()
+            return r.status, (json.loads(raw) if raw.strip() else None)
+    except urllib.error.HTTPError as e:
+        return e.code, e.read().decode("utf-8", "replace")[:300]
+    except Exception as e:
+        return 0, str(e)[:200]
+
+
+def _confirm(a, what):
+    if a.yes or sys.stdin.isatty() and input(f"{what}  [y/N] ").strip().lower() == "y":
+        return
+    print("not confirmed — nothing done", file=sys.stderr); sys.exit(EX_USAGE)
+
+
+def cmd_start(ur, a):
+    ip, port, p = _control_endpoint(ur, a)
+    url = f"http://{ip}:{port}/api/output/v2/StartWorkingProcess"
+    payload = {"processId": a.process_id, "role": "output",
+               "wp": {"params": {"shared_memory_name": a.shm, "output_format": a.format, "output_url": a.url, "name": a.name or a.format, "srt_relay": False}}}
+    print(f"process {a.process_id} ({p['type']}, {p['env']})  control {ip}:{port}\n  output {a.format} → {a.url}   shm {a.shm}")
+    _confirm(a, f"POST {url}")
+    st, body = _post(url, payload)
+    print(json.dumps({"status": st, "body": body}, ensure_ascii=False) if a.json else f"HTTP {st}  {json.dumps(body, ensure_ascii=False)[:300] if body else ''}")
+    if st != 200:
+        sys.exit(EX_REMOTE)
+
+
+def cmd_stop(ur, a):
+    ip, port, p = _control_endpoint(ur, a)
+    url = f"http://{ip}:{port}/api/output/v2/StopWorkingProcess"
+    print(f"process {a.process_id} ({p['type']}, {p['env']})  control {ip}:{port}")
+    _confirm(a, f"POST {url}  (stop the sender working process)")
+    st, body = _post(url, {"processId": a.process_id, "role": "output", "wp": {"params": {}}})
+    print(json.dumps({"status": st, "body": body}, ensure_ascii=False) if a.json else f"HTTP {st}  {json.dumps(body, ensure_ascii=False)[:300] if body else ''}")
+    if st != 200:
+        sys.exit(EX_REMOTE)
+
+
 def cmd_envs(ur, a):
     print(json.dumps({"host": ur.host, "order": ur.order}) if a.json else "\n".join(ur.order))
 
 
 def main():
     signal.signal(signal.SIGPIPE, signal.SIG_DFL)
-    ap = argparse.ArgumentParser(description="UR graph capability — read-only.")
+    ap = argparse.ArgumentParser(description="UR graph capability: read graphs, processes and boxes first-hand; connect/exec/start/stop on Evan's word.")
     ap.add_argument("--env-file", help="file with UR_ACCESS_KEY, UR_BASE_HOST, UR_ENV_ORDER")
     sub = ap.add_subparsers(dest="cmd", required=True)
     for name, arg in (("graph", "graph_id"), ("process", "process_id"), ("box", "box_id")):
         p = sub.add_parser(name); p.add_argument(arg)
-        p.add_argument("--env", help="prod8 · p8 · prod3 · test2 …; default: probe in order")
+        p.add_argument("-e", "--env", help="prod3 · p3 · prod2 · test2 …; default: probe in order")
         p.add_argument("--json", action="store_true"); p.add_argument("--raw", action="store_true", help="the API body as-is")
         if name == "graph":
             p.add_argument("--all", action="store_true", help="every env that has it, not just the first")
-    p = sub.add_parser("graphs"); p.add_argument("email"); p.add_argument("--env"); p.add_argument("--all", action="store_true")
+            p.add_argument("-d", "--detail", action="store_true", help="box location, box id and image per node")
+            p.add_argument("-c", "--connections", action="store_true", help="the edges as a connections list")
+    p = sub.add_parser("graphs"); p.add_argument("email", nargs="?", default="me", help="address, or an alias from site.json emails (me · li …); default me"); p.add_argument("--env"); p.add_argument("--all", action="store_true")
     p.add_argument("--object", help="keep only graphs whose objectId or businessId equals this")
     p.add_argument("--pages", type=int, default=5, help="pages to walk per env"); p.add_argument("--limit", type=int, default=50, help="page size")
     p.add_argument("--json", action="store_true")
     p = sub.add_parser("resolve"); p.add_argument("id"); p.add_argument("--env"); p.add_argument("--email", help="owner email, needed for an object id")
     p.add_argument("--json", action="store_true")
+    p = sub.add_parser("connect", help="ssh to a TVU box as root — by ip, box id or process id (ura connect)")
+    p.add_argument("target"); p.add_argument("--env")
+    p = sub.add_parser("exec", help="docker exec -it -w /var/log <process> bash on its box (ura exec)")
+    p.add_argument("process_id"); p.add_argument("--env")
+    p = sub.add_parser("start", help="start a Sender working process (ura start) — asks y/N unless --yes")
+    p.add_argument("process_id"); p.add_argument("--url", required=True); p.add_argument("--format", required=True); p.add_argument("--shm", required=True)
+    p.add_argument("--name"); p.add_argument("--env"); p.add_argument("--yes", action="store_true"); p.add_argument("--json", action="store_true")
+    p = sub.add_parser("stop", help="stop a Sender working process (ura stop) — asks y/N unless --yes")
+    p.add_argument("process_id"); p.add_argument("--env"); p.add_argument("--yes", action="store_true"); p.add_argument("--json", action="store_true")
     p = sub.add_parser("envs"); p.add_argument("--json", action="store_true")
     a = ap.parse_args()
     ur = UR(a.env_file)
     {"graph": cmd_graph, "process": cmd_process, "box": cmd_box, "graphs": cmd_graphs,
-     "resolve": cmd_resolve, "envs": cmd_envs}[a.cmd](ur, a)
+     "resolve": cmd_resolve, "envs": cmd_envs, "connect": cmd_connect, "exec": cmd_exec, "start": cmd_start, "stop": cmd_stop}[a.cmd](ur, a)
 
 
 if __name__ == "__main__":

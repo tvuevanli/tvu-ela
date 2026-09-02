@@ -10,16 +10,21 @@ Self-contained. Argument: a graph id (26 chars, `01M1…`), a process id (32 hex
 (19 digits, with the owner's email), or an email. Read-only: J2N and Pilot are only ever read.
 
 ## Invariants
-- **No environment to set.** The script probes UR environments in a fixed order — stable prod first
-  (`prod8`), then `prod3` (MH 2.1), then `test2`, then the rest — and stops at the first that has the
-  data. The **environment printed is the one the data says** (`app.tvunetworks.com/environment` on a
-  graph, `env` on a process), not the path that answered: the prod environments share one J2N, so a
-  prod8 graph also answers on prod3. Say both when they differ.
+- **No environment to set.** The script probes three UR environments in order — `prod3` (MediaHub
+  2.1, which answers 2.0 too), `prod2` (older prod), `test2` — and stops at the first that has the
+  data; `UR_ENV_ORDER` in the env file overrides the list, `-e p3` pins one. The **environment printed
+  is the one the data says** (`app.tvunetworks.com/environment` on a graph, `env` on a process), not the
+  path that answered: the prod environments share one J2N. Say both when they differ.
+- **`-d` and `-c` are the detail views.** `-d` adds box location, box id and image per node; `-c` lists
+  the edges as connections with their shm types. The default table is type · process · public ip ·
+  private ip · control port, in pipeline order.
 - **A deleted process still answers.** Pilot returns a 200 skeleton with every field `None`; the
   script treats that as not found. Say "no live record" rather than "does not exist".
 - **First-hand or nothing.** What UR does not return (a box's owner, a service's owner) comes from
   the map and the roster, and is cited as such.
-- **Never act.** No start, stop, connect or exec — those remain `ura`'s and Evan's hands.
+- **Acting is Evan's hand, not the session's.** `connect`, `exec`, `start`, `stop` exist for the shell
+  (`ela connect <id>` typed by Evan is the confirm; `start`/`stop` ask y/N). A Claude session never
+  runs them on its own initiative — it proposes the command and stops.
 
 ## 0 — bind
 Read `~/.claude/ela/site.json` → `env`. Then:
@@ -54,5 +59,5 @@ Someone pastes a graph id or an object card. Answer in this order, each line fro
 4. Name one person and one check (`/ela:route` when the layer is not obvious).
 
 ## 3 — what this skill does not do
-Start or stop processes, ssh to boxes, change anything. It does not know bundles or which build is
-on which env — that is Helm's release module (future read through its API).
+Start, stop or ssh on the session's own initiative (see the last invariant), or change anything. It
+does not know bundles or which build is on which env — that is `/ela:release` (`ela bundles · versions · builds`).
