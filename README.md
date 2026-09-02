@@ -31,12 +31,13 @@ This is how ela knows Evan in any directory without an agent or a global CLAUDE.
 |---|---|---|
 | `/ela:setup` | 1 | first run / repair of `~/.claude/ela/` — paths, credentials, read-only probe of every sense |
 | `/ela:jira` | 1 | read an issue (links, subtasks, comments), run JQL, or create an issue / subtask (dry-run default, confirm-gated) |
-| `/ela:slack` | 1 | read a thread by permalink — read-only |
+| `/ela:slack` | 1 | read a thread by permalink; list channels; history, mentions and unanswered scans — read-only |
 | `/ela:kb` | 1 | read / search Outline; write on explicit confirm |
 | `/ela:object` | 1 | Object Service API: objects and their tangibles, by id or search (not objectd — a different service) |
 | `/ela:figma` | 1 | read a design: file tree, node subtree + text layers, comments, rendered image — read-only |
 | `/ela:report` | 4 | digest a posted report thread into what Evan must act on, decide, and pin — cross-checked against Jira |
 | `/ela:route` | 4 | a bug in, a name out: implicated service, owner, or the first checker with the exact discriminating check |
+| `/ela:brief` | 4 | the morning brief: stale In-Progress, unrouted new tickets, complex tickets not broken down, report threads, threads waiting on Evan, threads he wrote alone, decisions made in Slack without a ticket — ranked, each with a drafted action; read-only |
 | `/ela:task` | 2 | one piece of work Evan implements: worktree, tier, delegation to the area's stack, evidence, ledger |
 | `/ela:breakdown` | 3 | requirement → layer-tagged lanes with owners, order, verification; knowledge or code depth; plan in ela-knowledge, Jira publication on confirm |
 | `/ela:map` | 1 | build / re-verify `ela-knowledge/map/{host,absent}.yaml` against disk |

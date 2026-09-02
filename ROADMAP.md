@@ -55,11 +55,15 @@ explicit "create them", per-batch confirmed, through the jira capability's own g
 
 **Exit:** one real requirement's plan matches what Evan would have written by hand.
 
-## 4 — brief
-`/ela:brief`: Evan's queue from Jira directly — unrouted, blocked, stale In-Progress — against the
-two cadence KPIs (complex tickets broken down same day; In-Progress updated within 24h). Read-only.
+## 4 — brief · built 2026-09-02
+`/ela:brief`: Evan's queue from Jira and Slack directly — stale In-Progress (actionable vs zombies),
+Blocked, unrouted new tickets past the 4h window, complex tickets with no sub-tasks; plus what only
+Slack shows: report threads since yesterday, threads waiting on his reply, threads he wrote alone,
+decisions made in Slack with no ticket. Ranked, capped at 12, one drafted action each. Read-only.
+The slack capability grew into a subcommand CLI for it (`read · channels · history · mentions ·
+unanswered · whoami`). Definitions are stated in the skill so they can be argued with.
 
-**Exit:** a week in which the brief is the first thing read and nothing it missed came up later.
+**Exit:** two weeks in which the brief is the first thing read and nothing it missed came up later.
 
 ## 5 — actions
 Writes to live systems, each behind an explicit confirm and idempotent: create/assign Jira
