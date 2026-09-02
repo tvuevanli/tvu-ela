@@ -7,151 +7,32 @@ description: >
   "查找切片", "查询对象", "object service查询".
 ---
 
-# Object Service Assistant Skill
+# /ela:object — objects and tangibles, first-hand
 
-You are an expert TVU Object Service assistant. You help users query tangibles and objects from the TVU Object Service API.
-Use Bash + curl for all API calls. No Python or external scripts.
-
----
-
-## Step 0 — Credentials
-
-Read `~/.claude/ela/site.json` → `env`; from that file take `TVU_OBJECT_SERVICE_HOST` and
-`TVU_CC_BEARER_TOKEN` (`grep '^TVU_' <env>`; never print the token). Missing or 401 → stop and
-point to `/ela:setup` §2. This skill owns no config elsewhere.
-
-**Probe (read-only, for `/ela:setup`):** `GET {TVU_OBJECT_SERVICE_HOST}/route-object/object-service/base/…`
-with the bearer — any 200 is `ok`, 401/403 is `auth failed`.
-
----
-
-## API Reference
-
-**Base URL**: `{TVU_OBJECT_SERVICE_HOST}/route-object/object-service/base`
-
-**Auth header**: `Authorization: Bearer {TVU_CC_BEARER_TOKEN}`
-
-## Which endpoint — decide from the id shape, then say which you used
-
-| id looks like | try first | then |
-|---|---|---|
-| 19 digits (`1508530325419069440`) | **object** | tangible |
-| 32 hex (`cf71e6d7cd0d415cad016f114f3bd750`) | **tangible** | object |
-| anything else / a name | search (Feature 4) | — |
-
-**Response shapes differ.** `/object/<id>` wraps: `{errorCode, errorInfo, result:{…}}`. `/tangible/<id>`
-returns the tangible **bare** (top-level `tangibleId`, `tangibleType`, `objectId`, `extraInfo`…). A miss is
-HTTP 200 with an empty body (tangible) or an empty `result` (object) — fall through to the other endpoint
-before reporting not found. A tangible can be queried on its own; it carries `objectId` back to its object. Always state which endpoint answered. An object's `tangibleInfo[]` lists its
-tangibles; a tangible's `objectId` points back — show both directions when present.
-
----
-
-## Feature 1 — Read Tangible by Tangible ID
-
-**Trigger**: user says "find tangible [ID]", "search tangible [ID]", "look up tangible [ID]", "查找切片 [ID]"
+Self-contained. The L1 script does the calls; this file says when and how to read the answer.
 
 ```bash
-curl -s -X GET "{TVU_OBJECT_SERVICE_HOST}/route-object/object-service/base/tangible/{tangibleId}" \
-  -H "Authorization: Bearer {TVU_CC_BEARER_TOKEN}"
+O="python3 ${CLAUDE_PLUGIN_ROOT}/skills/object/object.py --env-file <env>"   # <env> from ~/.claude/ela/site.json
+$O get <id>              # object (19 digits) or tangible (16–32 hex); falls through to the other on a miss and says which answered
 ```
+`get` is the whole read surface: the service exposes `GET /base/object/<id>` and `GET /base/tangible/<id>`.
+A batch-by-ids endpoint and a keyword search were documented here before; both answer 404 (verified
+2026-09-02), so there is no search — an object is found by id, or from a graph's `objectId` annotation.
+Every subcommand takes `--json`; `get` takes `--raw` for the body as-is. Exit codes: 0 ok · 2 usage ·
+3 not found · 4 auth (token rejected → `/ela:setup`) · 5 remote error.
 
-Display key fields clearly:
+## What the record carries, and what it does not
+- An object: `objectType` 1 = Source, 2 = Destination; `origin` (e.g. `UnifiedMediaService`); `owner.users`
+  — **userIds, not emails**; `tangibleInfo[]` with each tangible's type and `extraInfo` (url, urLoadTier…).
+- The bare tangible record does **not** carry its objectId. A 32-hex id can also be a UR **process** id — if
+  the Object Service has no tangible for it, try `/ela:graph process <id>`.
+- An **active** object's `tangibleInfo` includes SHM and RTIL rows named `<graphId>:<node>` whose
+  `tangibleId` is the **process id** — `get` prints the derived `graphs` line; `/ela:graph resolve <objectId>`
+  follows it into the graph tables.
+- For an **inactive** object there is no graph to derive; J2N's list by owner email
+  (`/ela:graph graphs <email> --object <objectId>`) still finds finished graphs — J2N annotates each graph
+  with its `objectId`.
 
-```
-Tangible: {tangibleId}
-  Type:        {tangibleType}
-  Object ID:   {objectId}
-  Object Name: {objectName}
-  Object Type: {objectType} (1=Source, 2=Destination)
-  Extra Info:  {extraInfo}
-```
-
-**If not found (404)**: Show "Tangible {ID} not found."
-
----
-
-## Feature 2 — Read Object by Object ID
-
-**Trigger**: user says "find object [ID]", "get object [ID]", "查询对象 [ID]"
-
-```bash
-curl -s -X GET "{TVU_OBJECT_SERVICE_HOST}/route-object/object-service/base/object/{objectId}" \
-  -H "Authorization: Bearer {TVU_CC_BEARER_TOKEN}"
-```
-
-Display:
-
-```
-Object: {objectId}
-  Name:        {objectName}
-  Type:        {objectType} (1=Source, 2=Destination)
-  Tangibles:
-    • [{tangibleType}] {tangibleId} — {extraInfo url}
-```
-
----
-
-## Feature 3 — Query Object Details by IDs (batch)
-
-**Trigger**: user says "query objects [ID1] [ID2]...", "get objects [IDs]", "批量查询对象"
-
-```bash
-curl -s -X POST "{TVU_OBJECT_SERVICE_HOST}/api/v1/object/info/ids" \
-  -H "Authorization: Bearer {TVU_CC_BEARER_TOKEN}" \
-  -H "Content-Type: application/json" \
-  -d '["<id1>", "<id2>", ...]'
-```
-
-Display as a table:
-
-```
-Objects (showing {count}):
-  ID                    | Type | Name
-  ─────────────────────────────────────────
-  1481341953164578816   |  1   | HLS Apple US East
-  1486782579301552128   |  2   | SRT Caller Mar 26
-```
-
----
-
-## Feature 4 — Search / List Objects
-
-**Trigger**: user says "list objects", "search objects [keyword]", "列出对象"
-
-```bash
-curl -s -X GET "{TVU_OBJECT_SERVICE_HOST}/route-object/object-service/base/object?keyword={keyword}&pageSize=20" \
-  -H "Authorization: Bearer {TVU_CC_BEARER_TOKEN}"
-```
-
-Display as a table:
-
-```
-Objects (showing {count}):
-  ID                    | Type | Name
-  ─────────────────────────────────────────
-  1481341953164578816   |  1   | HLS Apple US East
-  1486782579301552128   |  2   | SRT Caller Mar 26
-```
-
----
-
-## Error Handling
-
-| HTTP Status | Meaning     | Action                                  |
-|-------------|-------------|-----------------------------------------|
-| 401 / 403   | Auth failed | Check cc_bearer_token; offer to update  |
-| 404         | Not found   | Show "not found" message                |
-| 400         | Bad request | Show error details                      |
-| 500         | Server error| Show raw response                       |
-
-**Always show raw response on unexpected errors.**
-
----
-
-## Output Style
-
-- Use checkmarks (✅ ❌) for success/failure
-- Show tangibleType prominently (HLS, SRTCALLER, etc.)
-- Keep responses concise
-- For multiple results, use a table
+## Output
+State the id shape you resolved and which endpoint answered. Show tangible types prominently
+(HLS, SRTLISTENER, T…). Never print the bearer token.
