@@ -1,17 +1,21 @@
 #!/usr/bin/env python3
 """Read and write documents in the TVU knowledge base (Outline).
 
-Mirrors jira-read/slack-read: the capability is shareable, the credentials are
-site state resolved from the environment or an env file. Stdlib only.
+The capability is shareable; the credentials are site state resolved from the environment or an
+env file. Stdlib only.
 
 Usage:
     kb.py search 'srt listener'
     kb.py read https://kb.tvunetworks.com/doc/design-audio-remapping-0aa0ItyDui
     kb.py tree                                  # collections
     kb.py tree 'MediaHub & UR'                  # document tree of a collection
-    kb.py write '[DESIGN] Foo' --collection 'MediaHub & UR' --file foo.md
-    kb.py update <doc> --file foo.md            # replace body
+    kb.py write '[DESIGN] Foo' --collection 'MediaHub & UR' --file foo.md          # dry run
+    kb.py write '[DESIGN] Foo' --collection 'MediaHub & UR' --file foo.md --apply  # writes
+    kb.py update <doc> --file foo.md            # replace body (dry run without --apply)
     kb.py update <doc> --append --file note.md  # append to body
+
+Writes are dry-run by default: write/update/delete print what would happen and exit 0; nothing
+reaches Outline until --apply is passed, and --apply follows Evan's word.
 """
 import argparse
 import json
@@ -31,7 +35,7 @@ ENV_KEYS = ("OUTLINE_URL", "OUTLINE_TOKEN")
 def load_env(env_file):
     """Resolve credentials: process env wins, then the env file."""
     creds = {k: os.environ.get(k) for k in ENV_KEYS}
-    path = env_file or os.environ.get("OUTLINE_ENV_FILE")
+    path = env_file or os.environ.get("OUTLINE_ENV_FILE") or os.environ.get("ELA_ENV_FILE")
     if path and not all(creds.values()):
         try:
             with open(path, encoding="utf-8") as fh:
@@ -259,10 +263,11 @@ def cmd_write(creds, args):
         sys.exit("pass --collection <name> or --parent <doc> to say where it goes")
     if args.icon:
         payload["icon"] = args.icon
-    if args.dry_run:
+    if not args.apply:
         print(f"DRY RUN — would create {args.title!r} {target}, "
               f"{'draft' if args.draft else 'published'}, {len(body)} chars")
         print("\n" + "─" * 76 + "\n" + body)
+        print("\npass --apply to create it")
         return
     doc = api(creds, "documents.create", payload)["data"]
     print(f"created {'draft' if args.draft else 'published'} {target}")
@@ -289,7 +294,7 @@ def cmd_update(creds, args):
         verb = "retitle" if args.title else "update"
     else:
         verb = "append to" if args.append else "replace body of"
-    if args.dry_run:
+    if not args.apply:
         old = doc.get("text") or ""
         sizes = ("" if body is None else
                  f" ({len(old)} chars now, {len(body)} chars incoming)")
@@ -297,6 +302,7 @@ def cmd_update(creds, args):
         print(f"{creds['OUTLINE_URL']}{doc.get('url','')}")
         if body is not None:
             print("\n" + "─" * 76 + "\n" + body)
+        print("\npass --apply to send it")
         return
     new = api(creds, "documents.update", payload)["data"]
     print(f"updated ({verb.replace(' of', '')}) — revision {new.get('revision')}")
@@ -305,9 +311,9 @@ def cmd_update(creds, args):
 
 def cmd_delete(creds, args):
     doc = api(creds, "documents.info", {"id": doc_id(args.doc)})["data"]
-    if args.dry_run:
+    if not args.apply:
         print(f"DRY RUN — would move {doc['title']!r} to trash "
-              f"({creds['OUTLINE_URL']}{doc.get('url','')})")
+              f"({creds['OUTLINE_URL']}{doc.get('url','')})\npass --apply to do it")
         return
     api(creds, "documents.delete", {"id": doc["id"]})
     print(f"moved {doc['title']!r} to trash (restorable in Outline for 30 days)")
@@ -341,8 +347,9 @@ def main():
         sp.add_argument("--file", help="markdown body file, or - for stdin")
         sp.add_argument("--text", help="markdown body inline")
         sp.add_argument("--icon", help="emoji icon")
-        sp.add_argument("--dry-run", action="store_true",
-                        help="print what would be sent, change nothing")
+        sp.add_argument("--apply", action="store_true",
+                        help="actually send it; without this the command is a dry run")
+        sp.add_argument("--dry-run", action="store_true", help=argparse.SUPPRESS)  # legacy no-op: dry run is the default
 
     s = sub.add_parser("write", help="create a new document")
     s.add_argument("title")
@@ -364,7 +371,8 @@ def main():
 
     s = sub.add_parser("delete", help="move a document to trash")
     s.add_argument("doc")
-    s.add_argument("--dry-run", action="store_true")
+    s.add_argument("--apply", action="store_true", help="actually trash it; default is a dry run")
+    s.add_argument("--dry-run", action="store_true", help=argparse.SUPPRESS)
     s.set_defaults(fn=cmd_delete)
 
     args = p.parse_args()

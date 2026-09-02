@@ -6,7 +6,7 @@ description: Read and write documents in the TVU knowledge base at kb.tvunetwork
 # TVU knowledge base (Outline) — read and write
 
 ```bash
-KB="python3 \${CLAUDE_PLUGIN_ROOT}/skills/kb/kb.py"
+KB="python3 ${CLAUDE_PLUGIN_ROOT}/skills/kb/kb.py --env-file <env>"   # <env> from ~/.claude/ela/site.json
 ```
 
 Documents are plain markdown in and out. A document is addressed by full URL,
@@ -30,27 +30,29 @@ Search hits print a snippet; read the doc before relying on it.
 ## Writing
 
 ```bash
-$KB write '<title>' --collection 'Engineering' --file draft.md
-$KB write '<title>' --parent <doc> --file draft.md      # nest under a doc
-$KB update <doc> --file new.md                          # replace the body
-$KB update <doc> --append --file addition.md            # append to the body
-$KB update <doc> --title '<new title>'
-$KB delete <doc>                                        # to trash, restorable
+$KB write '<title>' --collection 'Engineering' --file draft.md          # dry-run: prints what would be created
+$KB write '<title>' --parent <doc> --file draft.md --apply              # nest under a doc — the real write
+$KB update <doc> --file new.md [--apply]                                # replace the body
+$KB update <doc> --append --file addition.md [--apply]                  # append to the body
+$KB update <doc> --title '<new title>' [--apply]
+$KB delete <doc> [--apply]                                              # to trash, restorable
 ```
 
-Body comes from `--file <path>`, `--file -` (stdin), or `--text '<markdown>'` —
-one of those is required; there is no implicit stdin, so a call that passes no
-body can never blank a document. Other flags: `--icon <emoji>`, `--draft`
-(create unpublished), `--publish` (publish a draft), `--dry-run`.
+**Dry-run is the default.** `write`, `update` and `delete` print exactly what would change — title,
+target collection or parent, body — and do nothing without `--apply`. Body comes from `--file <path>`,
+`--file -` (stdin), or `--text '<markdown>'` — one of those is required; there is no implicit stdin,
+so a call that passes no body can never blank a document. Other flags: `--icon <emoji>`, `--draft`
+(create unpublished), `--publish` (publish a draft).
 
 ### Rules for writing
 
 This is a shared company wiki — every write is outward-facing.
 
-- **Confirm before writing.** Show the user the title, the target collection or
-  parent, and the body — `--dry-run` prints exactly that — and get an explicit
-  go-ahead before the real call. Don't create or edit a doc as a side effect of
-  some other task.
+- **Evan's word precedes `--apply`.** Run the command without `--apply` first — the
+  dry-run prints the title, the target collection or parent, and the body — show it,
+  and only after his explicit go-ahead re-run the same command with `--apply`. One
+  confirm covers the one call it was shown for. Don't create or edit a doc as a side
+  effect of some other task.
 - **Draft first when unsure.** `--draft` creates an unpublished document visible
   only to you; `--publish` releases it once the user approves. A draft cannot be
   a `--parent` (Outline returns 403) — publish it first.
