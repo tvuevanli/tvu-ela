@@ -424,6 +424,35 @@ def resolve_assignee(creds, who):
     return hits[0]["accountId"], hits[0].get("displayName", who)
 
 
+def cmd_assign(creds, args):
+    """Re-assign one issue. Idempotent; dry-run default."""
+    key = extract_key(args.target)
+    data = api_get(creds, f"/rest/api/3/issue/{key}",
+                   {"fields": "summary,assignee,status"})
+    f = data.get("fields") or {}
+    cur = f.get("assignee") or {}
+    account_id, assignee_name = resolve_assignee(creds, args.assignee)
+    result = {"key": key, "summary": f.get("summary"),
+              "from": cur.get("displayName"), "to": assignee_name,
+              "dry_run": not args.apply, "changed": False}
+    if cur.get("accountId") == account_id:
+        if args.json: print(json.dumps(result, ensure_ascii=False))
+        else: print(f"{key} already assigned to {assignee_name}")
+        return
+    if not args.apply:
+        if args.json: print(json.dumps(result, ensure_ascii=False))
+        else:
+            print(f"DRY RUN — {key}  {f.get('summary','')}")
+            print(f"  assignee  {cur.get('displayName') or 'Unassigned'} -> {assignee_name}")
+            print("pass --apply to re-assign")
+        return
+    _request(creds, f"/rest/api/3/issue/{key}/assignee",
+             payload={"accountId": account_id}, method="PUT")
+    result["changed"] = True
+    if args.json: print(json.dumps(result, ensure_ascii=False))
+    else: print(f"{key} assigned: {cur.get('displayName') or 'Unassigned'} -> {assignee_name}")
+
+
 def cmd_create(creds, args):
     """Create a parent-level issue. No layer-token requirement — tokens mark
     single-layer subtasks; a parent carries the cross-layer scope."""
@@ -589,6 +618,14 @@ def main():
     p.add_argument("--limit", type=int, default=50)
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_jql)
+
+    p = sub.add_parser(
+        "assign", help="re-assign one issue — dry-run unless --apply")
+    p.add_argument("target", help="issue key or browse URL")
+    p.add_argument("--assignee", required=True, help="email or accountId")
+    p.add_argument("--apply", action="store_true")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_assign)
 
     p = sub.add_parser(
         "create",

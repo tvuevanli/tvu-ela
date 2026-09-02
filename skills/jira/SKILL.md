@@ -12,6 +12,7 @@ adapter; other callers (Helm ops, an MCP server) invoke the same script.
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/skills/jira/jira.py" --env-file <env> read <key-or-url>
 python3 "${CLAUDE_PLUGIN_ROOT}/skills/jira/jira.py" --env-file <env> jql '<JQL>' [--limit N]
+python3 "${CLAUDE_PLUGIN_ROOT}/skills/jira/jira.py" --env-file <env> assign <key> --assignee EMAIL|ACCOUNTID [--apply]
 python3 "${CLAUDE_PLUGIN_ROOT}/skills/jira/jira.py" --env-file <env> create \
         --summary 'TITLE' [--project MH] [--type Task] [--description TEXT] [--assignee EMAIL|ACCOUNTID] [--apply]
 python3 "${CLAUDE_PLUGIN_ROOT}/skills/jira/jira.py" --env-file <env> create-subtask \
@@ -32,6 +33,11 @@ and every comment.
 ## jql
 
 Key / status / assignee / summary rows. `--limit N` (default 50), `--json`.
+
+## assign — re-assign one issue, gated twice
+
+Idempotent (already-assigned reports and exits 0), dry-run default showing `from -> to`; the
+same confirm gate below applies before `--apply`.
 
 ## create — parent-level issue, gated twice
 
