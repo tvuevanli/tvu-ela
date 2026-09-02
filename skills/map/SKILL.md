@@ -29,7 +29,7 @@ $MAP clone media/<path> [--dry-run]      # GitLab-first; placed by the mds layou
 $MAP missing                            # absent.yaml, one line each
 ```
 `clone` changes disk only; run this skill afterwards so host.yaml records what arrived. `services.yaml`
-is hand-maintained from the taxonomy in `agentic-observability/docs/reference-module-taxonomy.md`
+is hand-maintained from the taxonomy in `others/agentic-observability/docs/reference-module-taxonomy.md`
 plus probes and investigations; the image name is the codebase fingerprint.
 
 **Enumeration of the media group** still needs a read token for `10.12.23.181` — until then the
