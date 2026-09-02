@@ -43,7 +43,7 @@ LAYER_TOKENS = ("[Infra]", "[J2N]", "[Media]", "[App]", "[UI]", "[QA]", "[Design
 def load_env(env_file):
     """Resolve credentials: process env wins, then the env file."""
     creds = {k: os.environ.get(k) for k in ENV_KEYS}
-    path = env_file or os.environ.get("JIRA_ENV_FILE")
+    path = env_file or os.environ.get("JIRA_ENV_FILE") or os.environ.get("ELA_ENV_FILE")
     if path and not all(creds.values()):
         try:
             with open(path, encoding="utf-8") as fh:
@@ -693,9 +693,9 @@ def cmd_transition(creds, args):
         results.append(r)
     if not args.apply and any(not r["changed"] and "error" not in r and _norm(r["from"]) != _norm(r["to"]) for r in results):
         lines.append("pass --apply to transition")
-    if any("error" in r for r in results) and not args.json:
-        sys.exit(2) if all("error" in r for r in results) else None
     _emit(args, {"results": results} if len(results) > 1 else results[0], lines)
+    if any("error" in r for r in results):
+        sys.exit(2)
 
 
 def cmd_label(creds, args):

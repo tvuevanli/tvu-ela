@@ -11,8 +11,8 @@ SLACK="python3 ${CLAUDE_PLUGIN_ROOT}/skills/slack/slack.py --env-file <env>"
 $SLACK read <permalink>                 # root message and every reply, real names resolved
 $SLACK channels                         # channels the bot is a member of — DMs are never visible
 $SLACK history <channel> --since 24h    # top-level messages; --threads adds replies; channel = id or #name
-$SLACK mentions --since 48h --channels C06553EE44X,C0BS83BRU3D   # who mentioned Evan; answered = he replied after the last mention
-$SLACK unanswered --since 7d --channels C06553EE44X               # threads Evan started that nobody else replied to
+$SLACK mentions --since 48h --channels '#prj_dev_mediahub,#dev-unified-resources,#boundary-agent-integration'   # who mentioned Evan; answered = he replied after the last mention
+$SLACK unanswered --since 7d --channels '#prj_dev_mediahub'       # threads Evan started that nobody else replied to
 $SLACK whoami                           # Evan's user id, from JIRA_EMAIL in the env file
 ```
 
@@ -24,13 +24,13 @@ Every subcommand takes `--json`. `--since` is `48h`, `7d` or `YYYY-MM-DD`. Exit 
 
 Read `~/.claude/ela/site.json` → `env` (the path of ela's credential file, mode 600) and pass it as
 `--env-file`. That file is ela's own — copied once from wherever the tokens lived before; nothing
-here depends on another tool's config. The script reads only `SLACK_BOT_TOKEN` from it. Missing or expired
-→ run `/ela:setup`.
+here depends on another tool's config. The script reads `SLACK_BOT_TOKEN` from it, and `JIRA_EMAIL` for
+`whoami` and the default `--user me` of `mentions` / `unanswered`. Missing or expired → run `/ela:setup`.
 
 ## Scope
 
-Read-only by design — `conversations.replies`, `conversations.info`,
-`users.info`. It cannot post, edit, or react. Posting to Slack is a separate,
+Read-only by design — `conversations.replies`, `conversations.info`, `conversations.history`,
+`users.conversations`, `users.info`, `users.lookupByEmail`. It cannot post, edit, or react. Posting to Slack is a separate,
 outward-facing action and must not be added to this skill silently.
 
 ## Turning a thread into knowledge
@@ -38,4 +38,4 @@ outward-facing action and must not be added to this skill silently.
 A Slack thread is a dated conversation; a knowledge base holds what is currently
 true. Do not paste transcripts into the knowledge base. Extract the durable
 claim, state it as fact, record source + date + author, and mark anything still
-unsettled as open. See the MediaHub knowledge base README, "How to extend".
+unsettled as open. The conventions are those of `<records>/knowledge/`.

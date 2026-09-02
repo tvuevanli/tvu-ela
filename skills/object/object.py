@@ -11,7 +11,7 @@ and a keyword search were documented in an earlier skill but answer 404 (verifie
 An active object's SHM/RTIL tangibles are named <graphId>:<node> and their tangibleId is the process id —
 that is how an object resolves to its running graphs (see graph.py resolve).
 
-Credentials: TVU_OBJECT_SERVICE_HOST and TVU_CC_BEARER_TOKEN from the environment → $ELA_ENV_FILE → --env-file.
+Credentials: TVU_OBJECT_SERVICE_HOST and TVU_CC_BEARER_TOKEN from the environment → --env-file → $ELA_ENV_FILE.
 Exit codes: 0 ok · 2 usage · 3 not found · 4 auth · 5 remote error.
 """
 import argparse, json, os, re, signal, sys, urllib.error, urllib.request

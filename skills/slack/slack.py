@@ -9,7 +9,7 @@
   whoami     [--email x]                 the user id behind an email (default: JIRA_EMAIL in the env file)
 
 Exit codes: 0 ok · 2 usage · 4 auth · 5 remote error.
-Credential resolution: $SLACK_BOT_TOKEN → $SLACK_ENV_FILE → --env-file. The script never stores it.
+Credential resolution: $SLACK_BOT_TOKEN → --env-file → $SLACK_ENV_FILE → $ELA_ENV_FILE. The script never stores it.
 """
 import argparse, json, os, re, signal, sys, time, urllib.error, urllib.parse, urllib.request
 from concurrent.futures import ThreadPoolExecutor
@@ -23,7 +23,7 @@ def env_value(key, env_file=None):
     v = os.environ.get(key)
     if v:
         return v
-    for path in filter(None, [env_file, os.environ.get("SLACK_ENV_FILE")]):
+    for path in filter(None, [env_file, os.environ.get("SLACK_ENV_FILE"), os.environ.get("ELA_ENV_FILE")]):
         try:
             for line in open(path):
                 if line.startswith(key + "="):

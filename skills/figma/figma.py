@@ -34,7 +34,7 @@ ENV_KEYS = ("FIGMA_TOKEN",)
 
 def load_env(env_file):
     creds = {k: os.environ.get(k) for k in ENV_KEYS}
-    path = env_file or os.environ.get("FIGMA_ENV_FILE")
+    path = env_file or os.environ.get("FIGMA_ENV_FILE") or os.environ.get("ELA_ENV_FILE")
     if path and not all(creds.values()):
         try:
             with open(path, encoding="utf-8") as fh:
