@@ -35,7 +35,7 @@ The task id is `<key-lower>` when a Jira key is given, else a short kebab slug f
 `python3 "${CLAUDE_PLUGIN_ROOT}/skills/jira/jira.py" --env-file <env> read <KEY> --deep > <runtime>/<id>/ticket.md`
 → note type, status, parent, subtasks, linked tickets, the layer token in the title (`[App]` `[UI]` …).
 **Route up before going down:** if the ticket plainly crosses layers/areas and has neither subtasks
-nor a plan in `<records>/breakdowns/`, stop and point to `/ela:breakdown <KEY>` — implementing one
+nor a plan in `<records>/records/breakdowns/`, stop and point to `/ela:breakdown <KEY>` — implementing one
 slice of an unsplit requirement is how scope drifts.
 
 **Without a ticket** (`--source`): a ticket is not a precondition — counterparts accept a recorded
@@ -72,7 +72,7 @@ The base clone is never `--add-dir`ed to the child, so it is structurally unwrit
 isolation by permission scope, not by instruction. Remove the worktree at close so the counterpart's
 root does not accumulate task dirs.
 
-Tier for the repo (from `ela-knowledge/decisions/` or the area's registry; default **draft-only**):
+Tier for the repo (from `<records>/records/decisions/` or the area's registry; default **draft-only**):
 
 | tier | child may | never |
 |---|---|---|
@@ -81,7 +81,7 @@ Tier for the repo (from `ela-knowledge/decisions/` or the area's registry; defau
 | `mr-gated` | + open an MR naming the human owner | merge |
 
 Record `{key, repo, worktree, branch, base_ref, tier, owner, governance}` to
-`<records>/ledger/<key-lower>.json` with `status: prepared` **before** delegating.
+`<records>/records/ledger/<key-lower>.json` with `status: prepared` **before** delegating.
 
 ## 3 — delegate by governance
 
@@ -153,7 +153,7 @@ Refuse at §1 with the reason.
   `npm run build` and lint are **not** evidence. Missing → status `unverified`, say so plainly.
 
 ## 5 — ledger
-Update `<records>/ledger/<key-lower>.json`: `status` (`done` | `unverified` | `blocked`),
+Update `<records>/records/ledger/<key-lower>.json`: `status` (`done` | `unverified` | `blocked`),
 `session_id`, `commits[]`, `artefacts[]`, `evidence{command,result}`, `questions[]` (asked/answered),
 `finished`. Commit it in the records repo.
 

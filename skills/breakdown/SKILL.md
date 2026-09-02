@@ -19,7 +19,7 @@ framing is first-class input — it often carries the decision the sources lack.
   question, record the answer signed and dated (`— Evan YYYY-MM-DD`). Never decide for him, never
   leave one implicit in a lane.
 - **The plan is the deliverable; Jira is a publication.** This skill writes only
-  `ela-knowledge/breakdowns/<KEY>/plan.md`. It never touches a product repo, and creates Jira
+  `ela-knowledge/records/breakdowns/<KEY>/plan.md`. It never touches a product repo, and creates Jira
   subtasks only through §5's gate.
 - **Owners are read, not remembered.** Token → owner from the roster file at run time; repo → owner
   from the map. A missing owner is `unknown`, never a guess.
@@ -66,7 +66,7 @@ cites the files read (the analyst returns them; keep the list in the plan direct
 
 ## 4 — the plan lands
 
-`<records>/breakdowns/<KEY>/plan.md`, committed to ela-knowledge:
+`<records>/records/breakdowns/<KEY>/plan.md`, committed to ela-knowledge:
 
 ```markdown
 ---
