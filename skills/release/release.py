@@ -6,7 +6,7 @@ L1: subcommands, --json, stdlib only. No store, no scheduler: every answer is th
   bundle   <name|id>                    a bundle's bill of materials (serviceTagList)
   envs     [service]                    versions per environment tag from userservice (prod host); --qa for the tvutest host
   builds   <job|service> [--limit N]    Jenkins builds: number, version, result, branch, sha, time
-  drift    [line]                       GM service names in the newest bundle vs map/services.yaml gm_names
+  drift    [line] [--bundles N]          GM service names shipped in the newest N bundles (default 5) vs map/services.yaml gm_names
   login                                 tvutest login → prints the QA SID to put in .env as TVUTEST_SID
 
 Config: site.json `services` (userservice, userservice-test, jenkins urls) · <records>/map/release.yaml (service ids,
@@ -270,13 +270,23 @@ def cmd_builds(a):
 # ── drift: bundle vs services.yaml ────────────────────────────────────────────
 
 def cmd_drift(a):
+    """services.yaml's GM names vs what GM actually ships: the union of the newest N bundles of a line (default 5),
+    so a service that left the bundle two weeks ago still counts as GM's. First-hand; the registry itself has no list API we know."""
     us = US(a.env_file, a.qa)
     rows = bundle_list(us, a.line, 50)
     rows.sort(key=lambda x: str(x.get("createTime") or ""), reverse=True)
     if not rows:
         print(f"no bundles for {a.line!r}", file=sys.stderr); sys.exit(EX_NOTFOUND)
-    b = rows[0]; items = bundle_detail(us, str(b["bundleId"])).get("serviceTagList") or []
-    in_bundle = {str(it.get("serviceName") or "").strip() for it in items} - {""}
+    rows = rows[:max(1, a.bundles)]
+    seen = {}                                      # gm name → [bundle names carrying it, newest first]
+    for b in rows:
+        items = bundle_detail(us, str(b["bundleId"])).get("serviceTagList") or []
+        for it in items:
+            name = str(it.get("serviceName") or "").strip()
+            if name:
+                seen.setdefault(name, []).append(b.get("bundleName"))
+    newest = rows[0].get("bundleName")
+    in_gm = set(seen)
     mapdir = site().get("map", "")
     known = set()
     try:
@@ -288,12 +298,18 @@ def cmd_drift(a):
         if m:
             try: known |= set(json.loads(m.group(1)))
             except ValueError: pass
-    only_bundle, only_map = sorted(in_bundle - known), sorted(known - in_bundle)
+    only_gm = sorted(in_gm - known); only_map = sorted(known - in_gm)
+    dropped = sorted(n for n in in_gm & known if newest not in seen[n])   # known, shipped recently, but not in the newest bundle
     if a.json:
-        print(json.dumps({"bundle": b.get("bundleName"), "in_bundle": sorted(in_bundle), "only_in_bundle": only_bundle, "only_in_services_yaml": only_map}, ensure_ascii=False)); return
-    print(f"# {b.get('bundleName')}  {len(in_bundle)} services in bundle · {len(known)} GM names in services.yaml")
-    print("in the bundle, not in services.yaml:"); [print("  " + x) for x in only_bundle] or print("  —")
-    print("in services.yaml, not in this bundle:"); [print("  " + x) for x in only_map] or print("  —")
+        print(json.dumps({"line": a.line, "bundles": [b.get("bundleName") for b in rows], "in_gm": {n: seen[n] for n in sorted(seen)},
+                          "only_in_gm": only_gm, "only_in_services_yaml": only_map, "not_in_newest": dropped}, ensure_ascii=False)); return
+    print(f"# {a.line} — {len(rows)} bundle(s), newest {newest}: {len(in_gm)} GM names shipped · {len(known)} in services.yaml")
+    print("shipped by GM, not in services.yaml:")
+    for x in only_gm: print(f"  {x:<40} in {len(seen[x])}/{len(rows)} bundles, newest {seen[x][0]}")
+    if not only_gm: print("  —")
+    print("in services.yaml, not shipped in these bundles:"); [print("  " + x) for x in only_map] or print("  —")
+    if dropped:
+        print(f"known and shipped, but not in {newest}:"); [print(f"  {x:<40} last {seen[x][0]}") for x in dropped]
 
 
 def cmd_login(a):
@@ -311,7 +327,7 @@ def main():
     p = sub.add_parser("bundle"); p.add_argument("ref", help="bundle name (mh2.1@daily-wed-s1-d31) or id"); p.add_argument("--qa", action="store_true"); p.add_argument("--json", action="store_true"); p.add_argument("--raw", action="store_true")
     p = sub.add_parser("envs"); p.add_argument("service", nargs="?"); p.add_argument("--qa", action="store_true"); p.add_argument("--json", action="store_true")
     p = sub.add_parser("builds"); p.add_argument("job"); p.add_argument("--limit", type=int, default=15); p.add_argument("--json", action="store_true")
-    p = sub.add_parser("drift"); p.add_argument("line", nargs="?", default="mh2.1@"); p.add_argument("--qa", action="store_true"); p.add_argument("--json", action="store_true")
+    p = sub.add_parser("drift"); p.add_argument("line", nargs="?", default="mh2.1@"); p.add_argument("--qa", action="store_true"); p.add_argument("--bundles", type=int, default=5, help="newest N bundles to union (default 5)"); p.add_argument("--json", action="store_true")
     p = sub.add_parser("login"); p.add_argument("--json", action="store_true")
     a = ap.parse_args()
     {"bundles": cmd_bundles, "bundle": cmd_bundle, "envs": cmd_envs, "builds": cmd_builds, "drift": cmd_drift, "login": cmd_login}[a.cmd](a)
