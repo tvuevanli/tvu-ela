@@ -1,6 +1,6 @@
 ---
 name: slack
-description: Slack capability — a thread by permalink, the channels the bot can see, a channel's recent history, threads that mention Evan and whether he answered, threads he started that nobody answered; and one write, post (dry run until --apply). Use when the user pastes a Slack link (tvunetworks.slack.com/archives/...), asks what a thread says, asks "who is waiting on me in Slack", "最近谁 @ 我了", "这个频道昨天说了什么", or asks to send a message or reply in a thread ("回一下这个 thread", "发到 prj_dev_mediahub").
+description: Slack capability — a thread by permalink, the channels the bot can see, a channel's recent history, threads that mention Evan and whether he answered, threads he started that nobody answered, the workspace's members with their emails (`users` — the first-hand source for any roster); and one write, post (dry run until --apply). Use when the user pastes a Slack link (tvunetworks.slack.com/archives/...), asks what a thread says, asks "who is waiting on me in Slack", "最近谁 @ 我了", "这个频道昨天说了什么", or asks to send a message or reply in a thread ("回一下这个 thread", "发到 prj_dev_mediahub").
 user-invocable: true
 ---
 
@@ -14,6 +14,7 @@ $SLACK history <channel> --since 24h    # top-level messages; --threads adds rep
 $SLACK mentions --since 48h --channels '#prj_dev_mediahub,#dev-unified-resources,#boundary-agent-integration'   # who mentioned Evan; answered = he replied after the last mention
 $SLACK unanswered --since 7d --channels '#prj_dev_mediahub'       # threads Evan started that nobody else replied to
 $SLACK whoami                           # Evan's user id, from JIRA_EMAIL in the env file
+$SLACK users [match]                    # workspace members — id, name, email, title (first-hand, users.list; the whole workspace incl. Slack Connect guests, about a minute)
 $SLACK post <permalink> --file reply.md            # DRY RUN: shows where, as whom, and the text; nothing is sent
 $SLACK post <permalink> --file reply.md --apply    # sends — only after Evan has read the dry run and said so
 $SLACK post '#prj_dev_mediahub' --text "…"         # top level in a channel; --dm me|email|Uxxx for a direct message
@@ -33,7 +34,7 @@ here depends on another tool's config. The script reads `SLACK_BOT_TOKEN` from i
 ## Scope
 
 Reads — `conversations.replies`, `conversations.info`, `conversations.history`, `users.conversations`,
-`users.info`, `users.lookupByEmail`. One write — `chat.postMessage` via `post`. No edit, no delete, no
+`users.info`, `users.lookupByEmail`, `users.list`. One write — `chat.postMessage` via `post`. No edit, no delete, no
 reaction; none is to be added silently.
 
 ## Posting — the rules (decision `2026-09-02-slack-voice-policy`, added 2026-09-03)

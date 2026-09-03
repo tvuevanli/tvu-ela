@@ -1,6 +1,6 @@
 ---
 name: publish
-description: Publish an elak source into the published directory that machines read (Helm's knowledge root, the remote's map) and record the manifest row — today the media docker service catalogue from map/services.yaml. Use on "发布 services.yaml", "更新 Helm 读的服务目录", "publish the catalogue", or after map/services.yaml changed.
+description: Publish an elak source into the published directory that machines read (Helm's knowledge root, the remote's map) and record the manifest row — the media docker service catalogue from map/services.yaml and the roster from knowledge/products/mediahub/team/roster.yaml. Use on "发布 services.yaml", "publish the roster", "花名册改了", "更新 Helm 读的服务目录", "publish the catalogue", or after map/services.yaml changed.
 user-invocable: true
 ---
 
@@ -13,8 +13,9 @@ directories; readers (Helm's context packs, the remote ela) point at these paths
 
 ```bash
 P="python3 ${CLAUDE_PLUGIN_ROOT}/skills/publish/publish.py"     # or: ela publish …
-$P all            # map/ (yaml, as they are) + the catalogue + <published>/MANIFEST.md; removes stale per-reader dirs
+$P all            # map/ (yaml, as they are) + the catalogue + the roster + <published>/MANIFEST.md; removes stale per-reader dirs
 $P catalogue      # map/services.yaml → <published>/knowledge/products/mediahub/services.md + manifest row
+$P roster         # knowledge/products/mediahub/team/roster.yaml → <published>/…/team/{roster.yaml, team-map.md} (Helm's identity-line shape) + manifest row
 $P map            # map/*.yaml + README.md → <published>/map/ (machine-readable; the remote ela's records/map roots)
 $P list           # what the manifest says is published, and whether the source's verified: moved since (drift)
 ```
@@ -28,7 +29,7 @@ $P list           # what the manifest says is published, and whether the source'
 - **The manifest row is the record.** `publish/published.md` gets one row per source: source path,
   destination (by root name), published date, the source's `verified:` at that moment. Drift is computed
   from those two dates, never remembered.
-- **Only sources that exist in elak.** The team roster, layer rules and voice policy are published when
+- **Only sources that exist in elak.** The roster is published (2026-09-03); the layer rules and voice policy follow when
   `knowledge/products/mediahub/` holds them — not before, and never by copying Helm's files through.
 - Helm reads the result only once its knowledge root points at `<published>` (a Helm-repo change, in a
   Helm session); until then the published file is proof of the pipeline, not yet a dependency.

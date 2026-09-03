@@ -349,6 +349,30 @@ def cmd_whoami(tok, a):
     print(json.dumps({"user": uid}) if a.json else uid)
 
 
+def list_users(tok):
+    """Every human, non-deleted member of the workspace: id, real name, email, title. First-hand from users.list."""
+    out = []
+    for u in paged("users.list", tok, "members", limit=200):
+        if u.get("deleted") or u.get("is_bot") or u.get("id") == "USLACKBOT":
+            continue
+        pr = u.get("profile") or {}
+        out.append({"id": u["id"], "name": pr.get("real_name") or u.get("real_name") or u.get("name"),
+                    "email": pr.get("email"), "title": pr.get("title") or "", "handle": u.get("name"),
+                    "tz": u.get("tz"), "guest": bool(u.get("is_restricted") or u.get("is_ultra_restricted"))})
+    return sorted(out, key=lambda x: (x["name"] or "").lower())
+
+
+def cmd_users(tok, a):
+    users = list_users(tok)
+    if a.match:
+        m = a.match.lower()
+        users = [u for u in users if m in (u["name"] or "").lower() or m in (u["email"] or "").lower() or m in (u["handle"] or "").lower()]
+    if a.json:
+        print(json.dumps({"count": len(users), "users": users}, ensure_ascii=False)); return
+    for u in users:
+        print(f"{u['id']:<12} {(u['name'] or ''):<28} {(u['email'] or '-'):<36} {u['title']}")
+
+
 def main():
     signal.signal(signal.SIGPIPE, signal.SIG_DFL)  # `| head` must not traceback
     ap = argparse.ArgumentParser(description="Slack capability: reads first-hand; `post` writes, dry run until --apply.")
@@ -371,6 +395,9 @@ def main():
     p.add_argument("--json", action="store_true")
     p = sub.add_parser("whoami", help="user id behind an email")
     p.add_argument("--email"); p.add_argument("--json", action="store_true")
+    p = sub.add_parser("users", help="workspace members — id, name, email, title; first-hand from users.list")
+    p.add_argument("match", nargs="?", help="substring of a name, email or handle")
+    p.add_argument("--json", action="store_true")
     p = sub.add_parser("post", help="send a message as the bot — dry run unless --apply")
     p.add_argument("target", nargs="?", help="#channel, channel id, or a thread permalink (reply there)")
     p.add_argument("--text"); p.add_argument("--file", help="markdown/text file, or - for stdin")
@@ -380,7 +407,7 @@ def main():
     a = ap.parse_args()
     tok = token(a.env_file)
     {"read": cmd_read, "channels": cmd_channels, "history": cmd_history, "mentions": cmd_mentions,
-     "unanswered": cmd_unanswered, "whoami": cmd_whoami, "post": cmd_post}[a.cmd](tok, a)
+     "unanswered": cmd_unanswered, "whoami": cmd_whoami, "users": cmd_users, "post": cmd_post}[a.cmd](tok, a)
 
 
 if __name__ == "__main__":

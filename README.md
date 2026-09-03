@@ -42,7 +42,7 @@ This is how ela knows Evan in any directory without an agent or a global CLAUDE.
 |---|---|---|
 | `/ela:setup` | 1 | first run / repair of `~/.claude/ela/` — paths, credentials, read-only probe of every sense |
 | `/ela:jira` | 1 | read an issue (links, subtasks, comments), run JQL, or create an issue / subtask (dry-run default, confirm-gated) |
-| `/ela:slack` | 1 | read a thread by permalink; list channels; history, mentions and unanswered scans; `post` — the one write, dry run until `--apply`, replies in-thread by permalink, refuses duplicates |
+| `/ela:slack` | 1 | read a thread by permalink; list channels; history, mentions and unanswered scans; `users` (members with emails, first-hand); `post` — the one write, dry run until `--apply`, replies in-thread by permalink, refuses duplicates |
 | `/ela:kb` | 1 | read / search Outline; write on explicit confirm |
 | `/ela:object` | 1 | Object Service API: an object or a tangible by id (`object.py get` — the only read; batch and search endpoints answer 404; not objectd — a different service) |
 | `/ela:graph` | 1 | UR graph and process first-hand (J2N + Pilot), no environment to set: node table in pipeline order with process ids, box ips, images; a process's live record; a user's graphs; graphs carrying an object |
@@ -57,7 +57,8 @@ This is how ela knows Evan in any directory without an agent or a global CLAUDE.
 | `/ela:brief` | 4 | the morning brief: stale In-Progress, unrouted new tickets, complex tickets not broken down, report threads, threads waiting on Evan, threads he wrote alone, decisions made in Slack without a ticket — ranked, each with a drafted action; read-only |
 | `/ela:task` | 2 | one piece of work Evan implements: worktree, tier, delegation to the area's stack, evidence, ledger |
 | `/ela:breakdown` | 3 | requirement → layer-tagged lanes with owners, order, verification; knowledge or code depth; plan in elak, Jira publication on confirm |
-| `/ela:publish` | 1 | publish an elak source into `<published>` for machines to read — today the media docker service catalogue from `map/services.yaml` — and record the manifest row; `ela publish catalogue · list` |
+| `/ela:publish` | 1 | publish an elak source into `<published>` for machines to read — the media docker service catalogue from `map/services.yaml` and the roster from `knowledge/products/mediahub/team/roster.yaml` — and record the manifest row; `ela publish catalogue · roster · map · all · list` |
+| `/ela:team` | 1 | the MediaHub roster, first-hand — `ela who <name|email|Uxxx|accountId>` (exit 3 when unknown), `ela team list · emails · check` (check re-reads Slack); the only identity source, never a guess |
 | `/ela:reports` | 1 | Evan's standing reports (ela status, Helm vs ela, comparisons) — markdown in `<projects>/reports`, rendered and published as private artifacts with stable URLs; `ela reports list · build` |
 | `/ela:map` | 1 | the code layout (`code/<alias>/<remote path>`, `work/<KEY>/<repo>`) and the script that keeps it: `survey` (cache) · `find` · `services` · `where` · `probe` · `clone` · `sync` · `worktree` |
 

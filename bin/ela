@@ -7,7 +7,7 @@
   ela process <id>          one process's live record          ela box <id>
   ela graphs [me|li|email]  a user's graphs (default: me)      ela resolve <id> [--email …]
   ela jira <read|jql|comment|transition|label|link|assign|create|create-subtask> …
-  ela slack <read|channels|history|mentions|unanswered|whoami|post> …   (post: dry run until --apply; a permalink replies in-thread)
+  ela slack <read|channels|history|mentions|unanswered|whoami|users|post> …   (post: dry run until --apply; a permalink replies in-thread)
   ela object <id>           object or tangible
   ela find <name>           repos, images, process types, slugs, GM names matching   ela coverage
   ela where <alias/path|repo|slug|image>   the checkout path(s)   ela probe <alias/path>…   ela clone <alias/path>   ela sync <repo> [--ref R]
@@ -21,7 +21,8 @@
   ela gdoc <read|sheet|list|info> …                 Google Docs/Sheets/Drive, read-only (a docs.google.com URL alone works)
   ela api <projects|export|tags|list|read|schema> … Apifox API definitions, read-only (ela api read ur "GET /v1beta1/graphs/{graphId}")
   ela reports <list|build>  Evan's standing reports (markdown → HTML; a session publishes them as artifacts)
-  ela publish <catalogue|list>  render an elak source into <published> for machines to read; the manifest row records it
+  ela publish <catalogue|roster|map|all|list>  render an elak source into <published> for machines to read; the manifest row records it
+  ela team <list|who|emails|check>  the MediaHub roster, first-hand · ela who <name|email|Uxxx|accountId>  one person; exit 3 when unknown
   ela envs                  the UR probe order         ela site   (rarely) the site config: roots, host names, aliases, emails
 
 Every verb forwards to the capability script under skills/<cap>/<cap>.py with the site's env file;
@@ -48,6 +49,7 @@ VERBS = {
     "drift": ("release", "drift"), "release": ("release", None),
     "confluence": ("confluence", None), "wiki": ("confluence", None), "gdoc": ("gdoc", None),
     "reports": ("reports", None), "api": ("apifox", None), "apifox": ("apifox", None), "publish": ("publish", None),
+    "team": ("team", None), "who": ("team", "who"),
 }
 
 
