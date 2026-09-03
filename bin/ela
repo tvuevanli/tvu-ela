@@ -2,7 +2,7 @@
 """ela — Evan's assistant at the shell. One word, short verbs, no Claude session needed.
 
   ela <id|url>              the shortest form: MH-3568 · 01M1GD1F… (graph) · 32-hex (process, then tangible) · 19 digits (object)
-                            · a Slack permalink · a Jira URL — recognised by shape and read first-hand
+                            · a Slack permalink · a Jira URL · a Confluence page URL · a Google Doc/Sheet URL — by shape
   ela graph <id> [-d] [-c]  node table in pipeline order; -d box location/id + image, -c connections (env read from the data)
   ela process <id>          one process's live record          ela box <id>
   ela graphs [me|li|email]  a user's graphs (default: me)      ela resolve <id> [--email …]
@@ -16,6 +16,8 @@
   ela versions [service]    versions per env (userservice)    ela builds <job|service>  Jenkins builds: version, branch, sha
   ela drift                 newest bundle's GM names vs services.yaml     ela release login   (tvutest SID)
   ela kb <search|read|tree|write|update|delete> …   Outline (writes dry-run; --apply on Evan's word)    ela figma …
+  ela wiki <spaces|tree|search|read|children> …     Confluence, read-only (also: ela confluence …; a page URL alone works)
+  ela gdoc <read|sheet|list|info> …                 Google Docs/Sheets/Drive, read-only (a docs.google.com URL alone works)
   ela envs                  the UR probe order         ela site   (rarely) the site config: roots, host names, aliases, emails
 
 Every verb forwards to the capability script under skills/<cap>/<cap>.py with the site's env file;
@@ -40,6 +42,7 @@ VERBS = {
     "kb": ("kb", None), "figma": ("figma", None),
     "bundles": ("release", "bundles"), "bundle": ("release", "bundle"), "versions": ("release", "envs"), "builds": ("release", "builds"),
     "drift": ("release", "drift"), "release": ("release", None),
+    "confluence": ("confluence", None), "wiki": ("confluence", None), "gdoc": ("gdoc", None),
 }
 
 
@@ -71,6 +74,13 @@ def by_shape(token):
         return "graph", ["resolve", token]          # object → its running graphs
     if re.fullmatch(r"[0-9a-f]{16}", token):
         return "object", ["get", token]
+    if "docs.google.com/spreadsheets/" in token:
+        return "gdoc", ["sheet", token]
+    if "docs.google.com/document/" in token or "drive.google.com/" in token:
+        return "gdoc", ["read", token]
+    conf = ((site().get("services") or {}).get("confluence") or {}).get("url")
+    if (conf and token.startswith(conf)) or "pageId=" in token:
+        return "confluence", ["read", token]
     return None, None
 
 

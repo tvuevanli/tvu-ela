@@ -33,7 +33,7 @@ Target shape:
   "dir_names": { "<alias>/<remote name>": "<alias>/<dir name a team stack requires>" },
   "stacks":   { "<alias>": "<path of the team stack repo that governs that alias>" },
   "emails":   { "me": "<Evan's address>", "<alias>": "<a colleague's address — `ela graphs li`>" },
-  "services": { "jenkins": { "url": "<Jenkins root>" }, "userservice": { "url": "<GM userservice, prod>" }, "userservice-test": { "url": "<GM userservice, QA>" } },
+  "services": { "jenkins": { "url": "<Jenkins root>" }, "userservice": { "url": "<GM userservice, prod>" }, "userservice-test": { "url": "<GM userservice, QA>" }, "confluence": { "url": "<the web team's Confluence root>" } },
   "map_sources": {
     "mediahub_agent_workspace": "<mh-app>/mediahub-agent/workspace.json",
     "tvu_catalog_modules":      "<tvu-knowledge>/tvu-catalog/catalog/modules",
@@ -59,6 +59,8 @@ Keys and where each comes from when absent:
 | `OUTLINE_URL` `OUTLINE_TOKEN` | Outline (kb.tvunetworks.com) → Settings → API tokens |
 | `TVU_OBJECT_SERVICE_HOST` `TVU_CC_BEARER_TOKEN` | Object Service host + a CC bearer token from a logged-in session |
 | `FIGMA_TOKEN` | Figma → Settings → Security → Personal access tokens (read scope) |
+| `CONFLUENCE_TOKEN` | the web team's Confluence → profile → Personal Access Tokens (read); the host URL goes in `site.json services.confluence.url` |
+| `GOOGLE_TOKEN_FILE` | path to a Google OAuth token JSON with read-only scopes (documents.readonly, drive.readonly) — Helm's grant copied once into the site dir, mode 600 |
 | `UR_ACCESS_KEY` | UR access key — a JSON blob, copied verbatim on one line; `UR_BASE_HOST` (optional, default UR host) and `UR_ENV_ORDER` (optional comma list overriding the probe order `prod3,prod2,test2`) |
 | `TVU_SSH_USER` `TVU_SSH_PASSWORD` | box ssh for `graph connect` / `exec` (user defaults to the operate account) |
 | `USERSERVICE_ADMIN_SID` | optional — prod release reads (`bundles · envs · builds`): the SID cookie from a logged-in browser session on userservice; expires, re-paste on HTTP 402 |
@@ -80,6 +82,8 @@ python3 "${CLAUDE_PLUGIN_ROOT}/skills/slack/slack.py" --env-file "$ENV" whoami  
 python3 "${CLAUDE_PLUGIN_ROOT}/skills/graph/graph.py" --env-file "$ENV" graphs --pages 1 --limit 1     # UR key (graphs of `me` from site.json emails); or: ela graphs
 python3 "${CLAUDE_PLUGIN_ROOT}/skills/release/release.py" --env-file "$ENV" envs           # userservice SID; or: ela versions
 python3 "${CLAUDE_PLUGIN_ROOT}/skills/release/release.py" --env-file "$ENV" builds mediahub-backend --limit 1   # Jenkins; or: ela builds mediahub-backend
+python3 "${CLAUDE_PLUGIN_ROOT}/skills/confluence/confluence.py" --env-file "$ENV" spaces | head -3      # Confluence PAT; or: ela wiki spaces
+python3 "${CLAUDE_PLUGIN_ROOT}/skills/gdoc/gdoc.py" --env-file "$ENV" list --limit 3                     # Google token refresh + Drive; or: ela gdoc list
 # object: python3 "${CLAUDE_PLUGIN_ROOT}/skills/object/object.py" --env-file "$ENV" get <known id> — the only read; see skills/object/SKILL.md
 ```
 
