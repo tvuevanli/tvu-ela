@@ -120,6 +120,7 @@ written locally unless he says so; nothing is synced.
 | `skills/jira` `slack` `kb` `confluence` `gdoc` `object` `figma` `graph` `release` | **senses** — first-hand, read-first. Writes (`kb`, the `jira` atoms, `slack post`, `graph start/stop`) are dry-run or y/N by default; `--apply` follows a confirm. Their scripts are L1 capabilities, not product code | 1 |
 | `skills/map` | `/ela:map` — the layout and the script that keeps it: survey (cache) · find · where · services · coverage · missing · probe · clone · sync · worktree | 1 |
 | `skills/probe` `report` `route` | judgment over the senses: deep bug check · digest a report thread · route a bug to an owner | 3 |
+| `skills/reports` | Evan's reading surface: standing reports (ela status, Helm vs ela, comparisons) from markdown in `<reports>`, published as private artifacts with stable URLs. Not knowledge — regenerated from ela, elak and Helm | 1 |
 | `skills/setup` | `/ela:setup` — guided creation/repair of the site dir, probes every sense | 1 |
 | `skills/task` | for work Evan implements: worktree · tier · **delegation** to the area's stack (headless session in the counterpart's repo) or ela's own implementer · evidence check · ledger | 2 |
 | `skills/breakdown` | requirement → layer-tagged lanes with owners; two depths — *knowledge* (docs/KB/map only) or *code* (plus the relevant services' source via a read-only analyst); produces a plan, publishes only on confirm | 3 |

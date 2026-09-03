@@ -56,6 +56,7 @@ This is how ela knows Evan in any directory without an agent or a global CLAUDE.
 | `/ela:brief` | 4 | the morning brief: stale In-Progress, unrouted new tickets, complex tickets not broken down, report threads, threads waiting on Evan, threads he wrote alone, decisions made in Slack without a ticket — ranked, each with a drafted action; read-only |
 | `/ela:task` | 2 | one piece of work Evan implements: worktree, tier, delegation to the area's stack, evidence, ledger |
 | `/ela:breakdown` | 3 | requirement → layer-tagged lanes with owners, order, verification; knowledge or code depth; plan in elak, Jira publication on confirm |
+| `/ela:reports` | 1 | Evan's standing reports (ela status, Helm vs ela, comparisons) — markdown in `<projects>/reports`, rendered and published as private artifacts with stable URLs; `ela reports list · build` |
 | `/ela:map` | 1 | the code layout (`code/<alias>/<remote path>`, `work/<KEY>/<repo>`) and the script that keeps it: `survey` (cache) · `find` · `services` · `where` · `probe` · `clone` · `sync` · `worktree` |
 
 Start the session where the target's rules live (`CLAUDE.md` → *The operating rule*); ela's skills

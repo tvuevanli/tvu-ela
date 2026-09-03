@@ -19,6 +19,7 @@
   ela kb <search|read|tree|write|update|delete> …   Outline (writes dry-run; --apply on Evan's word)    ela figma …
   ela wiki <spaces|tree|search|read|children> …     Confluence, read-only (also: ela confluence …; a page URL alone works)
   ela gdoc <read|sheet|list|info> …                 Google Docs/Sheets/Drive, read-only (a docs.google.com URL alone works)
+  ela reports <list|build>  Evan's standing reports (markdown → HTML; a session publishes them as artifacts)
   ela envs                  the UR probe order         ela site   (rarely) the site config: roots, host names, aliases, emails
 
 Every verb forwards to the capability script under skills/<cap>/<cap>.py with the site's env file;
@@ -44,6 +45,7 @@ VERBS = {
     "bundles": ("release", "bundles"), "bundle": ("release", "bundle"), "versions": ("release", "envs"), "builds": ("release", "builds"),
     "drift": ("release", "drift"), "release": ("release", None),
     "confluence": ("confluence", None), "wiki": ("confluence", None), "gdoc": ("gdoc", None),
+    "reports": ("reports", None),
 }
 
 
@@ -58,7 +60,7 @@ def run(cap, args, env_file):
     script = os.path.join(ROOT, "skills", cap, f"{cap}.py")
     if not os.path.isfile(script):
         sys.exit(f"capability {cap} has no script yet ({script})")
-    argv = ["python3", script, "--env-file", env_file, *args] if cap != "map" else ["python3", script, *args]
+    argv = ["python3", script, "--env-file", env_file, *args] if cap not in ("map", "reports") else ["python3", script, *args]
     os.execvp(argv[0], argv)
 
 
