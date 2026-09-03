@@ -44,5 +44,6 @@ $R build [name…]              # markdown → HTML (all when no name)
 |---|---|
 | `ela-status` | where ela stands against its target: tracks vs exits, the command today, what waits on Evan, what is next |
 | `helm-and-ela` | why both exist, who develops Helm, the remote, skill-by-skill overlaps, the hand-over plan |
+| `evan-work-system` | the top-level design: Evan's situations and problems, who does what through ela and Helm, the clock, responsibilities, the landing order |
 
 Add a report when Evan asks the same question a second time.
