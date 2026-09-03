@@ -12,6 +12,7 @@
   ela find <name>           repos, images, process types, slugs, GM names matching   ela coverage
   ela where <alias/path|repo|slug|image>   the checkout path(s)   ela probe <alias/path>…   ela clone <alias/path>   ela sync <repo> [--ref R]
   ela worktree <repo> <KEY> ela survey                ela missing               ela services
+  ela remote <alias> [grep]  every project of that GitLab group (read token); ● on disk ○ not cloned
   ela bundles [mh2.1@]      GM bundles, newest first          ela bundle <name|id>     its bill of materials
   ela versions [service]    versions per env (userservice)    ela builds <job|service>  Jenkins builds: version, branch, sha
   ela drift                 newest bundle's GM names vs services.yaml     ela release login   (tvutest SID)
@@ -38,7 +39,7 @@ VERBS = {
     "jira": ("jira", None), "slack": ("slack", None), "object": ("object", "get"),
     "find": ("map", "find"), "where": ("map", "where"), "probe": ("map", "probe"), "clone": ("map", "clone"),
     "sync": ("map", "sync"), "worktree": ("map", "worktree"), "survey": ("map", "survey"),
-    "coverage": ("map", "coverage"), "missing": ("map", "missing"), "services": ("map", "services"),
+    "coverage": ("map", "coverage"), "remote": ("map", "remote"), "missing": ("map", "missing"), "services": ("map", "services"),
     "kb": ("kb", None), "figma": ("figma", None),
     "bundles": ("release", "bundles"), "bundle": ("release", "bundle"), "versions": ("release", "envs"), "builds": ("release", "builds"),
     "drift": ("release", "drift"), "release": ("release", None),

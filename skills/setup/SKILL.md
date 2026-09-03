@@ -28,7 +28,7 @@ Target shape:
   "records":  "<ela-knowledge repo>",
   "map":      "<records>/map        — services.yaml · absent.yaml (knowledge); the disk survey is a cache at ~/.claude/ela/map/host.json",
   "env":      "~/.claude/ela/.env",
-  "hosts":    { "<name>": { "url": "<git host url>", "matches": ["<hostnames as they appear in remotes>"] } },
+  "hosts":    { "<name>": { "url": "<git host url>", "matches": ["<hostnames as they appear in remotes>"], "api": "<http root of the GitLab API, optional>", "token_env": "<.env key holding a read_api token, optional — enables `map.py remote`>" } },
   "aliases":  { "<alias>": { "host": "<hosts key>", "group": "<gitlab group or * for a github org root>" } },
   "dir_names": { "<alias>/<remote name>": "<alias>/<dir name a team stack requires>" },
   "stacks":   { "<alias>": "<path of the team stack repo that governs that alias>" },
@@ -59,6 +59,7 @@ Keys and where each comes from when absent:
 | `OUTLINE_URL` `OUTLINE_TOKEN` | Outline (kb.tvunetworks.com) → Settings → API tokens |
 | `TVU_OBJECT_SERVICE_HOST` `TVU_CC_BEARER_TOKEN` | Object Service host + a CC bearer token from a logged-in session |
 | `FIGMA_TOKEN` | Figma → Settings → Security → Personal access tokens (read scope) |
+| `GITLAB_MEDIA_TOKEN` `GITLAB_WEB_TOKEN` | each GitLab → Preferences → Access Tokens, scope `read_api` only; named by `token_env` in `site.json hosts` — lets `map.py remote` list a whole group |
 | `CONFLUENCE_TOKEN` | the web team's Confluence → profile → Personal Access Tokens (read); the host URL goes in `site.json services.confluence.url` |
 | `GOOGLE_TOKEN_FILE` | path to a Google OAuth token JSON with read-only scopes (documents.readonly, drive.readonly) — Helm's grant copied once into the site dir, mode 600 |
 | `UR_ACCESS_KEY` | UR access key — a JSON blob, copied verbatim on one line; `UR_BASE_HOST` (optional, default UR host) and `UR_ENV_ORDER` (optional comma list overriding the probe order `prod3,prod2,test2`) |

@@ -237,6 +237,77 @@ def gitlab_to_dir(lay, gl):
     return d
 
 
+def env_value(key):
+    """A credential from ela's env file (site.json `env`); map.py takes no --env-file — the site names it."""
+    v = os.environ.get(key)
+    if v:
+        return v
+    path = site().get("env") or os.path.expanduser("~/.claude/ela/.env")
+    try:
+        for line in open(path):
+            if line.startswith(key + "="):
+                return line.split("=", 1)[1].strip()
+    except OSError:
+        pass
+    return None
+
+
+def remote_cache_path(alias):
+    return os.path.expanduser(f"~/.claude/ela/map/remote-{alias.replace('/', '_')}.json")
+
+
+def remote_listing(lay, alias, refresh=False, quiet=False):
+    """Every project of the alias's GitLab group (subgroups included), from the host's API with a read token.
+    Cached a day under ~/.claude/ela/map/; None when the host has no api/token configured."""
+    a = lay.aliases.get(alias)
+    if not a:
+        return None
+    h = lay.hosts.get(a["host"], {})
+    api, token = h.get("api"), env_value(h.get("token_env") or "")
+    if not api or not token or a["group"] == "*":
+        return None
+    cp = remote_cache_path(alias)
+    if not refresh and os.path.isfile(cp) and time.time() - os.path.getmtime(cp) < 86400:
+        return json.load(open(cp))
+    import urllib.request, urllib.parse, urllib.error
+    rows, page = [], 1
+    while True:
+        url = f"{api.rstrip('/')}/api/v4/groups/{urllib.parse.quote(a['group'], safe='')}/projects?include_subgroups=true&simple=true&per_page=100&page={page}"
+        req = urllib.request.Request(url, headers={"PRIVATE-TOKEN": token})
+        try:
+            with urllib.request.urlopen(req, timeout=30) as r:
+                batch = json.load(r); total_pages = int(r.headers.get("X-Total-Pages") or 1)
+        except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, OSError) as e:
+            if not quiet:
+                print(f"{alias}: group listing failed ({str(e)[:80]}) — token, api url or network", file=sys.stderr)
+            return json.load(open(cp)) if os.path.isfile(cp) else None
+        rows += [{"path": b["path_with_namespace"], "description": (b.get("description") or "").strip(),
+                  "default_branch": b.get("default_branch"), "last_activity": (b.get("last_activity_at") or "")[:10]} for b in batch]
+        if page >= total_pages or not batch:
+            break
+        page += 1
+    os.makedirs(os.path.dirname(cp), exist_ok=True)
+    json.dump({"alias": alias, "group": a["group"], "fetched": time.strftime("%Y-%m-%d %H:%M"), "projects": rows}, open(cp, "w"), ensure_ascii=False)
+    return json.load(open(cp))
+
+
+def cmd_remote(lay, a):
+    d = remote_listing(lay, a.alias, refresh=a.refresh)
+    if d is None:
+        print(f"{a.alias}: no group listing — the host needs `api` and `token_env` in site.json hosts, and the token in the env file", file=sys.stderr); sys.exit(EX_USAGE)
+    rows = d["projects"]
+    if a.grep:
+        rows = [r for r in rows if norm(a.grep) in norm(r["path"]) or norm(a.grep) in norm(r["description"])]
+    for r in rows:
+        url, dirpath = lay.alias_path(a.alias + "/" + r["path"].split("/", 1)[1]) if "/" in r["path"] else (None, None)
+        r["on_disk"] = bool(dirpath and os.path.isdir(dirpath))
+    if a.json:
+        print(json.dumps({"alias": a.alias, "group": d["group"], "fetched": d["fetched"], "count": len(rows), "projects": rows}, ensure_ascii=False)); return
+    print(f"# {a.alias} → group {d['group']}: {len(rows)} projects (listed {d['fetched']}; {sum(r['on_disk'] for r in rows)} on disk)")
+    for r in sorted(rows, key=lambda r: r["path"]):
+        print(f"{'●' if r['on_disk'] else '○'} {r['path']:<48} {r['last_activity']}  {r['description'][:70]}")
+
+
 def norm(x):
     return re.sub(r"[^a-z0-9]", "", (x or "").lower())
 
@@ -267,6 +338,14 @@ def cmd_find(lay, a):
     for e in absent:
         if q in norm(e["name"]):
             hits["absent"].append(e)
+    hits["remote"] = []
+    for alias in lay.aliases:
+        d = remote_listing(lay, alias, quiet=True)
+        for r in (d or {}).get("projects", []):
+            if q in norm(r["path"]) or (r["description"] and q in norm(r["description"])):
+                _, dirpath = lay.alias_path(alias + "/" + r["path"].split("/", 1)[1]) if "/" in r["path"] else (None, None)
+                if not any(h["path"] == dirpath for h in hits["repos"]):
+                    hits["remote"].append(dict(r, alias=alias, dir=dirpath, on_disk=bool(dirpath and os.path.isdir(dirpath))))
     if not any(hits.values()):
         print(f"{a.name}: no repo, image, process type, slug or GM name matches; not in absent.yaml — try `probe media/{a.name}`", file=sys.stderr); sys.exit(EX_NOTFOUND)
     if a.json:
@@ -286,6 +365,8 @@ def cmd_find(lay, a):
         for h in hits[kind]:
             code = "; ".join(f"{r['gitlab']} ({'on disk' if r['on_disk'] else 'not cloned'})" for r in h["repos"]) or "code unknown"
             print(f"{label:<6} {h['name'][:28]:<28} image {h['image']}; owners {', '.join(h['owners']) or '?'}; {code}")
+    for r in hits["remote"]:
+        print(f"remote {r['path']:<28} {'on disk' if r['on_disk'] else 'not cloned — `ela clone ' + r['alias'] + '/' + r['path'].split('/', 1)[1] + '`'}  {r['description'][:60]}")
     for e in hits["absent"]:
         print(f"absent {e['name']:<28} owner {e['owner'] or '?'}; {e['location'][:100]}")
 
@@ -511,6 +592,8 @@ def main():
     p = sub.add_parser("find"); p.add_argument("name"); p.add_argument("--json", action="store_true")
     p = sub.add_parser("services"); p.add_argument("--image"); p.add_argument("--type"); p.add_argument("--json", action="store_true")
     p = sub.add_parser("where"); p.add_argument("ref"); p.add_argument("--json", action="store_true")
+    p = sub.add_parser("remote", help="every project of an alias's GitLab group, from the host API (read token); ● = on disk")
+    p.add_argument("alias"); p.add_argument("grep", nargs="?"); p.add_argument("--refresh", action="store_true"); p.add_argument("--json", action="store_true")
     p = sub.add_parser("probe"); p.add_argument("refs", nargs="+"); p.add_argument("--json", action="store_true")
     p = sub.add_parser("clone"); p.add_argument("ref", help="alias/path, e.g. media/mediabox, web/mx-service, github/tvunetworks-com/tvu-csc"); p.add_argument("--dry-run", action="store_true")
     p = sub.add_parser("sync"); p.add_argument("target", help="repo name, directory, or alias/path"); p.add_argument("--ref"); p.add_argument("--json", action="store_true")
@@ -519,7 +602,7 @@ def main():
     p = sub.add_parser("missing"); p.add_argument("--json", action="store_true")
     a = ap.parse_args()
     lay = Layout(site())
-    {"survey": cmd_survey, "find": cmd_find, "services": cmd_services, "where": cmd_where, "probe": cmd_probe,
+    {"survey": cmd_survey, "find": cmd_find, "services": cmd_services, "where": cmd_where, "probe": cmd_probe, "remote": cmd_remote,
      "clone": cmd_clone, "sync": cmd_sync, "worktree": cmd_worktree, "coverage": cmd_coverage, "missing": cmd_missing}[a.cmd](lay, a)
 
 

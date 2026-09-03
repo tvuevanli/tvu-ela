@@ -9,6 +9,10 @@ user-invocable: true
 Self-contained. Knowledge: `map/services.yaml` and `map/absent.yaml`. Cache: `~/.claude/ela/map/host.json` (rebuilt by `map.py survey`). Read-only everywhere else; `clone`, `sync --ref` and `worktree` are the actions, and none of them edits a checkout.
 
 ## Invariants
+- **"Absent" is a claim about the group listing, not about a guessed name.** Where a host has an API
+  token (`site.json hosts.<host>.api` + `token_env`), `remote <alias>` lists the whole group; an image
+  is recorded as having no repo only after that listing was searched, and `find` shows `remote` hits
+  (not cloned) beside disk hits. A name-only probe is the fallback when no token exists.
 - **No edits in a checkout.** `git` queries and file reads; `sync` fetches and `worktree` adds a
   worktree, nothing else touches a repo — never edit, stage or commit inside `code/`.
 - **Disk wins.** Map and disk disagree → change the map.
@@ -35,6 +39,7 @@ $MAP survey                              # scan code/ work/ lab/ + Evan's repos 
 $MAP find <repo|image|process type>      # paths, owners, slugs, or where to clone from
 $MAP services [--image X | --type T]     # the service table
 $MAP where <alias>/<path>                # the directory a remote maps to (no network)
+$MAP remote <alias> [grep]               # every project of that GitLab group, subgroups included (host api + read token in site.json); ● on disk; cached a day
 $MAP probe <alias>/<path> …              # ssh ls-remote — the media GitLab's API lists only public projects
 $MAP clone <alias>/<path> [--dry-run]    # into its place; imatrix sibling links kept
 $MAP sync <repo> [--ref R]               # fetch; branch, ahead/behind, dirty, recent tags; check out a ref (code/ only, clean only)
