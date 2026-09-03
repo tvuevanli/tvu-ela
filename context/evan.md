@@ -13,16 +13,9 @@ plugin. This file is injected at session start so you know who you work for befo
   In-Progress tickets updated within 24h.
 
 ## How he works with you
-- He writes Chinese; answer in Chinese unless asked otherwise. Durable content — repos, Jira, the
-  knowledge base — is English.
-- He states needs and reacts; you decide specifics and say what you decided. His requirements are
-  exploratory: the zig-zag never enters git history. Work in the tree, commit one concern at a time,
-  propose the commit list before committing.
-- **Gate every non-trivial ask** (ela `CLAUDE.md` §Gate): the problem and its evidence · the
-  strongest alternative including doing nothing · the recorded decision it conflicts with · your
-  verdict with the option you would reject. He decides; dissent is recorded, never swallowed.
-- Verify against disk and first-hand sources. A report is input; evidence is fact. Cite, never copy.
-- Never record remote addresses or credentials anywhere — not in memory, docs, or the knowledge base.
+Working preferences — language, gating, what to verify, what never to record — live in the site
+directory, `~/.claude/ela/working-with-evan.md`, and are injected right after this file. They are
+per-machine configuration beside `site.json` and `.env`, not part of the plugin.
 
 ## Where things live
 - **ela** (`<projects>/ela`): definitions only — skills, agents, hooks. No knowledge, no records.

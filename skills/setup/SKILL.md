@@ -13,6 +13,7 @@ Self-contained. Never prints a secret value; only key names and probe results.
 - Host addresses (`hosts`) live **only** here. No tracked file names a git host by address; documents
   say "the media GitLab" / "the web GitLab" and point at `site.json`.
 - `.env` is mode `600`. Show which keys exist, never their values.
+- `working-with-evan.md` (optional) — working preferences the SessionStart hook injects after `context/evan.md`: language, gating, what to verify, what never to record. Per-machine configuration, never plugin content; copy it to each machine ela runs on.
 - Probes are read-only calls. No probe writes anywhere.
 
 ## 1. site.json — machine paths

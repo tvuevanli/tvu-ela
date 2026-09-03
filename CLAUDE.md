@@ -29,6 +29,20 @@ or wrote lives in `elak`. The dividing rule:
 > Changes because **the world changed** → `elak`.
 > Changes because **ela's behaviour should change** → `ela`.
 
+**The rule, not the argument.** A tracked file states the rule in force, why it holds, and what a
+maintainer must not break. It does not carry the deliberation behind it, a session's back-and-forth,
+or anyone's own words: a document that argues with itself ages badly, and a retelling drifts from the
+record it retells. The deliberation lives in `<records>/blueprint/decisions/` and is cited by filename —
+one line, never a retelling. **Commit subjects and bodies hold the same line:** what changed and why
+the code needed it. (A widening of elak's `2026-09-03-records-name-the-origin-not-the-utterance` to
+this repo, to Helm and to `<published>`; decision `2026-09-03-tracked-files-carry-the-rule-not-the-argument`.)
+
+**People appear as roles.** A tracked file names a person's role and the area they own. Individual
+performance, capability, a threshold set for one person, and private circumstances are not
+engineering material and are not recorded here. Attribution of a design choice to a named, dated
+decision is fine — that is authority, not deliberation. Working preferences for the person ela serves
+are site configuration (`~/.claude/ela/`), not plugin content.
+
 ## Two capabilities ela never gives away
 
 1. **Independent cognition.** Read and analyse first-hand — Jira, Slack, Outline, code, disk. What

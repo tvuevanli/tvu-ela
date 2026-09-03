@@ -8,6 +8,8 @@ SITE="$HOME/.claude/ela/site.json"
 CWD="${CLAUDE_PROJECT_DIR:-$PWD}"
 
 cat "$ROOT/context/evan.md" 2>/dev/null
+# working preferences live in the site dir (never committed), beside site.json and .env
+cat "$HOME/.claude/ela/working-with-evan.md" 2>/dev/null
 
 # catch-up: a session that ended without its SessionEnd hook leaves the knowledge base dirty — snapshot it first.
 # Only on startup|resume: a clear or compaction mid-task must not commit half-written files (ELA_NO_CATCHUP=1).
