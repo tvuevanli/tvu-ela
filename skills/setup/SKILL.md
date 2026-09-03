@@ -60,6 +60,7 @@ Keys and where each comes from when absent:
 | `TVU_OBJECT_SERVICE_HOST` `TVU_CC_BEARER_TOKEN` | Object Service host + a CC bearer token from a logged-in session |
 | `FIGMA_TOKEN` | Figma → Settings → Security → Personal access tokens (read scope) |
 | `GITLAB_MEDIA_TOKEN` `GITLAB_WEB_TOKEN` | each GitLab → Preferences → Access Tokens, scope `read_api` only; named by `token_env` in `site.json hosts` — lets `map.py remote` list a whole group |
+| `APIFOX_TOKEN` | Apifox → account settings → personal access token (read); lets `apifox.py` export a project's OpenAPI document. Project ids by name in `<records>/map/apis.yaml` |
 | `CONFLUENCE_TOKEN` | the web team's Confluence → profile → Personal Access Tokens (read); the host URL goes in `site.json services.confluence.url` |
 | `GOOGLE_TOKEN_FILE` | path to a Google OAuth token JSON with read-only scopes (documents.readonly, drive.readonly) — Helm's grant copied once into the site dir, mode 600 |
 | `UR_ACCESS_KEY` | UR access key — a JSON blob, copied verbatim on one line; `UR_BASE_HOST` (optional, default UR host) and `UR_ENV_ORDER` (optional comma list overriding the probe order `prod3,prod2,test2`) |

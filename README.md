@@ -48,6 +48,7 @@ This is how ela knows Evan in any directory without an agent or a global CLAUDE.
 | `/ela:graph` | 1 | UR graph and process first-hand (J2N + Pilot), no environment to set: node table in pipeline order with process ids, box ips, images; a process's live record; a user's graphs; graphs carrying an object |
 | `/ela:confluence` | 1 | the web team's Confluence, read-only — spaces, a space's page tree, CQL search, one page as text; `ela wiki …` or a page URL alone |
 | `/ela:gdoc` | 1 | Google Docs / Sheets / Drive, read-only with Evan's token — a doc as text, a sheet tab as CSV, recent documents; `ela gdoc …` or a docs.google.com URL alone |
+| `/ela:apifox` | 1 | the teams' API contracts from Apifox — a project's OpenAPI export, tags, operations by word, one operation in full, a schema; `ela api …` or an app.apifox.com URL alone |
 | `/ela:release` | 1 | release facts first-hand — GM bundles and their bill of materials, versions per env, Jenkins builds (version · branch · sha), drift between the newest bundle and the service table; `ela bundles · bundle · versions · builds · drift` |
 | `/ela:probe` | 3 | deep, read-only bug investigation: ticket → graph facts → implicated service via the service table → code (cloned if missing) → root cause with file:line → drafted comments for reporter and owner |
 | `/ela:figma` | 1 | read a design: file tree, node subtree + text layers, comments, rendered image — read-only |

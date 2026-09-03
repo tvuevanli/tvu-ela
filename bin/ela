@@ -19,6 +19,7 @@
   ela kb <search|read|tree|write|update|delete> …   Outline (writes dry-run; --apply on Evan's word)    ela figma …
   ela wiki <spaces|tree|search|read|children> …     Confluence, read-only (also: ela confluence …; a page URL alone works)
   ela gdoc <read|sheet|list|info> …                 Google Docs/Sheets/Drive, read-only (a docs.google.com URL alone works)
+  ela api <projects|export|tags|list|read|schema> … Apifox API definitions, read-only (ela api read ur "GET /v1beta1/graphs/{graphId}")
   ela reports <list|build>  Evan's standing reports (markdown → HTML; a session publishes them as artifacts)
   ela envs                  the UR probe order         ela site   (rarely) the site config: roots, host names, aliases, emails
 
@@ -45,7 +46,7 @@ VERBS = {
     "bundles": ("release", "bundles"), "bundle": ("release", "bundle"), "versions": ("release", "envs"), "builds": ("release", "builds"),
     "drift": ("release", "drift"), "release": ("release", None),
     "confluence": ("confluence", None), "wiki": ("confluence", None), "gdoc": ("gdoc", None),
-    "reports": ("reports", None),
+    "reports": ("reports", None), "api": ("apifox", None), "apifox": ("apifox", None),
 }
 
 
@@ -77,6 +78,8 @@ def by_shape(token):
         return "graph", ["resolve", token]          # object → its running graphs
     if re.fullmatch(r"[0-9a-f]{16}", token):
         return "object", ["get", token]
+    if "app.apifox.com/project/" in token:
+        return "apifox", ["list", token]
     if "docs.google.com/spreadsheets/" in token:
         return "gdoc", ["sheet", token]
     if "docs.google.com/document/" in token or "drive.google.com/" in token:
