@@ -127,7 +127,7 @@ written locally unless he says so; nothing is synced.
 | `skills/breakdown` | requirement → layer-tagged lanes with owners; two depths — *knowledge* (docs/KB/map only) or *code* (plus the relevant services' source via a read-only analyst); produces a plan, publishes only on confirm | 3 |
 | `skills/brief` | Evan's queue: blocked, stale, unrouted — against the two cadence KPIs | 4 |
 | `agents/` | roster — created when the first agent is needed; every `.md` in it is loaded as an agent, so no README lives there (rule in `ROADMAP.md`) | 3+ |
-| `hooks/` `context/` | SessionStart injection — `context/evan.md`, the latest blueprint decisions and status, and the cwd's mapped area with its governance; SessionEnd snapshots the knowledge base. Its only write is that snapshot; this is how ela knows Evan in any directory | 1 |
+| `hooks/` `context/` | SessionStart injection — `context/evan.md`, the latest blueprint decisions and status, and the cwd's mapped area with its governance; SessionEnd snapshots the knowledge base; PreToolUse guards location — no edit under `<published>`, none in ela/helm from a session started elsewhere, none under a remote site's records. Its only write is that snapshot; this is how ela knows Evan in any directory | 1 |
 | `policy/` | portable guards; full protocols once phases need them | 4–5 |
 
 ## Hard rules

@@ -435,7 +435,14 @@ def cmd_probe(lay, a):
 IMATRIX_SIBLINGS = ("libshmmedia", "libtvulive", "libplayercontrolwrapper")  # remote media/<lib>, but imatrix sources refer to ../<lib>
 
 
+def refuse_on_remote(what):
+    """A remote site holds no code: reading code is the office's job (decision 2026-09-03-ela-second-site-on-the-remote)."""
+    if site().get("site") == "remote":
+        print(f"{what}: this is a remote site — code checkouts live at the office; nothing is cloned, synced or worked on here", file=sys.stderr); sys.exit(EX_REFUSED)
+
+
 def cmd_clone(lay, a):
+    refuse_on_remote("clone")
     url, dest = lay.alias_path(a.ref)
     if not url:
         print(f"{a.ref}: no alias matches", file=sys.stderr); sys.exit(EX_USAGE)
@@ -477,6 +484,7 @@ def resolve_dir(lay, name):
 
 
 def cmd_sync(lay, a):
+    refuse_on_remote("sync")
     d = resolve_dir(lay, a.target)
     code, _, err = git(d, "fetch", "--all", "--tags", "--prune", timeout=300)
     if code != 0:
@@ -509,6 +517,7 @@ def cmd_sync(lay, a):
 
 
 def cmd_worktree(lay, a):
+    refuse_on_remote("worktree")
     """One task, one place to look: <work>/<KEY>/<repo>. Where a team stack owns the area (site.json
     `stacks`), the worktree lives physically where the stack's tooling expects it — beside the repo as
     <repo>-<key-lower> (mediahub-agent lists worktrees under its workspace root from `git worktree

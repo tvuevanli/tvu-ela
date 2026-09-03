@@ -1,5 +1,5 @@
 {
-  "description": "ela — SessionStart: context injection plus a catch-up snapshot of the knowledge base if a previous session left it dirty. SessionEnd: snapshot the knowledge base (one commit, pushed) when dirty.",
+  "description": "ela \u2014 SessionStart: context injection plus a catch-up snapshot of the knowledge base if a previous session left it dirty. SessionEnd: snapshot the knowledge base (one commit, pushed) when dirty. PreToolUse: the location guard \u2014 no edits under the published directory, none in ela/helm from a session started elsewhere, none under a remote site's read-only records.",
   "hooks": {
     "SessionStart": [
       {
@@ -31,6 +31,18 @@
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/hooks/session-stop.sh",
             "timeout": 60
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/guard-location.sh",
+            "timeout": 10
           }
         ]
       }

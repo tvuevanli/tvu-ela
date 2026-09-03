@@ -26,6 +26,10 @@ records = s.get("records", "")
 bp = os.path.join(records, "blueprint")
 print()
 print(f"## Knowledge base: {records}")
+if s.get("site") == "remote":
+    print("This is a REMOTE site: <records> is a read-only published subset (elak-published). Never write a plan, ledger entry or decision "
+          "draft under it — hand drafts to Helm's store or Jira. Code checkouts, GitLab, Confluence, Jenkins and GM are not reachable here; "
+          "say 'office only' instead of retrying. (decision 2026-09-03-ela-second-site-on-the-remote)")
 status = os.path.join(bp, "status.md")
 if os.path.isfile(status):
     lines = [l.strip().lstrip("- ") for l in open(status) if l.strip() and not l.startswith("#")]
