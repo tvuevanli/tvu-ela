@@ -26,6 +26,8 @@ Target shape:
   "work":     "<projects>/work     — one task, one dir: work/<KEY>/<repo> worktrees (or symlinks to a stack's own place)",
   "lab":      "<projects>/lab      — experiments without an upstream owner",
   "records":  "<elak repo>",
+  "published": "<projects>/elak-published — what elak publishes for machines to read (Helm's knowledge root, the map subset); not a repo, regenerated; on the remote the same name under its projects root, and `records`/`map` point into it",
+  "site":     "<local | remote — remote: no intranet hosts/services, public-source credentials only, records is the published subset>",
   "map":      "<records>/map        — services.yaml · absent.yaml (knowledge); the disk survey is a cache at ~/.claude/ela/map/host.json",
   "env":      "~/.claude/ela/.env",
   "hosts":    { "<name>": { "url": "<git host url>", "matches": ["<hostnames as they appear in remotes>"], "api": "<http root of the GitLab API, optional>", "token_env": "<.env key holding a read_api token, optional — enables `map.py remote`>" } },
