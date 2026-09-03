@@ -63,7 +63,8 @@ def render_body(md):
                 buf.append(lines[i]); i += 1
             i += 1
             if lang == "mermaid":
-                out.append('<div class="diagram"><pre class="mermaid">' + html.escape("\n".join(buf), quote=False) + "</pre></div>")
+                # a literal \n inside a mermaid label is a line break for the reader — mermaid takes <br/>
+                out.append('<div class="diagram"><pre class="mermaid">' + html.escape("\n".join(buf).replace("\\n", "<br/>"), quote=False) + "</pre></div>")
             else:
                 out.append("<pre><code>" + html.escape("\n".join(buf), quote=False) + "</code></pre>")
             continue
