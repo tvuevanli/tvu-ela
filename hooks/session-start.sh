@@ -29,7 +29,8 @@ print(f"## Knowledge base: {records}")
 status = os.path.join(bp, "status.md")
 if os.path.isfile(status):
     lines = [l.strip().lstrip("- ") for l in open(status) if l.strip() and not l.startswith("#")]
-    print("Status: " + " · ".join(lines[:6]))
+    # one line per track, each cut short — the full text is a `Read` away; a hook injects a map, not the territory
+    print("Status (blueprint/status.md, first lines): " + " · ".join(l[:160] + ("…" if len(l) > 160 else "") for l in lines[:6]))
 dec = os.path.join(bp, "decisions")
 if os.path.isdir(dec):
     files = sorted(f for f in os.listdir(dec) if re.match(r"\d{4}-\d{2}-\d{2}-.*\.md$", f))

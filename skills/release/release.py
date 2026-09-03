@@ -118,6 +118,10 @@ class US:
         if not self.sid:
             print("no userservice SID — paste USERSERVICE_ADMIN_SID from a browser cookie into the env file (or `login` for tvutest)", file=sys.stderr); sys.exit(EX_AUTH)
         st, body = http(self.host + path, payload, cookie=f"SID={self.sid}")
+        if self.qa and (st in (401, 402, 403) or (isinstance(body, str) and "no login" in body)):
+            # a tvutest SID lives two hours; log in again once and retry rather than asking a human
+            self.sid = tvutest_login(self.env_file, self.host)
+            st, body = http(self.host + path, payload, cookie=f"SID={self.sid}")
         if st in (401, 402, 403) or (isinstance(body, str) and "no login" in body):
             which = "TVUTEST_SID (run `release login`)" if self.qa else "USERSERVICE_ADMIN_SID (paste a fresh SID from the browser)"
             print(f"userservice {self.host}: session rejected (HTTP {st}) — refresh {which}", file=sys.stderr); sys.exit(EX_AUTH)
