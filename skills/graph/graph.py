@@ -453,6 +453,17 @@ def cmd_resolve(ur, a):
         graphs = [g for g in (og or {}) if g != "_object"]
         if graphs:
             info = og["_object"]
+            if a.json:
+                # one JSON document for the whole object — a caller (Helm's seam) parses stdout as a single value
+                out = {"object": a.id, "name": info.get("name"), "type": info.get("type"), "graphs": [], "stale": []}
+                for g in graphs:
+                    env, body = ur.probe(f"/j2n/api/v1-beta1/graphs/{g}", a.env, accept=lambda b: bool(((unwrap(b) or {}).get("spec") or {}).get("nodes")))
+                    if env:
+                        parsed = parse_graph(unwrap(body)); enrich_nodes(ur, env, parsed["nodes"])
+                        out["graphs"].append(dict(via=env, **parsed))
+                    else:
+                        out["stale"].append(g)
+                print(json.dumps(out, ensure_ascii=False)); return
             print(f"# object {a.id}  {info['name']}  runs in {len(graphs)} graph(s): {', '.join(graphs)}\n", flush=True)
             for g in graphs:
                 a.graph_id, a.all, a.raw, a.detail, a.connections = g, False, False, False, False
