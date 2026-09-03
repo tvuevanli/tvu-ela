@@ -92,7 +92,7 @@ first. Then:
 …
 lanes in one line each:
 cadence   3 RED · 5 YELLOW · 1 Blocked (MH-3288, 9d)          yours: MH-2191 (In Progress, 3d silent)
-reports   1 — MediaHub QA daily (2/3 parts)                    → /ela:report <permalink>
+reports   1 — MediaHub QA daily (2/3 parts)                    → /ela:digest <permalink>
 breakdown 2 — MH-3513 (High, 8d), MH-3580 (Highest, 1d)
 monologue 1 — "MH Admin: close a user's graph?" (4d, no reply) → ask Andy Zhao directly
 decisions 2 candidates — see below

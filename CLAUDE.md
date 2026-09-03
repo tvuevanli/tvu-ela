@@ -15,6 +15,14 @@ Scope follows **responsibility, not product**. MediaHub is the origin and centre
 the boundary. The gate is the map: ela works in an area once that area is in `<records>/map/` with a
 governance shape.
 
+**Presence is not enrollment** (decision `2026-09-03-presence-is-the-machine-enrollment-is-evans-job`).
+ela is injected into every session on Evan's machine — that is *presence*, and its scope is the whole
+machine. *Enrollment* is narrow: the roots named in `site.json`, a governance shape in `map/`, write
+tiers. What ela enrols is **Evan's job at TVU**. Everything else he has Claude work on is simply done
+under whatever rules that directory carries — no map lookup, no governance check, no worktree ceremony,
+no ledger row. A session outside a surveyed checkout says so ("Only ela's own rules apply here") and
+that is the correct behaviour, not a gap.
+
 **ela holds no product code and no knowledge.** Definitions live here; what ela knows, decided, did
 or wrote lives in `elak`. The dividing rule:
 
@@ -104,10 +112,12 @@ re-implementations.
 |---|---|---|
 | definitions | `<projects>/ela` — installed as plugin `ela@ela` from a directory marketplace | install is a **cached copy**, refreshed only on a version change: bump `plugin.json` then `/plugin update ela` (or `claude plugin update ela`) |
 | knowledge base | `<records>` = `<projects>/elak` (git, never a plugin) | `blueprint/` — ela + Helm goals, decisions, status · `knowledge/` — the canonical knowledge · `records/` — breakdowns, ledger, dated records · `map/` |
-| site dir | `~/.claude/ela/` — `site.json` (the roots: `projects`, and by default `<projects>/code`, `/work`, `/lab`, `/elak`; git `hosts`; aliases) and `.env` (credentials, mode 600) | never committed anywhere. **Tracked files write roots by name — `<projects>`, `<code>`, `<work>`, `<records>` — never a machine path or a host address** |
+| site dir | `~/.claude/ela/` — `site.json` (the roots: `projects`, and by default `<projects>/code`, `/lab`, `/elak`, `/elak-published`, `/.ela`; git `hosts`; aliases) and `.env` (credentials, mode 600) | never committed anywhere. **Tracked files write roots by name — `<projects>`, `<code>`, `<work>`, `<records>`, `<runtime>` — never a machine path or a host address** |
 | code | `<code>/<alias>/<remote path>` — every checkout that is not Evan's, placed by its remote; aliases and git hosts only in `site.json` | never edited in place; `map.py` clones, syncs, surveys |
-| work | `<work>/<KEY>/<repo>` — one task, one directory of worktrees (a symlink when a team stack needs the worktree beside the repo) | where code changes happen; removed at close |
+| runtime | `<runtime>` = `<projects>/.ela` — transient working state | **nothing here is a record**: the whole tree can be deleted when no task is open and nothing is lost. Anything one would hesitate to delete belongs in elak (a record), Helm's `data/` (app state), or nowhere |
+| work | `<work>` = `<runtime>/work/<KEY>/<repo>` — one task, one directory of worktrees (a symlink when a team stack needs the worktree beside the repo) | where code changes happen; removed at close (moved under `<runtime>` 2026-09-03 while empty) |
 | lab | `<lab>/` — experiments without an upstream owner | |
+| `<projects>` itself | **Evan's directory, not ela's namespace.** ela is one tenant; its footprint is exactly the roots named in `site.json` | `others/`, `prototypes/`, `archive/`, `helm-backups/` (Helm's own `BACKUPS_DIR` default) are out of scope: not organised, not surveyed into the layout, not ruled on |
 | reports | `<reports>` = `<projects>/reports` — markdown sources + `out/` HTML, published as private artifacts with stable URLs | Evan's reading surface, not knowledge; URLs in its `README.md`; never synced anywhere |
 | publication targets | Outline · Helm's `knowledge/` runtime subset · wherever Evan names on the day | published **from** the knowledge base on Evan's word, never synced back; counterparts' KBs are cited by URL/path |
 
@@ -120,7 +130,7 @@ written locally unless he says so; nothing is synced.
 |---|---|---|
 | `skills/jira` `slack` `kb` `confluence` `gdoc` `apifox` `object` `figma` `graph` `release` | **senses** — first-hand, read-first. Writes (`kb`, the `jira` atoms, `slack post`, `graph start/stop`) are dry-run or y/N by default; `--apply` follows a confirm. Their scripts are L1 capabilities, not product code | 1 |
 | `skills/map` | `/ela:map` — the layout and the script that keeps it: survey (cache) · find · where · services · coverage · missing · probe · clone · sync · worktree | 1 |
-| `skills/probe` `report` `route` | judgment over the senses: deep bug check · digest a report thread · route a bug to an owner | 3 |
+| `skills/probe` `digest` `route` | judgment over the senses: deep bug check · digest a report thread (`digest`, renamed from `report` 2026-09-03 — `reports` is the standing pages) · route a bug to an owner | 3 |
 | `skills/team` | the roster first-hand: `who` · `list` · `emails` · `check` against Slack; a miss is "not in the roster", never a composed address (decision `people-identified-by-the-roster-never-guessed`) | 1 |
 | `skills/publish` | from elak to `<published>`: render a source (`map/services.yaml` → the service catalogue; `team/roster.yaml` → `team-map.md` in Helm's identity-line shape) and write the manifest row in elak `publish/`; nothing under `<published>` is edited by hand | 1 |
 | `skills/reports` | Evan's reading surface: standing reports (ela status, Helm vs ela, comparisons) from markdown in `<reports>`, published as private artifacts with stable URLs. Not knowledge — regenerated from ela, elak and Helm | 1 |
@@ -143,6 +153,11 @@ written locally unless he says so; nothing is synced.
    time; propose the commit list before committing. Direction changes go to
    `elak/blueprint/decisions/`, not into history — one decision per file; a change of mind
    is a new file that supersedes the old one, never an edit.
+7. **Two absolutes, no gray zone.** Everything in elak is a record (its SessionEnd snapshot commits and
+   pushes the whole tree, so a "temporary" file there is permanent); nothing in `<runtime>` is a record.
+   A `.gitignore` is repo hygiene only (`__pycache__`, editor cruft, `out/`) — never the mechanism for
+   keeping a foreign concern out of a repo; placement is (decision
+   `2026-09-03-elak-holds-only-records-runtime-holds-none`).
 
 ## Gate — how ela handles Evan's asks
 

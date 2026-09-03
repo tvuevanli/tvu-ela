@@ -52,7 +52,7 @@ This is how ela knows Evan in any directory without an agent or a global CLAUDE.
 | `/ela:release` | 1 | release facts first-hand — GM bundles and their bill of materials, versions per env, Jenkins builds (version · branch · sha), drift between the newest bundle and the service table; `ela bundles · bundle · versions · builds · drift` |
 | `/ela:probe` | 3 | deep, read-only bug investigation: ticket → graph facts → implicated service via the service table → code (cloned if missing) → root cause with file:line → drafted comments for reporter and owner |
 | `/ela:figma` | 1 | read a design: file tree, node subtree + text layers, comments, rendered image — read-only |
-| `/ela:report` | 4 | digest a posted report thread into what Evan must act on, decide, and pin — cross-checked against Jira |
+| `/ela:digest` | 4 | digest a posted report thread into what Evan must act on, decide, and pin — cross-checked against Jira |
 | `/ela:route` | 4 | a bug in, a name out: implicated service, owner, or the first checker with the exact discriminating check |
 | `/ela:brief` | 4 | the morning brief: stale In-Progress, unrouted new tickets, complex tickets not broken down, report threads, threads waiting on Evan, threads he wrote alone, decisions made in Slack without a ticket — ranked, each with a drafted action; read-only |
 | `/ela:task` | 2 | one piece of work Evan implements: worktree, tier, delegation to the area's stack, evidence, ledger |

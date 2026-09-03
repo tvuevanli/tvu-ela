@@ -78,7 +78,7 @@ class Layout:
     def __init__(self, s):
         self.projects = s.get("projects") or sys.exit("site.json has no `projects` root — run /ela:setup")
         self.code = s.get("code") or os.path.join(self.projects, "code")
-        self.work = s.get("work") or os.path.join(self.projects, "work")
+        self.work = s.get("work") or os.path.join(self.projects, ".ela", "work")
         self.lab = s.get("lab") or os.path.join(self.projects, "lab")
         self.hosts = s.get("hosts", {})
         if "github" not in self.hosts:

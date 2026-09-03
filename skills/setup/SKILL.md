@@ -23,7 +23,8 @@ Target shape:
 {
   "projects": "<root — holds ela, elak, helm and the three roots below>",
   "code":     "<projects>/code     — every checkout that is not Evan's, at code/<alias>/<remote path>; never edited in place",
-  "work":     "<projects>/work     — one task, one dir: work/<KEY>/<repo> worktrees (or symlinks to a stack's own place)",
+  "work":     "<projects>/.ela/work — one task, one dir: work/<KEY>/<repo> worktrees (or symlinks to a stack's own place); under <runtime>, so removable at close",
+  "runtime":  "<projects>/.ela      — transient working state: nothing here is a record; the whole tree can be deleted when no task is open and nothing is lost",
   "lab":      "<projects>/lab      — experiments without an upstream owner",
   "records":  "<elak repo>",
   "published": "<projects>/elak-published — what elak publishes for machines to read (Helm's knowledge root, the map subset); not a repo, regenerated; on the remote the same name under its projects root, and `records`/`map` point into it",

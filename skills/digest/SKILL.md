@@ -1,10 +1,10 @@
 ---
-name: report
+name: digest
 description: Digest a posted report thread (MediaHub daily QA report, release test report, service test report) into what Evan must know and act on — new/reopened issues and their routing, decisions waiting on him or product, expired dates, environment gaps, and risks named in passing. Use when the user pastes a report permalink from Slack, or asks "summarize this report", "日报说了什么", "这份报告我该知道什么", "test report 总结".
 user-invocable: true
 ---
 
-# /ela:report <permalink> — a report in, what it means for Evan out
+# /ela:digest <permalink> — a report in, what it means for Evan out
 
 Self-contained. Argument: a Slack permalink to the report thread (the daily aggregate in
 #prj_dev_mediahub, or any single test/release report).

@@ -60,7 +60,7 @@ for r in repos:
         if best is None or len(p) > len(best["path"]):
             best = r
 code_root = s.get("code") or os.path.join(s.get("projects", ""), "code")
-work_root = s.get("work") or os.path.join(s.get("projects", ""), "work")
+work_root = s.get("work") or os.path.join(s.get("projects", ""), ".ela", "work")
 if best:
     where = "code/ (read-only — changes go to a work/ worktree)" if best["path"].startswith(code_root + "/") else ("work/ (a task worktree)" if best["path"].startswith(work_root + "/") else "Evan's own")
     print(f"cwd {cwd} is in repo '{best['name']}' — governance {best.get('governance','?')}, branch {best.get('branch','?')}, {where}. Rules are bound to the location: follow that repo's own files.")
