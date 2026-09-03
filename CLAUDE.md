@@ -132,7 +132,7 @@ written locally unless he says so; nothing is synced.
 | `skills/map` | `/ela:map` — the layout and the script that keeps it: survey (cache) · find · where · services · coverage · missing · probe · clone · sync · worktree | 1 |
 | `skills/probe` `digest` `route` | judgment over the senses: deep bug check · digest a report thread (`digest`, renamed from `report` 2026-09-03 — `reports` is the standing pages) · route a bug to an owner | 3 |
 | `skills/team` | the roster first-hand: `who` · `list` · `emails` · `check` against Slack; a miss is "not in the roster", never a composed address (decision `people-identified-by-the-roster-never-guessed`) | 1 |
-| `skills/publish` | from elak to `<published>`: render a source (`map/services.yaml` → the service catalogue; `team/roster.yaml` → `team-map.md` in Helm's identity-line shape) and write the manifest row in elak `publish/`; nothing under `<published>` is edited by hand | 1 |
+| `skills/publish` | from elak to `<published>`: render a source (`map/services.yaml` → the service catalogue; `team/roster.yaml` → `team/roster.md`, identity lines in the shape Helm parses) and write the manifest row in elak `publish/`; nothing under `<published>` is edited by hand | 1 |
 | `skills/reports` | Evan's reading surface: standing reports (ela status, Helm vs ela, comparisons) from markdown in `<reports>`, published as private artifacts with stable URLs. Not knowledge — regenerated from ela, elak and Helm | 1 |
 | `skills/setup` | `/ela:setup` — guided creation/repair of the site dir, probes every sense | 1 |
 | `skills/task` | for work Evan implements: worktree · tier · **delegation** to the area's stack (headless session in the counterpart's repo) or ela's own implementer · evidence check · ledger | 2 |
