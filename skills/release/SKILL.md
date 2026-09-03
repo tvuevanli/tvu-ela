@@ -11,12 +11,12 @@ store, no scheduler, nothing cached — every answer is the source's current sta
 
 ```bash
 R="python3 ${CLAUDE_PLUGIN_ROOT}/skills/release/release.py --env-file <env>"      # or simply: ela bundles … / ela versions … / ela builds …
-$R bundles [mh2.1@] [--qa]           # GM bundles newest first (prod host; --qa = tvutest)
-$R bundle <name|id> [--qa]           # bill of materials: serviceTagList
-$R envs [service] [--qa]             # versions per environment tag
+$R bundles [mh2.1@]                  # GM bundles newest first — QA host (tvutest), by account login
+$R bundle <name|id>                  # bill of materials: serviceTagList
+$R envs [service]                    # versions per environment tag on the QA host
 $R builds <job|service> [--limit N]  # Jenkins: number, version, result, branch, sha, time
-$R drift [mh2.1@] [--qa]             # GM names in the newest bundle vs map/services.yaml
-$R login                             # tvutest SID for --qa (2h)
+$R drift [mh2.1@] [--bundles N]      # GM names shipped in the newest N bundles vs map/services.yaml
+$R login                             # tvutest login → SID (2h); the script does this itself when needed
 ```
 Config: service URLs in `site.json services` (jenkins · userservice · userservice-test); which service
 ids publish which versions and which Jenkins job builds which service in `<records>/map/release.yaml`.
@@ -24,8 +24,9 @@ ids publish which versions and which Jenkins job builds which service in `<recor
 ## Invariants
 - **First-hand, current.** What userservice and Jenkins say now. History older than they keep is not
   ela's to hold; Helm's local `builds.db` can be read as a file when it matters.
-- **SIDs expire.** HTTP 402 "no login" on the prod host means `USERSERVICE_ADMIN_SID` in the env file
-  needs a fresh paste from the browser; say so and stop — never guess a version.
+- **No prod session.** ela reads the QA GM host by account login and Jenkins; prod bundles and prod
+  env versions are Helm's (its UI login holds that session — decision `2026-09-03-ela-needs-no-sid`).
+  Asked about prod, point at Helm's release pages; never guess a version, never ask for a SID.
 - **Judgment is composed, not computed.** "Is MH-xxxx fixed on prod 8?" = the ticket's Fixed In
   (jira) → the build carrying it (`builds`) → the version on the env (`envs`) → verdict, each step cited.
   Helm's containment rules are knowledge (E3), not code here.

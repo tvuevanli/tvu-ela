@@ -17,7 +17,7 @@ The install is a cached copy, refreshed only on a version change: bump `plugin.j
 | file | holds |
 |---|---|
 | `site.json` | machine paths: the roots (`projects`, `code`, `work`, `lab`, `records`), map dir, git hosts and aliases, sources the map reads |
-| `.env` | credentials the senses need (`JIRA_*`, `SLACK_BOT_TOKEN`, `OUTLINE_*`, `TVU_*`, `UR_*`, `TVUTEST_*`, `USERSERVICE_ADMIN_SID`), mode 600 |
+| `.env` | credentials the senses need (`JIRA_*`, `SLACK_BOT_TOKEN`, `OUTLINE_*`, `TVU_*`, `UR_*`, `TVUTEST_*`, `CONFLUENCE_TOKEN`, `GITLAB_*_TOKEN`, `GOOGLE_TOKEN_FILE`), mode 600. No pasted session anywhere: ela carries no SID |
 
 ## The `ela` command — no Claude session needed
 ```

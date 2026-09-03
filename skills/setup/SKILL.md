@@ -64,8 +64,7 @@ Keys and where each comes from when absent:
 | `GOOGLE_TOKEN_FILE` | path to a Google OAuth token JSON with read-only scopes (documents.readonly, drive.readonly) — Helm's grant copied once into the site dir, mode 600 |
 | `UR_ACCESS_KEY` | UR access key — a JSON blob, copied verbatim on one line; `UR_BASE_HOST` (optional, default UR host) and `UR_ENV_ORDER` (optional comma list overriding the probe order `prod3,prod2,test2`) |
 | `TVU_SSH_USER` `TVU_SSH_PASSWORD` | box ssh for `graph connect` / `exec` (user defaults to the operate account) |
-| `USERSERVICE_ADMIN_SID` | optional — prod release reads (`bundles · envs · builds`): the SID cookie from a logged-in browser session on userservice; expires, re-paste on HTTP 402 |
-| `TVUTEST_ACCOUNT` `TVUTEST_PASSWORD` `TVUTEST_SID` | QA release reads (`--qa`): a tvutest account; `ela release login` prints the SID (2h) to paste as `TVUTEST_SID` |
+| `TVUTEST_ACCOUNT` `TVUTEST_PASSWORD` `TVUTEST_SID` | release reads (QA GM host): a tvutest account; the login's SID is cached as `TVUTEST_SID` (2 h, refreshed by the script). No prod session anywhere in ela — decision `ela-needs-no-sid` |
 
 Procedure: list which keys are present; for each missing one say where to get it and ask Evan to
 paste it **into the file himself** or hand it to you for a single `printf >>` — then `chmod 600`.

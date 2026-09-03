@@ -2,17 +2,16 @@
 """Release facts, read first-hand — userservice (GM bundles, env versions), Jenkins (builds), the map.
 L1: subcommands, --json, stdlib only. No store, no scheduler: every answer is the source's current state.
 
-  bundles  [line]                       GM bundles for a line prefix (default mh2.1@), newest first
+  bundles  [line]                       GM bundles for a line prefix (default mh2.1@), newest first — QA host (tvutest)
   bundle   <name|id>                    a bundle's bill of materials (serviceTagList)
-  envs     [service]                    versions per environment tag from userservice (prod host); --qa for the tvutest host
+  envs     [service]                    versions per environment tag — QA host; prod versions are Helm's release pages
   builds   <job|service> [--limit N]    Jenkins builds: number, version, result, branch, sha, time
   drift    [line] [--bundles N]          GM service names shipped in the newest N bundles (default 5) vs map/services.yaml gm_names
   login                                 tvutest login → prints the QA SID to put in .env as TVUTEST_SID
 
-Config: site.json `services` (userservice, userservice-test, jenkins urls) · <records>/map/release.yaml (service ids,
-job → service) · .env USERSERVICE_ADMIN_SID
-(pasted from a browser cookie — expires; HTTP 402 "no login" means paste a fresh one), TVUTEST_ACCOUNT/
-TVUTEST_PASSWORD (login flow), TVUTEST_SID (cached login).
+Config: site.json `services` (userservice-test, jenkins urls) · <records>/map/release.yaml (service ids, job → service)
+· .env TVUTEST_ACCOUNT / TVUTEST_PASSWORD (account login; the SID it yields is cached two hours as TVUTEST_SID).
+No prod session: ela carries no SID by decision (2026-09-03-ela-needs-no-sid); prod GM facts are Helm's.
 Exit codes: 0 ok · 2 usage · 3 not found · 4 auth (SID expired) · 5 remote error.
 """
 import argparse, hashlib, json, os, re, signal, sys, urllib.error, urllib.parse, urllib.request
@@ -104,27 +103,27 @@ def _service_url(name):
     return url.rstrip("/")
 
 
+PROD_NOTE = ("prod GM facts (bundles, env versions on prod) are Helm's: its UI login holds the prod session, which ela "
+             "does not carry by decision (2026-09-03-ela-needs-no-sid). ela reads the QA host first-hand (account login) "
+             "and Jenkins; for prod use Helm's release pages.")
+
+
 class US:
-    def __init__(self, env_file, qa=False):
-        s = site().get("services", {})
-        self.qa = qa
-        self.host = _service_url("userservice-test" if qa else "userservice")
+    """The QA GM host (tvutest), reached by account login — never a pasted session. No prod path exists here."""
+    def __init__(self, env_file, qa=True):
+        self.qa = True
+        self.host = _service_url("userservice-test")
         self.env_file = env_file
-        self.sid = env_value("TVUTEST_SID" if qa else "USERSERVICE_ADMIN_SID", env_file)
-        if qa and not self.sid:
-            self.sid = tvutest_login(env_file, self.host)
+        self.sid = env_value("TVUTEST_SID", env_file) or tvutest_login(env_file, self.host)
 
     def call(self, path, payload=None):
-        if not self.sid:
-            print("no userservice SID — paste USERSERVICE_ADMIN_SID from a browser cookie into the env file (or `login` for tvutest)", file=sys.stderr); sys.exit(EX_AUTH)
         st, body = http(self.host + path, payload, cookie=f"SID={self.sid}")
-        if self.qa and (st in (401, 402, 403) or (isinstance(body, str) and "no login" in body)):
+        if st in (401, 402, 403) or (isinstance(body, str) and "no login" in body):
             # a tvutest SID lives two hours; log in again once and retry rather than asking a human
             self.sid = tvutest_login(self.env_file, self.host)
             st, body = http(self.host + path, payload, cookie=f"SID={self.sid}")
         if st in (401, 402, 403) or (isinstance(body, str) and "no login" in body):
-            which = "TVUTEST_SID (run `release login`)" if self.qa else "USERSERVICE_ADMIN_SID (paste a fresh SID from the browser)"
-            print(f"userservice {self.host}: session rejected (HTTP {st}) — refresh {which}", file=sys.stderr); sys.exit(EX_AUTH)
+            print(f"userservice {self.host}: login rejected (HTTP {st}) — check TVUTEST_ACCOUNT / TVUTEST_PASSWORD", file=sys.stderr); sys.exit(EX_AUTH)
         if st != 200:
             print(f"userservice {path}: HTTP {st} {str(body)[:200]}", file=sys.stderr); sys.exit(EX_REMOTE)
         return body
@@ -215,7 +214,7 @@ def cmd_envs(a):
     us = US(a.env_file, a.qa)
     want = (a.service or "").lower()
     out = []
-    for svc_id, slugs in rmap("qa_service_ids" if a.qa else "service_ids").items():
+    for svc_id, slugs in rmap("qa_service_ids").items():
         if want and not any(want in slug for slug, _ in slugs):
             continue
         body = us.call(f"/userGroup/user-group/tag/getTagVersionList?serviceId={svc_id}")
@@ -323,13 +322,15 @@ def main():
     ap = argparse.ArgumentParser(description="Release facts, first-hand.")
     ap.add_argument("--env-file")
     sub = ap.add_subparsers(dest="cmd", required=True)
-    p = sub.add_parser("bundles"); p.add_argument("line", nargs="?", default="mh2.1@"); p.add_argument("--limit", type=int, default=50); p.add_argument("--qa", action="store_true"); p.add_argument("--json", action="store_true")
-    p = sub.add_parser("bundle"); p.add_argument("ref", help="bundle name (mh2.1@daily-wed-s1-d31) or id"); p.add_argument("--qa", action="store_true"); p.add_argument("--json", action="store_true"); p.add_argument("--raw", action="store_true")
-    p = sub.add_parser("envs"); p.add_argument("service", nargs="?"); p.add_argument("--qa", action="store_true"); p.add_argument("--json", action="store_true")
+    p = sub.add_parser("bundles"); p.add_argument("line", nargs="?", default="mh2.1@"); p.add_argument("--limit", type=int, default=50); p.add_argument("--qa", action="store_true", help=argparse.SUPPRESS); p.add_argument("--prod", action="store_true", help=argparse.SUPPRESS); p.add_argument("--json", action="store_true")
+    p = sub.add_parser("bundle"); p.add_argument("ref", help="bundle name (mh2.1@daily-wed-s1-d31) or id"); p.add_argument("--qa", action="store_true", help=argparse.SUPPRESS); p.add_argument("--prod", action="store_true", help=argparse.SUPPRESS); p.add_argument("--json", action="store_true"); p.add_argument("--raw", action="store_true")
+    p = sub.add_parser("envs"); p.add_argument("service", nargs="?"); p.add_argument("--qa", action="store_true", help=argparse.SUPPRESS); p.add_argument("--prod", action="store_true", help=argparse.SUPPRESS); p.add_argument("--json", action="store_true")
     p = sub.add_parser("builds"); p.add_argument("job"); p.add_argument("--limit", type=int, default=15); p.add_argument("--json", action="store_true")
-    p = sub.add_parser("drift"); p.add_argument("line", nargs="?", default="mh2.1@"); p.add_argument("--qa", action="store_true"); p.add_argument("--bundles", type=int, default=5, help="newest N bundles to union (default 5)"); p.add_argument("--json", action="store_true")
+    p = sub.add_parser("drift"); p.add_argument("line", nargs="?", default="mh2.1@"); p.add_argument("--qa", action="store_true", help=argparse.SUPPRESS); p.add_argument("--prod", action="store_true", help=argparse.SUPPRESS); p.add_argument("--bundles", type=int, default=5, help="newest N bundles to union (default 5)"); p.add_argument("--json", action="store_true")
     p = sub.add_parser("login"); p.add_argument("--json", action="store_true")
     a = ap.parse_args()
+    if getattr(a, "prod", False):
+        print(PROD_NOTE, file=sys.stderr); sys.exit(EX_USAGE)
     {"bundles": cmd_bundles, "bundle": cmd_bundle, "envs": cmd_envs, "builds": cmd_builds, "drift": cmd_drift, "login": cmd_login}[a.cmd](a)
 
 
