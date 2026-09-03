@@ -117,7 +117,7 @@ written locally unless he says so; nothing is synced.
 
 | Path | Holds | Phase |
 |---|---|---|
-| `skills/jira` `slack` `kb` `confluence` `gdoc` `object` `figma` `graph` `release` | **senses** — first-hand, read-first. Writes (`kb`, the `jira` atoms, `graph start/stop`) are dry-run or y/N by default; `--apply` follows a confirm. Their scripts are L1 capabilities, not product code | 1 |
+| `skills/jira` `slack` `kb` `confluence` `gdoc` `object` `figma` `graph` `release` | **senses** — first-hand, read-first. Writes (`kb`, the `jira` atoms, `slack post`, `graph start/stop`) are dry-run or y/N by default; `--apply` follows a confirm. Their scripts are L1 capabilities, not product code | 1 |
 | `skills/map` | `/ela:map` — the layout and the script that keeps it: survey (cache) · find · where · services · coverage · missing · probe · clone · sync · worktree | 1 |
 | `skills/probe` `report` `route` | judgment over the senses: deep bug check · digest a report thread · route a bug to an owner | 3 |
 | `skills/setup` | `/ela:setup` — guided creation/repair of the site dir, probes every sense | 1 |

@@ -42,7 +42,7 @@ This is how ela knows Evan in any directory without an agent or a global CLAUDE.
 |---|---|---|
 | `/ela:setup` | 1 | first run / repair of `~/.claude/ela/` — paths, credentials, read-only probe of every sense |
 | `/ela:jira` | 1 | read an issue (links, subtasks, comments), run JQL, or create an issue / subtask (dry-run default, confirm-gated) |
-| `/ela:slack` | 1 | read a thread by permalink; list channels; history, mentions and unanswered scans — read-only |
+| `/ela:slack` | 1 | read a thread by permalink; list channels; history, mentions and unanswered scans; `post` — the one write, dry run until `--apply`, replies in-thread by permalink, refuses duplicates |
 | `/ela:kb` | 1 | read / search Outline; write on explicit confirm |
 | `/ela:object` | 1 | Object Service API: an object or a tangible by id (`object.py get` — the only read; batch and search endpoints answer 404; not objectd — a different service) |
 | `/ela:graph` | 1 | UR graph and process first-hand (J2N + Pilot), no environment to set: node table in pipeline order with process ids, box ips, images; a process's live record; a user's graphs; graphs carrying an object |

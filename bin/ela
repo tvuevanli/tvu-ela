@@ -7,7 +7,7 @@
   ela process <id>          one process's live record          ela box <id>
   ela graphs [me|li|email]  a user's graphs (default: me)      ela resolve <id> [--email …]
   ela jira <read|jql|comment|transition|label|link|assign|create|create-subtask> …
-  ela slack <read|channels|history|mentions|unanswered|whoami> …
+  ela slack <read|channels|history|mentions|unanswered|whoami|post> …   (post: dry run until --apply; a permalink replies in-thread)
   ela object <id>           object or tangible
   ela find <name>           repos, images, process types, slugs, GM names matching   ela coverage
   ela where <alias/path|repo|slug|image>   the checkout path(s)   ela probe <alias/path>…   ela clone <alias/path>   ela sync <repo> [--ref R]

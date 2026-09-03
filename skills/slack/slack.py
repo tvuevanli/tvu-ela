@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Slack capability — read-only. L1: subcommands, --json, meaningful exit codes, stdlib only.
+"""Slack capability. L1: subcommands, --json, meaningful exit codes, stdlib only. Reads are first-hand;
+the one write, `post`, is a dry run until --apply.
 
   read       <permalink>                 one message and its thread
   channels                               channels the bot can see
@@ -7,8 +8,11 @@
   mentions   --since 48h [--user me] [--channels a,b]   messages that mention a user, with whether they answered
   unanswered --since 7d  [--user me] [--channels a,b]   threads a user started that nobody else replied to
   whoami     [--email x]                 the user id behind an email (default: JIRA_EMAIL in the env file)
+  post       <#channel|Cxxx|thread permalink> --text "…" | --file f.md [--dm me|email|Uxxx] [--apply]
+             send a message as the bot (a permalink → reply in that thread). Dry run by default; refuses a
+             duplicate of a message the bot already posted there; a DM needs --dm said explicitly.
 
-Exit codes: 0 ok · 2 usage · 4 auth · 5 remote error.
+Exit codes: 0 ok · 2 usage · 4 auth or refused · 5 remote error.
 Credential resolution: $SLACK_BOT_TOKEN → --env-file → $SLACK_ENV_FILE → $ELA_ENV_FILE. The script never stores it.
 """
 import argparse, json, os, re, signal, sys, time, urllib.error, urllib.parse, urllib.request
@@ -283,6 +287,63 @@ def cmd_unanswered(tok, a):
         print(f"   {r['root'][:200]}\n")
 
 
+def post_json(method, tok, payload):
+    req = urllib.request.Request(API + method, data=json.dumps(payload).encode(), method="POST",
+                                 headers={"Authorization": f"Bearer {tok}", "Content-Type": "application/json; charset=utf-8"})
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r:
+            d = json.load(r)
+    except Exception as e:
+        print(f"slack {method}: {e!r}", file=sys.stderr); sys.exit(EX_REMOTE)
+    if not d.get("ok"):
+        print(f"slack {method} failed: {d.get('error')}", file=sys.stderr); sys.exit(EX_AUTH if d.get("error") in ("invalid_auth", "not_authed", "missing_scope") else EX_REMOTE)
+    return d
+
+
+def cmd_post(tok, a):
+    """The one write. Target by shape: a thread permalink (reply there), #name / Cxxx (top level), or --dm."""
+    text = open(a.file).read() if a.file and a.file != "-" else (sys.stdin.read() if a.file == "-" else a.text)
+    if not text or not text.strip():
+        print("nothing to post: pass --text or --file", file=sys.stderr); sys.exit(EX_USAGE)
+    text = text.rstrip("\n")
+    thread_ts, where = None, ""
+    if a.dm:
+        if a.target:
+            print("--dm takes no target; the person is the target", file=sys.stderr); sys.exit(EX_USAGE)
+        uid = whoami(tok, a.env_file) if a.dm == "me" else (a.dm if re.fullmatch(r"[UW][A-Z0-9]{8,}", a.dm) else whoami(tok, a.env_file, a.dm))
+        ch = call("conversations.open", tok, users=uid)["channel"]["id"]
+        where = f"DM to {Names(tok).user(uid)} ({uid})"
+    elif not a.target:
+        print("post needs a target: #channel, a channel id, a thread permalink, or --dm", file=sys.stderr); sys.exit(EX_USAGE)
+    elif "/archives/" in a.target:
+        ch, ts = parse_permalink(a.target)
+        root = call("conversations.replies", tok, channel=ch, ts=ts, limit=1)["messages"][0]
+        thread_ts = root.get("thread_ts") or root["ts"]
+        where = f"reply in thread {permalink_of(ch, thread_ts)}  (root: {Names(tok).render(root.get('text', ''))[:80]!r})"
+    else:
+        ch = resolve_channel(tok, a.target)
+        where = f"top level in #{next((c['name'] for c in list_channels(tok) if c['id'] == ch), ch)}"
+    me = call("auth.test", tok)
+    # idempotency: the same text from this bot already in the last 20 messages of the target → refuse
+    recent = (call("conversations.replies", tok, channel=ch, ts=thread_ts, limit=20) if thread_ts
+              else call("conversations.history", tok, channel=ch, limit=20))["messages"]
+    dup = next((m for m in recent if m.get("bot_id") == me.get("bot_id") and (m.get("text") or "").strip() == text.strip()), None)
+    if dup:
+        print(f"refused: this exact message is already there — {permalink_of(ch, dup['ts'])}", file=sys.stderr); sys.exit(EX_AUTH)
+    if not a.apply:
+        out = {"dry_run": True, "as": me.get("user"), "where": where, "channel": ch, "thread_ts": thread_ts, "chars": len(text), "text": text}
+        if a.json:
+            print(json.dumps(out, ensure_ascii=False)); return
+        print(f"DRY RUN — would post as @{me.get('user')}  {where}\n{'─' * 76}\n{text}\n{'─' * 76}\npass --apply to send")
+        return
+    payload = {"channel": ch, "text": text, "unfurl_links": False, "unfurl_media": False}
+    if thread_ts:
+        payload["thread_ts"] = thread_ts
+    d = post_json("chat.postMessage", tok, payload)
+    link = permalink_of(d["channel"], d["ts"])
+    print(json.dumps({"posted": True, "as": me.get("user"), "channel": d["channel"], "ts": d["ts"], "permalink": link}) if a.json else f"posted as @{me.get('user')}  {link}")
+
+
 def cmd_whoami(tok, a):
     uid = whoami(tok, a.env_file, a.email)
     print(json.dumps({"user": uid}) if a.json else uid)
@@ -290,7 +351,7 @@ def cmd_whoami(tok, a):
 
 def main():
     signal.signal(signal.SIGPIPE, signal.SIG_DFL)  # `| head` must not traceback
-    ap = argparse.ArgumentParser(description="Slack capability — read-only.")
+    ap = argparse.ArgumentParser(description="Slack capability: reads first-hand; `post` writes, dry run until --apply.")
     ap.add_argument("--env-file", help="file with SLACK_BOT_TOKEN (and JIRA_EMAIL for whoami)")
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("read", help="one message and its thread, by permalink")
@@ -310,10 +371,16 @@ def main():
     p.add_argument("--json", action="store_true")
     p = sub.add_parser("whoami", help="user id behind an email")
     p.add_argument("--email"); p.add_argument("--json", action="store_true")
+    p = sub.add_parser("post", help="send a message as the bot — dry run unless --apply")
+    p.add_argument("target", nargs="?", help="#channel, channel id, or a thread permalink (reply there)")
+    p.add_argument("--text"); p.add_argument("--file", help="markdown/text file, or - for stdin")
+    p.add_argument("--dm", help="me · an email · a user id — a direct message instead of a channel")
+    p.add_argument("--apply", action="store_true", help="actually send; without it nothing leaves the machine")
+    p.add_argument("--json", action="store_true")
     a = ap.parse_args()
     tok = token(a.env_file)
     {"read": cmd_read, "channels": cmd_channels, "history": cmd_history, "mentions": cmd_mentions,
-     "unanswered": cmd_unanswered, "whoami": cmd_whoami}[a.cmd](tok, a)
+     "unanswered": cmd_unanswered, "whoami": cmd_whoami, "post": cmd_post}[a.cmd](tok, a)
 
 
 if __name__ == "__main__":

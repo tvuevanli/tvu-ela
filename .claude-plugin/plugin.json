@@ -1,6 +1,6 @@
 {
   "name": "ela",
-  "version": "0.13.0",
+  "version": "0.14.0",
   "description": "Evan's working assistant at TVU, as a Claude Code plugin. Reads first-hand (Jira, Slack, Outline, code, disk), keeps the map of what exists and what does not, breaks work down by layer, and hands implementation to whoever owns the rules. Definition layer only: no product code, no knowledge.",
   "author": { "name": "Evan Li" },
   "license": "UNLICENSED"
