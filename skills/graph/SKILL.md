@@ -15,9 +15,11 @@ Self-contained. Argument: a graph id (26 chars, `01M1…`), a process id (32 hex
   data; `UR_ENV_ORDER` in the env file overrides the list, `-e p3` pins one. The **environment printed
   is the one the data says** (`app.tvunetworks.com/environment` on a graph, `env` on a process), not the
   path that answered: the prod environments share one J2N. Say both when they differ.
-- **`-d` and `-c` are the detail views.** `-d` adds box location, box id and image per node; `-c` lists
-  the edges as connections with their shm types. The default table is type · process · public ip ·
-  private ip · control port, in pipeline order.
+- **`-d` and `-c` are the detail views — progressive disclosure.** The default table (type · process ·
+  public ip · private ip, pipeline order) comes from the one J2N read, about 2–3 s. `-d` adds control
+  port, box location, box id and image per node — one Pilot call per node, run in parallel over warmed
+  connections; `-c` lists the edges as connections with their shm types. Connecting to UR costs ~2 s
+  of TLS, a request on an open connection ~1 s: that is the floor, not the script.
 - **A deleted process still answers.** Pilot returns a 200 skeleton with every field `None`; the
   script treats that as not found. Say "no live record" rather than "does not exist".
 - **First-hand or nothing.** What UR does not return (a box's owner, a service's owner) comes from

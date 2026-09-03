@@ -21,7 +21,8 @@ Probe order (first answer wins): UR_ENV_ORDER in the env file (comma-separated),
 Credentials: UR_ACCESS_KEY (+ UR_BASE_HOST) from $UR_ACCESS_KEY → --env-file → $ELA_ENV_FILE.
 Exit codes: 0 ok · 2 usage · 3 not found on any env · 4 auth · 5 remote error.
 """
-import argparse, json, os, re, shutil, signal, sys, urllib.error, urllib.parse, urllib.request
+import argparse, http.client, json, os, queue, re, shutil, signal, sys, threading, urllib.error, urllib.parse, urllib.request
+from concurrent.futures import ThreadPoolExecutor
 
 EX_USAGE, EX_NOTFOUND, EX_AUTH, EX_REMOTE = 2, 3, 4, 5
 # Probe order — three envs cover everything Evan touches: prod3 (MediaHub 2.1, answers 2.0 too), prod2 (older
@@ -45,30 +46,57 @@ def env_value(key, env_file=None):
 
 
 class UR:
-    def __init__(self, env_file):
+    """One host, many environments in the path. Connecting costs ~3 s (TLS to the UR edge), a request on an open
+    connection ~0.5–1 s — so connections are kept alive, pooled, and a few are warmed in the background at start."""
+    WARM = 4
+
+    def __init__(self, env_file, warm=True):
         self.key = env_value("UR_ACCESS_KEY", env_file)
         if not self.key:
             print("no UR_ACCESS_KEY (env, $ELA_ENV_FILE, or --env-file)", file=sys.stderr); sys.exit(EX_AUTH)
         self.host = (env_value("UR_BASE_HOST", env_file) or "https://ur.tvunetworks.com").rstrip("/")
         order = env_value("UR_ENV_ORDER", env_file)
         self.order = [e.strip() for e in order.split(",") if e.strip()] if order else DEFAULT_ORDER
+        u = urllib.parse.urlparse(self.host)
+        self.netloc, self.https = u.netloc, (u.scheme == "https")
+        self.pool = queue.LifoQueue()
+        if warm:
+            for _ in range(self.WARM):
+                threading.Thread(target=lambda: self.pool.put(self._connect()), daemon=True).start()
+
+    def _connect(self):
+        cls = http.client.HTTPSConnection if self.https else http.client.HTTPConnection
+        c = cls(self.netloc, timeout=30)
+        try:
+            c.connect()
+        except OSError:
+            pass                                   # surfaces as an error on first use
+        return c
+
+    def _take(self):
+        try:
+            return self.pool.get(timeout=0.05)
+        except queue.Empty:
+            return self._connect()
 
     def get(self, env, path):
         """→ (status, body_json_or_None). 5xx and 404 with an empty body read as 'not here'."""
-        url = f"{self.host}/{env}{path}"
-        req = urllib.request.Request(url, headers={"AccessKey": self.key, "Accept": "application/json"})
-        try:
-            with urllib.request.urlopen(req, timeout=30) as r:
-                raw = r.read()
-                return r.status, (json.loads(raw) if raw.strip() else None)
-        except urllib.error.HTTPError as e:
-            raw = e.read()
+        target = f"/{env}{path}"
+        headers = {"AccessKey": self.key, "Accept": "application/json", "Connection": "keep-alive"}
+        for attempt in range(2):
+            c = self._take()
             try:
-                return e.code, (json.loads(raw) if raw.strip() else None)
-            except ValueError:
-                return e.code, None
-        except (urllib.error.URLError, TimeoutError, OSError) as e:
-            print(f"ur {env}: {str(e)[:80]}", file=sys.stderr); return 0, None
+                c.request("GET", target, headers=headers)
+                r = c.getresponse(); raw = r.read()
+                self.pool.put(c)
+                try:
+                    return r.status, (json.loads(raw) if raw.strip() else None)
+                except ValueError:
+                    return r.status, None
+            except (http.client.HTTPException, OSError) as e:
+                c.close()
+                if attempt == 1:
+                    print(f"ur {env}: {str(e)[:80]}", file=sys.stderr); return 0, None
 
     def probe(self, path, env=None, accept=lambda body: body is not None):
         """Try envs in order; return (env, body) for the first 200 whose body passes `accept`."""
@@ -181,20 +209,22 @@ BOLD, DIM, CYAN, GREEN = "1", "2", "36", "32"
 
 
 def enrich_nodes(ur, env, nodes):
-    """One Pilot nodeOrigins call per node: control port, box id and the box's cloud placement."""
-    for n in nodes:
+    """One Pilot nodeOrigins call per node — in parallel over the warmed connections: control port, box id, the box's cloud placement."""
+    def one(n):
         n.update({"control_port": 0, "box_type": "", "platform": "", "region": ""})
         if not n["process_id"]:
-            continue
+            return
         st, body = ur.get(env, f"/pilot/api/v1/nodeOrigins/{n['process_id']}/nodeOrginsByNodeDetails")
         if st != 200 or not isinstance(body, dict):
-            continue
+            return
         box = body.get("box") if isinstance(body.get("box"), dict) else {}
         n["public_ip"] = n["public_ip"] or _none(body.get("publicIp")) or box.get("publicIpv4") or ""
         n["private_ip"] = n["private_ip"] or _none(body.get("privateIp")) or box.get("privateIpv4") or ""
         n["control_port"] = _none(body.get("mediaBoxControlPort")) or _none(body.get("controlPort")) or 0
         n["box_id"] = _none(body.get("boxId")) or box.get("id") or n["box_id"]
         n["box_type"], n["platform"], n["region"] = box.get("type") or "", box.get("platform") or "", box.get("region") or ""
+    with ThreadPoolExecutor(max_workers=min(UR.WARM + 2, max(1, len(nodes)))) as ex:
+        list(ex.map(one, nodes))
     return nodes
 
 
@@ -210,17 +240,17 @@ def print_graph(a, via, g):
     if g["object_id"]:
         print(_c(DIM, f"object {g['object_id']}  business {g['business_id']}  app {g['app']}  created {g['created_at'][:19]}"))
     print()
-    cols = [("Node", 5), ("Type", 18), ("Process ID", 32), ("Public IP", 15), ("Private IP", 15), ("Control Port", 12)]
+    cols = [("Node", 5), ("Type", 18), ("Process ID", 32), ("Public IP", 15), ("Private IP", 15)]
     if a.detail:
-        cols += [("Box Location", 20), ("Box ID", 32)]
+        cols += [("Control Port", 12), ("Box Location", 20), ("Box ID", 32)]
     print(_c(BOLD, "  " + "  ".join(f"{h:<{w}}" for h, w in cols)))
     print(_c(DIM, "  " + "  ".join("─" * w for _, w in cols)))
     for i, n in enumerate(g["nodes"], 1):
         row = [_c(CYAN, f"{'[' + str(i) + ']':<5}"), _c(BOLD, f"{n['type'][:18]:<18}"), _c(DIM, f"{n['process_id']:<32}"),
-               f"{n['public_ip'] or '(none)':<15}", f"{n['private_ip'] or '(none)':<15}", _c(GREEN, f"{n['control_port'] or 'N/A':<12}")]
+               f"{n['public_ip'] or '(none)':<15}", f"{n['private_ip'] or '(none)':<15}"]
         if a.detail:
-            row += [f"{box_location(n) or '(none)':<20}", _c(DIM, n['box_id'] or '(none)')]
-        print("  " + "  ".join(row))
+            row += [_c(GREEN, f"{n.get('control_port') or 'N/A':<12}"), f"{box_location(n) or '(none)':<20}", _c(DIM, n['box_id'] or '(none)')]
+        print(("  " + "  ".join(row)).rstrip())
         if a.detail:
             print(_c(DIM, f"  {'':<5}  {'':<18}  {n['image'] or '(no image)'}   {n['name']}"))
     if a.connections and g["edges"]:
@@ -255,8 +285,9 @@ def cmd_graph(ur, a):
         if a.raw:
             print(json.dumps(v, ensure_ascii=False, indent=1)); return
         results = [(env, parse_graph(v))]
-    for via, g in results:
-        enrich_nodes(ur, via, g["nodes"])
+    if a.detail or a.json:                        # the default table needs no Pilot call — progressive disclosure
+        for via, g in results:
+            enrich_nodes(ur, via, g["nodes"])
     if a.json:
         print(json.dumps({"graph_id": a.graph_id, "results": [dict(via=e, **g) for e, g in results]}, ensure_ascii=False)); return
     for via, g in results:
@@ -495,6 +526,10 @@ def _sudo(cmd):
 
 
 def cmd_connect(ur, a):
+    words = [w for w in a.target if w.lower() not in ("process", "box", "ip")]   # ura habit: `connect process <id>`
+    if len(words) != 1:
+        print("connect takes one target: an ip, a box id or a process id", file=sys.stderr); sys.exit(EX_USAGE)
+    a.target = words[0]
     user, pw = _ssh_creds(a.env_file)
     ip, via = _box_ip_for(ur, a.env_file, a.target, a.env)
     print(f"→ ssh {user}@{ip} (root)   [{via}]", file=sys.stderr)
@@ -580,7 +615,7 @@ def main():
         p.add_argument("--json", action="store_true"); p.add_argument("--raw", action="store_true", help="the API body as-is")
         if name == "graph":
             p.add_argument("--all", action="store_true", help="every env that has it, not just the first")
-            p.add_argument("-d", "--detail", action="store_true", help="box location, box id and image per node")
+            p.add_argument("-d", "--detail", action="store_true", help="control port, box location, box id and image per node (one Pilot call per node)")
             p.add_argument("-c", "--connections", action="store_true", help="the edges as a connections list")
     p = sub.add_parser("graphs"); p.add_argument("email", nargs="?", default="me", help="address, or an alias from site.json emails (me · li …); default me"); p.add_argument("--env"); p.add_argument("--all", action="store_true")
     p.add_argument("--object", help="keep only graphs whose objectId or businessId equals this")
@@ -588,8 +623,8 @@ def main():
     p.add_argument("--json", action="store_true")
     p = sub.add_parser("resolve"); p.add_argument("id"); p.add_argument("--env"); p.add_argument("--email", help="owner email, needed for an object id")
     p.add_argument("--json", action="store_true")
-    p = sub.add_parser("connect", help="ssh to a TVU box as root — by ip, box id or process id (ura connect)")
-    p.add_argument("target"); p.add_argument("--env")
+    p = sub.add_parser("connect", help="ssh to a TVU box as root — by ip, box id or process id (ura connect; `connect process <id>` works too)")
+    p.add_argument("target", nargs="+"); p.add_argument("--env")
     p = sub.add_parser("exec", help="docker exec -it -w /var/log <process> bash on its box (ura exec)")
     p.add_argument("process_id"); p.add_argument("--env")
     p = sub.add_parser("start", help="start a Sender working process (ura start) — asks y/N unless --yes")
