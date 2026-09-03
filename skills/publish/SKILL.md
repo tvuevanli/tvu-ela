@@ -11,7 +11,7 @@ from `site.json`: `records` (elak) and `published` (`<projects>/elak-published`,
 
 ```bash
 P="python3 ${CLAUDE_PLUGIN_ROOT}/skills/publish/publish.py"     # or: ela publish …
-$P catalogue      # map/services.yaml → <published>/helm/knowledge/mediahub/services/docker-service-map.md + manifest row
+$P catalogue      # map/services.yaml → <published>/knowledge/products/mediahub/services.md + manifest row
 $P list           # what the manifest says is published, and whether the source's verified: moved since (drift)
 ```
 

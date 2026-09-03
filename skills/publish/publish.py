@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
 """Publish — render an elak source into the published directory machines read, and record the row in elak's manifest.
 
-  catalogue [--json]        <records>/map/services.yaml → <published>/helm/knowledge/mediahub/services/docker-service-map.md
-                            and a manifest row in <records>/publish/helm-runtime.md
+  all [--json]              everything below, then <published>/MANIFEST.md (what this directory holds, from where, when)
+  catalogue [--json]        <records>/map/services.yaml → <published>/knowledge/products/mediahub/services.md
+  map [--json]              <records>/map/*.yaml + README.md → <published>/map/ (machine-readable, copied as they are)
   list                      what the manifest says has been published, and whether the source moved since
+
+The published directory is a subset of elak's own tree — the same paths, elak's names, no per-reader
+directories. Readers (Helm's context packs, the remote ela) point at these paths.
 
 A publication is written, not exported (elak publish/README.md): the document opens by saying what it is,
 carries every limit the source states where the reader sees it, and names its source and dates. Nothing
@@ -94,6 +98,7 @@ def render_catalogue(header, images, today):
         f"verified: '{header.get('verified', '')}'",
         f"source: elak map/services.yaml (verified {header.get('verified', '?')}), published by ela on {today}",
         "generated: true — do not edit; change elak map/services.yaml and run `ela publish catalogue`",
+        "path: knowledge/products/mediahub/services.md (elak's tree; the published directory is its subset)",
         "---",
         "",
         "# MediaHub media docker services — the catalogue",
@@ -150,7 +155,7 @@ def render_catalogue(header, images, today):
 # ── the manifest row ──────────────────────────────────────────────────────────
 
 def update_manifest(records, source_rel, dest_rel, today, verified, reader):
-    path = os.path.join(records, "publish", "helm-runtime.md")
+    path = os.path.join(records, "publish", "published.md")
     text = open(path, encoding="utf-8").read()
     row = f"| `{source_rel}` | `<published>/{dest_rel}` | {today} | {verified} | {reader} |"
     lines = text.splitlines()
@@ -184,7 +189,7 @@ def cmd_catalogue(a):
     if not images:
         print(f"{src}: no images parsed", file=sys.stderr); sys.exit(EX_USAGE)
     today = datetime.date.today().isoformat()
-    dest_rel = "helm/knowledge/mediahub/services/docker-service-map.md"
+    dest_rel = "knowledge/products/mediahub/services.md"
     dest = os.path.join(published, dest_rel)
     doc = render_catalogue(header, images, today)
     try:
@@ -193,22 +198,66 @@ def cmd_catalogue(a):
     except OSError as e:
         print(f"cannot write {dest}: {e}", file=sys.stderr); sys.exit(EX_WRITE)
     mpath, row = update_manifest(records, "map/services.yaml", dest_rel, today, header.get("verified", "?"),
-                                 "Helm context pack `service_catalog` / pipeline drift check (once Helm's knowledge root points at <published>)")
+                                 "Helm context pack `service_catalog` (once Helm's knowledge root points at <published>/knowledge)")
     n = sum(len(i["services"]) for i in images.values())
     if a.json:
         print(json.dumps({"source": src, "destination": dest, "images": len(images), "services": n, "verified": header.get("verified"), "published": today, "manifest": mpath}, ensure_ascii=False)); return
     print(f"published {dest_rel}\n  {len(images)} images · {n} services · source verified {header.get('verified')} · published {today}\n  manifest row → {mpath}\n  {row}")
 
 
+def cmd_map(a):
+    """The machine-readable map, copied as it is: services · absent · release · apis and the README."""
+    import shutil
+    records, published = roots()
+    src_dir, dst_dir = os.path.join(records, "map"), os.path.join(published, "map")
+    os.makedirs(dst_dir, exist_ok=True)
+    names = sorted(f for f in os.listdir(src_dir) if f.endswith(".yaml") or f == "README.md")
+    for f in names:
+        shutil.copyfile(os.path.join(src_dir, f), os.path.join(dst_dir, f))
+    today = datetime.date.today().isoformat()
+    ver = next((l.split(":", 1)[1].strip().strip("'") for l in open(os.path.join(src_dir, "services.yaml")) if l.startswith("verified:")), "?")
+    update_manifest(records, "map/", "map/", today, ver, "the remote ela (`records`/`map` roots) and Helm's pipeline drift check")
+    if a.json:
+        print(json.dumps({"files": names, "destination": dst_dir, "published": today})); return
+    print(f"published map/ ({', '.join(names)}) → {dst_dir}")
+
+
+def write_published_manifest(records, published):
+    """<published>/MANIFEST.md — what this directory holds, generated from elak's manifest so the remote can tell what it has."""
+    src = os.path.join(records, "publish", "published.md")
+    rows = [ln for ln in open(src, encoding="utf-8") if ln.startswith("| `")]
+    rows = [r for r in rows if len(r.strip().strip("|").split("|")) >= 5]
+    today = datetime.date.today().isoformat()
+    text = ["# What this directory is", "",
+            "A generated subset of elak, Evan's knowledge base — the same paths and names as elak's own tree, published for machines to read: "
+            "Helm's knowledge root and the remote ela point here. Nothing in it is edited by hand; a change is made in elak and published again "
+            "(`ela publish all`). The remote receives it by rsync with Helm's deploy.", "",
+            f"Generated {today}. Rows: source in elak · published path here · published on · source's `verified:` then · reader.", "",
+            "| source | published file | generated | source verified at publication | read by |", "|---|---|---|---|---|"] + [r.rstrip("\n") for r in rows]
+    open(os.path.join(published, "MANIFEST.md"), "w", encoding="utf-8").write("\n".join(text) + "\n")
+
+
+def cmd_all(a):
+    records, published = roots()
+    cmd_map(argparse.Namespace(json=False)); cmd_catalogue(argparse.Namespace(json=False))
+    write_published_manifest(records, published)
+    stale = os.path.join(published, "helm")
+    if os.path.isdir(stale):
+        import shutil; shutil.rmtree(stale); print("removed the old per-reader directory helm/")
+    print(f"MANIFEST.md written → {os.path.join(published, 'MANIFEST.md')}")
+
+
 def cmd_list(a):
     records, published = roots()
-    path = os.path.join(records, "publish", "helm-runtime.md")
+    path = os.path.join(records, "publish", "published.md")
     for ln in open(path, encoding="utf-8"):
         if ln.startswith("| `"):
             cells = [c.strip().strip("`") for c in ln.strip().strip("|").split("|")]
             if len(cells) < 5:          # the "First content" table has three cells; only manifest rows are listed
                 continue
             src = os.path.join(records, cells[0]); now = ""
+            if os.path.isdir(src):                       # a directory source (map/) carries its date on services.yaml
+                src = os.path.join(src, "services.yaml")
             try:
                 now = next((l.split(":", 1)[1].strip().strip("'") for l in open(src) if l.startswith("verified:")), "")
             except OSError:
@@ -221,9 +270,11 @@ def main():
     ap = argparse.ArgumentParser(description="Publish elak sources into the published directory.")
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("catalogue"); p.add_argument("--json", action="store_true")
+    p = sub.add_parser("map"); p.add_argument("--json", action="store_true")
+    p = sub.add_parser("all"); p.add_argument("--json", action="store_true")
     sub.add_parser("list")
     a = ap.parse_args()
-    {"catalogue": cmd_catalogue, "list": cmd_list}[a.cmd](a)
+    {"catalogue": cmd_catalogue, "map": cmd_map, "all": cmd_all, "list": cmd_list}[a.cmd](a)
 
 
 if __name__ == "__main__":
