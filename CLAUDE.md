@@ -108,6 +108,7 @@ re-implementations.
 | code | `<code>/<alias>/<remote path>` — every checkout that is not Evan's, placed by its remote; aliases and git hosts only in `site.json` | never edited in place; `map.py` clones, syncs, surveys |
 | work | `<work>/<KEY>/<repo>` — one task, one directory of worktrees (a symlink when a team stack needs the worktree beside the repo) | where code changes happen; removed at close |
 | lab | `<lab>/` — experiments without an upstream owner | |
+| reports | `<reports>` = `<projects>/reports` — markdown sources + `out/` HTML, published as private artifacts with stable URLs | Evan's reading surface, not knowledge; URLs in its `README.md`; never synced anywhere |
 | publication targets | Outline · Helm's `knowledge/` runtime subset · wherever Evan names on the day | published **from** the knowledge base on Evan's word, never synced back; counterparts' KBs are cited by URL/path |
 
 Writing rule for documents: Evan says where a document goes, and ela writes it there. Nothing is
