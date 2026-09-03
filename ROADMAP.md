@@ -10,7 +10,9 @@ Manifests, `CLAUDE.md` (boundaries first), this file.
 - **Senses**: `/ela:jira` · `/ela:slack` · `/ela:kb` · `/ela:object` · `/ela:figma` · `/ela:graph` (added
   2026-09-02: what `ura` did by hand — J2N graphs and Pilot processes, probing environments in order
   `prod3 → prod2 → test2` and reporting the env the data names; `connect · exec · start · stop` for the
-  shell, y/N-gated) · `/ela:release` (GM bundles, versions per env, Jenkins builds, drift). First-hand,
+  shell, y/N-gated) · `/ela:release` (GM bundles, versions per env, Jenkins builds, drift) · `/ela:confluence` and `/ela:gdoc`
+  (added 2026-09-03: the web team's wiki and Google Docs/Sheets, read-only) · `slack post` (2026-09-03: the one
+  Slack write, dry run until `--apply`). First-hand,
   read-first (`kb` and the `jira` write atoms are dry-run by default and write only with `--apply`, on confirm). Credentials from `~/.claude/ela/.env`, copied
   once from their previous homes; no runtime dependency on Helm or the old `~/.claude/skills`.
 - **L1 shape** (see `CLAUDE.md` — capability layers): each sense grows into a subcommand CLI with
@@ -18,7 +20,8 @@ Manifests, `CLAUDE.md` (boundaries first), this file.
   default, safety gates in the script); what stays phased is their **composite/automated use**
   (Phase 5).
 - **Map**: `/ela:map` → `elak/map/services.yaml` (image → slugs · GM names · owners → repos) and
-  `absent.yaml` (known to exist, not here); what is on disk is a cache (`map.py survey`), never knowledge.
+  `absent.yaml` (known to exist, not here); what is on disk is a cache (`map.py survey`), never knowledge;
+  `map.py remote` (2026-09-03) lists a whole GitLab group through its API, so "absent" means searched, not guessed.
   Layout (2026-09-02): `code/<alias>/<remote path>` for everything that is not Evan's, `work/<KEY>/<repo>`
   for changes, `lab/` for experiments; aliases and hosts only in `site.json`.
 
