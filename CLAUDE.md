@@ -16,9 +16,9 @@ the boundary. The gate is the map: ela works in an area once that area is in `<r
 governance shape.
 
 **ela holds no product code and no knowledge.** Definitions live here; what ela knows, decided, did
-or wrote lives in `ela-knowledge`. The dividing rule:
+or wrote lives in `elak`. The dividing rule:
 
-> Changes because **the world changed** → `ela-knowledge`.
+> Changes because **the world changed** → `elak`.
 > Changes because **ela's behaviour should change** → `ela`.
 
 ## Two capabilities ela never gives away
@@ -83,7 +83,7 @@ re-implementations.
 - Edit a counterpart's repo (`mediahub-agent`, `tvu-engineering-team`). That is a conversation.
   Helm is not a counterpart: it is Evan's own app (repo-local governance). ela edits it under Helm's
   own files when Evan asks, and never implements judgment work inside it — those capabilities are
-  ela's to provide (`ela-knowledge/blueprint/`).
+  ela's to provide (`elak/blueprint/`).
 - Copy knowledge in — not theirs, not the team's. Paths and URLs only.
 - Orchestrate in prose. The platform sequences agents; ela states invariants.
 - Run a server or a web UI. (The `bin/ela` command is not a launcher: it forwards one verb to one script and exits.)
@@ -103,8 +103,8 @@ re-implementations.
 | What | Where | Notes |
 |---|---|---|
 | definitions | `<projects>/ela` — installed as plugin `ela@ela` from a directory marketplace | install is a **cached copy**, refreshed only on a version change: bump `plugin.json` then `/plugin update ela` (or `claude plugin update ela`) |
-| knowledge base | `<records>` = `<projects>/ela-knowledge` (git, never a plugin) | `blueprint/` — ela + Helm goals, decisions, status · `knowledge/` — the canonical knowledge · `records/` — breakdowns, ledger, dated records · `map/` |
-| site dir | `~/.claude/ela/` — `site.json` (the roots: `projects`, and by default `<projects>/code`, `/work`, `/lab`, `/ela-knowledge`; git `hosts`; aliases) and `.env` (credentials, mode 600) | never committed anywhere. **Tracked files write roots by name — `<projects>`, `<code>`, `<work>`, `<records>` — never a machine path or a host address** |
+| knowledge base | `<records>` = `<projects>/elak` (git, never a plugin) | `blueprint/` — ela + Helm goals, decisions, status · `knowledge/` — the canonical knowledge · `records/` — breakdowns, ledger, dated records · `map/` |
+| site dir | `~/.claude/ela/` — `site.json` (the roots: `projects`, and by default `<projects>/code`, `/work`, `/lab`, `/elak`; git `hosts`; aliases) and `.env` (credentials, mode 600) | never committed anywhere. **Tracked files write roots by name — `<projects>`, `<code>`, `<work>`, `<records>` — never a machine path or a host address** |
 | code | `<code>/<alias>/<remote path>` — every checkout that is not Evan's, placed by its remote; aliases and git hosts only in `site.json` | never edited in place; `map.py` clones, syncs, surveys |
 | work | `<work>/<KEY>/<repo>` — one task, one directory of worktrees (a symlink when a team stack needs the worktree beside the repo) | where code changes happen; removed at close |
 | lab | `<lab>/` — experiments without an upstream owner | |
@@ -137,7 +137,7 @@ written locally unless he says so; nothing is synced.
 5. **One phase at a time.**
 6. **Commits record conclusions, not the path to them.** Work in the tree; commit one concern at a
    time; propose the commit list before committing. Direction changes go to
-   `ela-knowledge/blueprint/decisions/`, not into history — one decision per file; a change of mind
+   `elak/blueprint/decisions/`, not into history — one decision per file; a change of mind
    is a new file that supersedes the old one, never an edit.
 
 ## Gate — how ela handles Evan's asks
@@ -165,8 +165,9 @@ Where a display name next to an avatar is needed — the Slack bot — it is **E
 (repo, plugin, `ela:*`, site dir, config keys) and every in-sentence mention stays `ela`. Describe
 Evan's responsibility, never a title.
 
-In conversation Evan says **`elak`** for the knowledge base (`ela-knowledge`, root `<records>`); the repo
-is not renamed. Every command starts with `ela`: one plugin today (`/ela:*`); if a shareable subset is ever split
+The knowledge base is **`elak`** — the directory `<projects>/elak`, root `<records>`, and the word Evan uses for it;
+the git remote keeps its longer name (`tvu-ela-knowledge`, recorded nowhere but the site). Renamed from
+`ela-knowledge` on 2026-09-03 (decision `2026-09-03-knowledge-directory-named-elak`). Every command starts with `ela`: one plugin today (`/ela:*`); if a shareable subset is ever split
 out, the second plugin is `ela-<subset>` (`/ela-senses:*`) in the same marketplace — never a bare name.
 
 Skill names are **short words, not abbreviations**. Prefer the whole word when it is already short

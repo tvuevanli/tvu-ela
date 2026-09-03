@@ -1,6 +1,6 @@
 ---
 name: breakdown
-description: Turn a requirement (Jira keys, Slack permalinks, Evan's own framing — any mix) into a plan of layer-tagged lanes with owners, dependency order, and verification; two depths (knowledge / code); the plan lands in ela-knowledge, Jira publication only on explicit confirm. Use for "break this down", "拆解", "拆票", "出个方案", "谁该做什么", or any multi-layer requirement that needs lanes before work starts.
+description: Turn a requirement (Jira keys, Slack permalinks, Evan's own framing — any mix) into a plan of layer-tagged lanes with owners, dependency order, and verification; two depths (knowledge / code); the plan lands in elak, Jira publication only on explicit confirm. Use for "break this down", "拆解", "拆票", "出个方案", "谁该做什么", or any multi-layer requirement that needs lanes before work starts.
 user-invocable: true
 ---
 
@@ -66,7 +66,7 @@ cites the files read (the analyst returns them; keep the list in the plan direct
 
 ## 4 — the plan lands
 
-`<records>/records/breakdowns/<KEY>/plan.md`, committed to ela-knowledge:
+`<records>/records/breakdowns/<KEY>/plan.md`, committed to elak:
 
 ```markdown
 ---

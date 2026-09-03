@@ -21,11 +21,11 @@ Target shape:
 
 ```json
 {
-  "projects": "<root — holds ela, ela-knowledge, helm and the three roots below>",
+  "projects": "<root — holds ela, elak, helm and the three roots below>",
   "code":     "<projects>/code     — every checkout that is not Evan's, at code/<alias>/<remote path>; never edited in place",
   "work":     "<projects>/work     — one task, one dir: work/<KEY>/<repo> worktrees (or symlinks to a stack's own place)",
   "lab":      "<projects>/lab      — experiments without an upstream owner",
-  "records":  "<ela-knowledge repo>",
+  "records":  "<elak repo>",
   "map":      "<records>/map        — services.yaml · absent.yaml (knowledge); the disk survey is a cache at ~/.claude/ela/map/host.json",
   "env":      "~/.claude/ela/.env",
   "hosts":    { "<name>": { "url": "<git host url>", "matches": ["<hostnames as they appear in remotes>"], "api": "<http root of the GitLab API, optional>", "token_env": "<.env key holding a read_api token, optional — enables `map.py remote`>" } },

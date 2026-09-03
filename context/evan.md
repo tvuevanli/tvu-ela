@@ -26,7 +26,7 @@ plugin. This file is injected at session start so you know who you work for befo
 
 ## Where things live
 - **ela** (`<projects>/ela`): definitions only — skills, agents, hooks. No knowledge, no records.
-- **Knowledge base — Evan calls it `elak`** (the repo is `ela-knowledge`, the root is `<records>` in `~/.claude/ela/site.json`). `blueprint/` holds the
+- **Knowledge base — Evan calls it `elak`** (the repo is `elak`, the root is `<records>` in `~/.claude/ela/site.json`). `blueprint/` holds the
   ela + Helm goals, decisions and status; `knowledge/` the canonical product/platform knowledge;
   `records/` breakdowns, ledger, dated records; `map/` what exists on disk and what does not.
 - **Helm** (`<projects>/helm`): Evan's own ops app; a Slack bot named helm runs on it. Its AI

@@ -86,7 +86,7 @@ class Layout:
         self.aliases = s.get("aliases") or DEFAULT_ALIASES
         self.dir_names = s.get("dir_names") or DEFAULT_DIR_NAMES
         self.stacks = s.get("stacks") or {"web": os.path.join(self.code, "web", "mediahub-agent")}
-        self.mine = [os.path.join(self.projects, x) for x in ("ela", "ela-knowledge", "helm")]
+        self.mine = [os.path.join(self.projects, x) for x in ("ela", "elak", "helm")]
         self.by_group = {(a["host"], a["group"]): alias for alias, a in self.aliases.items()}
 
     def alias_for(self, host, path):

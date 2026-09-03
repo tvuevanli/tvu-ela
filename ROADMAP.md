@@ -17,14 +17,14 @@ Manifests, `CLAUDE.md` (boundaries first), this file.
   `--json` as callers need it — `jira.py` first. Write *atoms* may exist as CLI early (dry-run
   default, safety gates in the script); what stays phased is their **composite/automated use**
   (Phase 5).
-- **Map**: `/ela:map` → `ela-knowledge/map/services.yaml` (image → slugs · GM names · owners → repos) and
+- **Map**: `/ela:map` → `elak/map/services.yaml` (image → slugs · GM names · owners → repos) and
   `absent.yaml` (known to exist, not here); what is on disk is a cache (`map.py survey`), never knowledge.
   Layout (2026-09-02): `code/<alias>/<remote path>` for everything that is not Evan's, `work/<KEY>/<repo>`
   for changes, `lab/` for experiments; aliases and hosts only in `site.json`.
 
 - **Session context** (added 2026-09-02): `hooks/session-start.sh` injects `context/evan.md`, the
   latest `blueprint/` decisions and status, and the cwd's mapped area. No global agent — the plan
-  (`ela-knowledge/blueprint/`) records why.
+  (`elak/blueprint/`) records why.
 
 **Not built:** agents, writes to product repos, orchestration.
 **Exit:** `/ela:map` runs twice in a row with an empty drift table; every repo has a governance value.

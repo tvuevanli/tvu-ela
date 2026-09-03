@@ -55,7 +55,7 @@ This is how ela knows Evan in any directory without an agent or a global CLAUDE.
 | `/ela:route` | 4 | a bug in, a name out: implicated service, owner, or the first checker with the exact discriminating check |
 | `/ela:brief` | 4 | the morning brief: stale In-Progress, unrouted new tickets, complex tickets not broken down, report threads, threads waiting on Evan, threads he wrote alone, decisions made in Slack without a ticket — ranked, each with a drafted action; read-only |
 | `/ela:task` | 2 | one piece of work Evan implements: worktree, tier, delegation to the area's stack, evidence, ledger |
-| `/ela:breakdown` | 3 | requirement → layer-tagged lanes with owners, order, verification; knowledge or code depth; plan in ela-knowledge, Jira publication on confirm |
+| `/ela:breakdown` | 3 | requirement → layer-tagged lanes with owners, order, verification; knowledge or code depth; plan in elak, Jira publication on confirm |
 | `/ela:map` | 1 | the code layout (`code/<alias>/<remote path>`, `work/<KEY>/<repo>`) and the script that keeps it: `survey` (cache) · `find` · `services` · `where` · `probe` · `clone` · `sync` · `worktree` |
 
 Start the session where the target's rules live (`CLAUDE.md` → *The operating rule*); ela's skills
@@ -71,11 +71,11 @@ are there because the plugin follows you.
 3. **Your own lane: `/ela:task <KEY> <repo>`** — worktree, tier, delegation by governance
    (mediahub-agent's workflow for `mh-app`, the repo's own rules elsewhere). No ticket? `--source`
    works: counterparts accept `verbal` and `slack` sources.
-4. **ela verifies and records** — artefacts by the target's own standard, ledger in ela-knowledge.
+4. **ela verifies and records** — artefacts by the target's own standard, ledger in elak.
 
 The two entries route to each other: breakdown steps aside when there is nothing to split; task
 stops and points up when handed an unsplit multi-layer ticket.
 
 ## Records
 
-`<records>` (`<projects>/ela-knowledge`, git): `blueprint/` (ela + Helm goals, decisions, status) · `knowledge/` (canonical knowledge: products, platform, engineering, tooling) · `records/` (breakdowns, ledger, dated records) · `map/`.
+`<records>` (`<projects>/elak`, git): `blueprint/` (ela + Helm goals, decisions, status) · `knowledge/` (canonical knowledge: products, platform, engineering, tooling) · `records/` (breakdowns, ledger, dated records) · `map/`.
