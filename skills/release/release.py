@@ -202,6 +202,47 @@ def _auth_failed(st, body):
     return False
 
 
+def parse_version(raw):
+    """Any env string family in map/release.yaml version_rules → (M, m, SUB, PATCH, BUILD), or None when no family
+    fits (undetermined — never a comparison result). JSON-wrapped values are unwrapped; a hash build counts as 0;
+    in the space-less family the counter ends where a YYYY-MM-DD date begins, never read greedily."""
+    if raw is None:
+        return None
+    s = str(raw).strip()
+    if s.startswith("{"):
+        try:
+            v = json.loads(s)
+            if isinstance(v, dict) and v:
+                s = str(next(iter(v.values())))
+        except ValueError:
+            return None
+    m = re.match(r"^v?(\d+)\.(\d+)\.(\d+)(?:\.(\d+))?(.*)$", s)
+    if not m:
+        return None
+    M, mi, sub = int(m.group(1)), int(m.group(2)), int(m.group(3))
+    patch = int(m.group(4)) if m.group(4) else 0
+    rest = m.group(5) or ""
+    build = 0
+    b = re.match(r"^\s*build(?:ID:)?\s*(\d+)(-\d{2}-\d{2})?", rest, re.I)
+    if b:
+        digits = b.group(1)
+        if b.group(2):
+            digits = digits[:-4] or "0"
+        build = int(digits)
+    else:
+        p = re.match(r"^\+(\w+)", rest)
+        if p and p.group(1).isdigit():
+            build = int(p.group(1))
+    return (M, mi, sub, patch, build)
+
+
+def vlabel(t):
+    if not t:
+        return "?"
+    M, m, s, p, b = t
+    return f"{M}.{m}.{s}" + (f".{p}" if p else "") + (f"+{b}" if b else "")
+
+
 # ── the person's prod session ────────────────────────────────────────────────
 
 def _now():
@@ -510,9 +551,9 @@ def cmd_builds(a):
     for b in body.get("builds") or []:
         rev = next((x.get("lastBuiltRevision") for x in b.get("actions") or [] if isinstance(x, dict) and x.get("lastBuiltRevision")), {}) or {}
         br = (rev.get("branch") or [{}])[0]
-        m = re.search(r"v?(\d+\.\d+\.\d+(?:\.\d+)?)\s*build\s*(\d+)", b.get("displayName") or "")
-        rows.append({"job": job, "service": JOBS[job], "number": b.get("number"), "display": b.get("displayName"), "version": m.group(1) if m else None,
-                     "build": int(m.group(2)) if m else None,
+        pv = parse_version(b.get("displayName") or "")
+        rows.append({"job": job, "service": JOBS[job], "number": b.get("number"), "display": b.get("displayName"), "version": vlabel(pv).split("+")[0] if pv else None,
+                     "build": pv[4] if pv else None,
                      "result": b.get("result"), "branch": (br.get("name") or "").replace("refs/remotes/origin/", ""), "sha": (br.get("SHA1") or "")[:12],
                      "sha_full": br.get("SHA1") or "",
                      "time": datetime.datetime.fromtimestamp((b.get("timestamp") or 0) / 1000).strftime("%Y-%m-%d %H:%M"), "url": b.get("url")})
