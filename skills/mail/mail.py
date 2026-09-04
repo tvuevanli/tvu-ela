@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Mail — Evan's Gmail, read-only, stdlib only. L1: subcommands, --json, exit codes.
 
-  search <query> [--limit N]     Gmail search syntax, newest first: date · from · to · subject · id · thread
+  search <query> [--limit N] [--body]   Gmail search syntax, newest first: date · from · to · subject · id · thread (--body adds the text)
   read   <message id>            one message: headers and body as text (text/plain; HTML stripped when that is all there is)
   thread <thread id>             every message in a thread, oldest first
 
@@ -75,8 +75,12 @@ def cmd_search(g, a):
     ids = [m["id"] for m in r.get("messages") or []]
     rows = []                      # metadataHeaders is repeatable, so the query string is written by hand
     for i in ids:
-        m = g.get(f"{API}/messages/{i}?format=metadata&metadataHeaders=Date&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Cc&metadataHeaders=Subject") or {}
-        rows.append(_row(m))
+        if a.body:
+            m = g.get(f"{API}/messages/{i}", format="full") or {}
+            r = _row(m); r["body"] = _body(m.get("payload")); rows.append(r)
+        else:
+            m = g.get(f"{API}/messages/{i}?format=metadata&metadataHeaders=Date&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Cc&metadataHeaders=Subject") or {}
+            rows.append(_row(m))
     if a.json:
         print(json.dumps({"query": a.query, "count": len(rows), "messages": rows}, ensure_ascii=False)); return
     if not rows:
@@ -116,7 +120,7 @@ def main():
     ap = argparse.ArgumentParser(description="Gmail, read-only.")
     ap.add_argument("--env-file")
     sub = ap.add_subparsers(dest="cmd", required=True)
-    p = sub.add_parser("search"); p.add_argument("query"); p.add_argument("--limit", type=int, default=25); p.add_argument("--json", action="store_true")
+    p = sub.add_parser("search"); p.add_argument("query"); p.add_argument("--limit", type=int, default=25); p.add_argument("--body", action="store_true", help="include each message body (one process, one token)"); p.add_argument("--json", action="store_true")
     p = sub.add_parser("read"); p.add_argument("id"); p.add_argument("--json", action="store_true")
     p = sub.add_parser("thread"); p.add_argument("id"); p.add_argument("--json", action="store_true")
     a = ap.parse_args()
