@@ -31,7 +31,7 @@ lanes each release line uses — all in `<records>/map/release.yaml` (transcribe
   `.tvunetworks.com`, a browser already signed in to userservice sends its SID to the page (a hosts-file
   line `127.0.0.1 ela.tvunetworks.com` on the machine that runs the browser, one self-signed certificate
   warning the first time); a paste field is the fallback. The session lives in `~/.claude/ela/session.json`
-  (mode 600) and nowhere else; the first refusal records `rejected_at`, so `login prod` can print how long
+  (mode 600) and nowhere else; the first refusal records `rejected_at`, so `login tvu` can print how long
   the previous session lasted. Decision `2026-09-04-prod-gm-is-read-through-a-persons-login-at-the-cli`.
 - **A refused prod read exits 4 and names the command.** It never falls back to a cache or another
   system's file. In a Claude session, tell Evan to type `! ela login tvu`; do not paste a SID for him.
