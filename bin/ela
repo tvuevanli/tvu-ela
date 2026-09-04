@@ -15,7 +15,8 @@
   ela remote <alias> [grep]  every project of that GitLab group (read token); ● on disk ○ not cloned
   ela bundles [mh2.1@]      GM bundles, newest first          ela bundle <name|id>     its bill of materials
   ela versions [service]    versions per env (userservice)    ela builds <job|service>  Jenkins builds: version, branch, sha
-  ela drift                 newest bundle's GM names vs services.yaml     ela release login   (tvutest SID)
+  ela drift                 newest bundle's GM names vs services.yaml     ela login prod|qa   (prod: one-time HTTPS page collects the browser's SID; --host prod on bundles/bundle/versions/drift)
+  ela mail <search|read|thread> …                 Gmail, read-only (QA test reports, deploy notices, approvals are emails)
   ela kb <search|read|tree|write|update|delete> …   Outline (writes dry-run; --apply on Evan's word)    ela figma …
   ela wiki <spaces|tree|search|read|children> …     Confluence, read-only (also: ela confluence …; a page URL alone works)
   ela gdoc <read|sheet|list|info> …                 Google Docs/Sheets/Drive, read-only (a docs.google.com URL alone works)
@@ -50,6 +51,7 @@ VERBS = {
     "confluence": ("confluence", None), "wiki": ("confluence", None), "gdoc": ("gdoc", None),
     "reports": ("reports", None), "api": ("apifox", None), "apifox": ("apifox", None), "publish": ("publish", None),
     "team": ("team", None), "who": ("team", "who"),
+    "mail": ("mail", None), "login": ("release", "login"),
 }
 
 
