@@ -1001,7 +1001,7 @@ def main():
         p.add_argument("--json", action="store_true"); p.add_argument("--raw", action="store_true", help="the API body as-is")
         if name == "graph":
             p.add_argument("--all", action="store_true", help="every env that has it, not just the first")
-            p.add_argument("-d", "--detail", action="store_true", help="control port, box location, box id and image per node (one Pilot call per node)")
+            p.add_argument("-d", "--detail", action="store_true", help="per node: control port, box location/id, live process status, the image actually running, encoding profile (one Pilot call per node, one per distinct profile)")
             p.add_argument("-c", "--connections", action="store_true", help="the edges as a connections list")
     p = sub.add_parser("graphs"); p.add_argument("email", nargs="?", default="me", help="a full address (any UR user, as given), an alias from site.json emails (me · li …), or a roster name (robin); default me"); p.add_argument("-e", "--env"); p.add_argument("--all", action="store_true")
     p.add_argument("--object", help="keep only graphs whose objectId or businessId equals this")
