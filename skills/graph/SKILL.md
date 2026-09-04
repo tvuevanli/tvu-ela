@@ -35,9 +35,8 @@ Self-contained. Argument: a graph id (26 chars, `01M1…`), a process id (32 hex
   `-d` the line below is what Pilot reports actually running (`imageVersion`). When they differ the
   script marks it — that is a deploy or promotion problem, not a graph problem.
 - **An encoding profile is an id in the graph and a record in Pilot.** Encoder, copier and switcher
-  nodes carry `profileId` only; `-d` resolves each distinct id once and prints codec, resolution,
-  bitrate, fps, gop and the audio profile. `profile <id>` prints every field, `profiles <name>`
-  searches. Pilot keeps five families under `/ep`: the two assembled ones (**single-tier** = one video
+  nodes carry `profileId` only, and `-d` prints that id — the graph view stays one Pilot call per node.
+  Reading the profile is a step of its own: `profile <id>` prints every field, `profiles <name>` searches. Pilot keeps five families under `/ep`: the two assembled ones (**single-tier** = one video
   + audio + stream, **multi-tier** = several tiers) and the three parts (**video**, **audio**,
   **stream**) they are built from. An id does not say which family it belongs to, so they are asked in
   turn; `/details` is what resolves the parts — without it a record carries the child ids only.
@@ -67,7 +66,7 @@ the default probe order). Missing → `/ela:setup`.
 
 | input | run | what comes back |
 |---|---|---|
-| graph id | `$G graph <id>` | env, phase, owner email, object id, nodes in pipeline order (type · state · process · box ip), shm edges, errors per node. Stopped graphs included, with when they were deleted and how long they ran. `-d` adds control port, box location/id, the live process status, the running image and the encoding profile per node. `--all` lists every env that returns it; `--raw` the J2N body |
+| graph id | `$G graph <id>` | env, phase, owner email, object id, nodes in pipeline order (type · state · process · box ip), shm edges, errors per node. Stopped graphs included, with when they were deleted and how long they ran. `-d` adds control port, box location/id, the live process status, the running image and the encoding profile **id** per node (read it with `$G profile <id>`). `--all` lists every env that returns it; `--raw` the J2N body |
 | process id | `$G process <id>` | env, type, status, graph id, owner, image, box id, control port, container, uptime, the video and audio statistic (codec, size, fps, bitrate, dropped frames, jitter), error rates 1s/8s/60s, shm names and local shm depths. A **stopped** process prints the graph it ran in and that graph's table instead of an error |
 | profile id | `$G profile <id>` | which family holds it, then every field: video (codec, resolution, bitrate, fps, gop, cbr, profile@level, preset, tune, bframes, refframes, bpp, hdr, deinterlace, scale), each audio profile, and the stream profile's MPEG-TS pids. `--default` is the profile Pilot uses when a graph names none |
 | profile name | `$G profiles <part of the name> [--kind single\|multi\|video\|audio\|stream] [--limit N]` | matching profiles per family, one summary line each — the way to find an id when only the name is known (from a UI screenshot or a ticket) |
@@ -87,8 +86,8 @@ Someone pastes a graph id or an object card. Answer in this order, each line fro
 3. `process <id>` on the suspect node: `status`, error rates, dropped frames, jitter, video/audio.
    A `running` process with rising error rates and a `Dispatched` graph points at media; a node with
    no process id (state `pending`) points at UR/J2N dispatch; `running ≠ declared` points at the deploy.
-4. When the complaint is about picture or sound quality, read the node's encoding profile (`-d`) —
-   codec, bitrate, resolution, gop — before anyone opens code.
+4. When the complaint is about picture or sound quality, take the node's profile id from `-d` and read
+   it with `profile <id>` — codec, bitrate, resolution, gop — before anyone opens code.
 5. Name one person and one check (`/ela:route` when the layer is not obvious).
 
 ## 2b — the job already finished

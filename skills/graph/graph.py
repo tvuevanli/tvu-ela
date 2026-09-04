@@ -13,7 +13,8 @@ probed across environments in a fixed order (MediaHub 2.1 prod first) until one 
   box      <boxId>     [--env X]           one box: placement, state, capacity and load, versions, connection times
   graphs   [email|alias|name] [--env X | --all] [--any | --deleted]  graphs owned by an address (any, as given), a site
                                            alias, or a roster name; no argument = me. --any/--deleted include stopped ones
-  profile  <profileId> [--kind K] [-e X]   one encoding profile: video · audio · stream, every field. The five
+  profile  <profileId> [--kind K] [-e X]   one encoding profile (the id a node names): video · audio · stream,
+                                           every field — the graph view prints the id only. The five
                                            /ep families are asked in turn; --default is the-chosen-one
   profiles [name] [--kind K] [--limit N]   profiles whose name contains <name> (server-side, case-insensitive)
   resolve  <id> [-d] [--limit N]           detect the id shape and route: graph · process · object → every graph the
@@ -224,7 +225,7 @@ def parse_graph(v):
             # what J2N got as far as: pending → created (a process id exists) → dispatched (it is running)
             "state": ("err" if st.get("errors") else "dispatched" if st.get("dispatched")
                       else "created" if st.get("created") else "pending"),
-            # an encoder/copier/switcher names its encoding profile by id only; resolved in enrich_profiles
+            # an encoder/copier/switcher names its encoding profile by id only — `ela profile <id>` reads it
             "profile_id": opts.get("profileId") or prm.get("profileId") or "",
             "name": meta.get("name", ""), "type": sp.get("type", ""),
             "process_id": pi.get("processId") or "", "box_id": pi.get("boxId") or st.get("evaluatedBoxId") or "",
@@ -292,28 +293,6 @@ def enrich_nodes(ur, env, nodes):
         n["box_type"], n["platform"], n["region"] = box.get("type") or "", box.get("platform") or "", box.get("region") or ""
     with ThreadPoolExecutor(max_workers=min(UR.WARM + 2, max(1, len(nodes)))) as ex:
         list(ex.map(one, nodes))
-    return nodes
-
-
-def enrich_profiles(ur, env, nodes):
-    """profileId → the encoding profile behind it, one Pilot call per distinct id (in parallel, cached by id).
-    A graph node carries the id only; the tier it names — video, audio, stream — is what the encoder was told
-    to produce, and single-tier covers the MediaHub profiles (multi-tier is tried for the assembled ones)."""
-    ids = sorted({n.get("profile_id") for n in nodes if n.get("profile_id")})
-    found = {}
-
-    def one(pid):
-        for kind in ("single-tier", "multi-tier"):
-            st, b = ur.get(env, f"{PILOT}/ep/{kind}-encoding-profiles/{pid}/details")
-            if st == 200 and isinstance(b, dict) and b.get("id"):
-                found[pid] = b
-                return
-
-    if ids:
-        with ThreadPoolExecutor(max_workers=min(UR.WARM + 2, len(ids))) as ex:
-            list(ex.map(one, ids))
-    for n in nodes:
-        n["profile"] = found.get(n.get("profile_id")) or None
     return nodes
 
 
@@ -530,10 +509,8 @@ def print_graph(a, via, g):
             run = n.get("image_running") or ""
             if run and run != n["image"]:         # declared (J2N) vs running (Pilot) — a deploy/promotion smell
                 print(_c(DIM, pad) + _c(YELLOW, f"running {run}  ≠ declared above"))
-            if n.get("profile"):
-                print(_c(DIM, f"{pad}profile {profile_line(n['profile'])}"))
-            elif n.get("profile_id"):
-                print(_c(DIM, f"{pad}profile {n['profile_id']} (not readable on {via})"))
+            if n.get("profile_id"):               # the id is the graph's fact; `ela profile <id>` reads it
+                print(_c(DIM, f"{pad}profile {n['profile_id']}"))
     if a.connections and g["edges"]:
         idx = {n["name"]: i for i, n in enumerate(g["nodes"], 1)}
         print(); print(_c(BOLD, "  Connections")); print(_c(DIM, "  " + "─" * 58))
@@ -574,7 +551,6 @@ def cmd_graph(ur, a):
     if a.detail or a.json:                        # the default table needs no Pilot call — progressive disclosure
         for via, g in results:
             enrich_nodes(ur, via, g["nodes"])
-            enrich_profiles(ur, via, g["nodes"])
     if a.json:
         print(json.dumps({"graph_id": a.graph_id, "results": [dict(via=e, **g) for e, g in results]}, ensure_ascii=False)); return
     for via, g in results:
@@ -962,7 +938,7 @@ def cmd_resolve(ur, a):
                                          accept=lambda b: bool(((unwrap(b) or {}).get("spec") or {}).get("nodes")))
                     if env:
                         parsed = parse_graph(unwrap(body))
-                        enrich_nodes(ur, env, parsed["nodes"]); enrich_profiles(ur, env, parsed["nodes"])
+                        enrich_nodes(ur, env, parsed["nodes"])
                         out["graphs"].append(dict(via=env, **parsed))
                     else:
                         out["stale"].append(r["graph_id"])
@@ -1157,7 +1133,7 @@ def main():
         p.add_argument("--json", action="store_true"); p.add_argument("--raw", action="store_true", help="the API body as-is")
         if name == "graph":
             p.add_argument("--all", action="store_true", help="every env that has it, not just the first")
-            p.add_argument("-d", "--detail", action="store_true", help="per node: control port, box location/id, live process status, the image actually running, encoding profile (one Pilot call per node, one per distinct profile)")
+            p.add_argument("-d", "--detail", action="store_true", help="per node: control port, box location/id, live process status, the image actually running, encoding profile id (one Pilot call per node)")
             p.add_argument("-c", "--connections", action="store_true", help="the edges as a connections list")
     p = sub.add_parser("graphs"); p.add_argument("email", nargs="?", default="me", help="a full address (any UR user, as given), an alias from site.json emails (me · li …), or a roster name (robin); default me"); p.add_argument("-e", "--env"); p.add_argument("--all", action="store_true")
     p.add_argument("--object", help="keep only graphs whose objectId or businessId equals this")
