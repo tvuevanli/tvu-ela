@@ -13,6 +13,9 @@ probed across environments in a fixed order (MediaHub 2.1 prod first) until one 
   box      <boxId>     [--env X]           one box: placement, state, capacity and load, versions, connection times
   graphs   [email|alias|name] [--env X | --all] [--any | --deleted]  graphs owned by an address (any, as given), a site
                                            alias, or a roster name; no argument = me. --any/--deleted include stopped ones
+  profile  <profileId> [--kind K] [-e X]   one encoding profile: video · audio · stream, every field. The five
+                                           /ep families are asked in turn; --default is the-chosen-one
+  profiles [name] [--kind K] [--limit N]   profiles whose name contains <name> (server-side, case-insensitive)
   resolve  <id> [-d] [--limit N]           detect the id shape and route: graph · process · object → every graph the
                                            object ever ran in, stopped ones included, then the current (or last) one in full
   envs                                     the probe order
@@ -334,6 +337,159 @@ def profile_line(p):
                        f"{int(a['sampleRate']) // 1000}kHz" if a.get("sampleRate") else "") if x]
     more = f" (+{len(auds) - 1} audio)" if len(auds) > 1 else ""
     return f"{name} · " + " ".join(vid) + (f" · audio {' '.join(aud)}{more}" if aud else "")
+
+
+# ── encoding profiles ─────────────────────────────────────────────────────────
+# A graph node names its profile by id only. Pilot keeps five families under /ep: the two assembled ones
+# (single-tier = one video + audio + stream, multi-tier = several tiers) and the three parts they are built
+# from. `/details` resolves the parts; without it a record carries the child ids alone.
+# Two gotchas, both verified live: `pageIndex` is 0-based here (page 1 of a 1-row result is empty, while
+# `count` still says 1), and `ids` is a repeated parameter (`ids=a&ids=b`), not a comma list.
+EP_FAMILIES = [("single", "single-tier-encoding-profiles", True), ("multi", "multi-tier-encoding-profiles", True),
+               ("video", "video-encoding-profiles", False), ("audio", "audio-encoding-profiles", False),
+               ("stream", "stream-profiles", False)]
+
+
+def ep_get(ur, env, family, pid, detailed):
+    return ur.get(env, f"{PILOT}/ep/{family}/{pid}" + ("/details" if detailed else ""))
+
+
+def find_profile(ur, pid, env=None, kinds=None):
+    """A profile id → (env, kind, record). The id shape says nothing about which family holds it, so the
+    families are asked in turn: the assembled ones first, since that is what a graph node points at."""
+    for kind, family, detailed in EP_FAMILIES:
+        if kinds and kind not in kinds:
+            continue
+        via, body = ur.probe(f"{PILOT}/ep/{family}/{pid}" + ("/details" if detailed else ""), env,
+                             accept=lambda b: isinstance(b, dict) and b.get("id"))
+        if via:
+            return via, kind, body
+    return None, "", None
+
+
+def video_detail(v):
+    fps = v.get("frameRate")
+    return "  ".join(str(x) for x in [
+        v.get("codec") or "", v.get("resolution") or "", v.get("bitrate") or "",
+        f"{fps:.4g}fps" if isinstance(fps, (int, float)) else "",
+        f"gop {v['gop']}" if v.get("gop") is not None else "", "cbr" if v.get("cbr") else "vbr",
+        f"{v.get('profile')}@{v.get('level')}" if v.get("profile") else "",
+        f"preset {v['preset']}" if v.get("preset") else "", f"tune {v['tune']}" if v.get("tune") else "",
+        f"bframes {v['bFrames']}" if v.get("bFrames") is not None else "",
+        f"refframes {v['refFrames']}" if v.get("refFrames") is not None else "",
+        f"bpp {v['bpp']}" if v.get("bpp") is not None else "",
+        f"hdr {v['hdrType']}" if v.get("hdrType") else "", f"deinterlace {v['deinterlace']}" if v.get("deinterlace") else "",
+        f"scale {v['scale']}" if v.get("scale") else "", f"transpose {v['transpose']}" if v.get("transpose") else "",
+    ] if x)
+
+
+def audio_detail(a):
+    sr = a.get("sampleRate")
+    return "  ".join(str(x) for x in [a.get("codec") or "", a.get("bitrate") or "",
+                                      f"{int(sr) // 1000}kHz" if sr else ""] if x)
+
+
+def stream_detail(sp):
+    md = sp.get("metadata") or {}
+    named = {k: v for k, v in md.items() if not re.fullmatch(r"[0-9a-f]{32}", k)}
+    pids = [v for k, v in md.items() if re.fullmatch(r"[0-9a-f]{32}", k)]
+    return "  ".join(str(x) for x in [
+        f"video pid {md.get('videoPid')}" if md.get("videoPid") else "",
+        f"audio pids {','.join(str(x) for x in (sp.get('mpegtsAudioPids') or pids))}" if (sp.get("mpegtsAudioPids") or pids) else "",
+        f"pmt {sp['mpegtsPmtStartPid']}" if sp.get("mpegtsPmtStartPid") else "",
+        f"start pid {sp['mpegtsStartPid']}" if sp.get("mpegtsStartPid") else "",
+        f"scte {sp['mpegtsSctePid']}" if sp.get("mpegtsSctePid") else "",
+        "  ".join(f"{k} {v}" for k, v in named.items() if k != "videoPid"),
+    ] if x)
+
+
+def print_profile(via, kind, p):
+    """Every field, not a summary: a picture-quality complaint turns on one of gop, bframes, cbr or bpp."""
+    print(_c(BOLD, f"# {kind}-tier profile {p.get('id', '')}" if kind in ("single", "multi") else
+                   f"# {kind} profile {p.get('id', '')}") + f"  {p.get('name') or '(no name)'}   [{via}]")
+    tiers = p.get("encodingTiers") or ([p["encodingTier"]] if p.get("encodingTier") else [])
+    for i, t in enumerate(tiers, 1):
+        print(_c(BOLD, f"  tier {i}" if len(tiers) > 1 else "  encoding"))
+        v = (t or {}).get("videoProfile") or {}
+        if v:
+            print(f"    {'video':<8}{video_detail(v)}")
+            print(_c(DIM, f"    {'':<8}{v.get('name', '')}   {v.get('id', '')}"))
+        for a in (t or {}).get("audioProfiles") or []:
+            print(f"    {'audio':<8}{audio_detail(a)}")
+            print(_c(DIM, f"    {'':<8}{a.get('name', '')}   {a.get('id', '')}"))
+    for sp in (p.get("streamProfiles") or ([p["streamProfile"]] if p.get("streamProfile") else [])):
+        if not (sp or {}).get("id"):
+            continue                              # a single-tier profile may carry no stream profile at all
+        print(_c(BOLD, "  stream"))
+        print(f"    {'mpegts':<8}{stream_detail(sp)}")
+        print(_c(DIM, f"    {'':<8}{sp.get('name', '')}   {sp.get('id', '')}"))
+    if not tiers and kind == "video":
+        print(f"  {'video':<8}{video_detail(p)}")
+    if not tiers and kind == "audio":
+        print(f"  {'audio':<8}{audio_detail(p)}")
+    if not tiers and kind == "stream":
+        print(f"  {'mpegts':<8}{stream_detail(p)}")
+
+
+def profile_summary(kind, p):
+    """One row for a search hit — the line `graph -d` prints for the assembled families, the record itself
+    for the three parts."""
+    if kind in ("single", "multi"):
+        return profile_line(p)
+    if kind == "video":
+        return f"{p.get('name', '')} · {video_detail(p)}"
+    if kind == "audio":
+        return f"{p.get('name', '')} · {audio_detail(p)}"
+    return f"{p.get('name', '')} · {stream_detail(p)}"
+
+
+def cmd_profile(ur, a):
+    if a.default:
+        via, body = ur.probe(f"{PILOT}/ep/single-tier-encoding-profiles/the-chosen-one", a.env,
+                             accept=lambda b: isinstance(b, dict) and b.get("id"))
+        if not via:
+            print("no default profile on " + ", ".join([normalise(a.env)] if a.env else ur.order), file=sys.stderr); sys.exit(EX_NOTFOUND)
+        if a.json or a.raw:
+            print(json.dumps(dict(env=via, kind="single", **body), ensure_ascii=False, indent=None if a.json else 1)); return
+        print(_c(DIM, "# the profile Pilot hands out when a graph names none (the-chosen-one)"))
+        return print_profile(via, "single", body)
+    if not a.profile_id:
+        print("profile takes a profile id, or --default", file=sys.stderr); sys.exit(EX_USAGE)
+    kinds = [a.kind] if a.kind else None
+    via, kind, body = find_profile(ur, a.profile_id, a.env, kinds)
+    if not via:
+        print(f"profile {a.profile_id}: not in any /ep family ({', '.join(k for k, _, _ in EP_FAMILIES)}) on "
+              + ", ".join([normalise(a.env)] if a.env else ur.order), file=sys.stderr); sys.exit(EX_NOTFOUND)
+    if a.json or a.raw:
+        print(json.dumps(dict(env=via, kind=kind, **body), ensure_ascii=False, indent=None if a.json else 1)); return
+    print_profile(via, kind, body)
+
+
+def cmd_profiles(ur, a):
+    """Search by name — the /ep list routes filter on a case-insensitive substring, server-side."""
+    families = [(k, f, d) for k, f, d in EP_FAMILIES if not a.kind or k == a.kind]
+    out, env = [], None
+    for kind, family, detailed in families:
+        q = f"?pageIndex=0&pageSize={a.limit}" + (f"&name={urllib.parse.quote(a.name)}" if a.name else "")
+        via, body = ur.probe(f"{PILOT}/ep/{family}" + ("/details" if detailed else "") + q, a.env,
+                             accept=lambda b: isinstance(b, dict) and "count" in b)
+        if not via:
+            continue
+        env = env or via
+        out.append({"kind": kind, "via": via, "count": body.get("count") or 0,
+                    "profiles": [x for x in (body.get("data") or []) if isinstance(x, dict)]})
+    if a.json:
+        print(json.dumps({"name": a.name, "results": out}, ensure_ascii=False)); return
+    if not any(r["profiles"] for r in out):
+        print(f"no profile matching {a.name!r}" if a.name else "no profiles", file=sys.stderr); sys.exit(EX_NOTFOUND)
+    for r in out:
+        if not r["profiles"]:
+            continue
+        print(_c(BOLD, f"# {r['kind']}  {r['count']} match(es) on {r['via']}")
+              + (f"  (first {len(r['profiles'])})" if r["count"] > len(r["profiles"]) else ""))
+        for x in r["profiles"]:
+            print(f"  {x.get('id', ''):<34}{profile_summary(r['kind'], x)}")
+        print()
 
 
 def box_location(n):
@@ -1022,13 +1178,22 @@ def main():
     p.add_argument("--name"); p.add_argument("-e", "--env"); p.add_argument("--yes", action="store_true"); p.add_argument("--json", action="store_true")
     p = sub.add_parser("stop", help="stop a Sender working process (ura stop) — asks y/N unless --yes")
     p.add_argument("process_id"); p.add_argument("-e", "--env"); p.add_argument("--yes", action="store_true"); p.add_argument("--json", action="store_true")
+    p = sub.add_parser("profile", help="one encoding profile by id — the five /ep families are asked in turn")
+    p.add_argument("profile_id", nargs="?"); p.add_argument("-e", "--env")
+    p.add_argument("--kind", choices=[k for k, _, _ in EP_FAMILIES], help="ask only this family")
+    p.add_argument("--default", action="store_true", help="the profile used when a graph names none (the-chosen-one)")
+    p.add_argument("--json", action="store_true"); p.add_argument("--raw", action="store_true")
+    p = sub.add_parser("profiles", help="encoding profiles by name (case-insensitive substring, filtered server-side)")
+    p.add_argument("name", nargs="?", default="", help="part of the profile name; no name = the first page of each family")
+    p.add_argument("-e", "--env"); p.add_argument("--kind", choices=[k for k, _, _ in EP_FAMILIES])
+    p.add_argument("--limit", type=int, default=10, help="rows per family"); p.add_argument("--json", action="store_true")
     p = sub.add_parser("envs"); p.add_argument("--json", action="store_true")
     a = ap.parse_args()
     # `envs` makes no request: warming TLS in background threads and then exiting mid-handshake
     # segfaults the interpreter on shutdown (intermittently, in OpenSSL) — so do not warm for it.
     ur = UR(a.env_file, warm=(a.cmd != "envs"))
     {"graph": cmd_graph, "process": cmd_process, "box": cmd_box, "graphs": cmd_graphs,
-     "resolve": cmd_resolve, "envs": cmd_envs, "connect": cmd_connect, "exec": cmd_exec, "start": cmd_start, "stop": cmd_stop}[a.cmd](ur, a)
+     "profile": cmd_profile, "profiles": cmd_profiles, "resolve": cmd_resolve, "envs": cmd_envs, "connect": cmd_connect, "exec": cmd_exec, "start": cmd_start, "stop": cmd_stop}[a.cmd](ur, a)
 
 
 if __name__ == "__main__":

@@ -35,10 +35,19 @@ Self-contained. Argument: a graph id (26 chars, `01M1…`), a process id (32 hex
   `-d` the line below is what Pilot reports actually running (`imageVersion`). When they differ the
   script marks it — that is a deploy or promotion problem, not a graph problem.
 - **An encoding profile is an id in the graph and a record in Pilot.** Encoder, copier and switcher
-  nodes carry `profileId` only; `-d` resolves each distinct id once
-  (`/pilot/api/v1/ep/single-tier-encoding-profiles/{id}/details`) and prints codec, resolution,
-  bitrate, fps, gop and the audio profile. The v2 EP API in Apifox (`/api/v2/ep/profiles`) is declared
-  but does not answer on the UR edge — do not reach for it.
+  nodes carry `profileId` only; `-d` resolves each distinct id once and prints codec, resolution,
+  bitrate, fps, gop and the audio profile. `profile <id>` prints every field, `profiles <name>`
+  searches. Pilot keeps five families under `/ep`: the two assembled ones (**single-tier** = one video
+  + audio + stream, **multi-tier** = several tiers) and the three parts (**video**, **audio**,
+  **stream**) they are built from. An id does not say which family it belongs to, so they are asked in
+  turn; `/details` is what resolves the parts — without it a record carries the child ids only.
+  The v2 EP API in Apifox (`/api/v2/ep/profiles`) and `encodingprofilecontroller`
+  (`/profile/queryEncodingProfile`) are declared but do **not** answer on the UR edge — do not reach
+  for them.
+- **Two /ep gotchas, both verified live.** `pageIndex` is **0-based** there (asking page 1 of a
+  one-row result returns `count: 1` with an empty `data` — it looks like a broken filter and is not),
+  and `ids` is a **repeated** parameter (`ids=a&ids=b`), not a comma list. Single-tier holds ~11.9k
+  profiles, so a listing is only useful with `name` or `ids`.
 - **First-hand or nothing.** What UR does not return (a box's owner, a service's owner) comes from
   the map and the roster, and is cited as such.
 - **Acting is Evan's hand, not the session's.** `connect`, `exec`, `start`, `stop` exist for the shell
@@ -60,6 +69,8 @@ the default probe order). Missing → `/ela:setup`.
 |---|---|---|
 | graph id | `$G graph <id>` | env, phase, owner email, object id, nodes in pipeline order (type · state · process · box ip), shm edges, errors per node. Stopped graphs included, with when they were deleted and how long they ran. `-d` adds control port, box location/id, the live process status, the running image and the encoding profile per node. `--all` lists every env that returns it; `--raw` the J2N body |
 | process id | `$G process <id>` | env, type, status, graph id, owner, image, box id, control port, container, uptime, the video and audio statistic (codec, size, fps, bitrate, dropped frames, jitter), error rates 1s/8s/60s, shm names and local shm depths. A **stopped** process prints the graph it ran in and that graph's table instead of an error |
+| profile id | `$G profile <id>` | which family holds it, then every field: video (codec, resolution, bitrate, fps, gop, cbr, profile@level, preset, tune, bframes, refframes, bpp, hdr, deinterlace, scale), each audio profile, and the stream profile's MPEG-TS pids. `--default` is the profile Pilot uses when a graph names none |
+| profile name | `$G profiles <part of the name> [--kind single\|multi\|video\|audio\|stream] [--limit N]` | matching profiles per family, one summary line each — the way to find an id when only the name is known (from a UI screenshot or a ticket) |
 | box id | `$G box <id>` | placement (type · cloud · region), state, cpu/mem/disk/shm with idle %, load 1/5/15m, agent and process versions, created/connected/heartbeat/last-disconnect, ports |
 | email or name | `$G graphs <email|name>` | that user's graphs: env, type, phase, object id, name. A full address is looked up as given (most UR users are customers, not on the roster); a bare name resolves through the roster (`robin`), never a composed address. `--all` walks every env, `--object <id>` keeps the graphs carrying that object |
 | object id | `$G resolve <id> [-d] [--limit N]` | **every graph the object ever ran in** (v2, `query_mode=any`, newest first): id, env, business type, phase, process count, created, stopped and how long it ran — then the live graph in full, or the last one that ran when the object is Inactive. `$O get <id>` adds the object record itself (tangibles, owner userId) |
