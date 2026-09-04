@@ -54,6 +54,7 @@ This is how ela knows Evan in any directory without an agent or a global CLAUDE.
 | `/ela:figma` | 1 | read a design: file tree, node subtree + text layers, comments, rendered image — read-only |
 | `/ela:digest` | 4 | digest a posted report thread into what Evan must act on, decide, and pin — cross-checked against Jira |
 | `/ela:route` | 4 | a bug in, a name out: implicated service, owner, or the first checker with the exact discriminating check |
+| `/ela:ask` | 4 | hand one question to a counterpart agent (another team's bot): pick it from the registry, verify first-hand the question is inside its charter, address it in its dialect, then cross-check its reply against what it cannot see. v1: mm-boundary-agent |
 | `/ela:brief` | 4 | the morning brief: stale In-Progress, unrouted new tickets, complex tickets not broken down, report threads, threads waiting on Evan, threads he wrote alone, decisions made in Slack without a ticket — ranked, each with a drafted action; read-only |
 | `/ela:task` | 2 | one piece of work Evan implements: worktree, tier, delegation to the area's stack, evidence, ledger |
 | `/ela:breakdown` | 3 | requirement → layer-tagged lanes with owners, order, verification; knowledge or code depth; plan in elak, Jira publication on confirm |
