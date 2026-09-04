@@ -88,6 +88,10 @@ def find(people, q):
     hits = [p for p in people if p["name"].lower() == ql or (p.get("jira_name") or "").lower() == ql]
     if hits:
         return hits
+    # first names are the aliases people use (wilson, kris, robin, bom …); a first-name match outranks a substring
+    hits = [p for p in people if p["name"].lower().split()[0] == ql]
+    if hits:
+        return hits
     hits = [p for p in people if ql in p["name"].lower() or ql in (p.get("jira_name") or "").lower()]
     if hits:
         return hits
