@@ -5,12 +5,14 @@ cached, and every source is checked against another one (a commit against its ti
 Fixed In, a Fixed In against the build that carries it, a claim against QA's own words).
 
   lanes    <line> <from> <to> [--scope app|all]   both lanes' versions per service; other lanes ahead of `to`
-  delta    <line> <from> <to> [--scope]          builds between the lanes → commit range per service → keys, kinds, hygiene
+  commits  <line> <from> <to> [--scope]          builds between the lanes → commit range per service → keys, kinds, hygiene
   tickets  <line> <from> <to> [--scope]          every key the delta names ∪ every ticket whose Fixed In names a delta build; reconciled
   evidence <line> <from> <to> [--scope] [--since YYYY-MM-DD]   QA verdicts per key from Jira comments, mail and Slack
   bundles  <line> <from> <to>                    the two lanes' newest bundles, docker service by docker service
   report   <line> <from> <to> [--purpose regular|prod-staging|demo] [--scope] [--out DIR]   all of it, ranked and capped
 
+Nouns: plural names a table of many (lanes · commits · tickets · bundles), singular a summary (evidence · report).
+--quiet silences the one-line-per-step progress on stderr.
 <line> is a key of map/release.yaml lines ("2.1"); <from>/<to> are lane roles (qa · daily · prod) or lane names
 (qa-cn3 · daily-wed · prod-3). QA lanes are read on the qa host (account login); daily/stage/prod lanes and their
 bundles on the prod host with the person's TVU session (`ela login tvu`) — a missing session is a finding, never
@@ -31,6 +33,13 @@ ISO = "%Y-%m-%dT%H:%M:%SZ"
 
 def now():
     return datetime.datetime.now(datetime.timezone.utc).strftime(ISO)
+
+
+QUIET = False
+def say(msg):
+    """One progress line per step, on stderr, so a four-minute run is never silent; --quiet turns it off."""
+    if not QUIET:
+        print(f"· {msg}", file=sys.stderr, flush=True)
 
 
 def run(argv, timeout=180):
@@ -125,8 +134,8 @@ def collect_lanes(a, gaps):
     cfg = line_cfg(a.line)
     f_lane, t_lane = lane_name(cfg, a.src), lane_name(cfg, a.dst)
     hosts = {}
-    for h in {lane_host(f_lane), lane_host(t_lane)}:
-        hosts[h] = read_host(a.env_file, h, gaps)
+    for h in sorted({lane_host(f_lane), lane_host(t_lane)}):
+        say(f"reading {h} host lanes"); hosts[h] = read_host(a.env_file, h, gaps)
     slugs = scope_slugs(a.scope)
     by = {}                                  # slug → lane → row
     for h, rows in hosts.items():
@@ -157,16 +166,22 @@ def collect_lanes(a, gaps):
     return {"line": a.line, "from": f_lane, "to": t_lane, "services": out, "hosts_read": {h: (rows is not None) for h, rows in hosts.items()}}
 
 
+def short(row):
+    """A lane row as its canonical label (3.0.25+175); the raw string stays in --json."""
+    if not row:
+        return "—"
+    return vlabel(row.get("parsed")) if row.get("parsed") else str(row.get("version"))[:28]
+
+
 def cmd_lanes(a):
     gaps = []
     res = collect_lanes(a, gaps); res["gaps"] = gaps
     if a.json:
         print(json.dumps(res, ensure_ascii=False)); return
-    print(f"# {a.line}: {res['from']} → {res['to']}   read: " + ", ".join(f"{h} {'ok' if ok else 'UNREADABLE'}" for h, ok in res["hosts_read"].items()))
+    print(f"# {a.line}: {res['from']} → {res['to']}   read: " + ", ".join(f"{h} {'ok' if ok else 'UNREADABLE'}" for h, ok in sorted(res["hosts_read"].items())))
     for s in res["services"]:
-        f = (s["from"] or {}).get("version", "—"); t = (s["to"] or {}).get("version", "—")
-        extra = ("  ← " + ", ".join(f"{x['lane']} ahead ({x['version'].split(' 20')[0]})" for x in s["other_lanes_ahead_of_to"])) if s["other_lanes_ahead_of_to"] else ""
-        print(f"  {s['service']:<24} {str(f).split(' 20')[0]:<26} → {str(t).split(' 20')[0]:<26} {s['relation'] or '?'}{extra}")
+        extra = ("  ← " + ", ".join(f"{x['lane']} ahead ({vlabel(parse_version(x['version']))})" for x in s["other_lanes_ahead_of_to"])) if s["other_lanes_ahead_of_to"] else ""
+        print(f"  {s['service']:<24} {short(s['from']):<16} → {short(s['to']):<16} {s['relation'] or '?'}{extra}")
     for g in gaps:
         print(f"  ! {g['kind']}: {g.get('host', '')} {g['detail']}")
     if gaps:
@@ -242,7 +257,7 @@ def collect_delta(a, lanes, gaps):
             rec["note"] = "no delta" if s["relation"] == "same" else "a lane is unreadable or unparsed"; continue
         if not rec["job"]:
             rec["note"] = "no Jenkins job in map/release.yaml jobs"; continue
-        rows = jenkins_builds(rec["job"])
+        say(f"jenkins {rec['job']}"); rows = jenkins_builds(rec["job"])
         if rows is None:
             gaps.append({"kind": "jenkins_unreadable", "job": rec["job"]}); rec["note"] = "jenkins unreadable"; continue
         fb, fhow = match_build(rows, s["from"]["parsed"]); tb, thow = match_build(rows, s["to"]["parsed"])
@@ -288,7 +303,7 @@ def collect_delta(a, lanes, gaps):
         path = repo_path(rec["repo"]) if rec["repo"] else None
         if not path:
             rec["note"] = f"repo not on disk: {rec['repo']} (ela clone)"; gaps.append({"kind": "repo_missing", "service": slug, "repo": rec["repo"]}); continue
-        git(path, "fetch", "--quiet", "--all", timeout=90)
+        say(f"git fetch {os.path.basename(path)}"); git(path, "fetch", "--quiet", "--all", timeout=90)
         if not (lo_b and hi_b):
             rec["note"] = f"cannot place both lane versions on Jenkins builds (from: {fhow}; to: {thow})"; continue
         for tag, sha in (("from", lo_b["sha"]), ("to", hi_b["sha"])):
@@ -324,7 +339,7 @@ def cmd_delta(a):
         print(json.dumps(res, ensure_ascii=False)); return
     print(f"# {a.line}: {res['from']} → {res['to']}")
     for s in res["services"]:
-        print(f"\n## {s['service']}  {str(s['from'] or '—').split(' 20')[0]} → {str(s['to'] or '—').split(' 20')[0]}   {s.get('direction') or s.get('note') or ''}")
+        print(f"\n## {s['service']}  {vlabel(parse_version(s['from'])) if s['from'] else '—'} → {vlabel(parse_version(s['to'])) if s['to'] else '—'}   {s.get('direction') or s.get('note') or ''}")
         if s.get("builds_between"):
             print("   builds: " + " · ".join(f"#{b['number']} {b['version']}+{b['build']} {b['branch']}" for b in s["builds_between"]))
         for c in s["commits"]:
@@ -421,6 +436,7 @@ def collect_tickets(a, delta, gaps):
     fid = (R.rmap("fixed_in") or {}).get("field") or "customfield_11252"
     cf = re.sub(r"\D", "", fid)
     if versions:
+        say(f"jira reverse lookup on {len(versions)} build label(s)")
         clauses = " OR ".join(f'cf[{cf}] ~ "{v}"' for v in sorted(versions))
         ok, d, err = l1("jira", "jql", f"({clauses}) ORDER BY key", "--limit", "100", env_file=a.env_file, timeout=90)
         if ok:
@@ -432,6 +448,7 @@ def collect_tickets(a, delta, gaps):
         keys.setdefault(k, {"commits": [], "services": set()})
     roster = load_roster()
     out = []
+    say(f"jira: reading {len(keys)} ticket(s)")
     for k in sorted(keys):
         d = jira_read(a.env_file, k)
         if not d:
@@ -608,6 +625,7 @@ def collect_evidence(a, tickets, delta, gaps, since=None):
             if v in ("pass", "fail", "n-a", "not-scheduled", "dev-declared", "qa-comment"):
                 ev[t["key"]].append({"source": "jira", "who": c["who"], "area": c["area"], "when": iso_when(c["when"]), "verdict": v, "quote": re.sub(r"\s+", " ", c["text"])[:220]})
     # 2 mail: QA people's reports and dev deploy notices since the window start
+    say(f"mail: QA reports and deploy notices since {since}")
     q_since = since.replace("-", "/")
     senders = " OR ".join(f"from:{e}" for e in qa_emails) if qa_emails else "subject:(test report)"
     ok, d, err = l1("mail", "search", f"after:{q_since} ({senders} OR subject:(test report MediaHub) OR subject:(Release MediaHub) OR subject:(Release Mediahub) OR subject:(Release UR Caller))", "--limit", "120", "--body", env_file=a.env_file, timeout=420)
@@ -633,6 +651,7 @@ def collect_evidence(a, tickets, delta, gaps, since=None):
                 ev[k].append({"source": "mail", "who": who, "area": area, "when": iso_when(m.get("date")), "verdict": verdict,
                               "subject": m.get("subject"), "id": m["id"], "quote": quote})
     # 3 slack: the channel since the window start, top-level messages
+    say(f"slack: #prj_dev_mediahub since {since}")
     ok, d, err = l1("slack", "history", "#prj_dev_mediahub", "--since", since, env_file=a.env_file, timeout=240)
     if not ok:
         gaps.append({"kind": "slack_unreadable", "detail": err})
@@ -696,6 +715,7 @@ def collect_bundles(a, gaps):
     maps = {}
     for role, key in ((f_role, "from"), (t_role, "to")):
         host = "qa" if role == "qa" else "prod"
+        say(f"bundle {bl}{toks[role]}* on {host}")
         try:
             us = R.US(a.env_file, host)
             b = newest_bundle(us, bl, toks[role])
@@ -759,9 +779,9 @@ def assess(a, lanes, delta, tickets, evidence, bundles, gaps):
             add("medium", g["kind"], str(g.get("detail") or g))
     for s in lanes["services"]:
         if s["relation"] == "to_ahead":
-            add("high", "to_lane_ahead", f"{s['service']}: {s['to_lane']} runs {s['to']['version'].split(' 20')[0]}, newer than {s['from_lane']} {s['from']['version'].split(' 20')[0]} — promotion would move it backwards")
+            add("high", "to_lane_ahead", f"{s['service']}: {s['to_lane']} runs {short(s['to'])}, newer than {s['from_lane']} {short(s['from'])} — promotion would move it backwards")
         for x in s["other_lanes_ahead_of_to"]:
-            add("medium" if strict else "low", "other_lane_ahead_of_to", f"{s['service']}: {x['lane']} already runs {x['version'].split(' 20')[0]}, ahead of {s['to_lane']}")
+            add("medium" if strict else "low", "other_lane_ahead_of_to", f"{s['service']}: {x['lane']} already runs {vlabel(parse_version(x['version']))}, ahead of {s['to_lane']}")
         if s["relation"] == "unparsed":
             add("medium", "version_unparsed", f"{s['service']}: a lane version could not be parsed — undetermined, not compared")
     ev = (evidence or {}).get("keys") or {}
@@ -848,7 +868,7 @@ def render_md(r):
     L.append("| service | " + r["from"] + " | " + r["to"] + " | relation |")
     L.append("|---|---|---|---|")
     for s in r["lanes"]["services"]:
-        f = (s["from"] or {}).get("version", "—").split(" 20")[0]; t = (s["to"] or {}).get("version", "—").split(" 20")[0]
+        f = short(s["from"]); t = short(s["to"])
         extra = "; ".join(f"{x['lane']} ahead" for x in s["other_lanes_ahead_of_to"])
         L.append(f"| {s['service']} | {f} | {t} | {s['relation'] or '?'}{(' · ' + extra) if extra else ''} |")
     L.append("")
@@ -892,19 +912,20 @@ def render_md(r):
 def main():
     signal.signal(signal.SIGPIPE, signal.SIG_DFL)
     ap = argparse.ArgumentParser(description="Promotion assessment, first-hand and cross-checked.")
-    ap.add_argument("--env-file")
+    ap.add_argument("--env-file"); ap.add_argument("--quiet", action="store_true")
     sub = ap.add_subparsers(dest="cmd", required=True)
     def common(p, scope=True):
         p.add_argument("line"); p.add_argument("src"); p.add_argument("dst")
         if scope:
             p.add_argument("--scope", choices=("app", "all"), default="app")
         p.add_argument("--json", action="store_true")
-    common(sub.add_parser("lanes")); common(sub.add_parser("delta")); common(sub.add_parser("tickets"))
+    common(sub.add_parser("lanes")); common(sub.add_parser("commits", aliases=["delta"])); common(sub.add_parser("tickets"))
     p = sub.add_parser("evidence"); common(p); p.add_argument("--since")
     common(sub.add_parser("bundles"), scope=False)
     p = sub.add_parser("report"); common(p); p.add_argument("--purpose", choices=("regular", "prod-staging", "demo"), default="regular"); p.add_argument("--since"); p.add_argument("--bundles", action="store_true", help="include the bundle diff even with --scope app"); p.add_argument("--out", help="directory for <date>-mh<line>-<from>-<to>.{json,md}")
     a = ap.parse_args()
-    {"lanes": cmd_lanes, "delta": cmd_delta, "tickets": cmd_tickets, "evidence": cmd_evidence, "bundles": cmd_bundles, "report": cmd_report}[a.cmd](a)
+    global QUIET; QUIET = a.quiet
+    {"lanes": cmd_lanes, "commits": cmd_delta, "delta": cmd_delta, "tickets": cmd_tickets, "evidence": cmd_evidence, "bundles": cmd_bundles, "report": cmd_report}[a.cmd](a)
 
 
 if __name__ == "__main__":

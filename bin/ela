@@ -17,7 +17,7 @@
   ela versions [service]    versions per env (userservice)    ela builds <job|service>  Jenkins builds: version, branch, sha
   ela drift                 newest bundle's GM names vs services.yaml     ela login tvu|qa   (prod: one-time HTTPS page collects the browser's SID; --host prod on bundles/bundle/versions/drift)
   ela promote <line> <from> <to> [--purpose regular|prod-staging|demo] [--scope app|all] [--bundles] [--out DIR]
-                            the promotion assessment, ranked; or ela promote lanes|delta|tickets|evidence|bundles <line> <from> <to>
+                            the promotion assessment, ranked; or ela promote lanes|commits|tickets|evidence|bundles <line> <from> <to>
   ela mail <search|read|thread> …                 Gmail, read-only (QA test reports, deploy notices, approvals are emails)
   ela kb <search|read|tree|write|update|delete> …   Outline (writes dry-run; --apply on Evan's word)    ela figma …
   ela wiki <spaces|tree|search|read|children> …     Confluence, read-only (also: ela confluence …; a page URL alone works)
@@ -56,7 +56,7 @@ VERBS = {
     "mail": ("mail", None), "login": ("release", "login"),
     "promote": ("promote", None),
 }
-PROMOTE_SUBS = {"lanes", "delta", "tickets", "evidence", "bundles", "report"}
+PROMOTE_SUBS = {"lanes", "commits", "delta", "tickets", "evidence", "bundles", "report"}
 
 
 def site():

@@ -204,6 +204,10 @@ the git remote keeps its longer name (`tvu-ela-knowledge`, recorded nowhere but 
 `ela-knowledge` on 2026-09-03 (decision `2026-09-03-knowledge-directory-named-elak`). Every command starts with `ela`: one plugin today (`/ela:*`); if a shareable subset is ever split
 out, the second plugin is `ela-<subset>` (`/ela-senses:*`) in the same marketplace — never a bare name.
 
+Subcommand nouns follow one rule: **plural names a table of many, singular names one thing or a summary** —
+`bundles` lists, `bundle <name>` shows one; `lanes · commits · tickets` are tables, `evidence · report` are
+summaries. A verb-shaped subcommand (`read`, `post`, `login`) stays a verb.
+
 Skill names are **short words, not abbreviations**. Prefer the whole word when it is already short
 (`object`, `task`, `map`); a truncation (`obj`, `obd`) saves three characters and costs the reader a
 guess — `obd` read as `objectd`, a different service owned by someone else.

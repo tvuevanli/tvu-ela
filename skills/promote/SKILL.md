@@ -11,7 +11,8 @@ Self-contained. The script collects and reconciles; this file is the judgement a
 ```bash
 P="python3 ${CLAUDE_PLUGIN_ROOT}/skills/promote/promote.py --env-file <env>"      # or: ela promote 2.1 qa daily …
 $P report 2.1 qa daily --purpose prod-staging --bundles --out <runtime>/promote   # everything, ranked; JSON + markdown
-$P lanes|delta|tickets|evidence|bundles 2.1 qa daily                              # one step at a time when arguing with a finding
+$P lanes|commits|tickets|evidence|bundles 2.1 qa daily                            # one step at a time when arguing with a finding
+# Progress goes to stderr one line per step (--quiet to silence); the JSON contract is what the session reads.
 ```
 `<line>` is a key of `<records>/map/release.yaml lines`; `<from>`/`<to>` are lane roles (qa · daily · prod) or lane
 names. Exit 3 means a lane could not be read — for daily/stage/prod that is the person's TVU session: tell Evan
