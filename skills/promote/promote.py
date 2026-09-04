@@ -146,10 +146,20 @@ def collect_lanes(a, gaps):
                 by.setdefault(r["service"], {})[r["lane"]] = dict(r, host=h, parsed=parse_version(r["version"]))
     lane_for_slug = cfg.get("lane_for_slug") or {}
     out = []
+    qa_pref = cfg.get("qa_lane_preference") or []
+    def pick(lanes, lane):
+        """The lane's row; for a QA lane a slug may publish another QA lane (ur-portal → qa-2), tried in the line's order."""
+        if lane in lanes or lane_host(lane) != "qa":
+            return lane, lanes.get(lane)
+        for alt in qa_pref:
+            if alt in lanes:
+                return alt, lanes[alt]
+        return lane, None
     for slug in slugs:
         lanes = by.get(slug, {})
-        tl = lane_for_slug.get(slug, t_lane) if a.dst in ("daily",) else t_lane
-        fr, to = lanes.get(f_lane), lanes.get(tl)
+        tl = lane_for_slug.get(slug, t_lane) if a.dst == "daily" else t_lane
+        fl0 = lane_for_slug.get(slug, f_lane) if a.src == "daily" else f_lane
+        fl, fr = pick(lanes, fl0); tl, to = pick(lanes, tl)
         rel = None
         if fr and to:
             c = cmp_versions(slug, fr["parsed"], to["parsed"])
@@ -158,9 +168,9 @@ def collect_lanes(a, gaps):
         relevant = set((cfg.get("lanes") or {}).values()) | set(lane_for_slug.values())
         if to and to["parsed"]:
             for ln, row in lanes.items():
-                if ln in relevant and ln not in (tl, f_lane) and row["parsed"] and cmp_versions(slug, row["parsed"], to["parsed"]) == 1:
+                if ln in relevant and ln not in (tl, fl) and row["parsed"] and cmp_versions(slug, row["parsed"], to["parsed"]) == 1:
                     ahead.append({"lane": ln, "version": row["version"]})
-        out.append({"service": slug, "from_lane": f_lane, "to_lane": tl,
+        out.append({"service": slug, "from_lane": fl, "to_lane": tl,
                     "from": fr and {"version": fr["version"], "parsed": fr["parsed"], "tag": fr["tag"], "host": fr["host"]},
                     "to": to and {"version": to["version"], "parsed": to["parsed"], "tag": to["tag"], "host": to["host"]},
                     "relation": rel, "other_lanes_ahead_of_to": ahead,
@@ -732,7 +742,10 @@ def collect_bundles(a, gaps):
             gaps.append({"kind": "host_unreadable", "host": host, "detail": "no session — run: ela login tvu" if host == "prod" else "qa login failed", "exit": e.code})
     if "from" in maps and "to" in maps:
         fm, tm = maps["from"], maps["to"]
+        res["saas_rows"] = sorted(n for n in set(fm) | set(tm) if not n.lower().startswith("docker"))   # mirror the lanes; not bundle content
         for name in sorted(set(fm) | set(tm)):
+            if name in res["saas_rows"]:
+                continue
             if name not in tm:
                 res["only_in_from"].append({"service": name, "tag": fm[name]}); continue
             if name not in fm:
