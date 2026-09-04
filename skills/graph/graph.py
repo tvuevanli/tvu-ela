@@ -1024,7 +1024,9 @@ def main():
     p.add_argument("process_id"); p.add_argument("-e", "--env"); p.add_argument("--yes", action="store_true"); p.add_argument("--json", action="store_true")
     p = sub.add_parser("envs"); p.add_argument("--json", action="store_true")
     a = ap.parse_args()
-    ur = UR(a.env_file)
+    # `envs` makes no request: warming TLS in background threads and then exiting mid-handshake
+    # segfaults the interpreter on shutdown (intermittently, in OpenSSL) — so do not warm for it.
+    ur = UR(a.env_file, warm=(a.cmd != "envs"))
     {"graph": cmd_graph, "process": cmd_process, "box": cmd_box, "graphs": cmd_graphs,
      "resolve": cmd_resolve, "envs": cmd_envs, "connect": cmd_connect, "exec": cmd_exec, "start": cmd_start, "stop": cmd_stop}[a.cmd](ur, a)
 
