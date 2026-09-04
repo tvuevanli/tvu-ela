@@ -25,7 +25,7 @@
   ela api <projects|export|tags|list|read|schema> … Apifox API definitions, read-only (ela api read ur "GET /v1beta1/graphs/{graphId}")
   ela reports <list|build>  Evan's standing reports (markdown → HTML; a session publishes them as artifacts)
   ela publish <catalogue|roster|map|all|list>  render an elak source into <published> for machines to read; the manifest row records it
-  ela team <list|who|emails|check>  the MediaHub roster, first-hand · ela who <name|email|Uxxx|accountId>  one person; exit 3 when unknown
+  ela team <people|areas|who|emails|check>  the roster, first-hand · ela who <name|email|Uxxx|accountId>  one person; exit 3 when unknown
   ela envs                  the UR probe order         ela site   (rarely) the site config: roots, host names, aliases, emails
 
 Every verb forwards to the capability script under skills/<cap>/<cap>.py with the site's env file;
@@ -56,7 +56,7 @@ VERBS = {
     "mail": ("mail", None), "login": ("release", "login"),
     "promote": ("promote", None),
 }
-PROMOTE_SUBS = {"lanes", "commits", "delta", "tickets", "evidence", "bundles", "report"}
+PROMOTE_SUBS = {"lanes", "commits", "delta", "tickets", "evidence", "bundles", "report", "compare-helm"}
 
 
 def site():

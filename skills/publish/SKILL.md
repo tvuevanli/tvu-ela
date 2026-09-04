@@ -1,6 +1,6 @@
 ---
 name: publish
-description: Publish an elak source into the published directory that machines read (Helm's knowledge root, the remote's map) and record the manifest row — the media docker service catalogue from map/services.yaml and the roster from knowledge/products/mediahub/team/roster.yaml. Use on "发布 services.yaml", "publish the roster", "花名册改了", "更新 Helm 读的服务目录", "publish the catalogue", or after map/services.yaml changed.
+description: Publish an elak source into the published directory that machines read (Helm's knowledge root, the remote's map) and record the manifest row — the media docker service catalogue from map/services.yaml and the roster from knowledge/people/. Use on "发布 services.yaml", "publish the roster", "花名册改了", "更新 Helm 读的服务目录", "publish the catalogue", or after map/services.yaml changed.
 user-invocable: true
 ---
 
@@ -15,7 +15,7 @@ directories; readers (Helm's context packs, the remote ela) point at these paths
 P="python3 ${CLAUDE_PLUGIN_ROOT}/skills/publish/publish.py"     # or: ela publish …
 $P all            # map/ (yaml, as they are) + the catalogue + the roster + <published>/MANIFEST.md; removes stale per-reader dirs
 $P catalogue      # map/services.yaml → <published>/knowledge/products/mediahub/services.md + manifest row
-$P roster         # knowledge/products/mediahub/team/roster.yaml → <published>/…/team/{roster.yaml, roster.md} (identity lines in the shape Helm parses; not Helm's team-map.md, a different document) + manifest row
+$P roster         # knowledge/people/{people,responsibilities}.yaml → <published>/knowledge/people/{people.yaml, responsibilities.yaml, roster.md} (identity lines in the shape Helm parses; not Helm's team-map.md, a different document) + manifest row
 $P map            # map/*.yaml + README.md → <published>/map/ (machine-readable; the remote ela's records/map roots)
 $P list           # what the manifest says is published, and whether the source's verified: moved since (drift)
 ```

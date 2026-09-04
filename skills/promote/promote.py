@@ -10,6 +10,8 @@ Fixed In, a Fixed In against the build that carries it, a claim against QA's own
   evidence <line> <from> <to> [--scope] [--since YYYY-MM-DD]   QA verdicts per key from Jira comments, mail and Slack
   bundles  <line> <from> <to>                    the two lanes' newest bundles, docker service by docker service
   report   <line> <from> <to> [--purpose regular|prod-staging|demo] [--scope] [--out DIR]   all of it, ranked and capped
+  compare-helm <line> <from> <to> [--scope all] [--helm-json F]   test only: Helm's payload as oracle; every difference classified
+                                                 agree · timing · coverage · intended · differ · parser (the last two are unexplained)
 
 Nouns: plural names a table of many (lanes · commits · tickets · bundles), singular a summary (evidence · report).
 --quiet silences the one-line-per-step progress on stderr.
@@ -397,12 +399,15 @@ def jira_read(env_file, key):
 
 
 def load_roster():
-    path = os.path.join(R.site().get("records") or "", "knowledge", "products", "mediahub", "team", "roster.yaml")
+    """people.yaml joined to responsibilities.yaml — the join lives in the team capability, not here.
+    Each person carries a derived `area` (the one they are asked first about, else their first)."""
+    import sys as _sys
+    _sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "team"))
     try:
-        d = R._yaml_subset(open(path).read())
-    except OSError:
+        import team as _team  # noqa: E402 — the roster reader, same plugin
+        return _team.read_roster(R.site().get("records") or "")[1]
+    except SystemExit:
         return []
-    return d.get("people") or []
 
 
 def person_area(roster, display_name):
@@ -909,6 +914,176 @@ def render_md(r):
     return "\n".join(L) + "\n"
 
 
+# ── compare-helm: Helm's release payload as the oracle (test fixture only — never a runtime dependency) ──
+
+HELM_ORACLE = r"""
+import sys, json
+from pathlib import Path
+ROOT = Path(sys.argv[1])
+for p in (ROOT / "app" / "ops", ROOT / "app", ROOT):
+    sys.path.insert(0, str(p))
+from release.payload import _build_release_payload
+p = _build_release_payload(sys.argv[2], auto_capture=False, force_refresh=True)
+keep = {k: p.get(k) for k in ("generated_at", "qa_versions", "daily_versions", "prod_versions", "qa_env_label", "daily_env_label",
+                              "prod_env_label", "version_compare", "gm_bundles", "ready_to_ship", "verified_in_qa", "live_on_prod",
+                              "awaiting_qa", "not_version_tracked", "matrix_error", "qa_matrix_error")}
+json.dump(keep, open(sys.argv[3], "w"), ensure_ascii=False, default=str)
+"""
+
+
+def helm_oracle(line, out_path):
+    """Run Helm's own payload builder in Helm's environment and keep the sections the comparison needs."""
+    helm = os.path.join(R.site().get("projects") or "", "helm")
+    if not os.path.isfile(os.path.join(helm, "app", "ops", "release", "payload.py")):
+        return None, f"no Helm checkout at {helm}"
+    script = os.path.join(os.path.dirname(out_path), "helm_oracle.py")
+    open(script, "w").write(HELM_ORACLE)
+    cmd = f"cd {helm} && set -a && . config/.env && set +a && python3 {script} {helm} {line} {out_path}"
+    rc, out, err = run(["bash", "-lc", cmd], timeout=900)
+    if rc != 0 or not os.path.isfile(out_path):
+        return None, (err or out).strip()[-400:]
+    return json.load(open(out_path)), ""
+
+
+def _sv(rows):
+    return {r.get("slug"): r.get("version") for r in rows or []}
+
+
+def compare_helm(a, gaps):
+    say("ela: lanes, commits, tickets, evidence, bundles")
+    lanes = collect_lanes(a, gaps); delta = collect_delta(a, lanes, gaps); tickets = collect_tickets(a, delta, gaps)
+    evidence = collect_evidence(a, tickets, delta, gaps, None); bundles = collect_bundles(a, gaps)
+    ela_at = now()
+    out_dir = a.out or os.path.join(R.site().get("runtime") or "/tmp", "promote")
+    os.makedirs(out_dir, exist_ok=True)
+    if a.helm_json:
+        helm, err = json.load(open(a.helm_json)), ""
+    else:
+        say("helm: building the release payload as oracle"); helm, err = helm_oracle(a.line, os.path.join(out_dir, f"helm-{a.line}.json"))
+    if helm is None:
+        return {"error": f"oracle unavailable: {err}", "ela_at": ela_at}
+    cfg = line_cfg(a.line)
+    role_of = {v: k for k, v in (cfg.get("lanes") or {}).items()}
+    helm_lane = {"qa": _sv(helm.get("qa_versions")), "daily": _sv(helm.get("daily_versions")), "prod": _sv(helm.get("prod_versions"))}
+    diffs = []
+    def d(area, subject, helm_v, ela_v, verdict, why):
+        diffs.append({"area": area, "subject": subject, "helm": helm_v, "ela": ela_v, "class": verdict, "why": why})
+    # A — lane versions
+    for s in lanes["services"]:
+        for side, lane in (("from", s["from_lane"]), ("to", s["to_lane"])):
+            role = role_of.get(lane)
+            hv = (helm_lane.get(role) or {}).get(s["service"]) if role else None
+            ev = (s[side] or {}).get("version")
+            hp, ep = parse_version(hv), parse_version(ev)
+            if hv is None and ev is None:
+                continue
+            if hp == ep:
+                d("lane", f"{s['service']} @ {lane}", hv, ev, "agree", "")
+            elif hv and ev and hv.strip() == ev.strip():
+                d("lane", f"{s['service']} @ {lane}", hv, ev, "parser", "same raw string, different parse")
+            elif hv and ev:
+                d("lane", f"{s['service']} @ {lane}", hv, ev, "timing" if (hp and ep) else "parser",
+                  "both read the same host at different moments — a deploy in between; re-run to settle" if (hp and ep) else "one side could not parse the string")
+            else:
+                d("lane", f"{s['service']} @ {lane}", hv, ev, "coverage", "only one side publishes this slug on this lane")
+    # B — docker tags (Helm resolves image:tag; ela keeps the GM tag)
+    vc = helm.get("version_compare") or {}
+    hel_docker = {}
+    for r in vc.get("docker") or []:
+        hel_docker[str(r.get("gm_name") or "").strip()] = {"qa": r.get("qa_ver"), "daily": r.get("daily_ver"), "prod": r.get("prod_ver")}
+    ela_maps = {}
+    if bundles and bundles.get("from") and bundles.get("to"):
+        for c in bundles["changed"]:
+            ela_maps.setdefault(c["service"], {})["from"] = c["from"]; ela_maps[c["service"]]["to"] = c["to"]
+    for name, sides in ela_maps.items():
+        h = hel_docker.get(name)
+        if not h:
+            d("docker", name, None, sides, "coverage", "Helm has no docker row for this GM name"); continue
+        for side, role in (("from", role_of.get(lanes["from"])), ("to", role_of.get(lanes["to"]))):
+            hv, ev = (h.get(role) if role else None), sides.get(side)
+            if hv in (None, "N/A") and ev:
+                d("docker", f"{name} @ {role}", hv, ev, "coverage", "Helm shows N/A where GM has a tag"); continue
+            if not ev:
+                continue
+            if parse_version(ev) is None:
+                d("docker", f"{name} @ {role}", hv, ev, "intended", "ela keeps the named GM tag; Helm resolves it to image:tag — resolution is on ela's list")
+            elif str(hv or "").endswith(":" + ev) or str(hv or "") == ev:
+                d("docker", f"{name} @ {role}", hv, ev, "agree", "")
+            else:
+                d("docker", f"{name} @ {role}", hv, ev, "differ", "version tag on GM vs Helm's resolved image tag disagree")
+    # C — tickets: Helm's zone vs ela's carried-in-this-delta view
+    zone_of = {}
+    for z in ("ready_to_ship", "verified_in_qa", "live_on_prod", "awaiting_qa", "not_version_tracked"):
+        for row in helm.get(z) or []:
+            zone_of[row.get("key")] = (z, row)
+    evk = (evidence or {}).get("keys") or {}
+    for t in tickets["tickets"]:
+        if not t.get("exists"):
+            continue
+        z, row = zone_of.get(t["key"], (None, None))
+        v = (evk.get(t["key"]) or {}).get("verdict", "none")
+        code = [c for c in t["commits"] if c["kind"] not in ("docs", "chore", "test", "style")]
+        if z is None:
+            d("ticket", t["key"], None, f"carried by {len(code)} code commit(s); QA {v}", "coverage",
+              "not on Helm's page — no release label or filtered out" if tickets["label"] not in (t.get("labels") or []) else "labelled, yet absent from every zone")
+            continue
+        if z == "live_on_prod" and code and lanes["to"] != (cfg.get("lanes") or {}).get("prod"):
+            d("ticket", t["key"], z, f"code commits in the {lanes['from']}→{lanes['to']} delta", "differ",
+              "Helm says live on prod, ela finds commits for it that are not yet on the target lane — a follow-up commit after the Fixed In, or Helm's containment assumed")
+        elif z in ("ready_to_ship", "verified_in_qa") and v in ("none", "dev-declared"):
+            d("ticket", t["key"], z, f"QA evidence: {v}", "intended", "Helm's zone is env-presence; ela reports QA's words — dev-declared is not verified")
+        elif z == "awaiting_qa" and v == "pass":
+            d("ticket", t["key"], z, "QA pass", "differ", "QA's pass exists (mail or Jira) but Helm has not counted it")
+        else:
+            d("ticket", t["key"], z, f"QA {v}", "agree", "")
+    # D — bundles
+    gm = helm.get("gm_bundles") or {}
+    for role, key in (("qa", "selected_qa_bundle"), ("daily", "selected_daily_bundle"), ("prod", "selected_prod_bundle")):
+        h_sel = gm.get(key)
+        ela_b = None
+        if bundles:
+            if role == role_of.get(lanes["from"]): ela_b = (bundles.get("from") or {}).get("name")
+            if role == role_of.get(lanes["to"]): ela_b = (bundles.get("to") or {}).get("name")
+        if ela_b:
+            names = {str(b.get("bundleName")): str(b.get("bundleId")) for b in (gm.get(f"{role}_bundles") or []) if isinstance(b, dict)}
+            h_name = next((n for n, i in names.items() if str(h_sel) in (i, n)), str(h_sel))
+            d("bundle", role, h_name, ela_b, "agree" if h_name == ela_b else "differ", "" if h_name == ela_b else "Helm's selected bundle is not the newest on the lane, or the lane token differs")
+    summary = {}
+    for x in diffs:
+        summary[x["class"]] = summary.get(x["class"], 0) + 1
+    return {"line": a.line, "from": lanes["from"], "to": lanes["to"], "ela_at": ela_at, "helm_at": helm.get("generated_at"),
+            "summary": summary, "diffs": diffs, "unexplained": [x for x in diffs if x["class"] in ("differ", "parser")], "gaps": gaps}
+
+
+def cmd_compare_helm(a):
+    gaps = []
+    res = compare_helm(a, gaps)
+    if a.json:
+        print(json.dumps(res, ensure_ascii=False)); return
+    if res.get("error"):
+        print(res["error"], file=sys.stderr); sys.exit(EX_REMOTE)
+    L = [f"# parity: ela vs Helm — MH {res['line']} {res['from']} → {res['to']}", f"ela read {res['ela_at']} · Helm payload {res['helm_at']}",
+         "summary: " + ", ".join(f"{k} {v}" for k, v in sorted(res["summary"].items())), ""]
+    for cls in ("differ", "parser", "timing", "coverage", "intended", "agree"):
+        rows = [x for x in res["diffs"] if x["class"] == cls]
+        if not rows:
+            continue
+        L.append(f"## {cls} ({len(rows)})")
+        for x in rows if cls != "agree" else rows[:8]:
+            L.append(f"- [{x['area']}] {x['subject']} — Helm: {str(x['helm'])[:60]} · ela: {str(x['ela'])[:60]}" + (f" — {x['why']}" if x["why"] else ""))
+        if cls == "agree" and len(rows) > 8:
+            L.append(f"- … {len(rows) - 8} more agree")
+        L.append("")
+    md = "\n".join(L)
+    print(md)
+    out_dir = a.out or os.path.join(R.site().get("runtime") or "/tmp", "promote")
+    stem = os.path.join(out_dir, f"parity-{datetime.date.today().isoformat()}-mh{a.line}-{res['from']}-{res['to']}")
+    json.dump(res, open(stem + ".json", "w"), ensure_ascii=False, indent=1); open(stem + ".md", "w").write(md + "\n")
+    print(f"written: {stem}.{{json,md}}", file=sys.stderr)
+    if res["unexplained"]:
+        sys.exit(1)
+
+
 def main():
     signal.signal(signal.SIGPIPE, signal.SIG_DFL)
     ap = argparse.ArgumentParser(description="Promotion assessment, first-hand and cross-checked.")
@@ -922,10 +1097,11 @@ def main():
     common(sub.add_parser("lanes")); common(sub.add_parser("commits", aliases=["delta"])); common(sub.add_parser("tickets"))
     p = sub.add_parser("evidence"); common(p); p.add_argument("--since")
     common(sub.add_parser("bundles"), scope=False)
+    p = sub.add_parser("compare-helm", help="test only: Helm's release payload as the oracle; every difference classified"); common(p); p.add_argument("--helm-json", help="a saved oracle payload instead of running Helm"); p.add_argument("--out")
     p = sub.add_parser("report"); common(p); p.add_argument("--purpose", choices=("regular", "prod-staging", "demo"), default="regular"); p.add_argument("--since"); p.add_argument("--bundles", action="store_true", help="include the bundle diff even with --scope app"); p.add_argument("--out", help="directory for <date>-mh<line>-<from>-<to>.{json,md}")
     a = ap.parse_args()
     global QUIET; QUIET = a.quiet
-    {"lanes": cmd_lanes, "commits": cmd_delta, "delta": cmd_delta, "tickets": cmd_tickets, "evidence": cmd_evidence, "bundles": cmd_bundles, "report": cmd_report}[a.cmd](a)
+    {"lanes": cmd_lanes, "commits": cmd_delta, "delta": cmd_delta, "tickets": cmd_tickets, "evidence": cmd_evidence, "bundles": cmd_bundles, "report": cmd_report, "compare-helm": cmd_compare_helm}[a.cmd](a)
 
 
 if __name__ == "__main__":
