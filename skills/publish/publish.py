@@ -229,7 +229,7 @@ def render_team_map(header, people, today):
         "(email, Slack id, Jira account) is asserted. Every email and Slack id was read first-hand from Slack "
         "`users.list`; Jira ids were confirmed against ticket history. "
         f"Source verified {header.get('verified', '?')}; published {today}.", "",
-        "**No rank is recorded here** — no title, no seniority, no reporting line. MediaHub responsibility is "
+        "No rank is recorded here: no title, no seniority, no reporting line. MediaHub responsibility is "
         "de-facto and TVU has no matching titles, so a level would be invented rather than read "
         "(decision `2026-09-04-people-carry-responsibilities-not-rank`). Where an area has a de-facto lead, it "
         "appears as **ask first** on that area, which is per person-and-area and is not comparable across areas.", "",
@@ -243,9 +243,12 @@ def render_team_map(header, people, today):
         for p in [x for x in core if x["area"] == area]:
             first = next((r for r in p["responsibilities"] if r.get("first_contact") is True), None)
             out.append(f"**{p['name']}** — {(first or p['responsibilities'][0])['what'].split(' — ')[0].split('. ')[0]}")
+            single = len(p["responsibilities"]) == 1
             for r in p["responsibilities"]:
                 mark = " (ask first about this area)" if r.get("first_contact") is True else ""
-                out.append(f"- {r['scope']}/{r['area']}{mark}: {r['what']}")
+                if single and not mark and not r["owns"]:
+                    continue                                  # the header already says it; a repeated bullet reads as a second responsibility
+                out.append(f"- {r['scope']}/{r['area']}{mark}: {r['what']}" if not single else f"- {r['scope']}/{r['area']}{mark}")
                 if r["owns"]:
                     out.append(f"  - owns: {', '.join(r['owns'])}")
             if p.get("review_means"):
