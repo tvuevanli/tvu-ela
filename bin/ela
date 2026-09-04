@@ -15,7 +15,7 @@
   ela remote <alias> [grep]  every project of that GitLab group (read token); ● on disk ○ not cloned
   ela bundles [mh2.1@]      GM bundles, newest first          ela bundle <name|id>     its bill of materials
   ela versions [service]    versions per env (userservice)    ela builds <job|service>  Jenkins builds: version, branch, sha
-  ela drift                 newest bundle's GM names vs services.yaml     ela login prod|qa   (prod: one-time HTTPS page collects the browser's SID; --host prod on bundles/bundle/versions/drift)
+  ela drift                 newest bundle's GM names vs services.yaml     ela login tvu|qa   (prod: one-time HTTPS page collects the browser's SID; --host prod on bundles/bundle/versions/drift)
   ela mail <search|read|thread> …                 Gmail, read-only (QA test reports, deploy notices, approvals are emails)
   ela kb <search|read|tree|write|update|delete> …   Outline (writes dry-run; --apply on Evan's word)    ela figma …
   ela wiki <spaces|tree|search|read|children> …     Confluence, read-only (also: ela confluence …; a page URL alone works)

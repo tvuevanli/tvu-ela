@@ -7,14 +7,14 @@ L1: subcommands, --json, stdlib only. No store, no scheduler: every answer is th
   envs     [service] [--host qa|prod]     versions per lane; tag names mapped to lanes by <records>/map/release.yaml hosts
   builds   <job|service> [--limit N]      Jenkins builds: number, version, result, branch, sha, time
   drift    [line] [--bundles N] [--host]  GM service names shipped in the newest N bundles vs map/services.yaml gm_names
-  login    [qa|prod] [--force]            qa: tvutest account login → SID (2h), printed for the env file.
-                                          prod: a one-time HTTPS page under ela.tvunetworks.com collects the browser's
+  login    [qa|tvu] [--force]             qa: tvutest account login → SID (2h), printed for the env file.
+                                          tvu: a one-time HTTPS page under ela.tvunetworks.com collects the browser's
                                           SID after Google SSO (a paste field is the fallback); stored in
                                           ~/.claude/ela/session.json (mode 600) with obtained_at; the first refusal
                                           records rejected_at so the session's real lifetime is measured.
 
 Hosts. qa = site.json services.userservice-test, account login (TVUTEST_ACCOUNT / TVUTEST_PASSWORD), QA bundles and
-qa-* lanes. prod = site.json services.userservice, a person's session (decision
+qa-* lanes. prod = site.json services.userservice, the person's TVU SSO session — `ela login tvu` (decision
 2026-09-04-prod-gm-is-read-through-a-persons-login-at-the-cli): daily-*, stage and prod-N lanes and their bundles.
 A prod read without a live session exits 4 and names the command; nothing is guessed and no cache is read instead.
 Config: <records>/map/release.yaml (service ids per host, tag→lane maps, Jenkins job → service, release lines).
@@ -247,10 +247,10 @@ class US:
         self.env_file = env_file
         if self.kind == "prod":
             self.host = _service_url("userservice")
-            s = _load_sessions().get("prod") or {}
+            s = _load_sessions().get("tvu") or {}
             self.sid = s.get("sid") if not s.get("rejected_at") else None
             if not self.sid:
-                _need_login("prod", "missing" if not s.get("sid") else f"refused at {s.get('rejected_at')}")
+                _need_login("tvu", "missing" if not s.get("sid") else f"refused at {s.get('rejected_at')}")
         else:
             self.host = _service_url("userservice-test")
             self.sid = env_value("TVUTEST_SID", env_file) or tvutest_login(env_file, self.host)
@@ -259,7 +259,7 @@ class US:
         st, body = http(self.host + path, payload, cookie=f"SID={self.sid}")
         if _auth_failed(st, body):
             if self.kind == "prod":
-                _mark_rejected("prod"); _need_login("prod", f"refused (HTTP {st})")
+                _mark_rejected("tvu"); _need_login("tvu", f"refused (HTTP {st})")
             self.sid = tvutest_login(self.env_file, self.host)          # a tvutest SID lives two hours; log in again once
             st, body = http(self.host + path, payload, cookie=f"SID={self.sid}")
             if _auth_failed(st, body):
@@ -312,19 +312,19 @@ def _open_browser(url):
     return False
 
 
-_PAGE = """<!doctype html><meta charset="utf-8"><title>ela login prod</title>
+_PAGE = """<!doctype html><meta charset="utf-8"><title>ela login tvu</title>
 <style>body{{font:15px/1.5 system-ui,sans-serif;max-width:640px;margin:48px auto;padding:0 20px;color:#222}}
 code{{background:#f2f2f2;padding:2px 6px;border-radius:4px}} .ok{{color:#0a7d2c}} .bad{{color:#b3261e}}
 input{{width:100%;padding:8px;font:inherit}} button{{padding:8px 16px;font:inherit}}</style>
-<h2>ela · prod session</h2>{body}"""
+<h2>ela · TVU session</h2>{body}"""
 
 
-def login_prod(env_file, force=False, timeout=300, json_out=False, open_browser=True):
+def login_tvu(env_file, force=False, timeout=300, json_out=False, open_browser=True):
     host_url = _service_url("userservice")
-    sessions = _load_sessions(); cur = sessions.get("prod") or {}
+    sessions = _load_sessions(); cur = sessions.get("tvu") or {}
     if cur.get("sid") and not cur.get("rejected_at") and not force and _validate_sid(host_url, cur["sid"]):
-        msg = {"prod": "valid", "obtained_at": cur.get("obtained_at"), "source": cur.get("source")}
-        print(json.dumps(msg) if json_out else f"prod session still valid (obtained {cur.get('obtained_at')}, {cur.get('source')}); --force to replace"); return
+        msg = {"tvu": "valid", "obtained_at": cur.get("obtained_at"), "source": cur.get("source")}
+        print(json.dumps(msg) if json_out else f"tvu session still valid (obtained {cur.get('obtained_at')}, {cur.get('source')}); --force to replace"); return
     crt, key = _ensure_cert()
     url = f"https://{LOGIN_HOST}:{LOGIN_PORT}/"
     state = {"sid": None, "source": None, "note": ""}
@@ -340,7 +340,7 @@ def login_prod(env_file, force=False, timeout=300, json_out=False, open_browser=
         def _accept(self, sid, source):
             if _validate_sid(host_url, sid):
                 state["sid"], state["source"] = sid, source
-                self._send('<p class="ok">✓ prod session stored in ~/.claude/ela/session.json. You can close this tab.</p>'); return True
+                self._send('<p class="ok">✓ TVU session stored in ~/.claude/ela/session.json. You can close this tab.</p>'); return True
             return False
 
         def do_GET(self):
@@ -382,11 +382,11 @@ def login_prod(env_file, force=False, timeout=300, json_out=False, open_browser=
     srv.server_close()
     if not state["sid"]:
         print("no session collected before the timeout", file=sys.stderr); sys.exit(EX_AUTH)
-    sessions["prod"] = {"sid": state["sid"], "obtained_at": _now(), "rejected_at": None, "source": state["source"],
+    sessions["tvu"] = {"sid": state["sid"], "obtained_at": _now(), "rejected_at": None, "source": state["source"],
                         "lifetimes_s": cur.get("lifetimes_s") or []}
     _save_sessions(sessions)
-    msg = {"prod": "stored", "obtained_at": sessions["prod"]["obtained_at"], "source": state["source"]}
-    print(json.dumps(msg) if json_out else f"prod session stored ({state['source']}, {msg['obtained_at']}) — ela versions --host prod")
+    msg = {"tvu": "stored", "obtained_at": sessions["tvu"]["obtained_at"], "source": state["source"]}
+    print(json.dumps(msg) if json_out else f"TVU session stored ({state['source']}, {msg['obtained_at']}) — ela versions --host prod")
 
 
 # ── bundles ──────────────────────────────────────────────────────────────────
@@ -569,8 +569,8 @@ def cmd_drift(a):
 
 
 def cmd_login(a):
-    if a.target == "prod":
-        login_prod(a.env_file, force=a.force, timeout=a.timeout, json_out=a.json, open_browser=not a.no_browser); return
+    if a.target == "tvu":
+        login_tvu(a.env_file, force=a.force, timeout=a.timeout, json_out=a.json, open_browser=not a.no_browser); return
     host = _service_url("userservice-test")
     sid = tvutest_login(a.env_file, host)
     print(json.dumps({"TVUTEST_SID": sid}) if a.json else f"TVUTEST_SID={sid}\n(put it in the env file; it expires in 2h)")
@@ -581,13 +581,13 @@ def main():
     ap = argparse.ArgumentParser(description="Release facts, first-hand.")
     ap.add_argument("--env-file")
     sub = ap.add_subparsers(dest="cmd", required=True)
-    def host_arg(p): p.add_argument("--host", choices=("qa", "prod"), default="qa", help="qa (tvutest, account login) or prod (a person's session; ela login prod)")
+    def host_arg(p): p.add_argument("--host", choices=("qa", "prod"), default="qa", help="qa (tvutest, account login) or prod (the person's TVU session; ela login tvu)")
     p = sub.add_parser("bundles"); p.add_argument("line", nargs="?", default="mh2.1@"); p.add_argument("--limit", type=int, default=50); host_arg(p); p.add_argument("--json", action="store_true")
     p = sub.add_parser("bundle"); p.add_argument("ref", help="bundle name (mh2.1@daily-wed-s1-d33) or id"); host_arg(p); p.add_argument("--json", action="store_true"); p.add_argument("--raw", action="store_true")
     p = sub.add_parser("envs"); p.add_argument("service", nargs="?"); host_arg(p); p.add_argument("--json", action="store_true")
     p = sub.add_parser("builds"); p.add_argument("job"); p.add_argument("--limit", type=int, default=15); p.add_argument("--json", action="store_true")
     p = sub.add_parser("drift"); p.add_argument("line", nargs="?", default="mh2.1@"); p.add_argument("--bundles", type=int, default=5, help="newest N bundles to union (default 5)"); host_arg(p); p.add_argument("--json", action="store_true")
-    p = sub.add_parser("login"); p.add_argument("target", nargs="?", choices=("qa", "prod"), default="qa"); p.add_argument("--force", action="store_true"); p.add_argument("--no-browser", action="store_true"); p.add_argument("--timeout", type=int, default=300); p.add_argument("--json", action="store_true")
+    p = sub.add_parser("login"); p.add_argument("target", nargs="?", choices=("qa", "tvu"), default="qa"); p.add_argument("--force", action="store_true"); p.add_argument("--no-browser", action="store_true"); p.add_argument("--timeout", type=int, default=300); p.add_argument("--json", action="store_true")
     a = ap.parse_args()
     {"bundles": cmd_bundles, "bundle": cmd_bundle, "envs": cmd_envs, "builds": cmd_builds, "drift": cmd_drift, "login": cmd_login}[a.cmd](a)
 
