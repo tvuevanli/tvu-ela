@@ -8,7 +8,7 @@ probed across environments in a fixed order (MediaHub 2.1 prod first) until one 
   graph    <graphId>  [-e X | --all] [-d] [-c]   node table in pipeline order; -d box location/id + image, -c connections
   process  <processId> [--env X]           one process: type, box public/private ip, control port, box id
   box      <boxId>     [--env X]           one box
-  graphs   [email|alias] [--env X | --all] graphs owned by an email; no argument = me (site.json `emails`)
+  graphs   [email|alias|name] [--env X | --all] graphs owned by an address (any, as given), a site alias, or a roster name; no argument = me
   resolve  <id> [--email owner]            detect the id shape and route: graph · process · object → its running graphs (via Object Service tangibles)
   envs                                     the probe order
   connect  <ip|boxId|processId> [--env]    ssh to the box as root            (ura connect)
@@ -365,14 +365,26 @@ def resolve_email(who, env_file):
         emails = {}
     who = (who or "me").strip()
     if "@" in who:
-        return who
+        return who                      # a full address is input as given — UR users are mostly not on the roster
     if who in emails:
         return emails[who]
     if who == "me":
         me = env_value("JIRA_EMAIL", env_file)
         if me:
             return me
-    print(f"unknown email alias {who!r}; known: {', '.join(emails) or 'none'} (site.json `emails`)", file=sys.stderr); sys.exit(EX_USAGE)
+    # a name → the roster (skills/team), never a composed address
+    try:
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "team"))
+        import team
+        _, people = team.read_roster()
+        hits = team.find(people, who)
+    except SystemExit:
+        hits = []
+    if len(hits) == 1:
+        return hits[0]["email"]
+    if len(hits) > 1:
+        print(f"{who!r} matches several people: {', '.join(p['name'] + ' <' + p['email'] + '>' for p in hits)} — say which", file=sys.stderr); sys.exit(EX_USAGE)
+    print(f"{who!r} is neither an address, a site alias ({', '.join(emails) or 'none'}) nor a roster name — pass the full address, or add the person to the roster", file=sys.stderr); sys.exit(EX_USAGE)
 
 
 def cmd_graphs(ur, a):
@@ -628,7 +640,7 @@ def main():
             p.add_argument("--all", action="store_true", help="every env that has it, not just the first")
             p.add_argument("-d", "--detail", action="store_true", help="control port, box location, box id and image per node (one Pilot call per node)")
             p.add_argument("-c", "--connections", action="store_true", help="the edges as a connections list")
-    p = sub.add_parser("graphs"); p.add_argument("email", nargs="?", default="me", help="address, or an alias from site.json emails (me · li …); default me"); p.add_argument("--env"); p.add_argument("--all", action="store_true")
+    p = sub.add_parser("graphs"); p.add_argument("email", nargs="?", default="me", help="a full address (any UR user, as given), an alias from site.json emails (me · li …), or a roster name (robin); default me"); p.add_argument("--env"); p.add_argument("--all", action="store_true")
     p.add_argument("--object", help="keep only graphs whose objectId or businessId equals this")
     p.add_argument("--pages", type=int, default=5, help="pages to walk per env"); p.add_argument("--limit", type=int, default=50, help="page size")
     p.add_argument("--json", action="store_true")

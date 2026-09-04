@@ -44,7 +44,7 @@ the default probe order). Missing → `/ela:setup`.
 | graph id | `$G graph <id>` | env, phase, owner email, object id, nodes in pipeline order (type · process · box ip · image), shm edges, errors. `--all` lists every env that returns it; `--raw` the J2N body |
 | process id | `$G process <id>` | env, type, status, graph id, owner, image, box id, control port, container, video codec/size, error rates, shm names |
 | box id | `$G box <id>` | Pilot's box record |
-| email | `$G graphs <email>` | that user's graphs: env, type, phase, object id, name. `--all` walks every env, `--object <id>` keeps the graphs carrying that object |
+| email or name | `$G graphs <email|name>` | that user's graphs: env, type, phase, object id, name. A full address is looked up as given (most UR users are customers, not on the roster); a bare name resolves through the roster (`robin`), never a composed address. `--all` walks every env, `--object <id>` keeps the graphs carrying that object |
 | object id | `$O get <id>` then `$G graphs <owner email> --object <id>` | the object (type, tangibles, owner userId) and its graphs. J2N lists by email and the object record has only the owner's userId, so the email is needed — from the Slack card, the ticket, or the roster |
 | anything | `$G resolve <id> [--email …]` | detects the shape and routes as above |
 
