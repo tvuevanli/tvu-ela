@@ -307,10 +307,13 @@ def parse_process(d):
     er = d.get("errorRates") if isinstance(d.get("errorRates"), dict) else {}
     return {"process_id": _none(d.get("nodeId")) or "", "type": _none(d.get("type")) or "",
             "status": _none(d.get("processStatus")) or "", "active": d.get("active"),
-            "env": env_name(_none(d.get("env")) or ""), "graph_id": _none(d.get("graphId")) or "",
+            "env": env_name(_none(d.get("env")) or ""),
+            # Pilot names a node's graph "<graphId>:<nodeName>" — J2N only knows the bare graph id
+            "graph_id": (_none(d.get("graphId")) or "").split(":", 1)[0], "node": (_none(d.get("graphId")) or "").partition(":")[2],
             "app": _none(d.get("appName")) or "", "owner": ident.get("userEmail") or ident.get("userId") or "",
             "image": _none(d.get("imageVersion")) or "", "box_id": _none(d.get("boxId")) or (box.get("huan") or "").rsplit(":", 1)[-1],
-            "public_ip": _none(d.get("publicIp")) or "", "private_ip": _none(d.get("privateIp")) or "",
+            # the process row's own ip fields are usually null; the box block in the same record carries them
+            "public_ip": _none(d.get("publicIp")) or box.get("publicIpv4") or "", "private_ip": _none(d.get("privateIp")) or box.get("privateIpv4") or "",
             "control_port": _none(d.get("mediaBoxControlPort")) or 0, "container": _none(d.get("container")) or "",
             "video": {k: video.get(k) for k in ("codec", "width", "height", "fps") if k in video},
             "error_rate_1s": er.get("errorRate1secPercentage"), "error_rate_8s": er.get("errorRate8secPercentage"),
@@ -332,7 +335,7 @@ def cmd_process(ur, a):
     if a.json:
         print(json.dumps(dict(via=via, **p), ensure_ascii=False)); return
     print(f"# process {a.process_id}  env {p['env'] or '?'} (answered via {via})")
-    for k in ("type", "status", "graph_id", "app", "owner", "image", "box_id", "public_ip", "private_ip", "control_port", "container", "created_at"):
+    for k in ("type", "status", "graph_id", "node", "app", "owner", "image", "box_id", "public_ip", "private_ip", "control_port", "container", "created_at"):
         if p.get(k) not in ("", 0, None):
             print(f"{k:<13}{p[k]}")
     if p["video"]:
