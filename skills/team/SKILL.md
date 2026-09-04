@@ -27,7 +27,7 @@ $T check                     # read Slack users.list (a minute) and report any e
   the title from `users.list`; a Jira accountId comes from a ticket the person is assigned to (`ela MH-… --json`).
   Both go into `roster.yaml` with the source line updated, then `ela publish roster`. Never from memory, a
   signature, or a pattern.
-- **Role, layer and reporting line come from Helm's team table and team-map.** Empty where those files record none;
+- **Role, layer and reporting line come from Helm's team table and team-map.** Empty where those files record none; the skill does
   not infer a manager from an area.
 - **`external: true` is a counterpart, not a member.** They are addressable (their graphs can be looked up),
   never assigned MediaHub work by ela.
