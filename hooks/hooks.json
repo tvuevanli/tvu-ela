@@ -1,5 +1,5 @@
 {
-  "description": "ela \u2014 SessionStart: context injection plus a catch-up snapshot of the knowledge base if a previous session left it dirty. SessionEnd: snapshot the knowledge base (one commit, pushed) when dirty. PreToolUse: the location guard \u2014 no edits under the published directory, none in ela/helm from a session started elsewhere, none under a remote site's read-only records.",
+  "description": "ela — SessionStart: context injection plus a catch-up snapshot of the knowledge base if a previous session left it dirty. SessionEnd: snapshot the knowledge base (one commit, pushed) when dirty. PreToolUse: the write guard — place (nothing under the published directory, nothing in ela/helm from a session started elsewhere, nothing under a remote site's elak, nothing under <elak> outside blueprint/knowledge/map) and content (no tracked file and no commit message may quote what someone said, name a person, or narrate what a session got wrong).",
   "hooks": {
     "SessionStart": [
       {
@@ -37,7 +37,7 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash",
         "hooks": [
           {
             "type": "command",

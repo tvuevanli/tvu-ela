@@ -17,6 +17,10 @@
 #      (decisions 2026-09-03-tracked-files-carry-the-rule-not-the-argument,
 #       2026-09-03-records-name-the-origin-not-the-utterance). Rules 1-4 are about place; this one is
 #      about content, and it is the reason the hook reads the text and not only the path.
+#   6. any `git commit` in those repos whose message names a person, quotes what someone said, or
+#      narrates what a session got wrong — a commit body holds the same line as a tracked file, and
+#      ela's origin is a public remote, so a pushed message cannot be taken back (CLAUDE.md §The
+#      rule, not the argument; §People appear as roles).
 set -u
 SITE="$HOME/.claude/ela/site.json"
 [ -f "$SITE" ] || exit 0
@@ -29,6 +33,40 @@ try:
     site = json.load(open(site_path))
 except Exception:
     sys.exit(0)
+def block(msg):
+    print(f"ela guard: {msg}", file=sys.stderr); sys.exit(2)
+
+# ── 6: a commit message is a tracked file too ────────────────────────────────
+# It says what changed and why the code needed it. Not who was slow, not what a session got
+# wrong, not a person's queue, and never a sentence someone typed. ela's origin is a public
+# remote, so a message is published the moment it is pushed and cannot be taken back.
+COMMIT_BANS = [
+    (re.compile(r"[\"“「』][^\"”」』\n]*[一-鿿][^\"”」』\n]*[\"”」』]"),
+     "it quotes what someone said"),
+    (re.compile(r"\bEvan\b|\bhis queue\b|\bhis own (?:rot|backlog)\b"),
+     "it names a person — a commit describes the code, and a named person's queue, habits or\n"
+     "  performance is not engineering material"),
+    (re.compile(r"(?i)\b(?:I|my|we) (?:introduced|caught|forgot|broke|missed|got wrong)\b|"
+                r"already in tracked files are gone|a session will not apply"),
+     "it narrates what a session got wrong — the rule in force is the message, not the story\n"
+     "  of arriving at it"),
+]
+if call.get("tool_name") == "Bash":
+    cmd = (call.get("tool_input") or {}).get("command") or ""
+    if re.search(r"\bgit\b[^|;&]*\bcommit\b", cmd):
+        for rx, why in COMMIT_BANS:
+            m = rx.search(cmd)
+            if m:
+                block(f"this commit message must not be written: {why}.\n"
+                      f"  Found: {m.group(0)[:60]!r}\n"
+                      f"  ela's origin is a public remote — a pushed message cannot be taken back\n"
+                      f"  (CLAUDE.md: commit subjects and bodies hold the same line as a tracked file;\n"
+                      f"   decisions 2026-09-03-tracked-files-carry-the-rule-not-the-argument and\n"
+                      f"   2026-09-03-records-name-the-origin-not-the-utterance).\n"
+                      f"  Write what changed and why the code needed it. Cite a ticket key or a\n"
+                      f"  decision filename for the reason; name a role, never a person.")
+    sys.exit(0)
+
 if call.get("tool_name") not in ("Edit", "Write", "MultiEdit", "NotebookEdit"):
     sys.exit(0)
 target = (call.get("tool_input") or {}).get("file_path") or (call.get("tool_input") or {}).get("notebook_path") or ""
@@ -39,8 +77,6 @@ project_dir = os.path.realpath(project_dir)
 def under(path, root):
     root = os.path.realpath(os.path.expanduser(root)) if root else None
     return bool(root) and (path == root or path.startswith(root.rstrip("/") + "/"))
-def block(msg):
-    print(f"ela guard: {msg}", file=sys.stderr); sys.exit(2)
 
 published = site.get("published")
 elak = site.get("elak") or site.get("records")      # `records` accepted until /ela:setup renames the key
