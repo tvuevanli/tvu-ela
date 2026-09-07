@@ -42,15 +42,17 @@ This is how ela knows Evan in any directory without an agent or a global CLAUDE.
 |---|---|---|
 | `/ela:setup` | 1 | first run / repair of `~/.claude/ela/` — paths, credentials, read-only probe of every sense |
 | `/ela:jira` | 1 | read an issue (links, subtasks, comments), run JQL, or create an issue / subtask (dry-run default, confirm-gated) |
-| `/ela:slack` | 1 | read a thread by permalink; list channels; history, mentions and unanswered scans; `users` (members with emails, first-hand); `post` — the one write, dry run until `--apply`, replies in-thread by permalink, refuses duplicates |
+| `/ela:slack` | 1 | read a thread by permalink; list channels; history, mentions and unanswered scans; `users` (members with emails, first-hand); `post` — the one write, dry run until `--apply`, replies in-thread by permalink, refuses duplicates; `not_in_channel` answers with whether the bot may join, and `join` / `read --join` does it explicitly (a join is visible) |
 | `/ela:kb` | 1 | read / search Outline; write on explicit confirm |
 | `/ela:object` | 1 | Object Service API: an object or a tangible by id (`object.py get` — the only read; batch and search endpoints answer 404; not objectd — a different service) |
 | `/ela:graph` | 1 | UR graph and process first-hand (J2N + Pilot), no environment to set: node table in pipeline order with process ids, box ips, images; a process's live record; a user's graphs; graphs carrying an object |
+| `/ela:stream` | 1 | what a stream actually carries, read off the wire — PMT / PCR / per-stream PID, codec, resolution; HLS playlist (segment resolved and fetched in one pass, the live window is seconds wide), `.ts`, `srt://`, `udp://`; `probe` and `diff` |
 | `/ela:confluence` | 1 | the web team's Confluence, read-only — spaces, a space's page tree, CQL search, one page as text; `ela wiki …` or a page URL alone |
 | `/ela:gdoc` | 1 | Google Docs / Sheets / Drive, read-only with Evan's token — a doc as text, a sheet tab as CSV, recent documents; `ela gdoc …` or a docs.google.com URL alone |
 | `/ela:apifox` | 1 | the teams' API contracts from Apifox — a project's OpenAPI export, tags, operations by word, one operation in full, a schema; `ela api …` or an app.apifox.com URL alone |
 | `/ela:release` | 1 | release facts first-hand — GM bundles and their bill of materials, versions per env, Jenkins builds (version · branch · sha), drift between the newest bundle and the service table; `ela bundles · bundle · versions · builds · drift` |
 | `/ela:probe` | 3 | deep, read-only bug investigation: ticket → graph facts → implicated service via the service table → code (cloned if missing) → root cause with file:line → drafted comments for reporter and owner |
+| `/ela:feasible` | 3 | a capability question in, two verdicts out: the ask split into checkable items, each traced through the five checkpoints (profile → payload → command line → engine → output) — what happens today with runtime evidence, and whether it can be supported with the layer and cost band; drafts for asker and owner |
 | `/ela:figma` | 1 | read a design: file tree, node subtree + text layers, comments, rendered image — read-only |
 | `/ela:digest` | 4 | digest a posted report thread into what Evan must act on, decide, and pin — cross-checked against Jira |
 | `/ela:route` | 4 | a bug in, a name out: implicated service, owner, or the first checker with the exact discriminating check |
