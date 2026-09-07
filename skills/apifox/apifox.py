@@ -95,7 +95,12 @@ def fetch_openapi(pid, env_file):
             raw = r.read()
     except urllib.error.HTTPError as e:
         if e.code in (401, 403):
-            print(f"apifox: HTTP {e.code} — the token is invalid or has no access to project {pid}", file=sys.stderr); sys.exit(EX_AUTH)
+            try:
+                why = json.loads(e.read().decode()).get("errorMessage") or ""
+            except Exception:
+                why = ""
+            hint = " — export needs project admin (maintainer) rights, membership alone is not enough" if "maintainer" in why.lower() else " — the token is invalid or has no access to the project"
+            print(f"apifox: HTTP {e.code} on project {pid}: {why or 'no detail'}{hint}", file=sys.stderr); sys.exit(EX_AUTH)
         if e.code == 404:
             print(f"apifox: project {pid} not found", file=sys.stderr); sys.exit(EX_NOTFOUND)
         print(f"apifox: HTTP {e.code} {e.read()[:200]!r}", file=sys.stderr); sys.exit(EX_REMOTE)
