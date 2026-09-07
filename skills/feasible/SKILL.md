@@ -111,7 +111,7 @@ unverified** — named, not omitted. Where an item's cost depends on an answer o
 say so and put the question in the draft rather than guessing a scope.
 
 ## 6 — record and draft
-- Record what the answer **established**, where the placement test sends it (decision
+- Record what the answer **established**, drafted here and written on Evan's word, where the placement test sends it (decision
   `2026-09-07-elak-is-elas-knowledge`): a capability limit and where it is enforced is a fact about the
   product → `<elak>/knowledge/products/mediahub/`; a platform limit → `<elak>/knowledge/platform/<component>/`.
   A dated file of "what this run checked" is not kept. The two tables, the evidence paths, the change

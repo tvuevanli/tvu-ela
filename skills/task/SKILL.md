@@ -1,6 +1,6 @@
 ---
 name: task
-description: Run one piece of implementation work Evan owns end to end — read the ticket first-hand, locate the repo in the map, create an isolated worktree with a write tier, delegate to the area's own agent stack (headless session in the counterpart's repo) or implement under the repo's own rules, verify artefacts and evidence, record the ledger. Use for "do MH-xxxx", "implement this", "改 app 代码", "按 mediahub-agent 的规矩做", or any request to change code in a repo Evan does not own.
+description: Run one piece of implementation work Evan owns end to end — read the ticket first-hand, locate the repo in the map, create an isolated worktree with a write tier, delegate to the area's own agent stack (headless session in the counterpart's repo) or implement under the repo's own rules, verify artefacts and evidence, hand over with the evidence in the merge request or ticket. Use for "do MH-xxxx", "implement this", "改 app 代码", "按 mediahub-agent 的规矩做", or any request to change code in a repo Evan does not own.
 user-invocable: true
 ---
 
@@ -83,10 +83,9 @@ property of the repo, so it lives with the map, not with a decision; default **d
 | `branch-only` | + `git push -u origin evan/*` | shared lanes, MRs |
 | `mr-gated` | + open an MR naming the human owner | merge |
 
-Record `{key, repo, worktree, branch, base_ref, tier, owner, governance}` to
-`<elak>/blueprint/ledger/<key-lower>.json` with `status: prepared` **before** delegating — the ledger
-is evidence about ela's own execution, so it belongs to the blueprint half (decision
-`2026-09-07-elak-is-elas-knowledge`). The directory is created by the first real run, not before it.
+No ledger is written. The worktree, its branch and the ticket are the record of a task while it is open; the
+merge request, the commit and the ticket comment are its record afterwards. ela keeps no file about its own
+execution (docs/adr/0001).
 
 ## 3 — delegate by governance
 
@@ -157,10 +156,10 @@ Refuse at §1 with the reason.
   `target/surefire-reports/` with `Tests run > 0`; .NET → `dotnet test` summary. `BUILD SUCCESS`,
   `npm run build` and lint are **not** evidence. Missing → status `unverified`, say so plainly.
 
-## 5 — ledger
-Update `<elak>/blueprint/ledger/<key-lower>.json`: `status` (`done` | `unverified` | `blocked`),
-`session_id`, `commits[]`, `artefacts[]`, `evidence{command,result}`, `questions[]` (asked/answered),
-`finished`. Commit it in the records repo.
+## 5 — evidence stays with the artefact
+The verification command and its result go into the merge request description or the ticket comment that
+hands the work over, never into a file of ela's own. If the task changed what ela knows about the repo or the
+service, that is knowledge: draft it and write it to `<elak>/knowledge/` only on Evan's word.
 
 ## 6 — deliver per tier
 - `draft-only`: show `git -C $WT diff origin/<lane>` summary and the artefact list; **stop** — push or

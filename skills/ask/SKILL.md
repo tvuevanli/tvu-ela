@@ -104,8 +104,9 @@ structurally cannot see:
 If there is nothing to add, write `无补充,可直接采信`. That is a valid output and it is more honest
 than a manufactured paragraph.
 
-## 6 — record
-Carry what the exchange established into `<elak>/knowledge/products/mediahub/team/agents.yaml` —
+## 6 — record, on confirm
+Propose the change to `<elak>/knowledge/products/mediahub/team/agents.yaml` as a diff and write it only on
+Evan's word —
 the `coverage` block, with a `verified:` date, since observation may update coverage but only propose a
 charter change. An append-only log of every ask is a diary and is not kept (decision
 `2026-09-07-elak-is-elas-knowledge`); the exchange itself is cited by its thread permalink. The fields

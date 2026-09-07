@@ -66,7 +66,7 @@ Write, in this shape:
   not obvious.
 
 ## 4 — record and draft
-- Record what the probe **established**, not that it ran: the conclusion and its paths go where the
+- Record what the probe **established**, not that it ran — drafted here, written on Evan's word: the conclusion and its paths go where the
   knowledge base's placement test sends them (`2026-09-07-elak-is-elas-knowledge`) — a platform
   finding to `knowledge/platform/<component>/`, an ela finding to `blueprint/`. A dated file of "what
   the probe did" is a diary and is not kept; the agentic-observability `investigation-*.md` files are

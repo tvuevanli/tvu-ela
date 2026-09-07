@@ -115,9 +115,9 @@ review honest.
    first; mermaid goes in ```mermaid fences and renders natively. One review, one URL; a re-run of the
    same review republishes to it (`/ela:reports` holds the rules for standing reports — a review
    asked for a second time belongs there instead).
-3. **The record** — `<elak>/reviews/<date>-<subsystem>.md`: the standard, the findings with
-   their prices, the commits read, the artifact URL.
-4. **The durable reading** — into `knowledge/<area>/…`, citing `map/dependencies.yaml` and never
+3. **The working file** — `<runtime>/arch/<date>-<subsystem>.md`: the standard, the findings with
+   their prices, the commits read, the artifact URL. It is a draft and is not kept; the artifact is the copy.
+4. **The durable reading**, on Evan's word — into `knowledge/<area>/…`, citing `map/dependencies.yaml` and never
    restating its rows. Only what a script cannot produce: which edge is load-bearing, which seam
    should not exist, what to close next.
 5. **On Evan's word** — `/ela:breakdown` takes the findings that are work and cuts them into lanes.

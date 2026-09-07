@@ -68,7 +68,7 @@ cites the files read (the analyst returns them; keep the list in the plan direct
 
 `<runtime>/breakdowns/<KEY>/plan.md` — **a draft, not a record**. Jira is the published form and the
 only durable one; what the breakdown established about the system (a dependency, a boundary, an owner
-gap) goes to `<elak>/knowledge/` as a fact, and the plan itself is not kept (decision
+gap) is drafted for `<elak>/knowledge/` and written on Evan's word, and the plan itself is not kept (decision
 `2026-09-07-elak-is-elas-knowledge`):
 
 ```markdown
