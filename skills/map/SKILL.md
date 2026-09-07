@@ -56,6 +56,8 @@ $DEPS scan [--write] [--fetch]           # re-derive every edge from the refs in
 $DEPS check [--fetch]                    # did any repo move since the scan? staleness is a rev-parse, not a date
 $DEPS reconcile                          # derived edges vs. code/web/mediahub-agent/workspace.json callGraph
 $DEPS show [service|repo] [--limit N]    # each edge with what it is actually called for, endpoint by endpoint
+$DEPS callers <service> [--json]         # the reverse edge: who calls it, for what — the blast radius of a change
+$DEPS render [--focus S] [--out F]       # the edges as mermaid, stamped with the commit each was read at; one service is one node, so a cycle inside the app layer shows as one
 ```
 - The owning team's `callGraph` is authoritative **inside its charter** (its 5 in-scope services plus 4
   named out-of-scope ones) and silent outside it. `dependencies.yaml` carries the remainder — the

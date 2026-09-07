@@ -51,6 +51,16 @@ assigned directly to owners. **Exit:** one real plan matching what Evan would ha
 Ticket → graph facts → implicated image → code (cloned if missing) → analyst → root cause with
 file:line → drafted comments behind their own confirms. **Exit:** three root causes that held.
 
+## 3c — arch · written, never run for real
+`/ela:arch <subsystem>`: the fact base re-checked (`deps.py check`) → the as-is rendered from
+`map/dependencies.yaml` and stamped with the commit each edge was read at (`deps.py render`; one
+service is one node, so a cycle inside the app layer is visible) → checked against a live graph →
+structural questions to the analyst → every candidate priced with the tickets and the promotion
+reach its seam produced → ranked findings, the artifact, the record, the reading into `knowledge/`.
+Findings become lanes through `/ela:breakdown`; nothing is filed here. **Exit:** one review whose
+top finding Evan acts on, and a second run of it that changes because the code moved, not because
+the reviewer did.
+
 ## 4 — brief · built, not yet used daily
 Lanes stated in the skill so they can be argued with; ranked, capped at 12, one drafted action each;
 read-only. **Exit:** two weeks in which the brief is the first thing read and nothing it missed
