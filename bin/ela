@@ -31,6 +31,7 @@
   ela publish <catalogue|roster|map|all|list>  render an elak source into <published> for machines to read; the manifest row records it
   ela team <people|areas|who|emails|check>  the roster, first-hand · ela who <name|email|Uxxx|accountId>  one person; exit 3 when unknown
   ela envs                  the UR probe order         ela site   (rarely) the site config: roots, host names, aliases, emails
+  ela runtime status|clean  the disposable working directory: what is there, and delete it (--work also drops clean worktrees)
 
 Every verb forwards to the capability script under skills/<cap>/<cap>.py with the site's env file;
 `--json` works everywhere.
@@ -59,7 +60,7 @@ VERBS = {
     "team": ("team", None), "who": ("team", "who"),
     "mail": ("mail", None), "login": ("release", "login"), "stream": ("stream", None),
     "sentry": ("sentry", None),
-    "promote": ("promote", None),
+    "promote": ("promote", None), "runtime": ("runtime", None),
 }
 PROMOTE_SUBS = {"lanes", "commits", "delta", "tickets", "evidence", "bundles", "report", "compare-helm"}
 
@@ -75,7 +76,7 @@ def run(cap, args, env_file):
     script = os.path.join(ROOT, "skills", cap, f"{cap}.py")
     if not os.path.isfile(script):
         sys.exit(f"capability {cap} has no script yet ({script})")
-    argv = ["python3", script, "--env-file", env_file, *args] if cap not in ("map", "reports", "publish", "stream") else ["python3", script, *args]
+    argv = ["python3", script, "--env-file", env_file, *args] if cap not in ("map", "reports", "publish", "stream", "runtime") else ["python3", script, *args]
     os.execvp(argv[0], argv)
 
 
