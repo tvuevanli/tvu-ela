@@ -1,217 +1,140 @@
 # ela — authoring rules
 
-This file loads only when a session starts in this repo — that is, when **editing ela**. In use,
-ela is a plugin, and plugins carry skills, agents and hooks, not this file. Every skill must
-therefore be **self-contained**: it states its own invariants and assumes nothing else is in context.
+This file loads when a session starts in this repository, that is, when editing ela. In use, ela is a
+plugin: skills, agents and hooks travel with it, this file does not. Every skill is therefore
+self-contained and assumes nothing else is in context. The architecture is `docs/architecture.md`;
+the decisions about how ela is built are `docs/adr/`; the scenarios are `docs/capabilities.md`.
 
 ## What ela is
 
-ela is the set of capabilities Evan uses to carry MediaHub product responsibility across teams he
-does not manage and code he does not own: read first-hand, break work down by layer, route it to
-owners, track it, and — when Evan implements something himself — do so under the target repo's
-rules. **Capabilities first; personas only where a tool restriction or isolation demands one.**
+ela is the set of capabilities a person uses to carry product responsibility across teams they do not
+manage and code they do not own: read first-hand, break work down by layer, route it to owners, track
+it, and — when they implement something themselves — do so under the target repository's rules.
+Capabilities first; a persona only where a tool restriction or isolation demands one.
 
-Scope follows **responsibility, not product**. MediaHub is the origin and centre of gravity, never
-the boundary. The gate is the map: ela works in an area once that area is in `<elak>/map/` with a
-governance shape.
+Scope follows responsibility, not product. The gate is the map: ela works in an area once that area
+is in `<elak>/map/` with a governance shape. Presence is not enrollment: ela is injected into every
+session on the machine, but only the roots named in `site.json` are governed. A session outside a
+surveyed checkout says so, and that is correct behaviour.
 
-**Presence is not enrollment** (decision `2026-09-03-presence-is-the-machine-enrollment-is-evans-job`).
-ela is injected into every session on Evan's machine — that is *presence*, and its scope is the whole
-machine. *Enrollment* is narrow: the roots named in `site.json`, a governance shape in `map/`, write
-tiers. What ela enrols is **Evan's job at TVU**. Everything else he has Claude work on is simply done
-under whatever rules that directory carries — no map lookup, no governance check, no worktree ceremony,
-no ledger row. A session outside a surveyed checkout says so ("Only ela's own rules apply here") and
-that is the correct behaviour, not a gap.
-
-**ela holds no product code and no knowledge.** Definitions live here; what ela knows, decided, did
-or wrote lives in `elak`. The dividing rule:
-
-> Changes because **the world changed** → `elak`.
-> Changes because **ela's behaviour should change** → `ela`.
-
-**The rule, not the argument.** A tracked file states the rule in force, why it holds, and what a
-maintainer must not break. It does not carry the deliberation behind it, a session's back-and-forth,
-or anyone's own words: a document that argues with itself ages badly, and a retelling drifts from the
-record it retells. The deliberation lives in `<elak>/blueprint/decisions/` and is cited by filename —
-one line, never a retelling. **Commit subjects and bodies hold the same line:** what changed and why
-the code needed it. (A widening of elak's `2026-09-03-records-name-the-origin-not-the-utterance` to
-this repo, to Helm and to `<published>`; decision `2026-09-03-tracked-files-carry-the-rule-not-the-argument`.)
-
-**People appear as roles.** A tracked file names a person's role and the area they own. Individual
-performance, capability, a threshold set for one person, and private circumstances are not
-engineering material and are not recorded here. Attribution of a design choice to a named, dated
-decision is fine — that is authority, not deliberation. Working preferences for the person ela serves
-are site configuration (`~/.claude/ela/`), not plugin content.
+**ela holds no product code and no knowledge.** Definitions live here; what ela knows lives in elak.
+A change because the world changed goes to elak; a change because ela's behaviour should change goes
+here.
 
 ## Two capabilities ela never gives away
 
-1. **Independent cognition.** Read and analyse first-hand — Jira, Slack, Outline, code, disk. What
-   cannot be read is named as a gap, never filled with a counterpart's summary. A report is an
-   input; evidence is a fact.
-2. **Delegated execution.** Writing code goes to whoever owns the rules for that repo. Where nobody
-   does, ela works under the repo's own conventions.
+1. **Independent cognition.** Read and analyse first-hand — Jira, Slack, the wiki, code, disk. What
+   cannot be read is named as a gap, never filled with a counterpart's summary. A report is input;
+   evidence is fact.
+2. **Delegated execution.** Writing code goes to whoever owns the rules for that repository. Where
+   nobody does, ela works under the repository's own conventions.
 
-**Never delegated** — they cross every counterpart's boundary, so no counterpart can hold them:
-isolation, write permission, cross-repo contracts, release order, the evidence ledger.
-
-**Consulted, never binding:** `tvu-standards` / `tvu-catalog` module-first checks.
+Never delegated, because they cross every counterpart's boundary: isolation, write permission,
+cross-repository contracts, release order, the evidence standard. Consulted, never binding: the
+company's module-first standards.
 
 ## The operating rule
 
-> **Rules are bound to a location. ela is bound to the person.
-> Start each session where the rules live — ela is already there.**
+Rules are bound to a location; ela is bound to the person. Start each session where the rules live.
 
-| Where the target's rules live | Governance | Session starts in | Who implements |
+| where the target's rules live | governance | session starts in | who implements |
 |---|---|---|---|
-| a sibling resource repo (`mediahub-agent` for `mh-app`) | **team-stack** | that resource repo; `/add-dir` the task worktree | their stack, their workflow |
-| the repo itself (`CLAUDE.md`, `.claude/`, `AGENTS.md`) | **repo-local** | the task worktree — rules travel with the checkout | ela, federating those files |
-| nowhere | **bare** | the task worktree | ela, defaults |
-| Evan says read-only | **read-only** | anywhere | nobody |
+| a sibling resource repository (the web team's stack for its app) | team-stack | that resource repository, the task worktree added | their stack, their workflow |
+| the repository itself (`CLAUDE.md`, `.claude/`, `AGENTS.md`) | repo-local | the task worktree | ela, under those files |
+| nowhere | bare | the task worktree | ela, defaults |
+| declared read-only by the owner | read-only | anywhere | nobody |
 
-A worktree carries `CLAUDE.md` and `.claude/` with it; a sibling repo's agents, skills and hooks do
-not — Claude Code loads them only for the session's project directory. Hence the session switch for
-team-stack lanes, and hence ela as a plugin: the only thing present on both sides.
+A worktree carries `CLAUDE.md` and `.claude/` with it; a sibling repository's agents and hooks do not.
+Hence the session switch for team-stack lanes, and hence ela as a plugin: present on both sides.
 
-## Capability layers and exposure
+## Layers
 
-ela is a capability substrate: one implementation, thin adapters. Helm ops, the Slack app (whose
-callback is Helm), and Claude sessions are wrappers around the same capabilities — never
-re-implementations.
-
-| Layer | Form | Holds |
+| layer | form | holds |
 |---|---|---|
-| **L0 site** | `~/.claude/ela/` | machine paths + credentials |
-| **L1 atomic** | one CLI per capability: `skills/<name>/<name>.py`, subcommands, `--json`, meaningful exit codes, **stdlib-only** | deterministic work, no LLM: read, search, create, query |
-| **L2 composite** | skills (`breakdown`, `task`, `brief`) | judgment work, run by a Claude session; calls L1, never a raw API |
-| **L3 adapters** | **`bin/ela`** — one word, short flat verbs, an id recognised by shape (`ela MH-3568`, `ela 01M…`) · `SKILL.md` for Claude sessions · an MCP server (`.mcp.json`, built when the first LLM-side consumer outside ela lands) · a caller's `subprocess` / `claude -p` | translation only — zero business logic |
+| L0 site | `~/.claude/ela/` | machine paths, credentials, the working preferences |
+| L1 atomic | `skills/<name>/<name>.py`, subcommands, `--json`, exit codes, stdlib only | deterministic work: read, search, dry-run writes |
+| L2 composite | a `SKILL.md` a session follows | judgment over L1; never a raw API call |
+| L3 adapter | `bin/ela` (one word, flat verbs, an id by shape) · a `SKILL.md` · an MCP server when the first external consumer exists · a caller's subprocess | translation only, no business logic |
 
-- Business logic lives in L1/L2 only. An adapter that grows a Jira-specific `if` is a bug.
-- **Safety gates live in L1** — closed title vocabulary, idempotency/duplicate detection, dry-run
-  default with explicit `--apply`. No caller may bypass them.
-- **Confirm gates live in the adapter** — a `SKILL.md` asks Evan; a page shows a button; a bot asks
-  in the thread. `--apply` is only ever sent after that adapter's confirm.
-- The dependency arrow points one way: callers → ela. ela reads first-hand sources only.
-- A `SKILL.md` is documentation for a Claude session, never the capability. Anything a non-LLM
-  caller needs must exist as the script. A capability does not need a skill; a skill exists only where a
-  session needs judgment or invariants to use it well.
-- **Helping Evan is the first principle; the layering is a means.** Where a capability helps him, ela
-  builds it even if Helm has one; two copies are tolerated until ela's is proven.
+- Safety gates live in L1: closed vocabularies, idempotency, dry run by default, `--apply` explicit.
+- Confirm gates live in the adapter: a `SKILL.md` asks; a page shows a button; a bot asks in the thread.
+- Callers depend on ela; ela depends on first-hand sources only.
+- A `SKILL.md` is documentation for a session, never the capability. A capability does not need a
+  skill; a skill exists only where judgment or invariants are needed to use it well.
+- Where a capability helps the owner, ela builds it even if Helm has one; Helm's copy then carries a
+  retirement condition (ADR 0005).
 
 ## What ela does not do
 
-- Implement in a team-stack repo itself. It prepares (worktree, tier, context) and **delegates**: a
-  headless session started in the counterpart's repo, so their agents, hooks and workflow run — ela
-  supplies the task, the worktree and the permission envelope, then verifies the artefacts.
-- Edit a counterpart's repo (`mediahub-agent`, `tvu-engineering-team`). That is a conversation.
-  Helm is not a counterpart: it is Evan's own app (repo-local governance). ela edits it under Helm's
-  own files when Evan asks, and never implements judgment work inside it — those capabilities are
-  ela's to provide (`elak/blueprint/`).
-- Copy knowledge in — not theirs, not the team's. Paths and URLs only.
+- Implement in a team-stack repository itself. It prepares (worktree, tier, context) and delegates to
+  a headless session in the counterpart's repository, then verifies the artefacts.
+- Edit a counterpart's repository. Helm is not a counterpart: it is the owner's own application and
+  is edited under its own files; judgment work is never implemented inside it.
+- Copy knowledge in. Paths and URLs only.
 - Orchestrate in prose. The platform sequences agents; ela states invariants.
-- Run a server or a web UI. (The `bin/ela` command is not a launcher: it forwards one verb to one script and exits.)
-- Write to a live system (Jira, Slack, Outline, MediaHub admin, a running process) without an explicit confirm.
-  In a Claude session the confirm is Evan's word before `--apply`; at the shell, Evan typing `ela stop <id>` **is** the confirm.
-- Push to a shared lane (`master`, `main`, `develop`, `release*`) of any repo that is not Evan's own. Ever.
-  (ela's and the knowledge base's own `main` are Evan's; knowledge snapshots push there by decision
-  `knowledge-commits-are-snapshots`.)
-- Depend on a legacy location. Credentials and paths ela needs are copied once into ela's own site
-  directory; Helm and the old personal skills are sources, not dependencies.
-- Carry history. Helm and mht keep doing what they do; ela is built to today's correct shape and
-  duplicates are tolerated until ela is mature enough to decide what the other copy becomes.
+- Run a server or a web UI. `bin/ela` forwards one verb to one script and exits.
+- Write to a live system — Jira, Slack, the wiki, the product's admin, a running process — without an
+  explicit confirm. In a session the confirm is the owner's word before `--apply`; at the shell,
+  typing the action verb is the confirm.
+- Push to a shared lane (`master`, `main`, `develop`, `release*`) of any repository that is not the
+  owner's.
+- Commit to elak from a hook. Knowledge is written on the owner's word and committed by hand (ADR 0001).
+- Depend on a legacy location. Credentials and paths are copied once into the site directory.
 - Build ahead of its phase (`ROADMAP.md`).
 
 ## Where things live
 
-| What | Where | Notes |
+| what | where | notes |
 |---|---|---|
-| definitions | `<projects>/ela` — installed as plugin `ela@ela` from a directory marketplace | install is a **cached copy**, refreshed only on a version change: bump `plugin.json` then `/plugin update ela` (or `claude plugin update ela`) |
-| knowledge base | `<elak>` = `<projects>/elak` (git, never a plugin) | **elak is ela's knowledge** — three directories, one subject (decision `2026-09-07-elak-is-elas-knowledge`): `blueprint/` — what ela knows about itself and Helm (target, decisions, status, misses, gate evidence) · `knowledge/` — what it knows about the world, written · `map/` — the same, generated, plus the publication manifests. **A log of what happened is not knowledge**; there is no diary directory and no sixth root |
-| site dir | `~/.claude/ela/` — `site.json` (the roots: `projects`, and by default `<projects>/code`, `/lab`, `/elak`, `/elak-published`, `/.ela`; git `hosts`; aliases) and `.env` (credentials, mode 600) | never committed anywhere. **Tracked files write roots by name — `<projects>`, `<code>`, `<work>`, `<elak>`, `<runtime>` — never a machine path or a host address** |
-| code | `<code>/<alias>/<remote path>` — every checkout that is not Evan's, placed by its remote; aliases and git hosts only in `site.json` | never edited in place; `map.py` clones, syncs, surveys |
-| runtime | `<runtime>` = `<projects>/.ela` — transient working state, and the only place raw material goes (`slack files`, `jira files`, `promote --out`, `arch --out`, a breakdown draft, `<work>`) | **nothing here is knowledge**: the whole tree can be deleted when no task is open and nothing is lost. Its deletability is its contract — what was learned must be carried out before the work closes. Anything one would hesitate to delete belongs in elak (as knowledge), Helm's `data/` (app state), or nowhere |
-| work | `<work>` = `<runtime>/work/<KEY>/<repo>` — one task, one directory of worktrees (a symlink when a team stack needs the worktree beside the repo) | where code changes happen; removed at close (moved under `<runtime>` 2026-09-03 while empty) |
-| lab | `<lab>/` — experiments without an upstream owner | |
-| `<projects>` itself | **Evan's directory, not ela's namespace.** ela is one tenant; its footprint is exactly the roots named in `site.json` | `others/`, `prototypes/`, `archive/`, `helm-backups/` (Helm's own `BACKUPS_DIR` default) are out of scope: not organised, not surveyed into the layout, not ruled on |
-| reports | `<reports>` = `<projects>/reports` — markdown sources + `out/` HTML, published as private artifacts with stable URLs | Evan's reading surface, not knowledge; URLs in its `README.md`; never synced anywhere |
-| publication targets | Outline · Helm's `knowledge/` runtime subset · wherever Evan names on the day | published **from** the knowledge base on Evan's word, never synced back; counterparts' KBs are cited by URL/path |
+| definitions | `<projects>/ela`, installed as plugin `ela@ela` from a directory marketplace | the install is a cached copy; bump `plugin.json` and `/plugin update ela` when the owner reinstalls, not per commit |
+| knowledge | `<elak>` = `<projects>/elak` (git, private) | `blueprint/` principles, decisions, status table, exit evidence · `knowledge/` readings · `map/` generated facts |
+| the shared subset | `<published>` = `<projects>/elak-published` | the output of `ela publish`; regenerated, never edited; addresses redacted |
+| site | `~/.claude/ela/` — `site.json`, `.env` (mode 600), caches, `working-with-evan.md` | never committed. Tracked files write roots by name — `<projects>`, `<code>`, `<work>`, `<elak>`, `<published>`, `<runtime>` — never a machine path or a host address |
+| code | `<code>/<alias>/<remote path>` | never edited in place; `map.py` clones, syncs, surveys |
+| runtime | `<runtime>` = `<projects>/.ela` — `work/`, raw pulls, drafts | deletable by contract; `ela runtime status|clean` |
+| work | `<work>/<KEY>/<repo>` worktrees | where code changes happen; removed at close |
+| reports | `<projects>/reports` | the owner's private reading surface; not versioned |
 
-Writing rule for documents: Evan says where a document goes, and ela writes it there. Nothing is
-written locally unless he says so; nothing is synced.
-
-## Layout
-
-| Path | Holds | Phase |
-|---|---|---|
-| `skills/jira` `slack` `kb` `confluence` `gdoc` `apifox` `object` `figma` `graph` `release` | **senses** — first-hand, read-first. Writes (`kb`, the `jira` atoms, `slack post`, `graph start/stop`) are dry-run or y/N by default; `--apply` follows a confirm. Their scripts are L1 capabilities, not product code | 1 |
-| `skills/map` | `/ela:map` — the layout and the script that keeps it: survey (cache) · find · where · services · coverage · missing · probe · clone · sync · worktree | 1 |
-| `skills/probe` `digest` `route` | judgment over the senses: deep bug check · digest a report thread (`digest`, renamed from `report` 2026-09-03 — `reports` is the standing pages) · route a bug to an owner | 3 |
-| `skills/ask` | judgment about **other teams' agents**: the registry (`knowledge/products/mediahub/team/agents.yaml`) says who can answer what; charter is the owner's assertion, observation may only propose. `route` finds a person, `ask` finds a machine | 4 |
-| `skills/team` | the roster first-hand: `who` · `list` · `emails` · `check` against Slack; a miss is "not in the roster", never a composed address (decision `people-identified-by-the-roster-never-guessed`) | 1 |
-| `skills/publish` | from elak to `<published>`: render a source (`map/services.yaml` → the service catalogue; `knowledge/people/` → `people/roster.md`, identity blocks for core people in the shape Helm parses, related people table-only) and write the manifest row in elak `publish/`; nothing under `<published>` is edited by hand | 1 |
-| `skills/reports` | Evan's reading surface: standing reports (ela status, Helm vs ela, comparisons) from markdown in `<reports>`, published as private artifacts with stable URLs. Not knowledge — regenerated from ela, elak and Helm | 1 |
-| `skills/setup` | `/ela:setup` — guided creation/repair of the site dir, probes every sense | 1 |
-| `skills/task` | for work Evan implements: worktree · tier · **delegation** to the area's stack (headless session in the counterpart's repo) or ela's own implementer · evidence check · ledger | 2 |
-| `skills/breakdown` | requirement → layer-tagged lanes with owners; two depths — *knowledge* (docs/KB/map only) or *code* (plus the relevant services' source via a read-only analyst); produces a plan, publishes only on confirm | 3 |
-| `skills/brief` | Evan's queue: blocked, stale, unrouted — against the two cadence KPIs | 4 |
-| `agents/` | roster — created when the first agent is needed; every `.md` in it is loaded as an agent, so no README lives there (rule in `ROADMAP.md`) | 3+ |
-| `hooks/` `context/` | SessionStart injection — `context/evan.md`, the latest blueprint decisions and status, and the cwd's mapped area with its governance; SessionEnd snapshots the knowledge base; PreToolUse guards **place and content** — no edit under `<published>`, none in ela/helm from a session started elsewhere, none under a remote site's elak, none under `<elak>` outside its three directories, and none whose text quotes a person's own words. Its only write is that snapshot; this is how ela knows Evan in any directory | 1 |
-| `policy/` | portable guards; full protocols once phases need them | 4–5 |
+Reads of the map and the roster go through `<published>` on every machine (site.json `map`); the
+private map is the publish source (`map_source`). Whatever a verb needs at runtime is thereby forced
+through the publish gate.
 
 ## Hard rules
 
-1. **Disk is the fact; the survey is a cache.** Knowledge holds only what disk cannot tell (which image comes from which repo, who owns it, what is absent). No tracked file names a git host by address.
-2. **Cite, never copy.**
-3. **Evidence outranks report**, judged by the *target repo's* standard.
-4. **One task, one worktree, one session**; pathspec commits only.
-5. **One phase at a time.**
-6. **Commits record conclusions, not the path to them.** Work in the tree; commit one concern at a
-   time; propose the commit list before committing. Direction changes go to
-   `elak/blueprint/decisions/`, not into history — one decision per file; a change of mind
-   is a new file that supersedes the old one, never an edit.
-7. **elak is ela's knowledge; the runtime holds none.** Two questions place anything (decision
-   `2026-09-07-elak-is-elas-knowledge`): does ela **know** this — about itself → `blueprint/`, about the
-   world → `map/` if a script derives it, `knowledge/` if it is a reading — or did it merely **happen**,
-   in which case it is not knowledge: cite the source (a permalink, a ticket key, a commit) and keep no
-   file. A dated work product is regenerated or cited, never stored "in case". elak's SessionEnd
-   snapshot commits and pushes the whole tree, so anything written there is permanent, which is why
-   `hooks/guard-location.sh` **enforces** this rather than advising it. A `.gitignore` is repo hygiene
-   only (`__pycache__`, editor cruft, `out/`) — never the mechanism for keeping a foreign concern out of
-   a repo; placement is.
+1. Disk is the fact; the survey is a cache. Knowledge holds only what disk cannot tell. No tracked
+   file names a git host by address.
+2. Cite, never copy.
+3. Evidence outranks report, judged by the target repository's standard.
+4. One task, one worktree, one session; pathspec commits only.
+5. One phase at a time.
+6. One concern per commit. The subject says what changed, the body why the code needed it, with a
+   ticket key or an ADR filename for the reason. A direction change is a new ADR that supersedes the
+   old one, never an edit. `hooks/content-guard.sh` refuses a commit that carries a credential, an
+   address, a person's quoted words or session narrative.
+7. Input is not output. A message from the owner, a Slack thread or a relayed thought is input; it
+   becomes a rule, a document or a commit message only rewritten in the destination's genre with the
+   origin cited, and — for anything read by others — in a later pass than the conversation that
+   produced it (ADR 0002).
+8. People appear as roles. A tracked file names a role and the area it owns; individual performance
+   and private circumstances are not engineering material. Attribution of a design choice to a dated
+   ADR is authority, not deliberation.
 
-## Gate — how ela handles Evan's asks
+## Gate — one-way asks
 
-Evan states needs; ela is neither a yes-machine nor the authority. Reversible, cheap asks are simply
-done. Anything one-way — deleting, publishing where others see it, changing this charter, adding or
-merging repos and directories, renaming, adding a capability — passes four one-line checks first:
+Reversible, cheap asks are simply done. Anything one-way — deleting, publishing where others see it,
+changing this charter, adding or merging repositories, renaming, adding a capability — passes four
+one-line checks first: the problem and its evidence; the strongest alternative, including doing
+nothing; the recorded decision it conflicts with; the verdict, always showing the option ela would
+reject. The owner decides; if they reaffirm after an objection, proceed and record the dissent in the
+ADR. Reopening a recorded decision needs new evidence. Each phase opens with a one-paragraph
+premortem.
 
-1. the problem behind the ask, and its evidence;
-2. the strongest alternative, including doing nothing;
-3. the recorded decision (`blueprint/decisions/`) it conflicts with, if any;
-4. the verdict — do · do differently · object — with reasons, **always showing the option ela would
-   reject** so the choice is visible.
+## Verification
 
-Before removing or replacing something, read why it was there. Evan decides; if he reaffirms after an
-objection, proceed and record the dissent in the decision file. Reopening a recorded decision needs
-new evidence, not a second thought. Each phase opens with a one-paragraph premortem: if this fails in
-three months, the most likely reason.
+`tests/run.sh`: every script compiles, every capability answers `--help`, every hook parses, the
+content guard's cases pass. Run it before a commit that touches a script or a hook.
 
 ## Language and naming
 
-English throughout. Plain names, not titles — `ela` is a name, not an acronym: it comes from *Evan
-Li's Assistant*, is pronounced /ˈelə/ ("Ella"), and is written lowercase and never expanded in text.
-Where a display name next to an avatar is needed — the Slack bot — it is **Ella**; every identifier
-(repo, plugin, `ela:*`, site dir, config keys) and every in-sentence mention stays `ela`. Describe
-Evan's responsibility, never a title.
-
-The knowledge base is **`elak`** — the directory `<projects>/elak`, root `<elak>`, and the word Evan uses for it;
-the git remote keeps its longer name (`tvu-ela-knowledge`, recorded nowhere but the site). Renamed from
-`ela-knowledge` on 2026-09-03 (decision `2026-09-03-knowledge-directory-named-elak`). Every command starts with `ela`: one plugin today (`/ela:*`); if a shareable subset is ever split
-out, the second plugin is `ela-<subset>` (`/ela-senses:*`) in the same marketplace — never a bare name.
-
-Subcommand nouns follow one rule: **plural names a table of many, singular names one thing or a summary** —
-`bundles` lists, `bundle <name>` shows one; `lanes · commits · tickets` are tables, `evidence · report` are
-summaries. A verb-shaped subcommand (`read`, `post`, `login`) stays a verb.
-
-Skill names are **short words, not abbreviations**. Prefer the whole word when it is already short
-(`object`, `task`, `map`); a truncation (`obj`, `obd`) saves three characters and costs the reader a
-guess — `obd` read as `objectd`, a different service owned by someone else.
+English throughout. `ela` is a name, not an acronym, written lowercase and never expanded in text;
+the Slack display name is **Ella**. Describe the owner's responsibility, never a title.

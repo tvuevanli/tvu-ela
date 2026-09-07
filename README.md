@@ -1,7 +1,8 @@
 # ela
 
 Evan's working assistant at TVU, as a Claude Code plugin. Definition layer only — no product code,
-no knowledge. `CLAUDE.md` says what it is and is not; `ROADMAP.md` says what exists yet.
+no knowledge. `CLAUDE.md` says what it is and is not; `docs/architecture.md` how the pieces fit;
+`ROADMAP.md` what exists yet.
 
 ## Install (once, this machine)
 
@@ -33,7 +34,7 @@ command at the shell is the confirm). ura is retired once they are tested.
 ## Session context
 
 Every session starts with `hooks/session-start.sh` (SessionStart hook): who Evan is (`context/evan.md`), the
-latest blueprint decisions and status from the knowledge base, and which mapped area the cwd is in. Read-only.
+working preferences from the site directory, the knowledge root, and which mapped area the cwd is in. Read-only.
 This is how ela knows Evan in any directory without an agent or a global CLAUDE.md.
 
 ## Skills
@@ -58,13 +59,14 @@ This is how ela knows Evan in any directory without an agent or a global CLAUDE.
 | `/ela:route` | 4 | a bug in, a name out: implicated service, owner, or the first checker with the exact discriminating check |
 | `/ela:ask` | 4 | hand one question to a counterpart agent (another team's bot): pick it from the registry, verify first-hand the question is inside its charter, address it in its dialect, then cross-check its reply against what it cannot see. v1: mm-boundary-agent |
 | `/ela:brief` | 4 | the morning brief: stale In-Progress, unrouted new tickets, complex tickets not broken down, report threads, threads waiting on Evan, threads he wrote alone, decisions made in Slack without a ticket — ranked, each with a drafted action; read-only |
-| `/ela:task` | 2 | one piece of work Evan implements: worktree, tier, delegation to the area's stack, evidence, ledger |
+| `/ela:task` | 2 | one piece of work Evan implements: worktree, tier, delegation to the area's stack, evidence in the merge request |
 | `/ela:arch` | 3 | architecture review of a subsystem: the derived edges rendered as an as-is picture stamped with the commits they were read at, checked against a live graph, then ranked structural findings — each priced with the tickets and reach the seam produced, each with its layer and owner; findings become lanes through `/ela:breakdown`, never tickets here |
 | `/ela:breakdown` | 3 | requirement → layer-tagged lanes with owners, order, verification; knowledge or code depth; plan in elak, Jira publication on confirm |
 | `/ela:publish` | 1 | publish an elak source into `<published>` for machines to read — the media docker service catalogue from `map/services.yaml` and the roster from `knowledge/people/` — and record the manifest row; `ela publish catalogue · roster · map · all · list` |
 | `/ela:team` | 1 | the MediaHub roster, first-hand — `ela who <name|email|Uxxx|accountId>` (exit 3 when unknown), `ela team list · emails · check` (check re-reads Slack); the only identity source, never a guess |
 | `/ela:reports` | 1 | Evan's standing reports (ela status, Helm vs ela, comparisons) — markdown in `<projects>/reports`, rendered and published as private artifacts with stable URLs; `ela reports list · build` |
 | `/ela:map` | 1 | the code layout (`code/<alias>/<remote path>`, `work/<KEY>/<repo>`) and the script that keeps it: `survey` (cache) · `find` · `services` · `where` · `probe` · `clone` · `sync` · `worktree` |
+| `ela runtime` | 1 | the disposable working directory: `status` (entries, sizes, open worktrees) · `clean` (everything but work/; `--work` also drops clean worktrees) |
 
 Start the session where the target's rules live (`CLAUDE.md` → *The operating rule*); ela's skills
 are there because the plugin follows you.
@@ -79,11 +81,18 @@ are there because the plugin follows you.
 3. **Your own lane: `/ela:task <KEY> <repo>`** — worktree, tier, delegation by governance
    (mediahub-agent's workflow for `mh-app`, the repo's own rules elsewhere). No ticket? `--source`
    works: counterparts accept `verbal` and `slack` sources.
-4. **ela verifies and records** — artefacts by the target's own standard, ledger in elak.
+4. **ela verifies** — artefacts by the target's own standard, evidence in the merge request or ticket.
 
 The two entries route to each other: breakdown steps aside when there is nothing to split; task
 stops and points up when handed an unsplit multi-layer ticket.
 
-## Records
+## Knowledge and the shared subset
 
-`<elak>` (`<projects>/elak`, git): `blueprint/` (ela + Helm goals, decisions, status) · `knowledge/` (canonical knowledge: products, platform, engineering, tooling) · `records/` (breakdowns, ledger, dated records) · `map/`.
+`<elak>` (`<projects>/elak`, git, private): `blueprint/` (principles, decisions, status table, exit evidence) ·
+`knowledge/` (readings) · `map/` (generated facts). `<published>` (`<projects>/elak-published`) is the output of
+`ela publish`, read by ela's verbs, Helm and the remote site; addresses are redacted on the way. Nothing is
+committed to elak by a hook (`docs/adr/0001`).
+
+## Verification
+
+`tests/run.sh` — every script compiles, every `--help` answers, the content guard's cases pass.
