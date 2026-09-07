@@ -5,7 +5,8 @@ the one write, `post`, is a dry run until --apply.
   read       <permalink>                 one message and its thread
   files      <permalink> [--out DIR]     download that message's or thread's files — a screenshot is evidence
   channels   [--all] [match]             channels the bot is in; --all every public channel in the workspace
-  history    <channel> --since 48h       top-level messages in a window (--threads adds replies, --humans drops bots)
+  history    <channel> --since 48h       top-level messages (--threads adds replies; --humans drops bot AUTHORS,
+                                         keeping a person's app-posted message — the daily reports arrive that way)
   mentions   --since 48h [--user me] [--channels a,b]   messages that mention a user, with whether they answered
   unanswered --since 7d  [--user me] [--channels a,b]   threads a user started that nobody else replied to
   whoami     [--email x]                 the user id behind an email (default: JIRA_EMAIL in the env file)
@@ -136,19 +137,31 @@ def paged(method, tok, key, limit=200, **params):
 
 class Names:
     def __init__(self, tok):
-        self.tok, self.cache = tok, {}
+        self.tok, self.cache, self.bots = tok, {}, {}
+
+    def _load(self, uid):
+        try:
+            u = call("users.info", self.tok, user=uid)["user"]
+        except SystemExit:
+            self.cache[uid], self.bots[uid] = uid, False
+            return
+        self.cache[uid] = (u.get("profile", {}).get("real_name") or u.get("real_name")
+                           or u.get("name") or uid)
+        self.bots[uid] = bool(u.get("is_bot")) or uid == "USLACKBOT"
 
     def user(self, uid):
         if not uid:
             return "?"
         if uid not in self.cache:
-            try:
-                u = call("users.info", self.tok, user=uid)["user"]
-                self.cache[uid] = (u.get("profile", {}).get("real_name") or u.get("real_name")
-                                   or u.get("name") or uid)
-            except SystemExit:
-                self.cache[uid] = uid
+            self._load(uid)
         return self.cache[uid]
+
+    def is_bot(self, uid):
+        if not uid:
+            return True
+        if uid not in self.bots:
+            self._load(uid)
+        return self.bots[uid]
 
     def render(self, text):
         """Ids become names, then Slack's entities become the characters they stand for — `&lt;` in a
@@ -188,9 +201,17 @@ def is_noise(m):
     return not (m.get("text") or "").strip() and not m.get("files") and not m.get("attachments")
 
 
-def from_bot(m):
-    """A bot's own post. `user` is absent on most, but not all — a bot_id is the reliable mark."""
-    return bool(m.get("bot_id")) or m.get("subtype") == "bot_message" or not m.get("user")
+def from_bot(m, names=None):
+    """Whether a bot wrote this, which is a question about the AUTHOR, not about the message.
+
+    A `bot_id` on the message is not the test: a person posting through an app or a workflow carries
+    one too. The MediaHub daily reports are posted that way by a human QA engineer, so treating a
+    bot_id as the mark would hide exactly the messages the reports lane exists to find. The user's
+    own `is_bot` is the fact; only a message with no author at all is a bot's by shape."""
+    uid = m.get("user")
+    if not uid:
+        return True
+    return names.is_bot(uid) if names else False
 
 
 def list_channels(tok):
@@ -404,12 +425,12 @@ def cmd_history(tok, a):
         print(f"slack history: {ch} did not come down whole ({e})", file=sys.stderr); sys.exit(EX_REMOTE)
     msgs = sorted((m for m in msgs if not is_noise(m)), key=lambda m: float(m["ts"]))
     if a.humans:
-        msgs = [m for m in msgs if not from_bot(m)]
+        msgs = [m for m in msgs if not from_bot(m, names)]
     rows = []
     for m in msgs:
         row = {"ts": m["ts"], "at": iso(m["ts"]), "permalink": permalink_of(ch, m["ts"]),
                "user": names.user(m.get("user")) if m.get("user") else (m.get("username") or m.get("bot_id") or "bot"),
-               "is_bot": from_bot(m), "text": names.render(m.get("text")),
+               "is_bot": from_bot(m, names), "text": names.render(m.get("text")),
                "reply_count": m.get("reply_count", 0), "reply_users": [names.user(u) for u in m.get("reply_users", [])]}
         if a.threads and m.get("reply_count"):
             reps = call("conversations.replies", tok, channel=ch, ts=m["ts"], limit=200)["messages"][1:]
@@ -632,7 +653,9 @@ def main():
     p = sub.add_parser("history", help="top-level messages in a channel since a point in time")
     p.add_argument("channel", help="channel id or #name"); p.add_argument("--since", required=True)
     p.add_argument("--threads", action="store_true", help="include replies")
-    p.add_argument("--humans", action="store_true", help="drop the bots' own posts")
+    p.add_argument("--humans", action="store_true",
+                   help="drop posts whose author is a bot user. A person posting through an app is kept — "
+                        "the daily reports arrive that way, so this never hides them")
     p.add_argument("--json", action="store_true")
     p = sub.add_parser("mentions", help="messages mentioning a user, and whether they answered")
     p.add_argument("--since", required=True); p.add_argument("--user", default="me")
