@@ -47,6 +47,29 @@ $MAP worktree <repo> <KEY>               # branch evan/<key>; work/<KEY>/<repo>,
 $MAP coverage                            # is the code we usually need on disk? per image and per alias
 $MAP missing                             # absent.yaml, one line each
 ```
+
+**Dependencies — what the app layer calls.** A separate concern from where code is, so a separate
+script; the artefact is `map/dependencies.yaml`.
+```bash
+DEPS="python3 ${CLAUDE_PLUGIN_ROOT}/skills/map/deps.py"
+$DEPS scan [--write] [--fetch]           # re-derive every edge from the refs in the file's scope: block
+$DEPS check [--fetch]                    # did any repo move since the scan? staleness is a rev-parse, not a date
+$DEPS reconcile                          # derived edges vs. code/web/mediahub-agent/workspace.json callGraph
+$DEPS show [service|repo] [--limit N]    # each edge with what it is actually called for, endpoint by endpoint
+```
+- The owning team's `callGraph` is authoritative **inside its charter** (its 5 in-scope services plus 4
+  named out-of-scope ones) and silent outside it. `dependencies.yaml` carries the remainder — the
+  platform layer other teams own. Never restate an edge their registry owns; a disagreement is a
+  finding to report, not a merge.
+- Edges are keyed by **Eureka service name** — not the repo, not the GM name, not a Helm slug
+  (`tvucc-media` registers as `media-mx`). Where `@FeignClient` names a property with no default, only
+  the config server knows the value: `name_resolution:` resolves it **only** with first-hand evidence
+  and otherwise leaves it visibly unresolved.
+- Three things it cannot see, all recorded in the file's header: `${key:default}` defaults are not the
+  deployed addresses (Spring Cloud Config decides), event edges declared in Java config are pointed at
+  rather than parsed, and a frontend's real dependencies arrive at run time via initConfig.
+- Evan's reading of the result — the hub, the unowned platform layer, the traps — is
+  `knowledge/products/mediahub/app-dependencies.md`, which cites the yaml and never restates it.
 `slug` (Evan's convention, from Helm) · `gm_name` (what GM registers) · `service_id` are three
 different things and stay apart in services.yaml.
 
