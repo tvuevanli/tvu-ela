@@ -45,7 +45,7 @@ UTTERANCE = [
 NARRATIVE_MD = [
     (re.compile(r"(?i)\b(?:this|that|the same|the current) session\b"), "session narrative"),
     (re.compile(r"(?i)\b(?:today|yesterday|this morning|this afternoon) (?:we|i|ela|evan)\b"), "session narrative"),
-    (re.compile(r"(?i)^\s*source:.*\b(?:session|conversation|chat|discussion with)\b"), "a source line that cites a conversation"),
+    (re.compile(r"(?i)^\s*source:.*\b(?:(?:design|plan|working|ela|claude) session|conversation|chat with|discussion with)\b"), "a source line that cites a conversation"),
     (re.compile(r"(?i)\b(?:we|i) (?:decided|agreed|realised|realized|found out|went back and forth)\b"), "session narrative"),
 ]
 TEXT_EXT = (".md", ".yaml", ".yml", ".json", ".py", ".sh", ".txt", ".toml", ".ini", ".cfg", ".env.example", ".html", ".js", ".ts")
