@@ -80,7 +80,7 @@ if mode == "commit-msg":
 else:
     files = subprocess.run(["git", "diff", "--cached", "--name-only", "--diff-filter=AM"], capture_output=True, text=True).stdout.split()
     for f in files:
-        if not f.endswith(TEXT_EXT) or f.endswith("hooks/content-guard.sh"): continue   # its own patterns would match
+        if not f.endswith(TEXT_EXT) or f.endswith(("hooks/content-guard.sh", "tests/test_content_guard.sh")): continue   # the guard and its cases carry the patterns on purpose
         diff = subprocess.run(["git", "diff", "--cached", "-U0", "--", f], capture_output=True, text=True).stdout
         n = 0
         for raw in diff.splitlines():
