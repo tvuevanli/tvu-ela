@@ -39,7 +39,7 @@ ANY_FILE = [
 ]
 UTTERANCE = [
     (re.compile(r"[\"“「『]([^\"”」』\n]{0,80}[一-鿿][^\"”」』\n]{0,80})[\"”」』]"), "a quoted CJK sentence"),
-    (re.compile(r"(?i)\b(?:he|she|evan|the owner)\s+(?:said|says|asked|wrote|told|put it|phrased)\b"), "a person's words as source"),
+    (re.compile(r"(?i)\b(?:he|she|evan|the owner)\s+(?:said|says|wrote|told (?:me|us)|put it|phrased it)\b"), "a person's words as source"),
     (re.compile(r"(?i)\bin (?:his|her|their|evan's) (?:own )?words\b|原话|他说|她说"), "a person's words as source"),
 ]
 NARRATIVE_MD = [
