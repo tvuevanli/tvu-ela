@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ela SessionStart hook. Prints context for the session: context/evan.md · latest blueprint decisions + status ·
+# ela SessionStart hook. Prints context for the session: context/evan.md · the working preferences · the knowledge root ·
 # which mapped repo/area the cwd is in. It writes nothing: no repo, no live system.
 set -u
 ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
@@ -21,24 +21,14 @@ try:
 except Exception:
     sys.exit(0)
 records = s.get("elak") or s.get("records", "")   # `records` accepted until /ela:setup renames the key
-bp = os.path.join(records, "blueprint")
 print()
 print(f"## Knowledge base: {records}")
 if s.get("site") == "remote":
     print("This is a REMOTE site: <records> is a read-only published subset (elak-published). Never write a plan, ledger entry or decision "
           "draft under it — hand drafts to Helm's store or Jira. Code checkouts, GitLab, Confluence, Jenkins and GM are not reachable here; "
           "say 'office only' instead of retrying. (decision 2026-09-03-ela-second-site-on-the-remote)")
-status = os.path.join(bp, "status.md")
-if os.path.isfile(status):
-    lines = [l.strip().lstrip("- ") for l in open(status) if l.strip() and not l.startswith("#")]
-    # one line per track, each cut short — the full text is a `Read` away; a hook injects a map, not the territory
-    print("Status (blueprint/status.md, first lines): " + " · ".join(l[:160] + ("…" if len(l) > 160 else "") for l in lines[:6]))
-dec = os.path.join(bp, "decisions")
-if os.path.isdir(dec):
-    files = sorted(f for f in os.listdir(dec) if re.match(r"\d{4}-\d{2}-\d{2}-.*\.md$", f))
-    if files:
-        print("Recent decisions (blueprint/decisions/): " + ", ".join(f[:-3] for f in files[-6:]))
-
+# The blueprint is a Read away; a hook injects where things are, not what they say. Injecting the
+# status and the decision list here fed every session the day's narrative and made it context, so it stopped.
 # Which checkout is the cwd in? From the survey cache; a hook must not survey (git across every checkout
 # takes longer than the hook's timeout) — it says when the cache is stale and lets `ela survey` refresh it.
 cache = os.path.expanduser("~/.claude/ela/map/host.json")
