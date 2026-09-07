@@ -331,15 +331,29 @@ def cmd_diff(a):
             ("PCR PID", px.get("pcr_pid"), py.get("pcr_pid")),
             ("service", px.get("service_name"), py.get("service_name")),
             ("provider", px.get("service_provider"), py.get("service_provider"))]
-    for i in range(max(len(x["streams"]), len(y["streams"]))):
-        sa = x["streams"][i] if i < len(x["streams"]) else {}
-        sb = y["streams"][i] if i < len(y["streams"]) else {}
-        kind = sa.get("type") or sb.get("type") or "?"
-        rows.append((f"#{i} {kind} PID", sa.get("pid"), sb.get("pid")))
-        rows.append((f"#{i} codec", sa.get("codec"), sb.get("codec")))
-        rows.append((f"#{i} detail", sa.get("detail"), sb.get("detail")))
-        if kind == "audio":
-            rows.append((f"#{i} lang", sa.get("language"), sb.get("language")))
+    # Paired within kind, not by position: two outputs of the same source can order their
+    # streams differently, and comparing a video against an audio produces noise, not a finding.
+    def by_kind(rec):
+        out = {}
+        for r in rec["streams"]:
+            out.setdefault(r["type"] or "?", []).append(r)
+        return out
+    ka, kb = by_kind(x), by_kind(y)
+    for kind in ("video", "audio", "data", "subtitle", "?"):
+        la, lb = ka.get(kind, []), kb.get(kind, [])
+        for i in range(max(len(la), len(lb))):
+            sa = la[i] if i < len(la) else {}
+            sb = lb[i] if i < len(lb) else {}
+            label = f"{kind} {i}" if max(len(la), len(lb)) > 1 else kind
+            rows.append((f"{label} PID", sa.get("pid"), sb.get("pid")))
+            rows.append((f"{label} codec", sa.get("codec"), sb.get("codec")))
+            rows.append((f"{label} detail", sa.get("detail"), sb.get("detail")))
+            if kind == "video":
+                rows.append((f"{label} scan", sa.get("scan"), sb.get("scan")))
+            if kind == "audio":
+                rows.append((f"{label} lang", sa.get("language"), sb.get("language")))
+    if getattr(a, "only_diffs", False):
+        rows = [r for r in rows if r[1] != r[2]]
     print(f"{'':<18}{'A':<24}{'B':<24}")
     for name, va, vb in rows:
         if va is None and vb is None:
@@ -371,6 +385,8 @@ def main():
     p.add_argument("--seconds", type=float, default=8)
     p.add_argument("--timeout", type=float, default=45)
     p.add_argument("--segment", choices=["first", "last", "newest"], default="last")
+    p.add_argument("--only-diffs", action="store_true", dest="only_diffs",
+                   help="print only the rows that differ — that list is the gap")
     p.add_argument("--json", action="store_true")
     a = ap.parse_args()
     {"probe": cmd_probe, "diff": cmd_diff}[a.cmd](a)

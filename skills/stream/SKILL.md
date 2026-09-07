@@ -57,6 +57,25 @@ Every figure maps to something an encoding profile sets — resolution, frame ra
 GOP, bitrate, audio codec/rate/channels/language, PIDs, service name — so a profile can be checked
 against what it actually produced, field by field. `diff` does that between two outputs.
 
+## What `diff` is for
+
+Two streams and the list of what is not the same between them. The uses it was built from, all
+questions that otherwise take a day of reading:
+
+- **Same profile, two outputs.** One encoding profile drives an HLS graph and an SRT graph; the diff
+  says which output honours it. This is how a "we support PIDs" claim is tested per output type.
+- **Before and after a change.** Probe an output, keep the JSON, probe it again after the fix — the
+  diff is the acceptance test, and it names any field the change moved that nobody asked it to.
+- **Target against reality.** Build a reference locally with the values a customer asked for, then
+  diff it against what the pipeline produces. With `--only-diffs` that output *is* the gap list.
+- **Source against output.** A complaint that a pipeline changed something is answered by diffing
+  what went in against what came out, rather than by arguing about what it should have done.
+
+Streams are paired **within kind** — video with video, audio 0 with audio 0 — never by position: two
+outputs of one source may order their streams differently, and a video compared against an audio is
+noise, not a finding. A row present on one side only shows as `—`, which is itself the answer when
+one output dropped a track.
+
 **What a target cannot answer is printed, with the reason**, under `not available for this target`.
 Protocol and container each remove different things: a live pull has no duration, cannot be seeked
 and gives a windowed bitrate estimate; a non-TS container has no PIDs and no service tags however it
