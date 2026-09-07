@@ -46,7 +46,7 @@ This is how ela knows Evan in any directory without an agent or a global CLAUDE.
 | `/ela:kb` | 1 | read / search Outline; write on explicit confirm |
 | `/ela:object` | 1 | Object Service API: an object or a tangible by id (`object.py get` — the only read; batch and search endpoints answer 404; not objectd — a different service) |
 | `/ela:graph` | 1 | UR graph and process first-hand (J2N + Pilot), no environment to set: node table in pipeline order with process ids, box ips, images; a process's live record; a user's graphs; graphs carrying an object |
-| `/ela:stream` | 1 | what a stream actually carries, read off the wire — PMT / PCR / per-stream PID, codec, resolution; HLS playlist (segment resolved and fetched in one pass, the live window is seconds wide), `.ts`, `srt://`, `udp://`; `probe` and `diff` |
+| `/ela:stream` | 1 | what a stream actually carries, read off the wire — PMT / PCR / per-stream PID, codec, resolution; HLS playlist (segment resolved and fetched in one pass, the live window is seconds wide), `.ts`, `srt://` `udp://` `rtp://` (live pull, bounded; a listener URL needs `--host`), and RTMP/RTSP for codecs only — those containers have no PIDs; `probe` and `diff` |
 | `/ela:confluence` | 1 | the web team's Confluence, read-only — spaces, a space's page tree, CQL search, one page as text; `ela wiki …` or a page URL alone |
 | `/ela:gdoc` | 1 | Google Docs / Sheets / Drive, read-only with Evan's token — a doc as text, a sheet tab as CSV, recent documents; `ela gdoc …` or a docs.google.com URL alone |
 | `/ela:apifox` | 1 | the teams' API contracts from Apifox — a project's OpenAPI export, tags, operations by word, one operation in full, a schema; `ela api …` or an app.apifox.com URL alone |

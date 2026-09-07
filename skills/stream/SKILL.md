@@ -21,10 +21,25 @@ STREAM="python3 ${CLAUDE_PLUGIN_ROOT}/skills/stream/stream.py"
 Needs `ffprobe` on PATH. No credentials: the outputs this reads are the ones a viewer can reach.
 
 ```bash
-$STREAM probe <m3u8 | file.ts | srt://… | udp://…>   # PMT · PCR · PID table · codec
-$STREAM diff  <a> <b>                                 # the two, field by field
+$STREAM probe <target>       # PMT · PCR · PID table · codec
+$STREAM diff  <a> <b>        # the two, field by field
 ```
-Both take `--json`. `--segment first|last|newest` picks which HLS segment to read.
+Both take `--json`, `--segment first|last|newest` (which HLS segment), `--host` (below),
+`--seconds` (how much of a live feed to look at, default 8) and `--timeout` (default 45).
+
+## What a target can be, and what it can answer
+
+| target | pulled how | PID table |
+|---|---|---|
+| `*.m3u8` | playlist resolved, one segment fetched | **yes** — segments are MPEG-TS |
+| `*.ts` file | read | **yes** |
+| `srt://` `udp://` `rtp://` `rist://` | live pull, bounded by `--seconds` | **yes** |
+| `rtmp://` `rtmps://` | live pull | **no** — FLV has no programs and no stream ids |
+| `rtsp://` | live pull | **no** — bare elementary streams over RTP |
+
+PMT, PCR and per-stream PIDs exist **only in an MPEG-TS multiplex**. On a container that has none
+the table prints the codecs and says so rather than showing blanks — "no PIDs" there is the
+container's nature, never a finding about configuration.
 
 ## Invariants
 - **A live HLS window is seconds wide.** A media playlist typically lists 5 × 2s segments, so
@@ -39,6 +54,13 @@ Both take `--json`. `--segment first|last|newest` picks which HLS segment to rea
   someone configured it.
 - **What is probed is named.** For a playlist the output prints the segment it actually read, so a
   claim can be re-checked against the same bytes.
+- **A listener address is not a pull address.** The copier publishes
+  `srt://0.0.0.0:PORT?mode=listener` — where the sender binds, not somewhere to connect. `probe`
+  refuses it and asks for `--host <box ip>`, then connects as a caller. The box ip comes from
+  `/ela:graph`, never from the URL.
+- **A live feed never ends, so the look is bounded.** `--seconds` caps both the analysis window and
+  the read timeout; a listener with no sender fails in seconds instead of hanging. A short window
+  costs detail — resolution may come back `0x0` — so raise it when the answer needs more than PIDs.
 - **One segment is not the stream.** PIDs are assigned per segment muxer; a change that lands in one
   segment lands in all. Confirm across two segments before calling a fix verified.
 

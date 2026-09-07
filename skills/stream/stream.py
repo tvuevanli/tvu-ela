@@ -48,10 +48,56 @@ def resolve_hls(url, which="last"):
     return seg_url, fetch(seg_url)
 
 
-def ffprobe_json(path_or_url):
-    cmd = [need("ffprobe"), "-v", "error", "-show_programs", "-show_streams",
-           "-show_format", "-of", "json", path_or_url]
-    p = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+# Only an MPEG-TS multiplex has PIDs. RTMP carries FLV and RTSP usually carries bare elementary
+# streams over RTP: both are legitimate targets here, and neither has a PID table to show.
+TS_SCHEMES = ("srt://", "udp://", "rtp://", "rist://")
+NO_PID_SCHEMES = ("rtmp://", "rtmps://", "rtmpt://", "rtmpe://", "rtsp://")
+
+
+def is_network(target):
+    return "://" in target and not target.startswith("file://")
+
+
+def as_caller(url, host=None):
+    """A listener URL is where the sender binds, not somewhere a puller can connect.
+
+    The copier publishes `srt://0.0.0.0:PORT?mode=listener`; pulling from it means connecting to
+    the box's address as a caller. Rewrites the bind address to `host` and drops `mode=listener`.
+    """
+    u = urllib.parse.urlsplit(url)
+    if not u.scheme.startswith("srt"):
+        return url
+    q = urllib.parse.parse_qs(u.query, keep_blank_values=True)
+    listener = q.get("mode", [""])[0] == "listener"
+    bind = u.hostname in ("0.0.0.0", "::", "127.0.0.1", "localhost")
+    if not (listener or bind):
+        return url
+    if not host:
+        print(f"{url}\n  is a listener/bind address — nothing to connect to.\n"
+              f"  Pass --host <box ip> to pull from it as a caller.", file=sys.stderr)
+        sys.exit(EX_USAGE)
+    q.pop("mode", None)
+    netloc = f"{host}:{u.port}" if u.port else host
+    return urllib.parse.urlunsplit((u.scheme, netloc, u.path,
+                                    urllib.parse.urlencode(q, doseq=True), u.fragment))
+
+
+def ffprobe_json(path_or_url, seconds=8, timeout=45):
+    """Bounded on purpose: a live pull feed never ends, so say how much of it to look at."""
+    cmd = [need("ffprobe"), "-v", "error"]
+    if is_network(path_or_url):
+        # microseconds; without these a dead endpoint blocks until the subprocess timeout
+        cmd += ["-rw_timeout", str(int(seconds * 1_000_000)),
+                "-analyzeduration", str(int(seconds * 1_000_000)),
+                "-probesize", "10000000"]
+    cmd += ["-show_programs", "-show_streams", "-show_format", "-of", "json", path_or_url]
+    try:
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        print(f"ffprobe timed out after {timeout}s on {path_or_url}\n"
+              f"  A listener with no sender, or a pull URL nothing is publishing to, looks like this.",
+              file=sys.stderr)
+        sys.exit(EX_REMOTE)
     if p.returncode != 0:
         print(f"ffprobe failed: {p.stderr.strip()[:400]}", file=sys.stderr); sys.exit(EX_REMOTE)
     return json.loads(p.stdout)
@@ -68,19 +114,18 @@ def pid_of(stream):
         return None
 
 
-def read(target, which="last"):
+def read(target, which="last", host=None, seconds=8, timeout=45):
     """Anything readable in, one normalised record out. Keeps what it actually probed."""
     tmp = None
-    probed = target
     if re.search(r"\.m3u8(\?|$)", target):
         seg_url, blob = resolve_hls(target, which)
         tmp = tempfile.NamedTemporaryFile(suffix=".ts", delete=False)
         tmp.write(blob); tmp.close()
         probed, source = tmp.name, seg_url
     else:
-        source = target
+        probed = source = as_caller(target, host)
     try:
-        d = ffprobe_json(probed)
+        d = ffprobe_json(probed, seconds, timeout)
     finally:
         if tmp:
             os.unlink(tmp.name)
@@ -99,7 +144,10 @@ def read(target, which="last"):
         else:
             row["detail"] = ""
         streams.append(row)
-    return {"target": target, "probed": source, "programs": progs, "streams": streams}
+    container = (d.get("format") or {}).get("format_name", "")
+    return {"target": target, "probed": source, "container": container,
+            "has_pids": bool(progs) or any(r["pid"] is not None for r in streams),
+            "programs": progs, "streams": streams}
 
 
 def render(rec):
@@ -107,9 +155,17 @@ def render(rec):
     if rec["probed"] != rec["target"]:
         print(f"  segment: {rec['probed']}")
     print()
+    if rec.get("container"):
+        print(f"  container: {rec['container']}")
+        print()
     for p in rec["programs"]:
         print(f"program {p['program_id']}   PMT PID = {p['pmt_pid']}   PCR PID = {p['pcr_pid']}")
     if rec["programs"]:
+        print()
+    elif not rec.get("has_pids"):
+        print("no PID table — this container is not an MPEG-TS multiplex "
+              "(FLV over RTMP, or bare elementary streams over RTP/RTSP).")
+        print("PMT, PCR and per-stream PIDs exist only in MPEG-TS: HLS segments, .ts, SRT, UDP, RTP-TS.")
         print()
     print(f"{'PID':<7}{'hex':<8}{'type':<8}{'codec':<8}{'detail'}")
     print(f"{'─'*6:<7}{'─'*6:<8}{'─'*7:<8}{'─'*7:<8}{'─'*24}")
@@ -122,14 +178,15 @@ def render(rec):
 
 
 def cmd_probe(a):
-    rec = read(a.target, a.segment)
+    rec = read(a.target, a.segment, a.host, a.seconds, a.timeout)
     print(json.dumps(rec, ensure_ascii=False, indent=2) if a.json else "", end="")
     if not a.json:
         render(rec)
 
 
 def cmd_diff(a):
-    x, y = read(a.a, a.segment), read(a.b, a.segment)
+    x = read(a.a, a.segment, a.host, a.seconds, a.timeout)
+    y = read(a.b, a.segment, a.host, a.seconds, a.timeout)
     if a.json:
         print(json.dumps({"a": x, "b": y}, ensure_ascii=False, indent=2)); return
     print(f"A  {x['target']}\nB  {y['target']}\n")
@@ -152,13 +209,19 @@ def main():
     ap = argparse.ArgumentParser(
         description="What a stream actually carries: PMT/PCR/PID and codec, read off the wire.")
     sub = ap.add_subparsers(dest="cmd", required=True)
-    p = sub.add_parser("probe", help="one stream — HLS playlist, .ts file, srt:// or udp://")
+    p = sub.add_parser("probe", help="one stream — HLS playlist, .ts file, srt:// udp:// rtp:// rtmp://")
     p.add_argument("target")
+    p.add_argument("--host", help="box ip to pull from when the URL is a listener/bind address (srt)")
+    p.add_argument("--seconds", type=float, default=8, help="how much of a live feed to look at (default 8)")
+    p.add_argument("--timeout", type=float, default=45, help="give up after this many seconds (default 45)")
     p.add_argument("--segment", choices=["first", "last", "newest"], default="last",
                    help="which HLS segment to read (default: one back from newest — complete, still in window)")
     p.add_argument("--json", action="store_true")
     p = sub.add_parser("diff", help="two streams, field by field")
     p.add_argument("a"); p.add_argument("b")
+    p.add_argument("--host", help="box ip for a listener/bind address (applies to both)")
+    p.add_argument("--seconds", type=float, default=8)
+    p.add_argument("--timeout", type=float, default=45)
     p.add_argument("--segment", choices=["first", "last", "newest"], default="last")
     p.add_argument("--json", action="store_true")
     a = ap.parse_args()
