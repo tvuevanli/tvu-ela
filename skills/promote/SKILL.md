@@ -48,7 +48,17 @@ to type `! ela login tvu` and stop; never read a cache or another system's file 
 ## 1 — run, then read the findings with the map in hand
 For each high/medium finding, say what a failure would touch: `<records>/map/services.yaml` (which image serves
 which process type, who owns it), `<records>/map/release.yaml trains` (concurrent lines where numbers lie), and
-Helm's `knowledge/mediahub/services/dependency-map.md` (which app path crosses orchestration, J2N, docker).
+the reach of the changed service itself, derived from the code rather than asserted:
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/skills/map/deps.py" callers <service>   # every app-layer caller, with the endpoints
+python3 "${CLAUDE_PLUGIN_ROOT}/skills/map/deps.py" check               # the scan's commit vs. the repos now
+```
+
+`callers` is the app layer only and is stamped at a commit — run `check` first, because a stale graph
+understates reach, which is the one direction that matters here. For the path that leaves the app
+layer (orchestration → J2N → docker), Helm's `knowledge/mediahub/services/dependency-map.md` is the
+hand-written complement the scan does not cover; cite whichever you used.
 A switch-path change in `unified-streaming` reaches orchestration → J2N → LiveTransmit → the transmitter docker;
 a Billing callback change reaches warning-service and Home; a tags change spans backend, mx-service and frontend.
 That reach, plus the lane's docker pin, is the risk sentence — not the commit count.

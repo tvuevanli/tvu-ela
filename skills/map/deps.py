@@ -378,12 +378,23 @@ def cmd_reconcile(a):
         print(f"   {to:<26} <- {', '.join(sorted(set(seen[to]))):<44} {svc.get('owner') or 'owner?'}")
     return 0
 
+def _matches(q, repo, x):
+    """A query hits an edge by either side or by what is called on it: an error message names an
+    endpoint far more often than it names a service, and the endpoint is what locates the call site."""
+    if not q:
+        return True
+    if q in x["to"].lower() or q in repo.lower():
+        return True
+    return any(q in (c.get("path") or "").lower() or q in (c.get("method") or "").lower()
+               for c in x.get("endpoints") or [])
+
+
 def cmd_show(a):
     doc = load(a.file)
     q = (a.what or "").lower()
     for repo, e in (doc.get("edges") or {}).items():
         for x in e.get("feign", []):
-            if q and q not in x["to"].lower() and q not in repo.lower():
+            if not _matches(q, repo, x):
                 continue
             svc = (doc.get("services") or {}).get(x["to"]) or {}
             print(f"\n{repo}  ->  {x['to']}   [{svc.get('owner') or 'owner?'}]  {svc.get('role') or ''}")
@@ -395,6 +406,44 @@ def cmd_show(a):
             if len(x["endpoints"]) > a.limit:
                 print(f"    … {len(x['endpoints']) - a.limit} more")
 
+def cmd_callers(a):
+    """The reverse edge: who calls this service, and for what. A change or an outage in a platform
+    service breaks its callers, and this is the only place that list is derived from code rather
+    than from a charter — 49 of the 59 edges fall outside the web team's own callGraph."""
+    doc = load(a.file)
+    q = a.service.lower()
+    svc = (doc.get("services") or {}).get(a.service) or next(
+        (v for k, v in (doc.get("services") or {}).items() if q in k.lower()), {})
+    hits = []
+    for repo, e in (doc.get("edges") or {}).items():
+        for x in e.get("feign", []):
+            if q in x["to"].lower():
+                hits.append((repo, x))
+    if a.json:
+        print(json.dumps({"service": a.service, "owner": svc.get("owner") or "", "role": svc.get("role") or "",
+                          "callers": [{"repo": r, "to": x["to"], "file": x["file"], "purpose": x.get("purpose") or "",
+                                       "endpoints": x["endpoints"]} for r, x in hits],
+                          "stamp": doc.get("stamp") or {}}, ensure_ascii=False)); return
+    if not hits:
+        print(f"no derived caller of {a.service!r}. That is not proof of none: the scan covers "
+              f"the app-layer repos in scope (deps.py scan), so a caller outside them would not appear.",
+              file=sys.stderr)
+        sys.exit(3)
+    print(f"# {a.service}   [{svc.get('owner') or 'owner?'}]  {svc.get('role') or ''}")
+    print(f"# {len(hits)} caller(s) derived from code — the blast radius of a change here")
+    print()
+    for repo, x in hits:
+        print(f"{repo}  ->  {x['to']}")
+        print(f"  {x['file']}")
+        if x.get("purpose"):
+            print(f"  {x['purpose']}")
+        for c in x["endpoints"][:a.limit]:
+            print(f"    {c['http']:<5} {c['path']:<46} {c['method']}")
+        if len(x["endpoints"]) > a.limit:
+            print(f"    … {len(x['endpoints']) - a.limit} more")
+        print()
+
+
 def main():
     d = os.path.join(site().get("map", ""), "dependencies.yaml")
     ap = argparse.ArgumentParser(description="what the app layer calls — derived from the code at a ref")
@@ -405,11 +454,13 @@ def main():
     p = sub.add_parser("check", help="did any repo move since the scan?")
     p.add_argument("--fetch", action="store_true")
     sub.add_parser("reconcile", help="derived edges vs. code/web/mediahub-agent/workspace.json callGraph")
-    p = sub.add_parser("show", help="edges, with what each one is called for")
+    p = sub.add_parser("show", help="edges, with what each one is called for; matches either side or an endpoint")
     p.add_argument("what", nargs="?"); p.add_argument("--limit", type=int, default=8)
+    p = sub.add_parser("callers", help="who calls this service, and for what — the blast radius of a change")
+    p.add_argument("service"); p.add_argument("--limit", type=int, default=8); p.add_argument("--json", action="store_true")
     a = ap.parse_args()
     sys.exit({"scan": cmd_scan, "check": cmd_check, "show": cmd_show,
-              "reconcile": cmd_reconcile}[a.cmd](a) or 0)
+              "callers": cmd_callers, "reconcile": cmd_reconcile}[a.cmd](a) or 0)
 
 if __name__ == "__main__":
     main()

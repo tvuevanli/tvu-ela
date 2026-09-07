@@ -31,7 +31,31 @@ Note: error codes, exact resource ids (graphId, objectId, processId — testers 
 them), timestamps, environment, what the reporter excluded, linked tickets (prior art).
 
 ## 1 — locate the seam in code (the map names the checkouts)
-Trace the symptom to its emitters — read-only grep across the mapped repos:
+
+**Start with the derived dependency graph, not with grep.** `map/dependencies.yaml` holds every
+app-layer call read out of the code at a commit, so it answers two routing questions directly and in
+seconds:
+
+```bash
+DEPS="python3 ${CLAUDE_PLUGIN_ROOT}/skills/map/deps.py"
+$DEPS show <endpoint or service or word>   # where is this called from — matches either side or an endpoint path
+$DEPS callers <service>                    # who breaks if this service is wrong — the blast radius
+$DEPS check                                # did any repo move since the scan? a stale graph is a wrong answer
+```
+
+An error message names an endpoint far more often than it names a service, and `show` matches the
+endpoint — so a report quoting `/feign/getCurrentDevice` lands on the call site and its file, in one
+call. `callers` is the other direction: when the symptom is a platform service misbehaving, its
+callers are who else is already broken and who can confirm it fastest.
+
+Two cautions, both load-bearing:
+- **The graph is derived, and its scope is the app layer.** "No caller" means none among the repos
+  the scan covers, never none in the platform. Say which of the two you mean.
+- **`[owner?]` is the common case.** The platform layer has one recorded owner across 27 services,
+  so the dependency graph locates the *code* and rarely the *person*; the owner still comes from the
+  roster and `services.yaml`. An edge with no owner is a routing gap to name, not a dead end.
+
+Then trace the symptom to its emitters — read-only grep across the mapped repos:
 ```bash
 grep -rn "<error code or message>" --include=*.java --include=*.js --include=*.py <checkouts from `map.py find <name>`>
 ```
@@ -51,6 +75,9 @@ python3 "${CLAUDE_PLUGIN_ROOT}/skills/jira/jira.py" --env-file <env> assign <KEY
 
 **Not certain** (competing hypotheses across a seam):
 - each hypothesis: actor · owner · what evidence supports it
+- when a hypothesis is "the service downstream is wrong", `$DEPS callers <service>` names who else
+  calls it: a second caller that is *not* failing is the cheapest discriminator there is, and it
+  belongs in the first checker's question.
 - **first checker**: the person whose ONE check discriminates — chosen by cost of the check, not
   by likelihood of the hypothesis. State the exact check (log grep for the recorded id, a DB
   lookup, a config read) and what each outcome routes to.
