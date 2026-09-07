@@ -13,7 +13,7 @@ nothing cached — every answer is the source's current state.
 R="python3 /home/evan/projects/ela/skills/release/release.py --env-file <env>"   # or: ela bundles … / ela versions … / ela builds … / ela login tvu
 $R bundles [mh2.1@] [--host qa|prod]  # GM bundles newest first — QA bundles live on qa, daily/stage/prod bundles on prod
 $R bundle <name|id> [--host qa|prod]  # bill of materials: serviceTagList
-$R envs [service] [--host qa|prod]    # versions per lane; tag names mapped to lanes by <records>/map/release.yaml hosts
+$R envs [service] [--host qa|prod]    # versions per lane; tag names mapped to lanes by <elak>/map/release.yaml hosts
 $R builds <job|service> [--limit N]   # Jenkins: number, version, result, branch, sha, time
 $R drift [mh2.1@] [--bundles N] [--host qa|prod]
 $R login tvu [--force]                # one-time HTTPS page under ela.tvunetworks.com collects the browser's SID; paste fallback
@@ -21,7 +21,7 @@ $R login qa                           # tvutest account login → SID (2h); the 
 ```
 Config: service URLs in `site.json services` (jenkins · userservice · userservice-test); which service ids publish
 which versions on which host, how a tag name maps to a lane, which Jenkins job builds which service, and which
-lanes each release line uses — all in `<records>/map/release.yaml` (transcribed from Helm 2026-09-04, origin per block).
+lanes each release line uses — all in `<elak>/map/release.yaml` (transcribed from Helm 2026-09-04, origin per block).
 
 ## Invariants
 - **First-hand, current.** What userservice and Jenkins say now. History older than they keep is not

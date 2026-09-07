@@ -11,8 +11,8 @@ ignoring or assigning a Sentry issue is the owning team's act, made in their own
 
 ## Why it exists
 
-MH-3571 states the problem in its own title: a module crashes, leaves a minidump, **does not
-self-heal and does not report**, and "J2N/MH/Observer 三面全绿看不出来". Every sense ela had reads
+MH-3571 states the problem: a module crashes leaving a minidump, **neither recovers nor reports it**,
+and none of the three control planes — J2N, MediaHub, Observer — shows anything wrong. Every sense ela had reads
 the control plane — a graph's state, a process's statistic, a ticket's status — and a process that
 died and was restarted leaves all three green. Sentry is where that crash already is.
 
@@ -49,13 +49,13 @@ on; it means the token has not been made yet, and `/ela:setup` says where it com
 - **One box is not the platform.** An issue whose events all carry the same `server_name` is that
   box's problem until a second box appears; say which of the two the data shows.
 - **A version tag dates the crash.** An issue whose last event is on a version no lane runs any more
-  is history, not a live defect — check against `<records>/map/release.yaml` and `ela versions`
+  is history, not a live defect — check against `<elak>/map/release.yaml` and `ela versions`
   before routing it to anyone.
 - **Read-only, and quiet.** Never resolve, ignore, assign or comment. If an issue should be someone's
   work, the output is a drafted Jira ticket through `jira create` (dry-run, `--apply` on Evan's
   word), never a change in Sentry.
 - **The project slug is not the service name.** Sentry project slugs are their own vocabulary
-  (`Receiver_78` for a receiver line); map them to a service through `<records>/map/services.yaml`
+  (`Receiver_78` for a receiver line); map them to a service through `<elak>/map/services.yaml`
   and say when you could not.
 
 ## Reading an alert mail into an issue

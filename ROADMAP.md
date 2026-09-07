@@ -44,7 +44,7 @@ standard → ledger. **Exit:** MH-2191-class work end to end with the counterpar
 
 ## 3 — breakdown · written, never run for real
 Knowledge depth (minutes, no repo access) or code depth (the read-only analyst reads the checkouts).
-Plan in `<records>/records/breakdowns/<KEY>/plan.md`; Jira publication only on Evan's "create them",
+Plan in `<elak>/breakdowns/<KEY>/plan.md`; Jira publication only on Evan's "create them",
 assigned directly to owners. **Exit:** one real plan matching what Evan would have written.
 
 ## 3b — probe · built, 1 of 3

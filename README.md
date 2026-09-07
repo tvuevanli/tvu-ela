@@ -16,7 +16,7 @@ The install is a cached copy, refreshed only on a version change: bump `plugin.j
 
 | file | holds |
 |---|---|
-| `site.json` | machine paths: the roots (`projects`, `code`, `work`, `lab`, `records`), map dir, git hosts and aliases, sources the map reads |
+| `site.json` | machine paths: the roots (`projects`, `code`, `work`, `lab`, `elak`), map dir, git hosts and aliases, sources the map reads |
 | `.env` | credentials the senses need (`JIRA_*`, `SLACK_BOT_TOKEN`, `OUTLINE_*`, `TVU_*`, `UR_*`, `TVUTEST_*`, `CONFLUENCE_TOKEN`, `GITLAB_*_TOKEN`, `GOOGLE_TOKEN_FILE`), mode 600. No pasted session anywhere: ela carries no SID |
 
 ## The `ela` command — no Claude session needed
@@ -73,7 +73,7 @@ are there because the plugin follows you.
 
 1. **`/ela:breakdown <ticket / permalink / your framing>`** — anything new goes here first. A ticket
    is not required. Single-lane? It says so and hands straight to `/ela:task`. Otherwise: lanes,
-   owners, order, your decisions signed — plan in `<records>/records/breakdowns/<KEY>/plan.md`.
+   owners, order, your decisions signed — plan in `<elak>/breakdowns/<KEY>/plan.md`.
 2. **Publish on your confirm** — parent ticket if none exists, then one subtask per lane, assigned
    **directly to the lane owner** (`jira.py create` / `create-subtask`; dry-run shown first, always).
 3. **Your own lane: `/ela:task <KEY> <repo>`** — worktree, tier, delegation by governance
@@ -86,4 +86,4 @@ stops and points up when handed an unsplit multi-layer ticket.
 
 ## Records
 
-`<records>` (`<projects>/elak`, git): `blueprint/` (ela + Helm goals, decisions, status) · `knowledge/` (canonical knowledge: products, platform, engineering, tooling) · `records/` (breakdowns, ledger, dated records) · `map/`.
+`<elak>` (`<projects>/elak`, git): `blueprint/` (ela + Helm goals, decisions, status) · `knowledge/` (canonical knowledge: products, platform, engineering, tooling) · `records/` (breakdowns, ledger, dated records) · `map/`.

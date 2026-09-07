@@ -112,6 +112,6 @@ A ticket is a dated record of intent; a knowledge base holds what is currently
 true. Do not paste ticket bodies into the knowledge base. Extract the durable
 claim, state it as fact, record source (ticket key) + date + author, and mark
 anything still unsettled as open. The conventions are those of
-`<records>/knowledge/`. Note that MH ticket descriptions are often bilingual
+`<elak>/knowledge/`. Note that MH ticket descriptions are often bilingual
 (中文 then English) — the two halves are the same content, do not treat them
 as two sources.

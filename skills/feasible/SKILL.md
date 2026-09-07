@@ -39,7 +39,7 @@ A break at ① or ② is app work. At ③ it is the adapter or its command templ
 an unwired option or a real engine limit — **and those two must be told apart** (see step 4).
 
 ## 0 — bind
-Read `~/.claude/ela/site.json` → `env`, `map`, `records`.
+Read `~/.claude/ela/site.json` → `env`, `map`, `elak`.
 ```bash
 SLACK="python3 ${CLAUDE_PLUGIN_ROOT}/skills/slack/slack.py --env-file <env>"
 JIRA="python3 ${CLAUDE_PLUGIN_ROOT}/skills/jira/jira.py --env-file <env>"
@@ -111,7 +111,10 @@ unverified** — named, not omitted. Where an item's cost depends on an answer o
 say so and put the question in the draft rather than guessing a scope.
 
 ## 6 — record and draft
-- Record: `records/<date>-feasible-<subject>.md` — the two tables, the evidence paths, the change
+- Record what the answer **established**, where the placement test sends it (decision
+  `2026-09-07-elak-is-elas-knowledge`): a capability limit and where it is enforced is a fact about the
+  product → `<elak>/knowledge/products/mediahub/`; a platform limit → `<elak>/knowledge/platform/<component>/`.
+  A dated file of "what this run checked" is not kept. The two tables, the evidence paths, the change
   list. Reproduction commands go in verbatim: the next person to verify the fix needs the same ones.
 - Drafts, each a separate confirm: one for the asker (per item, plainly; the open question if there
   is one; no schedule promised), one for the owner (the checkpoint that breaks, file:line, the

@@ -27,7 +27,7 @@ approves, edits or skips; execution goes through the skill named on the item.
   the day's view; tomorrow recomputes it.
 
 ## 0 — gather
-Read `~/.claude/ela/site.json` → `env`, `map`, `records`, `map_sources.team_roster`. Bind:
+Read `~/.claude/ela/site.json` → `env`, `map`, `elak`, `map_sources.team_roster`. Bind:
 ```bash
 JIRA="python3 ${CLAUDE_PLUGIN_ROOT}/skills/jira/jira.py --env-file <env>"
 SLACK="python3 ${CLAUDE_PLUGIN_ROOT}/skills/slack/slack.py --env-file <env>"
@@ -132,7 +132,7 @@ a standing gap, not a lane: `$SLACK channels --all <word>` finds them and joinin
 | **reports** | top-level messages in the last 24h whose author is a bot or whose text carries a report marker (`report`, `日报`, `测试报告`, `release note`, `(1/`) | which are Evan's to digest (MediaHub QA daily, release/service test reports) vs noise | "digest" → `/ela:digest <permalink>` |
 | **waiting** | `mentions` rows with `answered: false`, oldest first | is a reply actually owed, or was the mention an FYI? Product, QA and integration partners waiting > 1 working day rank at the top | a one-line reply draft (Evan posts it — ela does not write Slack), or "FYI — no reply needed" |
 | **monologues** | `unanswered` rows older than 24h | a spec or a question nobody picked up is a routing gap, not a Slack curiosity | name who should have answered → route, or "convert to ticket" → `$JIRA create --summary … --description …` dry-run |
-| **decisions** | Evan's own replies in the 7-day window that rule something (Chinese cues: 先…再…, 不做, 不改, 我来, 就这样, 既然…; English: `Let's …`, `we will not`, `decided`) in threads whose text carries **no** Jira key | is it a durable decision others act on? | "record" → `records/decisions/<date>-<slug>.md` via Evan's word, or `$JIRA comment <key> --text '<the ruling, verbatim, with the permalink>'` dry-run |
+| **decisions** | Evan's own replies in the 7-day window that rule something (Chinese cues: 先…再…, 不做, 不改, 我来, 就这样, 既然…; English: `Let's …`, `we will not`, `decided`) in threads whose text carries **no** Jira key | is it a durable decision others act on? | "record" → the ruling as a fact in `<elak>/knowledge/products/mediahub/` via Evan's word (a decision others act on is knowledge about the product, not a log of a conversation — decision `2026-09-07-elak-is-elas-knowledge`), or `$JIRA comment <key> --text '<the ruling, verbatim, with the permalink>'` dry-run |
 
 ## 3 — rank and write
 Order: triage OVERDUE → waiting (product / QA / partner, > 1 day) → cadence RED → incidents

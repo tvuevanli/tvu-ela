@@ -7,7 +7,7 @@ user-invocable: true
 # /ela:team — people are identified by the roster, never guessed
 
 Self-contained. `team.py` is the capability; `ela team …` / `ela who …` at the shell are the same thing.
-Source: `<records>/knowledge/people/` — `people.yaml` (identity only) joined by email to
+Source: `<elak>/knowledge/people/` — `people.yaml` (identity only) joined by email to
 `responsibilities.yaml` (one row per responsibility; a person holds several). Decisions
 `2026-09-03-people-identified-by-the-roster-never-guessed` and `2026-09-04-people-carry-responsibilities-not-rank`.
 

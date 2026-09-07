@@ -44,7 +44,7 @@ once and believed afterwards).
   be shared onward.
 
 ## 0 — bind
-Read `~/.claude/ela/site.json` → `env`, `map`, `records`, `code`.
+Read `~/.claude/ela/site.json` → `env`, `map`, `elak`, `code`.
 ```bash
 DEPS="python3 ${CLAUDE_PLUGIN_ROOT}/skills/map/deps.py"
 MAP="python3 ${CLAUDE_PLUGIN_ROOT}/skills/map/map.py"
@@ -115,7 +115,7 @@ review honest.
    first; mermaid goes in ```mermaid fences and renders natively. One review, one URL; a re-run of the
    same review republishes to it (`/ela:reports` holds the rules for standing reports — a review
    asked for a second time belongs there instead).
-3. **The record** — `<records>/records/reviews/<date>-<subsystem>.md`: the standard, the findings with
+3. **The record** — `<elak>/reviews/<date>-<subsystem>.md`: the standard, the findings with
    their prices, the commits read, the artifact URL.
 4. **The durable reading** — into `knowledge/<area>/…`, citing `map/dependencies.yaml` and never
    restating its rows. Only what a script cannot produce: which edge is load-bearing, which seam

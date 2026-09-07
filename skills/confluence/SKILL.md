@@ -19,7 +19,7 @@ $W read 48304779                # one page as text (id, or the page URL)
 ## Invariants
 - **Read-only.** No write endpoint exists in the script; none is to be added. The PAT is Evan's own.
 - **Cite the page, never paste it into the knowledge base.** A finding cites `<url>` + page id + version
-  date; elak keeps at most a pointer and Evan's interpretation (rule: `<records>/knowledge/README.md`).
+  date; elak keeps at most a pointer and Evan's interpretation (rule: `<elak>/knowledge/README.md`).
 - **The MH space is the web team's view** (Andy Zhao, Erin Zhang, Louis Qin …): integration notes, QA
   procedures, API/debug pages — engineering facts about MediaHub from their side, dated 2024–2026. Say
   who wrote it and when; a 2024 page may describe MediaHub 1.x.

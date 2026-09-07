@@ -7,7 +7,7 @@ user-invocable: true
 # /ela:apifox — the API contracts, from the source the teams edit
 
 Self-contained. `apifox.py` is the capability; `ela api …` at the shell is the same thing. Projects are
-named in `<records>/map/apis.yaml` (`ur` → 4296487 today); a numeric id or an `app.apifox.com/project/<id>`
+named in `<elak>/map/apis.yaml` (`ur` → 4296487 today); a numeric id or an `app.apifox.com/project/<id>`
 URL works unnamed.
 
 ```bash

@@ -18,14 +18,16 @@ directory, `~/.claude/ela/working-with-evan.md`, and are injected right after th
 per-machine configuration beside `site.json` and `.env`, not part of the plugin.
 
 ## Where things live
-- **ela** (`<projects>/ela`): definitions only — skills, agents, hooks. No knowledge, no records.
-- **Knowledge base — Evan calls it `elak`** (the repo is `elak`, the root is `<records>` in `~/.claude/ela/site.json`). `blueprint/` holds the
-  ela + Helm goals, decisions and status; `knowledge/` the canonical product/platform knowledge;
-  `records/` breakdowns, ledger, dated records; `map/` what exists on disk and what does not.
+- **ela** (`<projects>/ela`): definitions only — skills, agents, hooks. It holds no knowledge.
+- **Knowledge base — Evan calls it `elak`** (the repo is `elak`, the root is `<elak>` in `~/.claude/ela/site.json`). `blueprint/` holds the
+  ela + Helm goals, decisions, status, misses and gate evidence; `knowledge/` what ela knows about the
+  world, written; `map/` the same, generated. **Three directories, one subject: elak is ela's
+  knowledge.** A log of what happened is not knowledge — cite its source and keep no file; drafts and
+  raw material go to `<runtime>` (`<projects>/.ela`), which is deletable by contract.
 - **Helm** (`<projects>/helm`): Evan's own ops app; a Slack bot named helm runs on it. Its AI
   capabilities are ela's to provide — never implement judgment work inside Helm.
 - **Code** lives at `<code>/<alias>/<remote path>` (aliases: media · web · mx · lr/rx · lr/receiver · github/<org>),
   read-only; changes happen in `<work>/<KEY>/<repo>` worktrees. `map.py find|sync|worktree` are the tools.
-- Roots (`<projects>`, `<code>`, `<work>`, `<records>`) and git hosts are in `~/.claude/ela/site.json`;
+- Roots (`<projects>`, `<code>`, `<work>`, `<elak>`) and git hosts are in `~/.claude/ela/site.json`;
   write them by name, never as machine paths.
 - Start each session where the target's rules live; ela is already there.

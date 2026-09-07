@@ -81,7 +81,7 @@ Shen's Go monorepo, not the `mx` group.
 
 ## Step 0 — site file
 Read `~/.claude/ela/site.json`. Required: `projects`, `hosts` (the two GitLab addresses; GitHub is
-built in). Everything else has a default derived from `projects` (`code`, `work`, `lab`, `records`,
+built in). Everything else has a default derived from `projects` (`code`, `work`, `lab`, `elak`,
 `map`, `aliases`, `dir_names`, `stacks`, `map_sources`). Missing file → `/ela:setup`. Never guess a root.
 
 ## Step 1 — survey disk → the cache

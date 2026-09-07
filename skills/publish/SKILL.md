@@ -7,7 +7,7 @@ user-invocable: true
 # /ela:publish — from elak to the directory machines read
 
 Self-contained. `publish.py` is the capability; `ela publish …` at the shell is the same thing. Roots
-from `site.json`: `records` (elak) and `published` (`<projects>/elak-published`, not a repository).
+from `site.json`: `elak` and `published` (`<projects>/elak-published`, not a repository).
 **The published directory is a subset of elak's own tree** — same paths, elak's names, no per-reader
 directories; readers (Helm's context packs, the remote ela) point at these paths.
 

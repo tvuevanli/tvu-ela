@@ -28,14 +28,15 @@ map, optional base lane override.
 - **Evidence over report.** "Tests pass" is verified against the target's own standard (see §4).
 
 ## 0 — site + source
-Read `~/.claude/ela/site.json` (`code`, `work`, `map`, `env`, `records`). Ticket dumps and prompt files go in `<work>/<KEY>/`.
+Read `~/.claude/ela/site.json` (`code`, `work`, `map`, `env`, `elak`). Ticket dumps and prompt files go in `<work>/<KEY>/`.
 The task id is `<key-lower>` when a Jira key is given, else a short kebab slug from the source.
 
 **With a Jira key:**
 `python3 "${CLAUDE_PLUGIN_ROOT}/skills/jira/jira.py" --env-file <env> read <KEY> --deep > <work>/<KEY>/ticket.md`
 → note type, status, parent, subtasks, linked tickets, the layer token in the title (`[App]` `[UI]` …).
 **Route up before going down:** if the ticket plainly crosses layers/areas and has neither subtasks
-nor a plan in `<records>/records/breakdowns/`, stop and point to `/ela:breakdown <KEY>` — implementing one
+nor a plan drafted by `/ela:breakdown` (in `<runtime>/breakdowns/<KEY>/` or already published as Jira
+sub-tasks), stop and point to `/ela:breakdown <KEY>` — implementing one
 slice of an unsplit requirement is how scope drifts.
 
 **Without a ticket** (`--source`): a ticket is not a precondition — counterparts accept a recorded
@@ -73,7 +74,8 @@ counterpart's convention wins**:
 `code/` main checkouts never carry edits; every change happens in the worktree. Remove the
 worktree at close so the counterpart's tooling stops listing it.
 
-Tier for the repo (from `<records>/records/decisions/` or the area's registry; default **draft-only**):
+Tier for the repo (from `<elak>/map/services.yaml` and the area's own registry — a write tier is a
+property of the repo, so it lives with the map, not with a decision; default **draft-only**):
 
 | tier | child may | never |
 |---|---|---|
@@ -82,7 +84,9 @@ Tier for the repo (from `<records>/records/decisions/` or the area's registry; d
 | `mr-gated` | + open an MR naming the human owner | merge |
 
 Record `{key, repo, worktree, branch, base_ref, tier, owner, governance}` to
-`<records>/records/ledger/<key-lower>.json` with `status: prepared` **before** delegating.
+`<elak>/blueprint/ledger/<key-lower>.json` with `status: prepared` **before** delegating — the ledger
+is evidence about ela's own execution, so it belongs to the blueprint half (decision
+`2026-09-07-elak-is-elas-knowledge`). The directory is created by the first real run, not before it.
 
 ## 3 — delegate by governance
 
@@ -154,7 +158,7 @@ Refuse at §1 with the reason.
   `npm run build` and lint are **not** evidence. Missing → status `unverified`, say so plainly.
 
 ## 5 — ledger
-Update `<records>/records/ledger/<key-lower>.json`: `status` (`done` | `unverified` | `blocked`),
+Update `<elak>/blueprint/ledger/<key-lower>.json`: `status` (`done` | `unverified` | `blocked`),
 `session_id`, `commits[]`, `artefacts[]`, `evidence{command,result}`, `questions[]` (asked/answered),
 `finished`. Commit it in the records repo.
 

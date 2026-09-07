@@ -9,9 +9,9 @@ owning team's call, made in their own tool.
                                          event's exception, stack and tags
   events   <id> [--limit N]              recent events of one issue — when it happens, on which box
 
-A crash is a class of fact ela otherwise cannot see. MH-3571 states the shape of the problem in
-its own title: a module crashes with a minidump, does not self-heal, does not report, and
-"J2N/MH/Observer 三面全绿看不出来". Sentry is where that crash already is. The alert mails Evan
+A crash is a class of fact ela otherwise cannot see. MH-3571 states the shape: a module crashes
+leaving a minidump, neither recovers nor reports it, and none of the three control planes (J2N,
+MediaHub, Observer) shows anything wrong. Sentry is where that crash already is. The alert mails Evan
 gets are one event each; this reads the issue — how often, since when, on which boxes, still open.
 
 Credentials, from $SENTRY_URL / $SENTRY_TOKEN → --env-file → $SENTRY_ENV_FILE → $ELA_ENV_FILE:

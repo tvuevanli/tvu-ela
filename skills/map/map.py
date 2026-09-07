@@ -203,11 +203,17 @@ def read(path):
 
 
 def services(text):
+    """image → {owners, process_types, slugs, gm_names, services, repos}.
+
+    `services` are the rows that tie the three naming systems together: one GM service is
+    a (slug · gm_name · service_id · J2N process_type · mqtt_topic) tuple. The flat
+    process_types/slugs/gm_names lists are the taxonomy and can carry names no service row
+    has (a process type in the taxonomy that GM registers no service for)."""
     out, cur, repo = {}, None, None
     for line in text.splitlines():
         m = re.match(r"^  ([A-Za-z0-9_.-]+):\s*$", line)
         if m:
-            cur = out.setdefault(m.group(1), {"owners": [], "process_types": [], "slugs": [], "gm_names": [], "repos": []}); repo = None; continue
+            cur = out.setdefault(m.group(1), {"owners": [], "process_types": [], "slugs": [], "gm_names": [], "services": [], "repos": []}); repo = None; continue
         if cur is None:
             continue
         for key in ("owners", "process_types", "slugs", "gm_names"):
@@ -215,6 +221,11 @@ def services(text):
             if m:
                 try: cur[key] = json.loads(m.group(1))
                 except ValueError: pass
+        m = re.match(r"^      - (\{.*\})\s*$", line)
+        if m:
+            try: cur["services"].append(json.loads(m.group(1)))
+            except ValueError: pass
+            continue
         m = re.match(r"^      - gitlab: (.+)$", line)
         if m: repo = {"gitlab": m.group(1).strip()}; cur["repos"].append(repo); continue
         m = re.match(r"^        (role): (.+)$", line)
@@ -312,6 +323,15 @@ def norm(x):
     return re.sub(r"[^a-z0-9]", "", (x or "").lower())
 
 
+def code_list(rows):
+    """The repos a service's code lives in, compressed — the common case is all of them present."""
+    if not rows:
+        return "unknown"
+    if all(r["on_disk"] for r in rows):
+        return ", ".join(r["gitlab"] for r in rows) + " (on disk)"
+    return ", ".join(r["gitlab"] + ("" if r["on_disk"] else " NOT cloned") for r in rows)
+
+
 # ── commands ─────────────────────────────────────────────────────────────────
 
 def cmd_find(lay, a):
@@ -320,7 +340,7 @@ def cmd_find(lay, a):
     svc = services(read(os.path.join(mapdir, "services.yaml")))
     absent = absent_entries(read(os.path.join(mapdir, "absent.yaml")))
     repos = cache(lay)["repos"]
-    hits = {"repos": [], "images": [], "process_types": [], "slugs": [], "gm_names": [], "absent": []}
+    hits = {"repos": [], "images": [], "services": [], "process_types": [], "slugs": [], "gm_names": [], "absent": []}
     for r in repos:
         if q in norm(r["name"]) or (r["remote"] and q in norm(os.path.basename(r["remote"]))):
             hits["repos"].append(r)
@@ -328,12 +348,19 @@ def cmd_find(lay, a):
         rows = [dict(rp, path=gitlab_to_dir(lay, rp["gitlab"]), on_disk=os.path.isdir(gitlab_to_dir(lay, rp["gitlab"]) or "\0")) for rp in d["repos"]]
         if q in norm(img):
             hits["images"].append(dict(image=img, **{k: v for k, v in d.items() if k != "repos"}, repos=rows)); continue
+        # a service row carries all three names at once — report the tuple, not each name apart
+        tied = set()
+        for s_row in d["services"]:
+            names = [s_row.get(k) for k in ("slug", "gm_name", "process_type", "mqtt_topic")]
+            if any(n and q in norm(n) for n in names):
+                hits["services"].append(dict(s_row, image=img, owners=d["owners"], repos=rows))
+                tied |= {norm(n) for n in names if n}
         for pt in d["process_types"]:
-            if q in norm(pt):
+            if q in norm(pt) and norm(pt) not in tied:
                 hits["process_types"].append({"process_type": pt, "image": img, "owners": d["owners"], "repos": rows})
         for key, kind in (("slugs", "slugs"), ("gm_names", "gm_names")):
             for name in d[key]:
-                if q in norm(name):
+                if q in norm(name) and norm(name) not in tied:
                     hits[kind].append({"name": name, "image": img, "owners": d["owners"], "repos": rows})
     for e in absent:
         if q in norm(e["name"]):
@@ -359,12 +386,20 @@ def cmd_find(lay, a):
             print(f"         {rp['gitlab']:<38} {(rp['path'] or '?'):<58} {'on disk' if rp['on_disk'] else 'NOT cloned'}  {rp.get('role','')}")
         if not i["repos"]:
             print("         no repo known — see absent")
-    for p in hits["process_types"]:
-        print(f"type   {p['process_type']:<28} image {p['image']}; owners {', '.join(p['owners']) or '?'}; " + ("; ".join(f"{r['gitlab']} ({'on disk' if r['on_disk'] else 'not cloned'})" for r in p['repos']) or "code unknown"))
+    if hits["services"]:
+        w = lambda k, lo: max([lo] + [len(x.get(k) or "?") for x in hits["services"]])
+        wt, ws, wg, wi = w("process_type", 9), w("slug", 4), w("gm_name", 7), w("image", 5)
+        print(f"{'':<7}{'J2N type':<{wt}}  {'slug':<{ws}}  {'GM name':<{wg}}  {'image':<{wi}}  owners")
+        for x in hits["services"]:
+            f = lambda k: x.get(k) or "?"
+            extra = "" if f("status").startswith("Deployed") else f"   [{f('status')}]"
+            print(f"svc    {f('process_type'):<{wt}}  {f('slug'):<{ws}}  {f('gm_name'):<{wg}}  {f('image'):<{wi}}  {', '.join(x['owners']) or '?'}{extra}")
+            print(f"         code {code_list(x['repos'])}")
+    for pt in hits["process_types"]:
+        print(f"type   {pt['process_type']:<28} image {pt['image']}; owners {', '.join(pt['owners']) or '?'}; no GM service row; {code_list(pt['repos'])}")
     for kind, label in (("slugs", "slug"), ("gm_names", "gm")):
         for h in hits[kind]:
-            code = "; ".join(f"{r['gitlab']} ({'on disk' if r['on_disk'] else 'not cloned'})" for r in h["repos"]) or "code unknown"
-            print(f"{label:<6} {h['name'][:28]:<28} image {h['image']}; owners {', '.join(h['owners']) or '?'}; {code}")
+            print(f"{label:<6} {h['name'][:28]:<28} image {h['image']}; owners {', '.join(h['owners']) or '?'}; no GM service row; {code_list(h['repos'])}")
     for r in hits["remote"]:
         print(f"remote {r['path']:<28} {'on disk' if r['on_disk'] else 'not cloned — `ela clone ' + r['alias'] + '/' + r['path'].split('/', 1)[1] + '`'}  {r['description'][:60]}")
     for e in hits["absent"]:

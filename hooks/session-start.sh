@@ -24,7 +24,7 @@ try:
     s = json.load(open(site))
 except Exception:
     sys.exit(0)
-records = s.get("records", "")
+records = s.get("elak") or s.get("records", "")   # `records` accepted until /ela:setup renames the key
 bp = os.path.join(records, "blueprint")
 print()
 print(f"## Knowledge base: {records}")

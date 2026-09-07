@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Apifox — the API definitions the teams keep in Apifox, read first-hand through its Open API. Read-only, stdlib only.
 
-  projects                          the projects ela knows by name (<records>/map/apis.yaml) and their cache state
+  projects                          the projects ela knows by name (<elak>/map/apis.yaml) and their cache state
   export  <project> [--refresh]     fetch the project's OpenAPI 3.1 document (cached a day under ~/.claude/ela/apifox/)
   tags    <project>                 the tags (folders) and how many operations each carries
   list    <project> [--tag T] [--grep text]   operations: METHOD path · summary · tag
@@ -47,7 +47,7 @@ def site():
 
 
 def known_projects():
-    """<records>/map/apis.yaml → {name: {id, note}}. A small YAML subset: `projects:` then `  name: {id: N, note: …}` or `  name: N`."""
+    """<elak>/map/apis.yaml → {name: {id, note}}. A small YAML subset: `projects:` then `  name: {id: N, note: …}` or `  name: N`."""
     path = os.path.join(site().get("map", ""), "apis.yaml")
     out = {}
     try:
@@ -189,7 +189,7 @@ def cmd_projects(a):
     if a.json:
         print(json.dumps(rows, ensure_ascii=False)); return
     if not rows:
-        print("no projects recorded — add `projects:` entries to <records>/map/apis.yaml (name: {id: N, note: …})"); return
+        print("no projects recorded — add `projects:` entries to <elak>/map/apis.yaml (name: {id: N, note: …})"); return
     for r in rows:
         print(f"{r['name']:<12} {r['id']:<10} {('cached ' + r['cached']) if r['cached'] else 'not fetched':<24} {r['note']}")
 

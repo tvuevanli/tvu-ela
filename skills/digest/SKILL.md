@@ -80,8 +80,9 @@ Owners come from the roster file and `<map>/services.yaml` — read, never remem
 ## 3 — the unticketed findings become drafted tickets
 
 Everything in category 3 (a finding the thread itself says has no ticket), plus any product
-requirement stated in passing — "我们需要改进 MH，对这类输入/输出冲突进行更明确的检测和提示" in an
-investigation thread is a requirement, not a remark — gets one draft each. Nothing is created here.
+requirement stated in passing — an investigation thread that concludes MediaHub must detect a class of
+conflict it does not detect today has stated a requirement, not made a remark — gets one draft each.
+Nothing is created here.
 
 **First, is it a ticket at all?** Three tests, in order, and a no at any of them stops the draft:
 

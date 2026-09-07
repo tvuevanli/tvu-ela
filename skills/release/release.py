@@ -4,7 +4,7 @@ L1: subcommands, --json, stdlib only. No store, no scheduler: every answer is th
 
   bundles  [line] [--host qa|prod]        GM bundles for a line prefix (default mh2.1@), newest first
   bundle   <name|id> [--host qa|prod]     a bundle's bill of materials (serviceTagList)
-  envs     [service] [--host qa|prod]     versions per lane; tag names mapped to lanes by <records>/map/release.yaml hosts
+  envs     [service] [--host qa|prod]     versions per lane; tag names mapped to lanes by <elak>/map/release.yaml hosts
   builds   <job|service> [--limit N]      Jenkins builds: number, version, result, branch, sha, time
   drift    [line] [--bundles N] [--host]  GM service names shipped in the newest N bundles vs map/services.yaml gm_names
   login    [qa|tvu] [--force]             qa: tvutest account login → SID (2h), printed for the env file.
@@ -17,7 +17,7 @@ Hosts. qa = site.json services.userservice-test, account login (TVUTEST_ACCOUNT 
 qa-* lanes. prod = site.json services.userservice, the person's TVU SSO session — `ela login tvu` (decision
 2026-09-04-prod-gm-is-read-through-a-persons-login-at-the-cli): daily-*, stage and prod-N lanes and their bundles.
 A prod read without a live session exits 4 and names the command; nothing is guessed and no cache is read instead.
-Config: <records>/map/release.yaml (service ids per host, tag→lane maps, Jenkins job → service, release lines).
+Config: <elak>/map/release.yaml (service ids per host, tag→lane maps, Jenkins job → service, release lines).
 Exit codes: 0 ok · 2 usage · 3 not found · 4 auth · 5 remote error.
 """
 import argparse, datetime, hashlib, json, os, re, signal, ssl, subprocess, sys, urllib.error, urllib.parse, urllib.request
@@ -34,7 +34,7 @@ LOGIN_HOST, LOGIN_PORT = "ela.tvunetworks.com", 8443
 # ── the release map (a YAML subset: nested maps by indentation, inline JSON, lists of maps) ──────────
 
 def _yaml_subset(text):
-    """Parse the subset of YAML that <records>/map/release.yaml is written in: two-space nested maps, `key: value`
+    """Parse the subset of YAML that <elak>/map/release.yaml is written in: two-space nested maps, `key: value`
     with the value tried as JSON first, `key:` opening a nested block, `- key: value` lists of maps, `- scalar`
     lists, and an indented line without a key continuing the previous scalar. Comments start at ` #`."""
     lines = []
@@ -111,7 +111,7 @@ def _yaml_subset(text):
 
 
 def _release_map():
-    """<records>/map/release.yaml — world facts about the version system; site.json `map` points at the directory."""
+    """<elak>/map/release.yaml — world facts about the version system; site.json `map` points at the directory."""
     path = os.path.join(site().get("map", ""), "release.yaml")
     try:
         text = open(path).read()

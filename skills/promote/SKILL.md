@@ -14,7 +14,7 @@ $P report 2.1 qa daily --purpose prod-staging --bundles --out <runtime>/promote 
 $P lanes|commits|tickets|evidence|bundles 2.1 qa daily                            # one step at a time when arguing with a finding
 # Progress goes to stderr one line per step (--quiet to silence); the JSON contract is what the session reads.
 ```
-`<line>` is a key of `<records>/map/release.yaml lines`; `<from>`/`<to>` are lane roles (qa · daily · prod) or lane
+`<line>` is a key of `<elak>/map/release.yaml lines`; `<from>`/`<to>` are lane roles (qa · daily · prod) or lane
 names. Exit 3 means a lane could not be read — for daily/stage/prod that is the person's TVU session: tell Evan
 to type `! ela login tvu` and stop; never read a cache or another system's file instead.
 
@@ -46,8 +46,8 @@ to type `! ela login tvu` and stop; never read a cache or another system's file 
 | to-lane is `prod` | `prod-staging` plus: the daily thread's open points must be closed in that thread; the bundle diff is mandatory (`--bundles`); the PM's approval mail is located (`mail search`) |
 
 ## 1 — run, then read the findings with the map in hand
-For each high/medium finding, say what a failure would touch: `<records>/map/services.yaml` (which image serves
-which process type, who owns it), `<records>/map/release.yaml trains` (concurrent lines where numbers lie), and
+For each high/medium finding, say what a failure would touch: `<elak>/map/services.yaml` (which image serves
+which process type, who owns it), `<elak>/map/release.yaml trains` (concurrent lines where numbers lie), and
 the reach of the changed service itself, derived from the code rather than asserted:
 
 ```bash
@@ -71,9 +71,12 @@ That reach, plus the lane's docker pin, is the risk sentence — not the commit 
    body into the thread; two sends, two confirms.
 3. **Jira backfills as dry runs** — `jira label <key> --add release:mh-<line>`, a `jira comment` proposing the
    Fixed In value with its evidence — never `--apply` without his word per key.
-4. **The record** — on his word: the report markdown into `<records>/records/promotions/<date>-mh<line>-<from>-<to>.md`
-   with a header stating what was posted, what moved after, what the run could not read. The JSON stays in
-   `<runtime>` (it carries quoted words; a record names the origin, not the utterance).
+4. **What is kept** — the facts belong to the promotion thread, which is where they were posted and where
+   the decisions follow them; do not write a second copy. Into `<elak>/blueprint/` goes only what the run
+   established about **ela** — a parity result, a capability that now holds — with the thread permalink.
+   The report markdown and JSON stay in `<runtime>` and are disposable (decision
+   `2026-09-07-elak-is-elas-knowledge`; the JSON also carries quoted words, and a tracked file names the
+   origin, never the utterance).
 
 ## 3 — after the thread
 When he has replied with the decisions and deploy has happened, `report` again with the same arguments: the

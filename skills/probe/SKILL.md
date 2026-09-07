@@ -25,7 +25,7 @@ draft until Evan says post.
   agent with specific questions; the synthesis, the product reading and the drafts stay here.
 
 ## 0 — bind
-Read `~/.claude/ela/site.json` → `env`, `map`, `records`, `map_sources.team_roster`.
+Read `~/.claude/ela/site.json` → `env`, `map`, `elak`, `map_sources.team_roster`.
 ```bash
 JIRA="python3 ${CLAUDE_PLUGIN_ROOT}/skills/jira/jira.py --env-file <env>"
 GRAPH="python3 ${CLAUDE_PLUGIN_ROOT}/skills/graph/graph.py --env-file <env>"
@@ -66,9 +66,11 @@ Write, in this shape:
   not obvious.
 
 ## 4 — record and draft
-- Record: `records/<date>-probe-<key>.md` in the knowledge base with the conclusion and its
-  paths — Evan says "记下来". The agentic-observability `investigation-*.md` files are the format
-  precedent.
+- Record what the probe **established**, not that it ran: the conclusion and its paths go where the
+  knowledge base's placement test sends them (`2026-09-07-elak-is-elas-knowledge`) — a platform
+  finding to `knowledge/platform/<component>/`, an ela finding to `blueprint/`. A dated file of "what
+  the probe did" is a diary and is not kept; the agentic-observability `investigation-*.md` files are
+  a format precedent for the write-up, not a licence to keep the run.
 - Drafts, each ≤ 8 lines, each a separate confirm: one for the reporter/product (what happens and
   what they can do now, no code), one for the owner (the mechanism, file:line, the question to
   decide). `$JIRA comment <key> --text …` shows the dry-run; `--apply` only after Evan's word.

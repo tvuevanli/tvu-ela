@@ -27,10 +27,10 @@ Target shape:
   "work":     "<projects>/.ela/work — one task, one dir: work/<KEY>/<repo> worktrees (or symlinks to a stack's own place); under <runtime>, so removable at close",
   "runtime":  "<projects>/.ela      — transient working state: nothing here is a record; the whole tree can be deleted when no task is open and nothing is lost",
   "lab":      "<projects>/lab      — experiments without an upstream owner",
-  "records":  "<elak repo>",
+  "elak":     "<elak repo>",
   "published": "<projects>/elak-published — what elak publishes for machines to read (Helm's knowledge root, the map subset); not a repo, regenerated; on the remote the same name under its projects root, and `records`/`map` point into it",
   "site":     "<local | remote — remote: no intranet hosts/services, public-source credentials only, records is the published subset>",
-  "map":      "<records>/map        — services.yaml · absent.yaml (knowledge); the disk survey is a cache at ~/.claude/ela/map/host.json",
+  "map":      "<elak>/map        — services.yaml · absent.yaml (knowledge); the disk survey is a cache at ~/.claude/ela/map/host.json",
   "env":      "~/.claude/ela/.env",
   "hosts":    { "<name>": { "url": "<git host url>", "matches": ["<hostnames as they appear in remotes>"], "api": "<http root of the GitLab API, optional>", "token_env": "<.env key holding a read_api token, optional — enables `map.py remote`>" } },
   "aliases":  { "<alias>": { "host": "<hosts key>", "group": "<gitlab group or * for a github org root>" } },
@@ -49,7 +49,7 @@ Target shape:
 
 For each key: if the file exists, check the path resolves (`test -e`). If it does not, look for the
 obvious candidate under `projects` (same basename) and **propose** it — Evan confirms before you
-write. `records` missing on disk → offer to `git init` it with the layout in its README. Never
+write. `elak` missing on disk → offer to `git init` it with the layout in its README. Never
 invent a path.
 
 ## 2. .env — credentials
@@ -64,7 +64,7 @@ Keys and where each comes from when absent:
 | `TVU_OBJECT_SERVICE_HOST` `TVU_CC_BEARER_TOKEN` | Object Service host + a CC bearer token from a logged-in session |
 | `FIGMA_TOKEN` | Figma → Settings → Security → Personal access tokens (read scope) |
 | `GITLAB_MEDIA_TOKEN` `GITLAB_WEB_TOKEN` | each GitLab → Preferences → Access Tokens, scope `read_api` only; named by `token_env` in `site.json hosts` — lets `map.py remote` list a whole group |
-| `APIFOX_TOKEN` | Apifox → account settings → personal access token (read); lets `apifox.py` export a project's OpenAPI document. Project ids by name in `<records>/map/apis.yaml` |
+| `APIFOX_TOKEN` | Apifox → account settings → personal access token (read); lets `apifox.py` export a project's OpenAPI document. Project ids by name in `<elak>/map/apis.yaml` |
 | `CONFLUENCE_TOKEN` | the web team's Confluence → profile → Personal Access Tokens (read); the host URL goes in `site.json services.confluence.url` |
 | `GOOGLE_TOKEN_FILE` | path to a Google OAuth token JSON with read-only scopes (documents.readonly, drive.readonly) — Helm's grant copied once into the site dir, mode 600 |
 | `UR_ACCESS_KEY` | UR access key — a JSON blob, copied verbatim on one line; `UR_BASE_HOST` (optional, default UR host) and `UR_ENV_ORDER` (optional comma list overriding the probe order `prod3,prod2,test2`) |

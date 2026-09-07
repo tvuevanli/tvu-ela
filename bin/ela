@@ -12,7 +12,7 @@
   ela object <id>           object or tangible
   ela stream probe <url>    what a stream carries: PMT · PCR · PID table · codec (m3u8 · .ts · srt:// · udp://)
   ela stream diff <a> <b>   two streams, field by field
-  ela find <name>           repos, images, process types, slugs, GM names matching   ela coverage
+  ela find <name>           repos, images, services (J2N type · slug · GM name, tied) matching   ela coverage
   ela where <alias/path|repo|slug|image>   the checkout path(s)   ela probe <alias/path>…   ela clone <alias/path>   ela sync <repo> [--ref R]
   ela worktree <repo> <KEY> ela survey                ela missing               ela services
   ela remote <alias> [grep]  every project of that GitLab group (read token); ● on disk ○ not cloned
@@ -106,7 +106,7 @@ def by_shape(token):
 
 def show_env(s):
     print(f"projects  {s.get('projects')}")
-    for k in ("code", "work", "lab", "records", "map", "env"):
+    for k in ("code", "work", "lab", "elak", "map", "env"):
         print(f"{k:<9} {s.get(k) or '(default)'}")
     print("hosts     " + ", ".join(s.get("hosts", {})) )
     print("aliases   " + ", ".join(f"{k}→{v.get('host','?')}/{v.get('group','')}" for k, v in s.get("aliases", {}).items()))

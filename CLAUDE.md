@@ -12,7 +12,7 @@ owners, track it, and — when Evan implements something himself — do so under
 rules. **Capabilities first; personas only where a tool restriction or isolation demands one.**
 
 Scope follows **responsibility, not product**. MediaHub is the origin and centre of gravity, never
-the boundary. The gate is the map: ela works in an area once that area is in `<records>/map/` with a
+the boundary. The gate is the map: ela works in an area once that area is in `<elak>/map/` with a
 governance shape.
 
 **Presence is not enrollment** (decision `2026-09-03-presence-is-the-machine-enrollment-is-evans-job`).
@@ -32,7 +32,7 @@ or wrote lives in `elak`. The dividing rule:
 **The rule, not the argument.** A tracked file states the rule in force, why it holds, and what a
 maintainer must not break. It does not carry the deliberation behind it, a session's back-and-forth,
 or anyone's own words: a document that argues with itself ages badly, and a retelling drifts from the
-record it retells. The deliberation lives in `<records>/blueprint/decisions/` and is cited by filename —
+record it retells. The deliberation lives in `<elak>/blueprint/decisions/` and is cited by filename —
 one line, never a retelling. **Commit subjects and bodies hold the same line:** what changed and why
 the code needed it. (A widening of elak's `2026-09-03-records-name-the-origin-not-the-utterance` to
 this repo, to Helm and to `<published>`; decision `2026-09-03-tracked-files-carry-the-rule-not-the-argument`.)
@@ -125,10 +125,10 @@ re-implementations.
 | What | Where | Notes |
 |---|---|---|
 | definitions | `<projects>/ela` — installed as plugin `ela@ela` from a directory marketplace | install is a **cached copy**, refreshed only on a version change: bump `plugin.json` then `/plugin update ela` (or `claude plugin update ela`) |
-| knowledge base | `<records>` = `<projects>/elak` (git, never a plugin) | `blueprint/` — ela + Helm goals, decisions, status · `knowledge/` — the canonical knowledge · `records/` — breakdowns, ledger, dated records · `map/` |
-| site dir | `~/.claude/ela/` — `site.json` (the roots: `projects`, and by default `<projects>/code`, `/lab`, `/elak`, `/elak-published`, `/.ela`; git `hosts`; aliases) and `.env` (credentials, mode 600) | never committed anywhere. **Tracked files write roots by name — `<projects>`, `<code>`, `<work>`, `<records>`, `<runtime>` — never a machine path or a host address** |
+| knowledge base | `<elak>` = `<projects>/elak` (git, never a plugin) | **elak is ela's knowledge** — three directories, one subject (decision `2026-09-07-elak-is-elas-knowledge`): `blueprint/` — what ela knows about itself and Helm (target, decisions, status, misses, gate evidence) · `knowledge/` — what it knows about the world, written · `map/` — the same, generated, plus the publication manifests. **A log of what happened is not knowledge**; there is no diary directory and no sixth root |
+| site dir | `~/.claude/ela/` — `site.json` (the roots: `projects`, and by default `<projects>/code`, `/lab`, `/elak`, `/elak-published`, `/.ela`; git `hosts`; aliases) and `.env` (credentials, mode 600) | never committed anywhere. **Tracked files write roots by name — `<projects>`, `<code>`, `<work>`, `<elak>`, `<runtime>` — never a machine path or a host address** |
 | code | `<code>/<alias>/<remote path>` — every checkout that is not Evan's, placed by its remote; aliases and git hosts only in `site.json` | never edited in place; `map.py` clones, syncs, surveys |
-| runtime | `<runtime>` = `<projects>/.ela` — transient working state | **nothing here is a record**: the whole tree can be deleted when no task is open and nothing is lost. Anything one would hesitate to delete belongs in elak (a record), Helm's `data/` (app state), or nowhere |
+| runtime | `<runtime>` = `<projects>/.ela` — transient working state, and the only place raw material goes (`slack files`, `jira files`, `promote --out`, `arch --out`, a breakdown draft, `<work>`) | **nothing here is knowledge**: the whole tree can be deleted when no task is open and nothing is lost. Its deletability is its contract — what was learned must be carried out before the work closes. Anything one would hesitate to delete belongs in elak (as knowledge), Helm's `data/` (app state), or nowhere |
 | work | `<work>` = `<runtime>/work/<KEY>/<repo>` — one task, one directory of worktrees (a symlink when a team stack needs the worktree beside the repo) | where code changes happen; removed at close (moved under `<runtime>` 2026-09-03 while empty) |
 | lab | `<lab>/` — experiments without an upstream owner | |
 | `<projects>` itself | **Evan's directory, not ela's namespace.** ela is one tenant; its footprint is exactly the roots named in `site.json` | `others/`, `prototypes/`, `archive/`, `helm-backups/` (Helm's own `BACKUPS_DIR` default) are out of scope: not organised, not surveyed into the layout, not ruled on |
@@ -154,7 +154,7 @@ written locally unless he says so; nothing is synced.
 | `skills/breakdown` | requirement → layer-tagged lanes with owners; two depths — *knowledge* (docs/KB/map only) or *code* (plus the relevant services' source via a read-only analyst); produces a plan, publishes only on confirm | 3 |
 | `skills/brief` | Evan's queue: blocked, stale, unrouted — against the two cadence KPIs | 4 |
 | `agents/` | roster — created when the first agent is needed; every `.md` in it is loaded as an agent, so no README lives there (rule in `ROADMAP.md`) | 3+ |
-| `hooks/` `context/` | SessionStart injection — `context/evan.md`, the latest blueprint decisions and status, and the cwd's mapped area with its governance; SessionEnd snapshots the knowledge base; PreToolUse guards location — no edit under `<published>`, none in ela/helm from a session started elsewhere, none under a remote site's records. Its only write is that snapshot; this is how ela knows Evan in any directory | 1 |
+| `hooks/` `context/` | SessionStart injection — `context/evan.md`, the latest blueprint decisions and status, and the cwd's mapped area with its governance; SessionEnd snapshots the knowledge base; PreToolUse guards **place and content** — no edit under `<published>`, none in ela/helm from a session started elsewhere, none under a remote site's elak, none under `<elak>` outside its three directories, and none whose text quotes a person's own words. Its only write is that snapshot; this is how ela knows Evan in any directory | 1 |
 | `policy/` | portable guards; full protocols once phases need them | 4–5 |
 
 ## Hard rules
@@ -168,11 +168,15 @@ written locally unless he says so; nothing is synced.
    time; propose the commit list before committing. Direction changes go to
    `elak/blueprint/decisions/`, not into history — one decision per file; a change of mind
    is a new file that supersedes the old one, never an edit.
-7. **Two absolutes, no gray zone.** Everything in elak is a record (its SessionEnd snapshot commits and
-   pushes the whole tree, so a "temporary" file there is permanent); nothing in `<runtime>` is a record.
-   A `.gitignore` is repo hygiene only (`__pycache__`, editor cruft, `out/`) — never the mechanism for
-   keeping a foreign concern out of a repo; placement is (decision
-   `2026-09-03-elak-holds-only-records-runtime-holds-none`).
+7. **elak is ela's knowledge; the runtime holds none.** Two questions place anything (decision
+   `2026-09-07-elak-is-elas-knowledge`): does ela **know** this — about itself → `blueprint/`, about the
+   world → `map/` if a script derives it, `knowledge/` if it is a reading — or did it merely **happen**,
+   in which case it is not knowledge: cite the source (a permalink, a ticket key, a commit) and keep no
+   file. A dated work product is regenerated or cited, never stored "in case". elak's SessionEnd
+   snapshot commits and pushes the whole tree, so anything written there is permanent, which is why
+   `hooks/guard-location.sh` **enforces** this rather than advising it. A `.gitignore` is repo hygiene
+   only (`__pycache__`, editor cruft, `out/`) — never the mechanism for keeping a foreign concern out of
+   a repo; placement is.
 
 ## Gate — how ela handles Evan's asks
 
@@ -199,7 +203,7 @@ Where a display name next to an avatar is needed — the Slack bot — it is **E
 (repo, plugin, `ela:*`, site dir, config keys) and every in-sentence mention stays `ela`. Describe
 Evan's responsibility, never a title.
 
-The knowledge base is **`elak`** — the directory `<projects>/elak`, root `<records>`, and the word Evan uses for it;
+The knowledge base is **`elak`** — the directory `<projects>/elak`, root `<elak>`, and the word Evan uses for it;
 the git remote keeps its longer name (`tvu-ela-knowledge`, recorded nowhere but the site). Renamed from
 `ela-knowledge` on 2026-09-03 (decision `2026-09-03-knowledge-directory-named-elak`). Every command starts with `ela`: one plugin today (`/ela:*`); if a shareable subset is ever split
 out, the second plugin is `ela-<subset>` (`/ela-senses:*`) in the same marketplace — never a bare name.

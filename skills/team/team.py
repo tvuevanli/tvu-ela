@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """team — the MediaHub roster, first-hand: who a name, email, Slack id or Jira account is.
 
-L1 capability, stdlib only. Source: `<records>/knowledge/people/` — `people.yaml` (identity only) joined to `responsibilities.yaml`
+L1 capability, stdlib only. Source: `<elak>/knowledge/people/` — `people.yaml` (identity only) joined to `responsibilities.yaml`
 (what each person is responsible for; a person holds several) by email. Nothing here guesses: a query that matches no
 roster entry returns exit 3 and says so, and `check` re-reads Slack to confirm the roster is still true.
 
@@ -32,9 +32,9 @@ def site():
 
 
 def records():
-    rec = site().get("records")
+    rec = site().get("elak") or site().get("records")   # old key accepted until /ela:setup renames it
     if not rec:
-        print("site.json needs `records`", file=sys.stderr); sys.exit(EX_USAGE)
+        print("site.json needs `elak` (or the old `records`)", file=sys.stderr); sys.exit(EX_USAGE)
     return rec
 
 

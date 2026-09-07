@@ -11,7 +11,7 @@ Self-contained. Argument: a Slack thread permalink, or a graph id plus the sympt
 
 ## Invariants
 - **The registry is the only source of who can answer what.**
-  `<records>/knowledge/products/mediahub/team/agents.yaml`. A handle that is not there, or a row whose
+  `<elak>/knowledge/products/mediahub/team/agents.yaml`. A handle that is not there, or a row whose
   `charter` is `unknown`, is **never addressed** — the same rule the roster carries for people.
   `charter` is the owner's assertion and this skill never edits it; `coverage` it may update, dated.
 - **Verify the question is in charter before spending someone else's agent.** The check is first-hand
@@ -33,7 +33,7 @@ Self-contained. Argument: a Slack thread permalink, or a graph id plus the sympt
 ```bash
 S="python3 ${CLAUDE_PLUGIN_ROOT}/skills/slack/slack.py --env-file <env>"
 G="python3 ${CLAUDE_PLUGIN_ROOT}/skills/graph/graph.py --env-file <env>"
-REG=<records>/knowledge/products/mediahub/team/agents.yaml
+REG=<elak>/knowledge/products/mediahub/team/agents.yaml
 ```
 From a permalink: `$S read <permalink>` — take the ids and the symptom from the thread, not from Evan's
 paraphrase of it. Extract: graph id (`01` + 24 chars), process id (32 hex), an environment word, and
@@ -105,7 +105,11 @@ If there is nothing to add, write `无补充,可直接采信`. That is a valid o
 than a manufactured paragraph.
 
 ## 6 — record
-Append one row to `<records>/records/agents/observations.jsonl` in the shape its README fixes:
+Carry what the exchange established into `<elak>/knowledge/products/mediahub/team/agents.yaml` —
+the `coverage` block, with a `verified:` date, since observation may update coverage but only propose a
+charter change. An append-only log of every ask is a diary and is not kept (decision
+`2026-09-07-elak-is-elas-knowledge`); the exchange itself is cited by its thread permalink. The fields
+to carry:
 `at · agent · thread · asked · trigger · rejected · outcome · in_scope · seconds · coverage_note`.
 `in_scope: false` is a misroute — the number that gets counted. A coverage fact the reply revealed
 (a window that moved, a new gap) also updates `coverage` in the registry, with the date; a reply that

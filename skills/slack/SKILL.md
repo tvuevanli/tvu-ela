@@ -70,4 +70,4 @@ reaction; none is to be added silently.
 A Slack thread is a dated conversation; a knowledge base holds what is currently
 true. Do not paste transcripts into the knowledge base. Extract the durable
 claim, state it as fact, record source + date + author, and mark anything still
-unsettled as open. The conventions are those of `<records>/knowledge/`.
+unsettled as open. The conventions are those of `<elak>/knowledge/`.

@@ -19,7 +19,7 @@ framing is first-class input — it often carries the decision the sources lack.
   question, record the answer signed and dated (`— Evan YYYY-MM-DD`). Never decide for him, never
   leave one implicit in a lane.
 - **The plan is the deliverable; Jira is a publication.** This skill writes only
-  `<records>/records/breakdowns/<KEY>/plan.md`. It never touches a product repo, and creates Jira
+  `<runtime>/breakdowns/<KEY>/plan.md` — a draft, until Jira carries it. It never touches a product repo, and creates Jira
   subtasks only through §5's gate.
 - **Owners are read, not remembered.** Token → owner from the roster file at run time; repo → owner
   from the map. A missing owner is `unknown`, never a guess.
@@ -28,7 +28,7 @@ framing is first-class input — it often carries the decision the sources lack.
   (The jira capability enforces this again at create time; matching it here avoids a bounce.)
 
 ## 0 — gather
-Read `~/.claude/ela/site.json` (`env`, `map`, `records`, `map_sources.team_roster`). Then:
+Read `~/.claude/ela/site.json` (`env`, `map`, `elak`, `map_sources.team_roster`). Then:
 
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/skills/jira/jira.py"  --env-file <env> read <KEY> --deep   # per key
@@ -66,7 +66,10 @@ cites the files read (the analyst returns them; keep the list in the plan direct
 
 ## 4 — the plan lands
 
-`<records>/records/breakdowns/<KEY>/plan.md`, committed to elak:
+`<runtime>/breakdowns/<KEY>/plan.md` — **a draft, not a record**. Jira is the published form and the
+only durable one; what the breakdown established about the system (a dependency, a boundary, an owner
+gap) goes to `<elak>/knowledge/` as a fact, and the plan itself is not kept (decision
+`2026-09-07-elak-is-elas-knowledge`):
 
 ```markdown
 ---
