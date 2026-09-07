@@ -32,7 +32,13 @@ def site():
 
 
 def records():
-    rec = site().get("elak") or site().get("records")   # old key accepted until /ela:setup renames it
+    """The root the roster is READ from: the published tree when it holds one (the office machine after
+    `ela publish roster`, and every remote site), else the private root. Writes go to <elak> through publish."""
+    s = site()
+    pub = s.get("published")
+    if pub and os.path.isfile(os.path.join(pub, PEOPLE_REL)):
+        return pub
+    rec = s.get("elak") or s.get("records")   # old key accepted until /ela:setup renames it
     if not rec:
         print("site.json needs `elak` (or the old `records`)", file=sys.stderr); sys.exit(EX_USAGE)
     return rec

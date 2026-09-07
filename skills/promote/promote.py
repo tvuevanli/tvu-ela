@@ -415,7 +415,7 @@ def load_roster():
     _sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "team"))
     try:
         import team as _team  # noqa: E402 — the roster reader, same plugin
-        return _team.read_roster(R.site().get("elak") or R.site().get("records") or "")[1]
+        return _team.read_roster(_team.records())[1]
     except SystemExit:
         return []
 

@@ -560,7 +560,7 @@ def cmd_render(a):
         print(f"%% {summary}")
 
 def main():
-    d = os.path.join(site().get("map", ""), "dependencies.yaml")
+    d = os.path.join(site().get("map_source") or site().get("map", ""), "dependencies.yaml")   # written to the source; reads go through the published copy
     ap = argparse.ArgumentParser(description="what the app layer calls — derived from the code at a ref")
     ap.add_argument("--file", default=d)
     sub = ap.add_subparsers(dest="cmd", required=True)
