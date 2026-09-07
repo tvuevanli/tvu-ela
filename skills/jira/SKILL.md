@@ -34,6 +34,18 @@ and every comment.
 - `--no-comments` — identity + description only; good for bulk reads.
 - `--json` — raw fields + comments as one JSON object, for machine callers.
 
+Attachments print with their **id**, because that is what downloads them.
+
+## files
+
+`files <KEY> [--id <attachment id>] [--out DIR]` writes the issue's attachments to disk
+(`<runtime>/jira-files` by default) and prints the paths.
+
+A filename in a list is not evidence. QA attaches the thing the ticket is about — a crash
+archive with a minidump, a screenshot of the wrong FPS, a log with the failing id — and a
+conclusion drawn without opening it is a conclusion about the summary, not about the bug. Fetch
+it, then read it. Nothing is sent anywhere; the download is local and `<runtime>` holds no records.
+
 ## jql
 
 Key / status / assignee / summary rows. `--limit N` (default 50), `--json`.

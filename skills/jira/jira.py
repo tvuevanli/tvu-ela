@@ -7,6 +7,7 @@ Credentials are site state resolved from the environment or an env file.
 
 Usage:
     jira.py read MH-3454 [--deep] [--no-comments] [--json]
+    jira.py files MH-3454 [--id <attachment id>] [--out DIR]   # a tester's screenshot, on disk
     jira.py read https://tvunetworks.atlassian.net/browse/MH-3454
     jira.py jql 'project=MH AND text ~ "CSC"' [--limit 50] [--json]
     jira.py create-subtask --parent MH-3513 --summary '[App] ...' \
@@ -313,8 +314,9 @@ def print_issue(creds, key, deep=False, comments=True, seen=None):
     if atts:
         print("\n--- attachments ---")
         for a in atts:
-            print(f"  {a.get('filename')}  ({a.get('size')} B, "
+            print(f"  {a.get('id'):<10} {a.get('filename')}  ({a.get('size')} B, "
                   f"{short_date(a.get('created'))}, {name_of(a.get('author'))})")
+        print(f"  # download: jira.py files {key} [--id <id>] [--out DIR]")
 
     if comments:
         cs = fetch_comments(creds, key)
@@ -345,6 +347,63 @@ def extract_key(target):
     if not m:
         sys.exit(f"cannot find an issue key in {target!r}")
     return m.group(1)
+
+
+def default_out_dir():
+    """Downloads are working state: <runtime> when the site names one, and nothing there is a record."""
+    try:
+        with open(os.path.expanduser("~/.claude/ela/site.json")) as fh:
+            s = json.load(fh)
+        root = s.get("runtime") or (s.get("projects") and os.path.join(s["projects"], ".ela"))
+        if root:
+            return os.path.join(root, "jira-files")
+    except (OSError, ValueError):
+        pass
+    return os.path.join(os.getcwd(), "jira-files")
+
+
+def cmd_files(creds, args):
+    """Download an issue's attachments. A tester's screenshot is usually the whole evidence, and a
+    filename in a list is not evidence. Writes to disk only; nothing is sent anywhere."""
+    key = extract_key(args.target)
+    data = api_get(creds, f"/rest/api/3/issue/{key}", {"fields": "attachment"})
+    atts = ((data.get("fields") or {}).get("attachment")) or []
+    if args.id:
+        atts = [a for a in atts if str(a.get("id")) == str(args.id)]
+    out = os.path.abspath(args.out or default_out_dir())
+    os.makedirs(out, exist_ok=True)
+    token = base64.b64encode(f'{creds["JIRA_EMAIL"]}:{creds["JIRA_TOKEN"]}'.encode()).decode()
+    got, skipped = [], []
+    for a in atts:
+        url = a.get("content")
+        if not url:
+            skipped.append({"id": a.get("id"), "filename": a.get("filename"), "why": "no content url"}); continue
+        name = f"{a.get('id')}-{re.sub(r'[^A-Za-z0-9._-]+', '_', a.get('filename') or 'file')}"
+        path = os.path.join(out, name)
+        req = urllib.request.Request(url, headers={"Authorization": f"Basic {token}"})
+        try:
+            with urllib.request.urlopen(req, timeout=120) as resp, open(path, "wb") as fh:
+                while True:
+                    chunk = resp.read(65536)
+                    if not chunk:
+                        break
+                    fh.write(chunk)
+        except (urllib.error.HTTPError, urllib.error.URLError, OSError) as exc:
+            skipped.append({"id": a.get("id"), "filename": a.get("filename"), "why": repr(exc)}); continue
+        got.append({"id": a.get("id"), "filename": a.get("filename"), "mime": a.get("mimeType"),
+                    "bytes": os.path.getsize(path), "path": path, "author": name_of(a.get("author")),
+                    "created": a.get("created")})
+    if args.json:
+        print(json.dumps({"key": key, "out": out, "count": len(got), "files": got, "skipped": skipped},
+                         ensure_ascii=False))
+        return
+    for g in got:
+        print(f"{g['path']}  ({g['mime']}, {g['bytes']} B, by {g['author']})")
+    for s in skipped:
+        print(f"skipped {s['filename']}: {s['why']}", file=sys.stderr)
+    if not got:
+        print(f"{key} has no attachment" + (f" with id {args.id}" if args.id else ""), file=sys.stderr)
+        sys.exit(2 if not skipped else 1)
 
 
 def cmd_read(creds, args):
@@ -783,6 +842,13 @@ def main():
     p.add_argument("--no-comments", action="store_true")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_read)
+
+    p = sub.add_parser("files", help="download an issue's attachments — a screenshot is the evidence")
+    p.add_argument("target", help="issue key or browse URL")
+    p.add_argument("--id", help="one attachment id, as printed by `read`")
+    p.add_argument("--out", help="directory (default <runtime>/jira-files)")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_files)
 
     p = sub.add_parser("jql", help="search; key/status/assignee/summary rows")
     p.add_argument("jql")

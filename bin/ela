@@ -6,8 +6,9 @@
   ela graph <id> [-d] [-c]  node table in pipeline order; -d box location/id + image, -c connections (env read from the data)
   ela process <id>          one process's live record          ela box <id> [-d]  (-d: who holds which port, orphans flagged)
   ela graphs [me|li|email]  a user's graphs (default: me)      ela resolve <id> [--email …]
-  ela jira <read|jql|comment|transition|label|link|assign|create|create-subtask> …
-  ela slack <read|channels|history|mentions|unanswered|whoami|users|post> …   (post: dry run until --apply; a permalink replies in-thread)
+  ela jira <read|files|jql|comment|transition|label|link|assign|create|create-subtask> …   (files: attachments to disk)
+  ela slack <read|files|channels|history|mentions|unanswered|whoami|users|post> …   (files: a thread's images to disk;
+                            channels --all: every public channel, joined or not; post: dry run until --apply, a permalink replies in-thread)
   ela object <id>           object or tangible
   ela stream probe <url>    what a stream carries: PMT · PCR · PID table · codec (m3u8 · .ts · srt:// · udp://)
   ela stream diff <a> <b>   two streams, field by field

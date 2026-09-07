@@ -1,6 +1,6 @@
 ---
 name: slack
-description: Slack capability — a thread by permalink, the channels the bot can see, a channel's recent history, threads that mention Evan and whether he answered, threads he started that nobody answered, the workspace's members with their emails (`users` — the first-hand source for any roster); and one write, post (dry run until --apply). Use when the user pastes a Slack link (tvunetworks.slack.com/archives/...), asks what a thread says, asks "who is waiting on me in Slack", "最近谁 @ 我了", "这个频道昨天说了什么", or asks to send a message or reply in a thread ("回一下这个 thread", "发到 prj_dev_mediahub").
+description: Slack capability — a thread by permalink, its files on disk, the channels the bot is in and every public channel of the workspace, a channel's recent history, threads that mention Evan and whether he answered, threads he started that nobody answered, the workspace's members with their emails (`users` — the first-hand source for any roster); and one write, post (dry run until --apply). Use when the user pastes a Slack link (tvunetworks.slack.com/archives/...), asks what a thread says, asks "who is waiting on me in Slack", "最近谁 @ 我了", "这个频道昨天说了什么", or asks to send a message or reply in a thread ("回一下这个 thread", "发到 prj_dev_mediahub").
 user-invocable: true
 ---
 
@@ -8,11 +8,14 @@ user-invocable: true
 
 ```bash
 SLACK="python3 ${CLAUDE_PLUGIN_ROOT}/skills/slack/slack.py --env-file <env>"
-$SLACK read <permalink>                 # root message and every reply, real names resolved
-$SLACK channels                         # channels the bot is a member of — DMs are never visible
-$SLACK history <channel> --since 24h    # top-level messages; --threads adds replies; channel = id or #name
-$SLACK mentions --since 48h --channels '#prj_dev_mediahub,#dev-unified-resources,#boundary-agent-integration'   # who mentioned Evan; answered = he replied after the last mention
-$SLACK unanswered --since 7d --channels '#prj_dev_mediahub'       # threads Evan started that nobody else replied to
+$SLACK read <permalink>                 # root message and every reply, real names resolved; files listed with ids
+$SLACK files <permalink> [--thread]     # download those files — a screenshot is evidence, a filename is not
+$SLACK channels [match]                 # channels the bot is a member of — DMs are never visible
+$SLACK channels --all [match]           # every public channel of the workspace, ● joined / ○ not (channels:read)
+$SLACK join <#name|id>                  # join a public channel — visible to the channel, so only on Evan's word
+$SLACK history <channel> --since 24h    # top-level messages; --threads adds replies; --humans drops bots
+$SLACK mentions --since 48h             # who mentioned Evan; answered = he replied after the last mention
+$SLACK unanswered --since 7d            # threads Evan started that nobody else replied to
 $SLACK whoami                           # Evan's user id, from JIRA_EMAIL in the env file
 $SLACK users [match]                    # workspace members — id, name, email, title (first-hand, users.list; the whole workspace incl. Slack Connect guests, about a minute)
 $SLACK post <permalink> --file reply.md            # DRY RUN: shows where, as whom, and the text; nothing is sent
@@ -21,8 +24,19 @@ $SLACK post '#prj_dev_mediahub' --text "…"         # top level in a channel; -
 ```
 
 Every subcommand takes `--json`. `--since` is `48h`, `7d` or `YYYY-MM-DD`. Exit codes: 0 ok · 2 usage ·
-4 auth · 5 remote error. Scans cost one call per thread that was active in the window, so pass
-`--channels` — Evan's own channels — unless he asks for a full sweep (minutes, 13 channels).
+4 auth · 5 remote error. Scans cost one call per thread active in the window, so `--channels` makes a
+run cheaper — but it is no longer what keeps one alive: a channel that will not come down whole is
+named in `unread_channels` and the rest are still reported. Whatever `--channels` excludes was not
+read, and any answer built on the run must say so.
+
+## Two limits worth knowing before answering
+
+- **Reach.** The bot is in 14 of the workspace's 2508 public channels. `channels --all <word>` finds
+  the rest — several customers in the open incident pile have their own channel — and joining is
+  Evan's call, never automatic, because the channel sees it. A `channel_not_found` now says which
+  case it is: public and unjoined (with the join command), or private (a member must invite the bot).
+- **Response size.** A large body truncates on this link, so pages back off to a smaller size at the
+  same cursor. If a listing still fails, that is reported, not swallowed.
 
 ## Credentials
 
