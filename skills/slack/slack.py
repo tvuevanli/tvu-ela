@@ -44,6 +44,35 @@ def token(env_file=None):
     return t
 
 
+def raw(method, tok, **params):
+    """One Slack call, no retries, no exit — for probing before we can advise. Returns the payload."""
+    url = API + method + "?" + urllib.parse.urlencode(params)
+    req = urllib.request.Request(url, headers={"Authorization": f"Bearer {tok}"})
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            return json.load(r)
+    except Exception as e:
+        return {"ok": False, "error": repr(e)}
+
+
+def not_in_channel_hint(tok, ch):
+    """not_in_channel is a membership problem, not a failure: say which channel and what fixes it."""
+    d = raw("conversations.info", tok, channel=ch)
+    c = d.get("channel") or {}
+    name = c.get("name")
+    where = f"#{name} ({ch})" if name else ch
+    if not d.get("ok"):
+        return (f"the bot is not in {where}, and its metadata is not readable either.\n"
+                f"  Ask someone in the channel to invite the bot, or check the channel id.")
+    if c.get("is_private"):
+        return (f"{where} is private — a bot cannot add itself.\n"
+                f"  Ask a member to run  /invite @helm  in that channel.")
+    return (f"{where} is public and the bot may join it.\n"
+            f"  Joining is visible to the channel, so it is not automatic. To join and retry:\n"
+            f"    slack.py join {ch}          # then rerun the command\n"
+            f"    slack.py read <permalink> --join")
+
+
 def call(method, tok, **params):
     """One Slack call with retries on 429 and transient network faults. Raises SystemExit(5) on failure."""
     url = API + method + "?" + urllib.parse.urlencode(params)
@@ -65,6 +94,10 @@ def call(method, tok, **params):
             time.sleep(5); continue
         if d.get("error") in ("invalid_auth", "not_authed", "token_revoked", "account_inactive"):
             print(f"slack {method}: {d.get('error')}", file=sys.stderr); sys.exit(EX_AUTH)
+        if d.get("error") == "not_in_channel" and params.get("channel"):
+            print(f"slack {method}: not_in_channel", file=sys.stderr)
+            print(not_in_channel_hint(tok, params["channel"]), file=sys.stderr)
+            sys.exit(EX_USAGE)
         print(f"slack {method} failed: {d.get('error')}", file=sys.stderr); sys.exit(EX_REMOTE)
     print(f"slack {method}: gave up after retries ({last})", file=sys.stderr); sys.exit(EX_REMOTE)
 
@@ -151,8 +184,33 @@ def permalink_of(channel, ts):
 
 # ── subcommands ──────────────────────────────────────────────────────────────
 
+def join_channel(tok, ch):
+    """conversations.join — public channels only; visible to the channel, so always explicit."""
+    d = raw("conversations.join", tok, channel=ch)
+    if d.get("ok"):
+        return True
+    print(f"slack conversations.join: {d.get('error')}", file=sys.stderr)
+    print(not_in_channel_hint(tok, ch), file=sys.stderr)
+    return False
+
+
+def cmd_join(tok, a):
+    ch = a.channel
+    if ch.startswith("http"):
+        ch, _ = parse_permalink(ch)
+    elif ch.startswith("#"):
+        ch = resolve_channel(tok, ch)
+    if not join_channel(tok, ch):
+        sys.exit(EX_USAGE)
+    d = raw("conversations.info", tok, channel=ch)
+    name = (d.get("channel") or {}).get("name", ch)
+    print(f"joined #{name} ({ch})")
+
+
 def cmd_read(tok, a):
     ch, ts = parse_permalink(a.permalink)
+    if getattr(a, "join", False) and not join_channel(tok, ch):
+        sys.exit(EX_USAGE)
     names = Names(tok)
     try:
         chan = call("conversations.info", tok, channel=ch)["channel"].get("name", ch)
@@ -380,6 +438,9 @@ def main():
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("read", help="one message and its thread, by permalink")
     p.add_argument("permalink"); p.add_argument("--json", action="store_true")
+    p.add_argument("--join", action="store_true", help="join the channel first (public only; visible to the channel)")
+    p = sub.add_parser("join", help="join a public channel — explicit, because the channel sees it")
+    p.add_argument("channel", help="channel id, #name, or a permalink")
     p = sub.add_parser("channels", help="channels the bot can see")
     p.add_argument("--json", action="store_true")
     p = sub.add_parser("history", help="top-level messages in a channel since a point in time")
@@ -407,7 +468,8 @@ def main():
     a = ap.parse_args()
     tok = token(a.env_file)
     {"read": cmd_read, "channels": cmd_channels, "history": cmd_history, "mentions": cmd_mentions,
-     "unanswered": cmd_unanswered, "whoami": cmd_whoami, "users": cmd_users, "post": cmd_post}[a.cmd](tok, a)
+     "unanswered": cmd_unanswered, "whoami": cmd_whoami, "users": cmd_users, "post": cmd_post,
+     "join": cmd_join}[a.cmd](tok, a)
 
 
 if __name__ == "__main__":
