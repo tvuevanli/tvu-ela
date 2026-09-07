@@ -22,6 +22,7 @@
   ela promote <line> <from> <to> [--purpose regular|prod-staging|demo] [--scope app|all] [--bundles] [--out DIR]
                             the promotion assessment, ranked; or ela promote lanes|commits|tickets|evidence|bundles <line> <from> <to>
   ela mail <search|read|thread> …                 Gmail, read-only (QA test reports, deploy notices, approvals are emails)
+  ela sentry <projects|issues|issue|events> …     crashes and errors, read-only (a minidump nobody reported is here)
   ela kb <search|read|tree|write|update|delete> …   Outline (writes dry-run; --apply on Evan's word)    ela figma …
   ela wiki <spaces|tree|search|read|children> …     Confluence, read-only (also: ela confluence …; a page URL alone works)
   ela gdoc <read|sheet|list|info> …                 Google Docs/Sheets/Drive, read-only (a docs.google.com URL alone works)
@@ -57,6 +58,7 @@ VERBS = {
     "reports": ("reports", None), "api": ("apifox", None), "apifox": ("apifox", None), "publish": ("publish", None),
     "team": ("team", None), "who": ("team", "who"),
     "mail": ("mail", None), "login": ("release", "login"), "stream": ("stream", None),
+    "sentry": ("sentry", None),
     "promote": ("promote", None),
 }
 PROMOTE_SUBS = {"lanes", "commits", "delta", "tickets", "evidence", "bundles", "report", "compare-helm"}

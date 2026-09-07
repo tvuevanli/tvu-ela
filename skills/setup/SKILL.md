@@ -69,6 +69,7 @@ Keys and where each comes from when absent:
 | `GOOGLE_TOKEN_FILE` | path to a Google OAuth token JSON with read-only scopes (documents.readonly, drive.readonly) — Helm's grant copied once into the site dir, mode 600 |
 | `UR_ACCESS_KEY` | UR access key — a JSON blob, copied verbatim on one line; `UR_BASE_HOST` (optional, default UR host) and `UR_ENV_ORDER` (optional comma list overriding the probe order `prod3,prod2,test2`) |
 | `TVU_SSH_USER` `TVU_SSH_PASSWORD` | box ssh for `graph connect` / `exec` (user defaults to the operate account) |
+| `SENTRY_URL` `SENTRY_TOKEN` `SENTRY_ORG` | the self-hosted Sentry: an auth token from the account's own API keys, scopes `project:read` (+ `org:read` for `projects`). `SENTRY_ORG` defaults to `sentry`. Crashes are the one class of fact ela cannot see any other way |
 | `TVUTEST_ACCOUNT` `TVUTEST_PASSWORD` `TVUTEST_SID` | release reads (QA GM host): a tvutest account; the login's SID is cached as `TVUTEST_SID` (2 h, refreshed by the script). No prod session anywhere in ela — decision `ela-needs-no-sid` |
 
 Procedure: list which keys are present; for each missing one say where to get it and ask Evan to
@@ -88,6 +89,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/skills/graph/graph.py" --env-file "$ENV" graphs -
 python3 "${CLAUDE_PLUGIN_ROOT}/skills/release/release.py" --env-file "$ENV" envs           # userservice SID; or: ela versions
 python3 "${CLAUDE_PLUGIN_ROOT}/skills/release/release.py" --env-file "$ENV" builds mediahub-backend --limit 1   # Jenkins; or: ela builds mediahub-backend
 python3 "${CLAUDE_PLUGIN_ROOT}/skills/confluence/confluence.py" --env-file "$ENV" spaces | head -3      # Confluence PAT; or: ela wiki spaces
+python3 "${CLAUDE_PLUGIN_ROOT}/skills/sentry/sentry.py" --env-file "$ENV" projects | head -3            # Sentry token; exit 4 = no credential yet, which is a state, not a fault
 python3 "${CLAUDE_PLUGIN_ROOT}/skills/gdoc/gdoc.py" --env-file "$ENV" list --limit 3                     # Google token refresh + Drive; or: ela gdoc list
 # object: python3 "${CLAUDE_PLUGIN_ROOT}/skills/object/object.py" --env-file "$ENV" get <known id> — the only read; see skills/object/SKILL.md
 ```
