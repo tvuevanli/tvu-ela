@@ -3,8 +3,8 @@
 
   all [--json]              everything below, then <published>/MANIFEST.md (what this directory holds, from where, when)
   catalogue [--json]        <elak>/map/services.yaml → <published>/knowledge/products/mediahub/services.md
-  map [--json]              <elak>/map/*.yaml + README.md → <published>/map/ (machine-readable, copied as they are)
-  list                      what the manifest says has been published, and whether the source moved since
+  map [--json]              <elak>/map/*.yaml + README.md → <published>/map/ (addresses replaced by placeholders)
+  list                      every manifest row and whether its source changed since (exit 1 when a republish is due)
 
 The published directory is a subset of elak's own tree — the same paths, elak's names, no per-reader
 directories. Readers (Helm's context packs, the remote ela) point at these paths.
@@ -170,6 +170,9 @@ def update_manifest(records, source_rel, dest_rel, today, verified, reader):
                 if not replaced:
                     out.append(row); replaced = True
                 continue
+            cells = [c.strip().strip("`") for c in ln.strip().strip("|").split("|")]
+            if len(cells) >= 5 and not os.path.exists(os.path.join(records, cells[0].split(" ")[0])):
+                continue                                      # a source that no longer exists has no row
             out.append(ln); continue
         if in_table and not ln.startswith("|"):
             if not replaced:
@@ -199,6 +202,7 @@ def cmd_catalogue(a):
         print(f"cannot write {dest}: {e}", file=sys.stderr); sys.exit(EX_WRITE)
     mpath, row = update_manifest(records, "map/services.yaml", dest_rel, today, header.get("verified", "?"),
                                  "Helm context pack `service_catalog` (once Helm's knowledge root points at <published>/knowledge)")
+    write_published_manifest(records, published)
     n = sum(len(i["services"]) for i in images.values())
     if a.json:
         print(json.dumps({"source": src, "destination": dest, "images": len(images), "services": n, "verified": header.get("verified"), "published": today, "manifest": mpath}, ensure_ascii=False)); return
@@ -304,26 +308,55 @@ def cmd_roster(a):
         print(f"cannot write {dest_dir}: {e}", file=sys.stderr); sys.exit(EX_WRITE)
     mpath, row = update_manifest(records, src_rel, "knowledge/people/ (people.yaml, responsibilities.yaml, roster.md)", today,
                                  header.get("verified", "?"), "Helm `known_emails()` (published-only file, no Helm copy to shadow); `ela who` on the remote site")
+    write_published_manifest(records, published)
     if a.json:
         print(json.dumps({"source": src, "destination": dest_dir, "people": len(people), "verified": header.get("verified"), "published": today, "manifest": mpath}, ensure_ascii=False)); return
     print(f"published knowledge/people/ (people.yaml, responsibilities.yaml, roster.md)\n  {len(people)} people · source verified {header.get('verified')} · published {today}\n  manifest row → {mpath}\n  {row}")
 
 
+IPV4 = re.compile(r"(?<![\d.])(?:\d{1,3}\.){3}\d{1,3}(?![\d.])")
+TAILNET = re.compile(r"\b[a-z0-9-]+\.[a-z0-9-]+\.ts\.net\b")
+
+
+def redact(text):
+    """The published tree is read inside the company but outside this machine: an address is replaced by
+    a placeholder, a tailnet name likewise. Version strings (1.0.0.12) are not addresses and stay."""
+    def ip(m):
+        octets = m.group(0).split(".")
+        if all(int(o) <= 255 for o in octets) and not m.group(0).startswith(("127.", "0.0.0.0")):
+            line_start = text.rfind("\n", 0, m.start()) + 1
+            line = text[line_start:text.find("\n", m.end()) if text.find("\n", m.end()) != -1 else len(text)]
+            if not re.search(r"(?i)version|build|image|tag|release|\bv\d", line):
+                return "<ip>"
+        return m.group(0)
+    return TAILNET.sub("<tailnet>", IPV4.sub(ip, text))
+
+
+def map_files(src_dir):
+    return sorted(f for f in os.listdir(src_dir) if f.endswith(".yaml") or f == "README.md")
+
+
 def cmd_map(a):
-    """The machine-readable map, copied as it is: services · absent · release · apis and the README."""
-    import shutil
+    """The machine-readable map — services · absent · release · apis · dependencies and the README — copied
+    through `redact`: the file shape is unchanged, addresses are not carried."""
     records, published = roots()
     src_dir, dst_dir = os.path.join(records, "map"), os.path.join(published, "map")
     os.makedirs(dst_dir, exist_ok=True)
-    names = sorted(f for f in os.listdir(src_dir) if f.endswith(".yaml") or f == "README.md")
+    names, redacted = map_files(src_dir), 0
     for f in names:
-        shutil.copyfile(os.path.join(src_dir, f), os.path.join(dst_dir, f))
+        text = open(os.path.join(src_dir, f), encoding="utf-8").read()
+        out = redact(text)
+        redacted += out.count("<ip>") + out.count("<tailnet>") - text.count("<ip>") - text.count("<tailnet>")
+        tmp = os.path.join(dst_dir, f + ".tmp"); open(tmp, "w", encoding="utf-8").write(out); os.replace(tmp, os.path.join(dst_dir, f))
+    for stale in set(os.listdir(dst_dir)) - set(names):          # a source that no longer exists is not kept downstream
+        os.remove(os.path.join(dst_dir, stale))
     today = datetime.date.today().isoformat()
     ver = next((l.split(":", 1)[1].strip().strip("'") for l in open(os.path.join(src_dir, "services.yaml")) if l.startswith("verified:")), "?")
-    update_manifest(records, "map/", "map/", today, ver, "the remote ela (`elak`/`map` roots) and Helm's pipeline drift check")
+    update_manifest(records, "map/", "map/", today, ver, "ela's read verbs (site.json `map` points here), the remote ela, Helm `release_map`")
+    write_published_manifest(records, published)
     if a.json:
-        print(json.dumps({"files": names, "destination": dst_dir, "published": today})); return
-    print(f"published map/ ({', '.join(names)}) → {dst_dir}")
+        print(json.dumps({"files": names, "destination": dst_dir, "published": today, "redacted": redacted})); return
+    print(f"published map/ ({', '.join(names)}) → {dst_dir}" + (f"  · {redacted} address(es) replaced by placeholders" if redacted else ""))
 
 
 def write_published_manifest(records, published):
@@ -335,7 +368,7 @@ def write_published_manifest(records, published):
     text = ["# What this directory is", "",
             "A generated subset of elak, Evan's knowledge base — the same paths and names as elak's own tree, published for machines to read: "
             "Helm's knowledge root and the remote ela point here. Nothing in it is edited by hand; a change is made in elak and published again "
-            "(`ela publish all`). The remote receives it by rsync with Helm's deploy.", "",
+            "(`ela publish all`). The remote receives this directory by rsync; the private root never leaves the office machine.", "",
             f"Generated {today}. Rows: source in elak · published path here · published on · source's `verified:` then · reader.", "",
             "| source | published file | generated | source verified at publication | read by |", "|---|---|---|---|---|"] + [r.rstrip("\n") for r in rows]
     open(os.path.join(published, "MANIFEST.md"), "w", encoding="utf-8").write("\n".join(text) + "\n")
@@ -344,7 +377,6 @@ def write_published_manifest(records, published):
 def cmd_all(a):
     records, published = roots()
     cmd_map(argparse.Namespace(json=False)); cmd_catalogue(argparse.Namespace(json=False)); cmd_roster(argparse.Namespace(json=False))
-    write_published_manifest(records, published)
     stale = os.path.join(published, "helm")
     if os.path.isdir(stale):
         import shutil; shutil.rmtree(stale); print("removed the old per-reader directory helm/")
@@ -352,22 +384,43 @@ def cmd_all(a):
 
 
 def cmd_list(a):
+    """Every manifest row, and whether the published copy still matches its source — by content for the
+    map files (after redaction), by modification time for the rendered catalogue and roster."""
     records, published = roots()
     path = os.path.join(records, "map", "published-machines.md")
+    drifted = 0
     for ln in open(path, encoding="utf-8"):
-        if ln.startswith("| `"):
-            cells = [c.strip().strip("`") for c in ln.strip().strip("|").split("|")]
-            if len(cells) < 5:          # the "First content" table has three cells; only manifest rows are listed
-                continue
-            src = os.path.join(records, cells[0]); now = ""
-            if os.path.isdir(src):                       # a directory source (map/) carries its date on services.yaml
-                src = os.path.join(src, "services.yaml")
+        if not ln.startswith("| `"):
+            continue
+        cells = [c.strip().strip("`") for c in ln.strip().strip("|").split("|")]
+        if len(cells) < 5:          # the "First content" table has three cells; only manifest rows are listed
+            continue
+        src_rel, dest_rel = cells[0], cells[1].replace("<published>/", "")
+        drift = ""
+        if src_rel == "map/":
+            src_dir, dst_dir = os.path.join(records, "map"), os.path.join(published, "map")
+            changed = [f for f in map_files(src_dir)
+                       if not os.path.isfile(os.path.join(dst_dir, f))
+                       or redact(open(os.path.join(src_dir, f), encoding="utf-8").read()) != open(os.path.join(dst_dir, f), encoding="utf-8").read()]
+            if changed:
+                drift = f"  ← differs: {', '.join(changed)}: republish"
+        else:
+            srcs = [os.path.join(records, src_rel.split(" ")[0])]
+            if os.path.isdir(srcs[0]):
+                srcs = [os.path.join(srcs[0], f) for f in os.listdir(srcs[0])]
+            dest = os.path.join(published, dest_rel.split(" ")[0])
+            dests = [os.path.join(dest, f) for f in os.listdir(dest)] if os.path.isdir(dest) else [dest]
             try:
-                now = next((l.split(":", 1)[1].strip().strip("'") for l in open(src) if l.startswith("verified:")), "")
-            except OSError:
-                now = "(source missing)"
-            drift = "" if now == cells[3] else f"  ← source now verified {now}: republish"
-            print(f"{cells[0]:<24} → {cells[1]:<70} published {cells[2]}  (source verified {cells[3]}){drift}")
+                newest_src = max(os.path.getmtime(x) for x in srcs)
+                oldest_dst = min(os.path.getmtime(x) for x in dests)
+                if newest_src > oldest_dst:
+                    drift = "  ← source changed after publication: republish"
+            except (OSError, ValueError):
+                drift = "  ← source or destination missing"
+        drifted += bool(drift)
+        print(f"{cells[0]:<24} → {cells[1]:<70} published {cells[2]}  (source verified {cells[3]}){drift}")
+    if drifted:
+        sys.exit(1)
 
 
 def main():
