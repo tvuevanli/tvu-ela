@@ -323,6 +323,22 @@ def norm(x):
     return re.sub(r"[^a-z0-9]", "", (x or "").lower())
 
 
+def tokens(x):
+    """The words a name is made of — separators, camelCase and letter/digit borders all split."""
+    return [t.lower() for t in re.findall(r"[A-Z]+(?![a-z])|[A-Z][a-z]+|[a-z]+|[0-9]+", x or "")]
+
+
+def matches(q, *fields):
+    """Does a name, description or identifier answer the query? Substring on the normalised text,
+    except that a query of four characters or fewer must start or end a token — a short query is a
+    name, not a syllable: `ndi` finds `tvu-ndi-api` and `nditools`, not `search-landing-page` or
+    `nativeoverlaysgui-india`; `srt` finds `srt_copier`, not `mds-rtil-decoder` (whose separators
+    normalisation removes); `shm` still finds the image `remoteshm`; `264` still finds `tvu264`."""
+    if len(q) <= 4:
+        return any(t.startswith(q) or t.endswith(q) for f in fields for t in tokens(f))
+    return any(q in norm(f) for f in fields)
+
+
 def code_list(rows):
     """The repos a service's code lives in, compressed — the common case is all of them present."""
     if not rows:
@@ -342,34 +358,34 @@ def cmd_find(lay, a):
     repos = cache(lay)["repos"]
     hits = {"repos": [], "images": [], "services": [], "process_types": [], "slugs": [], "gm_names": [], "absent": []}
     for r in repos:
-        if q in norm(r["name"]) or (r["remote"] and q in norm(os.path.basename(r["remote"]))):
+        if matches(q, r["name"], os.path.basename(r["remote"] or "")):
             hits["repos"].append(r)
     for img, d in svc.items():
         rows = [dict(rp, path=gitlab_to_dir(lay, rp["gitlab"]), on_disk=os.path.isdir(gitlab_to_dir(lay, rp["gitlab"]) or "\0")) for rp in d["repos"]]
-        if q in norm(img):
+        if matches(q, img):
             hits["images"].append(dict(image=img, **{k: v for k, v in d.items() if k != "repos"}, repos=rows)); continue
         # a service row carries all three names at once — report the tuple, not each name apart
         tied = set()
         for s_row in d["services"]:
             names = [s_row.get(k) for k in ("slug", "gm_name", "process_type", "mqtt_topic")]
-            if any(n and q in norm(n) for n in names):
+            if any(n and matches(q, n) for n in names):
                 hits["services"].append(dict(s_row, image=img, owners=d["owners"], repos=rows))
                 tied |= {norm(n) for n in names if n}
         for pt in d["process_types"]:
-            if q in norm(pt) and norm(pt) not in tied:
+            if matches(q, pt) and norm(pt) not in tied:
                 hits["process_types"].append({"process_type": pt, "image": img, "owners": d["owners"], "repos": rows})
         for key, kind in (("slugs", "slugs"), ("gm_names", "gm_names")):
             for name in d[key]:
-                if q in norm(name) and norm(name) not in tied:
+                if matches(q, name) and norm(name) not in tied:
                     hits[kind].append({"name": name, "image": img, "owners": d["owners"], "repos": rows})
     for e in absent:
-        if q in norm(e["name"]):
+        if matches(q, e["name"]):
             hits["absent"].append(e)
     hits["remote"] = []
     for alias in lay.aliases:
         d = remote_listing(lay, alias, quiet=True)
         for r in (d or {}).get("projects", []):
-            if q in norm(r["path"]) or (r["description"] and q in norm(r["description"])):
+            if matches(q, r["path"], r["description"]):
                 _, dirpath = lay.alias_path(alias + "/" + r["path"].split("/", 1)[1]) if "/" in r["path"] else (None, None)
                 if not any(h["path"] == dirpath for h in hits["repos"]):
                     hits["remote"].append(dict(r, alias=alias, dir=dirpath, on_disk=bool(dirpath and os.path.isdir(dirpath))))

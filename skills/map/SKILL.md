@@ -36,7 +36,8 @@ slugs · GM names · process types → owners → repos) and `map/absent.yaml`.
 ```bash
 MAP="python3 ${CLAUDE_PLUGIN_ROOT}/skills/map/map.py"
 $MAP survey                              # scan code/ work/ lab/ + Evan's repos → cache; reports misplaced / unaliased / dirty
-$MAP find <repo|image|process type>      # paths, owners, slugs, or where to clone from
+$MAP find <repo|image|type|slug|GM name>  # one `svc` line per GM service: J2N type · slug · GM name · image · owners · code
+#                                          a query of ≤4 chars must start or end a token (`ndi`, not `la-ndi-ng`)
 $MAP services [--image X | --type T]     # the service table
 $MAP where <alias>/<path>                # the directory a remote maps to (no network)
 $MAP remote <alias> [grep]               # every project of that GitLab group, subgroups included (host api + read token in site.json); ● on disk; cached a day
