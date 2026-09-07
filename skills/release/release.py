@@ -14,8 +14,7 @@ L1: subcommands, --json, stdlib only. No store, no scheduler: every answer is th
                                           records rejected_at so the session's real lifetime is measured.
 
 Hosts. qa = site.json services.userservice-test, account login (TVUTEST_ACCOUNT / TVUTEST_PASSWORD), QA bundles and
-qa-* lanes. prod = site.json services.userservice, the person's TVU SSO session — `ela login tvu` (decision
-2026-09-04-prod-gm-is-read-through-a-persons-login-at-the-cli): daily-*, stage and prod-N lanes and their bundles.
+qa-* lanes. prod = site.json services.userservice, the person's TVU SSO session — `ela login tvu` (elak `blueprint/decisions/2026-09-04-prod-gm-read-through-a-person-login.md`): daily-*, stage and prod-N lanes and their bundles.
 A prod read without a live session exits 4 and names the command; nothing is guessed and no cache is read instead.
 Config: <elak>/map/release.yaml (service ids per host, tag→lane maps, Jenkins job → service, release lines).
 Exit codes: 0 ok · 2 usage · 3 not found · 4 auth · 5 remote error.

@@ -18,8 +18,7 @@ once and believed afterwards).
 ## Invariants
 - **The picture is generated; the reading is written.** `deps.py render` projects
   `map/dependencies.yaml` at the commits its edges were read at. Never hand-draw a box, and never
-  edit a render — regenerate it (decision
-  `2026-09-07-derived-facts-are-generated-knowledge-carries-the-reading`, which rejected a
+  edit a render — regenerate it (elak `blueprint/principles.md` P3), which rejected a
   hand-maintained architecture document precisely because its mechanical half rots silently).
 - **Name the standard before drawing.** A review with no standard is taste with a diagram. The
   standards available: the layer model (`[Infra] [J2N] [Media] [App] [UI]`), the recorded decisions

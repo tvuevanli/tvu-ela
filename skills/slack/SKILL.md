@@ -51,7 +51,7 @@ Reads — `conversations.replies`, `conversations.info`, `conversations.history`
 `users.info`, `users.lookupByEmail`, `users.list`. One write — `chat.postMessage` via `post`. No edit, no delete, no
 reaction; none is to be added silently.
 
-## Posting — the rules (decision `2026-09-02-slack-voice-policy`, added 2026-09-03)
+## Posting — the rules (elak `blueprint/principles.md` P7), added 2026-09-03)
 
 - **Dry run first, always.** Show Evan the dry-run output (target, identity, full text). `--apply` is sent
   only after his word in this conversation, once per message. Never batch several `--apply` behind one yes.

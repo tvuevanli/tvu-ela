@@ -9,7 +9,7 @@ user-invocable: true
 Self-contained. `team.py` is the capability; `ela team …` / `ela who …` at the shell are the same thing.
 Source: `<elak>/knowledge/people/` — `people.yaml` (identity only) joined by email to
 `responsibilities.yaml` (one row per responsibility; a person holds several). Decisions
-`2026-09-03-people-identified-by-the-roster-never-guessed` and `2026-09-04-people-carry-responsibilities-not-rank`.
+elak `blueprint/principles.md` P6 and elak `blueprint/decisions/2026-09-04-roster-schema-identity-and-responsibilities.md`.
 
 ```bash
 T="python3 ${CLAUDE_PLUGIN_ROOT}/skills/team/team.py --env-file <env>"     # or: ela team … · ela who …
@@ -34,7 +34,7 @@ $T check                     # read Slack users.list (a minute) and report any e
   consumers actually needed is narrower: `routable` (may this person be assigned), `first_contact` (who to ask about an
   area when the owner is unknown — per person-and-area, not comparable across areas), and `review_means` on the person
   (what a Jira ticket sitting in Review means in their hands: anomaly · verification · signoff · empty, and empty is
-  safe — Helm stays silent on an unrecognised assignee). Decision `2026-09-04-people-carry-responsibilities-not-rank`.
+  safe — Helm stays silent on an unrecognised assignee). Decision elak `blueprint/decisions/2026-09-04-roster-schema-identity-and-responsibilities.md`.
 - **`scope: related` is a counterpart, not a member.** They are addressable and their graphs can be looked up; they are
   tagged or looped, never assigned MediaHub work. Derived per person as the nearest scope they hold.
 - **Ownership rows are generated.** `origin: generated` comes from Helm's service catalogue and elak `map/services.yaml`

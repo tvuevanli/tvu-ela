@@ -8,14 +8,14 @@
 #   2. any Edit/Write under <projects>/ela or /helm — unless the session's project dir IS that repo
 #                                                     (their CLAUDE.md and agents load only there; delegate via /ela:task)
 #   3. on a remote site, any Edit/Write under <elak> — the published subset is read-only there;
-#                                                        drafts go to Helm's store or Jira (decision 2026-09-03-ela-second-site-on-the-remote)
+#                                                        drafts go to Helm's store or Jira (elak `blueprint/decisions/2026-09-03-ela-runs-on-the-remote-as-a-second-site.md`)
 #   4. any Edit/Write under <elak> outside blueprint/ knowledge/ map/ — elak holds what ela knows, and
 #                                                        a log of what happened is not knowledge
-#                                                        (decision 2026-09-07-elak-is-elas-knowledge)
+#                                                        (elak `blueprint/principles.md` P1)
 #   5. any Edit/Write into a tracked .md/.yaml of elak/ela/helm whose new text quotes a person's own
 #      words — a tracked file carries the rule and names the origin, never the utterance
-#      (decisions 2026-09-03-tracked-files-carry-the-rule-not-the-argument,
-#       2026-09-03-records-name-the-origin-not-the-utterance). Rules 1-4 are about place; this one is
+#      (elak `blueprint/principles.md` P4),
+#       elak `blueprint/principles.md` P4). Rules 1-4 are about place; this one is
 #      about content, and it is the reason the hook reads the text and not only the path.
 #   6. any `git commit` in those repos whose message names a person, quotes what someone said, or
 #      narrates what a session got wrong — a commit body holds the same line as a tracked file, and
@@ -61,8 +61,8 @@ if call.get("tool_name") == "Bash":
                       f"  Found: {m.group(0)[:60]!r}\n"
                       f"  ela's origin is a public remote — a pushed message cannot be taken back\n"
                       f"  (CLAUDE.md: commit subjects and bodies hold the same line as a tracked file;\n"
-                      f"   decisions 2026-09-03-tracked-files-carry-the-rule-not-the-argument and\n"
-                      f"   2026-09-03-records-name-the-origin-not-the-utterance).\n"
+                      f"   (elak `blueprint/principles.md` P4) and\n"
+                      f"   elak `blueprint/principles.md` P4).\n"
                       f"  Write what changed and why the code needed it. Cite a ticket key or a\n"
                       f"  decision filename for the reason; name a role, never a person.")
     sys.exit(0)
@@ -96,7 +96,7 @@ if under(target, elak):
     top = rel.split(os.sep)[0]
     if top not in ("blueprint", "knowledge", "map", ".git", ".gitignore", "README.md"):
         block(f"{target} is under <elak> but outside blueprint/ knowledge/ map/.\n"
-              f"  elak holds what ela knows (decision 2026-09-07-elak-is-elas-knowledge). Two questions:\n"
+              f"  elak holds what ela knows (elak `blueprint/principles.md` P1). Two questions:\n"
               f"    1. Does ela know this? about itself -> blueprint/ · about the world -> map/ if a script\n"
               f"       derives it, knowledge/ if it is a reading.\n"
               f"    2. Or did it merely happen? Then it is not knowledge: cite the source (a Slack permalink,\n"
@@ -117,8 +117,8 @@ if new_text and target.endswith((".md", ".yaml", ".yml")) and any(under(target, 
             if cjk >= 12 or (UTTERANCE_CUE.search(line) and cjk >= 2):
                 block(f"this write quotes what someone said: {m.group(0)[:60]}\n"
                       f"  A tracked file carries the rule and names the ORIGIN, not the utterance\n"
-                      f"  (2026-09-03-tracked-files-carry-the-rule-not-the-argument,\n"
-                      f"   2026-09-03-records-name-the-origin-not-the-utterance).\n"
+                      f"  (elak `blueprint/principles.md` P4,\n"
+                      f"   elak `blueprint/principles.md` P4).\n"
                       f"  Write what is now true and cite where it was decided or observed — a permalink,\n"
                       f"  a ticket key, a date and a role. Never the sentence a person typed.")
 sys.exit(0)

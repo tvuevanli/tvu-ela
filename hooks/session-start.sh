@@ -26,7 +26,7 @@ print(f"## Knowledge base: {records}")
 if s.get("site") == "remote":
     print("This is a REMOTE site: <records> is a read-only published subset (elak-published). Never write a plan, ledger entry or decision "
           "draft under it — hand drafts to Helm's store or Jira. Code checkouts, GitLab, Confluence, Jenkins and GM are not reachable here; "
-          "say 'office only' instead of retrying. (decision 2026-09-03-ela-second-site-on-the-remote)")
+          "say 'office only' instead of retrying. (elak `blueprint/decisions/2026-09-03-ela-runs-on-the-remote-as-a-second-site.md`)")
 # The blueprint is a Read away; a hook injects where things are, not what they say. Injecting the
 # status and the decision list here fed every session the day's narrative and made it context, so it stopped.
 # Which checkout is the cwd in? From the survey cache; a hook must not survey (git across every checkout

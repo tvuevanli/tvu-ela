@@ -28,8 +28,7 @@ to type `! ela login tvu` and stop; never read a cache or another system's file 
   and date. Never re-derive a pass rate; never infer a pass from silence.
 - **The to-lane is read live or declared unreadable.** Any lane ahead of the target (prod ahead of daily) is
   reported; a target lane ahead of the source stops the promotion until explained.
-- **Facts here, decisions there.** The post this skill produces is step 1 of the promotion thread (decision
-  `2026-09-04-a-promotion-thread-carries-facts-then-a-decision-then-execution`): title = the object, body =
+- **Facts here, decisions there.** The post this skill produces is step 1 of the promotion thread (elak `blueprint/decisions/2026-09-04-promotion-thread-three-steps.md`): title = the object, body =
   versions, changes **grouped by change** with the services carrying each and its QA state, *Open points* as
   questions, mentioning only Evan. No verdict, no "known issue", nothing attributed to Evan before he writes it
   in the thread. Executors are mentioned by him, afterwards.
@@ -74,8 +73,7 @@ That reach, plus the lane's docker pin, is the risk sentence — not the commit 
 4. **What is kept** — the facts belong to the promotion thread, which is where they were posted and where
    the decisions follow them; do not write a second copy. Into `<elak>/blueprint/` goes only what the run
    established about **ela** — a parity result, a capability that now holds — with the thread permalink.
-   The report markdown and JSON stay in `<runtime>` and are disposable (decision
-   `2026-09-07-elak-is-elas-knowledge`; the JSON also carries quoted words, and a tracked file names the
+   The report markdown and JSON stay in `<runtime>` and are disposable (elak `blueprint/principles.md` P1); the JSON also carries quoted words, and a tracked file names the
    origin, never the utterance).
 
 ## 3 — after the thread

@@ -108,8 +108,7 @@ than a manufactured paragraph.
 Propose the change to `<elak>/knowledge/products/mediahub/team/agents.yaml` as a diff and write it only on
 Evan's word —
 the `coverage` block, with a `verified:` date, since observation may update coverage but only propose a
-charter change. An append-only log of every ask is a diary and is not kept (decision
-`2026-09-07-elak-is-elas-knowledge`); the exchange itself is cited by its thread permalink. The fields
+charter change. An append-only log of every ask is a diary and is not kept (elak `blueprint/principles.md` P1); the exchange itself is cited by its thread permalink. The fields
 to carry:
 `at · agent · thread · asked · trigger · rejected · outcome · in_scope · seconds · coverage_note`.
 `in_scope: false` is a misroute — the number that gets counted. A coverage fact the reply revealed
@@ -119,4 +118,4 @@ contradicts `charter` updates nothing and instead drafts one question for the ag
 ## Exit test (this capability is Evan-only until it passes)
 Five real handoffs answered inside charter, judged useful by Evan, and zero misroutes. Until then,
 nothing this skill produces is exposed to anyone but Evan
-(decision `2026-09-03-nothing-reaches-others-until-proven`).
+(elak `blueprint/principles.md` P7).

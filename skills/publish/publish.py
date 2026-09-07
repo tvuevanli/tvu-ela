@@ -235,10 +235,10 @@ def render_team_map(header, people, today):
         f"Source verified {header.get('verified', '?')}; published {today}.", "",
         "No rank is recorded here: no title, no seniority, no reporting line. MediaHub responsibility is "
         "de-facto and TVU has no matching titles, so a level would be invented rather than read "
-        "(decision `2026-09-04-people-carry-responsibilities-not-rank`). Where an area has a de-facto lead, it "
+        "(elak `blueprint/decisions/2026-09-04-roster-schema-identity-and-responsibilities.md`). Where an area has a de-facto lead, it "
         "appears as **ask first** on that area, which is per person-and-area and is not comparable across areas.", "",
         "**Rule.** A person not listed here is unknown: look them up first-hand and add them to the source; never compose an "
-        "address from a name (decision `2026-09-03-people-identified-by-the-roster-never-guessed`).", "",
+        "address from a name (elak `blueprint/principles.md` P6).", "",
     ]
     if header.get("note"):
         out += [f"Note: {header['note']}", ""]

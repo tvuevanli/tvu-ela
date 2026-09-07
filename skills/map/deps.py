@@ -452,8 +452,7 @@ def _nid(s):
 def cmd_render(a):
     """A mermaid projection of this artefact at the commits its edges were read at.
 
-    The picture is GENERATED, never kept by hand (decision
-    `2026-09-07-derived-facts-are-generated-knowledge-carries-the-reading`): a diagram maintained
+    The picture is GENERATED, never kept by hand (elak `blueprint/principles.md` P3): a diagram maintained
     beside the code is wrong for every window between an edge landing and someone redrawing it and
     says nothing about being wrong. So this verb draws only what the artefact holds, stamps every
     repo's ref and commit into the output, and states inside the picture what the scan cannot see.

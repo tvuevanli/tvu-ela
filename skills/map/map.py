@@ -487,7 +487,7 @@ IMATRIX_SIBLINGS = ("libshmmedia", "libtvulive", "libplayercontrolwrapper")  # r
 
 
 def refuse_on_remote(what):
-    """A remote site holds no code: reading code is the office's job (decision 2026-09-03-ela-second-site-on-the-remote)."""
+    """A remote site holds no code: reading code is the office's job (elak `blueprint/decisions/2026-09-03-ela-runs-on-the-remote-as-a-second-site.md`)."""
     if site().get("site") == "remote":
         print(f"{what}: this is a remote site — code checkouts live at the office; nothing is cloned, synced or worked on here", file=sys.stderr); sys.exit(EX_REFUSED)
 
