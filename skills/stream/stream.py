@@ -129,95 +129,224 @@ def pid_of(stream):
         return None
 
 
-def read(target, which="last", host=None, seconds=8, timeout=45):
+def scheme_of(target):
+    return target.split("://", 1)[0].lower() if "://" in target else "file"
+
+
+def capability(container, target, probed_a_segment):
+    """What this target kind can answer — decided up front, so a gap is stated and not inferred.
+
+    Protocol and container each remove something. A live pull has no duration and cannot be
+    seeked; a container that is not an MPEG-TS multiplex has no PID table and no service tags,
+    however it was transported. Saying which of the two removed a field is the whole point:
+    "no PIDs" on RTMP is the container's nature, on SRT it would be a finding.
+    """
+    scheme = scheme_of(target)
+    live = scheme in ("srt", "udp", "rtp", "rist", "rtmp", "rtmps", "rtmpt", "rtmpe", "rtsp", "srtp")
+    ts = "mpegts" in (container or "")
+    caps, why = {}, {}
+    caps["pids"] = ts
+    if not ts:
+        why["pids"] = (f"{container or scheme} is not an MPEG-TS multiplex — PMT, PCR and per-stream "
+                       f"PIDs exist only there (FLV over RTMP, bare ES over RTP/RTSP, MP4 over HTTP)")
+    caps["service_tags"] = ts
+    if not ts:
+        why["service_tags"] = "service_name / service_provider live in the TS SDT; this container has none"
+    caps["duration"] = not live and not probed_a_segment
+    if live:
+        why["duration"] = "a live pull has no end to measure"
+    elif probed_a_segment:
+        why["duration"] = "one HLS segment was read, so duration is the segment's, not the stream's"
+    caps["seekable"] = not live
+    if live:
+        why["seekable"] = "not seekable; every figure is from the sampled window only"
+    caps["true_bitrate"] = not live
+    if live:
+        why["true_bitrate"] = "bitrate over a live window is an estimate, not the stream's rate"
+    return caps, why
+
+
+def gop_analysis(target, seconds, timeout):
+    """Keyframe spacing and observed rate — the encoding profile sets a GOP, this measures it."""
+    cmd = [need("ffprobe"), "-v", "error"]
+    if is_network(target):
+        cmd += ["-rw_timeout", str(int(seconds * 1_000_000))]
+    cmd += ["-select_streams", "v:0", "-show_entries", "packet=pts_time,flags,size",
+            "-read_intervals", f"%+{seconds:g}", "-of", "json", target]
+    try:
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return None
+    if p.returncode != 0:
+        return None
+    pkts = json.loads(p.stdout).get("packets", [])
+    if not pkts:
+        return None
+    keys, total = [], 0
+    for i, k in enumerate(pkts):
+        total += int(k.get("size") or 0)
+        if "K" in (k.get("flags") or ""):
+            keys.append(i)
+    gaps = [b - a for a, b in zip(keys, keys[1:])]
+    times = [float(k["pts_time"]) for k in pkts if k.get("pts_time") not in (None, "N/A")]
+    span = (max(times) - min(times)) if len(times) > 1 else 0
+    return {"packets": len(pkts), "keyframes": len(keys),
+            "gop_frames": (sum(gaps) // len(gaps)) if gaps else None,
+            "gop_seconds": round(span / len(gaps), 2) if gaps and span else None,
+            "video_kbps": round(total * 8 / span / 1000) if span else None,
+            "window_seconds": round(span, 2)}
+
+
+def row_of(s):
+    """One stream, normalised. Everything ffprobe gave is kept under `raw` for --full."""
+    t = s.get("codec_type")
+    tags = s.get("tags") or {}
+    r = {"pid": pid_of(s), "index": s.get("index"), "type": t, "codec": s.get("codec_name"),
+         "profile": s.get("profile"), "bitrate": s.get("bit_rate"),
+         "language": tags.get("language"), "title": tags.get("title"), "raw": s}
+    if t == "video":
+        r["detail"] = f"{s.get('width')}x{s.get('height')} {s.get('r_frame_rate')}"
+        r["level"] = s.get("level")
+        r["pix_fmt"] = s.get("pix_fmt")
+        fo = s.get("field_order")
+        r["scan"] = "progressive" if fo in (None, "progressive", "unknown") else f"interlaced ({fo})"
+        ct = s.get("color_transfer")
+        r["hdr"] = {"smpte2084": "HDR10 (PQ)", "arib-std-b67": "HLG"}.get(ct) or None
+        r["color"] = " ".join(x for x in (s.get("color_space"), ct, s.get("color_primaries"),
+                                          s.get("color_range")) if x and x != "unknown") or None
+    elif t == "audio":
+        r["detail"] = f"{s.get('sample_rate')}Hz {s.get('channels')}ch"
+        r["layout"] = s.get("channel_layout")
+        r["sample_fmt"] = s.get("sample_fmt")
+    else:
+        r["detail"] = ""
+    return r
+
+
+def read(target, which="last", host=None, seconds=8, timeout=45, frames=False):
     """Anything readable in, one normalised record out. Keeps what it actually probed."""
     tmp = None
+    segment = False
     if re.search(r"\.m3u8(\?|$)", target):
         seg_url, blob = resolve_hls(target, which)
         tmp = tempfile.NamedTemporaryFile(suffix=".ts", delete=False)
         tmp.write(blob); tmp.close()
-        probed, source = tmp.name, seg_url
+        probed, source, segment = tmp.name, seg_url, True
     else:
         probed = source = as_caller(target, host)
     try:
         d = ffprobe_json(probed, seconds, timeout)
+        gop = gop_analysis(probed, seconds, timeout) if frames else None
     finally:
         if tmp:
             os.unlink(tmp.name)
     progs = []
     for p in d.get("programs", []):
+        tags = p.get("tags") or {}
         progs.append({"program_id": p.get("program_id"), "pmt_pid": p.get("pmt_pid"),
-                      "pcr_pid": p.get("pcr_pid")})
-    streams = []
-    for s in d.get("streams", []):
-        row = {"pid": pid_of(s), "type": s.get("codec_type"), "codec": s.get("codec_name"),
-               "profile": s.get("profile")}
-        if s.get("codec_type") == "video":
-            row["detail"] = f"{s.get('width')}x{s.get('height')} {s.get('r_frame_rate')}"
-        elif s.get("codec_type") == "audio":
-            row["detail"] = f"{s.get('sample_rate')}Hz {s.get('channels')}ch"
-        else:
-            row["detail"] = ""
-        streams.append(row)
-    container = (d.get("format") or {}).get("format_name", "")
+                      "pcr_pid": p.get("pcr_pid"), "nb_streams": p.get("nb_streams"),
+                      "service_name": tags.get("service_name"),
+                      "service_provider": tags.get("service_provider"), "tags": tags})
+    streams = [row_of(s) for s in d.get("streams", [])]
+    fmt = d.get("format") or {}
+    container = fmt.get("format_name", "")
+    caps, why = capability(container, target, segment)
     return {"target": target, "probed": source, "container": container,
+            "protocol": scheme_of(target), "segment": segment,
             "has_pids": bool(progs) or any(r["pid"] is not None for r in streams),
-            "programs": progs, "streams": streams}
+            "programs": progs, "streams": streams, "gop": gop,
+            "format": {k: fmt.get(k) for k in ("format_name", "duration", "size", "bit_rate",
+                                               "probe_score", "start_time")},
+            "caps": caps, "unavailable": why}
 
 
-def render(rec):
+def render(rec, full=False):
     print(f"# {rec['target']}")
     if rec["probed"] != rec["target"]:
         print(f"  segment: {rec['probed']}")
+    print(f"  container: {rec['container'] or '?'}   via: {rec['protocol']}")
     print()
-    if rec.get("container"):
-        print(f"  container: {rec['container']}")
-        print()
     for p in rec["programs"]:
-        print(f"program {p['program_id']}   PMT PID = {p['pmt_pid']}   PCR PID = {p['pcr_pid']}")
+        print(f"program {p['program_id']}   PMT PID = {p['pmt_pid']}   PCR PID = {p['pcr_pid']}"
+              f"   streams = {p['nb_streams']}")
+        if p["service_name"] or p["service_provider"]:
+            print(f"  service: {p['service_name'] or '—'}   provider: {p['service_provider'] or '—'}")
     if rec["programs"]:
         print()
-    elif not rec.get("has_pids"):
-        print("no PID table — this container is not an MPEG-TS multiplex "
-              "(FLV over RTMP, or bare elementary streams over RTP/RTSP).")
-        print("PMT, PCR and per-stream PIDs exist only in MPEG-TS: HLS segments, .ts, SRT, UDP, RTP-TS.")
+    elif not rec["has_pids"]:
+        print(f"no PID table — {rec['unavailable'].get('pids', 'not an MPEG-TS multiplex')}.")
         print()
-    print(f"{'PID':<7}{'hex':<8}{'type':<8}{'codec':<8}{'detail'}")
-    print(f"{'─'*6:<7}{'─'*6:<8}{'─'*7:<8}{'─'*7:<8}{'─'*24}")
+    print(f"{'PID':<7}{'hex':<8}{'type':<7}{'codec':<8}{'lang':<6}{'detail'}")
+    print(f"{'─'*6:<7}{'─'*6:<8}{'─'*6:<7}{'─'*7:<8}{'─'*5:<6}{'─'*34}")
     for s in rec["streams"]:
         pid = s["pid"]
-        print(f"{pid if pid is not None else '?':<7}{hex(pid) if pid is not None else '?':<8}"
-              f"{s['type'] or '?':<8}{s['codec'] or '?':<8}{s['detail']}")
+        extra = s["detail"]
+        for k in ("profile", "scan", "hdr", "layout"):
+            v = s.get(k)
+            if v and not (k == "scan" and v == "progressive"):
+                extra += f"  {v}"
+        print(f"{pid if pid is not None else '—':<7}{hex(pid) if pid is not None else '—':<8}"
+              f"{s['type'] or '?':<7}{s['codec'] or '?':<8}{s['language'] or '—':<6}{extra}")
     if not rec["streams"]:
         print("(no streams)")
+    if rec.get("gop"):
+        g = rec["gop"]
+        print(f"\nvideo over {g['window_seconds']}s: {g['keyframes']} keyframes in {g['packets']} packets"
+              f"   GOP ≈ {g['gop_frames']} frames / {g['gop_seconds']}s   ≈ {g['video_kbps']} kbps")
+    if full:
+        print("\n--- format ---")
+        for k, v in rec["format"].items():
+            if v is not None:
+                print(f"  {k:<14}{v}")
+        for s in rec["streams"]:
+            print(f"\n--- stream #{s['index']} pid {s['pid']} ({s['type']}) ---")
+            for k, v in sorted(s["raw"].items()):
+                if k != "disposition" and v not in (None, "", "unknown"):
+                    print(f"  {k:<22}{v}")
+    if rec["unavailable"]:
+        print("\nnot available for this target:")
+        for k, v in rec["unavailable"].items():
+            print(f"  {k:<14}{v}")
 
 
 def cmd_probe(a):
-    rec = read(a.target, a.segment, a.host, a.seconds, a.timeout)
-    print(json.dumps(rec, ensure_ascii=False, indent=2) if a.json else "", end="")
-    if not a.json:
-        render(rec)
+    rec = read(a.target, a.segment, a.host, a.seconds, a.timeout, a.frames)
+    if a.json:
+        print(json.dumps(rec, ensure_ascii=False, indent=2)); return
+    render(rec, a.full)
 
 
 def cmd_diff(a):
     x = read(a.a, a.segment, a.host, a.seconds, a.timeout)
     y = read(a.b, a.segment, a.host, a.seconds, a.timeout)
+    for r in (x, y):
+        r.pop("streams_raw", None)
     if a.json:
         print(json.dumps({"a": x, "b": y}, ensure_ascii=False, indent=2)); return
     print(f"A  {x['target']}\nB  {y['target']}\n")
     px = x["programs"][0] if x["programs"] else {}
     py = y["programs"][0] if y["programs"] else {}
-    rows = [("PMT PID", px.get("pmt_pid"), py.get("pmt_pid")),
-            ("PCR PID", px.get("pcr_pid"), py.get("pcr_pid"))]
+    rows = [("container", x.get("container"), y.get("container")),
+            ("PMT PID", px.get("pmt_pid"), py.get("pmt_pid")),
+            ("PCR PID", px.get("pcr_pid"), py.get("pcr_pid")),
+            ("service", px.get("service_name"), py.get("service_name")),
+            ("provider", px.get("service_provider"), py.get("service_provider"))]
     for i in range(max(len(x["streams"]), len(y["streams"]))):
         sa = x["streams"][i] if i < len(x["streams"]) else {}
         sb = y["streams"][i] if i < len(y["streams"]) else {}
-        rows.append((f"#{i} {sa.get('type') or sb.get('type') or '?'} PID", sa.get("pid"), sb.get("pid")))
+        kind = sa.get("type") or sb.get("type") or "?"
+        rows.append((f"#{i} {kind} PID", sa.get("pid"), sb.get("pid")))
         rows.append((f"#{i} codec", sa.get("codec"), sb.get("codec")))
-    print(f"{'':<18}{'A':<12}{'B':<12}")
+        rows.append((f"#{i} detail", sa.get("detail"), sb.get("detail")))
+        if kind == "audio":
+            rows.append((f"#{i} lang", sa.get("language"), sb.get("language")))
+    print(f"{'':<18}{'A':<24}{'B':<24}")
     for name, va, vb in rows:
+        if va is None and vb is None:
+            continue
         mark = "" if va == vb else "   ← differs"
-        print(f"{name:<18}{str(va):<12}{str(vb):<12}{mark}")
+        print(f"{name:<18}{str(va if va is not None else '—'):<24}"
+              f"{str(vb if vb is not None else '—'):<24}{mark}")
 
 
 def main():
@@ -231,6 +360,8 @@ def main():
     p.add_argument("--host", help="box ip to pull from when the URL is a listener/bind address (srt)")
     p.add_argument("--seconds", type=float, default=8, help="how much of a live feed to look at (default 8)")
     p.add_argument("--timeout", type=float, default=45, help="give up after this many seconds (default 45)")
+    p.add_argument("--full", action="store_true", help="every field ffprobe returned, grouped")
+    p.add_argument("--frames", action="store_true", help="also read packets: GOP length and observed bitrate")
     p.add_argument("--segment", choices=["first", "last", "newest"], default="last",
                    help="which HLS segment to read (default: one back from newest — complete, still in window)")
     p.add_argument("--json", action="store_true")

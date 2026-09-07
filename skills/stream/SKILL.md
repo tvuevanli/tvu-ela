@@ -41,6 +41,27 @@ PMT, PCR and per-stream PIDs exist **only in an MPEG-TS multiplex**. On a contai
 the table prints the codecs and says so rather than showing blanks — "no PIDs" there is the
 container's nature, never a finding about configuration.
 
+Out of reach entirely, and named so a gap is not mistaken for a fault: **NDI** (needs the vendor SDK;
+no NDI demuxer in a stock build) and **ISSP** (TVU's own transport). A graph output of either kind
+cannot be verified this way — read the process's command line instead.
+
+## Depth
+
+| | costs | gives |
+|---|---|---|
+| default | one header read | programs, service/provider, PID table, codec, language, scan, HDR |
+| `--full` | same read | every field ffprobe returned, per stream, grouped |
+| `--frames` | a second read over `--seconds` | keyframe spacing (measured GOP) and observed video bitrate |
+
+Every figure maps to something an encoding profile sets — resolution, frame rate, profile/level,
+GOP, bitrate, audio codec/rate/channels/language, PIDs, service name — so a profile can be checked
+against what it actually produced, field by field. `diff` does that between two outputs.
+
+**What a target cannot answer is printed, with the reason**, under `not available for this target`.
+Protocol and container each remove different things: a live pull has no duration, cannot be seeked
+and gives a windowed bitrate estimate; a non-TS container has no PIDs and no service tags however it
+was transported.
+
 ## Invariants
 - **A live HLS window is seconds wide.** A media playlist typically lists 5 × 2s segments, so
   resolving a segment in one call and fetching it in the next races the window and 404s. `probe`
