@@ -1,5 +1,5 @@
 {
-  "description": "ela — SessionStart: context injection plus a catch-up snapshot of the knowledge base if a previous session left it dirty. SessionEnd: snapshot the knowledge base (one commit, pushed) when dirty. PreToolUse: the write guard — place (nothing under the published directory, nothing in ela/helm from a session started elsewhere, nothing under a remote site's elak, nothing under <elak> outside blueprint/knowledge/map) and content (no tracked file and no commit message may quote what someone said, name a person, or narrate what a session got wrong).",
+  "description": "ela — SessionStart: context injection, no writes. SessionEnd: report an uncommitted or unpushed elak, never commit it — knowledge is committed by hand after Evan's confirm. PreToolUse: the write guard — place (nothing under the published directory, nothing in ela/helm from a session started elsewhere, nothing under a remote site's elak, nothing under <elak> outside blueprint/knowledge/map) and content (no tracked file and no commit message may quote what someone said, name a person, or narrate what a session got wrong).",
   "hooks": {
     "SessionStart": [
       {
@@ -17,7 +17,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "ELA_NO_CATCHUP=1 ${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh",
             "timeout": 10
           }
         ]

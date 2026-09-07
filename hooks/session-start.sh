@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # ela SessionStart hook. Prints context for the session: context/evan.md · latest blueprint decisions + status ·
-# which mapped repo/area the cwd is in. Its one write is the knowledge-base catch-up snapshot (session-stop.sh),
-# for sessions that ended without their SessionEnd hook. It never touches the ela repo or any live system.
+# which mapped repo/area the cwd is in. It writes nothing: no repo, no live system.
 set -u
 ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 SITE="$HOME/.claude/ela/site.json"
@@ -11,9 +10,6 @@ cat "$ROOT/context/evan.md" 2>/dev/null
 # working preferences live in the site dir (never committed), beside site.json and .env
 cat "$HOME/.claude/ela/working-with-evan.md" 2>/dev/null
 
-# catch-up: a session that ended without its SessionEnd hook leaves the knowledge base dirty — snapshot it first.
-# Only on startup|resume: a clear or compaction mid-task must not commit half-written files (ELA_NO_CATCHUP=1).
-[ -n "${ELA_NO_CATCHUP:-}" ] || "$ROOT/hooks/session-stop.sh" 2>/dev/null || true
 
 [ -f "$SITE" ] || { echo; echo "ela: site file missing — run /ela:setup"; exit 0; }
 
