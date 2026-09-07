@@ -3,8 +3,9 @@
 the one write, `post`, is a dry run until --apply.
 
   read       <permalink>                 one message and its thread
-  channels                               channels the bot can see
-  history    <channel> --since 48h       top-level messages in a window (--threads adds replies)
+  files      <permalink> [--out DIR]     download that message's or thread's files — a screenshot is evidence
+  channels   [--all] [match]             channels the bot is in; --all every public channel in the workspace
+  history    <channel> --since 48h       top-level messages in a window (--threads adds replies, --humans drops bots)
   mentions   --since 48h [--user me] [--channels a,b]   messages that mention a user, with whether they answered
   unanswered --since 7d  [--user me] [--channels a,b]   threads a user started that nobody else replied to
   whoami     [--email x]                 the user id behind an email (default: JIRA_EMAIL in the env file)
@@ -15,12 +16,19 @@ the one write, `post`, is a dry run until --apply.
 Exit codes: 0 ok · 2 usage · 4 auth or refused · 5 remote error.
 Credential resolution: $SLACK_BOT_TOKEN → --env-file → $SLACK_ENV_FILE → $ELA_ENV_FILE. The script never stores it.
 """
-import argparse, json, os, re, signal, sys, time, urllib.error, urllib.parse, urllib.request
+import argparse, html, json, os, re, shutil, signal, sys, time, urllib.error, urllib.parse, urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 
 API = "https://slack.com/api/"
 EX_USAGE, EX_AUTH, EX_REMOTE = 2, 4, 5
+# A large response body truncates on this link (IncompleteRead), and a retry at the same size
+# truncates again — so a page that fails is refetched smaller, at the same cursor.
+PAGE_STEPS = (200, 100, 50, 25, 10)
+
+
+class Transient(Exception):
+    """A call that failed for a reason a smaller page or another attempt may fix."""
 
 
 def env_value(key, env_file=None):
@@ -73,8 +81,9 @@ def not_in_channel_hint(tok, ch):
             f"    slack.py read <permalink> --join")
 
 
-def call(method, tok, **params):
-    """One Slack call with retries on 429 and transient network faults. Raises SystemExit(5) on failure."""
+def call(method, tok, _soft=False, **params):
+    """One Slack call with retries on 429 and transient network faults. Raises SystemExit(5) on failure,
+    or Transient when `_soft` — the caller then decides between a smaller page and giving up on one channel."""
     url = API + method + "?" + urllib.parse.urlencode(params)
     last = None
     for attempt in range(6):
@@ -99,17 +108,30 @@ def call(method, tok, **params):
             print(not_in_channel_hint(tok, params["channel"]), file=sys.stderr)
             sys.exit(EX_USAGE)
         print(f"slack {method} failed: {d.get('error')}", file=sys.stderr); sys.exit(EX_REMOTE)
+    if _soft:
+        raise Transient(f"{method}: {last}")
     print(f"slack {method}: gave up after retries ({last})", file=sys.stderr); sys.exit(EX_REMOTE)
 
 
-def paged(method, tok, key, **params):
-    out, cursor = [], None
+def paged(method, tok, key, limit=200, **params):
+    """Every page of a listing. A page that will not come down whole is refetched at half the size,
+    at the same cursor, and the smaller size is kept for the rest of the walk. Raises Transient when
+    even the smallest page fails — one unreadable channel must not decide a whole lane's fate."""
+    out, cursor, steps, i = [], None, [s for s in PAGE_STEPS if s <= limit] or [limit], 0
     while True:
-        d = call(method, tok, **params, **({"cursor": cursor} if cursor else {}))
+        try:
+            d = call(method, tok, _soft=True, limit=steps[i], **params,
+                     **({"cursor": cursor} if cursor else {}))
+        except Transient:
+            if i + 1 >= len(steps):
+                raise
+            i += 1
+            continue
         out += d.get(key, [])
         cursor = (d.get("response_metadata") or {}).get("next_cursor")
         if not cursor:
             return out
+        time.sleep(0.3)  # conversations.list is tier 2: a 2500-channel walk must not trip the limiter
 
 
 class Names:
@@ -129,7 +151,10 @@ class Names:
         return self.cache[uid]
 
     def render(self, text):
-        return re.sub(r"<@([A-Z0-9]+)>", lambda m: "@" + self.user(m.group(1)), text or "")
+        """Ids become names, then Slack's entities become the characters they stand for — `&lt;` in a
+        command line or a URL's `&amp;` is unreadable as it arrives. Mentions are substituted first,
+        so unescaping can never manufacture one."""
+        return html.unescape(re.sub(r"<@([A-Z0-9]+)>", lambda m: "@" + self.user(m.group(1)), text or ""))
 
 
 def parse_permalink(link):
@@ -152,18 +177,65 @@ def since_ts(spec):
         print("--since takes 48h, 7d, or YYYY-MM-DD", file=sys.stderr); sys.exit(EX_USAGE)
 
 
+JOIN_SUBTYPES = {"channel_join", "channel_leave", "group_join", "group_leave"}
+
+
+def is_noise(m):
+    """A join notice is not a message, and a body with no text, no file and no attachment cannot be
+    read even if it is one. Both crowd out the content in a busy channel's window."""
+    if m.get("subtype") in JOIN_SUBTYPES:
+        return True
+    return not (m.get("text") or "").strip() and not m.get("files") and not m.get("attachments")
+
+
+def from_bot(m):
+    """A bot's own post. `user` is absent on most, but not all — a bot_id is the reliable mark."""
+    return bool(m.get("bot_id")) or m.get("subtype") == "bot_message" or not m.get("user")
+
+
 def list_channels(tok):
-    chans = paged("users.conversations", tok, "channels", types="public_channel,private_channel", limit=200)
-    return [{"id": c["id"], "name": c.get("name"), "members": c.get("num_members")} for c in chans]
+    chans = paged("users.conversations", tok, "channels", types="public_channel,private_channel")
+    return [{"id": c["id"], "name": c.get("name"), "members": c.get("num_members"), "member": True,
+             "private": bool(c.get("is_private")), "purpose": (c.get("purpose") or {}).get("value", "")}
+            for c in chans]
+
+
+def list_public_channels(tok):
+    """Every public channel in the workspace, joined or not. `users.conversations` knows only the ones
+    the bot is in, so a channel it has never joined is undiscoverable through it — and a mention
+    pointing into one is a dead end. Needs the `channels:read` scope."""
+    chans = paged("conversations.list", tok, "channels", types="public_channel", exclude_archived="true")
+    return [{"id": c["id"], "name": c.get("name"), "members": c.get("num_members"),
+             "member": bool(c.get("is_member")), "private": False,
+             "purpose": (c.get("purpose") or {}).get("value", "")} for c in chans]
+
+
+def channel_missing_hint(tok, ch):
+    """`channel_not_found` says nothing about which of the two cases it is. The public list decides:
+    a public channel the bot can join, or one it cannot reach on its own."""
+    hit = next((c for c in list_public_channels(tok) if c["id"] == ch), None)
+    if hit:
+        return (f"#{hit['name']} ({ch}) is public and the bot is not in it.\n"
+                f"  Joining is visible to the channel, so it is never automatic:\n"
+                f"    ela slack join {ch}          # then rerun")
+    return (f"{ch} is not a public channel of this workspace — it is private, a DM, or archived.\n"
+            f"  A bot cannot add itself to a private channel. Ask a member to run  /invite @helm  there.")
 
 
 def resolve_channel(tok, ref):
     if re.fullmatch(r"[CG][A-Z0-9]{8,}", ref):
         return ref
+    name = ref.lstrip("#")
     for c in list_channels(tok):
-        if c["name"] == ref.lstrip("#"):
+        if c["name"] == name:
             return c["id"]
-    print(f"channel not found or bot not a member: {ref}", file=sys.stderr); sys.exit(EX_USAGE)
+    hit = next((c for c in list_public_channels(tok) if c["name"] == name), None)
+    if hit:
+        print(f"#{name} is public ({hit['id']}, {hit['members'] or 0} members) but the bot is not in it.\n"
+              f"  Joining is visible to the channel:  ela slack join #{name}", file=sys.stderr)
+        sys.exit(EX_USAGE)
+    print(f"no channel #{name} the bot can see, and none by that name among the public channels",
+          file=sys.stderr); sys.exit(EX_USAGE)
 
 
 def whoami(tok, env_file, email=None):
@@ -207,6 +279,15 @@ def cmd_join(tok, a):
     print(f"joined #{name} ({ch})")
 
 
+def thread_messages(tok, ch, ts):
+    """A thread, with `channel_not_found` answered rather than repeated."""
+    try:
+        return call("conversations.replies", tok, channel=ch, ts=ts, limit=200)["messages"]
+    except SystemExit:
+        print(channel_missing_hint(tok, ch), file=sys.stderr)
+        raise
+
+
 def cmd_read(tok, a):
     ch, ts = parse_permalink(a.permalink)
     if getattr(a, "join", False) and not join_channel(tok, ch):
@@ -216,11 +297,13 @@ def cmd_read(tok, a):
         chan = call("conversations.info", tok, channel=ch)["channel"].get("name", ch)
     except SystemExit:
         chan = ch
-    msgs = call("conversations.replies", tok, channel=ch, ts=ts, limit=200)["messages"]
+    msgs = thread_messages(tok, ch, ts)
     if a.json:
         print(json.dumps({"channel": chan, "channel_id": ch, "count": len(msgs), "messages": [{
             "ts": m.get("ts"), "user": names.user(m.get("user")) if m.get("user") else (m.get("bot_id") or "?"),
-            "text": names.render(m.get("text")), "files": [f.get("name") for f in m.get("files", []) or []]}
+            "text": names.render(m.get("text")),
+            "files": [{"id": f.get("id"), "name": f.get("name"), "type": f.get("filetype")}
+                      for f in m.get("files", []) or []]}
             for m in msgs]}, ensure_ascii=False))
         return
     print(f"# #{chan}  ({len(msgs)} message(s))\n")
@@ -229,31 +312,104 @@ def cmd_read(tok, a):
         print(f"--- {author}  ts={m.get('ts')}")
         print(names.render(m.get("text")))
         for f in m.get("files", []) or []:
-            print(f"[file] {f.get('name')} ({f.get('filetype')})")
+            print(f"[file] {f.get('name')} ({f.get('filetype')})  id={f.get('id')}")
         print()
+    if any(m.get("files") for m in msgs):
+        print(f"# files: ela slack files {a.permalink} --out DIR")
+
+
+def default_out_dir():
+    """Downloads are working state, so they belong under <runtime> when the site names one.
+    Nothing under <runtime> is a record — the tree can be deleted whenever no task is open."""
+    try:
+        with open(os.path.expanduser("~/.claude/ela/site.json")) as f:
+            s = json.load(f)
+        root = s.get("runtime") or (s.get("projects") and os.path.join(s["projects"], ".ela"))
+        if root:
+            return os.path.join(root, "slack-files")
+    except (OSError, ValueError):
+        pass
+    return os.path.join(os.getcwd(), "slack-files")
+
+
+def cmd_files(tok, a):
+    """Download a message's or a thread's files. A screenshot is how most of the evidence in these
+    channels arrives; named but unfetched, it is a fact ela cannot read. Writes only to disk."""
+    ch, ts = parse_permalink(a.permalink)
+    msgs = thread_messages(tok, ch, ts)
+    if not a.thread:
+        msgs = [m for m in msgs if m.get("ts") == ts] or msgs[:1]
+    out = os.path.abspath(a.out or default_out_dir())
+    os.makedirs(out, exist_ok=True)
+    got, skipped = [], []
+    for m in msgs:
+        for f in m.get("files", []) or []:
+            if a.id and f.get("id") != a.id:
+                continue
+            url = f.get("url_private_download") or f.get("url_private")
+            if not url:
+                skipped.append({"id": f.get("id"), "name": f.get("name"), "why": "no download url (external or tombstoned)"})
+                continue
+            name = f"{f.get('id')}-{re.sub(r'[^A-Za-z0-9._-]+', '_', f.get('name') or 'file')}"
+            path = os.path.join(out, name)
+            req = urllib.request.Request(url, headers={"Authorization": f"Bearer {tok}"})
+            try:
+                with urllib.request.urlopen(req, timeout=120) as r, open(path, "wb") as fh:
+                    shutil.copyfileobj(r, fh)
+            except Exception as e:
+                skipped.append({"id": f.get("id"), "name": f.get("name"), "why": repr(e)}); continue
+            got.append({"id": f.get("id"), "name": f.get("name"), "type": f.get("filetype"),
+                        "bytes": os.path.getsize(path), "path": path,
+                        "by": Names(tok).user(m.get("user")) if m.get("user") else "bot", "ts": m.get("ts")})
+    if a.json:
+        print(json.dumps({"out": out, "count": len(got), "files": got, "skipped": skipped}, ensure_ascii=False)); return
+    for g in got:
+        print(f"{g['path']}  ({g['type']}, {g['bytes']} bytes, by {g['by']})")
+    for s in skipped:
+        print(f"skipped {s['name']}: {s['why']}", file=sys.stderr)
+    if not got:
+        print("no files on that message (add --thread for the whole thread)", file=sys.stderr)
+        sys.exit(EX_USAGE if not skipped else EX_REMOTE)
 
 
 def cmd_channels(tok, a):
-    chans = list_channels(tok)
+    chans = list_public_channels(tok) if a.all else list_channels(tok)
+    if a.match:
+        m = a.match.lower()
+        chans = [c for c in chans if m in (c["name"] or "").lower() or m in (c["purpose"] or "").lower()]
+    chans.sort(key=lambda c: (not c["member"], -(c.get("members") or 0), c["name"] or ""))
     if a.json:
-        print(json.dumps({"count": len(chans), "channels": chans}, ensure_ascii=False)); return
+        print(json.dumps({"count": len(chans), "member_of": sum(1 for c in chans if c["member"]),
+                          "scope": "public" if a.all else "joined", "channels": chans}, ensure_ascii=False)); return
     for c in chans:
-        print(f"{c['id']:<14} #{c['name']:<40} {c.get('members') or ''}")
+        mark = "●" if c["member"] else "○"
+        print(f"{mark} {c['id']:<14} #{(c['name'] or ''):<44} {c.get('members') or '':>5}  {(c['purpose'] or '')[:60]}")
+    if a.all:
+        print(f"\n# {len(chans)} public channel(s); ● = the bot is in it ({sum(1 for c in chans if c['member'])}). "
+              f"Joining is visible to the channel: ela slack join #name")
 
 
 def fetch_history(tok, ch, oldest):
-    return paged("conversations.history", tok, "messages", channel=ch, oldest=oldest, limit=200)
+    """Raises Transient when the channel will not come down. Callers over many channels catch it and
+    name the channel as unread — a lane that dies on one channel reports nothing about the others."""
+    return paged("conversations.history", tok, "messages", channel=ch, oldest=oldest)
 
 
 def cmd_history(tok, a):
     ch = resolve_channel(tok, a.channel)
     names = Names(tok)
-    msgs = sorted(fetch_history(tok, ch, since_ts(a.since)), key=lambda m: float(m["ts"]))
+    try:
+        msgs = fetch_history(tok, ch, since_ts(a.since))
+    except Transient as e:
+        print(f"slack history: {ch} did not come down whole ({e})", file=sys.stderr); sys.exit(EX_REMOTE)
+    msgs = sorted((m for m in msgs if not is_noise(m)), key=lambda m: float(m["ts"]))
+    if a.humans:
+        msgs = [m for m in msgs if not from_bot(m)]
     rows = []
     for m in msgs:
         row = {"ts": m["ts"], "at": iso(m["ts"]), "permalink": permalink_of(ch, m["ts"]),
                "user": names.user(m.get("user")) if m.get("user") else (m.get("username") or m.get("bot_id") or "bot"),
-               "is_bot": not m.get("user"), "text": names.render(m.get("text")),
+               "is_bot": from_bot(m), "text": names.render(m.get("text")),
                "reply_count": m.get("reply_count", 0), "reply_users": [names.user(u) for u in m.get("reply_users", [])]}
         if a.threads and m.get("reply_count"):
             reps = call("conversations.replies", tok, channel=ch, ts=m["ts"], limit=200)["messages"][1:]
@@ -263,7 +419,8 @@ def cmd_history(tok, a):
     if a.json:
         print(json.dumps({"channel_id": ch, "since": a.since, "count": len(rows), "messages": rows}, ensure_ascii=False)); return
     for r in rows:
-        print(f"--- {r['at']}  {r['user']}  replies={r['reply_count']}  {r['permalink']}")
+        bot = " [bot]" if r["is_bot"] else ""
+        print(f"--- {r['at']}  {r['user']}{bot}  replies={r['reply_count']}  {r['permalink']}")
         print(r["text"][:600]); print()
 
 
@@ -276,14 +433,20 @@ def pick_channels(tok, spec):
     picked = [c for c in chans if c["id"] in wanted or c["name"] in wanted]
     missing = [w for w in wanted if not any(c["id"] == w or c["name"] == w for c in chans)]
     if missing:
-        print(f"channels not visible to the bot: {', '.join(missing)}", file=sys.stderr)
+        print(f"channels the bot is not in: {', '.join(missing)}"
+              f"  — `ela slack channels --all <name>` says whether they are public, then `ela slack join`",
+              file=sys.stderr)
     return picked
 
 
 def replies_for(tok, ch, parents, workers=4):
-    """Replies for many parents, a few at a time. Returns {ts: [replies]}."""
+    """Replies for many parents, a few at a time. Returns {ts: [replies]}. A thread that will not come
+    down is empty rather than fatal — its parent still carries reply_count and reply_users."""
     def one(m):
-        return m["ts"], call("conversations.replies", tok, channel=ch, ts=m["ts"], limit=200)["messages"][1:]
+        try:
+            return m["ts"], call("conversations.replies", tok, _soft=True, channel=ch, ts=m["ts"], limit=200)["messages"][1:]
+        except Transient:
+            return m["ts"], []
     with ThreadPoolExecutor(max_workers=workers) as ex:
         return dict(ex.map(one, parents))
 
@@ -293,9 +456,12 @@ def cmd_mentions(tok, a):
     oldest = since_ts(a.since)
     names = Names(tok)
     tag = f"<@{user}>"
-    out = []
+    out, unread = [], []
     for c in pick_channels(tok, a.channels):
-        roots = fetch_history(tok, c["id"], oldest)
+        try:
+            roots = fetch_history(tok, c["id"], oldest)
+        except Transient as e:
+            unread.append({"channel": c["name"], "id": c["id"], "why": str(e)}); continue
         # replies are fetched only for threads that were active inside the window
         active = [m for m in roots if m.get("reply_count") and float(m.get("latest_reply") or m["ts"]) >= float(oldest)]
         reps_by = replies_for(tok, c["id"], active)
@@ -314,12 +480,20 @@ def cmd_mentions(tok, a):
     out.sort(key=lambda r: (r["answered"], r["last_mention_at"]))
     if a.json:
         print(json.dumps({"user": user, "since": a.since, "count": len(out),
-                          "unanswered": sum(1 for r in out if not r["answered"]), "threads": out}, ensure_ascii=False)); return
+                          "unanswered": sum(1 for r in out if not r["answered"]),
+                          "unread_channels": unread, "threads": out}, ensure_ascii=False)); return
     for r in out:
         flag = "WAITING" if not r["answered"] else "answered"
         print(f"[{flag}] #{r['channel']}  {r['last_mention_at']}  {r['permalink']}")
         print(f"   root by {r['root_by']}: {r['root'][:160]}")
         print(f"   last: {r['mentions'][-1]['by']}: {r['mentions'][-1]['text'][:200]}\n")
+    report_unread(unread)
+
+
+def report_unread(unread):
+    """A lane that could not read a channel says so. A silent lane is a lie."""
+    for u in unread:
+        print(f"# not read: #{u['channel']} ({u['id']}) — {u['why']}", file=sys.stderr)
 
 
 def cmd_unanswered(tok, a):
@@ -327,10 +501,14 @@ def cmd_unanswered(tok, a):
     user = whoami(tok, a.env_file) if a.user in (None, "me") else a.user
     oldest = since_ts(a.since)
     names = Names(tok)
-    out = []
+    out, unread = [], []
     for c in pick_channels(tok, a.channels):
-        for root in fetch_history(tok, c["id"], oldest):
-            if root.get("user") != user:
+        try:
+            roots = fetch_history(tok, c["id"], oldest)
+        except Transient as e:
+            unread.append({"channel": c["name"], "id": c["id"], "why": str(e)}); continue
+        for root in roots:
+            if root.get("user") != user or is_noise(root):
                 continue
             others = [u for u in root.get("reply_users", []) if u != user]
             if others:
@@ -339,10 +517,12 @@ def cmd_unanswered(tok, a):
                         "root": names.render(root.get("text"))[:400], "own_replies": root.get("reply_count", 0)})
     out.sort(key=lambda r: r["at"])
     if a.json:
-        print(json.dumps({"user": user, "since": a.since, "count": len(out), "threads": out}, ensure_ascii=False)); return
+        print(json.dumps({"user": user, "since": a.since, "count": len(out),
+                          "unread_channels": unread, "threads": out}, ensure_ascii=False)); return
     for r in out:
         print(f"#{r['channel']}  {r['at']}  own replies={r['own_replies']}  {r['permalink']}")
         print(f"   {r['root'][:200]}\n")
+    report_unread(unread)
 
 
 def post_json(method, tok, payload):
@@ -441,11 +621,19 @@ def main():
     p.add_argument("--join", action="store_true", help="join the channel first (public only; visible to the channel)")
     p = sub.add_parser("join", help="join a public channel — explicit, because the channel sees it")
     p.add_argument("channel", help="channel id, #name, or a permalink")
-    p = sub.add_parser("channels", help="channels the bot can see")
+    p = sub.add_parser("files", help="download a message's or thread's files — a screenshot is evidence")
+    p.add_argument("permalink"); p.add_argument("--out", help=f"directory (default {default_out_dir()})")
+    p.add_argument("--thread", action="store_true", help="every file in the thread, not just that message")
+    p.add_argument("--id", help="one file id (Fxxx) from `read`"); p.add_argument("--json", action="store_true")
+    p = sub.add_parser("channels", help="channels the bot is in; --all every public channel of the workspace")
+    p.add_argument("match", nargs="?", help="substring of a channel name or purpose")
+    p.add_argument("--all", action="store_true", help="every public channel, joined or not (needs channels:read)")
     p.add_argument("--json", action="store_true")
     p = sub.add_parser("history", help="top-level messages in a channel since a point in time")
     p.add_argument("channel", help="channel id or #name"); p.add_argument("--since", required=True)
-    p.add_argument("--threads", action="store_true", help="include replies"); p.add_argument("--json", action="store_true")
+    p.add_argument("--threads", action="store_true", help="include replies")
+    p.add_argument("--humans", action="store_true", help="drop the bots' own posts")
+    p.add_argument("--json", action="store_true")
     p = sub.add_parser("mentions", help="messages mentioning a user, and whether they answered")
     p.add_argument("--since", required=True); p.add_argument("--user", default="me")
     p.add_argument("--channels", help="comma-separated ids or #names; default every channel the bot sees")
@@ -469,7 +657,7 @@ def main():
     tok = token(a.env_file)
     {"read": cmd_read, "channels": cmd_channels, "history": cmd_history, "mentions": cmd_mentions,
      "unanswered": cmd_unanswered, "whoami": cmd_whoami, "users": cmd_users, "post": cmd_post,
-     "join": cmd_join}[a.cmd](tok, a)
+     "join": cmd_join, "files": cmd_files}[a.cmd](tok, a)
 
 
 if __name__ == "__main__":
