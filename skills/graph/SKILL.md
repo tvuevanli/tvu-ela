@@ -47,6 +47,18 @@ Self-contained. Argument: a graph id (26 chars, `01M1…`), a process id (32 hex
   one-row result returns `count: 1` with an empty `data` — it looks like a broken filter and is not),
   and `ids` is a **repeated** parameter (`ids=a&ids=b`), not a comma list. Single-tier holds ~11.9k
   profiles, so a listing is only useful with `name` or `ids`.
+- **A box's occupancy is a table of owners, not a load figure.** When the question is a conflict or a
+  leak — two objects on one SDI interface, a port that will not free, a graph deleted whose process
+  never went away — the answer is `box <id> -d`, and it names the object and the person, because that
+  is what has to be asked or told. Three shapes come out of it and they are different findings:
+  **ORPHAN** (the port names a graph with no node on this box — the process is gone and the range was
+  never returned), **UNCLAIM** (no process record and no declared usage, so nothing accounts for it),
+  and **reserved** (a usage, no process — by design, and reporting it as a leak buries the real ones).
+  A production box read on 2026-09-07 carried 147 occupied ports: 5 orphaned, 6 unclaimed, 78 reserved.
+- **UR does not bind an SDI connector to a node.** The connector list and each connector's
+  `statusBusy` are readable; the device number a process actually opened lives in that process's own
+  command line, on the box. So `-d` gives the connectors and the SDI nodes, and the last hop is
+  `$G connect <box>`. Never present a connector-to-object binding as read when it was inferred.
 - **First-hand or nothing.** What UR does not return (a box's owner, a service's owner) comes from
   the map and the roster, and is cited as such.
 - **Acting is Evan's hand, not the session's.** `connect`, `exec`, `start`, `stop` exist for the shell
@@ -70,7 +82,7 @@ the default probe order). Missing → `/ela:setup`.
 | process id | `$G process <id>` | env, type, status, graph id, owner, image, box id, control port, container, uptime, the video and audio statistic (codec, size, fps, bitrate, dropped frames, jitter), error rates 1s/8s/60s, shm names and local shm depths. A **stopped** process prints the graph it ran in and that graph's table instead of an error |
 | profile id | `$G profile <id>` | which family holds it, then every field: video (codec, resolution, bitrate, fps, gop, cbr, profile@level, preset, tune, bframes, refframes, bpp, hdr, deinterlace, scale), each audio profile, and the stream profile's MPEG-TS pids. `--default` is the profile Pilot uses when a graph names none |
 | profile name | `$G profiles <part of the name> [--kind single\|multi\|video\|audio\|stream] [--limit N]` | matching profiles per family, one summary line each — the way to find an id when only the name is known (from a UI screenshot or a ticket) |
-| box id | `$G box <id>` | placement (type · cloud · region), state, cpu/mem/disk/shm with idle %, load 1/5/15m, agent and process versions, created/connected/heartbeat/last-disconnect, ports |
+| box id | `$G box <id>` | placement (type · cloud · region), state, cpu/mem/disk/shm with idle %, load 1/5/15m, agent and process versions, created/connected/heartbeat/last-disconnect, ports. **`-d` answers "who holds what"**: the SDI connectors with their busy status, every occupied port and every node placed there, each carried back to its graph, its object and the person who owns it |
 | email or name | `$G graphs <email|name>` | that user's graphs: env, type, phase, object id, name. A full address is looked up as given (most UR users are customers, not on the roster); a bare name resolves through the roster (`robin`), never a composed address. `--all` walks every env, `--object <id>` keeps the graphs carrying that object |
 | object id | `$G resolve <id> [-d] [--limit N]` | **every graph the object ever ran in** (v2, `query_mode=any`, newest first): id, env, business type, phase, process count, created, stopped and how long it ran — then the live graph in full, or the last one that ran when the object is Inactive. `$O get <id>` adds the object record itself (tangibles, owner userId) |
 | email or name, history | `$G graphs <email> --any` (or `--deleted`) | the same list by owner instead of by object — v2's options route; the plain listing is live graphs only |

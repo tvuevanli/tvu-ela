@@ -10,7 +10,10 @@ probed across environments in a fixed order (MediaHub 2.1 prod first) until one 
                                            status, the image actually running and the node's encoding profile; -c connections
   process  <processId> [--env X] [-d]      one process: type, box ips, control port, video/audio statistic, error
                                            rates, local shms. A stopped process falls through to the graph it ran in
-  box      <boxId>     [--env X]           one box: placement, state, capacity and load, versions, connection times
+  box      <boxId>     [--env X] [-d]      one box: placement, state, capacity and load, versions, connection times.
+                                           -d adds who holds what: the SDI connectors, every occupied port and every
+                                           node, each carried back to its graph, object and owner; a port whose graph
+                                           has no node here is ORPHAN, one with neither process nor usage UNCLAIM
   graphs   [email|alias|name] [--env X | --all] [--any | --deleted]  graphs owned by an address (any, as given), a site
                                            alias, or a roster name; no argument = me. --any/--deleted include stopped ones
   profile  <profileId> [--kind K] [-e X]   one encoding profile (the id a node names): video · audio · stream,
@@ -753,13 +756,132 @@ def print_box(env, b):
         line("daemons", ", ".join(b["daemonSet"]))
 
 
+def bare_graph_id(gid):
+    """Pilot writes a node's graph as `<graphId>:<node>` (and sometimes `<graphId>:None:<node>`);
+    J2N only knows the id before the first colon."""
+    return (gid or "").split(":", 1)[0]
+
+
+def graph_owners(ur, env, graph_ids):
+    """{graphId: {business_name, business_id, object_id, email, phase}} — a node names a graph, and the
+    graph's annotations are the only place the object and the person behind it are written."""
+    def one(gid):
+        _, body = ur.probe(graph_path(gid), env, accept=lambda b: isinstance(b, dict) and bool(b))
+        if not body:
+            return gid, {}
+        g = parse_graph(unwrap(body))
+        return gid, {k: g.get(k, "") for k in ("business_name", "business_id", "object_id", "email", "phase", "deleted_at")}
+    ids = [g for g in dict.fromkeys(bare_graph_id(g) for g in graph_ids) if g]
+    if not ids:
+        return {}
+    with ThreadPoolExecutor(max_workers=min(6, len(ids))) as ex:
+        return dict(ex.map(one, ids))
+
+
+def box_occupancy(ur, env, box_id):
+    """Who holds what on this box: the SDI connectors, every occupied port, and every node — each
+    carried back to the graph, the object and the person, because that is the question a conflict
+    or a leak is actually asking. Three reads; each may legitimately be empty."""
+    def get(path):
+        _, body = ur.probe(path, env, accept=lambda b: b is not None)
+        return body
+
+    sdi = get(f"{PILOT}/boxes/{box_id}/sdi/device") or []
+    ports = get(f"{PILOT}/boxes/{box_id}/ports/occupied") or []
+    nodes = get(f"{PILOT}/boxes/{box_id}/nodes") or []
+    owners = graph_owners(ur, env, [n.get("graphId") for n in nodes]
+                          + [(p.get("process") or {}).get("graphId") for p in ports])
+    live = {bare_graph_id(n.get("graphId")) for n in nodes if n.get("graphId")}
+    rows = []
+    for p in ports:
+        pr = p.get("process") or {}
+        gid = bare_graph_id(pr.get("graphId"))
+        # Three shapes, and only two are findings. ORPHAN: the port names a graph that has no node on
+        # this box — the process went away and the range was never given back. UNCLAIMED: no process
+        # record and no declared usage either, so nothing on the box accounts for it. A port with a
+        # usage but no process (crosszone-issp, observer) is a reservation by design, not a leak, and
+        # calling it one would bury the five that are.
+        rows.append({"port": p.get("port"), "usage": p.get("usage") or "", "node_id": p.get("nodeId") or "",
+                     "node_type": pr.get("nodeType") or "", "graph_id": gid,
+                     "deleted": bool(pr.get("deleted")), "created_at": pr.get("createdAt") or "",
+                     "orphan": bool(gid) and gid not in live,
+                     "unclaimed": not gid and not (p.get("usage") or "").strip(),
+                     "reserved": not gid and bool((p.get("usage") or "").strip()),
+                     "owner": owners.get(gid, {}) if gid else {}})
+    return {"sdi": [{"device": d.get("deviceNum"), "name": d.get("displayName") or "", "model": d.get("modelName") or "",
+                     "interface": d.get("deviceInterface"), "duplex": d.get("deviceDuplexMode"),
+                     "status_busy": d.get("statusBusy")} for d in sdi],
+            "ports": sorted(rows, key=lambda r: (not (r["orphan"] or r["unclaimed"]), r["port"] or 0)),
+            "nodes": [{"type": n.get("type") or "", "node_id": n.get("nodeId") or "",
+                       "graph_id": bare_graph_id(n.get("graphId")), "node": (n.get("graphId") or "").partition(":")[2],
+                       "image": n.get("imageVersion") or "", "created_at": n.get("createdAt") or "",
+                       "owner": owners.get(bare_graph_id(n.get("graphId")), {})} for n in nodes],
+            "orphan_ports": sum(1 for r in rows if r["orphan"]),
+            "unclaimed_ports": sum(1 for r in rows if r["unclaimed"]),
+            "reserved_ports": sum(1 for r in rows if r["reserved"])}
+
+
+def _who(o):
+    """One line for a graph's owner: what it is, whose it is."""
+    if not o:
+        return "(graph not readable)"
+    bits = [o.get("business_name") or "", o.get("email") or ""]
+    if o.get("deleted_at"):
+        bits.append("STOPPED")
+    return " · ".join(x for x in bits if x) or "(no annotations)"
+
+
+def print_occupancy(occ):
+    sdi, ports, nodes = occ["sdi"], occ["ports"], occ["nodes"]
+    print()
+    print(_c(BOLD, f"# SDI connectors ({len(sdi)})"))
+    if not sdi:
+        print(_c(DIM, "  none reported — the box has no SDI card, or the daemon has not reported one"))
+    for d in sdi:
+        print(f"  [{d['device']}] {d['name']:<20} {d['model']:<26} interface={d['interface']}  duplex={d['duplex']}  statusBusy={d['status_busy']}")
+    sdi_nodes = [n for n in nodes if "sdi" in (n["type"] or "")]
+    if sdi:
+        print(_c(DIM, f"  {len(sdi_nodes)} sdi node(s) on this box. UR does not say which connector a node holds —"))
+        print(_c(DIM, "  the device number lives in the process's own command line, on the box: ela connect " + (nodes and "<box>" or "<box>")))
+    print()
+    counts = ", ".join(x for x in [f"{occ['orphan_ports']} orphaned" if occ["orphan_ports"] else "",
+                                   f"{occ['unclaimed_ports']} unclaimed" if occ["unclaimed_ports"] else "",
+                                   f"{occ['reserved_ports']} reserved" if occ["reserved_ports"] else ""] if x)
+    print(_c(BOLD, f"# occupied ports ({len(ports)}" + (f"; {counts}" if counts else "") + ")"))
+    if not ports:
+        print(_c(DIM, "  none"))
+    for r in ports:
+        flag = (_c(RED, "ORPHAN  ") if r["orphan"] else _c(RED, "UNCLAIM ") if r["unclaimed"]
+                else _c(DIM, "reserved") if r["reserved"] else "STOPPED " if r["deleted"] else "        ")
+        who = ("(no process record, no usage — nothing accounts for it)" if r["unclaimed"]
+               else f"(reserved for {r['usage']}; no process)" if r["reserved"] else _who(r["owner"]))
+        print(f"  {flag}{r['port']:<7} {(r['usage'] or '-'):<10} {(r['node_type'] or '-'):<18} {r['graph_id'] or '-':<28} {who}")
+    if occ["orphan_ports"] or occ["unclaimed_ports"]:
+        print(_c(YELLOW, "  ORPHAN  = names a graph with no node on this box: the process is gone, the range was not returned"))
+        print(_c(YELLOW, "  UNCLAIM = no process record and no declared usage: nothing on this box accounts for it"))
+        print(_c(YELLOW, "  Both are the shape of MH-3570 / MH-3565. A reserved port has a purpose and no process, which is"))
+        print(_c(YELLOW, "  by design. Release is DELETE /boxes/{boxId}/ports/{port}/occupied — not from here."))
+    print()
+    print(_c(BOLD, f"# nodes ({len(nodes)})"))
+    if not nodes:
+        print(_c(DIM, "  none — nothing is placed on this box right now"))
+    for n in nodes:
+        print(f"  {n['type']:<16} {n['node_id']:<34} {n['graph_id'] or '-':<28} {_who(n['owner'])}")
+        if n["image"]:
+            print(_c(DIM, f"    {n['image']}"))
+
+
 def cmd_box(ur, a):
     env, body = ur.probe(f"{PILOT}/boxes/{a.box_id}", a.env, accept=lambda b: isinstance(b, dict) and bool(b))
     if not env:
         print(f"box {a.box_id}: not found", file=sys.stderr); sys.exit(EX_NOTFOUND)
+    occ = box_occupancy(ur, env, a.box_id) if a.detail else None
     if a.json or a.raw:
-        print(json.dumps(dict(env=env, **body), ensure_ascii=False, indent=None if a.json else 1)); return
+        print(json.dumps(dict(env=env, **body, **({"occupancy": occ} if occ else {})),
+                         ensure_ascii=False, indent=None if a.json else 1)); return
     print_box(env, body)
+    if occ:
+        print_occupancy(occ)
 
 
 # ── graphs by email ───────────────────────────────────────────────────────────
@@ -1129,6 +1251,9 @@ def main():
         p = sub.add_parser(name); p.add_argument(arg)
         if name == "process":                     # a stopped process falls through to the graph it ran in
             p.add_argument("-d", "--detail", action="store_true", help="per node, when the graph is printed")
+        if name == "box":
+            p.add_argument("-d", "--detail", action="store_true",
+                           help="who holds what: SDI connectors, every occupied port and every node, each carried back to its graph, object and owner; orphaned ports flagged")
         p.add_argument("-e", "--env", help="prod3 · p3 · prod2 · test2 …; default: probe in order")
         p.add_argument("--json", action="store_true"); p.add_argument("--raw", action="store_true", help="the API body as-is")
         if name == "graph":
