@@ -32,6 +32,7 @@ def resolve_hls(url, which="last"):
     downloads in another races the window and gets a 404, so the two happen here together.
     Returns (segment_url, bytes). A master playlist is followed one level to a media playlist.
     """
+    print(f"resolving playlist {url}", file=sys.stderr)
     body = fetch(url).decode("utf-8", "replace")
     lines = [l.strip() for l in body.splitlines() if l.strip()]
     if any(l.startswith("#EXT-X-STREAM-INF") for l in lines):          # master → first variant
@@ -82,8 +83,22 @@ def as_caller(url, host=None):
                                     urllib.parse.urlencode(q, doseq=True), u.fragment))
 
 
+def announce(target, seconds):
+    """The URL that arrived, before the silent wait — and a truncated one is visible here.
+
+    Every SRT and UDP URL carries `&` query parameters, which an unquoted shell argument splits:
+    the command is backgrounded and the tool probes a URL shorter than the one that was typed.
+    Nothing downstream can detect that, so the received target is always printed.
+    """
+    if is_network(target):
+        print(f"probing {target}  (live pull, up to {seconds:g}s)", file=sys.stderr)
+    else:
+        print(f"reading {target}", file=sys.stderr)
+
+
 def ffprobe_json(path_or_url, seconds=8, timeout=45):
     """Bounded on purpose: a live pull feed never ends, so say how much of it to look at."""
+    announce(path_or_url, seconds)
     cmd = [need("ffprobe"), "-v", "error"]
     if is_network(path_or_url):
         # microseconds; without these a dead endpoint blocks until the subprocess timeout
@@ -207,7 +222,9 @@ def cmd_diff(a):
 
 def main():
     ap = argparse.ArgumentParser(
-        description="What a stream actually carries: PMT/PCR/PID and codec, read off the wire.")
+        description="What a stream actually carries: PMT/PCR/PID and codec, read off the wire.",
+        epilog="Quote the target: an SRT or UDP URL's `&` parameters are shell separators otherwise, "
+               "and the URL is silently truncated. The line printed before each read shows what arrived.")
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("probe", help="one stream — HLS playlist, .ts file, srt:// udp:// rtp:// rtmp://")
     p.add_argument("target")

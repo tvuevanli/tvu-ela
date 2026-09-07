@@ -54,6 +54,10 @@ container's nature, never a finding about configuration.
   someone configured it.
 - **What is probed is named.** For a playlist the output prints the segment it actually read, so a
   claim can be re-checked against the same bytes.
+- **Quote the target.** Every SRT and UDP URL carries `&` query parameters, which an unquoted shell
+  argument splits: the command is backgrounded and a URL shorter than the one typed is probed. It
+  usually still connects, so the result looks right and is not. Each read prints the target it
+  received to stderr before it waits — that line is where a truncation shows.
 - **A listener address is not a pull address.** The copier publishes
   `srt://0.0.0.0:PORT?mode=listener` — where the sender binds, not somewhere to connect. `probe`
   refuses it and asks for `--host <box ip>`, then connects as a caller. The box ip comes from
