@@ -127,7 +127,9 @@ one-line checks first: the problem and its evidence; the strongest alternative, 
 nothing; the recorded decision it conflicts with; the verdict, always showing the option ela would
 reject. The owner decides; if they reaffirm after an objection, proceed and record the dissent in the
 ADR. Reopening a recorded decision needs new evidence. Each phase opens with a one-paragraph
-premortem.
+premortem. Adding, changing or removing an ability answers those checks against ela's own files —
+the scenario register, the layers, the manual and the roadmap — under the five-question admission
+test in ADR 0006.
 
 ## Verification
 
