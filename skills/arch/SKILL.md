@@ -107,7 +107,7 @@ Rank by price. Drop what has no price, and say how many were dropped — that nu
 review honest.
 
 ## 6 — output
-1. **中文 for Evan** — the standard used · the picture · the ranked findings table (finding · what it
+1. **The review for Evan** — in the session's language (English unless he asked for Chinese); the standard used · the picture · the ranked findings table (finding · what it
    costs, cited · layer · owner · the cheapest change that removes the cost) · what could not be read
    · how many candidates were dropped for having no price.
 2. **The artifact** — the render plus the findings table, published private. Load `artifact-design`

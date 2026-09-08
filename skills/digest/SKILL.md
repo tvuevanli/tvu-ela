@@ -129,15 +129,15 @@ report with six findings is six decisions, and the whole point of drafting them 
 four. Report back the keys created, and add the new key to the thread only if he asks — posting to
 Slack is `slack post`'s own confirm, not this skill's.
 
-## 4 — output (Chinese; keys, quotes and TC ids verbatim)
-1. **一行判定** — builds/envs, pass/fail totals as the report states them.
-2. **要动手 (ACT)** — each: what · evidence (quote/TC) · next action · who. Unrouted High,
+## 4 — output (the session's language — English unless he asked for Chinese; keys, quotes and TC ids verbatim)
+1. **VERDICT, one line** — builds/envs, pass/fail totals as the report states them.
+2. **ACT** — each: what · evidence (quote/TC) · next action · who. Unrouted High,
    reopened, expired dates live here.
-3. **要建单 (TICKET)** — the §3 drafts: for each, the proposed summary, the owner, the duplicate
+3. **TICKET** — the §3 drafts: for each, the proposed summary, the owner, the duplicate
    search result, and the dry-run command. A finding that failed one of the three tests appears here
    too, with which test it failed and what would change that.
-4. **要拍板 (DECIDE)** — the exact open question, who it waits on, since when.
-5. **风险钉住 (RISKS)** — the in-passing facts, each with where it was said.
-6. **知道即可 (FYI)** — closed/passes, one line each.
+4. **DECIDE** — the exact open question, who it waits on, since when.
+5. **RISKS** — the in-passing facts, each with where it was said.
+6. **FYI** — closed/passes, one line each.
 
 End with nothing unattributed: every item carries a key, a quote, or a TC id.

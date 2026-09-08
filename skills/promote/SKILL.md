@@ -63,7 +63,7 @@ a Billing callback change reaches warning-service and Home; a tags change spans 
 That reach, plus the lane's docker pin, is the risk sentence — not the commit count.
 
 ## 2 — output, in this order
-1. **中文摘要 for Evan** — the lane table, then the ranked findings (≤12), each with the reach and the evidence
+1. **The summary for Evan** — in the session's language (English unless he asked for Chinese); the lane table, then the ranked findings (≤12), each with the reach and the evidence
    source; then what could not be read. He decides here; this text is not posted.
 2. **The Slack body** — English, written to `<runtime>/promote/<date>-<line>-<from>-<to>.post.md`, then shown as
    `slack post '#prj_dev_mediahub' --file … ` **dry run**. Title first (`[MH <line>] <from> → <to> promotion — <scope>`),
