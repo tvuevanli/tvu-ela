@@ -10,7 +10,9 @@ knowledge: `survey` writes ~/.claude/ela/map/host.json; the knowledge base keeps
 derived — services.yaml (image → repos → owners) and absent.yaml.
 
   survey                            scan <code>, <work>, <lab> and Evan's repos → the cache (seconds)
-  find     <name>                   repo · docker image · process type → paths, owners, or where to clone from
+  find     <name> [--catalogue]     repo · docker image · process type → paths, owners, or where to clone from;
+                                    --catalogue answers from the published tables alone: no survey cache, no
+                                    GitLab listing, no machine state — the shape a site without checkouts can trust
   services [--image X | --type T]   the service table
   where    <alias>/<path>           the directory a remote path maps to (no network)
   probe    <alias>/<path> …         does the remote exist? (ssh ls-remote; the media GitLab's API lists only public projects)
@@ -343,6 +345,8 @@ def code_list(rows):
     """The repos a service's code lives in, compressed — the common case is all of them present."""
     if not rows:
         return "unknown"
+    if any("on_disk" not in r for r in rows):   # catalogue rows carry no machine state, so say nothing about disks
+        return ", ".join(r["gitlab"] for r in rows)
     if all(r["on_disk"] for r in rows):
         return ", ".join(r["gitlab"] for r in rows) + " (on disk)"
     return ", ".join(r["gitlab"] + ("" if r["on_disk"] else " NOT cloned") for r in rows)
@@ -355,13 +359,19 @@ def cmd_find(lay, a):
     s = site(); mapdir = s.get("map", "")
     svc = services(read(os.path.join(mapdir, "services.yaml")))
     absent = absent_entries(read(os.path.join(mapdir, "absent.yaml")))
-    repos = cache(lay)["repos"]
+    cat = getattr(a, "catalogue", False)
+    # --catalogue: the two sources below describe THIS MACHINE (which repos are cloned, what the GitLab
+    # group holds), and a site with no checkouts would report "NOT cloned" for everything as if it were a
+    # fact about the world. Answering from services.yaml and absent.yaml alone is the shape such a site
+    # can trust; the matcher stays the one here rather than being restated by the caller.
+    repos = [] if cat else cache(lay)["repos"]
     hits = {"repos": [], "images": [], "services": [], "process_types": [], "slugs": [], "gm_names": [], "absent": []}
     for r in repos:
         if matches(q, r["name"], os.path.basename(r["remote"] or "")):
             hits["repos"].append(r)
     for img, d in svc.items():
-        rows = [dict(rp, path=gitlab_to_dir(lay, rp["gitlab"]), on_disk=os.path.isdir(gitlab_to_dir(lay, rp["gitlab"]) or "\0")) for rp in d["repos"]]
+        rows = ([{k: v for k, v in rp.items() if k in ("gitlab", "role")} for rp in d["repos"]] if cat else
+                [dict(rp, path=gitlab_to_dir(lay, rp["gitlab"]), on_disk=os.path.isdir(gitlab_to_dir(lay, rp["gitlab"]) or "\0")) for rp in d["repos"]])
         if matches(q, img):
             hits["images"].append(dict(image=img, **{k: v for k, v in d.items() if k != "repos"}, repos=rows)); continue
         # a service row carries all three names at once — report the tuple, not each name apart
@@ -382,7 +392,7 @@ def cmd_find(lay, a):
         if matches(q, e["name"]):
             hits["absent"].append(e)
     hits["remote"] = []
-    for alias in lay.aliases:
+    for alias in [] if cat else lay.aliases:
         d = remote_listing(lay, alias, quiet=True)
         for r in (d or {}).get("projects", []):
             if matches(q, r["path"], r["description"]):
@@ -392,14 +402,19 @@ def cmd_find(lay, a):
     if not any(hits.values()):
         print(f"{a.name}: no repo, image, process type, slug or GM name matches; not in absent.yaml — try `probe media/{a.name}`", file=sys.stderr); sys.exit(EX_NOTFOUND)
     if a.json:
-        print(json.dumps(hits, ensure_ascii=False)); return
+        # Declared, not inferred: a reader must be able to tell a catalogue answer from a full one without
+        # counting empty lists — an empty `repos` means "no checkout matched" in one shape and "not asked" in the other.
+        print(json.dumps(dict(hits, catalogue=True) if cat else hits, ensure_ascii=False)); return
     for r in hits["repos"]:
         flag = "" if r["in_place"] in (True, None) else f"  (misplaced → {r['place']})"
         print(f"repo   {r['name']:<28} {r['path']}  [{r['branch']} · {r['governance']} · dirty {r['dirty']}]{flag}")
     for i in hits["images"]:
         print(f"image  {i['image']:<28} owners {', '.join(i['owners']) or '?'}; slugs {', '.join(i['slugs'][:4])}{' …' if len(i['slugs'])>4 else ''}; GM names {len(i['gm_names'])}")
         for rp in i["repos"]:
-            print(f"         {rp['gitlab']:<38} {(rp['path'] or '?'):<58} {'on disk' if rp['on_disk'] else 'NOT cloned'}  {rp.get('role','')}")
+            if "on_disk" not in rp:
+                print(f"         {rp['gitlab']:<38} {rp.get('role', '')}")
+            else:
+                print(f"         {rp['gitlab']:<38} {(rp['path'] or '?'):<58} {'on disk' if rp['on_disk'] else 'NOT cloned'}  {rp.get('role','')}")
         if not i["repos"]:
             print("         no repo known — see absent")
     if hits["services"]:
@@ -650,6 +665,8 @@ def main():
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("survey"); p.add_argument("--json", action="store_true")
     p = sub.add_parser("find"); p.add_argument("name"); p.add_argument("--json", action="store_true")
+    p.add_argument("--catalogue", action="store_true",
+                   help="the published tables only — no survey cache, no GitLab listing, no on-disk state")
     p = sub.add_parser("services"); p.add_argument("--image"); p.add_argument("--type"); p.add_argument("--json", action="store_true")
     p = sub.add_parser("where"); p.add_argument("ref"); p.add_argument("--json", action="store_true")
     p = sub.add_parser("remote", help="every project of an alias's GitLab group, from the host API (read token); ● = on disk")
