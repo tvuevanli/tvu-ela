@@ -26,7 +26,7 @@ flowchart LR
     L1["L1 感官脚本<br>14 个第一手数据源 + 地图 + 发布"]
     L1 --> L0["L0 site<br>~/.claude/ela<br>路径 · 凭证 · 偏好"]
   end
-  L1 --> PUB[("published<br>地图 · 服务目录 · 花名册")]
+  L1 --> PUB[("elak-published<br>地图 · 服务目录 · 花名册")]
   L1 --> W[("Jira · Slack · Outline · Confluence · UR<br>GitLab · Jenkins · GM · Apifox · Google · Gmail")]
   classDef me fill:#1e3a5f,color:#fff,stroke:none
   classDef core fill:#0f766e,color:#fff,stroke:none
@@ -121,7 +121,7 @@ flowchart TD
 | 能力 | 做什么 |
 |---|---|
 | `map` | 世界上有什么：`find` · `where` · `services` · `coverage` · `missing` · `remote`（整个 GitLab 组）· `clone` · `sync` · `worktree` · `survey` · `probe`；依赖图由 `deps.py` 从 git ref 生成 |
-| `publish` | 把 elak 的地图、服务目录、花名册渲染到 published 目录（地址替换成占位符），写清单；`list` 有漂移就 exit 1。**ela 自己的读动词也读 published**，所以改了地图要 publish 一次 |
+| `publish` | 把 elak 的地图、服务目录、花名册渲染到 `elak-published`（地址替换成占位符），写清单；`list` 有漂移就 exit 1。**ela 自己的读动词也读 `elak-published`**，所以改了地图要 publish 一次 |
 | `runtime` | 一次性工作目录：`status` 看有什么、`clean` 删掉（`--work` 连干净的 worktree 一起） |
 
 ### 判断 — 每个替你做什么决定
@@ -208,7 +208,7 @@ flowchart TD
 |---|---|---|
 | 能力定义、hooks、ela 自己的架构与决策（`docs/`） | ela 仓 | TVU 内部可看；不存知识、主机、凭证、任何人的话 |
 | 知识：原则、决策、解读、地图 | elak 仓 | 只有你；你说「记下来」才写，手工提交 |
-| 给机器读的子集：地图（地址已脱敏）、服务目录、花名册 | published 目录 | `ela publish` 生成，永不手改；ela 的读动词、Helm、远端都读这里 |
+| 给机器读的子集：地图（地址已脱敏）、服务目录、花名册 | `elak-published` | `ela publish` 生成，永不手改；ela 的读动词、Helm、远端都读这里 |
 | 机器路径、凭证、你的工作偏好 | `~/.claude/ela/` | 从不进任何被跟踪的文件 |
 | 别人家的代码（只读） | `<code>/<别名>/<远端路径>` | 改动一律在 `<work>/<KEY>/<仓>` 的 worktree 里 |
 | 草稿、原始抓取、worktree | `<projects>/.ela` | 随时可删；`ela runtime clean` |
