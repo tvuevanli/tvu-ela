@@ -14,8 +14,13 @@ Self-contained. Argument: a ticket key or URL. Multiple keys → route each inde
   re-derive what the report already measured.
 - **Route on evidence, not on vocabulary.** An error message names its *thrower*, not its owner.
   Find the emitter in code before naming a person.
-- **Owners are read, never remembered**: `map_sources.team_roster`, `<map>/services.yaml`, and the
-  area's own registry (`mediahub-agent/workspace.json`) — in that order of specificity.
+- **Owners are read, never remembered**, and the read is two hops: the **area** from
+  `<published>/knowledge/products/mediahub/team/layer-classification.md` (symptom → area; it names no
+  owner, on purpose), then the **person** from the roster capability — `ela who
+  <name|email|Uxxx|accountId>` for one person, exit 3 meaning the roster does not carry them, which is
+  the answer and not a failure; `ela team areas` for who to ask first about an area. Both read
+  `<published>`, falling back to elak's private source on the office machine. `<map>/services.yaml`
+  and the area's own registry (`mediahub-agent/workspace.json`) give repo and service owners.
 - **Uncertainty is a first-class verdict.** When not certain, the output is not a guess but a
   *first checker*: the person whose single cheapest check discriminates the hypotheses — plus the
   exact check and what each outcome means. Never assign a guess as if it were a conclusion.
@@ -23,9 +28,10 @@ Self-contained. Argument: a ticket key or URL. Multiple keys → route each inde
   (`jira.py assign`); `--apply` only after Evan confirms.
 
 ## 0 — read
-`~/.claude/ela/site.json` → `env`, `map`, `map_sources`. Then:
+`~/.claude/ela/site.json` → `env`, `map`, `published`, `map_sources`. Then:
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/skills/jira/jira.py" --env-file <env> read <KEY> --deep
+TEAM="python3 ${CLAUDE_PLUGIN_ROOT}/skills/team/team.py --env-file <env>"   # or: ela who … · ela team areas
 ```
 Note: error codes, exact resource ids (graphId, objectId, processId — testers often record
 them), timestamps, environment, what the reporter excluded, linked tickets (prior art).

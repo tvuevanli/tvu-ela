@@ -21,23 +21,27 @@ framing is first-class input — it often carries the decision the sources lack.
 - **The plan is the deliverable; Jira is a publication.** This skill writes only
   `<runtime>/breakdowns/<KEY>/plan.md` — a draft, until Jira carries it. It never touches a product repo, and creates Jira
   subtasks only through §5's gate.
-- **Owners are read, not remembered.** Token → owner from the roster file at run time; repo → owner
-  from the map. A missing owner is `unknown`, never a guess.
+- **Owners are read, not remembered.** Token → owner from the roster capability at run time; repo →
+  owner from the map. A missing owner is `unknown`, never a guess.
 - **Closed vocabulary.** Every proposed subtask title is `[Infra] [J2N] [Media] [App] [UI] [QA]
   [Design]` + action — one token each, no dash separator, cross-layer scope stays on the parent.
   (The jira capability enforces this again at create time; matching it here avoids a bounce.)
 
 ## 0 — gather
-Read `~/.claude/ela/site.json` (`env`, `map`, `elak`, `map_sources.team_roster`). Then:
+Read `~/.claude/ela/site.json` (`env`, `map`, `elak`, `published`). Then:
 
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/skills/jira/jira.py"  --env-file <env> read <KEY> --deep   # per key
 python3 "${CLAUDE_PLUGIN_ROOT}/skills/slack/slack.py" --env-file <env> read <permalink>    # per link
 ```
 
-Read the roster file (`team_roster`) for token → owner/email, `<map>/services.yaml` for repo owners,
-and `map.py find <name>` for where each repo is and its governance. When a thread and a ticket disagree, say so — the thread is live context,
-the ticket is the record.
+A lane's token comes from `<published>/knowledge/products/mediahub/team/layer-classification.md`
+(symptom → area, no owner in it) and its owner from the roster capability — `ela who
+<name|email|Uxxx|accountId>` for the email the lane is assigned to (exit 3 = not in the roster, which
+the lane records as `unknown`), `ela team areas` for who to ask first about an area; both read
+`<published>`, falling back to elak's private source on the office machine. `<map>/services.yaml`
+gives repo owners and `map.py find <name>` where each repo is and its governance. When a thread and a
+ticket disagree, say so — the thread is live context, the ticket is the record.
 
 ## 1 — split test
 Proceed only if the requirement crosses layers/areas, **or** contains a decision only Evan can

@@ -25,12 +25,18 @@ draft until Evan says post.
   agent with specific questions; the synthesis, the product reading and the drafts stay here.
 
 ## 0 — bind
-Read `~/.claude/ela/site.json` → `env`, `map`, `elak`, `map_sources.team_roster`.
+Read `~/.claude/ela/site.json` → `env`, `map`, `elak`, `published`.
 ```bash
 JIRA="python3 ${CLAUDE_PLUGIN_ROOT}/skills/jira/jira.py --env-file <env>"
 GRAPH="python3 ${CLAUDE_PLUGIN_ROOT}/skills/graph/graph.py --env-file <env>"
 MAP="python3 ${CLAUDE_PLUGIN_ROOT}/skills/map/map.py"
+TEAM="python3 ${CLAUDE_PLUGIN_ROOT}/skills/team/team.py --env-file <env>"   # or: ela who … · ela team areas
 ```
+The owner §3 names is read at that moment, never recalled: the area from
+`<published>/knowledge/products/mediahub/team/layer-classification.md`, the person from `$TEAM who
+<name|email|Uxxx|accountId>` (exit 3 = not in the roster — say so, never compose a name) or `$TEAM
+areas` for who to ask first; both read `<published>`, falling back to elak's private source on the
+office machine. `<map>/services.yaml` still gives image → owners → repos.
 
 ## 1 — facts, in this order
 1. **The report.** `$JIRA read <key> --deep`: reporter's evidence verbatim — ids, versions, env,

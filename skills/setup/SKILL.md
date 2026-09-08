@@ -40,12 +40,15 @@ Target shape:
   "services": { "jenkins": { "url": "<Jenkins root>" }, "userservice": { "url": "<GM userservice, prod>" }, "userservice-test": { "url": "<GM userservice, QA>" }, "confluence": { "url": "<the web team's Confluence root>" } },
   "map_sources": {
     "mediahub_agent_workspace": "<mh-app>/mediahub-agent/workspace.json",
-    "tvu_catalog_modules":      "<tvu-knowledge>/tvu-catalog/catalog/modules",
-    "helm_service_catalog":     "<helm>/knowledge/mediahub/services/service-catalog.md",
-    "team_roster":              "<helm>/knowledge/mediahub/team/team-map.md"
+    "tvu_catalog_modules":      "<tvu-knowledge>/tvu-catalog/catalog/modules"
   }
 }
 ```
+
+`map_sources` holds counterpart sources only: the roster and the layer-classification rules are
+published from elak and read through `<published>` (`ela who` · `ela team areas` ·
+`knowledge/products/mediahub/team/layer-classification.md`), so no site key points into another
+product's repository.
 
 For each key: if the file exists, check the path resolves (`test -e`). If it does not, look for the
 obvious candidate under `projects` (same basename) and **propose** it — Evan confirms before you

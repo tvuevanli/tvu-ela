@@ -29,16 +29,22 @@ never written down is lost either way.
   read is not a digest — §3 is not optional.
 
 ## 0 — gather
-Read `~/.claude/ela/site.json` → `env`, `map`, `map_sources.team_roster`. Bind:
+Read `~/.claude/ela/site.json` → `env`, `map`, `published`. Bind:
 
 ```bash
 SLACK="python3 ${CLAUDE_PLUGIN_ROOT}/skills/slack/slack.py --env-file <env>"
 JIRA="python3 ${CLAUDE_PLUGIN_ROOT}/skills/jira/jira.py --env-file <env>"
 MAP="python3 ${CLAUDE_PLUGIN_ROOT}/skills/map/map.py"
+TEAM="python3 ${CLAUDE_PLUGIN_ROOT}/skills/team/team.py --env-file <env>"   # or: ela who … · ela team areas
 
 $SLACK read <permalink>
 $SLACK files <permalink> --thread --out <runtime>/slack-files   # only when a screenshot carries the finding
 ```
+A finding's layer token comes from
+`<published>/knowledge/products/mediahub/team/layer-classification.md` and the name it routes to from
+`$TEAM who <name|email|Uxxx|accountId>` (exit 3 = not in the roster, and the draft says that) or
+`$TEAM areas` for who to ask first about an area; both read `<published>`, falling back to elak's
+private source on the office machine.
 
 A report's numbers are usually in its text, but an investigation thread's evidence is often an
 image. Fetch the files only when a conclusion depends on one, and then read it — a screenshot named
@@ -75,7 +81,7 @@ $JIRA jql 'key in (MH-…, MH-…)' --json
 
 Flag against the two KPIs: a new High still unassigned or untokenized; a reopened ticket whose
 assignee no longer matches the work; a decision thread stalled past its own named date.
-Owners come from the roster file and `<map>/services.yaml` — read, never remembered.
+Owners come from `$TEAM` and `<map>/services.yaml` — read, never remembered.
 
 ## 3 — the unticketed findings become drafted tickets
 

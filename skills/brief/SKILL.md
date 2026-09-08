@@ -27,14 +27,18 @@ approves, edits or skips; execution goes through the skill named on the item.
   the day's view; tomorrow recomputes it.
 
 ## 0 — gather
-Read `~/.claude/ela/site.json` → `env`, `map`, `elak`, `map_sources.team_roster`. Bind:
+Read `~/.claude/ela/site.json` → `env`, `map`, `elak`, `published`. Bind:
 ```bash
 JIRA="python3 ${CLAUDE_PLUGIN_ROOT}/skills/jira/jira.py --env-file <env>"
 SLACK="python3 ${CLAUDE_PLUGIN_ROOT}/skills/slack/slack.py --env-file <env>"
+TEAM="python3 ${CLAUDE_PLUGIN_ROOT}/skills/team/team.py --env-file <env>"   # or: ela who … · ela team areas
 ```
-Read the roster file (owner ↔ layer ↔ signal words) so drafted routing names a person, never a
-guess. Today's date and weekday matter: Evan's week is front-loaded (Monday sweep), so a Monday brief
-is allowed to be longer; a Friday brief should be short.
+A drafted routing line is two reads, never a guess: the area from
+`<published>/knowledge/products/mediahub/team/layer-classification.md`, then the person from `$TEAM
+who <name|email|Uxxx|accountId>` (exit 3 = not in the roster, and that is what the line says) or
+`$TEAM areas` for who to ask first about an area; both read `<published>`, falling back to elak's
+private source on the office machine. Today's date and weekday matter: Evan's week is front-loaded
+(Monday sweep), so a Monday brief is allowed to be longer; a Friday brief should be short.
 
 ## 1 — Jira lanes (facts by script)
 
