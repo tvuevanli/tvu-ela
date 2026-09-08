@@ -17,6 +17,7 @@ $P all            # map/ (yaml, as they are) + the catalogue + the roster + <pub
 $P catalogue      # map/services.yaml → <published>/knowledge/products/mediahub/services.md + manifest row
 $P roster         # knowledge/people/{people,responsibilities}.yaml → <published>/knowledge/people/{people.yaml, responsibilities.yaml, roster.md} (identity lines in the shape Helm parses; not Helm's team-map.md, a different document) + manifest row
 $P map            # map/*.yaml + README.md → <published>/map/ (machine-readable; the remote ela's records/map roots)
+$P doc products/mediahub/team/layer-classification.md   # knowledge/<rel> → <published>/knowledge/<rel>, the elak document verbatim (front matter included) through redact; --reader "…" records who reads it
 $P list           # what the manifest says is published, and whether the source's verified: moved since (drift)
 ```
 
@@ -30,6 +31,14 @@ $P list           # what the manifest says is published, and whether the source'
   destination (by root name), published date, the source's `verified:` at that moment. Drift is computed
   from those two dates, never remembered.
 - **Only sources that exist in elak.** The roster is published (2026-09-03); the layer rules and voice policy follow when
-  `knowledge/products/mediahub/` holds them — not before, and never by copying Helm's files through.
+  `knowledge/products/mediahub/` holds them — not before, and never by copying Helm's files through. `doc` refuses a
+  `<rel>` that is not a file in elak (exit 2), so a Helm document reaches `<published>` only after it has been written
+  into elak's knowledge tree and its facts verified there.
+- **A written document is published verbatim, not re-rendered.** `doc` copies the elak source through `redact` only —
+  the front matter, and with it the document's own `verified:` and `source:`, is what the reader sees. A source without
+  both is refused (exit 2): elak `knowledge/README.md` requires them, and the manifest row's `verified` is read from
+  there rather than invented at publication. `all` republishes every document the manifest already records, so a stale
+  published copy cannot survive an `ela publish all`, and `list` reports a document's drift by comparing content, not
+  dates: `redact(source) != published`, or the published file missing.
 - Helm reads the result only once its knowledge root points at `<published>` (a Helm-repo change, in a
   Helm session); until then the published file is proof of the pipeline, not yet a dependency.

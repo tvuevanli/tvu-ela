@@ -4,6 +4,7 @@
   all [--json]              everything below, then <published>/MANIFEST.md (what this directory holds, from where, when)
   catalogue [--json]        <elak>/map/services.yaml → <published>/knowledge/products/mediahub/services.md
   map [--json]              <elak>/map/*.yaml + README.md → <published>/map/ (addresses replaced by placeholders)
+  doc <rel> [--reader …]    <elak>/knowledge/<rel> → <published>/knowledge/<rel>, the elak document verbatim through `redact`
   list                      every manifest row and whether its source changed since (exit 1 when a republish is due)
 
 The published directory is a subset of elak's own tree — the same paths, elak's names, no per-reader
@@ -45,6 +46,22 @@ def _scalar(v):
         inner = v[1:-1]
         return inner.replace("''", "'") if v[0] == "'" else inner.replace('\\"', '"')
     return v
+
+
+def read_front_matter(path):
+    """→ the top-level scalars of a document's own YAML front matter, {} when the file has none."""
+    fm = {}
+    with open(path, encoding="utf-8") as fh:
+        if fh.readline().rstrip("\n") != "---":
+            return fm
+        for raw in fh:
+            line = raw.rstrip("\n")
+            if line == "---":
+                return fm
+            key, sep, val = line.partition(":")
+            if sep and key and not key[0].isspace() and not key.startswith(("-", "#")):
+                fm[key.strip()] = _scalar(val)
+    return fm                                        # unterminated front matter: what was read, the caller checks
 
 
 def read_services(path):
@@ -359,6 +376,67 @@ def cmd_map(a):
     print(f"published map/ ({', '.join(names)}) → {dst_dir}" + (f"  · {redacted} address(es) replaced by placeholders" if redacted else ""))
 
 
+# ── a written document from elak's knowledge tree ─────────────────────────────
+
+DOC_READER = ("Helm context packs once the rel is adopted (config_loader.PUBLISHED_ADOPTED_RELS); the remote ela")
+DOC_ROW = re.compile(r"^knowledge/\S+\.md$")
+
+
+def publish_doc(records, published, rel, reader, today):
+    """One prose document, elak's `knowledge/<rel>` → the same path under <published>, through `redact`.
+
+    The published file is the elak source verbatim, front matter included: the reader must see the
+    document's own `verified:` and `source:`, and nothing but an address is rewritten on the way."""
+    src = os.path.join(records, "knowledge", rel)
+    if not os.path.isfile(src):
+        print(f"no such document: {src}", file=sys.stderr); sys.exit(EX_USAGE)
+    text = open(src, encoding="utf-8").read()
+    fm = read_front_matter(src)
+    if not fm.get("verified") or not fm.get("source"):
+        print(f"{src}: no front matter carrying both `verified:` and `source:` — every document in elak's "
+              "knowledge tree carries both (elak knowledge/README.md). Add them in elak, then publish.",
+              file=sys.stderr); sys.exit(EX_USAGE)
+    out = redact(text)
+    dest_rel = f"knowledge/{rel}"
+    dest = os.path.join(published, dest_rel)
+    try:
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        tmp = dest + ".tmp"; open(tmp, "w", encoding="utf-8").write(out); os.replace(tmp, dest)
+    except OSError as e:
+        print(f"cannot write {dest}: {e}", file=sys.stderr); sys.exit(EX_WRITE)
+    redacted = out.count("<ip>") + out.count("<tailnet>") - text.count("<ip>") - text.count("<tailnet>")
+    mpath, row = update_manifest(records, dest_rel, dest_rel, today, fm["verified"], reader)
+    return {"source": src, "destination": dest, "rel": dest_rel, "verified": fm["verified"],
+            "published": today, "redacted": redacted, "manifest": mpath, "row": row}
+
+
+def doc_rows(records):
+    """The manifest's document rows → [(rel relative to knowledge/, the reader recorded for it)].
+
+    A row is a document when its source is a single `.md` file under `knowledge/`; the roster's row names
+    the `knowledge/people/` directory and is published by `roster`, not here."""
+    path = os.path.join(records, "map", "published-machines.md")
+    rows = []
+    for ln in open(path, encoding="utf-8"):
+        if not ln.startswith("| `"):
+            continue
+        cells = [c.strip().strip("`") for c in ln.strip().strip("|").split("|")]
+        if len(cells) >= 5 and DOC_ROW.match(cells[0]):
+            rows.append((cells[0][len("knowledge/"):], cells[4]))
+    return rows
+
+
+def cmd_doc(a):
+    records, published = roots()
+    r = publish_doc(records, published, a.rel.strip("/"), a.reader, datetime.date.today().isoformat())
+    write_published_manifest(records, published)
+    if a.json:
+        print(json.dumps(r, ensure_ascii=False)); return
+    print(f"published {r['rel']}\n  source verified {r['verified']} · published {r['published']}"
+          + (f" · {r['redacted']} address(es) replaced by placeholders" if r["redacted"] else "")
+          + f"\n  manifest row → {r['manifest']}\n  {r['row']}")
+
+
 def write_published_manifest(records, published):
     """<published>/MANIFEST.md — what this directory holds, generated from elak's manifest so the remote can tell what it has."""
     src = os.path.join(records, "map", "published-machines.md")
@@ -377,6 +455,11 @@ def write_published_manifest(records, published):
 def cmd_all(a):
     records, published = roots()
     cmd_map(argparse.Namespace(json=False)); cmd_catalogue(argparse.Namespace(json=False)); cmd_roster(argparse.Namespace(json=False))
+    today = datetime.date.today().isoformat()
+    for rel, reader in doc_rows(records):            # every document already published stays published
+        r = publish_doc(records, published, rel, reader, today)
+        print(f"published {r['rel']}\n  source verified {r['verified']} · published {r['published']}")
+    write_published_manifest(records, published)
     stale = os.path.join(published, "helm")
     if os.path.isdir(stale):
         import shutil; shutil.rmtree(stale); print("removed the old per-reader directory helm/")
@@ -385,7 +468,8 @@ def cmd_all(a):
 
 def cmd_list(a):
     """Every manifest row, and whether the published copy still matches its source — by content for the
-    map files (after redaction), by modification time for the rendered catalogue and roster."""
+    map files and the written documents (after redaction), by modification time for the rendered
+    catalogue and roster, which are generated and so never equal their source."""
     records, published = roots()
     path = os.path.join(records, "map", "published-machines.md")
     drifted = 0
@@ -404,6 +488,13 @@ def cmd_list(a):
                        or redact(open(os.path.join(src_dir, f), encoding="utf-8").read()) != open(os.path.join(dst_dir, f), encoding="utf-8").read()]
             if changed:
                 drift = f"  ← differs: {', '.join(changed)}: republish"
+        elif DOC_ROW.match(src_rel):
+            src, dst = os.path.join(records, src_rel), os.path.join(published, dest_rel)
+            try:
+                if not os.path.isfile(dst) or redact(open(src, encoding="utf-8").read()) != open(dst, encoding="utf-8").read():
+                    drift = "  ← the published file differs from the elak source: republish"
+            except OSError:
+                drift = "  ← source or destination missing"
         else:
             srcs = [os.path.join(records, src_rel.split(" ")[0])]
             if os.path.isdir(srcs[0]):
@@ -429,10 +520,14 @@ def main():
     p = sub.add_parser("catalogue"); p.add_argument("--json", action="store_true")
     p = sub.add_parser("map"); p.add_argument("--json", action="store_true")
     p = sub.add_parser("roster"); p.add_argument("--json", action="store_true")
+    p = sub.add_parser("doc", help="publish one written document from elak's knowledge tree")
+    p.add_argument("rel", help="path relative to <elak>/knowledge/, e.g. products/mediahub/team/layer-classification.md")
+    p.add_argument("--reader", default=DOC_READER, help="who reads it, for the manifest row")
+    p.add_argument("--json", action="store_true")
     p = sub.add_parser("all"); p.add_argument("--json", action="store_true")
     sub.add_parser("list")
     a = ap.parse_args()
-    {"catalogue": cmd_catalogue, "map": cmd_map, "roster": cmd_roster, "all": cmd_all, "list": cmd_list}[a.cmd](a)
+    {"catalogue": cmd_catalogue, "map": cmd_map, "roster": cmd_roster, "doc": cmd_doc, "all": cmd_all, "list": cmd_list}[a.cmd](a)
 
 
 if __name__ == "__main__":
