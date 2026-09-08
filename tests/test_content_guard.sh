@@ -28,5 +28,7 @@ printf '# this session id is a request field\nsession = req.get("session")\n' > 
 printf 'ssh://git@example.internal/repo.git\n' > i.md; expect refuse "ssh url"
 printf 'run: ssh user@box.example.com ls\n' > j.md; expect refuse "ssh user@host"
 printf 'the copier asked for a new port\n' > k.md; expect accept "asked for is not reported speech"
+mkdir -p docs; printf 'Q{"你要的是事实还是判断，版本还是根因"}\n| 「这个接口有哪些参数」 | apifox |\n' > docs/manual.md; expect accept "a Chinese manual's quotation marks"
+printf 'He said "这个方案不行我们换一个吧" so we changed it.\n' > docs/manual.md; expect refuse "reported speech even in the manual"
 [ $fail -eq 0 ] && echo "content guard: all cases pass"
 exit $fail

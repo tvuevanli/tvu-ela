@@ -8,7 +8,8 @@
 #   credentials and addresses   a token, a private key, an IPv4 address, a tailnet or LAN host name,
 #                               an ssh user@host — none of these belongs in a shared tree, and a
 #                               pushed commit cannot be taken back
-#   a person's utterance        a quoted sentence in CJK, "X said/asked/wrote", "in his own words":
+#   a person's utterance        a quoted sentence in CJK (outside docs/manual*, which is written in Chinese),
+#                               "X said/wrote", "in his own words":
 #                               a tracked file states the rule and cites the origin (ticket, link,
 #                               date + role), never the sentence someone typed
 #   session narrative (.md)     "this session", "today we", "we decided", a `source:` line that
@@ -52,8 +53,11 @@ TEXT_EXT = (".md", ".yaml", ".yml", ".json", ".py", ".sh", ".txt", ".toml", ".in
 
 def cjk_count(s): return len(re.findall(r"[一-鿿]", s))
 
+CJK_DOCS = ("docs/manual",)          # documents written in Chinese: quotation marks there are punctuation, not reported speech
+
 def scan_line(path, line, is_md):
     hits = []
+    cjk_doc = any(seg in path for seg in CJK_DOCS)
     for rx, why in ANY_FILE:
         if rx.search(line): hits.append(why)
     m = IPV4.search(line)
@@ -62,7 +66,7 @@ def scan_line(path, line, is_md):
     for rx, why in UTTERANCE:
         m = rx.search(line)
         if m:
-            if why.startswith("a quoted") and cjk_count(m.group(1)) < 8:
+            if why.startswith("a quoted") and (cjk_doc or cjk_count(m.group(1)) < 8):
                 continue
             hits.append(why)
     if is_md:

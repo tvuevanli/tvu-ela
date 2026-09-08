@@ -136,5 +136,7 @@ content guard's cases pass. Run it before a commit that touches a script or a ho
 
 ## Language and naming
 
-English throughout. `ela` is a name, not an acronym, written lowercase and never expanded in text;
+English throughout, with one exception: `docs/manual*.md`, the user's manual, is written in the
+language its readers use (Chinese today), because a translated copy would be a second document to
+keep true. `ela` is a name, not an acronym, written lowercase and never expanded in text;
 the Slack display name is **Ella**. Describe the owner's responsibility, never a title.
