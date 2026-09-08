@@ -204,18 +204,36 @@ def cmd_read(creds, args):
 
 def cmd_tree(creds, args):
     if not args.collection:
-        for col in collections(creds):
+        cols = collections(creds)
+        if args.json:
+            print(json.dumps([{"id": c["id"], "name": c["name"],
+                               "permission": c.get("permission") or "private"} for c in cols],
+                             ensure_ascii=False))
+            return
+        for col in cols:
             print(f"{col.get('permission') or 'private':10} {col['name']}")
             print(f"{'':10} id {col['id']}")
         return
     cid, name = resolve_collection(creds, args.collection)
-    print(f"{name}  ({cid})\n")
     nodes = api(creds, "collections.documents", {"id": cid})["data"]
+
+    def slug_of(item):
+        return item["url"].rstrip("/").split("/")[-1]
+
+    if args.json:
+        # The same tree the human form prints, shaped for a reader that is not a person: the nesting
+        # is data rather than indentation, so a caller can walk it without parsing spaces.
+        def node(item):
+            return {"title": item["title"], "slug": slug_of(item),
+                    "children": [node(c) for c in (item.get("children") or [])]}
+        print(json.dumps({"collection": {"id": cid, "name": name},
+                          "documents": [node(n) for n in nodes]}, ensure_ascii=False))
+        return
+    print(f"{name}  ({cid})\n")
 
     def walk(items, depth):
         for item in items:
-            slug = item["url"].rstrip("/").split("/")[-1]
-            print(f"{'  ' * depth}- {item['title']}   [{slug}]")
+            print(f"{'  ' * depth}- {item['title']}   [{slug_of(item)}]")
             walk(item.get("children") or [], depth + 1)
 
     walk(nodes, 0)
@@ -325,21 +343,33 @@ def main():
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--env-file", help="file with OUTLINE_TOKEN=... lines")
+    # `--json` is declared on the top level AND on every subcommand, and both spellings mean the
+    # same thing. Only the top-level one existed, so `ela kb tree --json` — the form every caller
+    # writes, and the only form `bin/ela` can produce, since it appends the flag after the verb —
+    # exited 2 with an argparse usage error. Every other capability accepts the trailing flag; this
+    # one silently did not, which made it unreachable from the command wrapper and from Helm.
     p.add_argument("--json", action="store_true", help="raw API JSON")
     sub = p.add_subparsers(dest="cmd", required=True)
 
+    def json_flag(sp):
+        """Accept `--json` after the verb too, without letting a bare verb clear a leading one."""
+        sp.add_argument("--json", action="store_true", default=None, help="raw API JSON")
+
     s = sub.add_parser("search", help="full-text search")
+    json_flag(s)
     s.add_argument("query")
     s.add_argument("--collection", help="restrict to one collection")
     s.add_argument("--limit", type=int, default=10)
     s.set_defaults(fn=cmd_search)
 
     s = sub.add_parser("read", help="print a document as markdown")
+    json_flag(s)
     s.add_argument("doc", help="URL, urlId slug, or UUID")
     s.add_argument("--children", action="store_true", help="also print child docs")
     s.set_defaults(fn=cmd_read)
 
     s = sub.add_parser("tree", help="list collections, or one collection's docs")
+    json_flag(s)
     s.add_argument("collection", nargs="?")
     s.set_defaults(fn=cmd_tree)
 
@@ -352,6 +382,7 @@ def main():
         sp.add_argument("--dry-run", action="store_true", help=argparse.SUPPRESS)  # legacy no-op: dry run is the default
 
     s = sub.add_parser("write", help="create a new document")
+    json_flag(s)
     s.add_argument("title")
     s.add_argument("--collection", help="target collection (name or UUID)")
     s.add_argument("--parent", help="nest under this document")
@@ -361,6 +392,7 @@ def main():
     s.set_defaults(fn=cmd_write)
 
     s = sub.add_parser("update", help="edit an existing document")
+    json_flag(s)
     s.add_argument("doc", help="URL, urlId slug, or UUID")
     s.add_argument("--append", action="store_true",
                    help="append instead of replacing the body")
@@ -370,12 +402,17 @@ def main():
     s.set_defaults(fn=cmd_update)
 
     s = sub.add_parser("delete", help="move a document to trash")
+    json_flag(s)
     s.add_argument("doc")
     s.add_argument("--apply", action="store_true", help="actually trash it; default is a dry run")
     s.add_argument("--dry-run", action="store_true", help=argparse.SUPPRESS)
     s.set_defaults(fn=cmd_delete)
 
     args = p.parse_args()
+    # The subcommand's default is None so that `kb --json tree` is not undone by the verb's own
+    # absent flag; either position turns it on.
+    if getattr(args, "json", None) is None:
+        args.json = bool(getattr(p.parse_known_args()[0], "json", False))
     args.fn(load_env(args.env_file), args)
 
 
