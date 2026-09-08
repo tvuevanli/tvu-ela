@@ -22,7 +22,7 @@ flowchart LR
   C --> L1
   H --> L1
   subgraph ela
-    L2["L2 判断技能<br>brief · breakdown · route · probe<br>feasible · arch · digest · promote · ask · task"] --> L1
+    L2["L2 判断技能<br>explain · brief · breakdown · route · probe<br>feasible · arch · digest · promote · ask · task"] --> L1
     L1["L1 感官脚本<br>14 个第一手数据源 + 地图 + 发布"]
     L1 --> L0["L0 site<br>~/.claude/ela<br>路径 · 凭证 · 偏好"]
   end
@@ -42,6 +42,7 @@ flowchart LR
 |---|---|---|
 | 早上打开电脑，不知道先看什么 | `brief` | `/ela:brief` |
 | 一个复杂需求进来，要拆成各层的活并派人 | `breakdown` | `/ela:breakdown MH-3568` |
+| 一张别人写的票落到你手上，先要看懂它才谈得上判断 | `explain` | `/ela:explain MH-3568` |
 | 一个 bug 落到你手上，不确定归谁 | `route` | `/ela:route MH-3568` |
 | 光定人不够，要看代码找根因 | `probe` | `/ela:probe MH-3568` |
 | 客户问「你们支持 X 吗，能不能做」 | `feasible` | `/ela:feasible <thread 链接>` |
@@ -128,6 +129,7 @@ flowchart TD
 
 | 能力 | 替你决定 | 产出 |
 |---|---|---|
+| `explain` | 这张票上没有的四件事：有没有活的实例、票上写的修复还在不在、票面断言与 thread 里的决定差在哪、在等谁 | 四段，只活在对话里，不落盘 |
 | `brief` | 今天哪些事在等你，按紧要排序 | 每条带一个拟好的动作，只读不发 |
 | `breakdown` | 一个需求分成哪几层的活、谁做、什么顺序、怎么验 | 计划是草稿，建票要你明确确认 |
 | `route` | 这个 bug 归哪个服务、哪个人；不确定时谁先查、查什么 | 一个人名 + 依据 |
@@ -174,7 +176,7 @@ flowchart LR
 |---|---|---|
 | 🟢 **能用** | 跑过，结果可信 | 全部感官 · `map` · `publish` · `runtime` · `release`（含 prod，经你的登录）· `promote`（与 Helm 对比零差异）· `team` · `reports` · `setup` · 全部写原子（dry run） |
 | 🟡 **建好了，没验够** | 能跑，但还没证明判断是对的 | `probe`（3 个根因里成了 1 个）· `brief`（两周窗口没开始）· `digest` · `feasible` · `arch` · `ask`（API 凭证未申请） |
-| 🔴 **写好了，没真跑过** | 拿它做决定要自己复核 | `breakdown`（从没跑过真需求）· `task`（委派链路没实跑过） |
+| 🔴 **写好了，没真跑过** | 拿它做决定要自己复核 | `explain`（形状在一张票上手工演过，技能本身没跑过）· `breakdown`（从没跑过真需求）· `task`（委派链路没实跑过） |
 
 **下一步最该做的一件事**：连续两周把 `/ela:brief` 当早上第一件事读，漏掉的记进 elak 的 `exit-evidence.md`。
 
@@ -189,9 +191,10 @@ flowchart TD
   M2 -->|"没有"| D
   BD --> D["白天：随手甩 id 和链接给 ela<br>ela MH-xxxx · ela 01M… · 粘 Slack 链接"]
   D --> BUG{"来了个 bug?"}
-  BUG -->|"知道归谁"| RO["/ela:route → 指人 + 依据"]
-  BUG -->|"不知道根因"| PR["/ela:probe → file:line + 拟评论"]
-  BUG -->|"客户问支持不支持"| FE["/ela:feasible → 五个检查点"]
+  BUG --> EX["/ela:explain KEY<br>票 → 能判断的四段"]
+  EX -->|"知道归谁"| RO["/ela:route → 指人 + 依据"]
+  EX -->|"不知道根因"| PR["/ela:probe → file:line + 拟评论"]
+  EX -->|"客户问支持不支持"| FE["/ela:feasible → 五个检查点"]
   RO --> EV
   PR --> EV["晚上：报告贴出来<br>/ela:digest 摘出跟你相关的"]
   FE --> EV
