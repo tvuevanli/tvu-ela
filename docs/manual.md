@@ -1,7 +1,7 @@
 ---
 title: ela 使用说明书
 as_of: 2026-09-08
-sources: ela 0.36.0 · bin/ela · skills/*/SKILL.md · docs/architecture.md · ROADMAP.md
+sources: ela 0.37.0 · bin/ela · skills/*/SKILL.md · docs/architecture.md · ROADMAP.md
 ---
 
 # ela 使用说明书
@@ -10,7 +10,7 @@ ela 是一个 Claude Code 插件加一个 `ela` 命令。它把做 MediaHub 产�
 定人、跟踪、自己动手改**——做成一套能力，在任何目录都在。这份说明书是正本，放在 ela 仓的
 `docs/manual.md`，随代码一起改；`tests/run.sh` 会检查每个动词和每个 skill 都在这里出现过。
 
-**版本** 0.36.0 · **入口**：会话里的 `/ela:xxx`、终端里的 `ela xxx`、Helm 的页面和 Slack bot（经
+**版本** 0.37.0 · **入口**：会话里的 `/ela:xxx`、终端里的 `ela xxx`、Helm 的页面和 Slack bot（经
 `clients/ela.py`）· **写操作全部默认 dry run**。
 
 ```mermaid
@@ -59,7 +59,7 @@ flowchart LR
 | 要问另一个团队的 bot（边界 agent） | `ask` | `/ela:ask <graph id> <问题>` |
 | 要自己动手改一个别人家的仓 | `task` | `/ela:task MH-3568 tvu264` |
 | 要写 Jira / 发 Slack / 写 KB | 写原子 | 先 dry run，你说了再 `--apply` |
-| 改了地图或花名册，要让 Helm 和远端读到 | `publish` | `ela publish all` · `ela publish list` |
+| 改了地图、花名册或一份知识文档，要让 Helm、远端和 ela 自己读到 | `publish` | `ela publish all` · `ela publish doc <路径>` · `ela publish list` |
 | 换了机器 / token 过期了 | `setup` | `/ela:setup` |
 | 想看 ela 自己现在什么状态 | `reports` | `ela reports list` |
 | 临时目录占地方了 | `runtime` | `ela runtime status` · `ela runtime clean` |
@@ -121,7 +121,7 @@ flowchart TD
 | 能力 | 做什么 |
 |---|---|
 | `map` | 世界上有什么：`find` · `where` · `services` · `coverage` · `missing` · `remote`（整个 GitLab 组）· `clone` · `sync` · `worktree` · `survey` · `probe`；依赖图由 `deps.py` 从 git ref 生成 |
-| `publish` | 把 elak 的地图、服务目录、花名册渲染到 `elak-published`（地址替换成占位符），写清单；`list` 有漂移就 exit 1。**ela 自己的读动词也读 `elak-published`**，所以改了地图要 publish 一次 |
+| `publish` | 把 elak 的地图、服务目录、花名册和写好的知识文档（`doc`）渲染到 `elak-published`（地址替换成占位符），写清单；`list` 有漂移就 exit 1。**ela 自己的读动词也读 `elak-published`**，所以改了地图要 publish 一次 |
 | `runtime` | 一次性工作目录：`status` 看有什么、`clean` 删掉（`--work` 连干净的 worktree 一起） |
 
 ### 判断 — 每个替你做什么决定
@@ -208,7 +208,7 @@ flowchart TD
 |---|---|---|
 | 能力定义、hooks、ela 自己的架构与决策（`docs/`） | ela 仓 | TVU 内部可看；不存知识、主机、凭证、任何人的话 |
 | 知识：原则、决策、解读、地图 | elak 仓 | 只有你；你说「记下来」才写，手工提交 |
-| 给机器读的子集：地图（地址已脱敏）、服务目录、花名册 | `elak-published` | `ela publish` 生成，永不手改；ela 的读动词、Helm、远端都读这里 |
+| 给机器读的子集：地图（地址已脱敏）、服务目录、花名册、发布过的知识文档 | `elak-published` | `ela publish` 生成，永不手改；ela 的读动词、Helm、远端都读这里 |
 | 机器路径、凭证、你的工作偏好 | `~/.claude/ela/` | 从不进任何被跟踪的文件 |
 | 别人家的代码（只读） | `<code>/<别名>/<远端路径>` | 改动一律在 `<work>/<KEY>/<仓>` 的 worktree 里 |
 | 草稿、原始抓取、worktree | `<projects>/.ela` | 随时可删；`ela runtime clean` |
