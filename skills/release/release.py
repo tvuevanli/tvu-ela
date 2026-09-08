@@ -27,7 +27,26 @@ EX_USAGE, EX_NOTFOUND, EX_AUTH, EX_REMOTE = 2, 3, 4, 5
 SITE = os.path.expanduser("~/.claude/ela/site.json")
 SESSION_FILE = os.path.expanduser("~/.claude/ela/session.json")
 TLS_DIR = os.path.expanduser("~/.claude/ela/tls")
-LOGIN_HOST, LOGIN_PORT = "ela.tvunetworks.com", 8443
+LOGIN_HOST = "ela.tvunetworks.com"
+
+
+def _login_port():
+    """The port `login tvu` serves its collection page on. 8443 unless the site says otherwise.
+
+    A site fact, not a constant: the port has to be free on the machine ela runs on, and on a shared
+    box it is not ours to assume. The remote site publishes a container on 8443, so a hardcoded port
+    made `login tvu` unrunnable there with no way to say so in configuration — the one thing site.json
+    exists to carry. `$ELA_LOGIN_PORT` is the one-off override; site.json `login_port` is the durable one.
+    A malformed or out-of-range value falls back to the default rather than failing at bind time.
+    """
+    for raw in (os.environ.get("ELA_LOGIN_PORT"), site().get("login_port")):
+        try:
+            n = int(raw)
+        except (TypeError, ValueError):
+            continue
+        if 1 <= n <= 65535:
+            return n
+    return 8443
 
 
 # ── the release map (a YAML subset: nested maps by indentation, inline JSON, lists of maps) ──────────
@@ -366,7 +385,8 @@ def login_tvu(env_file, force=False, timeout=300, json_out=False, open_browser=T
         msg = {"tvu": "valid", "obtained_at": cur.get("obtained_at"), "source": cur.get("source")}
         print(json.dumps(msg) if json_out else f"tvu session still valid (obtained {cur.get('obtained_at')}, {cur.get('source')}); --force to replace"); return
     crt, key = _ensure_cert()
-    url = f"https://{LOGIN_HOST}:{LOGIN_PORT}/"
+    port = _login_port()
+    url = f"https://{LOGIN_HOST}:{port}/"
     state = {"sid": None, "source": None, "note": ""}
 
     class H(BaseHTTPRequestHandler):
@@ -405,9 +425,10 @@ def login_tvu(env_file, force=False, timeout=300, json_out=False, open_browser=T
 
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER); ctx.load_cert_chain(crt, key)
     try:
-        srv = HTTPServer(("127.0.0.1", LOGIN_PORT), H)
+        srv = HTTPServer(("127.0.0.1", port), H)
     except OSError as e:
-        print(f"cannot listen on 127.0.0.1:{LOGIN_PORT}: {e}", file=sys.stderr); sys.exit(EX_REMOTE)
+        print(f"cannot listen on 127.0.0.1:{port}: {e} — set `login_port` in ~/.claude/ela/site.json "
+              f"(or $ELA_LOGIN_PORT) to a free port", file=sys.stderr); sys.exit(EX_REMOTE)
     srv.socket = ctx.wrap_socket(srv.socket, server_side=True); srv.timeout = 1
     opened = _open_browser(url) if open_browser else False
     print(f"waiting for the browser at {url}  ({'opened' if opened else 'open it yourself'}; hosts: 127.0.0.1 {LOGIN_HOST}; up to {timeout}s)", file=sys.stderr)
