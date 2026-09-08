@@ -202,6 +202,41 @@ def update_manifest(records, source_rel, dest_rel, today, verified, reader):
     return path, row
 
 
+def manifest_rows(records):
+    """elak's publication manifest → one list of cells per row: source · published file · generated · verified · reader.
+
+    The one place the manifest is read: what is published, and therefore what a reader may be holding open,
+    is answered from these rows and never from a second list kept beside them."""
+    path = os.path.join(records, "map", "published-machines.md")
+    rows = []
+    for ln in open(path, encoding="utf-8"):
+        if not ln.startswith("| `"):
+            continue
+        cells = [c.strip().strip("`") for c in ln.strip().strip("|").split("|")]
+        if len(cells) >= 5:                 # the "First content" table has three cells; only manifest rows are rows
+            rows.append(cells)
+    return rows
+
+
+def published_paths(records, published):
+    """Every path under <published> the manifest records as published, absolute — files and the directories
+    that hold them. A row's published file may name a directory and its contents,
+    `<published>/knowledge/people/ (people.yaml, responsibilities.yaml, roster.md)`; both forms are returned."""
+    paths = set()
+    for cells in manifest_rows(records):
+        head, _, listed = cells[1].replace("<published>/", "").partition(" (")
+        base = os.path.join(published, *head.strip().rstrip("/").split("/"))
+        paths.add(base)
+        paths.update(os.path.join(base, n.strip()) for n in listed.rstrip(")").split(",") if n.strip())
+    return paths
+
+
+def holds_published(path, protected):
+    """→ whether `path` is, or contains, something the manifest records as published."""
+    prefix = os.path.join(path, "")
+    return any(p == path or p.startswith(prefix) for p in protected)
+
+
 def cmd_catalogue(a):
     records, published = roots()
     src = os.path.join(records, "map", "services.yaml")
@@ -296,6 +331,35 @@ def render_team_map(header, people, today):
     return "\n".join(out)
 
 
+# the artefacts the roster was published as before it moved, per directory: exact names, never a whole tree,
+# because a retired directory goes on holding published documents (knowledge/products/mediahub/team/ holds the
+# layer rules) and every reader reads <published> live.
+STALE_ROSTER_ARTEFACTS = (
+    ("knowledge/people", ("team-map.md",)),                                       # Helm's filename for the roster, until 2026-09-03
+    ("knowledge/products/mediahub/team", ("roster.md", "roster.yaml", "team-map.md")),   # the roster's own location, until 2026-09-04
+)
+
+
+def prune_stale(published, protected):
+    """Remove the named stale artefacts under <published>, and a directory only once it is left empty.
+
+    A cleanup may delete only what it knows to be stale. A path the manifest records as published is refused
+    whatever its name: readers were told they may read it, and removing one takes a file out from under a
+    running reader. → the paths removed."""
+    removed = []
+    for rel_dir, names in STALE_ROSTER_ARTEFACTS:
+        d = os.path.join(published, *rel_dir.split("/"))
+        if not os.path.isdir(d):
+            continue
+        for n in names:
+            p = os.path.join(d, n)
+            if os.path.isfile(p) and not holds_published(p, protected):
+                os.remove(p); removed.append(p)
+        if not os.listdir(d):
+            os.rmdir(d); removed.append(d)
+    return removed
+
+
 def cmd_roster(a):
     import shutil
     sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "team"))
@@ -315,12 +379,7 @@ def cmd_roster(a):
         tmp = os.path.join(dest_dir, "roster.md.tmp")
         open(tmp, "w", encoding="utf-8").write(render_team_map(header, people, today))
         os.replace(tmp, os.path.join(dest_dir, "roster.md"))
-        for stale in (os.path.join(dest_dir, "team-map.md"),                                  # Helm's filename, until 2026-09-03
-                      os.path.join(published, "knowledge", "products", "mediahub", "team")):   # the old roster location, until 2026-09-04
-            if os.path.isdir(stale):
-                shutil.rmtree(stale)
-            elif os.path.exists(stale):
-                os.remove(stale)
+        prune_stale(published, published_paths(records, published))
     except OSError as e:
         print(f"cannot write {dest_dir}: {e}", file=sys.stderr); sys.exit(EX_WRITE)
     mpath, row = update_manifest(records, src_rel, "knowledge/people/ (people.yaml, responsibilities.yaml, roster.md)", today,
@@ -365,8 +424,11 @@ def cmd_map(a):
         out = redact(text)
         redacted += out.count("<ip>") + out.count("<tailnet>") - text.count("<ip>") - text.count("<tailnet>")
         tmp = os.path.join(dst_dir, f + ".tmp"); open(tmp, "w", encoding="utf-8").write(out); os.replace(tmp, os.path.join(dst_dir, f))
-    for stale in set(os.listdir(dst_dir)) - set(names):          # a source that no longer exists is not kept downstream
-        os.remove(os.path.join(dst_dir, stale))
+    protected = published_paths(records, published)
+    for stale in sorted(set(os.listdir(dst_dir)) - set(names)):   # a source that no longer exists is not kept downstream
+        p = os.path.join(dst_dir, stale)                          # scoped to map/, whose every file this verb writes
+        if os.path.isfile(p) and not holds_published(p, protected):
+            os.remove(p)
     today = datetime.date.today().isoformat()
     ver = next((l.split(":", 1)[1].strip().strip("'") for l in open(os.path.join(src_dir, "services.yaml")) if l.startswith("verified:")), "?")
     update_manifest(records, "map/", "map/", today, ver, "ela's read verbs (site.json `map` points here), the remote ela, Helm `release_map`")
@@ -415,15 +477,7 @@ def doc_rows(records):
 
     A row is a document when its source is a single `.md` file under `knowledge/`; the roster's row names
     the `knowledge/people/` directory and is published by `roster`, not here."""
-    path = os.path.join(records, "map", "published-machines.md")
-    rows = []
-    for ln in open(path, encoding="utf-8"):
-        if not ln.startswith("| `"):
-            continue
-        cells = [c.strip().strip("`") for c in ln.strip().strip("|").split("|")]
-        if len(cells) >= 5 and DOC_ROW.match(cells[0]):
-            rows.append((cells[0][len("knowledge/"):], cells[4]))
-    return rows
+    return [(c[0][len("knowledge/"):], c[4]) for c in manifest_rows(records) if DOC_ROW.match(c[0])]
 
 
 def cmd_doc(a):
@@ -460,9 +514,12 @@ def cmd_all(a):
         r = publish_doc(records, published, rel, reader, today)
         print(f"published {r['rel']}\n  source verified {r['verified']} · published {r['published']}")
     write_published_manifest(records, published)
-    stale = os.path.join(published, "helm")
+    stale = os.path.join(published, "helm")           # the per-reader directory, until 2026-09-03
     if os.path.isdir(stale):
-        import shutil; shutil.rmtree(stale); print("removed the old per-reader directory helm/")
+        if holds_published(stale, published_paths(records, published)):
+            print("kept helm/: the manifest records a published file under it — publish it elsewhere first")
+        else:
+            import shutil; shutil.rmtree(stale); print("removed the old per-reader directory helm/")
     print(f"MANIFEST.md written → {os.path.join(published, 'MANIFEST.md')}")
 
 
@@ -471,14 +528,8 @@ def cmd_list(a):
     map files and the written documents (after redaction), by modification time for the rendered
     catalogue and roster, which are generated and so never equal their source."""
     records, published = roots()
-    path = os.path.join(records, "map", "published-machines.md")
     drifted = 0
-    for ln in open(path, encoding="utf-8"):
-        if not ln.startswith("| `"):
-            continue
-        cells = [c.strip().strip("`") for c in ln.strip().strip("|").split("|")]
-        if len(cells) < 5:          # the "First content" table has three cells; only manifest rows are listed
-            continue
+    for cells in manifest_rows(records):
         src_rel, dest_rel = cells[0], cells[1].replace("<published>/", "")
         drift = ""
         if src_rel == "map/":
