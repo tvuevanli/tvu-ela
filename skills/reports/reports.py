@@ -8,7 +8,8 @@ Sources live in site.json `reports` (default <projects>/reports), one markdown f
 (title · as_of · sources). Not knowledge — a reading surface, regenerated at will. A Claude session publishes
 the HTML with the Artifact tool (same file path → same URL); a `/ela:reports` run rewrites the text first.
 Markdown subset: # headings · paragraphs · - lists · | tables | · ``` fences (```mermaid → a native diagram) ·
-**bold** *italic* `code` [text](url). Stdlib only.
+**bold** *italic* `code` [text](url) · `::: ref <summary>` … `:::` → a collapsed code-reference block, closed on
+load, with a page-wide open/close control in the header. Stdlib only.
 """
 import argparse, html, json, os, re, sys
 
@@ -44,7 +45,10 @@ def front_matter(text):
     if m:
         for line in m.group(1).splitlines():
             k, _, v = line.partition(":")
-            meta[k.strip()] = v.strip()
+            v = v.strip()
+            if len(v) > 1 and v[0] == v[-1] and v[0] in "'\"":
+                v = v[1:-1]                                      # a quoted scalar is quoted for YAML, not for the reader
+            meta[k.strip()] = v
         text = text[m.end():]
     return meta, text
 
@@ -67,6 +71,15 @@ def render_body(md):
                 out.append('<div class="diagram"><pre class="mermaid">' + html.escape("\n".join(buf).replace("\\n", "<br/>"), quote=False) + "</pre></div>")
             else:
                 out.append("<pre><code>" + html.escape("\n".join(buf), quote=False) + "</code></pre>")
+            continue
+        m = re.match(r"^::: ?ref\b ?(.*)$", ln)
+        if m:
+            flush(); summary = m.group(1).strip() or "Code reference"; i += 1; buf = []
+            while i < len(lines) and lines[i].rstrip() != ":::":
+                buf.append(lines[i]); i += 1
+            i += 1
+            out.append('<details class="ref"><summary>' + inline(summary) + "</summary><div class=\"refbody\">"
+                       + render_body("\n".join(buf)) + "</div></details>")
             continue
         m = re.match(r"^(#{1,4}) (.+)$", ln)
         if m:
@@ -131,9 +144,26 @@ td strong{color:var(--accent)}
 .diagram{background:var(--surface);border:1px solid var(--rule);border-radius:4px;padding:16px;margin:0 0 18px;overflow-x:auto}
 .diagram pre.mermaid{background:none;border:none;padding:0;margin:0;font-family:"IBM Plex Mono",ui-monospace,monospace}
 strong{font-weight:600}
+details.ref{border:1px solid var(--rule);border-left:3px solid var(--muted);border-radius:4px;background:var(--surface);margin:0 0 18px}
+details.ref>summary{cursor:pointer;list-style:none;padding:8px 12px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;display:flex;gap:8px;align-items:baseline}
+details.ref>summary::-webkit-details-marker{display:none}
+details.ref>summary::before{content:"▸";font-size:11px;line-height:1}
+details.ref[open]>summary::before{content:"▾"}
+details.ref>summary:hover{color:var(--ink)}
+details.ref>summary:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+details.ref[open]>summary{border-bottom:1px solid var(--rule)}
+.refbody{padding:12px 14px 0;font-size:14.5px}
+.refbody>*:last-child{margin-bottom:12px}
+.refbody pre{font-size:12.5px}
+.refs-toggle{font:inherit;font-size:12px;font-family:"IBM Plex Mono",ui-monospace,monospace;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);background:none;border:1px solid var(--rule);border-radius:3px;padding:3px 9px;cursor:pointer}
+.refs-toggle:hover{color:var(--ink);border-color:var(--muted)}
+.refs-toggle:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 @media (prefers-reduced-motion: reduce){*{scroll-behavior:auto}}
 </style>
 """
+
+
+REFS_CONTROL = """<button class="refs-toggle" id="refs-toggle" aria-expanded="false" onclick="(function(b){var d=document.querySelectorAll('details.ref'),o=b.getAttribute('aria-expanded')!=='true';d.forEach(function(x){x.open=o});b.setAttribute('aria-expanded',o?'true':'false');b.textContent=(o?'hide':'show')+' code references'})(this)">show code references</button>"""
 
 
 def render(md_path):
@@ -142,9 +172,10 @@ def render(md_path):
     inner = render_body(body)
     inner = re.sub(r"^<h1 [^>]*>.*?</h1>\n?", "", inner, count=1)   # the bar and the page heading carry the title
     sources = inline(meta.get("sources", ""))
+    refs = REFS_CONTROL if '<details class="ref"' in inner else ""
     page = f"""<title>{html.escape(title)}</title>
 {STYLE}
-<header class="bar"><span class="eyebrow">ela · report</span><span class="name">{html.escape(title)}</span><span class="asof">as of {html.escape(meta.get('as_of', ''))}</span></header>
+<header class="bar"><span class="eyebrow">ela · report</span><span class="name">{html.escape(title)}</span>{refs}<span class="asof">as of {html.escape(meta.get('as_of', ''))}</span></header>
 <main>
 <h1>{html.escape(title)}</h1>
 <div class="meta"><strong>Sources:</strong> {sources}<br><strong>As of</strong> {html.escape(meta.get('as_of', ''))} · regenerated by <code>/ela:reports</code>; a reading surface, not knowledge</div>
