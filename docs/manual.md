@@ -43,6 +43,7 @@ flowchart LR
 | 早上打开电脑，不知道先看什么 | `brief` | `/ela:brief` |
 | 一个复杂需求进来，要拆成各层的活并派人 | `breakdown` | `/ela:breakdown MH-3568` |
 | 一张别人写的票落到你手上，先要看懂它才谈得上判断 | `explain` | `/ela:explain MH-3568` |
+| 一张旧票挂了很久，先要判断它还有没有必要存在 | `revisit` | `/ela:revisit MH-1649` |
 | 一个 bug 落到你手上，不确定归谁 | `route` | `/ela:route MH-3568` |
 | 光定人不够，要看代码找根因 | `probe` | `/ela:probe MH-3568` |
 | 客户问「你们支持 X 吗，能不能做」 | `feasible` | `/ela:feasible <thread 链接>` |
@@ -130,6 +131,7 @@ flowchart TD
 | 能力 | 替你决定 | 产出 |
 |---|---|---|
 | `explain` | 这张票上没有的四件事：有没有活的实例、票上写的修复还在不在、票面断言与 thread 里的决定差在哪、在等谁 | 四段，只活在对话里，不落盘 |
+| `revisit` | 一张旧票还该不该留着：问题是否还在（票 → 报告 → 运行时 → 代码，答了就停）；票面上的「方案」不参与裁决 | 三个出口：关（附凭什么关）· 换票承接（附承接票号）· 留（附下一个技能） |
 | `brief` | 今天哪些事在等你，按紧要排序 | 每条带一个拟好的动作，只读不发 |
 | `breakdown` | 一个需求分成哪几层的活、谁做、什么顺序、怎么验 | 计划是草稿，建票要你明确确认 |
 | `route` | 这个 bug 归哪个服务、哪个人；不确定时谁先查、查什么 | 一个人名 + 依据 |
@@ -176,7 +178,7 @@ flowchart LR
 |---|---|---|
 | 🟢 **能用** | 跑过，结果可信 | 全部感官 · `map` · `publish` · `runtime` · `release`（含 prod，经你的登录）· `promote`（与 Helm 对比零差异）· `team` · `reports` · `setup` · 全部写原子（dry run） |
 | 🟡 **建好了，没验够** | 能跑，但还没证明判断是对的 | `probe`（3 个根因里成了 1 个）· `brief`（两周窗口没开始）· `digest` · `feasible` · `arch` · `ask`（API 凭证未申请） |
-| 🔴 **写好了，没真跑过** | 拿它做决定要自己复核 | `explain`（形状在一张票上手工演过，技能本身没跑过）· `breakdown`（从没跑过真需求）· `task`（委派链路没实跑过） |
+| 🔴 **写好了，没真跑过** | 拿它做决定要自己复核 | `explain`（形状在一张票上手工演过，技能本身没跑过）· `revisit`（形状取自 MH-1649 / MH-2798 两张票的手工裁决，技能本身没跑过）· `breakdown`（从没跑过真需求）· `task`（委派链路没实跑过） |
 
 **下一步最该做的一件事**：连续两周把 `/ela:brief` 当早上第一件事读，漏掉的记进 elak 的 `exit-evidence.md`。
 
@@ -199,6 +201,9 @@ flowchart TD
   PR --> EV["晚上：报告贴出来<br>/ela:digest 摘出跟你相关的"]
   FE --> EV
   D --> EV
+  D --> OLD{"旧票挂着 / 父票 Done 子票没关?"}
+  OLD --> RV["/ela:revisit KEY<br>关 / 换票承接 / 留"]
+  RV --> EV
   classDef m fill:#1e3a5f,color:#fff,stroke:none
   class M,EV m
 ```

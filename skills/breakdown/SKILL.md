@@ -26,6 +26,9 @@ framing is first-class input — it often carries the decision the sources lack.
 - **Closed vocabulary.** Every proposed subtask title is `[Infra] [J2N] [Media] [App] [UI] [QA]
   [Design]` + action — one token each, no dash separator, cross-layer scope stays on the parent.
   (The jira capability enforces this again at create time; matching it here avoids a bounce.)
+- **An old ticket is judged before it is split.** A ticket whose plan was written against a
+  superseded architecture is `/ela:revisit` first; splitting lanes for a problem that no longer
+  occurs is the most expensive way to keep a dead ticket alive.
 
 ## 0 — gather
 Read `~/.claude/ela/site.json` (`env`, `map`, `elak`, `published`). Then:

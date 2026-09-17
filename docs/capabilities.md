@@ -22,6 +22,7 @@ manage. Each names the skill or verb that serves it today; "not built" marks a g
 | S15 | Know the owner in any directory without a persona or a global agent | `hooks/session-start.sh` |
 | S16 | Read a process's logs and state on a box, and the platform's diagnostic records, without a person at a terminal | `ela connect/exec` interactive only; `logs`, `inspect`, UR diagnostics not built |
 | S17 | Make one ticket judgeable before acting on it: the runtime instance, whether the fix named on it still exists, the ticket's assertions against the thread's decisions, who it waits on | `/ela:explain` |
+| S18 | Decide whether an old ticket still needs to exist: the problem read apart from the plan written for it, checked against today in cost order, then close / carry to a keyed ticket / keep with the next skill named | `/ela:revisit` |
 
 ## Exposure by kind
 

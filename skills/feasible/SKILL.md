@@ -124,3 +124,8 @@ say so and put the question in the draft rather than guessing a scope.
 Change code, build, deploy, start or stop anything, post without confirmation, or promise a schedule.
 It also does not replace `/ela:probe`: probe explains a thing that is broken, this one judges whether
 a thing exists and whether it can. When the ask turns out to be a defect, hand over to probe.
+
+It also does not judge whether a ticket should still exist. When the argument is a ticket whose face
+has aged — the plan on it superseded, the versions on it retired — that verdict is `/ela:revisit`,
+and this skill runs only on revisit's *keep*. Starting here instead answers a capability question
+nobody asked at five checkpoints' cost.
