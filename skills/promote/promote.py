@@ -780,6 +780,35 @@ def cmd_bundles(a):
         print(f"! {g}")
 
 
+def collect_untracked(a, delta, gaps):
+    """Deliverables that move with a promotion although no lane publishes a version for them — the admin
+    page and orchestration (map/release.yaml `unpublished`, `hosts.no_lane_version`). Jenkins is the only
+    witness: a build inside the window is a candidate, never a confirmed deployment. Best effort — an
+    unreadable job is a note here and never stops the gate."""
+    jobs = R.rmap("jobs") or {}
+    slugs = list((R.rmap("hosts") or {}).get("no_lane_version") or [])
+    for u in (R.rmap("unpublished") or []):
+        if u.get("slug") and u["slug"] not in slugs:
+            slugs.append(u["slug"])
+    times = sorted(b["time"] for s in delta["services"] for b in (s.get("builds_between") or []) if b.get("time"))
+    lo = times[0] if times else (datetime.date.today() - datetime.timedelta(days=30)).strftime("%Y-%m-%d %H:%M")
+    hi = times[-1] if times else datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+    out = []
+    for slug in slugs:
+        job = next((j for j, s in jobs.items() if s == slug), None)
+        rec = {"service": slug, "job": job, "builds": []}
+        out.append(rec)
+        if not job:
+            rec["note"] = "no Jenkins job in map/release.yaml jobs"; continue
+        say(f"jenkins {job} (untracked)")
+        rows = jenkins_builds(job)
+        if rows is None:
+            gaps.append({"kind": "jenkins_unreadable", "job": job}); rec["note"] = "jenkins unreadable"; continue
+        rec["builds"] = [{k: b.get(k) for k in ("number", "version", "build", "branch", "sha", "time", "result")}
+                         for b in rows if b.get("time") and lo <= b["time"] <= hi]
+    return {"window": [lo, hi], "services": out}
+
+
 # ── report ────────────────────────────────────────────────────────────────────
 
 SEV = {"stop": 0, "high": 1, "medium": 2, "low": 3, "note": 4}
@@ -789,7 +818,7 @@ def assess(a, lanes, delta, tickets, evidence, bundles, gaps):
     """Findings, ranked. Purpose sets which reconciliation results are open points rather than notes."""
     purpose = a.purpose
     to_is_prod = lane_host(lanes["to"]) == "prod" and lanes["to"].startswith("prod")
-    strict = purpose in ("prod-staging",) or to_is_prod
+    strict = purpose in ("prod-staging", "prod-deploy") or to_is_prod
     F = []
     def add(sev, kind, what, **kw):
         F.append(dict(severity=sev, kind=kind, what=what, **kw))
@@ -860,15 +889,17 @@ def cmd_report(a):
     delta = collect_delta(a, lanes, gaps)
     tickets = collect_tickets(a, delta, gaps)
     evidence = collect_evidence(a, tickets, delta, gaps, a.since)
-    bundles = collect_bundles(a, gaps) if a.scope == "all" or a.bundles else None
+    gate = a.purpose == "prod-deploy"
+    bundles = collect_bundles(a, gaps) if a.scope == "all" or a.bundles or gate else None
+    untracked = collect_untracked(a, delta, gaps) if gate else None
     findings = assess(a, lanes, delta, tickets, evidence, bundles, gaps)
     for t in tickets["tickets"]:
         t.pop("comments", None)
     res = {"generated_at": now(), "line": a.line, "from": lanes["from"], "to": lanes["to"], "purpose": a.purpose, "scope": a.scope,
-           "lanes": lanes, "delta": delta, "tickets": tickets, "evidence": evidence, "bundles": bundles, "findings": findings, "gaps": gaps,
+           "lanes": lanes, "delta": delta, "tickets": tickets, "evidence": evidence, "bundles": bundles, "untracked": untracked, "findings": findings, "gaps": gaps,
            "counts": {"commits": sum(len(s["commits"]) for s in delta["services"]), "tickets": len(tickets["tickets"]),
                       "findings": {k: sum(1 for f in findings if f["severity"] == k) for k in SEV}}}
-    md = render_md(res)
+    md = render_gate(res) if gate else render_md(res)
     if a.out:
         os.makedirs(a.out, exist_ok=True)
         stem = f"{datetime.date.today().isoformat()}-mh{a.line}-{lanes['from']}-{lanes['to']}"
@@ -925,6 +956,172 @@ def render_md(r):
     if r["gaps"]:
         L.append("")
         L.append("## Gaps (what could not be read)")
+        for g in r["gaps"]:
+            L.append(f"- {g}")
+    return "\n".join(L) + "\n"
+
+
+def render_gate(r):
+    """The deploy gate: the same facts as render_md, in the order a person needs them before saying yes —
+    what really changes, what QA verified, what nobody verified, what the risk is — then the bars a
+    promotion must clear. Every section is printed even when empty: a missing section reads as a passed one."""
+    ev = (r["evidence"] or {}).get("keys") or {}
+    L = []
+    hosts = r["lanes"].get("hosts_read") or {}
+    L.append(f"# MH {r['line']} deploy gate: {r['from']} → {r['to']}  ·  {r['generated_at']}")
+    L.append("")
+    L.append("hosts read: " + ", ".join(f"{h} {'ok' if ok else 'UNREADABLE'}" for h, ok in sorted(hosts.items()))
+             + f" · evidence since {(r['evidence'] or {}).get('since')}")
+    c = r["counts"]
+    L.append(f"{c['commits']} commit(s) · {c['tickets']} ticket(s) · findings: "
+             + (", ".join(f"{k} {v}" for k, v in c["findings"].items() if v) or "none"))
+
+    L.append("")
+    L.append("## 1 · What really changes")
+    L.append("")
+    L.append(f"| service | {r['from']} | {r['to']} | relation | range | commits | diff |")
+    L.append("|---|---|---|---|---|---|---|")
+    for s in r["lanes"]["services"]:
+        d = next((x for x in r["delta"]["services"] if x["service"] == s["service"]), {}) or {}
+        fb, tb = d.get("from_build") or {}, d.get("to_build") or {}
+        rng = f"{(tb.get('sha') or '?')[:8]}..{(fb.get('sha') or '?')[:8]}" if (fb or tb) else (d.get("note") or "—")
+        L.append(f"| {s['service']} | {short(s['from'])} | {short(s['to'])} | {s['relation'] or '?'} | {rng} | "
+                 f"{len(d.get('commits') or [])} | {d.get('shortstat') or '—'} |")
+
+    L.append("")
+    L.append("### 1.1 By ticket")
+    rows = 0
+    for t in r["tickets"]["tickets"]:
+        if not t.get("exists"):
+            L.append(f"- **{t['key']}** — not in Jira · {len(t['commits'])} commit(s)"); rows += 1; continue
+        kinds = "/".join(sorted({cm["kind"] for cm in t["commits"]})) or "—"
+        L.append(f"- **{t['key']}** [{t['status']}] {(t.get('summary') or '')[:90]} · "
+                 f"{', '.join(t['services_in_delta']) or 'no commit in range'} · {len(t['commits'])} commit(s) {kinds}"
+                 + (f" · flags: {', '.join(t['flags'])}" if t["flags"] else ""))
+        rows += 1
+    if not rows:
+        L.append("- none")
+
+    L.append("")
+    L.append("### 1.2 Commits carrying no ticket")
+    loose = [(s["service"], cm) for s in r["delta"]["services"] for cm in s["commits"] if not cm["keys"]]
+    for svc, cm in loose:
+        lead = "" if cm["subject"].strip().lower().startswith(cm["kind"]) else f"{cm['kind']}: "
+        L.append(f"- {svc} `{cm['sha']}` {lead}{cm['subject'][:100]}")
+    if not loose:
+        L.append("- none")
+
+    L.append("")
+    L.append("### 1.3 Artefacts (docker bundle)")
+    b = r.get("bundles") or {}
+    if b.get("from") and b.get("to"):
+        L.append(f"{b['from']['name']} (source) → {b['to']['name']} (target) · identical {b['identical']} · "
+                 f"changed {len(b['changed'])} · only in source {len(b['only_in_from'])} · only in target {len(b['only_in_to'])}")
+        for ch in b["changed"][:30]:
+            L.append(f"- {ch['service']}: target has {ch['to']}, source has {ch['from']} ({ch['direction']})")
+        for x in b.get("only_in_from") or []:
+            L.append(f"- only in source: {x['service']} ({x['tag']})")
+        for x in b.get("only_in_to") or []:
+            L.append(f"- only in target: {x['service']} ({x['tag']})")
+    else:
+        L.append("- not read — the bundle diff is mandatory when the target is prod (SKILL.md purpose table)")
+
+    L.append("")
+    L.append("### 1.4 Deliverables no lane publishes a version for")
+    u = r.get("untracked") or {}
+    if u.get("services"):
+        L.append(f"Jenkins is the only witness; a build inside {u['window'][0]} … {u['window'][1]} is a candidate, "
+                 f"never a confirmed deployment — the owner confirms what is on the target.")
+        for s in u["services"]:
+            if s.get("note"):
+                L.append(f"- {s['service']} ({s.get('job') or 'no job'}) — {s['note']}"); continue
+            if not s["builds"]:
+                L.append(f"- {s['service']} ({s['job']}) — no build in the window"); continue
+            L.append(f"- {s['service']} ({s['job']}) — {len(s['builds'])} build(s): "
+                     + " · ".join(f"#{x['number']} {x['version']}+{x['build']} {x['branch']} {x['time']}" for x in s["builds"][:6]))
+    else:
+        L.append("- not collected")
+
+    L.append("")
+    L.append("## 2 · Verified by QA")
+    shown = 0
+    for t in r["tickets"]["tickets"]:
+        s = ev.get(t["key"]) or {}
+        if s.get("verdict") not in ("pass", "n-a"):
+            continue
+        qa = sorted([i for i in (s.get("items") or [])
+                     if i["verdict"] in ("pass", "fail", "n-a", "not-scheduled") and i.get("area") == "qa"],
+                    key=lambda i: i.get("when") or "")
+        last = qa[-1] if qa else {}
+        when = last.get("when") or ""
+        L.append(f"- **{t['key']}** {s['verdict']} — {last.get('who') or '?'} · {when or 'no date'} · "
+                 f"{last.get('source') or '?'} · {last.get('quote') or ''}")
+        later = [(x["service"], cm) for x in r["delta"]["services"] if x["service"] in (t["services_in_delta"] or [])
+                 for cm in x["commits"] if when and cm["date"] > when[:10]]
+        if later:
+            L.append(f"    - ! the verdict predates {len(later)} commit(s) in "
+                     f"{', '.join(sorted({sv for sv, _ in later}))} (latest {max(cm['date'] for _, cm in later)}) — "
+                     f"it does not cover the build being promoted")
+        shown += 1
+    if not shown:
+        L.append("- none")
+
+    L.append("")
+    L.append("## 3 · Not verified")
+    L.append("")
+    L.append("### 3.1 Code in the range, no QA verdict")
+    n = 0
+    for t in r["tickets"]["tickets"]:
+        if not t.get("exists"):
+            L.append(f"- **{t['key']}** — named by {len(t['commits'])} commit(s) but not a Jira issue: "
+                     f"no verdict can exist for it")
+            n += 1
+            continue
+        v = (ev.get(t["key"]) or {}).get("verdict", "none")
+        if v in ("pass", "n-a", "qa-comment-unclear"):
+            continue
+        if not [cm for cm in t["commits"] if cm["kind"] not in ("docs", "chore", "test", "style")]:
+            continue
+        L.append(f"- **{t['key']}** [{t['status']}] {(t.get('summary') or '')[:80]} · "
+                 f"{', '.join(t['services_in_delta'])} · evidence: {v}")
+        n += 1
+    if not n:
+        L.append("- none")
+
+    L.append("")
+    L.append("### 3.2 QA wrote something no rule could read")
+    n = 0
+    for t in r["tickets"]["tickets"]:
+        s = ev.get(t["key"]) or {}
+        if s.get("verdict") != "qa-comment-unclear":
+            continue
+        it = next((i for i in reversed(s.get("items") or []) if i["verdict"] == "qa-comment-unclear"), {})
+        L.append(f"- **{t['key']}** — {it.get('who') or '?'} · {it.get('when') or ''} · {it.get('quote') or ''}")
+        n += 1
+    if not n:
+        L.append("- none")
+
+    L.append("")
+    L.append("### 3.3 What the QA lane cannot cover")
+    L.append("- by hand: prod-only data shapes, tenant and CSC configuration, scale, the prod config-server "
+             "profile. No source read here decides these; write the list as empty rather than leaving it out.")
+
+    L.append("")
+    L.append("## 4 · Risk")
+    for f in r["findings"][:12]:
+        L.append(f"- **{f['severity']}** `{f['kind']}` — {f['what']}")
+    if len(r["findings"]) > 12:
+        L.append(f"- … {len(r['findings']) - 12} more in the JSON")
+
+    L.append("")
+    L.append("### 4.1 Bars this gate does not check")
+    L.append("- the PM approval mail for this promotion — not checked by this version")
+    L.append("- the open points of the previous promotion thread — not checked by this version")
+    L.append("- what each change reaches across layers — not derived; run `map/deps.py callers <service>` "
+             "(after `deps.py check`) for the services in section 1")
+    if r["gaps"]:
+        L.append("")
+        L.append("### 4.2 What could not be read")
         for g in r["gaps"]:
             L.append(f"- {g}")
     return "\n".join(L) + "\n"
@@ -1114,7 +1311,7 @@ def main():
     p = sub.add_parser("evidence"); common(p); p.add_argument("--since")
     common(sub.add_parser("bundles"), scope=False)
     p = sub.add_parser("compare-helm", help="test only: Helm's release payload as the oracle; every difference classified"); common(p); p.add_argument("--helm-json", help="a saved oracle payload instead of running Helm"); p.add_argument("--out")
-    p = sub.add_parser("report"); common(p); p.add_argument("--purpose", choices=("regular", "prod-staging", "demo"), default="regular"); p.add_argument("--since"); p.add_argument("--bundles", action="store_true", help="include the bundle diff even with --scope app"); p.add_argument("--out", help="directory for <date>-mh<line>-<from>-<to>.{json,md}")
+    p = sub.add_parser("report"); common(p); p.add_argument("--purpose", choices=("regular", "prod-staging", "prod-deploy", "demo"), default="regular"); p.add_argument("--since"); p.add_argument("--bundles", action="store_true", help="include the bundle diff even with --scope app"); p.add_argument("--out", help="directory for <date>-mh<line>-<from>-<to>.{json,md}")
     a = ap.parse_args()
     global QUIET; QUIET = a.quiet
     {"lanes": cmd_lanes, "commits": cmd_delta, "delta": cmd_delta, "tickets": cmd_tickets, "evidence": cmd_evidence, "bundles": cmd_bundles, "report": cmd_report, "compare-helm": cmd_compare_helm}[a.cmd](a)

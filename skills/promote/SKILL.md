@@ -11,6 +11,7 @@ Self-contained. The script collects and reconciles; this file is the judgement a
 ```bash
 P="python3 ${CLAUDE_PLUGIN_ROOT}/skills/promote/promote.py --env-file <env>"      # or: ela promote 2.1 qa daily …
 $P report 2.1 qa daily --purpose prod-staging --bundles --out <runtime>/promote   # everything, ranked; JSON + markdown
+$P report 2.1 qa prod --purpose prod-deploy --out <runtime>/promote                # the deploy gate: four fixed sections
 $P lanes|commits|tickets|evidence|bundles 2.1 qa daily                            # one step at a time when arguing with a finding
 # Progress goes to stderr one line per step (--quiet to silence); the JSON contract is what the session reads.
 ```
@@ -40,6 +41,7 @@ to type `! ela login tvu` and stop; never read a cache or another system's file 
 | purpose | what becomes an open point |
 |---|---|
 | `prod-staging` — the to-lane is where prod is rehearsed (default when a ticket in the delta is wanted on prod) | every carried ticket without a QA pass or N/A; every ticketless feat/fix/refactor; every cross-service path with a docker pin that differs between lanes; a Fixed In that names a build outside the delta |
+| `prod-deploy` — the gate run before an actual deployment; implies the bundle diff and the untracked-deliverable sweep | everything `prod-staging` opens, and the output is the four fixed sections: what really changes · what QA verified · what nobody verified · the risk, with the bars the gate does not itself check named as unchecked |
 | `regular` | the same, but single-service UI fixes with a dev declaration are notes; hygiene is notes |
 | `demo` | versions and what is visibly new; every risk is a note, nothing blocks |
 | to-lane is `prod` | `prod-staging` plus: the daily thread's open points must be closed in that thread; the bundle diff is mandatory (`--bundles`); the PM's approval mail is located (`mail search`) |
@@ -64,7 +66,9 @@ That reach, plus the lane's docker pin, is the risk sentence — not the commit 
 
 ## 2 — output, in this order
 1. **The summary for Evan** — in the session's language (English unless he asked for Chinese); the lane table, then the ranked findings (≤12), each with the reach and the evidence
-   source; then what could not be read. He decides here; this text is not posted.
+   source; then what could not be read. He decides here; this text is not posted. With `--purpose prod-deploy`
+   the summary is already in the four-section order and is read as written; the Slack body and the backfills are
+   unchanged.
 2. **The Slack body** — English, written to `<runtime>/promote/<date>-<line>-<from>-<to>.post.md`, then shown as
    `slack post '#prj_dev_mediahub' --file … ` **dry run**. Title first (`[MH <line>] <from> → <to> promotion — <scope>`),
    body into the thread; two sends, two confirms.
