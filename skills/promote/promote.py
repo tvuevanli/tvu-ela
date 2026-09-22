@@ -636,8 +636,9 @@ def collect_evidence(a, tickets, delta, gaps, since=None):
                 elif re.search(r"验证结果[:：]?\s*(已修复|未修复)", c["text"]):
                     v = "pass" if "已修复" in c["text"].split("验证结果", 1)[1][:6] else "fail"
                 elif re.search(r"(?i)qa\s*验证结果|验证结果", c["text"]) and not VERDICT[1][1].search(c["text"]) and "依然" not in c["text"]:
-                    v = "pass"                                     # a QA result comment with no failure wording
-            if v in ("pass", "fail", "n-a", "not-scheduled", "dev-declared", "qa-comment"):
+                    v = "qa-comment-unclear"                       # a QA result comment no rule reads: the absence of a
+                    # failure word is not a pass (SKILL.md invariant) — it is a gap a person must close
+            if v in ("pass", "fail", "n-a", "not-scheduled", "dev-declared", "qa-comment", "qa-comment-unclear"):
                 ev[t["key"]].append({"source": "jira", "who": c["who"], "area": c["area"], "when": iso_when(c["when"]), "verdict": v, "quote": re.sub(r"\s+", " ", c["text"])[:220]})
     # 2 mail: QA people's reports and dev deploy notices since the window start
     say(f"mail: QA reports and deploy notices since {since}")
@@ -684,7 +685,9 @@ def collect_evidence(a, tickets, delta, gaps, since=None):
     for k, items in ev.items():
         qa = [i for i in items if i["verdict"] in ("pass", "fail", "n-a", "not-scheduled") and (i.get("area") == "qa" or i["source"] == "mail" and i.get("area") == "qa")]
         qa.sort(key=lambda i: i.get("when") or "")
-        final = qa[-1]["verdict"] if qa else ("dev-declared" if any(i["verdict"] == "dev-declared" for i in items) else "none")
+        final = qa[-1]["verdict"] if qa else (
+            "qa-comment-unclear" if any(i["verdict"] == "qa-comment-unclear" for i in items)
+            else "dev-declared" if any(i["verdict"] == "dev-declared" for i in items) else "none")
         summary[k] = {"verdict": final, "qa_items": len(qa), "items": items}
     return {"since": since, "keys": summary, "qa_people": sorted(qa_names)}
 
@@ -810,7 +813,7 @@ def assess(a, lanes, delta, tickets, evidence, bundles, gaps):
         code = [c for c in t["commits"] if c["kind"] not in ("docs", "chore", "test", "style")]
         multi = len(t["services_in_delta"]) > 1
         if code:
-            if v in ("none", "dev-declared", "qa-comment", "mention"):
+            if v in ("none", "dev-declared", "qa-comment", "qa-comment-unclear", "mention"):
                 sev = "high" if strict else ("medium" if (multi or t.get("status") in ("Done",)) else "low")
                 add(sev, "no_qa_verdict", f"{t['key']} [{t['status']}] {t.get('summary','')[:70]} — {len(code)} code commit(s) in {', '.join(t['services_in_delta'])}; evidence: {v}", key=t["key"])
             elif v == "fail":
