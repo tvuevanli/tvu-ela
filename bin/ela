@@ -32,6 +32,7 @@
   ela publish <catalogue|roster|map|all|list>  render an elak source into <published> for machines to read; the manifest row records it
   ela team <people|areas|who|emails|check>  the roster, first-hand · ela who <name|email|Uxxx|accountId>  one person; exit 3 when unknown
   ela envs                  the UR probe order         ela site   (rarely) the site config: roots, host names, aliases, emails
+  ela fixed-in <KEY>… [--jql Q]   the Fixed In the evidence supports: commits → build → lanes → QA words; draft only, no Jira write
   ela route <KEY>           the routing facts: [Layer] token, ids, signal words per layer, services named, who to ask first, gaps
   ela brief [--lane L]      the morning brief's Jira lanes, flags computed (cadence · triage · breakdown · incidents · backlog · yours)
   ela runtime status|clean  the disposable working directory: what is there, and delete it (--work also drops clean worktrees)
@@ -71,6 +72,7 @@ VERBS = {
     "mr": ("mr", "create"), "mr-preflight": ("mr", "preflight"),
     "sessions": ("sessions", "find"),
     "route": ("route", "facts"),
+    "fixed-in": ("fixedin", "draft"),
 }
 PROMOTE_SUBS = {"lanes", "commits", "delta", "tickets", "evidence", "bundles", "report", "compare-helm"}
 

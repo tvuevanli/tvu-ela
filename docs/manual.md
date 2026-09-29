@@ -56,6 +56,7 @@ flowchart LR
 | 「这个修复上 daily 了吗」「prod-3 是什么版本」 | `release` | `ela versions` · `ela bundles` · `ela builds <job>` · `ela drift` |
 | 两个 bundle 之间 docker service 变了什么 | `release` | `ela bundle-diff <A> <B>` |
 | QA 要推 daily、daily 要上 prod | `promote` | `ela promote 2.1 qa daily` |
+| 这票的 Fixed In 该填什么，证据在哪 | `fixedin` | `ela fixed-in MH-xxxx` |
 | 「这个接口有哪些参数」 | `apifox` | `ela api read ur "GET /v1beta1/graphs/{graphId}"` |
 | 「输出流里到底带了什么」 | `stream` | `ela stream probe <url>` · `ela stream diff <a> <b>` |
 | 「这事以前写过没有」 | `kb` · `confluence` · `gdoc` | `ela kb search …` · `ela wiki search …` · `ela gdoc <链接>` |
