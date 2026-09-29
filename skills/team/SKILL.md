@@ -27,7 +27,7 @@ $T check                     # read Slack users.list (a minute) and report any e
   `robinwu@`; the composed form was looked up live once (2026-09-03) and was wrong.
 - **Adding a person is a first-hand act.** `ela slack users <name>` returns the Slack id, the profile email and
   the title from `users.list`; a Jira accountId comes from a ticket the person is assigned to (`ela MH-… --json`).
-  Both go into `roster.yaml` with the source line updated, then `ela publish roster`. Never from memory, a
+  Both go into `people.yaml` (identity; responsibilities in `responsibilities.yaml`) with the source line updated, then `ela publish roster`. Never from memory, a
   signature, or a pattern.
 - **No rank is recorded.** No title, no seniority, no reporting line — MediaHub responsibility is de-facto and TVU has
   no titles that match, so a level could only be invented, and it would read as a hierarchy between people. What the

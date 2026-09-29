@@ -58,7 +58,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/skills/map/deps.py" check               # the sca
 
 `callers` is the app layer only and is stamped at a commit — run `check` first, because a stale graph
 understates reach, which is the one direction that matters here. For the path that leaves the app
-layer (orchestration → J2N → docker), Helm's `knowledge/mediahub/services/dependency-map.md` is the
+layer (orchestration → J2N → docker), `<published>/knowledge/products/mediahub/services/dependency-map.md` is the
 hand-written complement the scan does not cover; cite whichever you used.
 A switch-path change in `unified-streaming` reaches orchestration → J2N → LiveTransmit → the transmitter docker;
 a Billing callback change reaches warning-service and Home; a tags change spans backend, mx-service and frontend.

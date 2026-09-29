@@ -73,7 +73,7 @@ Keys and where each comes from when absent:
 | `UR_ACCESS_KEY` | UR access key — a JSON blob, copied verbatim on one line; `UR_BASE_HOST` (optional, default UR host) and `UR_ENV_ORDER` (optional comma list overriding the probe order `prod3,prod2,test2`) |
 | `TVU_SSH_USER` `TVU_SSH_PASSWORD` | box ssh for `graph connect` / `exec` (user defaults to the operate account) |
 | `SENTRY_URL` `SENTRY_TOKEN` `SENTRY_ORG` | the self-hosted Sentry: an auth token from the account's own API keys, scopes `project:read` (+ `org:read` for `projects`). `SENTRY_ORG` defaults to `sentry`. Crashes are the one class of fact ela cannot see any other way |
-| `TVUTEST_ACCOUNT` `TVUTEST_PASSWORD` `TVUTEST_SID` | release reads (QA GM host): a tvutest account; the login's SID is cached as `TVUTEST_SID` (2 h, refreshed by the script). No prod session anywhere in ela — decision `ela-needs-no-sid` |
+| `TVUTEST_ACCOUNT` `TVUTEST_PASSWORD` `TVUTEST_SID` | release reads (QA GM host): a tvutest account; the login's SID is cached as `TVUTEST_SID` (2 h, refreshed by the script). No prod SID is pasted into `.env`: the prod host is read through a session the person hands over at the CLI (`ela login tvu`), stored only in the site directory — decision elak `blueprint/decisions/2026-09-04-prod-gm-read-through-a-person-login.md` |
 
 Procedure: list which keys are present; for each missing one say where to get it and ask Evan to
 paste it **into the file himself** or hand it to you for a single `printf >>` — then `chmod 600`.
