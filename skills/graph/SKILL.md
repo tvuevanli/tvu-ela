@@ -1,6 +1,6 @@
 ---
 name: graph
-description: Read a MediaHub graph or process first-hand from UR (J2N and Pilot) without choosing an environment — node table in pipeline order with each node's state, process ids, box ips, images and encoding profiles; one process's live record with its video/audio statistic; a box's capacity and load; a user's graphs; every graph an object ever ran in, stopped ones included. Use when the user pastes a 26-character graph id, a 32-hex process id, an object id, asks "这个 graph 跑在哪", "哪个 box", "process 是什么状态", "停掉的 graph 还能查吗", "encoding profile 是什么", "看下 graph", "ura", or needs the first hop of an incident from an object or graph id.
+description: A MediaHub graph or process from UR, any environment, stopped graphs included. Use for a 26-character graph id, a 32-hex process id, an object id, "这个 graph 跑在哪", "哪个 box", "process 是什么状态", "停掉的 graph 还能查吗", "encoding profile 是什么", "看下 graph", "ura", or an incident's first hop from an object or graph id.
 user-invocable: true
 ---
 

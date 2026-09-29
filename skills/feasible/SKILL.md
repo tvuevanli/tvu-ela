@@ -1,6 +1,6 @@
 ---
 name: feasible
-description: Answer "do we support this, and can we?" for a capability someone asks about — a customer requirement relayed in Slack, a Jira ask, a sales question. Splits the ask into checkable items, traces each to the point where it would actually take effect, and returns two verdicts per item: what happens today (with runtime evidence) and whether it can be supported (with the layer it is blocked at and the cost). Use for "我们支持吗", "能不能做到", "客户要 X，我们行不行", "confirm whether HLS supports …", or any thread that asks for a capability answer rather than a bug fix.
+description: Answer "do we support this, and can we?" — today's behaviour, and whether it can be supported. Use for "我们支持吗", "能不能做到", "客户要 X，我们行不行", "confirm whether HLS supports …", or any capability question rather than a bug fix.
 user-invocable: true
 ---
 

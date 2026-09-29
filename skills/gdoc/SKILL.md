@@ -1,6 +1,6 @@
 ---
 name: gdoc
-description: Read Google Docs, Sheets and Drive listings first-hand with Evan's read-only token — a doc as text, a sheet tab as CSV, recent documents by name/full text. Use for a docs.google.com link pasted in chat, "那个 sheet 里", "Louis 的 service summary", "repo owner map".
+description: Google Docs, Sheets and Drive, read-only. Use for a docs.google.com link, "那个 sheet 里", "Louis 的 service summary", "repo owner map".
 user-invocable: true
 ---
 

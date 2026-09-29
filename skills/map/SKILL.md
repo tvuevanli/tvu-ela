@@ -1,6 +1,6 @@
 ---
 name: map
-description: Build or re-verify ela's map of the world — every repo on this machine (the survey cache), everything known to exist that is NOT here (absent.yaml), and the service table (services.yaml: docker image → process types → owners → repos) — against the filesystem; find where a service's code is and clone what is missing from the LAN GitLab. Use when starting in an unfamiliar area, when a repo was added/moved/renamed, when a counterpart's registry disagrees with disk, or on "what do we have", "where is X", "is Y checked out", "update the map", "地图", "盘点仓库".
+description: Verify ela's map of repos and services against disk; find a service's code, clone what is missing. Use in an unfamiliar area, when a repo was added/moved/renamed or a registry disagrees with disk, or on "what do we have", "where is X", "is Y checked out", "update the map", "地图", "盘点仓库".
 user-invocable: true
 ---
 

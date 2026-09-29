@@ -1,9 +1,8 @@
 ---
 name: object
 description: >
-  TVU Object Service (the /route-object/object-service API — not objectd, which is a different service) — query objects AND tangibles, plus media stream metadata. An object (19-digit numeric id) holds one or more tangibles (32-hex ids); both are readable here.
-  Use this skill when the user runs /ela:object, wants to look up a tangible by tangible ID,
-  or inspect ObjectService data. Also trigger for: "find tangible", "look up object",
+  TVU Object Service (/route-object/object-service, not objectd) — objects (19-digit numeric id) and tangibles (32-hex ids).
+  Use for /ela:object, a tangible ID, ObjectService data, "find tangible", "look up object",
   "查找切片", "查询对象", "object service查询".
 ---
 

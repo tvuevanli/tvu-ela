@@ -1,6 +1,6 @@
 ---
 name: sentry
-description: Read crashes and errors first-hand from the self-hosted Sentry — the org's projects, the issue table worst first, one issue with its latest event's exception, stack and tags, and an issue's recent events with the box and version each fired on. Use when a symptom looks like a crash rather than a misconfiguration, when a module "restarts by itself", when a Sentry alert mail or a sentry link is pasted in chat, or for "有没有报错", "是不是崩了", "这个模块崩溃过吗", "哪台 box 在报这个".
+description: Crashes and errors from the self-hosted Sentry, read-only. Use for a symptom that looks like a crash, a module that "restarts by itself", a Sentry alert mail or link, "有没有报错", "是不是崩了", "这个模块崩溃过吗", "哪台 box 在报这个".
 user-invocable: true
 ---
 

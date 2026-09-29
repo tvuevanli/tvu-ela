@@ -1,6 +1,6 @@
 ---
 name: explain
-description: Make one ticket judgeable — the runtime instance behind it, whether the fix named on it still exists, what the ticket asserts versus what was decided in the thread, and who it is waiting on. The first step before route, probe, feasible or breakdown, and the step that makes their conclusions reviewable. Use for "这票在说什么", "先讲清楚这张票", "MH-xxxx 到底什么情况", "这个 ticket 我看不懂", or when a ticket arrives from someone else's hands.
+description: Make one ticket judgeable; the step before route, probe, feasible or breakdown. Use for "这票在说什么", "先讲清楚这张票", "MH-xxxx 到底什么情况", "这个 ticket 我看不懂", or a ticket from someone else's hands.
 user-invocable: true
 ---
 

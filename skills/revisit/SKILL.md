@@ -1,6 +1,6 @@
 ---
 name: revisit
-description: Decide whether an old ticket still needs to exist — the original problem read apart from the plan written for it, checked against today in cost order, then one of three verdicts: close (naming the fact that closed it), carry (naming the ticket that takes the residual), or keep (naming the skill that takes it next). Runs on one key or on a batch class. Use for "这票还要留着吗", "旧票清一清", "父票 Done 子票还挂着", "该关了吧", or before breakdown or feasible act on a ticket whose face has aged.
+description: Decide whether an old ticket should still exist — close, carry or keep. Use for "这票还要留着吗", "旧票清一清", "父票 Done 子票还挂着", "该关了吧", or before acting on a ticket whose face has aged.
 user-invocable: true
 ---
 

@@ -1,6 +1,6 @@
 ---
 name: jira
-description: Jira capability — read an issue (description, links, subtasks, comments), run a JQL search, or write behind an explicit confirm: create an issue or subtask, assign, comment, transition status, add/remove labels, link issues — every write dry-run by default and idempotent. Use when the user pastes a Jira URL (tvunetworks.atlassian.net/browse/...), names a ticket key (MH-1234, FB-9693), asks what a ticket says, or asks to create a subtask under a parent. Also trigger for "read this ticket", "what's in MH-xxxx", "create a subtask", "看看这个 ticket", "查一下 jira", "建子任务".
+description: Jira read and search; writes are dry-run until an explicit confirm. Use for a Jira URL (tvunetworks.atlassian.net/browse/...), a ticket key (MH-1234, FB-9693), a subtask under a parent, "read this ticket", "what's in MH-xxxx", "create a subtask", "看看这个 ticket", "查一下 jira", "建子任务".
 ---
 
 # Jira — read, search, and gated writes

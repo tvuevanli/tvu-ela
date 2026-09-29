@@ -1,6 +1,6 @@
 ---
 name: promote
-description: Assess a promotion of a MediaHub release line between lanes (QA→Daily, Daily→Prod, any purpose) — both lanes' versions read live, every commit between them, every ticket those commits carry, the QA evidence for each from Jira, mail and Slack, the docker bundle diff — reconciled against each other and ranked; then the facts-only Slack post for the promotion thread and the Jira backfills, each behind its own dry-run. Use for "promote QA to daily", "把 QA 推到 daily", "daily 上 prod 前看一下", "这次 promotion 有什么风险", "QA 比 daily 多了什么", or before any deploy request to Test2 / Prod.
+description: Assess promoting a MediaHub release line between lanes; every post and backfill is a dry-run first. Use for "promote QA to daily", "把 QA 推到 daily", "daily 上 prod 前看一下", "这次 promotion 有什么风险", "QA 比 daily 多了什么", or before a deploy request to Test2 / Prod.
 user-invocable: true
 ---
 

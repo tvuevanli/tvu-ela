@@ -1,6 +1,6 @@
 ---
 name: kb
-description: Read and write documents in the TVU knowledge base at kb.tvunetworks.com (Outline). Use when the user pastes a kb.tvunetworks.com link, asks what a KB doc says, wants to search the wiki, or wants to record something in the knowledge base. Also trigger for "check the KB", "search the wiki", "write this up in the KB", "add a runbook", "看看 KB", "写到知识库".
+description: Read and write the TVU knowledge base (Outline). Use for a kb.tvunetworks.com link, searching or recording in the KB, "check the KB", "search the wiki", "write this up in the KB", "add a runbook", "看看 KB", "写到知识库".
 ---
 
 # TVU knowledge base (Outline) — read and write

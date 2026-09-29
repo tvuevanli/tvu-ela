@@ -1,6 +1,6 @@
 ---
 name: route
-description: Decide who should take a bug ticket — the service(s) implicated, the owner(s), and when it is not certain, who checks first and what exactly they should check. Use when a bug lands on Evan for triage, or he asks "谁该接这个", "这个归哪个服务", "who should take MH-xxxx", "先找谁查".
+description: Decide who takes a bug ticket, or who checks first. Use for triage, "谁该接这个", "这个归哪个服务", "who should take MH-xxxx", "先找谁查".
 user-invocable: true
 ---
 

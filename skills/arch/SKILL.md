@@ -1,6 +1,6 @@
 ---
 name: arch
-description: Review a subsystem's architecture as it actually is — MediaHub's app layer, unified-resources, media, one service, or the boundary between two. Renders the derived fact base into a picture stamped with the commits it was read at, checks it against a live graph, then judges the structure: ranked findings, each priced with the tickets and incidents the seam produced, each with the layer and owner it belongs to. Read-only; findings become lanes through /ela:breakdown, never tickets here. Use for "做个架构 review", "UR review", "media 层的结构看一下", "这个依赖对不对", "重构该从哪开始", or when the same seam produces a third bug.
+description: Review a subsystem's architecture as it actually is. Read-only; findings become lanes via /ela:breakdown. Use for "做个架构 review", "UR review", "media 层的结构看一下", "这个依赖对不对", "重构该从哪开始", or when one seam produces a third bug.
 user-invocable: true
 ---
 

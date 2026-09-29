@@ -1,6 +1,6 @@
 ---
 name: slack
-description: Slack capability — a thread by permalink, its files on disk, the channels the bot is in and every public channel of the workspace, a channel's recent history, threads that mention Evan and whether he answered, threads he started that nobody answered, the workspace's members with their emails (`users` — the first-hand source for any roster); and one write, post (dry run until --apply). Use when the user pastes a Slack link (tvunetworks.slack.com/archives/...), asks what a thread says, asks "who is waiting on me in Slack", "最近谁 @ 我了", "这个频道昨天说了什么", or asks to send a message or reply in a thread ("回一下这个 thread", "发到 prj_dev_mediahub").
+description: Slack read first-hand, plus one write, post (dry run until --apply). Use for a Slack link (tvunetworks.slack.com/archives/...), what a thread says, sending or replying, "who is waiting on me in Slack", "最近谁 @ 我了", "这个频道昨天说了什么", "回一下这个 thread", "发到 prj_dev_mediahub".
 user-invocable: true
 ---
 

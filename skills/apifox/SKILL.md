@@ -1,6 +1,6 @@
 ---
 name: apifox
-description: Read the teams' API definitions first-hand from Apifox — a project's OpenAPI export, its tags, the operations matching a word, one operation with parameters, request body and responses, a component schema. Use for "这个接口的参数", "J2N 有没有 xxx 的 API", "UR 的 graph 接口返回什么", an app.apifox.com link pasted in chat, or when probe/breakdown needs a contract rather than a guess.
+description: The teams' API definitions, read from Apifox. Use for "这个接口的参数", "J2N 有没有 xxx 的 API", "UR 的 graph 接口返回什么", an app.apifox.com link, or when probe/breakdown needs a contract rather than a guess.
 user-invocable: true
 ---
 

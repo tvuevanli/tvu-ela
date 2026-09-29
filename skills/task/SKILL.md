@@ -1,6 +1,6 @@
 ---
 name: task
-description: Run one piece of implementation work Evan owns end to end — read the ticket first-hand, locate the repo in the map, create an isolated worktree with a write tier, delegate to the area's own agent stack (headless session in the counterpart's repo) or implement under the repo's own rules, verify artefacts and evidence, hand over with the evidence in the merge request or ticket. Use for "do MH-xxxx", "implement this", "改 app 代码", "按 mediahub-agent 的规矩做", or any request to change code in a repo Evan does not own.
+description: Implement one piece of work end to end in its own worktree, under the target repository's rules. Use for "do MH-xxxx", "implement this", "改 app 代码", "按 mediahub-agent 的规矩做", or any change in a repo the owner does not own.
 user-invocable: true
 ---
 

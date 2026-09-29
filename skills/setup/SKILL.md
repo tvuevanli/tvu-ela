@@ -1,6 +1,6 @@
 ---
 name: setup
-description: First-run and repair of ela's site directory (~/.claude/ela) — machine paths in site.json and credentials in .env — with a read-only probe of every sense. Use on a new machine, when a sense fails to authenticate, when a token was rotated, or on "set up ela", "ela setup", "配置 ela", "token 过期".
+description: First-run and repair of ela's site directory (~/.claude/ela). Use on a new machine, a failing sense, a rotated token, "set up ela", "ela setup", "配置 ela", "token 过期".
 user-invocable: true
 ---
 

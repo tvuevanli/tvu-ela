@@ -1,6 +1,6 @@
 ---
 name: digest
-description: Digest a posted report thread (MediaHub daily QA report, release test report, service test report) or a long investigation thread into what Evan must know and act on — new/reopened issues and their routing, decisions waiting on him or product, expired dates, environment gaps, risks named in passing, and a drafted ticket for every finding the thread left unticketed. Use when the user pastes a report or thread permalink from Slack, or asks "summarize this report", "日报说了什么", "这份报告我该知道什么", "test report 总结", "这个 thread 里的问题建单了吗".
+description: Digest a posted QA, release or service test report, or a long investigation thread, into what the owner must act on. Use for a Slack report or thread permalink, "summarize this report", "日报说了什么", "这份报告我该知道什么", "test report 总结", "这个 thread 里的问题建单了吗".
 user-invocable: true
 ---
 

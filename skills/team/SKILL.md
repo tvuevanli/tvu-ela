@@ -1,6 +1,6 @@
 ---
 name: team
-description: The MediaHub roster, first-hand — who a name, email, Slack id or Jira account is; the emails a caller may look up; a live check of the roster against Slack. Use on "who is X", "X 的邮箱", "who owns the UI layer", "is this person on the team", before assigning a ticket or addressing a Slack message, and whenever an answer needs a person's identity.
+description: The MediaHub roster — who a name, email, Slack id or Jira account is. Use on "who is X", "X 的邮箱", "who owns the UI layer", "is this person on the team", or before assigning or addressing someone.
 user-invocable: true
 ---
 

@@ -1,6 +1,6 @@
 ---
 name: release
-description: Release facts read first-hand on both userservice hosts — GM bundles and their bill of materials, versions per lane (qa-*, daily-*, stage, prod-N), Jenkins builds with version, branch and commit, and the drift between the newest bundle and the service table. The prod host needs a person's session — `ela login tvu` collects it from the browser once. Use for "哪个 bundle", "daily 上是什么版本", "prod-3 跑的是哪个 build", "这个 build 是哪个 commit", "MH-xxxx 的修复在 prod 3 上了吗", "bundle 里有哪些 docker service".
+description: Release facts — GM bundles, versions per lane (qa-*, daily-*, stage, prod-N), Jenkins builds. Use for "哪个 bundle", "daily 上是什么版本", "prod-3 跑的是哪个 build", "这个 build 是哪个 commit", "MH-xxxx 的修复在 prod 3 上了吗", "bundle 里有哪些 docker service".
 user-invocable: true
 ---
 

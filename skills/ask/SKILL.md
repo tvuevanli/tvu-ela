@@ -1,6 +1,6 @@
 ---
 name: ask
-description: Hand one question to a counterpart agent (a bot another team owns) and turn its answer into a decision for Evan — pick the agent from the registry, check first-hand that the question is inside its charter, address it in its own dialect, then cross-check its reply against what it cannot see. Use for "让 boundary agent 查一下", "这个卡顿问一下它", "谁能查这个 graph 的 SRT", or when a thread carries a symptom plus an id and the answer belongs to another team's agent. v1 addresses mm-boundary-agent only.
+description: Ask another team's agent (such as mm-boundary-agent) one question and cross-check its answer. Use for "让 boundary agent 查一下", "这个卡顿问一下它", "谁能查这个 graph 的 SRT", or a symptom plus an id whose answer belongs to another team's agent.
 user-invocable: true
 ---
 

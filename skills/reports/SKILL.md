@@ -1,6 +1,6 @@
 ---
 name: reports
-description: Regenerate and republish Evan's standing reports — ela target and status, Helm vs ela, and any comparison or assessment he wants to keep reading — as private claude.ai artifacts with stable URLs, from markdown sources in <projects>/reports. Use on "更新 status report", "ela 现状", "帮我出一份 … 的对比报告", "刷新 report", or when a phase, decision or capability changed enough that the reports lie.
+description: Republish the owner's standing reports as claude.ai artifacts at stable URLs. Use on "更新 status report", "ela 现状", "帮我出一份 … 的对比报告", "刷新 report", or when a change makes the reports lie.
 user-invocable: true
 ---
 

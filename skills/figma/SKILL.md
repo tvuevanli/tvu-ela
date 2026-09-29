@@ -1,6 +1,6 @@
 ---
 name: figma
-description: Read a Figma design first-hand — file structure (pages/frames), one node's subtree and text content, comments, or a rendered image of a node. Use when the user pastes a figma.com link (file/design/proto), asks what a design or a frame says, wants design comments, or needs a screenshot of a Figma node. Also trigger for "看下这个设计", "figma 上怎么画的", "design spec", "Lora 的设计".
+description: Read a Figma design first-hand. Use for a figma.com link (file/design/proto), what a design or frame says, design comments, a node screenshot, "看下这个设计", "figma 上怎么画的", "design spec", "Lora 的设计".
 ---
 
 # Figma — read a design first-hand

@@ -1,6 +1,6 @@
 ---
 name: probe
-description: Read-only MediaHub code investigation — a bug (ticket or symptom) to its root cause with file:line and drafted comments for reporter and owner; or, as `probe how <mechanism>`, how a mechanism runs in the code, hop by hop, plus a knowledge draft. Reads Jira, the graph (UR), the service table and the code first-hand; clones missing code; edits nothing. Use for "deep check", "查一下根因", "看代码找原因", "why does copier …", "MH-xxxx 到底怎么回事", "这个字段哪来的", "命令行参数什么意思", "上报的数据是什么", "前后端模型", "谁调用谁", "这段逻辑在哪", "how does X work in the code", or when routing alone is not enough.
+description: Read-only MediaHub code investigation — a bug to root cause with file:line, or `probe how <mechanism>`. Use for "deep check", "查一下根因", "看代码找原因", "why does copier …", "MH-xxxx 到底怎么回事", "这个字段哪来的", "命令行参数什么意思", "上报的数据是什么", "前后端模型", "谁调用谁", "这段逻辑在哪", "how does X work in the code", or when routing is not enough.
 user-invocable: true
 ---
 

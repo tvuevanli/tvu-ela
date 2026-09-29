@@ -1,6 +1,6 @@
 ---
 name: brief
-description: Evan's morning brief — what needs him today, ranked, each item with a drafted action. Reads Jira (stale In-Progress, unrouted new tickets, complex tickets not broken down, the open customer-incident pile, his own rotting backlog) and Slack (report threads posted since yesterday, threads waiting on his reply, threads he wrote alone, decisions made in Slack without a ticket). Read-only, drafts only. Use for "brief", "今天有什么要我处理的", "早上先看什么", "what's waiting on me", "我的队列".
+description: The owner's morning brief from Jira and Slack, ranked, with drafted actions. Read-only. Use for "brief", "今天有什么要我处理的", "早上先看什么", "what's waiting on me", "我的队列".
 user-invocable: true
 ---
 

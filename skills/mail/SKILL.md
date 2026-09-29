@@ -1,6 +1,6 @@
 ---
 name: mail
-description: Read Evan's Gmail first-hand — search with Gmail query syntax, read one message as text, read a whole thread. The QA test reports (Erin's release/daily reports, Alice's daily reports), the deploy notices and the PM's release approvals are emails; a Jira comment is at most a summary of one. Use for "QA 报告说什么", "邮件里有没有", "Erin 验了没", "who approved the release", or whenever a question of what QA verified needs the full report.
+description: The owner's Gmail, read-only — the QA leads' test reports, deploy notices, release approvals. Use for "QA 报告说什么", "邮件里有没有", "Erin 验了没", "who approved the release", or what QA verified in full.
 user-invocable: true
 ---
 

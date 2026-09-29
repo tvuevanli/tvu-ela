@@ -1,6 +1,6 @@
 ---
 name: stream
-description: What a stream actually carries, read off the wire — the MPEG-TS PID table (PMT, PCR, per-stream PID), codec, resolution and sample rate of an HLS output, a .ts segment, an SRT or UDP endpoint; and the field-by-field difference between two streams. Use when a question turns on what a MediaHub output really contains rather than what it was configured to contain — "PID 生效了吗", "输出是什么编码", "这两条流差在哪", verifying a copier change, or checking a customer's report of an output against the profile that produced it.
+description: What a MediaHub stream actually carries, read off the wire — HLS, a .ts segment, SRT or UDP. Use for "PID 生效了吗", "输出是什么编码", "这两条流差在哪", verifying a copier change, or checking an output against its profile.
 user-invocable: true
 ---
 

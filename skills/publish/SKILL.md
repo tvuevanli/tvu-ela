@@ -1,6 +1,6 @@
 ---
 name: publish
-description: Publish an elak source into the published directory that machines read (Helm's knowledge root, the remote's map) and record the manifest row — the media docker service catalogue from map/services.yaml and the roster from knowledge/people/. Use on "发布 services.yaml", "publish the roster", "花名册改了", "更新 Helm 读的服务目录", "publish the catalogue", or after map/services.yaml changed.
+description: Publish an elak source into the published directory. Use on "发布 services.yaml", "publish the roster", "花名册改了", "更新 Helm 读的服务目录", "publish the catalogue", or after map/services.yaml changed.
 user-invocable: true
 ---
 

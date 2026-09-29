@@ -1,6 +1,6 @@
 ---
 name: confluence
-description: Read the web team's Confluence wiki first-hand — spaces, a space's page tree, full-text search, one page as text. Use for "wiki 上有没有", "Confluence 里 MediaHub 那页", "web team 的文档", a Confluence page URL pasted in chat.
+description: The web team's Confluence wiki, read-only. Use for "wiki 上有没有", "Confluence 里 MediaHub 那页", "web team 的文档", a Confluence page URL.
 user-invocable: true
 ---
 
