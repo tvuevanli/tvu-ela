@@ -46,6 +46,7 @@ flowchart LR
 | 一张别人写的票落到你手上，先要看懂它才谈得上判断 | `explain` | `/ela:explain MH-3568` |
 | 一张旧票挂了很久，先要判断它还有没有必要存在 | `revisit` | `/ela:revisit MH-1649` |
 | 一个 bug 落到你手上，不确定归谁 | `route` | `/ela:route MH-3568` |
+| 这票该归谁：先把事实摆出来 | `route` | `ela route <KEY>` |
 | 光定人不够，要看代码找根因 | `probe` | `/ela:probe MH-3568` |
 | 「这个机制在代码里怎么跑的」 | `probe` | `/ela:probe how <mechanism>` |
 | 客户问「你们支持 X 吗，能不能做」 | `feasible` | `/ela:feasible <thread 链接>` |

@@ -14,13 +14,10 @@ Self-contained. Argument: a ticket key or URL. Multiple keys → route each inde
   re-derive what the report already measured.
 - **Route on evidence, not on vocabulary.** An error message names its *thrower*, not its owner.
   Find the emitter in code before naming a person.
-- **Owners are read, never remembered**, and the read is two hops: the **area** from
-  `<published>/knowledge/products/mediahub/team/layer-classification.md` (symptom → area; it names no
-  owner, on purpose), then the **person** from the roster capability — `ela who
-  <name|email|Uxxx|accountId>` for one person, exit 3 meaning the roster does not carry them, which is
-  the answer and not a failure; `ela team areas` for who to ask first about an area. Both read
-  `<published>`, falling back to elak's private source on the office machine. `<map>/services.yaml`
-  and the area's own registry (`mediahub-agent/workspace.json`) give repo and service owners.
+- **Owners are read, never remembered.** `route.py facts` (§0) reads the area and who to ask first;
+  `ela who <name|email|Uxxx|accountId>` settles one person, exit 3 meaning the roster does not carry
+  them, which is the answer and not a failure. The area's own registry
+  (`mediahub-agent/workspace.json`) gives repo owners the published map does not.
 - **Uncertainty is a first-class verdict.** When not certain, the output is not a guess but a
   *first checker*: the person whose single cheapest check discriminates the hypotheses — plus the
   exact check and what each outcome means. Never assign a guess as if it were a conclusion.
@@ -28,13 +25,24 @@ Self-contained. Argument: a ticket key or URL. Multiple keys → route each inde
   (`jira.py assign`); `--apply` only after Evan confirms.
 
 ## 0 — read
-`~/.claude/ela/site.json` → `env`, `map`, `published`, `map_sources`. Then:
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/skills/route/route.py" facts <KEY> --json   # or: ela route <KEY>
+```
+```
+{ticket: {key, url, summary, type, status, assignee, labels, parent},
+ layer_token,                                   # the [Layer] in the summary, or null
+ ids: {graph: [], process: [], object: []},     # 26-char · 32-hex · 19-digit, by regex from summary + description + comments
+ signals: [{word, layer}], layer_hits: {layer: n},   # layer-classification.md's signal words found in the text
+ services: [{name, kind, image, owners}],       # services.yaml names found in the text
+ ask_first: {layer: [{area, ask_first: [{name, email, slack}]}]},   # the roster's first contacts per candidate layer
+ gaps: []}                                      # what could not be read; each is named in the verdict
+```
+Exit 3: the ticket does not exist; 5: Jira unreadable. Signal words are vocabulary, not evidence —
+they seed §1, they never decide it. Then read the ticket itself for what no script extracts: error
+codes, timestamps, environment, what the reporter excluded, linked tickets (prior art):
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/skills/jira/jira.py" --env-file <env> read <KEY> --deep
-TEAM="python3 ${CLAUDE_PLUGIN_ROOT}/skills/team/team.py --env-file <env>"   # or: ela who … · ela team areas
 ```
-Note: error codes, exact resource ids (graphId, objectId, processId — testers often record
-them), timestamps, environment, what the reporter excluded, linked tickets (prior art).
 
 ## 1 — locate the seam in code (the map names the checkouts)
 
