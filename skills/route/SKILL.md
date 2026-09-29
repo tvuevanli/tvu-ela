@@ -1,12 +1,14 @@
 ---
 name: route
-description: Decide who takes a bug ticket, or who checks first. Use for triage, "谁该接这个", "这个归哪个服务", "who should take MH-xxxx", "先找谁查".
+description: Decide who takes a bug ticket, or who checks first; localise a prod failure from its trace id to the service that threw it. Use for triage, "谁该接这个", "这个归哪个服务", "who should take MH-xxxx", "先找谁查", a trace id or error code from prod.
 user-invocable: true
 ---
 
 # /ela:route <KEY> — a bug in, a name out (or the name who checks first)
 
-Self-contained. Argument: a ticket key or URL. Multiple keys → route each independently.
+Self-contained. Argument: a ticket key or URL, or a failure without a ticket — a trace id, an email
+and a moment, an object id, a process id. Multiple keys → route each independently. A failure with a
+trace or a moment starts at §0b; a ticket that carries one runs §0 and then §0b.
 
 ## Invariants
 - **Read the ticket first-hand** (jira capability, `--deep`): the reporter's evidence — error
@@ -23,6 +25,11 @@ Self-contained. Argument: a ticket key or URL. Multiple keys → route each inde
   exact check and what each outcome means. Never assign a guess as if it were a conclusion.
 - **Read-only over repos; writes gated.** The re-assign is proposed as a dry-run
   (`jira.py assign`); `--apply` only after Evan confirms.
+- **Read-only over other teams' runtimes.** Logs are read; log levels, restarts and config refreshes
+  are the owner's to do, and appear in the handoff as a request, never as an action taken.
+- **The goal is the service and its owner, not the line.** A failure localised to the service that
+  threw it, with its owner and the likely causes, is a complete answer; a root cause at file:line is
+  a bonus. Stop when the handoff card is filled, not when the bug is understood.
 
 ## 0 — read
 ```bash
@@ -43,6 +50,34 @@ codes, timestamps, environment, what the reporter excluded, linked tickets (prio
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/skills/jira/jira.py" --env-file <env> read <KEY> --deep
 ```
+
+## 0b — read the failure in the logs (a trace id, an email and a moment, a process id)
+
+The logs are first-hand; a ticket's paste of them is a report. All reads go through `ela logs`
+(`skills/logs/logs.py`, read-only; tvulog needs `ela login tvu`, exit 4 names it). Times print in UTC
+and local; the java-log's clock is UTC, so `--at` is UTC unless an offset is given.
+
+1. **The chain.** `ela logs chain <traceId>` lists every recorded HTTP hop of the trace, time-ordered,
+   with the errorCode parsed from each reply, and marks the **first failing hop** — the innermost
+   error, the one that answered first. From an email and a moment, `ela logs calls --email <addr>
+   --at <time>` finds the call and its trace id; from a process id, `ela logs loki --pid <id>`.
+   Then the services' own lines under the trace: `ela logs java --trace <id> --date <UTC day>`
+   (`--grep <errorCode>` narrows; a stack's first `com.tvu…` frame is shown under the line).
+2. **When the trace breaks** — the failing hop calls a service with no lines under the trace — the
+   forwarding service is not the owner. Grep the code map for the error code or message (§1) to find
+   the service that *throws* it, then read that service's own lines by name and moment:
+   `ela logs java --app <appname> --at "<failure second>" --window 3s --grep <business id>`, with the
+   business ids from the chain's params (peerId, objectId, mediaId). A service that did not receive the
+   trace id logs under its own; the line's `trace=` is the pivot for the rest of its story. Absence
+   under the trace is never evidence of absence: say which reads came back empty.
+3. **A generic error code hides a swallowed exception.** When the thrower's code is a catch-all
+   ("join failed", "system error"), read its log in the second before the reply for the warn or error
+   line that carries the real reason, and find where the code catches it (the `catch` that logs and
+   replaces the exception). That line is the evidence; the generic code is only the symptom.
+4. **Runtime config.** When the code's decision turns on a configuration value (a config server key,
+   `@ConfigurationProperties`, a refreshable map), name the key, the endpoint that exposes the live
+   value if the code has one, and mark the cause *needs the owner to confirm the config*. Never guess
+   the value, and never call a refresh or write endpoint.
 
 ## 1 — locate the seam in code (the map names the checkouts)
 
@@ -79,7 +114,18 @@ jobs, caches, TTLs). Search linked tickets and code comments for prior art of th
 a `see MH-xxxx` comment is a routing fact. Deeper digs → the read-only `analyst` agent, one per
 repo, questions only.
 
-## 2 — verdict, one of two shapes
+### the owner of a service, in this order
+1. `map/services.yaml` (`ela services`, `ela find <name>`) — the media docker services.
+2. The web team's own repo-owner sheet, read live:
+   `ela gdoc sheet 1Bska15E4RFxDjS62uRlG92deNqQ-ZzTOsrwqyIqK974` — the app-layer repos (tvu-media-hub,
+   media-hub-front, mx-service, mx-service-front, tvucc-media, orchestration, mediahub-admin-frontend).
+   The team's own list outranks anything derived, because the team maintains it (owner's decision,
+   2026-09-29).
+3. Otherwise the top committers of the last six months,
+   `git -C <checkout> shortlog -sne --since=<6 months ago> HEAD`, labelled **most recent committer, not
+   a confirmed owner**; `ela who <email>` settles who that is.
+
+## 2 — verdict, one of three shapes
 **Certain** (one service, its owner):
 - service · owner · evidence (file:line of the emitter + the report's discriminating fact)
 - the layer token that fits, and the dry-run:
@@ -97,6 +143,17 @@ python3 "${CLAUDE_PLUGIN_ROOT}/skills/jira/jira.py" --env-file <env> assign <KEY
   lookup, a config read) and what each outcome routes to.
 - the dry-run assigns to the first checker, with a drafted comment stating the question they are
   being asked to answer (`jira.py comment <KEY> --text …` dry-run; `--apply` only on Evan's word).
+
+**Handoff card** (a failure localised from the logs, §0b) — what the owner needs to take the case:
+- **service** (and env) that threw, and the hops that only forwarded it
+- **owner**, with the source that named them (services.yaml · the team's sheet · most recent committer)
+- **evidence**: each log line with its source (process-log · java-log · Loki), app, UTC time and trace
+  id; the code line that throws, as file:line
+- **likely causes**, ranked — log-backed first, then code-backed; each with file:line, and the config
+  key and endpoint where a cause depends on runtime config (*needs the owner to confirm the config*)
+- **incidental findings**: a swallowed exception, a trace id not propagated, a misleading code
+- **drafted message** in the owner's language, for Slack or a Jira comment — a draft; nothing is posted
+  without Evan's word (`slack.py post` and `jira.py comment` stay dry runs until `--apply`)
 
 ## 3 — confirm gate
 Show the verdict and the dry-run. `--apply` only on Evan's explicit confirm, per the jira
