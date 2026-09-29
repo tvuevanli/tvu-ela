@@ -41,6 +41,7 @@ flowchart LR
 | 你遇到的情况 | 用这个 | 最短起手式 |
 |---|---|---|
 | 早上打开电脑，不知道先看什么 | `brief` | `/ela:brief` |
+| 只想先看 Jira 这几条线：谁超时没更新、谁没人接、哪张该拆没拆 | `brief` | `ela brief` · `ela brief --lane triage` |
 | 一个复杂需求进来，要拆成各层的活并派人 | `breakdown` | `/ela:breakdown MH-3568` |
 | 一张别人写的票落到你手上，先要看懂它才谈得上判断 | `explain` | `/ela:explain MH-3568` |
 | 一张旧票挂了很久，先要判断它还有没有必要存在 | `revisit` | `/ela:revisit MH-1649` |
@@ -188,7 +189,7 @@ flowchart LR
 
 ```mermaid
 flowchart TD
-  M["早上<br>/ela:brief"] --> M2{"有需要拆的?"}
+  M["早上<br>/ela:brief<br>只看 Jira：ela brief"] --> M2{"有需要拆的?"}
   M2 -->|"有"| BD["/ela:breakdown KEY<br>→ 草稿 → 确认后建票"]
   M2 -->|"没有"| D
   BD --> D["白天：随手甩 id 和链接给 ela<br>ela MH-xxxx · ela 01M… · 粘 Slack 链接"]

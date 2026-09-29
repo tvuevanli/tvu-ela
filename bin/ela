@@ -31,6 +31,7 @@
   ela publish <catalogue|roster|map|all|list>  render an elak source into <published> for machines to read; the manifest row records it
   ela team <people|areas|who|emails|check>  the roster, first-hand · ela who <name|email|Uxxx|accountId>  one person; exit 3 when unknown
   ela envs                  the UR probe order         ela site   (rarely) the site config: roots, host names, aliases, emails
+  ela brief [--lane L]      the morning brief's Jira lanes, flags computed (cadence · triage · breakdown · incidents · backlog · yours)
   ela runtime status|clean  the disposable working directory: what is there, and delete it (--work also drops clean worktrees)
 
 Every verb forwards to the capability script under skills/<cap>/<cap>.py with the site's env file;
@@ -61,6 +62,7 @@ VERBS = {
     "mail": ("mail", None), "login": ("release", "login"), "stream": ("stream", None),
     "sentry": ("sentry", None),
     "promote": ("promote", None), "runtime": ("runtime", None),
+    "brief": ("brief", "lanes"),
 }
 PROMOTE_SUBS = {"lanes", "commits", "delta", "tickets", "evidence", "bundles", "report", "compare-helm"}
 
