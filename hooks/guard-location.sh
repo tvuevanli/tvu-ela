@@ -41,7 +41,7 @@ def block(msg):
 # wrong, not a person's queue, and never a sentence someone typed. ela's origin is a public
 # remote, so a message is published the moment it is pushed and cannot be taken back.
 COMMIT_BANS = [
-    (re.compile(r"[\"“「』][^\"”」』\n]*[一-鿿][^\"”」』\n]*[\"”」』]"),
+    (re.compile(r"[\"“«「』][^\"”»」』\n]*[一-鿿][^\"”»」』\n]*[\"”»」』]"),
      "it quotes what someone said"),
     (re.compile(r"\bEvan\b|\bhis queue\b|\bhis own (?:rot|backlog)\b"),
      "it names a person — a commit describes the code, and a named person's queue, habits or\n"
@@ -104,7 +104,7 @@ if under(target, elak):
 
 # 5 — a tracked file names the origin, never the utterance.
 UTTERANCE_CUE = re.compile(r"(?i)\b(source|owner_source|says?|said|asked|wrote|words|quote[sd]?)\b|他说|她说|原话")
-CJK_QUOTE = re.compile(r"[\"“「』]([^\"”」』\n]*[一-鿿][^\"”」』\n]*)[\"”」』]")
+CJK_QUOTE = re.compile(r"[\"“«「』]([^\"”»」』\n]*[一-鿿][^\"”»」』\n]*)[\"”»」』]")
 new_text = (call.get("tool_input") or {}).get("content") or (call.get("tool_input") or {}).get("new_string") or ""
 tracked_roots = [r for r in (elak, os.path.join(projects, "ela"), os.path.join(projects, "helm")) if r]
 if new_text and target.endswith((".md", ".yaml", ".yml")) and any(under(target, r) for r in tracked_roots):

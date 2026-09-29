@@ -39,7 +39,7 @@ ANY_FILE = [
     (re.compile(r"\bssh://[^\s'\"]+|\bssh\s+(?:-\S+\s+)*[A-Za-z0-9._-]+@[A-Za-z0-9-]+\.[A-Za-z0-9.-]+"), "ssh user@host"),
 ]
 UTTERANCE = [
-    (re.compile(r"[\"“「『]([^\"”」』\n]{0,80}[一-鿿][^\"”」』\n]{0,80})[\"”」』]"), "a quoted CJK sentence"),
+    (re.compile(r"[\"“«「『]([^\"”»」』\n]{0,80}[一-鿿][^\"”»」』\n]{0,80})[\"”»」』]"), "a quoted CJK sentence"),
     (re.compile(r"(?i)\b(?:he|she|evan|the owner)\s+(?:said|says|wrote|told (?:me|us)|put it|phrased it)\b"), "a person's words as source"),
     (re.compile(r"(?i)\bin (?:his|her|their|evan's) (?:own )?words\b|原话|他说|她说"), "a person's words as source"),
 ]
