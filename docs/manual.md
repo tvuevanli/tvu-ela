@@ -47,7 +47,7 @@ flowchart LR
 | 一张旧票挂了很久，先要判断它还有没有必要存在 | `revisit` | `/ela:revisit MH-1649` |
 | 一个 bug 落到你手上，不确定归谁 | `route` | `/ela:route MH-3568` |
 | 这票该归谁：先把事实摆出来 | `route` | `ela route <KEY>` |
-| 线上报错，手里有 trace id 或时间点：哪个服务抛的、交给谁 | `route` · `logs` | `/ela:route <traceId>` → 交接卡 · `ela logs chain <traceId>` · `ela logs java --app <app> --at "<UTC 时间>"` |
+| 线上报错，手里有 trace id 或时间点：哪个服务抛的、交给谁 | `route` · `logs` | `/ela:route <traceId>` → 交接卡 · `/ela:logs <traceId>` · `ela logs chain <traceId>` · `ela logs java --app <app> --at "<UTC 时间>"` |
 | 光定人不够，要看代码找根因 | `probe` | `/ela:probe MH-3568` |
 | 「这个机制在代码里怎么跑的」 | `probe` | `/ela:probe how <mechanism>` |
 | 客户问「你们支持 X 吗，能不能做」 | `feasible` | `/ela:feasible <thread 链接>` |

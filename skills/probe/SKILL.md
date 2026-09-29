@@ -59,6 +59,8 @@ office machine. `<map>/services.yaml` still gives image → owners → repos.
    `$MAP clone <path>` (GitLab, LAN, placed at `<code>/<alias>/<remote path>`). If nothing answers, the service
    goes to the routing step as "code not reachable" and the absent list gets an entry.
 4. **The version.** `git -C <path> log -1 --format='%h %ad'` and tags vs the image tag from step 2.
+- A trace id, an email and a moment, or a process id → the chain and the first failing hop
+  (`ela logs chain`, `ela logs calls`), before the graph.
 
 ## 2 — read the code
 Spawn the read-only analyst with the repo paths and **specific questions**, not "look for the bug":
@@ -67,6 +69,10 @@ default is set (config file, plugin xml, compile-time); what upstream would have
 other branch; what changed recently in that area (`git log -S`). Ask for file:line per answer and
 the exact snippet. Read the answers against the report: does the code path explain every observed
 fact? Anything unexplained is a second question, not a footnote.
+- When the trace breaks at a service boundary, follow the log-evidence steps 2-4 (summary: find the
+  thrower by error code in the code map; read its own lines at the failure second; read the swallowed
+  exception behind a generic code; name the config key a cause turns on and mark it for the owner to
+  confirm) — full text in `${CLAUDE_PLUGIN_ROOT}/skills/logs/SKILL.md`.
 
 ## 3 — conclude
 Write, in this shape:
@@ -79,6 +85,8 @@ Write, in this shape:
   needs a product decision and from whom.
 - **Owner and check** — name and the exact discriminating check, via `/ela:route` when the layer is
   not obvious.
+- A cause that turns on runtime config is stated as *needs the owner to confirm the config*, never
+  guessed.
 
 ## 4 — record and draft
 - Record what the probe **established**, not that it ran — drafted here, written on Evan's word: the conclusion and its paths go where the
