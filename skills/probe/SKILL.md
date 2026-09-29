@@ -1,14 +1,22 @@
 ---
 name: probe
-description: Deep, read-only investigation of a MediaHub bug — from a ticket or symptom to the implicated service, its code and the root cause with file:line, then drafted comments for the reporter and the owner. Reads Jira, the graph (UR), the service table and the code first-hand; clones missing code; never edits anything. Use for "deep check", "查一下根因", "看代码找原因", "why does copier …", "MH-xxxx 到底怎么回事", or when routing alone is not enough.
+description: Read-only MediaHub code investigation — a bug (ticket or symptom) to its root cause with file:line and drafted comments for reporter and owner; or, as `probe how <mechanism>`, how a mechanism runs in the code, hop by hop, plus a knowledge draft. Reads Jira, the graph (UR), the service table and the code first-hand; clones missing code; edits nothing. Use for "deep check", "查一下根因", "看代码找原因", "why does copier …", "MH-xxxx 到底怎么回事", "这个字段哪来的", "命令行参数什么意思", "上报的数据是什么", "前后端模型", "谁调用谁", "这段逻辑在哪", "how does X work in the code", or when routing alone is not enough.
 user-invocable: true
 ---
 
-# /ela:probe <ticket | symptom> — a bug in, a root cause with file:line out
+# /ela:probe <ticket | symptom> | /ela:probe how <mechanism> — a bug in, a root cause with file:line out
 
 Self-contained. Argument: a Jira key or URL, a graph or process id, or a described symptom. Read-only
 throughout: code is read, never changed; Jira and Slack are read, and every proposed comment is a
 draft until Evan says post.
+
+The `how` form takes a mechanism named in the owner's words (a command line, a reported field, a
+status model, "who calls whom") and no ticket. It runs §0–§3 as written, skips the drafted comments
+of §4, and ends with (a) the mechanism chain — each hop with file:line at the commit read, values and
+defaults where the code fixes them, and what the chain does NOT assert — and (b) a `knowledge/` draft
+written to `<runtime>/drafts/<slug>.md` in elak's house style (front matter `verified`, `source` =
+repo@sha file:line only, no session or transcript cited, no names), for the owner to admit with
+"记下来" (knowledge/README's one-year test).
 
 ## Invariants
 - **Code before people.** The 2026-09-02 MH-3568 investigation found the cause in `addScteStream`
@@ -44,7 +52,8 @@ office machine. `<map>/services.yaml` still gives image → owners → repos.
    graph JSON, that is the anchor.
 2. **The runtime.** `$GRAPH resolve <id>`: env, phase, nodes with type · process · image · box.
    `$GRAPH process <pid>` on the suspect node: status, error rates, container, shm. Write down the
-   image tags — they pin the version under investigation.
+   image tags — they pin the version under investigation. For the `how` form this hop is optional:
+   run it when the owner names an id; otherwise say "not read at runtime" in the output.
 3. **The implicated service.** `$MAP find <image|process type|service word>` → owners and repos with
    local paths. No repo → `$MAP probe media/<name> media/imatrix/prj/<name>` and, if it answers,
    `$MAP clone <path>` (GitLab, LAN, placed at `<code>/<alias>/<remote path>`). If nothing answers, the service
@@ -84,3 +93,4 @@ Write, in this shape:
 ## 5 — what this skill does not do
 Change code, run builds, start or stop processes, post anywhere, or clone from GitHub when the LAN
 GitLab has the repo (`map.py` clones GitLab-first; GitHub mirrors are read-only reference).
+`probe how` does not price findings (that is arch) and does not decide support (that is feasible).

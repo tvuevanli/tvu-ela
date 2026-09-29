@@ -47,6 +47,7 @@ flowchart LR
 | 一张旧票挂了很久，先要判断它还有没有必要存在 | `revisit` | `/ela:revisit MH-1649` |
 | 一个 bug 落到你手上，不确定归谁 | `route` | `/ela:route MH-3568` |
 | 光定人不够，要看代码找根因 | `probe` | `/ela:probe MH-3568` |
+| 「这个机制在代码里怎么跑的」 | `probe` | `/ela:probe how <mechanism>` |
 | 客户问「你们支持 X 吗，能不能做」 | `feasible` | `/ela:feasible <thread 链接>` |
 | 要对一个子系统做结构评审 | `arch` | `/ela:arch app-layer` |
 | QA 日报 / 测试报告贴出来了，要知道哪些跟你有关 | `digest` | 把 Slack 永久链接贴给 ela |
