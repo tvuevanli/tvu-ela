@@ -52,20 +52,27 @@ This is how ela knows Evan in any directory without an agent or a global CLAUDE.
 | `/ela:gdoc` | 1 | Google Docs / Sheets / Drive, read-only with Evan's token — a doc as text, a sheet tab as CSV, recent documents; `ela gdoc …` or a docs.google.com URL alone |
 | `/ela:apifox` | 1 | the teams' API contracts from Apifox — a project's OpenAPI export, tags, operations by word, one operation in full, a schema; `ela api …` or an app.apifox.com URL alone |
 | `/ela:release` | 1 | release facts first-hand — GM bundles and their bill of materials, versions per env, Jenkins builds (version · branch · sha), drift between the newest bundle and the service table; `ela bundles · bundle · versions · builds · drift` |
+| `/ela:promote` | 1 | a promotion between lanes, read first-hand — both lanes' versions, the commits and tickets between them, QA evidence from Jira, mail and Slack, the bundle diff; `ela promote` reads, the assessment is judgment over it |
+| `/ela:mail` | 1 | Gmail, read-only — search, one message as text, a whole thread; QA reports, deploy notices and release approvals are emails; `ela mail …` |
+| `/ela:sentry` | 1 | crashes and errors from the self-hosted Sentry, read-only — projects, the issue table worst first, one issue with its latest exception and stack, recent events per box and version; `ela sentry …` |
+| `/ela:explain` | 3 | make one ticket judgeable before acting on it: the runtime instance, whether the named fix still exists, the ticket's assertions against the thread's decisions, who it waits on |
+| `/ela:revisit` | 3 | whether an old ticket still needs to exist: the problem read apart from its plan, checked against today in cost order — close, carry to a keyed ticket, or keep with the next skill named |
 | `/ela:probe` | 3 | deep, read-only bug investigation: ticket → graph facts → implicated service via the service table → code (cloned if missing) → root cause with file:line → drafted comments for reporter and owner |
 | `/ela:feasible` | 3 | a capability question in, two verdicts out: the ask split into checkable items, each traced through the five checkpoints (profile → payload → command line → engine → output) — what happens today with runtime evidence, and whether it can be supported with the layer and cost band; drafts for asker and owner |
 | `/ela:figma` | 1 | read a design: file tree, node subtree + text layers, comments, rendered image — read-only |
 | `/ela:digest` | 4 | digest a posted report thread into what Evan must act on, decide, and pin — cross-checked against Jira |
-| `/ela:route` | 4 | a bug in, a name out: implicated service, owner, or the first checker with the exact discriminating check |
-| `/ela:ask` | 4 | hand one question to a counterpart agent (another team's bot): pick it from the registry, verify first-hand the question is inside its charter, address it in its dialect, then cross-check its reply against what it cannot see. v1: mm-boundary-agent |
+| `/ela:route` | 3 | a bug in, a name out: implicated service, owner, or the first checker with the exact discriminating check |
+| `/ela:ask` | 5 | hand one question to a counterpart agent (another team's bot): pick it from the registry, verify first-hand the question is inside its charter, address it in its dialect, then cross-check its reply against what it cannot see. v1: mm-boundary-agent |
 | `/ela:brief` | 4 | the morning brief: stale In-Progress, unrouted new tickets, complex tickets not broken down, report threads, threads waiting on Evan, threads he wrote alone, decisions made in Slack without a ticket — ranked, each with a drafted action; read-only |
 | `/ela:task` | 2 | one piece of work Evan implements: worktree, tier, delegation to the area's stack, evidence in the merge request |
+| `ela mr` | 2 | with `task`, the last step of the owner's code path: `ela mr-preflight` (each GitLab token's scopes and expiry) and `ela mr <KEY> <repo>` (the push and the merge-request request for `evan/<key>`), dry run only |
 | `/ela:arch` | 3 | architecture review of a subsystem: the derived edges rendered as an as-is picture stamped with the commits they were read at, checked against a live graph, then ranked structural findings — each priced with the tickets and reach the seam produced, each with its layer and owner; findings become lanes through `/ela:breakdown`, never tickets here |
 | `/ela:breakdown` | 3 | requirement → layer-tagged lanes with owners, order, verification; knowledge or code depth; plan in elak, Jira publication on confirm |
 | `/ela:publish` | 1 | publish an elak source into `<published>` for machines to read — the media docker service catalogue from `map/services.yaml` and the roster from `knowledge/people/` — and record the manifest row; `ela publish catalogue · roster · map · all · list` |
 | `/ela:team` | 1 | the MediaHub roster, first-hand — `ela who <name|email|Uxxx|accountId>` (exit 3 when unknown), `ela team list · emails · check` (check re-reads Slack); the only identity source, never a guess |
 | `/ela:reports` | 1 | Evan's standing reports (ela status, Helm vs ela, comparisons) — markdown in `<projects>/reports`, rendered and published as private artifacts with stable URLs; `ela reports list · build` |
 | `/ela:map` | 1 | the code layout (`code/<alias>/<remote path>`, `work/<KEY>/<repo>`) and the script that keeps it: `survey` (cache) · `find` · `services` · `where` · `probe` · `clone` · `sync` · `worktree` |
+| `ela sessions` | 1 | an earlier Claude Code session on this machine, found by the words in its first prompt or final answer; local transcripts, read-only |
 | `ela runtime` | 1 | the disposable working directory: `status` (entries, sizes, open worktrees) · `clean` (everything but work/; `--work` also drops clean worktrees) |
 
 Start the session where the target's rules live (`CLAUDE.md` → *The operating rule*); ela's skills
@@ -95,4 +102,6 @@ committed to elak by a hook (`docs/adr/0001`).
 
 ## Verification
 
-`tests/run.sh` — every script compiles, every `--help` answers, the content guard's cases pass.
+`tests/run.sh` — every script compiles, every `--help` answers, every hook parses, the content guard's cases pass,
+and the python tests pass: `test_manual_coverage.py`, `test_publish_stale.py`, `test_publish_redact.py`,
+`test_mr_dryrun.py`.

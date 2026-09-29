@@ -9,9 +9,9 @@ manage. Each names the skill or verb that serves it today; "not built" marks a g
 | S2 | Break a requirement into layer-tagged lanes with owners and order; publish to Jira on confirm; a ticket is not required to start | `/ela:breakdown` |
 | S3 | Route a bug to a service and a name, or to the first checker with the exact check | `/ela:route` |
 | S4 | Digest a posted report thread into what must be acted on, decided, or ticketed | `/ela:digest` |
-| S5 | Implement the owner's own lane under the target repository's rules: worktree, delegation, evidence in the merge request | `/ela:task` |
-| S6 | Read code and technology first-hand and record the reading on the owner's word | `/ela:probe`, `/ela:feasible`, `/ela:arch`, `/ela:map` |
-| S7 | Assess a promotion between lanes from first-hand release facts | `/ela:promote`, `ela release` |
+| S5 | Implement the owner's own lane under the target repository's rules: worktree, delegation, evidence in the merge request | `/ela:task`, `ela mr` |
+| S6 | Read code and technology first-hand and record the reading on the owner's word | `/ela:probe`, `probe how`, `/ela:feasible`, `/ela:arch`, `/ela:map`, `ela sessions` |
+| S7 | Assess a promotion between lanes from first-hand release facts | `/ela:promote`, `ela release`, `ela bundle-diff` |
 | S8 | Answer colleagues' questions through the Slack bot, speaking as ela, citing recorded decisions | Helm's bot over `clients/ela.py`; gated by ADR 0005 and the proof rule |
 | S9 | Nudge, evidence fill and ticket hygiene behind confirm and idempotency | `ela jira` atoms; composites not built |
 | S10 | Write and update knowledge in the company wiki in place | `/ela:kb` |
