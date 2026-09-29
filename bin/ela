@@ -34,6 +34,9 @@
   ela envs                  the UR probe order         ela site   (rarely) the site config: roots, host names, aliases, emails
   ela fixed-in <KEY>… [--jql Q]   the Fixed In the evidence supports: commits → build → lanes → QA words; draft only, no Jira write
   ela route <KEY>           the routing facts: [Layer] token, ids, signal words per layer, services named, who to ask first, gaps
+  ela logs chain <traceId> · java --trace T | --app A --at T · calls --server S --at T · loki --pid P
+                            service logs, read-only: a trace's hops with the first failing one marked, a service's own lines
+                            around a moment, a media process's Loki lines (tvulog needs `ela login tvu`)
   ela brief [--lane L]      the morning brief's Jira lanes, flags computed (cadence · triage · breakdown · incidents · backlog · yours)
   ela runtime status|clean  the disposable working directory: what is there, and delete it (--work also drops clean worktrees)
   ela mr <KEY> <repo> [--lane B]   the push and the merge-request request for evan/<key>, dry run only
@@ -73,6 +76,7 @@ VERBS = {
     "sessions": ("sessions", "find"),
     "route": ("route", "facts"),
     "fixed-in": ("fixedin", "draft"),
+    "logs": ("logs", None),
 }
 PROMOTE_SUBS = {"lanes", "commits", "delta", "tickets", "evidence", "bundles", "report", "compare-helm"}
 

@@ -47,6 +47,7 @@ flowchart LR
 | 一张旧票挂了很久，先要判断它还有没有必要存在 | `revisit` | `/ela:revisit MH-1649` |
 | 一个 bug 落到你手上，不确定归谁 | `route` | `/ela:route MH-3568` |
 | 这票该归谁：先把事实摆出来 | `route` | `ela route <KEY>` |
+| 线上报错，手里有 trace id 或时间点：哪个服务抛的、交给谁 | `route` · `logs` | `/ela:route <traceId>` → 交接卡 · `ela logs chain <traceId>` · `ela logs java --app <app> --at "<UTC 时间>"` |
 | 光定人不够，要看代码找根因 | `probe` | `/ela:probe MH-3568` |
 | 「这个机制在代码里怎么跑的」 | `probe` | `/ela:probe how <mechanism>` |
 | 客户问「你们支持 X 吗，能不能做」 | `feasible` | `/ela:feasible <thread 链接>` |
@@ -184,7 +185,7 @@ flowchart LR
 | 级别 | 含义 | 现在有哪些 |
 |---|---|---|
 | 🟢 **能用** | 跑过，结果可信 | 全部感官 · `map` · `publish` · `runtime` · `release`（含 prod，经你的登录）· `promote`（与 Helm 对比零差异）· `team` · `reports` · `setup` · 全部写原子（dry run） |
-| 🟡 **建好了，没验够** | 能跑，但还没证明判断是对的 | `probe`（3 个根因里成了 1 个）· `brief`（两周窗口没开始）· `digest` · `feasible` · `arch` · `ask`（API 凭证未申请） |
+| 🟡 **建好了，没验够** | 能跑，但还没证明判断是对的 | `probe`（3 个根因里成了 1 个）· `brief`（两周窗口没开始）· `digest` · `feasible` · `arch` · `ask`（API 凭证未申请）· `logs` 与 `route` 的日志步骤（一个 prod-3 案例跑通） |
 | 🔴 **写好了，没真跑过** | 拿它做决定要自己复核 | `explain`（形状在一张票上手工演过，技能本身没跑过）· `revisit`（形状取自 MH-1649 / MH-2798 两张票的手工裁决，技能本身没跑过）· `breakdown`（从没跑过真需求）· `task`（委派链路没实跑过） |
 
 **下一步最该做的一件事**：连续两周把 `/ela:brief` 当早上第一件事读，漏掉的记进 elak 的 `exit-evidence.md`。
@@ -204,6 +205,7 @@ flowchart TD
   EX -->|"知道归谁"| RO["/ela:route → 指人 + 依据"]
   EX -->|"不知道根因"| PR["/ela:probe → file:line + 拟评论"]
   EX -->|"客户问支持不支持"| FE["/ela:feasible → 五个检查点"]
+  BUG -->|"线上报错带 trace id"| RO
   RO --> EV
   PR --> EV["晚上：报告贴出来<br>/ela:digest 摘出跟你相关的"]
   FE --> EV
@@ -237,7 +239,7 @@ flowchart TD
 
 | 缺什么 | 影响 | 排在哪 |
 |---|---|---|
-| `ela logs` · `ela inspect` · UR 诊断接口 | 进程日志和 box 状态还要人 ssh 上去看 | 阶段 5，等你的 go |
+| `ela inspect` · UR 诊断接口 | box 状态还要人 ssh 上去看（日志已由 `ela logs` 读） | 阶段 5 |
 | headless 入口 `ela run <skill> --json` | Helm 的定时器还不能跑 ela 的判断 | 阶段 6 |
 | 写的组合动作（nudge · 建票 from thread · 决策捕获） | 这些还得手写 | 阶段 6 |
 | MCP | 别的模型还调不到 ela | 阶段 7 |
