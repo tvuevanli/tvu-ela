@@ -4,3 +4,4 @@ __pycache__/
 # credentials and machine config live in ~/.claude/ela, never here
 .env
 site.json
+.patch-spec*.md
