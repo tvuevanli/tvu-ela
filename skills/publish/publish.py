@@ -396,10 +396,13 @@ TAILNET = re.compile(r"\b[a-z0-9-]+\.[a-z0-9-]+\.ts\.net\b")
 
 def redact(text):
     """The published tree is read inside the company but outside this machine: an address is replaced by
-    a placeholder, a tailnet name likewise. Version strings (1.0.0.12) are not addresses and stay."""
+    a placeholder, a tailnet name likewise. Version strings (1.0.0.12) are not addresses and stay; a host
+    after `://` is always an address, whatever else its line says (`/v1/` in a URL path is not a version)."""
     def ip(m):
         octets = m.group(0).split(".")
         if all(int(o) <= 255 for o in octets) and not m.group(0).startswith(("127.", "0.0.0.0")):
+            if text[m.start() - 3:m.start()] == "://":
+                return "<ip>"
             line_start = text.rfind("\n", 0, m.start()) + 1
             line = text[line_start:text.find("\n", m.end()) if text.find("\n", m.end()) != -1 else len(text)]
             if not re.search(r"(?i)version|build|image|tag|release|\bv\d", line):
