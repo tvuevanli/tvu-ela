@@ -587,7 +587,10 @@ def cmd_bundle_diff(a):
     removed = [{"service": s, "version": ma[s]} for s in sorted(set(ma) - set(mb))]
     changed = [{"service": s, "from": ma[s], "to": mb[s]} for s in sorted(set(ma) & set(mb)) if ma[s] != mb[s]]
     slugs = _gm_slugs()
-    searches = [f'ela slack search "{slugs.get(r["service"], r["service"])} {r.get("to") or r.get("version")}"' for r in changed + added]
+    since = next((when(b.get("createTime"))[:10] for b in bundle_list(US(a.env_file, a.host_a), sides["a"]["name"], 50)
+                  if str(b.get("bundleName")) == sides["a"]["name"]), "") or "<date of A>"
+    searches = [f"ela slack history '#prj_dev_mediahub' --since {since} --threads --json — look for: "
+                f"{slugs.get(r['service'], r['service'])} {r.get('to') or r.get('version')}" for r in changed + added]
     if a.json:
         print(json.dumps({k: {f: sides[k][f] for f in ("name", "id", "host")} for k in ("a", "b")} |
                          {"added": added, "removed": removed, "changed": changed, "searches": searches}, ensure_ascii=False)); return
