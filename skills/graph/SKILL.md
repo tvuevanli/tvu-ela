@@ -20,17 +20,12 @@ Self-contained. Argument: a graph id (26 chars, `01M1…`), a process id (32 hex
   port, box location, box id and image per node — one Pilot call per node, run in parallel over warmed
   connections; `-c` lists the edges as connections with their shm types. Connecting to UR costs ~2 s
   of TLS, a request on an open connection ~1 s: that is the floor, not the script.
-- **A deleted process still answers.** Pilot returns a 200 skeleton with every field `None`; the
-  script treats that as not found. Say "no live record" rather than "does not exist".
 - **Stopped is not gone — never answer "not found" for a finished job.** J2N keeps the graph after it
   stops, and three routes return it: `graphs/{id}/any` (used by `graph` always), `query_mode=any` on
   the v2 lists (`graphs --any/--deleted`), and v2's object/process routes (`resolve <objectId>`,
   `process <deadId>`). So an object the app shows as **Inactive** still has a full history: which
   graphs it ran in, when each ended and how long it ran. A stopped graph's node rows are the **last
   known** placement, not live — the script says so in the output, and so must the answer.
-- **J2N v2 is not everywhere.** `/j2n/api/v2` answers on prod3 and test2 today; prod2 has no v2 (404).
-  Everything v2-only — the object history, a dead process's graph, `--any/--deleted` — is therefore
-  environment-dependent; the v1beta1 `/any` route works on all of them.
 - **Declared vs running.** The image in the node row is what J2N declared (`options.dockerImage`); with
   `-d` the line below is what Pilot reports actually running (`imageVersion`). When they differ the
   script marks it — that is a deploy or promotion problem, not a graph problem.
@@ -40,13 +35,6 @@ Self-contained. Argument: a graph id (26 chars, `01M1…`), a process id (32 hex
   + audio + stream, **multi-tier** = several tiers) and the three parts (**video**, **audio**,
   **stream**) they are built from. An id does not say which family it belongs to, so they are asked in
   turn; `/details` is what resolves the parts — without it a record carries the child ids only.
-  The v2 EP API in Apifox (`/api/v2/ep/profiles`) and `encodingprofilecontroller`
-  (`/profile/queryEncodingProfile`) are declared but do **not** answer on the UR edge — do not reach
-  for them.
-- **Two /ep gotchas, both verified live.** `pageIndex` is **0-based** there (asking page 1 of a
-  one-row result returns `count: 1` with an empty `data` — it looks like a broken filter and is not),
-  and `ids` is a **repeated** parameter (`ids=a&ids=b`), not a comma list. Single-tier holds ~11.9k
-  profiles, so a listing is only useful with `name` or `ids`.
 - **A box's occupancy is a table of owners, not a load figure.** When the question is a conflict or a
   leak — two objects on one SDI interface, a port that will not free, a graph deleted whose process
   never went away — the answer is `box <id> -d`, and it names the object and the person, because that
@@ -54,11 +42,6 @@ Self-contained. Argument: a graph id (26 chars, `01M1…`), a process id (32 hex
   **ORPHAN** (the port names a graph with no node on this box — the process is gone and the range was
   never returned), **UNCLAIM** (no process record and no declared usage, so nothing accounts for it),
   and **reserved** (a usage, no process — by design, and reporting it as a leak buries the real ones).
-  A production box read on 2026-09-07 carried 147 occupied ports: 5 orphaned, 6 unclaimed, 78 reserved.
-- **UR does not bind an SDI connector to a node.** The connector list and each connector's
-  `statusBusy` are readable; the device number a process actually opened lives in that process's own
-  command line, on the box. So `-d` gives the connectors and the SDI nodes, and the last hop is
-  `$G connect <box>`. Never present a connector-to-object binding as read when it was inferred.
 - **First-hand or nothing.** What UR does not return (a box's owner, a service's owner) comes from
   the map and the roster, and is cited as such.
 - **Acting is Evan's hand, not the session's.** `connect`, `exec`, `start`, `stop` exist for the shell
@@ -107,6 +90,24 @@ The reporter says "it stopped" or the app shows the object **Inactive**. `resolv
 answers: the history table gives the graph that was running at the reported time (match the
 `stopped` column against the timestamp in the report), and its table gives the boxes and process ids
 to look at in the logs. A 32-hex id from a log that no longer runs: `process <id>` names its graph.
+
+## Gotchas
+- **A deleted process still answers** (`process`). Pilot returns a 200 skeleton with every field
+  `None`; the script treats that as not found. Say "no live record" rather than "does not exist".
+- **J2N v2 is not everywhere** (`resolve`, `process`, `graphs`). `/j2n/api/v2` answers on prod3 and
+  test2; prod2 has no v2 (404). Everything v2-only — the object history, a dead process's graph,
+  `--any/--deleted` — is environment-dependent; the v1beta1 `/any` route (`graph`) works on all of them.
+- **Declared, not answering** (`profile`, `profiles`). The v2 EP API in Apifox (`/api/v2/ep/profiles`)
+  and `encodingprofilecontroller` (`/profile/queryEncodingProfile`) do **not** answer on the UR edge —
+  do not reach for them.
+- **Two /ep gotchas, both verified live** (`profile`, `profiles`). `pageIndex` is **0-based** (asking
+  page 1 of a one-row result returns `count: 1` with an empty `data` — it looks like a broken filter
+  and is not), and `ids` is a **repeated** parameter (`ids=a&ids=b`), not a comma list. Single-tier is
+  large, so a listing is only useful with `name` or `ids`.
+- **UR does not bind an SDI connector to a node** (`box -d`). The connector list and each connector's
+  `statusBusy` are readable; the device number a process actually opened lives in that process's own
+  command line, on the box. So `-d` gives the connectors and the SDI nodes, and the last hop is
+  `$G connect <box>`. Never present a connector-to-object binding as read when it was inferred.
 
 ## 3 — what this skill does not do
 Start, stop or ssh on the session's own initiative (see the last invariant), or change anything. It

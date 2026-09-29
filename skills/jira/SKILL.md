@@ -9,19 +9,8 @@ The capability is `jira.py` — an L1 atomic CLI (subcommands, `--json`, exit
 codes 0 ok / 1 API error / 2 validation). This file is the Claude-session
 adapter; other callers (Helm ops, an MCP server) invoke the same script.
 
-```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/skills/jira/jira.py" --env-file <env> read <key-or-url>
-python3 "${CLAUDE_PLUGIN_ROOT}/skills/jira/jira.py" --env-file <env> jql '<JQL>' [--limit N]
-python3 "${CLAUDE_PLUGIN_ROOT}/skills/jira/jira.py" --env-file <env> assign <key> --assignee EMAIL|ACCOUNTID [--apply]
-python3 "${CLAUDE_PLUGIN_ROOT}/skills/jira/jira.py" --env-file <env> create \
-        --summary 'TITLE' [--project MH] [--type Task] [--description TEXT] [--assignee EMAIL|ACCOUNTID] [--apply]
-python3 "${CLAUDE_PLUGIN_ROOT}/skills/jira/jira.py" --env-file <env> create-subtask \
-        --parent MH-XXXX --summary '[Token] action' [--description TEXT] [--assignee EMAIL|ACCOUNTID] [--apply]
-python3 "${CLAUDE_PLUGIN_ROOT}/skills/jira/jira.py" --env-file <env> comment <key> [<key>…] --text '…' | --from-file f [--apply]
-python3 "${CLAUDE_PLUGIN_ROOT}/skills/jira/jira.py" --env-file <env> transition <key> [<key>…] --to "In Progress"|Review|Done [--apply]
-python3 "${CLAUDE_PLUGIN_ROOT}/skills/jira/jira.py" --env-file <env> label <key> [<key>…] --add a,b --remove c [--apply]
-python3 "${CLAUDE_PLUGIN_ROOT}/skills/jira/jira.py" --env-file <env> link <key> <other> --type Relates|Blocks|"is blocked by"|Duplicate|"contains" [--apply]
-```
+`python3 "${CLAUDE_PLUGIN_ROOT}/skills/jira/jira.py" --env-file <env> <verb> …` — `--help` lists the verbs
+and their flags.
 
 ## read
 
@@ -34,17 +23,11 @@ and every comment.
 - `--no-comments` — identity + description only; good for bulk reads.
 - `--json` — raw fields + comments as one JSON object, for machine callers.
 
-Attachments print with their **id**, because that is what downloads them.
-
 ## files
 
 `files <KEY> [--id <attachment id>] [--out DIR]` writes the issue's attachments to disk
-(`<runtime>/jira-files` by default) and prints the paths.
-
-A filename in a list is not evidence. QA attaches the thing the ticket is about — a crash
-archive with a minidump, a screenshot of the wrong FPS, a log with the failing id — and a
-conclusion drawn without opening it is a conclusion about the summary, not about the bug. Fetch
-it, then read it. Nothing is sent anywhere; the download is local and `<runtime>` holds no records.
+(`<runtime>/jira-files` by default) and prints the paths. Nothing is sent anywhere; the download
+is local and `<runtime>` holds no records.
 
 ## jql
 
@@ -77,11 +60,8 @@ seen the dry-run output (or an equivalent listing of parent + title + assignee)
 and explicitly confirmed. One confirmation covers the batch it was shown for,
 nothing later.
 
-Assignee defaults to the token's own account (Evan). `--assignee` takes an email
-— which must match exactly one Jira user or the call fails — or an accountId,
-which resolves directly: most users hide their email address, and for them the
-accountId (visible in `read --json`) is the only handle that works. Cross-layer
-scope belongs on the parent ticket — a subtask carries exactly one token.
+Assignee defaults to the token's own account (Evan). Cross-layer scope belongs on the
+parent ticket — a subtask carries exactly one token.
 
 ## comment · transition · label · link — the field atoms, gated twice
 
@@ -112,6 +92,16 @@ A ticket is a dated record of intent; a knowledge base holds what is currently
 true. Do not paste ticket bodies into the knowledge base. Extract the durable
 claim, state it as fact, record source (ticket key) + date + author, and mark
 anything still unsettled as open. The conventions are those of
-`<elak>/knowledge/`. Note that MH ticket descriptions are often bilingual
-(中文 then English) — the two halves are the same content, do not treat them
-as two sources.
+`<elak>/knowledge/`.
+
+## Gotchas
+
+- **A filename in a list is not evidence** (`read`, `files`). QA attaches the thing the ticket is
+  about — a crash archive with a minidump, a screenshot of the wrong FPS, a log with the failing id —
+  and a conclusion drawn without opening it is about the summary, not the bug. Attachments print
+  with their **id** because that is what downloads them: `files <KEY> --id <id>`, then read it.
+- **An email may not resolve** (`--assignee` on `assign`, `create`, `create-subtask`). An email must
+  match exactly one Jira user or the call fails, and most users hide their address; pass the
+  accountId (visible in `read --json`), which resolves directly.
+- **A bilingual description is one source** (`read`). MH descriptions are often 中文 then English; the
+  two halves are the same content, not two sources.
