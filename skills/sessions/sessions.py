@@ -23,7 +23,8 @@ from publish import redact   # one rule for addresses, defined once (publish.py)
 
 SITE = os.path.expanduser("~/.claude/ela/site.json")
 TRANSCRIPTS = os.path.expanduser("~/.claude/projects")
-TOKEN = re.compile(r"[A-Za-z0-9_-]{32,}")
+TOKEN = re.compile(r"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})(?![A-Za-z0-9_-])"
+                   r"|[A-Za-z0-9_-]{32,}")   # a UUID (a transcript's own name) is matched first and kept
 MAX_PATHS = 12
 
 
@@ -38,7 +39,7 @@ def roots():
 
 
 def clean(text):
-    return TOKEN.sub("<token>", redact(text or ""))
+    return TOKEN.sub(lambda m: m.group(1) or "<token>", redact(text or ""))
 
 
 def shown_path(p, projects, code):
