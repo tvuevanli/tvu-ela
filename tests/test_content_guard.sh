@@ -32,5 +32,7 @@ mkdir -p docs; printf 'Q{"你要的是事实还是判断，版本还是根因"}\
 printf 'He said "这个方案不行我们换一个吧" so we changed it.\n' > docs/manual.md; expect refuse "reported speech even in the manual"
 printf 'they said «这个还没有建单需要补一下»\n' > l.md; expect refuse "guillemet-quoted CJK"
 printf -- '- «拆票» «出个方案» «谁该做什么»\n' > m.md; expect accept "guillemets as trigger vocabulary in a bullet"
+mkdir -p skills/brief; printf -- '---\ndescription: Use for "今天有什么要我处理的" or a morning brief.\n---\n' > skills/brief/SKILL.md; expect accept "quoted CJK trigger phrase on a description line"
+mkdir -p skills/brief; printf 'Ask it "今天有什么要我处理的" first.\n' > skills/brief/SKILL.md; expect refuse "the same quoted phrase on a body line"
 [ $fail -eq 0 ] && echo "content guard: all cases pass"
 exit $fail

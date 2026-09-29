@@ -58,6 +58,7 @@ CJK_DOCS = ("docs/manual",)          # documents written in Chinese: quotation m
 def scan_line(path, line, is_md):
     hits = []
     cjk_doc = any(seg in path for seg in CJK_DOCS)
+    trigger_line = is_md and line.strip().startswith("description:")   # trigger vocabulary carries terms, not quotations; same rule as guard-location.sh
     for rx, why in ANY_FILE:
         if rx.search(line): hits.append(why)
     m = IPV4.search(line)
@@ -66,7 +67,7 @@ def scan_line(path, line, is_md):
     for rx, why in UTTERANCE:
         m = rx.search(line)
         if m:
-            if why.startswith("a quoted") and (cjk_doc or cjk_count(m.group(1)) < 8):
+            if why.startswith("a quoted") and (cjk_doc or trigger_line or cjk_count(m.group(1)) < 8):
                 continue
             hits.append(why)
     if is_md:
