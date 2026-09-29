@@ -19,7 +19,8 @@ derived — services.yaml (image → repos → owners) and absent.yaml.
   clone    <alias>/<path> [--dry-run]   clone into its place; imatrix sibling links kept
   sync     <name|dir> [--ref R]     fetch; report branch, ahead/behind, dirty; optionally check out a ref (code/ only, clean only)
   worktree <name|dir> <KEY> [--base origin/<branch>]   branch evan/<key>; lives in <work>/<KEY>/<repo>, or beside the repo when a team stack requires it (then <work>/<KEY>/<repo> is a symlink)
-  coverage                          is the code we usually need on disk? per docker image and per alias
+  coverage                          is the code we usually need on disk? per layer: docker images · app (workspace.json,
+                                    branch vs mainBranch) · unified-resources / J2N (code/mx + mx repos the map names)
   missing                           absent.yaml, one line each
 
 Exit codes: 0 ok · 2 usage · 3 not found · 4 refused (dirty / not under code/) · 5 remote error.
@@ -612,11 +613,72 @@ def cmd_worktree(lay, a):
     print(json.dumps(r) if a.json else f"worktree {physical}  (branch {branch} from {base})" + (f"\nwork view {view} -> {physical}  [stack: {r['stack']}]" if physical != view else ""))
 
 
+def _checkout(lay, repos, d):
+    """A directory → (on disk, branch), the survey cache first, git only for a checkout the cache lacks."""
+    hit = next((r for r in repos if r["path"] == d), None)
+    if hit:
+        return True, hit["branch"]
+    if os.path.isdir(d):
+        _, b, _ = git(d, "rev-parse", "--abbrev-ref", "HEAD")
+        return True, b or "?"
+    return False, None
+
+
+def app_coverage(lay, repos):
+    """mediahub-agent's workspace.json `services` + `frontends` → checkout under <code>/web/<dir>, branch vs mainBranch."""
+    ws = os.path.join(lay.code, "web", "mediahub-agent", "workspace.json")
+    try:
+        w = json.load(open(ws))
+    except (OSError, ValueError):
+        return None
+    rows = []
+    for kind in ("services", "frontends"):
+        for e in w.get(kind) or []:
+            name = e.get("dir") or (e.get("repo") or "").rsplit("/", 1)[-1]
+            if not name:
+                continue
+            d = os.path.join(lay.code, "web", name)
+            on, branch = _checkout(lay, repos, d)
+            rest = (e.get("repo") or "").partition("/")[2] or name
+            rows.append({"kind": kind[:-1], "dir": name, "repo": e.get("repo") or "", "main": e.get("mainBranch") or "",
+                         "on_disk": on, "branch": branch, "on_main": (branch == e.get("mainBranch")) if on and e.get("mainBranch") else None,
+                         "clone": None if on else f"ela clone web/{rest}"})
+    return rows
+
+
+MX_REF = re.compile(r"(?<![\w/.-])mx/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*")
+
+
+def ur_coverage(lay, repos, mapdir):
+    """Checkouts under <code>/mx from the cache, plus every mx/ repo services.yaml or dependencies.yaml names that is not on disk."""
+    root = os.path.join(lay.code, "mx")
+    rows = [{"repo": r["path"][len(lay.code) + 1:], "on_disk": True, "branch": r["branch"], "dirty": r["dirty"],
+             "named_in": [], "absent": None, "clone": None} for r in sorted(repos, key=lambda r: r["path"]) if r["path"].startswith(root + "/")]
+    absent = absent_entries(read(os.path.join(mapdir, "absent.yaml")))
+    for src in ("services.yaml", "dependencies.yaml"):
+        for ref in dict.fromkeys(m.rstrip(".") for m in MX_REF.findall(read(os.path.join(mapdir, src)))):
+            d = gitlab_to_dir(lay, ref) or os.path.join(lay.code, ref)
+            known = next((x for x in rows if ref == x["repo"] or ref.startswith(x["repo"] + "/")), None)
+            if known:
+                if src not in known["named_in"]:
+                    known["named_in"].append(src)
+                continue
+            if os.path.isdir(d):
+                continue            # on disk, but not a checkout root the cache knows: a subdirectory, not a missing repo
+            base = ref.rsplit("/", 1)[-1]
+            e = next((x for x in absent if x["name"] == base or x["name"] == ref or ref in x["location"]), None)
+            rows.append({"repo": ref, "on_disk": False, "branch": None, "dirty": 0, "named_in": [src],
+                         "absent": ({"owner": e["owner"], "location": e["location"]} if e else None), "clone": f"ela clone {ref}"})
+    return rows
+
+
 def cmd_coverage(lay, a):
-    """Is the code we usually need on disk? Per docker image: module source present · only the mediabox
-    host + adapter present (module core not located) · no repo known. Then the app layer and the R
-    team groups by count. This is the list to read before asking "do we have the code for X"."""
-    svc = services(read(os.path.join(site().get("map", ""), "services.yaml")))
+    """Is the code we usually need on disk, across the three layers? Per docker image: module source present ·
+    only the mediabox host + adapter present (module core not located) · no repo known. Then the app layer from
+    mediahub-agent's workspace.json, and unified-resources / J2N from the mx checkouts and the mx repos the map
+    names. This is the list to read before asking "do we have the code for X". Nothing is cloned here."""
+    mapdir = site().get("map", "")
+    svc = services(read(os.path.join(mapdir, "services.yaml")))
     have = lambda gl: os.path.isdir(gitlab_to_dir(lay, gl) or "\0")
     full, adapter_only, none = [], [], []
     for img, d in sorted(svc.items()):
@@ -630,14 +692,11 @@ def cmd_coverage(lay, a):
         else:
             adapter_only.append((img, d, ["module core not located — only the adapter (mediaboxPlugins) and the host (mediabox) are on disk"]))
     repos = cache(lay)["repos"]
-    by_alias = {}
-    for r in repos:
-        if r["path"].startswith(lay.code + "/"):
-            alias = r["path"][len(lay.code) + 1:].split("/")[0]
-            by_alias[alias] = by_alias.get(alias, 0) + 1
+    app, ur = app_coverage(lay, repos), ur_coverage(lay, repos, mapdir)
     if a.json:
-        print(json.dumps({"module_source_on_disk": [i for i, _, _ in full], "adapter_only": {i: m for i, _, m in adapter_only},
-                          "no_repo": {i: d["owners"] for i, d in none}, "checkouts_by_alias": by_alias}, ensure_ascii=False)); return
+        print(json.dumps({"docker": {"module_source_on_disk": [i for i, _, _ in full], "adapter_only": {i: m for i, _, m in adapter_only},
+                                     "no_repo": {i: d["owners"] for i, d in none}},
+                          "app": app, "ur": ur}, ensure_ascii=False)); return
     print(f"docker images {len(svc)}: module source on disk {len(full)} · adapter/host only {len(adapter_only)} · no repo known {len(none)}\n")
     print("== module source on disk")
     for img, d, module in full:
@@ -648,7 +707,21 @@ def cmd_coverage(lay, a):
     print("\n== no repo known (owner is the way in)")
     for img, d in none:
         print(f"  {img:<20} {', '.join(d['owners']) or '?':<10} slugs {', '.join(d['slugs'])}")
-    print("\n== checkouts under code/ by alias: " + ", ".join(f"{k} {v}" for k, v in sorted(by_alias.items())))
+    print("\n== app layer (mediahub-agent workspace.json)")
+    if app is None:
+        print("  code/web/mediahub-agent/workspace.json not on disk — `ela clone web/mediahub-agent` would fetch it")
+    for r in app or []:
+        state = (f"{r['branch']}" + ("" if r["on_main"] in (True, None) else f"  (main {r['main']})")) if r["on_disk"] else f"missing — `{r['clone']}` would clone it"
+        print(f"  {r['kind']:<9} {r['dir']:<32} {state}")
+    print("\n== unified-resources / J2N (code/mx, and mx repos the map names)")
+    if not ur:
+        print("  nothing under code/mx and no mx/ repo named in services.yaml or dependencies.yaml")
+    for r in ur:
+        if r["on_disk"]:
+            print(f"  {r['repo']:<40} {r['branch']}" + (f"  dirty {r['dirty']}" if r["dirty"] else ""))
+        else:
+            where = f"absent.yaml: owner {r['absent']['owner'] or '?'}; {r['absent']['location'][:60]}" if r["absent"] else f"named in {', '.join(r['named_in'])}"
+            print(f"  {r['repo']:<40} missing — {where}; `{r['clone']}` would clone it")
 
 
 def cmd_missing(lay, a):
@@ -675,7 +748,11 @@ def main():
     p = sub.add_parser("clone"); p.add_argument("ref", help="alias/path, e.g. media/mediabox, web/mx-service, github/tvunetworks-com/tvu-csc"); p.add_argument("--dry-run", action="store_true")
     p = sub.add_parser("sync"); p.add_argument("target", help="repo name, directory, or alias/path"); p.add_argument("--ref"); p.add_argument("--json", action="store_true")
     p = sub.add_parser("worktree"); p.add_argument("target"); p.add_argument("key", help="task key, e.g. MH-3568"); p.add_argument("--base"); p.add_argument("--json", action="store_true")
-    p = sub.add_parser("coverage", help="is the code we usually need on disk? per docker image and per alias"); p.add_argument("--json", action="store_true")
+    p = sub.add_parser("coverage", help="is the code we usually need on disk? docker images · app layer (branch vs mainBranch) · unified-resources / J2N; --json keys docker, app, ur",
+                       description="Is the code we usually need on disk, per layer: the docker images of map/services.yaml; the app layer "
+                                   "from code/web/mediahub-agent/workspace.json (checkout, branch vs mainBranch, or missing); unified-resources / "
+                                   "J2N from the code/mx checkouts plus the mx/ repos services.yaml or dependencies.yaml names. Never clones.")
+    p.add_argument("--json", action="store_true", help="one object with keys docker, app, ur")
     p = sub.add_parser("missing"); p.add_argument("--json", action="store_true")
     a = ap.parse_args()
     lay = Layout(site())
