@@ -1,52 +1,110 @@
 #!/usr/bin/env python3
-"""ela — Evan's assistant at the shell. One word, short verbs, no Claude session needed.
+"""ela — the owner's assistant at the shell. One word, short verbs, no Claude session needed.
 
-  ela <id|url>              the shortest form: MH-3568 · 01M1GD1F… (graph) · 32-hex (process, then tangible) · 19 digits (object)
-                            · a Slack permalink · a Jira URL · a Confluence page URL · a Google Doc/Sheet URL — by shape
-  ela graph <id> [-d] [-c]  node table in pipeline order; -d box location/id + image, -c connections (env read from the data)
-  ela process <id>          one process's live record          ela box <id> [-d]  (-d: who holds which port, orphans flagged)
-  ela graphs [me|li|email]  a user's graphs (default: me)      ela resolve <id> [--email …]
-  ela jira <read|files|jql|comment|transition|label|link|assign|create|create-subtask> …   (files: attachments to disk)
-  ela slack <read|files|channels|history|mentions|unanswered|whoami|users|post> …   (files: a thread's images to disk;
-                            channels --all: every public channel, joined or not; post: dry run until --apply, a permalink replies in-thread)
-  ela object <id>           object or tangible
-  ela stream probe <url>    what a stream carries: PMT · PCR · PID table · codec (m3u8 · .ts · srt:// · udp://)
-  ela stream diff <a> <b>   two streams, field by field
-  ela find <name>           repos, images, services (J2N type · slug · GM name, tied) matching   ela coverage
-  ela where <alias/path|repo|slug|image>   the checkout path(s)   ela probe <alias/path>…   ela clone <alias/path>   ela sync <repo> [--ref R]
-  ela worktree <repo> <KEY> ela survey                ela missing               ela services
-  ela remote <alias> [grep]  every project of that GitLab group (read token); ● on disk ○ not cloned
-  ela bundles [mh2.1@]      GM bundles, newest first          ela bundle <name|id>     its bill of materials
-  ela bundle-diff <A> <B>   docker services added/removed/changed between two bundles (name, id or prefix; --host-a/--host-b)
-  ela versions [service]    versions per env (userservice)    ela builds <job|service>  Jenkins builds: version, branch, sha
-  ela drift                 newest bundle's GM names vs services.yaml     ela login tvu|qa   (prod: one-time HTTPS page collects the browser's SID; --host prod on bundles/bundle/versions/drift)
-  ela promote <line> <from> <to> [--purpose regular|prod-staging|demo] [--scope app|all] [--bundles] [--out DIR]
-                            the promotion assessment, ranked; or ela promote lanes|commits|tickets|evidence|bundles <line> <from> <to>
-  ela mail <search|read|thread> …                 Gmail, read-only (QA test reports, deploy notices, approvals are emails)
-  ela sentry <projects|issues|issue|events> …     crashes and errors, read-only (a minidump nobody reported is here)
-  ela kb <search|read|tree|write|update|delete> …   Outline (writes dry-run; --apply on Evan's word)    ela figma …
-  ela wiki <spaces|tree|search|read|children> …     Confluence, read-only (also: ela confluence …; a page URL alone works)
-  ela gdoc <read|sheet|list|info> …                 Google Docs/Sheets/Drive, read-only (a docs.google.com URL alone works)
-  ela api <projects|export|tags|list|read|schema> … Apifox API definitions, read-only (ela api read ur "GET /v1beta1/graphs/{graphId}")
-  ela reports <list|build>  Evan's standing reports (markdown → HTML; a session publishes them as artifacts)
-  ela publish <catalogue|roster|map|all|list>  render an elak source into <published> for machines to read; the manifest row records it
-  ela team <people|areas|who|emails|check>  the roster, first-hand · ela who <name|email|Uxxx|accountId>  one person; exit 3 when unknown
-  ela envs                  the UR probe order         ela site   (rarely) the site config: roots, host names, aliases, emails
-  ela fixed-in <KEY>… [--jql Q]   the Fixed In the evidence supports: commits → build → lanes → QA words; draft only, no Jira write
-  ela route <KEY>           the routing facts: [Layer] token, ids, signal words per layer, services named, who to ask first, gaps
-  ela logs chain <traceId> · java --trace T | --app A --at T · calls --server S --at T · loki --pid P
-                            service logs, read-only: a trace's hops with the first failing one marked, a service's own lines
-                            around a moment, a media process's Loki lines (tvulog needs `ela login tvu`)
-  ela brief [--lane L]      the morning brief's Jira lanes, flags computed (cadence · triage · breakdown · incidents · backlog · yours)
-  ela runtime status|clean  the disposable working directory: what is there, and delete it (--work also drops clean worktrees)
-  ela mr <KEY> <repo> [--lane B]   the push and the merge-request request for evan/<key>, dry run only
+  ela <id|url>                     the shortest form, by shape: MH-3568 · 01M1GD1F… (graph)
+                                   · 32-hex (process, then tangible) · 19 digits (object)
+                                   · a Slack permalink · a Jira URL · a Confluence page URL
+                                   · a Google Doc/Sheet URL
+
+知道 — read first-hand
+ tickets & threads
+  ela jira read|files|jql …        a ticket, a JQL search; files: its attachments to disk
+  ela slack <verb> …               read|files|channels|history|mentions|unanswered|whoami|users;
+                                   files: a thread's images to disk; channels --all: every public
+                                   channel, joined or not
+  ela mail search|read|thread …    Gmail, read-only: QA test reports, deploy notices, approvals
+  ela wiki <verb> …                Confluence, read-only: spaces|tree|search|read|children;
+                                   also ela confluence …; a page URL alone works
+  ela gdoc read|sheet|list|info …  Google Docs/Sheets/Drive, read-only; a docs.google.com URL
+                                   alone works
+  ela kb search|read|tree …        Outline, the knowledge base (its writes are listed below)
+  ela api <verb> …                 Apifox API definitions, read-only: projects|export|tags|list|
+                                   read|schema · ela api read ur "GET /v1beta1/graphs/{graphId}"
+  ela figma <verb> …               a Figma design first-hand: me|file|node|comments|image
+  ela sentry <verb> …              crashes and errors, read-only: projects|issues|issue|events
+ graphs & streams
+  ela graph <id> [-d] [-c]         node table in pipeline order; -d box location/id + image,
+                                   -c connections (env read from the data)
+  ela process <id>                 one process's live record
+  ela box <id> [-d]                a box; -d: who holds which port, orphans flagged
+  ela graphs [me|li|email]         a user's graphs (default: me)
+  ela resolve <id> [--email …]     32-hex: process, then tangible · 19 digits: object → its graphs
+  ela envs                         the UR probe order
+  ela object <id>                  object or tangible
+  ela stream probe <url>           what a stream carries: PMT · PCR · PID table · codec
+                                   (m3u8 · .ts · srt:// · udp://)
+  ela stream diff <a> <b>          two streams, field by field
+ logs
+  ela logs chain <traceId>         read-only: a trace's hops, the first failing one marked
+  ela logs java|calls …            own lines: java --trace T|--app A --at T; calls --server S --at T
+  ela logs loki --pid P            a media process's Loki lines; tvulog needs `ela login tvu`
+ code & map
+  ela find <name>                  repos, images, services matching: J2N type · slug · GM name, tied
+  ela where <ref>                  the checkout path(s) of an alias/path, repo, slug or image
+  ela coverage                     is the code usually needed on disk? docker · app · UR/J2N
+  ela services                     the service table (--image X | --type T)
+  ela missing                      the map's absent entries, one line each
+  ela remote <alias> [grep]        a remote's project list: every project of that GitLab group
+                                   (read token); ● on disk ○ not cloned
+  ela survey                       scan the code, work and lab roots into the survey cache
+  ela probe <alias/path>…          does that remote path exist? (ls-remote; not /ela:probe)
+  ela sync <repo> [--ref R]        fetch; branch, ahead/behind, dirty; optionally check out R
+  ela clone <alias/path>           clone into its place under <code>
+ release facts
+  ela bundles [mh2.1@]             GM bundles, newest first
+  ela bundle <name|id>             its bill of materials
+  ela bundle-diff <A> <B>          docker services added/removed/changed between two bundles
+                                   (name, id or prefix; --host-a/--host-b)
+  ela versions [service]           versions per env (userservice)
+  ela builds <job|service>         Jenkins builds: version, branch, sha
+  ela drift                        newest bundle's GM names vs services.yaml
+  ela promote <line> <from> <to>   the promotion assessment, ranked
+                                   [--purpose regular|prod-staging|demo] [--scope app|all]
+                                   [--bundles] [--out DIR]; or one part of it:
+                                   promote lanes|commits|tickets|evidence|bundles <line> <from> <to>
+ earlier work
+  ela sessions <word>…             earlier sessions on this machine whose first prompt or final
+                                   answer carries every word
+
+协调 — facts and drafts for the team
+  ela brief [--lane L]             the morning brief's Jira lanes, flags computed: cadence ·
+                                   triage · breakdown · incidents · backlog · yours
+  ela route <KEY>                  the routing facts: [Layer] token, ids, signal words per layer,
+                                   services named, who to ask first, gaps
+  ela fixed-in <KEY>… [--jql Q]    the Fixed In the evidence supports: commits → build → lanes
+                                   → QA words; draft only, no Jira write
+  ela team <verb>                  the roster, first-hand: people|areas|who|emails|check
+  ela who <person>                 one person by name, email, Uxxx or accountId; exit 3 when unknown
+  ela publish <what>               render an elak source into <published> for machines to read:
+                                   catalogue|roster|map|all|list; the manifest row records it
+  ela reports list|build           the owner's standing reports (markdown → HTML; a session
+                                   publishes them as artifacts)
+
+动手 — the owner's own change
+  ela worktree <repo> <KEY>        branch evan/<key> in <work>/<KEY>/<repo>
+  ela mr <KEY> <repo> [--lane B]   the push and the merge-request request for evan/<key>,
+                                   dry run only
   ela mr-preflight [--host H]      each GitLab token's scopes and expiry (needs scope api)
-  ela sessions <word>…      earlier sessions on this machine whose first prompt or final answer carries every word
 
-Every verb forwards to the capability script under skills/<cap>/<cap>.py with the site's env file;
+运行操作 — writes on a live system, each behind a confirm
+  ela connect <ip|box|process>     ssh to the box (root)
+  ela exec <process>               docker exec into it
+  ela start <process> …            --url U --format F --shm S; a Sender working process; asks y/N
+  ela stop <process>               stop a Sender working process; asks y/N
+  writes elsewhere:                jira comment|transition|label|link|assign|create|create-subtask,
+                                   slack post (a permalink replies in-thread), kb write|update|
+                                   delete (on the owner's word) — dry run until --apply
+
+站点
+  ela login tvu|qa                 prod: a one-time HTTPS page collects the browser's SID;
+                                   then --host prod on bundles, bundle, versions, drift
+  ela site                         the site config: roots, host names, aliases, emails
+  ela runtime status|clean         the disposable working directory: what is there, and delete
+                                   it (--work also drops clean worktrees)
+
+Every verb forwards to skills/<cap>/<cap>.py with the site's env file.
 `--json` works everywhere.
-  ela connect <ip|box|process>   ssh to the box (root)      ela exec <process>   docker exec into it
-  ela start <process> --url U --format F --shm S      ela stop <process>       (Sender working process; asks y/N)
+Exit codes: 0 ok · 2 usage · 3 not found · 4 auth · 5 remote.
 """
 import json, os, re, subprocess, sys
 
