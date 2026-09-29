@@ -35,6 +35,7 @@
   ela runtime status|clean  the disposable working directory: what is there, and delete it (--work also drops clean worktrees)
   ela mr <KEY> <repo> [--lane B]   the push and the merge-request request for evan/<key>, dry run only
   ela mr-preflight [--host H]      each GitLab token's scopes and expiry (needs scope api)
+  ela sessions <word>…      earlier sessions on this machine whose first prompt or final answer carries every word
 
 Every verb forwards to the capability script under skills/<cap>/<cap>.py with the site's env file;
 `--json` works everywhere.
@@ -66,6 +67,7 @@ VERBS = {
     "promote": ("promote", None), "runtime": ("runtime", None),
     "brief": ("brief", "lanes"),
     "mr": ("mr", "create"), "mr-preflight": ("mr", "preflight"),
+    "sessions": ("sessions", "find"),
 }
 PROMOTE_SUBS = {"lanes", "commits", "delta", "tickets", "evidence", "bundles", "report", "compare-helm"}
 
@@ -81,7 +83,7 @@ def run(cap, args, env_file):
     script = os.path.join(ROOT, "skills", cap, f"{cap}.py")
     if not os.path.isfile(script):
         sys.exit(f"capability {cap} has no script yet ({script})")
-    argv = ["python3", script, "--env-file", env_file, *args] if cap not in ("map", "reports", "publish", "stream", "runtime") else ["python3", script, *args]
+    argv = ["python3", script, "--env-file", env_file, *args] if cap not in ("map", "reports", "publish", "stream", "runtime", "sessions") else ["python3", script, *args]
     os.execvp(argv[0], argv)
 
 

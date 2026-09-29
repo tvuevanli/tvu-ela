@@ -68,6 +68,7 @@ flowchart LR
 | 换了机器 / token 过期了 | `setup` | `/ela:setup` |
 | 想看 ela 自己现在什么状态 | `reports` | `ela reports list` |
 | 临时目录占地方了 | `runtime` | `ela runtime status` · `ela runtime clean` |
+| 找之前那个关于 X 的 session | `sessions` | `ela sessions <word>` |
 
 ---
 
