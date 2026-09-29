@@ -4,6 +4,8 @@ L1: subcommands, --json, stdlib only. No store, no scheduler: every answer is th
 
   bundles  [line] [--host qa|prod]        GM bundles for a line prefix (default mh2.1@), newest first
   bundle   <name|id> [--host qa|prod]     a bundle's bill of materials (serviceTagList)
+  bundle-diff <A> <B> [--host-a|--host-b] services added, removed and changed from A to B; A and B are a name, an id
+                                          or a prefix (newest match wins, the rule printed); Slack searches suggested
   envs     [service] [--host qa|prod]     versions per lane; tag names mapped to lanes by <elak>/map/release.yaml hosts
   builds   <job|service> [--limit N]      Jenkins builds: number, version, result, branch, sha, time
   drift    [line] [--bundles N] [--host]  GM service names shipped in the newest N bundles vs map/services.yaml gm_names
@@ -485,12 +487,14 @@ def cmd_bundles(a):
         print(f"{str(b.get('bundleName')):<32} {str(b.get('bundleId')):<22} {when(b.get('createTime')):<17} {b.get('operator') or ''}")
 
 
-def resolve_bundle(us, ref):
+def resolve_bundle(us, ref, missing_ok=False):
     if re.fullmatch(r"\d{15,20}", ref):
         return ref, ref
     line = ref.split("@")[0] + "@" if "@" in ref else ref
     rows = bundle_list(us, line, 50)
     hit = next((b for b in rows if str(b.get("bundleName")) == ref), None)
+    if not hit and missing_ok:
+        return None
     if not hit:
         names = ", ".join(str(b.get("bundleName")) for b in rows[:8])
         print(f"bundle {ref!r} not found on {us.kind}; nearest: {names}", file=sys.stderr); sys.exit(EX_NOTFOUND)
@@ -514,6 +518,86 @@ def cmd_bundle(a):
         extra = sorted(set(items[0].keys()) - set(keys))
         if extra:
             print(f"  (other fields: {', '.join(extra)} — use --raw)")
+
+
+# ── bundle-diff: two named bundles ────────────────────────────────────────────
+
+def _bundle_prefix(ref):
+    """The loose form `2.0 rc-s5` (or `mh2.0 rc-s5`) → `mh2.0@rc-s5`; anything else is returned as typed."""
+    m = re.fullmatch(r"\s*(?:mh)?(\d+(?:\.\d+)+)\s+(\S.*?)\s*", ref)
+    return f"mh{m.group(1)}@{m.group(2)}" if m else ref.strip()
+
+
+def resolve_bundle_loose(us, ref):
+    """(a) an exact name or id through resolve_bundle; (b) otherwise the newest bundle whose name starts with the
+    normalised prefix. Returns (id, name, rule); prints the rule that matched to stderr so --json stays clean."""
+    hit = resolve_bundle(us, ref, missing_ok=True)
+    if hit:
+        rule = "id" if re.fullmatch(r"\d{15,20}", ref) else "exact name"
+        print(f"{ref!r} on {us.kind}: {rule} → {hit[1]}", file=sys.stderr)
+        return hit[0], hit[1], rule
+    prefix = _bundle_prefix(ref)
+    rows = [b for b in bundle_list(us, prefix, 50) if str(b.get("bundleName") or "").startswith(prefix)]
+    rows.sort(key=lambda x: str(x.get("createTime") or ""), reverse=True)
+    if not rows:
+        line = prefix.split("@")[0] + "@" if "@" in prefix else prefix
+        near = bundle_list(us, line, 50)
+        near.sort(key=lambda x: str(x.get("createTime") or ""), reverse=True)
+        names = ", ".join(str(b.get("bundleName")) for b in near[:8])
+        print(f"bundle {ref!r} not found on {us.kind} (as name or prefix {prefix!r}); nearest: {names}", file=sys.stderr); sys.exit(EX_NOTFOUND)
+    b = rows[0]
+    more = f", newest of {len(rows)}" if len(rows) > 1 else ""
+    print(f"{ref!r} on {us.kind}: prefix {prefix!r}{more} → {b.get('bundleName')}", file=sys.stderr)
+    return str(b["bundleId"]), str(b["bundleName"]), "prefix"
+
+
+def bundle_map(us, bundle_id):
+    """gm name → version. The same two lines as promote.py's bundle_map, repeated because promote imports this module."""
+    items = bundle_detail(us, bundle_id).get("serviceTagList") or []
+    return {str(i.get("serviceName") or "").strip(): str(i.get("tagName") or i.get("version") or "").strip() for i in items}
+
+
+def _gm_slugs():
+    """gm name → slug, from the service rows of services.yaml in the map site.json names (the published copy).
+    A missing file yields {} — the search suggestion then falls back to the gm name."""
+    out = {}
+    try:
+        text = open(os.path.join(site().get("map", ""), "services.yaml"), encoding="utf-8").read()
+    except OSError:
+        return out
+    for line in text.splitlines():
+        m = re.match(r"^      - (\{.*\})\s*$", line)
+        if not m:
+            continue
+        try: row = json.loads(m.group(1))
+        except ValueError: continue
+        if row.get("gm_name") and row.get("slug"):
+            out.setdefault(str(row["gm_name"]).strip(), str(row["slug"]).strip())
+    return out
+
+
+def cmd_bundle_diff(a):
+    sides = {}
+    for key, ref, host in (("a", a.a, a.host_a), ("b", a.b, a.host_b)):
+        us = US(a.env_file, host)
+        bid, name, rule = resolve_bundle_loose(us, ref)
+        sides[key] = {"name": name, "id": bid, "host": host, "rule": rule, "map": bundle_map(us, bid)}
+    ma, mb = sides["a"]["map"], sides["b"]["map"]
+    added = [{"service": s, "version": mb[s]} for s in sorted(set(mb) - set(ma))]
+    removed = [{"service": s, "version": ma[s]} for s in sorted(set(ma) - set(mb))]
+    changed = [{"service": s, "from": ma[s], "to": mb[s]} for s in sorted(set(ma) & set(mb)) if ma[s] != mb[s]]
+    slugs = _gm_slugs()
+    searches = [f'ela slack search "{slugs.get(r["service"], r["service"])} {r.get("to") or r.get("version")}"' for r in changed + added]
+    if a.json:
+        print(json.dumps({k: {f: sides[k][f] for f in ("name", "id", "host")} for k in ("a", "b")} |
+                         {"added": added, "removed": removed, "changed": changed, "searches": searches}, ensure_ascii=False)); return
+    print(f"# {sides['a']['name']} [{a.host_a}] → {sides['b']['name']} [{a.host_b}] — "
+          f"{len(added)} added · {len(removed)} removed · {len(changed)} changed · {len(ma)}→{len(mb)} service(s)")
+    print("added:"); [print(f"  {r['service']:<40} {r['version']}") for r in added] or print("  —")
+    print("removed:"); [print(f"  {r['service']:<40} {r['version']}") for r in removed] or print("  —")
+    print("changed:"); [print(f"  {r['service']:<40} {r['from']} → {r['to']}") for r in changed] or print("  —")
+    if searches:
+        print("why — suggested searches (printed, not run):"); [print("  " + s) for s in searches]
 
 
 # ── env versions ──────────────────────────────────────────────────────────────
@@ -645,12 +729,17 @@ def main():
     def host_arg(p): p.add_argument("--host", choices=("qa", "prod"), default="qa", help="qa (tvutest, account login) or prod (the person's TVU session; ela login tvu)")
     p = sub.add_parser("bundles"); p.add_argument("line", nargs="?", default="mh2.1@"); p.add_argument("--limit", type=int, default=50); host_arg(p); p.add_argument("--json", action="store_true")
     p = sub.add_parser("bundle"); p.add_argument("ref", help="bundle name (mh2.1@daily-wed-s1-d33) or id"); host_arg(p); p.add_argument("--json", action="store_true"); p.add_argument("--raw", action="store_true")
+    p = sub.add_parser("bundle-diff", help="docker services added, removed and changed between two bundles")
+    p.add_argument("a", help="bundle A: exact name, id, or a prefix (mh2.0@rc-s5, or '2.0 rc-s5') — the newest match wins")
+    p.add_argument("b", help="bundle B, resolved the same way")
+    for side in ("a", "b"): p.add_argument(f"--host-{side}", choices=("qa", "prod"), default="qa", help=f"host bundle {side.upper()} is read from (default qa)")
+    p.add_argument("--json", action="store_true")
     p = sub.add_parser("envs"); p.add_argument("service", nargs="?"); host_arg(p); p.add_argument("--json", action="store_true")
     p = sub.add_parser("builds"); p.add_argument("job"); p.add_argument("--limit", type=int, default=15); p.add_argument("--json", action="store_true")
     p = sub.add_parser("drift"); p.add_argument("line", nargs="?", default="mh2.1@"); p.add_argument("--bundles", type=int, default=5, help="newest N bundles to union (default 5)"); host_arg(p); p.add_argument("--json", action="store_true")
     p = sub.add_parser("login"); p.add_argument("target", nargs="?", choices=("qa", "tvu"), default="qa"); p.add_argument("--force", action="store_true"); p.add_argument("--no-browser", action="store_true"); p.add_argument("--timeout", type=int, default=300); p.add_argument("--json", action="store_true")
     a = ap.parse_args()
-    {"bundles": cmd_bundles, "bundle": cmd_bundle, "envs": cmd_envs, "builds": cmd_builds, "drift": cmd_drift, "login": cmd_login}[a.cmd](a)
+    {"bundles": cmd_bundles, "bundle": cmd_bundle, "bundle-diff": cmd_bundle_diff, "envs": cmd_envs, "builds": cmd_builds, "drift": cmd_drift, "login": cmd_login}[a.cmd](a)
 
 
 if __name__ == "__main__":

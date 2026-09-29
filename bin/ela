@@ -17,6 +17,7 @@
   ela worktree <repo> <KEY> ela survey                ela missing               ela services
   ela remote <alias> [grep]  every project of that GitLab group (read token); ● on disk ○ not cloned
   ela bundles [mh2.1@]      GM bundles, newest first          ela bundle <name|id>     its bill of materials
+  ela bundle-diff <A> <B>   docker services added/removed/changed between two bundles (name, id or prefix; --host-a/--host-b)
   ela versions [service]    versions per env (userservice)    ela builds <job|service>  Jenkins builds: version, branch, sha
   ela drift                 newest bundle's GM names vs services.yaml     ela login tvu|qa   (prod: one-time HTTPS page collects the browser's SID; --host prod on bundles/bundle/versions/drift)
   ela promote <line> <from> <to> [--purpose regular|prod-staging|demo] [--scope app|all] [--bundles] [--out DIR]
@@ -57,7 +58,7 @@ VERBS = {
     "sync": ("map", "sync"), "worktree": ("map", "worktree"), "survey": ("map", "survey"),
     "coverage": ("map", "coverage"), "remote": ("map", "remote"), "missing": ("map", "missing"), "services": ("map", "services"),
     "kb": ("kb", None), "figma": ("figma", None),
-    "bundles": ("release", "bundles"), "bundle": ("release", "bundle"), "versions": ("release", "envs"), "builds": ("release", "builds"),
+    "bundles": ("release", "bundles"), "bundle": ("release", "bundle"), "bundle-diff": ("release", "bundle-diff"),"versions": ("release", "envs"), "builds": ("release", "builds"),
     "drift": ("release", "drift"), "release": ("release", None),
     "confluence": ("confluence", None), "wiki": ("confluence", None), "gdoc": ("gdoc", None),
     "reports": ("reports", None), "api": ("apifox", None), "apifox": ("apifox", None), "publish": ("publish", None),
