@@ -61,6 +61,7 @@ flowchart LR
 | 「这个人是谁」「谁管 UI 层」 | `team` | `ela who robin` · `ela team areas` |
 | 要问另一个团队的 bot（边界 agent） | `ask` | `/ela:ask <graph id> <问题>` |
 | 要自己动手改一个别人家的仓 | `task` | `/ela:task MH-3568 tvu264` |
+| 代码改完了，要提 merge request 给仓的负责人 | `mr` | `ela mr-preflight` · `ela mr MH-3568 media-hub-front`（只打印 push 与 MR 请求，不执行） |
 | 要写 Jira / 发 Slack / 写 KB | 写原子 | 先 dry run，你说了再 `--apply` |
 | 改了地图、花名册或一份知识文档，要让 Helm、远端和 ela 自己读到 | `publish` | `ela publish all` · `ela publish doc <路径>` · `ela publish list` |
 | 换了机器 / token 过期了 | `setup` | `/ela:setup` |
@@ -205,6 +206,8 @@ flowchart TD
   D --> OLD{"旧票挂着 / 父票 Done 子票没关?"}
   OLD --> RV["/ela:revisit KEY<br>关 / 换票承接 / 留"]
   RV --> EV
+  D --> MR["代码改完<br>ela mr KEY repo<br>→ push 命令 + MR 请求（dry run）"]
+  MR --> EV
   classDef m fill:#1e3a5f,color:#fff,stroke:none
   class M,EV m
 ```

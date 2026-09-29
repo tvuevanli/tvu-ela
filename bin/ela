@@ -33,6 +33,8 @@
   ela envs                  the UR probe order         ela site   (rarely) the site config: roots, host names, aliases, emails
   ela brief [--lane L]      the morning brief's Jira lanes, flags computed (cadence · triage · breakdown · incidents · backlog · yours)
   ela runtime status|clean  the disposable working directory: what is there, and delete it (--work also drops clean worktrees)
+  ela mr <KEY> <repo> [--lane B]   the push and the merge-request request for evan/<key>, dry run only
+  ela mr-preflight [--host H]      each GitLab token's scopes and expiry (needs scope api)
 
 Every verb forwards to the capability script under skills/<cap>/<cap>.py with the site's env file;
 `--json` works everywhere.
@@ -63,6 +65,7 @@ VERBS = {
     "sentry": ("sentry", None),
     "promote": ("promote", None), "runtime": ("runtime", None),
     "brief": ("brief", "lanes"),
+    "mr": ("mr", "create"), "mr-preflight": ("mr", "preflight"),
 }
 PROMOTE_SUBS = {"lanes", "commits", "delta", "tickets", "evidence", "bundles", "report", "compare-helm"}
 

@@ -165,5 +165,6 @@ service, that is knowledge: draft it and write it to `<elak>/knowledge/` only on
 - `draft-only`: show `git -C $WT diff origin/<lane>` summary and the artefact list; **stop** — push or
   MR is Evan's call, done by Evan.
 - `branch-only`: pushed `evan/<key>`; report the branch.
-- `mr-gated`: pushed + MR URL naming `owner`.
+- `mr-gated`: `ela mr <KEY> <repo>` prints the push and the MR request; the owner runs the push and
+  confirms the MR at the shell (dry-run only in this version), naming `owner`.
 Then `git -C <path> worktree remove "$WT"` only when Evan says the task is closed.
