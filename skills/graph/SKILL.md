@@ -15,6 +15,11 @@ Self-contained. Argument: a graph id (26 chars, `01M1…`), a process id (32 hex
   data; `UR_ENV_ORDER` in the env file overrides the list, `-e p3` pins one. The **environment printed
   is the one the data says** (`app.tvunetworks.com/environment` on a graph, `env` on a process), not the
   path that answered: the prod environments share one J2N. Say both when they differ.
+- **CN is named, never probed.** CN is a separate deployment on its own host (its own J2N, Pilot and
+  boxes), so the default probe cannot find a CN graph and says "not found on prod3, prod2, test2". An
+  owner, image registry or box region that points to China (`docker.tvunetworks.cn`, a Tencent or Aliyun
+  region in `cn-`/`ap-shanghai`) means re-run with `-e cn`. Pilot there calls its environment `prod`
+  while the graph says `cn`; the script prints both.
 - **`-d` and `-c` are the detail views — progressive disclosure.** The default table (type · process ·
   public ip · private ip, pipeline order) comes from the one J2N read, about 2–3 s. `-d` adds control
   port, box location, box id and image per node — one Pilot call per node, run in parallel over warmed
@@ -54,8 +59,8 @@ Read `~/.claude/ela/site.json` → `env`. Then:
 G="python3 ${CLAUDE_PLUGIN_ROOT}/skills/graph/graph.py --env-file <env>"
 O="python3 ${CLAUDE_PLUGIN_ROOT}/skills/object/object.py --env-file <env>"
 ```
-The env file carries `UR_ACCESS_KEY`, optional `UR_BASE_HOST` and `UR_ENV_ORDER` (comma list; overrides
-the default probe order). Missing → `/ela:setup`.
+The env file carries `UR_ACCESS_KEY` (the same key answers on CN), optional `UR_BASE_HOST`, `UR_CN_HOST`
+and `UR_ENV_ORDER` (comma list; overrides the default probe order). Missing → `/ela:setup`.
 
 ## 1 — by id shape
 
@@ -97,6 +102,11 @@ to look at in the logs. A 32-hex id from a log that no longer runs: `process <id
 - **J2N v2 is not everywhere** (`resolve`, `process`, `graphs`). `/j2n/api/v2` answers on prod3 and
   test2; prod2 has no v2 (404). Everything v2-only — the object history, a dead process's graph,
   `--any/--deleted` — is environment-dependent; the v1beta1 `/any` route (`graph`) works on all of them.
+- **CN has J2N v1 only** (`graph`, `resolve`, `process`, `graphs --any`). CN's J2N has no `/any` route
+  and no v2, so the script reads the plain graph route there: a live CN graph answers in full, but a
+  stopped one, an object's history and a dead process's graph are not readable on CN. Report that as a
+  gap in CN's J2N, not as "does not exist". `resolve <objectId> -e cn --email <owner>` still finds the
+  owner's live graphs.
 - **Declared, not answering** (`profile`, `profiles`). The v2 EP API in Apifox (`/api/v2/ep/profiles`)
   and `encodingprofilecontroller` (`/profile/queryEncodingProfile`) do **not** answer on the UR edge —
   do not reach for them.

@@ -34,6 +34,9 @@ A stopped graph is not gone: J2N keeps it, and the routes that return it are `gr
 Environments live in the URL path: https://ur.tvunetworks.com/<env>/j2n/… and …/<env>/pilot/….
 J2N v2 (`/j2n/api/v2`) is not on every environment — prod3 and test2 answer it today, prod2 does not.
 Probe order (first answer wins): UR_ENV_ORDER in the env file (comma-separated), else prod3, prod2, test2.
+CN is a separate deployment at https://ur.tvunetworks.cn (UR_CN_HOST overrides), no env in the path, never
+probed by default: `-e cn`. Its J2N has no `/any` and no v2, so a stopped CN graph and every v2 route read as
+not found there.
 Credentials: UR_ACCESS_KEY (+ UR_BASE_HOST) from $UR_ACCESS_KEY → --env-file → $ELA_ENV_FILE.
 Exit codes: 0 ok (a stopped process/graph answered from history counts as ok) · 2 usage · 3 not found on any env
 · 4 auth · 5 remote error.
@@ -45,7 +48,11 @@ EX_USAGE, EX_NOTFOUND, EX_AUTH, EX_REMOTE = 2, 3, 4, 5
 # Probe order — three envs cover everything Evan touches: prod3 (MediaHub 2.1, answers 2.0 too), prod2 (older
 # prod), test2 (test). Sequential fallback; a miss costs one round-trip per env. Override with UR_ENV_ORDER.
 DEFAULT_ORDER = ["prod3", "prod2", "test2"]
-ALIASES = {"p": "prod", "t": "test", "t2": "test2", "t1": "test1"}
+ALIASES = {"p": "prod", "t": "test", "t2": "test2", "t1": "test1", "china": "cn"}
+# Environments that are a host of their own rather than a path on the UR edge. CN is a separate deployment
+# (its own J2N, Pilot and boxes) served at the root of its host, with an older J2N: no `/any` route and no v2.
+# Never probed by default — reached with `-e cn`; UR_CN_HOST in the env file overrides the host.
+SEPARATE = {"cn": ("UR_CN_HOST", "https://ur.tvunetworks.cn")}
 # J2N publishes every graph route twice, as /v1beta1/… and /api/v1-beta1/… — one family here, the /api one.
 J2N, J2N2, PILOT = "/j2n/api/v1-beta1", "/j2n/api/v2", "/pilot/api/v1"
 J2N_NEUTRAL = "/j2n/v1beta1"      # the neutral family; the only route that exists there alone is emails/…/graphs
@@ -81,40 +88,53 @@ class UR:
         if not self.key:
             print("no UR_ACCESS_KEY (env, $ELA_ENV_FILE, or --env-file)", file=sys.stderr); sys.exit(EX_AUTH)
         self.host = (env_value("UR_BASE_HOST", env_file) or "https://ur.tvunetworks.com").rstrip("/")
+        self.separate = {e: (env_value(k, env_file) or d).rstrip("/") for e, (k, d) in SEPARATE.items()}
         order = env_value("UR_ENV_ORDER", env_file)
         self.order = [e.strip() for e in order.split(",") if e.strip()] if order else DEFAULT_ORDER
-        u = urllib.parse.urlparse(self.host)
-        self.netloc, self.https = u.netloc, (u.scheme == "https")
-        self.pool = queue.LifoQueue()
+        self.pools = {}                            # host → idle connections; the edge is warmed, CN on first use
         if warm:
+            pool = self._pool(self.host)
             for _ in range(self.WARM):
-                threading.Thread(target=lambda: self.pool.put(self._connect()), daemon=True).start()
+                threading.Thread(target=lambda: pool.put(self._connect(self.host)), daemon=True).start()
 
-    def _connect(self):
-        cls = http.client.HTTPSConnection if self.https else http.client.HTTPConnection
-        c = cls(self.netloc, timeout=30)
+    def route(self, env, path):
+        """env + path → (host, target). The edge carries the env in the path; a separate env is its own host,
+        and one without `/any` is asked the plain graph route (it returns a live graph only)."""
+        if env in self.separate:
+            if path.startswith(J2N + "/graphs/") and path.endswith("/any"):
+                path = path[:-len("/any")]
+            return self.separate[env], path
+        return self.host, f"/{env}{path}"
+
+    def _pool(self, host):
+        return self.pools.setdefault(host, queue.LifoQueue())
+
+    def _connect(self, host):
+        u = urllib.parse.urlparse(host)
+        cls = http.client.HTTPSConnection if u.scheme == "https" else http.client.HTTPConnection
+        c = cls(u.netloc, timeout=30)
         try:
             c.connect()
         except OSError:
             pass                                   # surfaces as an error on first use
         return c
 
-    def _take(self):
+    def _take(self, host):
         try:
-            return self.pool.get(timeout=0.05)
+            return self._pool(host).get(timeout=0.05)
         except queue.Empty:
-            return self._connect()
+            return self._connect(host)
 
     def get(self, env, path):
         """→ (status, body_json_or_None). 5xx and 404 with an empty body read as 'not here'."""
-        target = f"/{env}{path}"
+        host, target = self.route(env, path)
         headers = {"AccessKey": self.key, "Accept": "application/json", "Connection": "keep-alive"}
         for attempt in range(2):
-            c = self._take()
+            c = self._take(host)
             try:
                 c.request("GET", target, headers=headers)
                 r = c.getresponse(); raw = r.read()
-                self.pool.put(c)
+                self._pool(host).put(c)
                 try:
                     return r.status, (json.loads(raw) if raw.strip() else None)
                 except ValueError:
@@ -1239,7 +1259,8 @@ def cmd_stop(ur, a):
 
 
 def cmd_envs(ur, a):
-    print(json.dumps({"host": ur.host, "order": ur.order}) if a.json else "\n".join(ur.order))
+    print(json.dumps({"host": ur.host, "order": ur.order, "separate": ur.separate}) if a.json
+          else "\n".join(ur.order + [f"{e}  (only with -e {e}; {h})" for e, h in ur.separate.items()]))
 
 
 def main():
@@ -1254,7 +1275,7 @@ def main():
         if name == "box":
             p.add_argument("-d", "--detail", action="store_true",
                            help="who holds what: SDI connectors, every occupied port and every node, each carried back to its graph, object and owner; orphaned ports flagged")
-        p.add_argument("-e", "--env", help="prod3 · p3 · prod2 · test2 …; default: probe in order")
+        p.add_argument("-e", "--env", help="prod3 · p3 · prod2 · test2 · cn …; default: probe in order (cn only when named)")
         p.add_argument("--json", action="store_true"); p.add_argument("--raw", action="store_true", help="the API body as-is")
         if name == "graph":
             p.add_argument("--all", action="store_true", help="every env that has it, not just the first")
