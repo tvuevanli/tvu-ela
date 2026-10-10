@@ -37,7 +37,9 @@ Probe order (first answer wins): UR_ENV_ORDER in the env file (comma-separated),
 CN is a separate deployment at https://ur.tvunetworks.cn (UR_CN_HOST overrides), no env in the path, never
 probed by default: `-e cn`. Its J2N has no `/any` and no v2, so a stopped CN graph and every v2 route read as
 not found there.
-Credentials: UR_ACCESS_KEY (+ UR_BASE_HOST) from $UR_ACCESS_KEY → --env-file → $ELA_ENV_FILE.
+QA (qa2 …) is a separate deployment with its own data, laid out like the edge (env in the path) on the host
+named by UR_QA_HOST; never probed by default: `-e qa2`. The same access key answers there.
+Credentials: UR_ACCESS_KEY (+ UR_BASE_HOST, UR_QA_HOST) from $UR_ACCESS_KEY → --env-file → $ELA_ENV_FILE.
 Exit codes: 0 ok (a stopped process/graph answered from history counts as ok) · 2 usage · 3 not found on any env
 · 4 auth · 5 remote error.
 """
@@ -53,6 +55,10 @@ ALIASES = {"p": "prod", "t": "test", "t2": "test2", "t1": "test1", "china": "cn"
 # (its own J2N, Pilot and boxes) served at the root of its host, with an older J2N: no `/any` route and no v2.
 # Never probed by default — reached with `-e cn`; UR_CN_HOST in the env file overrides the host.
 SEPARATE = {"cn": ("UR_CN_HOST", "https://ur.tvunetworks.cn")}
+# QA is a deployment of its own (its own J2N, Pilot, profile store and boxes) laid out like the edge: the env is
+# in the path (qa2/j2n/…, qa2/pilot/…) on a host that is not the edge's. The host comes from UR_QA_HOST in the
+# env file only; QA envs are never probed by default — reached with `-e qa2`.
+QA_ENV = re.compile(r"qa\d+")
 # J2N publishes every graph route twice, as /v1beta1/… and /api/v1-beta1/… — one family here, the /api one.
 J2N, J2N2, PILOT = "/j2n/api/v1-beta1", "/j2n/api/v2", "/pilot/api/v1"
 J2N_NEUTRAL = "/j2n/v1beta1"      # the neutral family; the only route that exists there alone is emails/…/graphs
@@ -89,6 +95,7 @@ class UR:
             print("no UR_ACCESS_KEY (env, $ELA_ENV_FILE, or --env-file)", file=sys.stderr); sys.exit(EX_AUTH)
         self.host = (env_value("UR_BASE_HOST", env_file) or "https://ur.tvunetworks.com").rstrip("/")
         self.separate = {e: (env_value(k, env_file) or d).rstrip("/") for e, (k, d) in SEPARATE.items()}
+        self.qa_host = (env_value("UR_QA_HOST", env_file) or "").rstrip("/")
         order = env_value("UR_ENV_ORDER", env_file)
         self.order = [e.strip() for e in order.split(",") if e.strip()] if order else DEFAULT_ORDER
         self.pools = {}                            # host → idle connections; the edge is warmed, CN on first use
@@ -104,6 +111,10 @@ class UR:
             if path.startswith(J2N + "/graphs/") and path.endswith("/any"):
                 path = path[:-len("/any")]
             return self.separate[env], path
+        if QA_ENV.fullmatch(env):
+            if not self.qa_host:
+                print(f"{env} is a QA env: set UR_QA_HOST in the env file", file=sys.stderr); sys.exit(EX_USAGE)
+            return self.qa_host, f"/{env}{path}"
         return self.host, f"/{env}{path}"
 
     def _pool(self, host):
@@ -175,7 +186,7 @@ def normalise(env):
     m = re.fullmatch(r"p(\d+)", env)
     if m:
         return f"prod{m.group(1)}"
-    return env.replace("prod-", "prod").replace("test-", "test")
+    return env.replace("prod-", "prod").replace("test-", "test").replace("qa-", "qa")
 
 
 def _ts(v):
@@ -1259,14 +1270,15 @@ def cmd_stop(ur, a):
 
 
 def cmd_envs(ur, a):
-    print(json.dumps({"host": ur.host, "order": ur.order, "separate": ur.separate}) if a.json
-          else "\n".join(ur.order + [f"{e}  (only with -e {e}; {h})" for e, h in ur.separate.items()]))
+    qa = [f"qa<N>  (only with -e qa2 …; {ur.qa_host or 'UR_QA_HOST not set'})"]
+    print(json.dumps({"host": ur.host, "order": ur.order, "separate": ur.separate, "qa_host": ur.qa_host}) if a.json
+          else "\n".join(ur.order + [f"{e}  (only with -e {e}; {h})" for e, h in ur.separate.items()] + qa))
 
 
 def main():
     signal.signal(signal.SIGPIPE, signal.SIG_DFL)
     ap = argparse.ArgumentParser(description="UR graph capability: read graphs, processes and boxes first-hand; connect/exec/start/stop on Evan's word.")
-    ap.add_argument("--env-file", help="file with UR_ACCESS_KEY, UR_BASE_HOST, UR_ENV_ORDER")
+    ap.add_argument("--env-file", help="file with UR_ACCESS_KEY, UR_BASE_HOST, UR_ENV_ORDER, UR_QA_HOST")
     sub = ap.add_subparsers(dest="cmd", required=True)
     for name, arg in (("graph", "graph_id"), ("process", "process_id"), ("box", "box_id")):
         p = sub.add_parser(name); p.add_argument(arg)
@@ -1275,7 +1287,7 @@ def main():
         if name == "box":
             p.add_argument("-d", "--detail", action="store_true",
                            help="who holds what: SDI connectors, every occupied port and every node, each carried back to its graph, object and owner; orphaned ports flagged")
-        p.add_argument("-e", "--env", help="prod3 · p3 · prod2 · test2 · cn …; default: probe in order (cn only when named)")
+        p.add_argument("-e", "--env", help="prod3 · p3 · prod2 · test2 · cn · qa2 …; default: probe in order (cn and qa only when named)")
         p.add_argument("--json", action="store_true"); p.add_argument("--raw", action="store_true", help="the API body as-is")
         if name == "graph":
             p.add_argument("--all", action="store_true", help="every env that has it, not just the first")

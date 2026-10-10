@@ -20,6 +20,11 @@ Self-contained. Argument: a graph id (26 chars, `01M1…`), a process id (32 hex
   owner, image registry or box region that points to China (`docker.tvunetworks.cn`, a Tencent or Aliyun
   region in `cn-`/`ap-shanghai`) means re-run with `-e cn`. Pilot there calls its environment `prod`
   while the graph says `cn`; the script prints both.
+- **QA is named, never probed.** QA (`qa2`) is a separate deployment with its own J2N, Pilot, boxes and
+  profile store, laid out like the edge (env in the path) on the host in `UR_QA_HOST`. A QA graph,
+  process or profile is invisible to the default probe, and a profile id that exists on test2 and prod
+  can be missing on QA, or hold different values: QA has its own copy of the built-in profiles. A ticket
+  raised from QA testing, or a graph whose environment reads `qa`/`qa2`, means `-e qa2`.
 - **`-d` and `-c` are the detail views — progressive disclosure.** The default table (type · process ·
   public ip · private ip, pipeline order) comes from the one J2N read, about 2–3 s. `-d` adds control
   port, box location, box id and image per node — one Pilot call per node, run in parallel over warmed
@@ -59,8 +64,8 @@ Read `~/.claude/ela/site.json` → `env`. Then:
 G="python3 ${CLAUDE_PLUGIN_ROOT}/skills/graph/graph.py --env-file <env>"
 O="python3 ${CLAUDE_PLUGIN_ROOT}/skills/object/object.py --env-file <env>"
 ```
-The env file carries `UR_ACCESS_KEY` (the same key answers on CN), optional `UR_BASE_HOST`, `UR_CN_HOST`
-and `UR_ENV_ORDER` (comma list; overrides the default probe order). Missing → `/ela:setup`.
+The env file carries `UR_ACCESS_KEY` (the same key answers on CN), optional `UR_BASE_HOST`, `UR_CN_HOST`,
+`UR_QA_HOST` (QA's host; `-e qa2` exits 2 without it) and `UR_ENV_ORDER` (comma list; overrides the default probe order). Missing → `/ela:setup`.
 
 ## 1 — by id shape
 
