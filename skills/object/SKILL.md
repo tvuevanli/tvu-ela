@@ -13,12 +13,17 @@ Self-contained. The L1 script does the calls; this file says when and how to rea
 ```bash
 O="python3 ${CLAUDE_PLUGIN_ROOT}/skills/object/object.py --env-file <env>"   # <env> from ~/.claude/ela/site.json
 $O get <id>              # object (19 digits) or tangible (16–32 hex); falls through to the other on a miss and says which answered
+$O get <id> -e qa2       # the same read on QA's own Object Service
 ```
 `get` is the whole read surface: the service exposes `GET /base/object/<id>` and `GET /base/tangible/<id>`.
 A batch-by-ids endpoint and a keyword search were documented here before; both answer 404 (verified
 2026-09-02), so there is no search — an object is found by id, or from a graph's `objectId` annotation.
 Every subcommand takes `--json`; `get` takes `--raw` for the body as-is. Exit codes: 0 ok · 2 usage ·
 3 not found · 4 auth (token rejected → `/ela:setup`) · 5 remote error.
+
+**QA has its own Object Service.** QA (`qa2`) is a separate UR deployment, and its objects live in a
+separate Object Service named by `TVU_QA_OBJECT_SERVICE_HOST` in the env file; prod and test2 share the
+default one. A QA object id read without `-e qa2` comes back not found, which says nothing about QA.
 
 ## What the record carries, and what it does not
 - An object: `objectType` 1 = Source, 2 = Destination; `origin` (e.g. `UnifiedMediaService`); `owner.users`

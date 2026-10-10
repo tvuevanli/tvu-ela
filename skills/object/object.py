@@ -11,6 +11,9 @@ and a keyword search were documented in an earlier skill but answer 404 (verifie
 An active object's SHM/RTIL tangibles are named <graphId>:<node> and their tangibleId is the process id —
 that is how an object resolves to its running graphs (see graph.py resolve).
 
+QA (qa2 …) runs an Object Service of its own with its own objects: `-e qa2` reads the host in
+TVU_QA_OBJECT_SERVICE_HOST. Prod and test2 share the default one.
+
 Credentials: TVU_OBJECT_SERVICE_HOST and TVU_CC_BEARER_TOKEN from the environment → --env-file → $ELA_ENV_FILE.
 Exit codes: 0 ok · 2 usage · 3 not found · 4 auth · 5 remote error.
 """
@@ -35,9 +38,12 @@ def env_value(key, env_file=None):
 
 
 class OS_:
-    def __init__(self, env_file):
-        self.host = (env_value("TVU_OBJECT_SERVICE_HOST", env_file) or "").rstrip("/")
+    def __init__(self, env_file, env=None):
+        key = "TVU_QA_OBJECT_SERVICE_HOST" if env and re.fullmatch(r"qa-?\d+", env.strip().lower()) else "TVU_OBJECT_SERVICE_HOST"
+        self.host = (env_value(key, env_file) or "").rstrip("/")
         self.tok = env_value("TVU_CC_BEARER_TOKEN", env_file)
+        if key != "TVU_OBJECT_SERVICE_HOST" and not self.host:
+            print(f"{env} is a QA env: set {key} in the env file", file=sys.stderr); sys.exit(EX_USAGE)
         if not self.host or not self.tok:
             print("need TVU_OBJECT_SERVICE_HOST and TVU_CC_BEARER_TOKEN (env, $ELA_ENV_FILE, or --env-file)", file=sys.stderr); sys.exit(EX_AUTH)
         self.base = self.host + "/route-object/object-service/base"
@@ -149,8 +155,9 @@ def main():
     ap.add_argument("--env-file")
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("get"); p.add_argument("id"); p.add_argument("--json", action="store_true"); p.add_argument("--raw", action="store_true")
+    p.add_argument("-e", "--env", help="qa2 … reads QA's Object Service; default: the prod one (test2 included)")
     a = ap.parse_args()
-    svc = OS_(a.env_file)
+    svc = OS_(a.env_file, a.env)
     {"get": cmd_get}[a.cmd](svc, a)
 
 
