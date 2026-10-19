@@ -524,6 +524,32 @@ def cmd_all(a):
         else:
             import shutil; shutil.rmtree(stale); print("removed the old per-reader directory helm/")
     print(f"MANIFEST.md written → {os.path.join(published, 'MANIFEST.md')}")
+    print("remote copy: `ela publish sync` (dry run) then `--apply` — the remote reads this directory and nothing else carries it")
+
+
+def cmd_sync(a):
+    """Carry <published> to the remote site named by site.json `published_remote` (`user@host:/path`, never a tracked
+    file) with rsync — dry run unless --apply. Publication is the only exit from elak (principle P2), so publication
+    owns the remote copy: a deploy of Helm cannot carry a directory outside its repository, and the published tree
+    changes when something is published, not when Helm deploys."""
+    import subprocess
+    records, published = roots()
+    target = site().get("published_remote")
+    if not target:
+        print("site.json has no `published_remote` (user@host:/path) — nothing to sync to", file=sys.stderr); sys.exit(2)
+    argv = ["rsync", "-az", "--delete", "--exclude", ".git"] + ([] if a.apply else ["-n", "-v"]) + [published.rstrip("/") + "/", target.rstrip("/") + "/"]
+    shown = " ".join(argv).replace(target, "<published_remote>")
+    print(("syncing: " if a.apply else "DRY RUN — ") + shown)
+    r = subprocess.run(argv, capture_output=True, text=True, timeout=600)
+    out = (r.stdout or "").strip().splitlines()
+    if r.returncode != 0:
+        print(f"rsync failed ({r.returncode}): {(r.stderr or '').strip()[-300:]}", file=sys.stderr); sys.exit(5)
+    if not a.apply:
+        files = [l for l in out if l and not l.startswith(("sending", "sent", "total", "./"))]
+        print(f"  {len(files)} path(s) would change" + (": " + ", ".join(files[:12]) + (" …" if len(files) > 12 else "") if files else ""))
+        print("pass --apply to sync")
+    else:
+        print(f"  synced to <published_remote>")
 
 
 def cmd_list(a):
@@ -580,8 +606,10 @@ def main():
     p.add_argument("--json", action="store_true")
     p = sub.add_parser("all"); p.add_argument("--json", action="store_true")
     sub.add_parser("list")
+    p = sub.add_parser("sync", help="rsync <published> to site.json `published_remote` — dry run unless --apply")
+    p.add_argument("--apply", action="store_true")
     a = ap.parse_args()
-    {"catalogue": cmd_catalogue, "map": cmd_map, "roster": cmd_roster, "doc": cmd_doc, "all": cmd_all, "list": cmd_list}[a.cmd](a)
+    {"catalogue": cmd_catalogue, "map": cmd_map, "roster": cmd_roster, "doc": cmd_doc, "all": cmd_all, "list": cmd_list, "sync": cmd_sync}[a.cmd](a)
 
 
 if __name__ == "__main__":
