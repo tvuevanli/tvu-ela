@@ -30,7 +30,9 @@ lanes each release line uses — all in `<elak>/map/release.yaml` (origin per bl
 - **Lane names are the release map's.** `aws-cn3-env` and `AWSCN3` are both `qa-cn3`; `MediaHubWednesday`
   is `daily-wed`; `UnifiedResourcesTest2` is `daily-test2`. Answer in lane names, show the tag once.
 - **Judgment is composed, not computed.** "Is MH-xxxx fixed on prod 3?" = the ticket's Fixed In (jira) → the
-  build carrying it (`builds`) → the version on the lane (`envs --host prod`) → verdict, each step cited.
+  build carrying it (`builds`) → the version on the lane (`envs --host prod`), whose +BUILD names the lane's own
+  build → whether that build's sha descends from the fix commit → verdict, each step cited. A higher version is
+  not containment: one job builds several branches (release.yaml trains), so `ela fixed-in` judges by ancestry.
 - **Names are three things.** `slug` (Evan's convention), `gm_name` (what GM registers), `service_id`.
   `drift` compares GM names; a difference is either a new service or a stale table row — say which.
 

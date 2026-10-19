@@ -62,13 +62,19 @@ check(F.compare("mh-backend@1.0.399+14", draft) == "same", "a legacy slug alias 
 check(F.compare("mediahub-backend@1.0.398+12", draft) == "differs", "an older build → differs")
 check(F.compare("mediahub-backend@1.0.399+14; mds-copier@copier:2.3.1", draft) == "same", "a docker entry is not compared")
 
-rows = [{"lane": "qa-cn3", "version": "v1.0.399 build15 2026-09-04 10:00:00"},
-        {"lane": "daily-wed", "version": "v1.0.398 build12 2026-09-02 10:00:00"},
-        {"lane": "prod-3", "version": "v1.1.0 build2 2026-09-02 10:00:00"},
-        {"lane": None, "version": "v1.0.400 build1"}]
-running, other = F.lanes_running("mediahub-backend", rows, (1, 0, 399, 0, 14))
-check([x["lane"] for x in running] == ["qa-cn3"], "a lane at or above the carrying build runs the fix; a lower one does not")
-check(other == ["prod-3"], "a lane on another M.m series is named, not compared")
+# two branches of one job: 137 (2.0.23) descends from the fix A; 142 (2.0.27, higher) was built from a branch without it
+TRAIN = [{"number": 137, "version": "2.0.23", "build": 137, "result": "SUCCESS", "sha_full": C},
+         {"number": 142, "version": "2.0.27", "build": 142, "result": "SUCCESS", "sha_full": D}]
+rows = [{"lane": "qa-cn3", "version": "v2.0.23 build137 2026-09-04 10:00:00"},
+        {"lane": "prod-8", "version": "v2.0.27 build142 2026-09-02 10:00:00"},
+        {"lane": "daily-wed", "version": "v2.0.20 build120 2026-09-02 10:00:00"},
+        {"lane": "prod-3", "version": "v2.0.25 build142 2026-09-02 10:00:00"},
+        {"lane": None, "version": "v2.0.23 build137"}]
+running, unjudged = F.lanes_running(rows, TRAIN, [A], is_anc)
+check(running == [{"lane": "qa-cn3", "version": "2.0.23+137", "build": 137, "carries": A[:8]}],
+      "a lane whose own build descends from the commit carries it, with the build and the commit named")
+check("prod-8" not in [x["lane"] for x in running], "a higher version whose build does not contain the commit is not listed")
+check(unjudged == ["daily-wed", "prod-3"], "a build outside the fetched builds, or a number naming another version's build, is unjudged")
 
 print("fixedin: all offline checks passed" if not failures else f"fixedin: {len(failures)} check(s) failed")
 sys.exit(1 if failures else 0)

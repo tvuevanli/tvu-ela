@@ -9,8 +9,9 @@ builds carrying those commits, the lanes running those builds, and QA's own word
                 map/release.yaml `repos` names — the checkout the survey cache locates; a missing one is a gap
         builds  the first Jenkins build of the repository's job (map/release.yaml `jobs`) whose sha is the commit or
                 descends from it in that checkout
-        lanes   qa-*, daily-*, stage and prod-N lanes running a version at or above the carrying build (version_rules);
-                a prod read without a session is a gap, never a guess
+        lanes   qa-*, daily-*, stage and prod-N lanes whose own Jenkins build (the +BUILD of the lane's version) has a
+                commit of the key as an ancestor; version order is not containment across branches. A build outside
+                the fetched window, or a prod read without a session, is a gap, never a guess
         evidence QA verdicts over the key's Jira comments, mail and Slack since --since (default 30 days), one line each
         draft   `<slug>@<version>` per service, beside the current value: same · differs · empty
 
@@ -160,18 +161,25 @@ def lane_rows(env_file, slug, host):
     return _ENVS[(slug, host)]
 
 
-def lanes_running(slug, rows, carrier_pv):
-    """Lanes whose version is at or above the carrying build, compared only inside one M.m series."""
-    out, other = [], []
+def lanes_running(rows, builds, shas, is_ancestor):
+    """Lanes whose own Jenkins build — the +BUILD of the lane's version — has a commit of the key as an ancestor.
+    Version order is not containment: release.yaml trains build one job from several branches, so a higher number
+    can come from a branch that never merged the fix. A lane whose build is outside the fetched builds, or whose
+    number names a build of another version, is returned unjudged."""
+    by_number = {b["number"]: b for b in builds if b.get("number") is not None and b.get("sha_full")}
+    out, unjudged = [], []
     for r in rows:
         pv = R.parse_version(r.get("version"))
         if not r.get("lane") or not pv:
             continue
-        if pv[:2] != carrier_pv[:2]:
-            other.append(r["lane"]); continue
-        if P.cmp_versions(slug, pv, carrier_pv) >= 0:
-            out.append({"lane": r["lane"], "version": R.vlabel(pv)})
-    return out, other
+        b = by_number.get(pv[4])
+        bpv = build_parsed(b) if b else None
+        if not bpv or bpv[:4] != pv[:4]:
+            unjudged.append(r["lane"]); continue
+        s = next((s for s in shas if s == b["sha_full"] or is_ancestor(s, b["sha_full"])), None)
+        if s:
+            out.append({"lane": r["lane"], "version": R.vlabel(pv), "build": b["number"], "carries": s[:8]})
+    return out, unjudged
 
 
 # ── the chain for one key ─────────────────────────────────────────────────────
@@ -204,7 +212,7 @@ def chain(a, key, repos_cache, builds_cache):
         if e["docker"]:
             rec["gaps"].append(f"{e['slug']}@{e['version']}: {DOCKER_GAP}")
     jobs = {v: k for k, v in (R.rmap("jobs") or {}).items()}          # service → job
-    carriers = {}
+    carriers, found = {}, {}                                          # found: slug → (key shas, builds, is_anc)
     for slug, rel in (R.rmap("repos") or {}).items():
         path = checkout_of(rel, repos_cache or [])
         if not path:
@@ -234,22 +242,21 @@ def chain(a, key, repos_cache, builds_cache):
             rec["builds"].append({"service": slug, "sha": c["sha"], "job": job, "number": b["number"],
                                   "version": R.vlabel(build_parsed(b)) if build_parsed(b) else b.get("version"), "result": b.get("result")})
             carriers.setdefault(slug, []).append(b)
+        found[slug] = ([c["sha"] for c in rows], builds, is_anc)
     for slug, bs in carriers.items():
-        vals = draft_values(slug, bs)
-        rec["draft"] += vals
-        for v in vals:
-            pv = R.parse_version(v["value"].split("@", 1)[1])
-            for host in ("qa", "prod"):
-                rows, gap = lane_rows(a.env_file, slug, host)
-                if gap:
-                    if gap not in rec["gaps"]:
-                        rec["gaps"].append(gap)
-                    continue
-                running, other = lanes_running(slug, rows, pv)
-                for x in running:
-                    rec["lanes"].append(dict(x, service=slug, host=host, carries=v["value"]))
-                if other:
-                    rec["gaps"].append(f"{slug} on {host}: {', '.join(sorted(set(other)))} run another M.m series — not compared")
+        rec["draft"] += draft_values(slug, bs)
+        shas, builds, is_anc = found[slug]
+        for host in ("qa", "prod"):
+            rows, gap = lane_rows(a.env_file, slug, host)
+            if gap:
+                if gap not in rec["gaps"]:
+                    rec["gaps"].append(gap)
+                continue
+            running, unjudged = lanes_running(rows, builds, shas, is_anc)
+            for x in running:
+                rec["lanes"].append(dict(x, service=slug, host=host))
+            if unjudged:
+                rec["gaps"].append(f"{slug} on {host}: {', '.join(sorted(set(unjudged)))} run a build outside Jenkins' last {len(builds)} — not compared")
     rec["compare"] = compare(rec["current"], rec["draft"])
     return rec
 
@@ -297,7 +304,7 @@ def print_text(recs):
         for b in r["builds"]:
             print(f"   build     {b['service']:<24} {b['job']} #{b['number']} {b['version']} {b['result'] or ''}  ← {b['sha'][:8]}")
         for x in r["lanes"]:
-            print(f"   lane      {x['service']:<24} {x['lane']:<12} {x['version']}  ({x['host']})")
+            print(f"   lane      {x['service']:<24} {x['lane']:<12} {x['version']}  ({x['host']})  ← {x['carries']}")
         ev = r.get("evidence")
         if ev:
             print(f"   evidence  {ev['verdict']} since {ev['since']} — {len(ev['items'])} item(s)")
