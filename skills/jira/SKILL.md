@@ -1,6 +1,6 @@
 ---
 name: jira
-description: Jira read and search; writes are dry-run until an explicit confirm. Use for a Jira URL (tvunetworks.atlassian.net/browse/...), a ticket key (MH-1234, FB-9693), a subtask under a parent, "read this ticket", "what's in MH-xxxx", "create a subtask", "看看这个 ticket", "查一下 jira", "建子任务".
+description: Jira read and search; writes are dry-run until an explicit confirm. Use for a Jira URL (tvunetworks.atlassian.net/browse/...), a ticket key (MH-1234, FB-9693), a subtask under a parent, "read this ticket", "what's in MH-xxxx", "create a subtask", "fill in Fixed In", "填 Fixed In", "看看这个 ticket", "查一下 jira", "建子任务".
 ---
 
 # Jira — read, search, and gated writes
@@ -63,7 +63,7 @@ nothing later.
 Assignee defaults to the token's own account (Evan). Cross-layer scope belongs on the
 parent ticket — a subtask carries exactly one token.
 
-## comment · transition · label · link — the field atoms, gated twice
+## comment · transition · label · link · fixed-in — the field atoms, gated twice
 
 Each takes one or more keys (fan-out is one dry-run, one confirm), prints exactly what would change,
 and does nothing without `--apply`. Each is idempotent, so a re-run after a partial failure is safe:
@@ -74,6 +74,7 @@ and does nothing without `--apply`. Each is idempotent, so a re-run after a part
 | `transition` | the issue is already in `--to` | the transition whose target status matches `--to` is looked up per issue; none → exit 2 listing what is reachable from the current status |
 | `label` | requested labels already present / absent | only the delta is sent (`add` / `remove` ops) |
 | `link` | a link of that type already joins the pair in that direction | `--type` is a type name or a phrase (`blocks`, `is blocked by`, `relates to`, `contains`, `is contained in`, `implements`), resolved against the site's link types; the dry-run prints the sentence as Jira will show it |
+| `fixed-in` | every `--add` entry is already in the field | append-only union in the release map's grammar (`<slug>@<version>; …`): current entries keep their order, new ones follow; no entry is ever removed, because an older build stays a true record when a newer one is added. The value comes from `ela fixed-in <KEY>` (commit → carrying build), not from a developer's comment alone |
 
 Confirm rule for a Claude session: show the dry-run, ask Evan, and only then re-run with `--apply` —
 the same wording he saw. Never batch a confirm across different texts: one text, one confirm, any

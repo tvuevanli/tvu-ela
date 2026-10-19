@@ -14,8 +14,8 @@ builds carrying those commits, the lanes running those builds, and QA's own word
         evidence QA verdicts over the key's Jira comments, mail and Slack since --since (default 30 days), one line each
         draft   `<slug>@<version>` per service, beside the current value: same · differs · empty
 
---jql runs the same for every key the query returns. Nothing is written anywhere: the Fixed In field is set by a
-person, from this draft, in Jira. Checkouts are read as they are on disk; `ela sync <repo>` brings one up to date.
+--jql runs the same for every key the query returns. Nothing is written here: the owner confirms a draft and the
+jira capability writes it (`jira.py fixed-in <KEY> --add '<entries>' --apply`, append-only). Checkouts are read as they are on disk; `ela sync <repo>` brings one up to date.
 Exit codes: 0 ok · 2 usage · 3 a key is not in Jira · 5 remote error.
 """
 import argparse, datetime, json, os, re, signal, sys

@@ -16,6 +16,7 @@ Usage:
     jira.py transition MH-1 [MH-2 …] --to Review               [--apply]   # transition looked up by target status
     jira.py label MH-1 [MH-2 …] --add a,b --remove c           [--apply]   # only the delta is written
     jira.py link MH-1 MH-2 --type Blocks|"is blocked by"|Relates [--apply]  # existing link of that type is a no-op
+    jira.py fixed-in MH-1 [MH-2 …] --add 'slug@1.2.3; slug2@4.5.6' [--apply]  # append-only; present entries skipped
 
 Writes are dry-run by default; --apply performs the create. Safety gates
 (title token vocabulary, duplicate detection) live here and cannot be
@@ -39,6 +40,12 @@ ENV_KEYS = ("JIRA_BASE_URL", "JIRA_EMAIL", "JIRA_TOKEN")
 # Closed vocabulary — one token, one owning layer. A title that does not start
 # with exactly one of these is invalid; no caller may create it.
 LAYER_TOKENS = ("[Infra]", "[J2N]", "[Media]", "[App]", "[UI]", "[QA]", "[Design]")
+
+# The MH "Fixed In" field (map/release.yaml fixed_in.field). Its value is a
+# '; '-separated union of <slug>@<version> entries, append-only by convention:
+# an older entry stays when a newer build is added, so no atom removes one.
+FIXED_IN_FIELD = "customfield_11252"
+FIXED_IN_ENTRY = re.compile(r"^[a-z0-9][a-z0-9-]*@[0-9A-Za-z][0-9A-Za-z.+:_-]*$")
 
 
 def load_env(env_file):
@@ -829,6 +836,49 @@ def cmd_link(creds, args):
     _emit(args, r, [f"linked: {key} {phrase} {other}"])
 
 
+def fixed_in_entries(text):
+    return [e.strip() for e in re.split(r"[;\n]", text or "") if e.strip()]
+
+
+def fixed_in_merge(current, add):
+    """Append-only union: current entries keep their order, new ones follow, duplicates dropped."""
+    cur = fixed_in_entries(current)
+    new = []
+    for e in add:
+        if e not in cur and e not in new:
+            new.append(e)
+    return cur, new, "; ".join(cur + new)
+
+
+def cmd_fixed_in(creds, args):
+    """Append <slug>@<version> entries to Fixed In. Idempotent: present entries are skipped."""
+    add = fixed_in_entries(args.add)
+    bad = [e for e in add if not FIXED_IN_ENTRY.match(e)]
+    if not add or bad:
+        sys.exit(f"fixed-in: entries must be <slug>@<version>; bad: {', '.join(bad) or '(none given)'}")
+    results, lines = [], []
+    for key in _keys(args.targets):
+        f = _issue(creds, key, f"summary,{FIXED_IN_FIELD}")
+        raw = f.get(FIXED_IN_FIELD)
+        current = body_text(raw) if raw else ""
+        cur, new, value = fixed_in_merge(current, add)
+        r = {"key": key, "current": "; ".join(cur), "add": new, "value": value, "dry_run": not args.apply, "changed": False}
+        if not new:
+            lines.append(f"{key}: Fixed In already has {'; '.join(add)}")
+        elif not args.apply:
+            lines.append(f"DRY RUN — {key}  {f.get('summary','')}\n  Fixed In  {r['current'] or '(empty)'}\n  + {'; '.join(new)}")
+        else:
+            body = value if isinstance(raw, str) else text_to_adf(value)
+            _request(creds, f"/rest/api/3/issue/{key}", payload={"fields": {FIXED_IN_FIELD: body}}, method="PUT")
+            after = _issue(creds, key, FIXED_IN_FIELD).get(FIXED_IN_FIELD)
+            r["changed"], r["value"] = True, "; ".join(fixed_in_entries(body_text(after) if after else ""))
+            lines.append(f"{key}: Fixed In = {r['value']}")
+        results.append(r)
+    if not args.apply and any(r["add"] for r in results):
+        lines.append("pass --apply to write")
+    _emit(args, {"results": results} if len(results) > 1 else results[0], lines)
+
+
 def main():
     ap = argparse.ArgumentParser(
         description="Jira capability: read, search, gated writes.")
@@ -920,6 +970,12 @@ def main():
     p.add_argument("--type", required=True, help='link type or phrase: Relates · Blocks · "is blocked by" · Duplicate · Cloners · "contains" · "is contained in" · "implements"')
     p.add_argument("--apply", action="store_true"); p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_link)
+
+    p = sub.add_parser("fixed-in", help="append entries to Fixed In — dry-run unless --apply; present entries are skipped, none removed")
+    p.add_argument("targets", nargs="+", help="issue keys or browse URLs")
+    p.add_argument("--add", required=True, help="'<slug>@<version>[; <slug>@<version> …]' in the release map's grammar")
+    p.add_argument("--apply", action="store_true"); p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_fixed_in)
 
     args = ap.parse_args()
     creds = load_env(args.env_file)
