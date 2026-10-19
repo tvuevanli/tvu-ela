@@ -1,6 +1,6 @@
 ---
 name: revisit
-description: Decide whether an old ticket should still exist — close, carry or keep. Use for "这票还要留着吗", "旧票清一清", "父票 Done 子票还挂着", "该关了吧", or before acting on a ticket whose face has aged.
+description: Decide whether an old ticket should still exist — close, carry or keep — and carry a close out as one bundle (Fixed In, labels, comment, Done). Use for "fill Fixed In and close", "填 Fixed In 关票", "这票能关了吗", "旧票清一清", or a ticket whose face has aged.
 user-invocable: true
 ---
 
@@ -53,8 +53,11 @@ the verdict that can be undone — never toward closing something whose problem 
   unfinished set is filtered by status, never by resolution.
 - **The verdict names the option it rejects.** Every close carries the reason the ticket could have
   been kept, so a later reopen is a decision and not a discovery.
-- **Writes gated.** Comment, transition and link are proposed as dry runs (`jira.py comment |
-  transition | link`); `--apply` only after the owner's word, and each verdict confirms separately.
+- **Writes gated, one bundle per ticket.** A close is one decision, so its writes are one dry run and one
+  word: `jira.py close <KEY> --fixed-in … --label … --from-file … --to Done` carries Fixed In, labels, the
+  comment and the walk to Done together (`skills/jira/SKILL.md`). A carry's link is `jira.py link`.
+  Several tickets are several confirms. (Supersedes "each verdict confirms separately", 2026-10-19:
+  split confirms produced closes with the comment missing.)
 
 ## 0 — bind
 
@@ -69,7 +72,8 @@ GRAPH="python3 ${CLAUDE_PLUGIN_ROOT}/skills/graph/graph.py --env-file <env>"
 
 Then `/ela:explain <KEY>` for each ticket, and work from its four blocks. On a batch, run explain
 only for the tickets that survive the step 1 split with an open question — the rest are decided on
-the ticket alone.
+the ticket alone. A clean-up ticket whose face already answers step 1 (the fix is named, QA or the
+owner verified it on a lane) skips explain; the verdict then rests on step 2's rung 1 or 3.
 
 ## 1 — split the ticket face into three
 
@@ -116,12 +120,33 @@ not have to trust the verdict.
 *Keep* is a hand-off, never an outcome by itself: a ticket kept without a named next step is the
 state this skill exists to end.
 
-## 4 — the closing draft
+## 4 — the closing draft, as one bundle
 
-One comment per ticket, in the ticket's language, containing only: the fact that closed it and where
-that fact came from; the plan item not done and why it is not a debt; the carrier key when there is
-one. No schedule, no apology, no restatement of the description. Then the transition, and the link to
-the carrier — each a separate dry run.
+One `jira.py close` per ticket, dry run first. Its parts:
+
+- **Fixed In** — only for a Bug or Task that a code change fixed, and only as the last step of a close
+  verdict (never as the entry): `ela fixed-in <KEY> [--author A --since D | --path P | --thread URL]`
+  gives the candidate commits, the carrying builds, the lanes judged by ancestry and the gaps. The
+  value is the **earliest verifiable** build on the ticket's release line that carries the fix
+  (`<slug>@<M.m.p+BUILD>`); when the verified lane runs a build that cannot be compared, that lane's
+  own build is the value and the comment says "earliest verifiable on <lane>". A value already in the
+  field that disagrees is not removed: append the right one and say so. No build derivable (the
+  service is unmapped, the sha is not in a checkout, the change was replaced by later tickets) → the
+  field stays as it is and the comment names the commit instead. Published
+  `mediahub/jira/conventions.md` holds the rule; `map/release.yaml` holds only the grammar.
+- **Labels** — `release:mh-<line>` for every release line whose lane carries the fix by ancestry
+  (`map/release.yaml` lane → line); two lines, two labels.
+- **The comment** — English by default; bilingual (English first) only when the ticket's own text is
+  Chinese; never Chinese-only. First the sentence to the person, as a real `@mention`, then the fact
+  that closed it and where it came from, the plan item not done and why it is not a debt, the carrier
+  key when there is one; after a `---` line, the technical part (commit, build, ancestry, lane) that
+  an agent or an investigator opens. "On <lane>" is written only with ancestry evidence for that
+  lane's build; otherwise the comment names the commit and the build, not the lane. No schedule, no
+  apology, no restatement of the description.
+- **The status** — `--to Done`, walked along the lifecycle when Jira offers no direct transition;
+  the dry run names every hop and that the assignee is notified at each.
+
+The link to a carrier is a separate `jira.py link` dry run, confirmed with the same word.
 
 Repairing a stale sentence on the face is part of the close, not a separate task: state the current
 fact in the same comment, since editing a description silently loses the history.

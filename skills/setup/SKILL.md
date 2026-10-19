@@ -100,5 +100,20 @@ python3 "${CLAUDE_PLUGIN_ROOT}/skills/gdoc/gdoc.py" --env-file "$ENV" list --lim
 Report a table: sense · key(s) present · probe result (`ok` / `auth failed` / `unreachable`).
 Anything not `ok` → point back to §2 for that key. Stop there; do not retry with guessed values.
 
+## 3b. The TVU session keepalive timer
+
+The release and logs senses read prod through a TVU session with a two-hour idle TTL (Config Server's
+`left.expire.time`, not ours). A systemd user timer renews it every 30 minutes while the machine is up;
+without it, every prod read after a quiet morning is a `ela login tvu` round trip. Check:
+
+```bash
+systemctl --user list-timers --all | grep ela-tvu-keepalive || echo "not installed"
+```
+
+Not installed → show the owner the two files it would write under `~/.config/systemd/user/` and the
+`enable --now` line (`skills/release/SKILL.md` §Keepalive timer), and install on his word. The timer
+cannot revive a session the machine slept through (longer than the TTL); that still needs `ela login tvu`,
+and the brief says so on its first line.
+
 ## 4. Done when
 Every sense probes `ok` (optional keys may be absent — say which), `site.json` paths all resolve, `.env` is mode 600. Say so in one line.
