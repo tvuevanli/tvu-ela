@@ -4,6 +4,9 @@ L1: subcommands, --json, stdlib only. Every source is read now: the ticket, the 
 builds carrying those commits, the lanes running those builds, and QA's own words about the key.
 
   draft <KEY> [<KEY>…] [--jql '<JQL>'] [--since YYYY-MM-DD] [--evidence] [--author A] [--path P] [--thread URL]
+  declared <KEY> [<KEY>…]          what the developers' comments declare was built — Jira, the roster and the published
+                                   map only, so it runs on any site; every entry is unverified by construction
+  compare-helm <KEY>… [--jql …]    test only: ela's declared reading against Helm's grader on the same tickets
         ticket  summary, status, labels, the current Fixed In (map/release.yaml fixed_in.field)
         commits `git log --all --grep=<KEY>` and remote branches named for the key, in every checkout of a repository
                 map/release.yaml `repos` names — the checkout the survey cache locates; a missing one is a gap.
@@ -299,6 +302,7 @@ def chain(a, key, repos_cache, builds_cache):
     rec.update(summary=f.get("summary"), status=(f.get("status") or {}).get("name"), labels=f.get("labels") or [],
                current=(P.adf_text(raw).strip() if raw else ""), url=d.get("url"))
     rec["comments"] = d.get("comments") or []
+    rec["declared"] = declared_from_comments(rec["comments"], f.get("summary") or "", P.load_roster())
     for e in P.parse_fixed_in(rec["current"]):
         if e["docker"]:
             rec["gaps"].append(f"{e['slug']}@{e['version']}: {DOCKER_GAP}")
@@ -388,6 +392,463 @@ def attach_evidence(a, recs):
             r["gaps"].append(f"evidence: {g['kind']}")
 
 
+# ── declared: what the comments say was built (never what was verified) ───────
+# The reading rules below were carried over from Helm's evidence engine (app/ops/scripts/evidence_engine.py,
+# 2026-10-19) so that one implementation answers "what did the developer declare", and Helm's can retire on
+# parity (`compare-helm`). The lexical tables — named-service tokens, summary prefixes, the one unique version
+# series — are reading rules, not knowledge about the product; the service identities they resolve to are the
+# slugs of map/release.yaml and the images of map/services.yaml, both published.
+
+VERSION_RX = re.compile(r"(?:v?\d+\.\d+[\.\d]*(?:\+\d+|build\d+)?|build\s*\d+|@\d+[\.\d]*)", re.I)
+BARE_BUILD_RX = re.compile(r"^build\s*(\d+)$", re.I)
+EXPLICIT_RX = re.compile(r"(?<![A-Za-z0-9._/@-])([a-z][a-z0-9]*(?:-[a-z0-9]+)+)@"
+                         r"(v?\d+(?:\.\d+){1,3}(?:\+\d+)?|build\s*\d+|[a-z0-9][a-z0-9._-]*:v?\d[a-z0-9._+-]*)", re.I)
+COMMIT_SUBJECT_RX = re.compile(r"(?:commit|提交)\s*[:：].*|(?:fix|feat|chore|refactor|perf|docs|test|build|ci)\([^)]*\)\s*[:：].*", re.I)
+NO_VERSION_RX = re.compile(r"(?:配置已修改|配置.*?已生效|已修改配置|已生效|(?:环境配置|配置问题).*?(?:已修复|修复|已解决|解决)"
+                           r"|config\s+(?:changed|updated|applied|effective|deployed)|dns\s+(?:changed|updated|propagat)"
+                           r"|infra\s+(?:fix|change|update).*?(?:applied|deployed|done))", re.I)
+QA_REFUTE_RX = re.compile(r"(?:see\s+again|still\s+(?:repro|fail|broken|present|see|occur|happen)|still\b|reproduc(?:ed|ible|es)"
+                          r"|fail(?:ed|s)\b|依然存在|仍然|还是|重现|复现|未解决|没解决|不行)", re.I)
+VERDICT_LINE_RX = re.compile(r"(?:验证结果|验证结论|测试结果|复测结果|回归结果)\s*[:：]")
+VERDICT_NEG_RX = re.compile(r"❌|未修复|未完全修复|未能修复|未通过|不通过|验证失败|验证不通过")
+VERDICT_POS_RX = re.compile(r"✅|✓|验证通过|已修复|已实现|通过|pass(?:ed)?\b", re.I)
+BARE_NEG_VERDICT_RX = re.compile(r"(?:未修复|未完全修复|未能修复|未通过|不通过|验证失败)\s*[：:（(]?\s*❌|❌\s*(?:未修复|未完全修复|未能修复|未通过|不通过|验证失败)")
+QA_PASS_LOOSE_RX = re.compile(r"验证通过|已修复\s*[✅✓]|已修复.*(?:通过|验证|无问题)|pass(?:ed)?\b|verified\b", re.I)
+DOCKER_IMAGE_RX = re.compile(r"([A-Za-z0-9][A-Za-z0-9._/\-]*[A-Za-z0-9]):(v?\d(?:[A-Za-z0-9._+\-]*[A-Za-z0-9])?)")
+NAMED_SERVICES = [  # (token in lower-cased prose, slug); None marks a token too ambiguous to resolve alone
+    ("unified-media-frontend", "unified-media-frontend"), ("unified-media-backend", "unified-media-backend"),
+    ("mediahub-frontend", "mediahub-frontend"), ("mediahub-backend", "mediahub-backend"),
+    ("mx-service-front", "unified-media-frontend"), ("mediahub-front-docker", "mediahub-frontend"),
+    ("[media hub] frontend", "mediahub-frontend"), ("[media hub front]", "mediahub-frontend"), ("media hub front", "mediahub-frontend"),
+    ("mediahub frontend", "mediahub-frontend"), ("mh frontend", "mediahub-frontend"), ("mh-frontend", "mediahub-frontend"), ("前端", None),
+    ("[media hub] backend", "mediahub-backend"), ("media hub back", "mediahub-backend"), ("mediahub backend", "mediahub-backend"),
+    ("mh backend", "mediahub-backend"), ("mh-backend", "mediahub-backend"),
+    ("unified-streaming", "unified-streaming"), ("ur-streaming", "unified-streaming"), ("ur streaming", "unified-streaming"),
+    ("ur-caller", "unified-streaming"), ("ur caller", "unified-streaming"), ("[ur caller]", "unified-streaming"),
+    ("unified media service", None), ("unified media backend", "unified-media-backend"), ("unified media frontend", "unified-media-frontend"),
+    ("j2n", "j2n"), ("headlessr", "headlessr"), ("ur portal", "ur-portal"), ("ur-portal", "ur-portal"),
+]
+SUMMARY_PREFIXES = [("ur caller", "unified-streaming"), ("[ur caller]", "unified-streaming"), ("ur-caller", "unified-streaming")]
+SERIES_SLUGS = {"2.2": "mediahub-frontend"}          # the one MAJOR.MINOR series only one service uses
+MH_CONTINUATION = {"frontend": "mediahub-frontend", "backend": "mediahub-backend"}
+MH_QUALIFIERS = ("[media hub]", "media hub", "mediahub")
+PAIR_WINDOW, QUALIFIER_WINDOW = 120, 80
+DEV_AREAS = {"app", "ui", "ur", "media"}   # the layers that build; the owner's own closing comments are not declarations
+
+
+def normalize_token(raw):
+    v = str(raw or "").strip()
+    while v[:1] in ("@", "v", "V"):
+        v = v[1:]
+    return re.sub(r"[^0-9A-Za-z]+$", "", v)
+
+
+def is_bare_line(version):
+    """A bare MAJOR.MINOR is a release line, never a service version."""
+    m = (version or "").strip()
+    if not m or re.search(r"\+\d+|build\d+", m, re.I) or re.match(r"(?:build\s*\d+|@\d)", m, re.I):
+        return False
+    return len(m.lstrip("vV").split(".")) < 3
+
+
+def qa_verdict(body):
+    """'refute' | 'pass' | None: the explicit verdict a QA comment declares. A structured verdict line (验证结果：…)
+    is read in a 30-character window, negative beating positive; a bare negative beside ❌ is a refutation."""
+    body, positive = body or "", False
+    for m in VERDICT_LINE_RX.finditer(body):
+        window = body[m.end():m.end() + 30]
+        if VERDICT_NEG_RX.search(window):
+            return "refute"
+        if VERDICT_POS_RX.search(window):
+            positive = True
+    if positive:
+        return "pass"
+    return "refute" if BARE_NEG_VERDICT_RX.search(body) else None
+
+
+def qa_refutes(body):
+    """A QA comment refutes the fix when its explicit verdict is negative, or — with no verdict line and no pass
+    wording — when a re-failure token appears. A passing comment that mentions "still" is not a refutation."""
+    v = qa_verdict(body)
+    if v:
+        return v == "refute"
+    return not QA_PASS_LOOSE_RX.search(body) and bool(QA_REFUTE_RX.search(body))
+
+
+def mask_commit_subjects(body):
+    out = body
+    for m in COMMIT_SUBJECT_RX.finditer(body):
+        out = out[:m.start()] + " " * (m.end() - m.start()) + out[m.end():]
+    return out
+
+
+def _binds(ch):
+    return ch.isalnum() or ch in "-_@/."
+
+
+_IMAGES = None
+def image_index():
+    """image base name → [{slug, gm_name, process_type}] from the published map/services.yaml `images:` block."""
+    global _IMAGES
+    if _IMAGES is not None:
+        return _IMAGES
+    idx, cur, raw = {}, None, []
+    try:
+        lines = open(os.path.join(R.site().get("map", ""), "services.yaml"), encoding="utf-8").read().splitlines()
+    except OSError:
+        _IMAGES = {}; return _IMAGES
+    inside = False
+    for ln in lines:
+        if not ln.startswith(" "):
+            inside = ln.startswith("images:"); cur = None; continue
+        if not inside:
+            continue
+        m = re.match(r"^  ([A-Za-z0-9][A-Za-z0-9._/-]*):\s*$", ln)
+        if m:
+            cur = {"image": m.group(1).lower(), "slugs": [], "gm_names": [], "process_types": []}
+            raw.append(cur)
+            continue
+        m = re.match(r"^    (slugs|gm_names|process_types):\s*(\[.*\])\s*$", ln)
+        if m and cur is not None:
+            try:
+                cur[m.group(1)] = [str(x) for x in json.loads(m.group(2))]
+            except ValueError:
+                pass
+    for e in raw:                       # one record per slug: the lists are parallel, position i describes slug i
+        recs = [{"slug": sl, "gm_name": e["gm_names"][i] if i < len(e["gm_names"]) else "",
+                 "process_type": e["process_types"][i] if i < len(e["process_types"]) else ""} for i, sl in enumerate(e["slugs"])]
+        for key in ("/".join(e["image"].split("/")[i:]) for i in range(e["image"].count("/") + 1)):
+            idx.setdefault(key, []).extend(r for r in recs if r["slug"] not in {x["slug"] for x in idx.get(key, [])})
+    _IMAGES = idx
+    return idx
+
+
+def known_slugs():
+    out = {s for _, s in named_services() if s} | set(SERIES_SLUGS.values())
+    al = (R.rmap("fixed_in") or {}).get("slug_aliases") or {}
+    out |= set(al) | set(al.values()) | set((R.rmap("repos") or {}).keys()) | set((R.rmap("jobs") or {}).values())
+    for bucket in image_index().values():
+        out |= {e["slug"] for e in bucket}
+    return out
+
+
+def resolve_explicit(body):
+    al = (R.rmap("fixed_in") or {}).get("slug_aliases") or {}
+    known, order, ver = known_slugs(), [], {}
+    for m in EXPLICIT_RX.finditer(body):
+        slug = al.get(m.group(1).lower(), m.group(1).lower())
+        if slug not in known:
+            continue
+        raw = m.group(2)
+        if slug not in ver:
+            order.append(slug)
+        ver[slug] = raw if ":" in raw else normalize_token(raw)
+    return [(s, ver[s]) for s in order]
+
+
+def resolve_docker(body, context=""):
+    """`image:tag` citations → (mds slug, image:tag); a shared image narrowed by what the ticket names, else all of them."""
+    idx, ctx, out, seen = image_index(), (context or "").lower(), [], set()
+    for m in DOCKER_IMAGE_RX.finditer(body or ""):
+        path, tag = m.group(1).lower(), m.group(2)
+        parts = [p for p in path.split("/") if p]
+        hit = next((idx[k] for k in ("/".join(parts[i:]) for i in range(len(parts))) if idx.get(k)), None)
+        if not hit:
+            continue
+        cands = list(hit)
+        if len(cands) > 1 and ctx:
+            narrowed = [e for e in cands if any(t and t.lower() in ctx for t in (e["process_type"], e["gm_name"]))]
+            if len(narrowed) == 1:
+                cands = narrowed
+        name = parts[-1] if parts else path
+        for e in cands:
+            if e["slug"] not in seen:
+                seen.add(e["slug"]); out.append((e["slug"], f"{name}:{tag}"))
+    return out
+
+
+_NAMED = None
+def named_services():
+    """The hand table above plus what the published release map derives first-hand: every Jenkins job name and every
+    repository basename names the service it builds (media-hub-v4 and tvu-media-hub → mediahub-backend). Longer tokens
+    first, so a job name is matched before a word inside it."""
+    global _NAMED
+    if _NAMED is None:
+        extra = []
+        for job, slug in (R.rmap("jobs") or {}).items():
+            extra.append((job.lower(), slug))
+        for slug, rel in (R.rmap("repos") or {}).items():
+            base = str(rel).rstrip("/").split("/")[-1].lower()
+            if base and len(base) > 4:
+                extra.append((base, slug))
+        seen = {t for t, _ in NAMED_SERVICES}
+        _NAMED = NAMED_SERVICES + [(t, sl) for t, sl in extra if t not in seen]
+        _NAMED.sort(key=lambda x: -len(x[0]))
+    return _NAMED
+
+
+def resolve_named_multi(body):
+    b = body.lower()
+    vers = [(m.start(), m.end(), m.group()) for m in VERSION_RX.finditer(b)]
+    svc, covered = [], set()
+    for token, slug in named_services():
+        start = 0
+        while True:
+            pos = b.find(token, start)
+            if pos == -1:
+                break
+            if pos not in covered and not any(s0 <= pos < s1 for s0, s1, _ in svc):
+                covered.add(pos); svc.append((pos, pos + len(token), slug))
+            start = pos + 1
+    quals = [b.find(t) for t in MH_QUALIFIERS if t in b]
+    if quals:
+        for kw, kslug in MH_CONTINUATION.items():
+            start = 0
+            while True:
+                pos = b.find(kw, start)
+                if pos == -1:
+                    break
+                inside = any(s <= pos < e for s, e, _ in svc)
+                qualified = any(0 <= pos - q <= QUALIFIER_WINDOW for q in quals)
+                if qualified and not inside and pos not in covered:
+                    pre = b[pos - 1] if pos else " "; post = b[pos + len(kw)] if pos + len(kw) < len(b) else " "
+                    if not _binds(pre) and not _binds(post):
+                        covered.add(pos); svc.append((pos, pos + len(kw), kslug))
+                start = pos + 1
+    if not svc:
+        return []
+    svc.sort()
+    claimed, pairs = set(), []
+    for s0, s1, slug in svc:
+        if slug is None:
+            continue
+        best = None
+        for v0, v1, vs in vers:
+            if v0 in claimed or v0 < s1 or v0 > s1 + PAIR_WINDOW:
+                continue
+            if best is None or v0 - s1 < best[0] - s1:
+                best = (v0, vs)
+        if best is None:
+            continue
+        claimed.add(best[0]); pv = best[1]
+        if not re.search(r"(?:\+\d+|build\d+)$", pv, re.I):
+            vend = best[0] + len(pv)
+            for n0, n1, ns in vers:
+                if n0 <= best[0] or n0 in claimed:
+                    continue
+                bm = BARE_BUILD_RX.match(ns.strip())
+                if bm is None:
+                    break
+                if re.fullmatch(r"[\s()]*", b[vend:n0]):
+                    claimed.add(n0); pv = pv + "+" + bm.group(1)
+                break
+        pairs.append((slug, pv))
+    seen, out = set(), []
+    for slug, v in pairs:
+        if slug not in seen:
+            seen.add(slug); out.append((slug, v))
+    return out
+
+
+def resolve_named_one(body):
+    b = body.lower()
+    for token, slug in named_services():
+        if token in b:
+            return slug
+    return None
+
+
+def resolve_pairs(body, versions, summary):
+    """One developer comment → the (slug, version) pairs it declares, and the rule that read them."""
+    explicit = resolve_explicit(body)
+    if explicit:
+        return explicit, "explicit token"
+    body = mask_commit_subjects(body)
+    multi = resolve_named_multi(body)
+    if multi:
+        return [(s, normalize_token(v)) for s, v in multi], "named service" + (" (multi)" if len(multi) > 1 else "")
+    distinct = {normalize_token(v) for v in versions} - {""}
+    last = normalize_token(versions[-1]) if versions else ""
+    slug, via, pair = resolve_named_one(body), "named service", last
+    if slug is None:
+        s = summary.lower()
+        slug = next((sl for t, sl in SUMMARY_PREFIXES if t in s), None); via = "summary prefix"
+    if slug is None:
+        bl = body.lower()
+        slug = next((sl for t, sl in SUMMARY_PREFIXES if t in bl), None); via = "feature tag"
+    if slug is None:
+        for v in versions:
+            parts = normalize_token(v).split(".")
+            if len(parts) >= 2 and SERIES_SLUGS.get(f"{parts[0]}.{parts[1]}"):
+                slug, pair, via = SERIES_SLUGS[f"{parts[0]}.{parts[1]}"], normalize_token(v), "version series"
+                break
+    if not slug or not pair:
+        return [], ""
+    if len(distinct) != 1 and pair == last:
+        return [], ""            # several versions, nothing positional: refuse rather than pick
+    return [(slug, pair)], via
+
+
+def declared_from_comments(comments, summary, roster):
+    """What the developers' comments declare, as the latest full version per service, with the bare release-line
+    tokens kept apart and docker citations resolved through the image index. Never verified: a declaration says
+    where a fix was built, not that QA passed it (map/release.yaml fixed_in.dev_declared_is_not_verified)."""
+    cits, qa_refute, unknown = [], [], []
+    for idx, c in enumerate(comments):
+        who = c.get("author") if isinstance(c.get("author"), str) else (c.get("author") or {}).get("displayName") or ""
+        body = P.adf_text(c.get("body")).strip() if not isinstance(c.get("body"), str) else c.get("body")
+        area = P.person_area(roster, who) or ""
+        versions = VERSION_RX.findall(body)
+        when = (c.get("created") or "")[:10]
+        if area == "qa":
+            if qa_refutes(body):
+                qa_refute.append(idx)
+            continue
+        if not versions and not DOCKER_IMAGE_RX.search(body):
+            continue
+        if area in DEV_AREAS:
+            cits.append((idx, {"author": who, "when": when, "body": body, "versions": versions}))
+        elif who:
+            unknown.append({"author": who, "when": when, "area": area or "not in roster"})
+    suppressed = {i for i, _ in cits if any(r > i for r in qa_refute)}
+    order, ver, meta, bare, docker = [], {}, {}, [], []
+    context = (summary or "") + " " + " ".join(c["body"] for _, c in cits)
+    for idx, cit in cits:
+        if idx in suppressed:
+            continue
+        if NO_VERSION_RX.search(cit["body"]) and cit["versions"] and all(is_bare_line(v) for v in cit["versions"]):
+            continue
+        for slug, image_tag in resolve_docker(cit["body"], context):
+            if (slug, image_tag) not in docker:
+                docker.append((slug, image_tag)); meta[slug] = (cit["author"], cit["when"], "docker image")
+        pairs, via = resolve_pairs(cit["body"], cit["versions"], summary or "")
+        for slug, version in pairs:
+            if is_bare_line(version):
+                bare.append((slug, version)); continue
+            if slug not in ver:
+                order.append(slug)
+            ver[slug] = version; meta[slug] = (cit["author"], cit["when"], via)
+    bare = [(s, v) for s, v in bare if s not in ver]
+    rows = [{"service": s, "version": ver[s], "value": f"{s}@{ver[s]}", "author": meta[s][0], "date": meta[s][1], "via": meta[s][2], "verified": False} for s in order]
+    rows += [{"service": s, "version": t, "value": f"{s}@{t}", "author": meta[s][0], "date": meta[s][1], "via": "docker image", "verified": False} for s, t in docker]
+    return {"declared": rows, "bare_release_lines": [f"{s}@{v}" for s, v in bare], "suppressed_by_qa_refutation": len(suppressed),
+            "versions_from_unknown_authors": unknown, "developer_comments_read": len(cits)}
+
+
+def cmd_declared(a):
+    """`declared <KEY>…`: the Jira read, the roster and the published map only — no checkout, no Jenkins — so it runs
+    on any site, the remote included. Draft only; nothing is written."""
+    keys = [k.upper() for k in a.keys]
+    bad = [k for k in keys if not KEY_SHAPE.match(k)]
+    if not keys or bad:
+        print("declared needs ticket keys", file=sys.stderr); sys.exit(EX_USAGE)
+    roster, recs, code = P.load_roster(), [], 0
+    for k in keys:
+        d, err = read_ticket(a.env_file, k)
+        if not d:
+            recs.append({"key": k, "error": "not in Jira" if err == EX_NOTFOUND else "Jira unreadable"}); code = code or err; continue
+        f = d.get("fields") or {}
+        fid = (R.rmap("fixed_in") or {}).get("field") or "customfield_11252"
+        raw = f.get(fid)
+        rec = {"key": k, "summary": f.get("summary"), "status": (f.get("status") or {}).get("name"),
+               "current": P.adf_text(raw).strip() if raw else ""}
+        rec.update(declared_from_comments(d.get("comments") or [], f.get("summary") or "", roster))
+        recs.append(rec)
+    if a.json:
+        print(json.dumps({"keys": recs}, ensure_ascii=False))
+    else:
+        for r in recs:
+            if r.get("error"):
+                print(f"## {r['key']}  ! {r['error']}"); continue
+            print(f"## {r['key']}  [{r['status'] or '?'}]  {(r['summary'] or '')[:90]}")
+            print(f"   current   {r['current'] or '—'}")
+            for x in r["declared"]:
+                print(f"   declared  {x['value']:<44} {x['author']} {x['date']}  via {x['via']}  (unverified)")
+            if r["bare_release_lines"]:
+                print(f"   ! release-line tokens, not versions: {', '.join(r['bare_release_lines'])}")
+            if r["suppressed_by_qa_refutation"]:
+                print(f"   ! {r['suppressed_by_qa_refutation']} declaration(s) post-dated by a QA re-failure, left out")
+            for u in r["versions_from_unknown_authors"]:
+                print(f"   ! a version in a comment by {u['author']} ({u['area']}) on {u['when']} — not read as a declaration")
+            print()
+    if code:
+        sys.exit(code)
+
+
+# ── compare-helm: Helm's grader as the oracle (test only; never a runtime dependency) ──
+
+HELM_GRADER = r'''
+import sys, json
+from pathlib import Path
+ROOT = Path(sys.argv[1])
+for p in (ROOT / "app" / "ops" / "scripts", ROOT / "app" / "ops", ROOT / "app", ROOT):
+    sys.path.insert(0, str(p))
+import evidence_engine as E
+issues = json.load(open(sys.argv[2]))
+out = {}
+for iss in issues:
+    f = iss["fields"]; f["comment"] = {"comments": iss.get("comments") or []}
+    g = E.grade_issue({"key": iss["key"], "fields": f})
+    dev = []
+    for idx, c in enumerate(f["comment"]["comments"]):
+        author = (c.get("author") or {}).get("displayName", ""); canon = E.canonical_author(c)
+        body = E.extract_text(c.get("body", {})); versions = E.VERSION_RE.findall(body)
+        if E.author_in(author, canon, E.DEV_NAMES) and versions:
+            dev.append((idx, {"author": author, "body": body, "versions": versions}))
+    refuted = E.qa_refutation_indices(f["comment"]["comments"])
+    suppressed = {i for i, _ in dev if any(r > i for r in refuted)}
+    pairs, vias, bare = E.union_declared_pairs(dev, f.get("summary") or "", suppressed)
+    out[iss["key"]] = {"grade": g.grade, "signal": g.signal, "pairs": [f"{s}@{v}" for s, v in pairs], "bare": [f"{s}@{v}" for s, v in bare]}
+json.dump(out, open(sys.argv[3], "w"), ensure_ascii=False, default=str)
+'''
+
+
+def cmd_compare_helm(a):
+    """`compare-helm <KEY>… [--jql …]`: ela's `declared` against Helm's `union_declared_pairs` on the same ticket JSON; every
+    difference listed. Zero unexplained differences is the retirement condition for Helm's copy (ADR 0005)."""
+    keys = [k.upper() for k in a.keys]
+    if a.jql:
+        ok, d, err = P.l1("jira", "jql", a.jql, "--limit", "100", env_file=a.env_file, timeout=120)
+        if not ok:
+            print(f"jql failed: {err}", file=sys.stderr); sys.exit(EX_REMOTE)
+        keys += [i["key"] for i in d.get("issues") or [] if i.get("key") and i["key"] not in keys]
+    if not keys:
+        print("compare-helm needs ticket keys or --jql", file=sys.stderr); sys.exit(EX_USAGE)
+    helm = os.path.join(R.site().get("projects") or "", "helm")
+    if not os.path.isfile(os.path.join(helm, "app", "ops", "scripts", "evidence_engine.py")):
+        print(f"no Helm checkout at {helm}", file=sys.stderr); sys.exit(EX_USAGE)
+    roster, issues, mine = P.load_roster(), [], {}
+    cached = {i["key"]: i for i in json.load(open(a.issues))} if a.issues else {}
+    for k in keys:
+        d, err = (cached.get(k), None) if a.issues else read_ticket(a.env_file, k)
+        if not d:
+            continue
+        issues.append(d)
+        f = d.get("fields") or {}
+        mine[k] = declared_from_comments(d.get("comments") or [], f.get("summary") or "", roster)
+    work = os.path.join(R.site().get("runtime") or "/tmp", "compare-helm"); os.makedirs(work, exist_ok=True)
+    inp, outp, script = os.path.join(work, "issues.json"), os.path.join(work, "helm.json"), os.path.join(work, "helm_grader.py")
+    json.dump(issues, open(inp, "w"), ensure_ascii=False); open(script, "w").write(HELM_GRADER)
+    rc, out, err = P.run(["bash", "-lc", f"cd {helm} && set -a && . config/.env 2>/dev/null; set +a; python3 {script} {helm} {inp} {outp}"], 600)
+    if rc != 0 or not os.path.isfile(outp):
+        print(f"helm grader failed: {(err or out).strip()[-400:]}", file=sys.stderr); sys.exit(EX_REMOTE)
+    helm_out, agree, differ = json.load(open(outp)), 0, []
+    for k, m in mine.items():
+        h = helm_out.get(k) or {}
+        ela_pairs = sorted(x["value"] for x in m["declared"] if x["via"] != "docker image")
+        helm_pairs = sorted(h.get("pairs") or [])
+        if ela_pairs == helm_pairs:
+            agree += 1
+        else:
+            differ.append({"key": k, "ela": ela_pairs, "helm": helm_pairs, "helm_grade": h.get("grade"), "ela_bare": m["bare_release_lines"], "helm_bare": h.get("bare")})
+    res = {"compared": len(mine), "agree": agree, "differ": differ}
+    if a.json:
+        print(json.dumps(res, ensure_ascii=False)); return
+    print(f"compared {len(mine)}  agree {agree}  differ {len(differ)}")
+    for d in differ:
+        print(f"  {d['key']:<8} ela {d['ela'] or '—'}   helm {d['helm'] or '—'}  (helm grade {d['helm_grade']})")
+
+
 # ── output ────────────────────────────────────────────────────────────────────
 
 def print_text(recs):
@@ -399,6 +860,8 @@ def print_text(recs):
             via = f"  [branch {', '.join(c['branches'])}]" if c.get("branches") else ""
             hint = f"  [via {c['via']}]" if c.get("via") not in (None, "message", "branch") else ""
             print(f"   commit    {c['service']:<24} {c['sha'][:8]} {c['date']} {c['subject'][:80]}{via}{hint}")
+        for x in (r.get("declared") or {}).get("declared") or []:
+            print(f"   declared  {x['value']:<44} {x['author']} {x['date']}  via {x['via']}  (unverified)")
         for b in r["builds"]:
             print(f"   build     {b['service']:<24} {b['job']} #{b['number']} {b['version']} {b['result'] or ''}  ← {b['sha'][:8]}{'  (ledger)' if b.get('ledger') else ''}")
         for x in r["lanes"]:
@@ -440,7 +903,7 @@ def cmd_draft(a):
             r.pop("comments", None)
     if a.json:
         print(json.dumps({"keys": [{f: r.get(f) for f in ("key", "summary", "status", "labels", "current", "compare", "draft",
-                                                          "commits", "builds", "lanes", "evidence", "gaps")} for r in recs]}, ensure_ascii=False))
+                                                          "commits", "builds", "lanes", "evidence", "gaps", "declared")} for r in recs]}, ensure_ascii=False))
     else:
         print_text(recs)
     codes = {r.get("exit") for r in recs}
@@ -452,6 +915,12 @@ def cmd_draft(a):
 
 def main():
     signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+    verbs = ("draft", "declared", "compare-helm")
+    i = 3 if len(sys.argv) > 1 and sys.argv[1] == "--env-file" else 1      # where the subcommand sits
+    if len(sys.argv) > i and sys.argv[i] == "draft" and len(sys.argv) > i + 1 and sys.argv[i + 1] in verbs[1:]:
+        del sys.argv[i]                        # `ela fixed-in declared …` arrives as `draft declared …`: the named verb wins
+    elif len(sys.argv) > i and sys.argv[i] not in verbs + ("-h", "--help"):
+        sys.argv.insert(i, "draft")            # `ela fixed-in MH-1` is the draft
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--env-file")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -464,10 +933,15 @@ def main():
     p.add_argument("--path", help="hint: also take commits touching this path since --since as candidates")
     p.add_argument("--thread", help="hint: also take commits whose message carries this Slack permalink")
     p.add_argument("--json", action="store_true")
+    p = sub.add_parser("declared", help="what the developers' comments declare was built (unverified) — no checkout, no Jenkins")
+    p.add_argument("keys", nargs="*"); p.add_argument("--json", action="store_true")
+    p = sub.add_parser("compare-helm", help="test only: ela's declared reading vs Helm's grader on the same tickets")
+    p.add_argument("keys", nargs="*"); p.add_argument("--jql"); p.add_argument("--issues", help="a saved issues.json from an earlier run instead of reading Jira again")
+    p.add_argument("--json", action="store_true")
     a = ap.parse_args()
-    if a.since and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", a.since):
+    if getattr(a, "since", None) and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", a.since):
         print("--since takes YYYY-MM-DD", file=sys.stderr); sys.exit(EX_USAGE)
-    {"draft": cmd_draft}[a.cmd](a)
+    {"draft": cmd_draft, "declared": cmd_declared, "compare-helm": cmd_compare_helm}[a.cmd](a)
 
 
 if __name__ == "__main__":
