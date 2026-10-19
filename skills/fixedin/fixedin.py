@@ -3,16 +3,23 @@
 L1: subcommands, --json, stdlib only. Every source is read now: the ticket, the commits naming its key, the Jenkins
 builds carrying those commits, the lanes running those builds, and QA's own words about the key.
 
-  draft <KEY> [<KEY>…] [--jql '<JQL>'] [--since YYYY-MM-DD]
+  draft <KEY> [<KEY>…] [--jql '<JQL>'] [--since YYYY-MM-DD] [--evidence] [--author A] [--path P] [--thread URL]
         ticket  summary, status, labels, the current Fixed In (map/release.yaml fixed_in.field)
         commits `git log --all --grep=<KEY>` and remote branches named for the key, in every checkout of a repository
-                map/release.yaml `repos` names — the checkout the survey cache locates; a missing one is a gap
+                map/release.yaml `repos` names — the checkout the survey cache locates; a missing one is a gap.
+                A commit that never named its key is found only through a hint the caller supplies — `--author`
+                (with --since as the window), `--path`, `--thread` (a Slack permalink in the message) — and is
+                labelled by the hint it came from; the judgment that such a commit is the fix stays with the caller
         builds  the first Jenkins build of the repository's job (map/release.yaml `jobs`) whose sha is the commit or
-                descends from it in that checkout
+                descends from it in that checkout. Jenkins keeps a window; builds older than it come from Helm's build
+                ledger when site.json names one (`builds_ledger`: captured first-hand by Helm's scheduler, stamped
+                `synced_at`, read-only here) and are reported as such. A build whose sha is not in the checkout cannot be
+                judged, so the carrying build is the earliest *verifiable* one and the untestable range is named
         lanes   qa-*, daily-*, stage and prod-N lanes whose own Jenkins build (the +BUILD of the lane's version) has a
                 commit of the key as an ancestor; version order is not containment across branches. A build outside
                 the fetched window, or a prod read without a session, is a gap, never a guess
-        evidence QA verdicts over the key's Jira comments, mail and Slack since --since (default 30 days), one line each
+        evidence QA verdicts over the key's Jira comments, mail and Slack since --since (default 30 days), one line each —
+                only with --evidence: the mail and Slack sweep is the slow part (minutes) and a close rarely needs it
         draft   `<slug>@<version>` per service, beside the current value: same · differs · empty
 
 --jql runs the same for every key the query returns. Nothing is written here: the owner confirms a draft and the
@@ -96,7 +103,91 @@ def commits_for(key, path):
     return rows, None
 
 
+# ── hints: commits that never named their key ────────────────────────────────
+
+def hinted_commits(path, a):
+    """Candidate commits from the caller's hints, each labelled by the hint: --author (within --since), --path
+    (within --since), --thread (the permalink in the message, fixed-string). Deduplicated by sha."""
+    rows = []
+    fmt = ("--format=%H%x09%ad%x09%s", "--date=short")
+    if a.author or a.path:
+        argv = ["log", "--all", f"--since={a.since}", "-n", "200", *fmt]
+        via = []
+        if a.author:
+            argv.append(f"--author={a.author}"); via.append(f"author {a.author}")
+        if a.path:
+            argv += ["--", a.path]; via.append(f"path {a.path}")
+        rc, out, _ = P.git(path, *argv)
+        for r in parse_log(out) if rc == 0 else []:
+            rows.append(dict(r, via=" ".join(via)))
+    if a.thread:
+        rc, out, _ = P.git(path, "log", "--all", "-F", f"--grep={a.thread}", *fmt)
+        for r in parse_log(out) if rc == 0 else []:
+            if r["sha"] not in {x["sha"] for x in rows}:
+                rows.append(dict(r, via="thread"))
+    return rows
+
+
 # ── builds ────────────────────────────────────────────────────────────────────
+
+def ledger_builds(job):
+    """Helm's build ledger for a job (site.json `builds_ledger`, a sqlite file opened read-only): rows in the shape
+    `release builds --json` gives, plus ledger=True, and the newest `synced_at`. (None, None) when the site names no
+    ledger; ([], reason) when it cannot be read. The ledger is a first-hand capture stamped at capture time, kept
+    because Jenkins forgets; inside Jenkins' own window Jenkins wins."""
+    path = R.site().get("builds_ledger")
+    if not path:
+        return None, None
+    import sqlite3
+    try:
+        con = sqlite3.connect(f"file:{os.path.expanduser(path)}?mode=ro", uri=True)
+        rows = con.execute("select number, version, branch, sha, result, timestamp, synced_at from builds where job=? order by number", (job,)).fetchall()
+    except sqlite3.Error as e:
+        return [], f"ledger unreadable: {e}"
+    out, latest = [], ""
+    for n, ver, br, sha, res, ts, syn in rows:
+        pv = R.parse_version(ver or "")
+        out.append({"job": job, "number": n, "version": R.vlabel(pv).split("+")[0] if pv else None,
+                    "build": pv[4] if pv and pv[4] else n, "result": res, "branch": br or "", "sha": (sha or "")[:12],
+                    "sha_full": sha or "", "time": datetime.datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M") if ts else "",
+                    "ledger": True})
+        latest = max(latest, syn or "")
+    return out, latest
+
+
+def job_builds(a, job, builds_cache, rec):
+    """Jenkins' last 80 builds of a job, extended backwards from the ledger; cached per run. (builds, error)."""
+    if job in builds_cache:
+        return builds_cache[job]
+    P.say(f"jenkins {job}")
+    ok, bd, berr = P.l1("release", "builds", job, "--limit", "80", env_file=a.env_file, timeout=60)
+    jb = (bd or {}).get("builds") if ok else None
+    lb, stamp = ledger_builds(job)
+    if lb:
+        have = {b.get("number") for b in (jb or [])}
+        merged = list(jb or []) + [b for b in lb if b["number"] not in have]
+        note = f"ledger: builds older than Jenkins' window from Helm's ledger, captured {stamp}" if jb is not None \
+            else f"ledger: Jenkins {job} unreadable ({(berr or '')[:80]}); all builds from Helm's ledger, captured {stamp}"
+        builds_cache[job] = (merged, note)
+    elif lb == [] and stamp:
+        builds_cache[job] = (jb, "") if jb is not None else (None, berr)
+        rec["gaps"].append(f"{job}: {stamp}")
+    else:
+        builds_cache[job] = (jb, "") if jb is not None else (None, berr)
+    return builds_cache[job]
+
+
+def commit_exists(path, sha):
+    return P.git(path, "cat-file", "-e", f"{sha}^{{commit}}")[0] == 0
+
+
+def untestable_before(path, builds, number):
+    """Build numbers below `number` whose sha the checkout does not hold — they cannot be judged, so `number` is the
+    earliest *verifiable* carrier, not necessarily the earliest. Capped so a long ledger stays cheap."""
+    earlier = sorted((b for b in builds if b.get("number") is not None and b["number"] < number and b.get("sha_full")),
+                     key=lambda b: -b["number"])[:150]
+    return sorted(b["number"] for b in earlier if not commit_exists(path, b["sha_full"]))
+
 
 def build_parsed(b):
     return R.parse_version(f"{b['version']}+{b['build']}") if b.get("version") and b.get("build") is not None else None
@@ -220,27 +311,33 @@ def chain(a, key, repos_cache, builds_cache):
         rows, err = commits_for(key, path)
         if err:
             rec["gaps"].append(f"{slug}: {err}"); continue
+        for h in hinted_commits(path, a) if (a.author or a.path or a.thread) else []:
+            if h["sha"] not in {r["sha"] for r in rows}:
+                rows.append(h)
         if not rows:
             continue
         for c in rows:
             rec["commits"].append(dict(c, service=slug, repo=rel))
         job = jobs.get(slug)
         if not job:
-            rec["gaps"].append(f"{slug}: no Jenkins job in map/release.yaml jobs"); continue
-        if job not in builds_cache:
-            P.say(f"jenkins {job}")
-            ok, bd, berr = P.l1("release", "builds", job, "--limit", "80", env_file=a.env_file, timeout=60)
-            builds_cache[job] = ((bd or {}).get("builds"), "") if ok else (None, berr)
-        builds, berr = builds_cache[job]
+            rec["gaps"].append(f"{slug}: service unmapped — no Jenkins job in map/release.yaml jobs; ask its owner for the build"); continue
+        builds, note = job_builds(a, job, builds_cache, rec)
         if builds is None:
-            rec["gaps"].append(f"{slug}: Jenkins {job} unreadable: {berr[:120]}"); continue
+            rec["gaps"].append(f"{slug}: Jenkins {job} unreadable: {(note or '')[:120]}"); continue
+        if note and note not in rec["gaps"]:
+            rec["gaps"].append(note)
         is_anc = lambda s, b, p=path: P.git(p, "merge-base", "--is-ancestor", s, b)[0] == 0
         for c in rows:
             b = carrying_build(c["sha"], builds, is_anc)
             if not b:
                 rec["gaps"].append(f"{slug}: {c['sha'][:8]} is in no build of {job}'s last {len(builds)} (not built yet, or older than the window)"); continue
             rec["builds"].append({"service": slug, "sha": c["sha"], "job": job, "number": b["number"],
-                                  "version": R.vlabel(build_parsed(b)) if build_parsed(b) else b.get("version"), "result": b.get("result")})
+                                  "version": R.vlabel(build_parsed(b)) if build_parsed(b) else b.get("version"), "result": b.get("result"),
+                                  "ledger": bool(b.get("ledger"))})
+            missing = untestable_before(path, builds, b["number"])
+            if missing:
+                rec["gaps"].append(f"{slug}: #{b['number']} is the earliest verifiable carrier of {c['sha'][:8]}; "
+                                   f"#{missing[0]}–#{missing[-1]} ({len(missing)} builds) untestable — sha not in the checkout")
             carriers.setdefault(slug, []).append(b)
         found[slug] = ([c["sha"] for c in rows], builds, is_anc)
     for slug, bs in carriers.items():
@@ -300,9 +397,10 @@ def print_text(recs):
         print(f"   draft     {'; '.join(d['value'] for d in r['draft']) or '—'}   ({r['compare'] or 'unread'})")
         for c in r["commits"]:
             via = f"  [branch {', '.join(c['branches'])}]" if c.get("branches") else ""
-            print(f"   commit    {c['service']:<24} {c['sha'][:8]} {c['date']} {c['subject'][:80]}{via}")
+            hint = f"  [via {c['via']}]" if c.get("via") not in (None, "message", "branch") else ""
+            print(f"   commit    {c['service']:<24} {c['sha'][:8]} {c['date']} {c['subject'][:80]}{via}{hint}")
         for b in r["builds"]:
-            print(f"   build     {b['service']:<24} {b['job']} #{b['number']} {b['version']} {b['result'] or ''}  ← {b['sha'][:8]}")
+            print(f"   build     {b['service']:<24} {b['job']} #{b['number']} {b['version']} {b['result'] or ''}  ← {b['sha'][:8]}{'  (ledger)' if b.get('ledger') else ''}")
         for x in r["lanes"]:
             print(f"   lane      {x['service']:<24} {x['lane']:<12} {x['version']}  ({x['host']})  ← {x['carries']}")
         ev = r.get("evidence")
@@ -335,7 +433,11 @@ def cmd_draft(a):
         if repos_cache is None:
             r["gaps"].append(f"no survey cache at {CACHE} — run: ela survey")
         recs.append(r)
-    attach_evidence(a, recs)
+    if a.evidence:
+        attach_evidence(a, recs)
+    else:
+        for r in recs:
+            r.pop("comments", None)
     if a.json:
         print(json.dumps({"keys": [{f: r.get(f) for f in ("key", "summary", "status", "labels", "current", "compare", "draft",
                                                           "commits", "builds", "lanes", "evidence", "gaps")} for r in recs]}, ensure_ascii=False))
@@ -356,7 +458,11 @@ def main():
     p = sub.add_parser("draft", help="the Fixed In a ticket's evidence supports, beside the current value — draft only; no Jira write")
     p.add_argument("keys", nargs="*", help="ticket keys (MH-3568)")
     p.add_argument("--jql", help="also every key this query returns (up to 300)")
-    p.add_argument("--since", help="evidence window start, YYYY-MM-DD (default 30 days ago)")
+    p.add_argument("--since", help="window start for --evidence and for --author/--path, YYYY-MM-DD (default 30 days ago)")
+    p.add_argument("--evidence", action="store_true", help="also sweep QA mail and Slack for verdicts (slow: minutes)")
+    p.add_argument("--author", help="hint: also take this author's commits since --since as candidates")
+    p.add_argument("--path", help="hint: also take commits touching this path since --since as candidates")
+    p.add_argument("--thread", help="hint: also take commits whose message carries this Slack permalink")
     p.add_argument("--json", action="store_true")
     a = ap.parse_args()
     if a.since and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", a.since):
