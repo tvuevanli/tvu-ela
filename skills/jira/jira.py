@@ -35,6 +35,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+HERE = os.path.dirname(os.path.realpath(__file__))
+
 ENV_KEYS = ("JIRA_BASE_URL", "JIRA_EMAIL", "JIRA_TOKEN")
 
 # Closed vocabulary — one token, one owning layer. A title that does not start
@@ -227,14 +229,90 @@ def body_text(field):
     return adf_to_text(field)
 
 
-def text_to_adf(text):
-    """Plain text → minimal ADF: one paragraph per non-empty line."""
-    paras = [
-        {"type": "paragraph", "content": [{"type": "text", "text": line}]}
-        for line in text.splitlines() if line.strip()
-    ]
-    return {"type": "doc", "version": 1,
-            "content": paras or [{"type": "paragraph"}]}
+# ── people (the published roster, through the team capability) ───────────────
+
+_TEAM, _PEOPLE = None, None
+
+
+def roster_people():
+    """The published roster via skills/team; [] when this site has none — a mention then refuses, never guesses."""
+    global _TEAM, _PEOPLE
+    if _PEOPLE is None:
+        try:
+            sys.path.insert(0, os.path.join(HERE, "..", "team"))
+            import team as T
+            _TEAM, _PEOPLE = T, T.read_roster()[1]
+        except (SystemExit, Exception):
+            _TEAM, _PEOPLE = None, []
+    return _PEOPLE
+
+
+def person_area(display_name):
+    """The roster area of a Jira display name ('' when unknown) — the sign-off check reads it, nothing else."""
+    dn = (display_name or "").strip().lower()
+    for p in roster_people():
+        if dn and dn in {(p.get("name") or "").lower(), (p.get("jira_name") or "").lower()}:
+            return p.get("area") or ""
+    return ""
+
+
+MENTION_RX = re.compile(r"(?<![\w@/.:])@([A-Za-z][A-Za-z0-9._-]{1,30})")
+
+
+def resolve_mentions(text):
+    """`@name` tokens → {name: (accountId, display name)} through the roster. A name the roster cannot settle to
+    exactly one person with a Jira id is returned apart; the caller refuses rather than post a bare '@name',
+    because a plain-text name notifies nobody (published people/roster.md: a person not listed is unknown)."""
+    found, unresolved = {}, []
+    people = roster_people()
+    for m in MENTION_RX.finditer(text or ""):
+        name = m.group(1)
+        if name in found or name in unresolved:
+            continue
+        hits = [p for p in (_TEAM.find(people, name) if (_TEAM and people) else []) if p.get("jira")]
+        if len(hits) == 1:
+            found[name] = (hits[0]["jira"], hits[0]["name"])
+        else:
+            unresolved.append(name)
+    return found, unresolved
+
+
+def _inline(line, mentions):
+    nodes, pos = [], 0
+    for m in MENTION_RX.finditer(line):
+        if m.group(1) not in mentions:
+            continue
+        if m.start() > pos:
+            nodes.append({"type": "text", "text": line[pos:m.start()]})
+        aid, disp = mentions[m.group(1)]
+        nodes.append({"type": "mention", "attrs": {"id": aid, "text": "@" + disp}})
+        pos = m.end()
+    if pos < len(line):
+        nodes.append({"type": "text", "text": line[pos:]})
+    return nodes or [{"type": "text", "text": line}]
+
+
+DETAIL_RX = re.compile(r"^-{3,}\s*(.*?)\s*-*$")
+
+
+def text_to_adf(text, mentions=None, detail=False):
+    """Plain text → ADF, one paragraph per non-empty line.
+    `mentions` ({name: (accountId, display)}) turns `@name` into a real mention node.
+    With `detail`, a line of three or more dashes starts a collapsed block that holds everything after it — the
+    words on that line are its title (default 'Technical detail'). The short part is what a person reads; the
+    block is what an agent or an investigator opens. Two registers, one comment."""
+    mentions, top, rest, title, inside = mentions or {}, [], [], "Technical detail", False
+    for line in (text or "").splitlines():
+        m = DETAIL_RX.match(line.strip()) if detail else None
+        if m and not inside:
+            inside, title = True, (m.group(1).strip() or title)
+            continue
+        if not line.strip():
+            continue
+        (rest if inside else top).append({"type": "paragraph", "content": _inline(line, mentions)})
+    if rest:
+        top.append({"type": "expand", "attrs": {"title": title}, "content": rest})
+    return {"type": "doc", "version": 1, "content": top or [{"type": "paragraph"}]}
 
 
 # ── Rendering ────────────────────────────────────────────────────────────────
@@ -704,90 +782,178 @@ def _emit(args, result, text_lines):
             print(line)
 
 
-def cmd_comment(creds, args):
-    """Post one comment to one or more issues. Idempotent on identical text."""
-    text = args.text
-    if args.from_file:
+def _read_text(args):
+    text = getattr(args, "text", None)
+    if getattr(args, "from_file", None):
         with open(args.from_file, encoding="utf-8") as fh:
             text = fh.read().rstrip("\n")
-    if not (text or "").strip():
+    return text or ""
+
+
+def _comment_one(creds, key, text, apply, mention=True):
+    """Post one comment to one issue. Idempotent on identical rendered text; `@name` resolved through the roster."""
+    mentions, unresolved = resolve_mentions(text) if mention else ({}, [])
+    if unresolved:
+        return ({"key": key, "error": "unresolved mention(s): " + ", ".join("@" + u for u in unresolved)},
+                [f"{key}: @{', @'.join(unresolved)} is not one person with a Jira id in the roster — add them to "
+                 f"elak people.yaml and `ela publish roster`, or write the name without @"])
+    adf = text_to_adf(text, mentions, detail=True)
+    rendered = body_text(adf)
+    existing = fetch_comments(creds, key)
+    dup = next((c for c in existing if _norm(body_text(c.get("body"))) == _norm(rendered)), None)
+    r = {"key": key, "dry_run": not apply, "posted": False, "duplicate_of": (dup or {}).get("id"), "chars": len(text),
+         "mentions": [d for _, d in mentions.values()], "detail": any(n.get("type") == "expand" for n in adf["content"])}
+    if dup:
+        return r, [f"{key}: identical comment already posted ({(dup.get('created') or '')[:16]}) — skipped"]
+    if not apply:
+        shown = rendered.replace("\n", "\n  ")
+        return r, [f"DRY RUN — comment on {key} ({len(text)} chars"
+                   + (f", mentions {', '.join(r['mentions'])}" if r["mentions"] else "")
+                   + (", technical detail collapsed" if r["detail"] else "") + "):", "  " + shown]
+    resp = api_post(creds, f"/rest/api/3/issue/{key}/comment", {"body": adf})
+    r["posted"], r["comment_id"] = True, resp.get("id")
+    return r, [f"{key}: comment posted (id {resp.get('id')})"]
+
+
+def cmd_comment(creds, args):
+    """Post one comment to one or more issues. Idempotent on identical text."""
+    text = _read_text(args)
+    if not text.strip():
         sys.exit("comment: empty text")
     results, lines = [], []
     for key in _keys(args.targets):
-        existing = fetch_comments(creds, key)
-        dup = next((c for c in existing if _norm(body_text(c.get("body"))) == _norm(text)), None)
-        r = {"key": key, "dry_run": not args.apply, "posted": False,
-             "duplicate_of": (dup or {}).get("id"), "chars": len(text)}
-        if dup:
-            lines.append(f"{key}: identical comment already posted ({(dup.get('created') or '')[:16]}) — skipped")
-        elif not args.apply:
-            lines += [f"DRY RUN — comment on {key} ({len(text)} chars):", "  " + text.replace("\n", "\n  ")]
-        else:
-            resp = api_post(creds, f"/rest/api/3/issue/{key}/comment", {"body": text_to_adf(text)})
-            r["posted"], r["comment_id"] = True, resp.get("id")
-            lines.append(f"{key}: comment posted (id {resp.get('id')})")
-        results.append(r)
+        r, ls = _comment_one(creds, key, text, args.apply, mention=not args.no_mention)
+        results.append(r); lines += ls
+    if any("error" in r for r in results):
+        _emit(args, {"results": results} if len(results) > 1 else results[0], lines); sys.exit(2)
     if not args.apply and any(not r["duplicate_of"] for r in results):
         lines.append("pass --apply to post")
     _emit(args, {"results": results} if len(results) > 1 else results[0], lines)
+
+
+# ── transitions: one hop looked up live, or the lifecycle walked hop by hop ───
+
+STATUS_PATH = ["Backlog", "In Progress", "Review", "Done"]   # the MH lifecycle (published mediahub/jira/status-spec.md)
+
+
+def plan_path(cur, to):
+    """The statuses from `cur` to `to` along the MH lifecycle, inclusive; None when either is off the path or `to`
+    lies behind `cur`. Jira exposes only the current status's transitions, so a plan is walked live, one hop at a
+    time, and each hop is a write the assignee is notified of."""
+    names = [_norm(s) for s in STATUS_PATH]
+    try:
+        i, j = names.index(_norm(cur)), names.index(_norm(to))
+    except ValueError:
+        return None
+    return STATUS_PATH[i:j + 1] if j > i else None
+
+
+def _transitions(creds, key):
+    return api_get(creds, f"/rest/api/3/issue/{key}/transitions", {"expand": "transitions.fields"}).get("transitions") or []
+
+
+def _hop(trans, to):
+    hit = next((t for t in trans if _norm((t.get("to") or {}).get("name")) == _norm(to)), None)
+    if not hit:
+        return None, None
+    required = sorted(n for n, fd in (hit.get("fields") or {}).items() if isinstance(fd, dict) and fd.get("required") and not fd.get("hasDefaultValue"))
+    return hit, required
+
+
+def _transition_one(creds, key, to, apply, path=False):
+    """Move one issue to `to`. Direct when Jira offers it; with `path`, along STATUS_PATH hop by hop. Stops, without
+    writing, at a hop that needs a field, and at Review → Done while the assignee is in the product area — that is
+    the product sign-off the status spec describes, and it is theirs to give."""
+    f = _issue(creds, key, "summary,status,assignee")
+    cur = name_of(f.get("status"), "name")
+    r = {"key": key, "from": cur, "to": to, "dry_run": not apply, "changed": False, "walked": []}
+    if _norm(cur) == _norm(to):
+        return r, [f"{key}: already {cur}"]
+    trans = _transitions(creds, key)
+    hit, required = _hop(trans, to)
+    hops = [to] if hit else None
+    if not hit and path:
+        plan = plan_path(cur, to)
+        if plan:
+            hops = plan[1:]
+            hit, required = _hop(trans, hops[0])
+    if not hit:
+        opts = ", ".join(sorted({(t.get("to") or {}).get("name", "?") for t in trans}))
+        r["error"] = f"no transition from {cur} to {to}; available: {opts}" + ("" if path or not plan_path(cur, to) else " (pass --path to walk the lifecycle)")
+        return r, [f"{key}: {r['error']}"]
+    assignee = name_of(f.get("assignee"))
+    signoff = _norm("Review") in {_norm(cur)} | {_norm(h) for h in hops[:-1]} and _norm(hops[-1]) == _norm("Done") and person_area(assignee) == "product"
+    if signoff:
+        r["error"] = f"product sign-off pending: {assignee} holds {key} in Review, and Review → Done is theirs to give"
+        return r, [f"{key}: {r['error']}"]
+    if required:
+        r["error"] = f"transition '{hit.get('name')}' needs fields {', '.join(required)} — not walked"
+        return r, [f"{key}: {r['error']}"]
+    r["transition"] = hit.get("name"); r["hops"] = hops
+    if not apply:
+        walk = " -> ".join([cur] + hops)
+        note = "" if len(hops) == 1 else f"\n  ({len(hops)} hops: later ones looked up live; the assignee is notified at every hop)"
+        return r, [f"DRY RUN — {key}  {f.get('summary','')}\n  status  {walk}  (transition '{hit.get('name')}' first){note}"]
+    lines = []
+    for n, h in enumerate(hops):
+        if n:
+            trans = _transitions(creds, key)
+            hit, required = _hop(trans, h)
+            if not hit:
+                r["error"] = f"no transition from {cur} to {h} (after {' -> '.join(r['walked'])})"
+                return r, lines + [f"{key}: {r['error']}"]
+            if required:
+                r["error"] = f"transition '{hit.get('name')}' needs fields {', '.join(required)} — stopped at {cur}"
+                return r, lines + [f"{key}: {r['error']}"]
+        api_post(creds, f"/rest/api/3/issue/{key}/transitions", {"transition": {"id": hit["id"]}})
+        r["walked"].append(h); lines.append(f"{key}: {cur} -> {h}"); cur = h
+    r["changed"] = True
+    return r, lines
 
 
 def cmd_transition(creds, args):
     """Move issues to a target status by name; the transition is looked up, never guessed."""
     results, lines = [], []
     for key in _keys(args.targets):
-        f = _issue(creds, key, "summary,status")
-        cur = name_of(f.get("status"), "name")
-        r = {"key": key, "from": cur, "to": args.to, "dry_run": not args.apply, "changed": False}
-        if _norm(cur) == _norm(args.to):
-            lines.append(f"{key}: already {cur}")
-            results.append(r); continue
-        trans = api_get(creds, f"/rest/api/3/issue/{key}/transitions").get("transitions") or []
-        hit = next((t for t in trans if _norm((t.get("to") or {}).get("name")) == _norm(args.to)), None)
-        if not hit:
-            opts = ", ".join(sorted({(t.get("to") or {}).get("name", "?") for t in trans}))
-            r["error"] = f"no transition from {cur} to {args.to}; available: {opts}"
-            lines.append(f"{key}: {r['error']}")
-            results.append(r); continue
-        r["transition"] = hit.get("name")
-        if not args.apply:
-            lines.append(f"DRY RUN — {key}  {f.get('summary','')}\n  status  {cur} -> {args.to}  (transition '{hit.get('name')}')")
-        else:
-            api_post(creds, f"/rest/api/3/issue/{key}/transitions", {"transition": {"id": hit["id"]}})
-            r["changed"] = True
-            lines.append(f"{key}: {cur} -> {args.to}")
-        results.append(r)
-    if not args.apply and any(not r["changed"] and "error" not in r and _norm(r["from"]) != _norm(r["to"]) for r in results):
+        r, ls = _transition_one(creds, key, args.to, args.apply, path=args.path)
+        results.append(r); lines += ls
+    if not args.apply and any("hops" in r and not r["changed"] for r in results):
         lines.append("pass --apply to transition")
     _emit(args, {"results": results} if len(results) > 1 else results[0], lines)
     if any("error" in r for r in results):
         sys.exit(2)
 
 
+def _label_one(creds, key, add, rem, apply):
+    f = _issue(creds, key, "summary,labels")
+    cur = f.get("labels") or []
+    to_add = [x for x in add if x not in cur]
+    to_rem = [x for x in rem if x in cur]
+    r = {"key": key, "labels": cur, "add": to_add, "remove": to_rem, "dry_run": not apply, "changed": False}
+    if not to_add and not to_rem:
+        return r, [f"{key}: labels already as requested ({' '.join(cur) or 'none'})"]
+    if not apply:
+        return r, [f"DRY RUN — {key}  {f.get('summary','')}\n  labels  {' '.join(cur) or '(none)'}"
+                   + (f"\n  + {' '.join(to_add)}" if to_add else "") + (f"\n  - {' '.join(to_rem)}" if to_rem else "")]
+    ops = [{"add": x} for x in to_add] + [{"remove": x} for x in to_rem]
+    _request(creds, f"/rest/api/3/issue/{key}", payload={"update": {"labels": ops}}, method="PUT")
+    r["changed"] = True
+    return r, [f"{key}: labels " + " ".join((["+" + x for x in to_add] + ["-" + x for x in to_rem]))]
+
+
+def _split_csv(s):
+    return [x.strip() for x in (s or "").split(",") if x.strip()]
+
+
 def cmd_label(creds, args):
     """Add and/or remove labels. Idempotent: only the actual delta is written."""
-    add = [x.strip() for x in (args.add or "").split(",") if x.strip()]
-    rem = [x.strip() for x in (args.remove or "").split(",") if x.strip()]
+    add, rem = _split_csv(args.add), _split_csv(args.remove)
     if not add and not rem:
         sys.exit("label: nothing to do — pass --add and/or --remove")
     results, lines = [], []
     for key in _keys(args.targets):
-        f = _issue(creds, key, "summary,labels")
-        cur = f.get("labels") or []
-        to_add = [x for x in add if x not in cur]
-        to_rem = [x for x in rem if x in cur]
-        r = {"key": key, "labels": cur, "add": to_add, "remove": to_rem, "dry_run": not args.apply, "changed": False}
-        if not to_add and not to_rem:
-            lines.append(f"{key}: labels already as requested ({' '.join(cur) or 'none'})")
-        elif not args.apply:
-            lines.append(f"DRY RUN — {key}  {f.get('summary','')}\n  labels  {' '.join(cur) or '(none)'}"
-                         + (f"\n  + {' '.join(to_add)}" if to_add else "") + (f"\n  - {' '.join(to_rem)}" if to_rem else ""))
-        else:
-            ops = [{"add": x} for x in to_add] + [{"remove": x} for x in to_rem]
-            _request(creds, f"/rest/api/3/issue/{key}", payload={"update": {"labels": ops}}, method="PUT")
-            r["changed"] = True
-            lines.append(f"{key}: labels " + " ".join((["+" + x for x in to_add] + ["-" + x for x in to_rem])))
-        results.append(r)
+        r, ls = _label_one(creds, key, add, rem, args.apply)
+        results.append(r); lines += ls
     if not args.apply and any(r["add"] or r["remove"] for r in results):
         lines.append("pass --apply to change labels")
     _emit(args, {"results": results} if len(results) > 1 else results[0], lines)
@@ -850,33 +1016,84 @@ def fixed_in_merge(current, add):
     return cur, new, "; ".join(cur + new)
 
 
-def cmd_fixed_in(creds, args):
-    """Append <slug>@<version> entries to Fixed In. Idempotent: present entries are skipped."""
-    add = fixed_in_entries(args.add)
+def _fixed_in_one(creds, key, add, apply):
+    f = _issue(creds, key, f"summary,{FIXED_IN_FIELD}")
+    raw = f.get(FIXED_IN_FIELD)
+    current = body_text(raw) if raw else ""
+    cur, new, value = fixed_in_merge(current, add)
+    r = {"key": key, "current": "; ".join(cur), "add": new, "value": value, "dry_run": not apply, "changed": False}
+    if not new:
+        return r, [f"{key}: Fixed In already has {'; '.join(add)}"]
+    if not apply:
+        return r, [f"DRY RUN — {key}  {f.get('summary','')}\n  Fixed In  {r['current'] or '(empty)'}\n  + {'; '.join(new)}"]
+    body = value if isinstance(raw, str) else text_to_adf(value)
+    _request(creds, f"/rest/api/3/issue/{key}", payload={"fields": {FIXED_IN_FIELD: body}}, method="PUT")
+    after = _issue(creds, key, FIXED_IN_FIELD).get(FIXED_IN_FIELD)
+    r["changed"], r["value"] = True, "; ".join(fixed_in_entries(body_text(after) if after else ""))
+    return r, [f"{key}: Fixed In = {r['value']}"]
+
+
+def _fixed_in_args(text):
+    add = fixed_in_entries(text)
     bad = [e for e in add if not FIXED_IN_ENTRY.match(e)]
     if not add or bad:
         sys.exit(f"fixed-in: entries must be <slug>@<version>; bad: {', '.join(bad) or '(none given)'}")
+    return add
+
+
+def cmd_fixed_in(creds, args):
+    """Append <slug>@<version> entries to Fixed In. Idempotent: present entries are skipped."""
+    add = _fixed_in_args(args.add)
     results, lines = [], []
     for key in _keys(args.targets):
-        f = _issue(creds, key, f"summary,{FIXED_IN_FIELD}")
-        raw = f.get(FIXED_IN_FIELD)
-        current = body_text(raw) if raw else ""
-        cur, new, value = fixed_in_merge(current, add)
-        r = {"key": key, "current": "; ".join(cur), "add": new, "value": value, "dry_run": not args.apply, "changed": False}
-        if not new:
-            lines.append(f"{key}: Fixed In already has {'; '.join(add)}")
-        elif not args.apply:
-            lines.append(f"DRY RUN — {key}  {f.get('summary','')}\n  Fixed In  {r['current'] or '(empty)'}\n  + {'; '.join(new)}")
-        else:
-            body = value if isinstance(raw, str) else text_to_adf(value)
-            _request(creds, f"/rest/api/3/issue/{key}", payload={"fields": {FIXED_IN_FIELD: body}}, method="PUT")
-            after = _issue(creds, key, FIXED_IN_FIELD).get(FIXED_IN_FIELD)
-            r["changed"], r["value"] = True, "; ".join(fixed_in_entries(body_text(after) if after else ""))
-            lines.append(f"{key}: Fixed In = {r['value']}")
-        results.append(r)
+        r, ls = _fixed_in_one(creds, key, add, args.apply)
+        results.append(r); lines += ls
     if not args.apply and any(r["add"] for r in results):
         lines.append("pass --apply to write")
     _emit(args, {"results": results} if len(results) > 1 else results[0], lines)
+
+
+# ── close: one ticket, one bundle, one confirm ────────────────────────────────
+
+def cmd_close(creds, args):
+    """Fixed In + labels + comment + the walk to `--to`, shown as one dry run per ticket and applied in that order.
+    A ticket assigned to someone else is closed with a comment or not at all — the assignee otherwise sees a status
+    change with no reason. Every step is idempotent, so a re-run after a partial failure finishes what is missing."""
+    text = _read_text(args)
+    add = _fixed_in_args(args.fixed_in) if args.fixed_in else []
+    labels = _split_csv(args.label)
+    me = (api_get(creds, "/rest/api/3/myself") or {}).get("accountId")
+    results, lines, failed = [], [], False
+    for key in _keys(args.targets):
+        f = _issue(creds, key, "summary,status,assignee")
+        assignee = f.get("assignee") or {}
+        steps, out = [], [f"== {key}  {f.get('summary','')}  [{name_of(f.get('status'), 'name')} → {args.to}; assignee {name_of(assignee)}]"]
+        if not text.strip() and assignee.get("accountId") != me and not args.allow_no_comment:
+            r = {"key": key, "error": f"assigned to {name_of(assignee)}, not you — a close carries a comment (where verified, build, why); pass --text/--from-file"}
+            results.append(r); lines += out + [f"{key}: {r['error']}"]; failed = True
+            continue
+        plan = []
+        if add:
+            plan.append(("fixed_in", lambda k=key: _fixed_in_one(creds, k, add, args.apply)))
+        if labels:
+            plan.append(("labels", lambda k=key: _label_one(creds, k, labels, [], args.apply)))
+        if text.strip():
+            plan.append(("comment", lambda k=key: _comment_one(creds, k, text, args.apply, mention=not args.no_mention)))
+        plan.append(("transition", lambda k=key: _transition_one(creds, k, args.to, args.apply, path=True)))
+        for name, fn in plan:
+            r, ls = fn()
+            steps.append(dict(r, step=name)); out += ["  " + l.replace("\n", "\n  ") for l in ls]
+            if "error" in r:
+                failed = True
+                if args.apply:
+                    out.append(f"  stopped at {name}; the steps before it are done and a re-run skips them")
+                break
+        results.append({"key": key, "steps": steps}); lines += out
+    if not args.apply and not failed:
+        lines.append("pass --apply to write all of the above, in this order")
+    _emit(args, {"results": results} if len(results) > 1 else results[0], lines)
+    if failed:
+        sys.exit(2)
 
 
 def main():
@@ -952,11 +1169,13 @@ def main():
     p.add_argument("targets", nargs="+", help="issue keys or browse URLs")
     p.add_argument("--text", help="plain text; paragraphs become ADF paragraphs")
     p.add_argument("--from-file", help="read the text from a file instead")
+    p.add_argument("--no-mention", action="store_true", help="leave @name as text (default: resolve through the roster, refuse what it cannot)")
     p.add_argument("--apply", action="store_true"); p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_comment)
 
-    p = sub.add_parser("transition", help="move issues to a status by name — dry-run unless --apply; already there is a no-op")
+    p = sub.add_parser("transition", help="move issues to a status by name — dry-run unless --apply; already there is a no-op; --path walks Backlog → In Progress → Review → Done hop by hop")
     p.add_argument("targets", nargs="+"); p.add_argument("--to", required=True, help='target status name, e.g. "In Progress", Review, Done')
+    p.add_argument("--path", action="store_true", help="when no direct transition exists, walk the MH lifecycle one hop at a time (each hop notifies the assignee)")
     p.add_argument("--apply", action="store_true"); p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_transition)
 
@@ -976,6 +1195,18 @@ def main():
     p.add_argument("--add", required=True, help="'<slug>@<version>[; <slug>@<version> …]' in the release map's grammar")
     p.add_argument("--apply", action="store_true"); p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_fixed_in)
+
+    p = sub.add_parser("close", help="one ticket, one bundle, one confirm: Fixed In + labels + comment + the walk to Done — dry-run unless --apply")
+    p.add_argument("targets", nargs="+", help="issue keys or browse URLs")
+    p.add_argument("--fixed-in", help="'<slug>@<version>[; …]' to append (release map grammar)")
+    p.add_argument("--label", help="comma-separated labels to add, e.g. release:mh-2.0,release:mh-2.1")
+    p.add_argument("--text", help="the closing comment; `@name` mentions resolve through the roster; a `---` line starts the collapsed technical part")
+    p.add_argument("--from-file", help="read the comment from a file instead")
+    p.add_argument("--to", default="Done", help="target status (default Done), walked along the lifecycle when not directly reachable")
+    p.add_argument("--allow-no-comment", action="store_true", help="close a ticket assigned to someone else without a comment (normally refused)")
+    p.add_argument("--no-mention", action="store_true")
+    p.add_argument("--apply", action="store_true"); p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_close)
 
     args = ap.parse_args()
     creds = load_env(args.env_file)

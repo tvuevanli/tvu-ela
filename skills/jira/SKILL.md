@@ -1,6 +1,6 @@
 ---
 name: jira
-description: Jira read and search; writes are dry-run until an explicit confirm. Use for a Jira URL (tvunetworks.atlassian.net/browse/...), a ticket key (MH-1234, FB-9693), a subtask under a parent, "read this ticket", "what's in MH-xxxx", "create a subtask", "fill in Fixed In", "填 Fixed In", "看看这个 ticket", "查一下 jira", "建子任务".
+description: Jira read and search; writes are dry-run until an explicit confirm. Use for a Jira URL (tvunetworks.atlassian.net/browse/...), a ticket key (MH-1234, FB-9693), a subtask under a parent, "read this ticket", "what's in MH-xxxx", "create a subtask", "看看这个 ticket", "查一下 jira", "建子任务".
 ---
 
 # Jira — read, search, and gated writes
@@ -63,22 +63,29 @@ nothing later.
 Assignee defaults to the token's own account (Evan). Cross-layer scope belongs on the
 parent ticket — a subtask carries exactly one token.
 
-## comment · transition · label · link · fixed-in — the field atoms, gated twice
+## comment · transition · label · link · fixed-in · close — the field atoms, gated twice
 
 Each takes one or more keys (fan-out is one dry-run, one confirm), prints exactly what would change,
 and does nothing without `--apply`. Each is idempotent, so a re-run after a partial failure is safe:
 
 | atom | no-op when | how the write is chosen |
 |---|---|---|
-| `comment` | a comment with identical text (whitespace-insensitive) already exists on the issue | plain text → ADF paragraphs; `--from-file` for long drafts |
-| `transition` | the issue is already in `--to` | the transition whose target status matches `--to` is looked up per issue; none → exit 2 listing what is reachable from the current status |
+| `comment` | a comment with identical rendered text (whitespace-insensitive) already exists on the issue | plain text → ADF paragraphs. **Two registers, one comment:** the lines before a `---` line are what a person reads (the verdict, the reason, what they are asked to do — three sentences); the lines after it go into a collapsed block titled by the words on that line (default "Technical detail": commit, build, ancestry, lane) for an agent or an investigator. **`@name` is a real mention**, resolved through the published roster to a Jira account id; a name the roster cannot settle refuses the post (a plain-text name notifies nobody) — add the person to elak `people.yaml` and `ela publish roster`, or drop the `@`. The sentence addressed to a person comes first. `--no-mention` leaves `@` as text |
+| `transition` | the issue is already in `--to` | the transition whose target status matches `--to` is looked up per issue; none → exit 2 listing what is reachable. With `--path`, an unreachable `--to` is walked along the lifecycle Backlog → In Progress → Review → Done one hop at a time, each hop looked up live (Jira exposes only the current status's transitions); the dry run names every hop and says the assignee is notified at each. It stops, without writing, at a hop that needs a field, and at Review → Done while the assignee is in the product area — that is the product sign-off (published `mediahub/jira/status-spec.md`), theirs to give |
 | `label` | requested labels already present / absent | only the delta is sent (`add` / `remove` ops) |
 | `link` | a link of that type already joins the pair in that direction | `--type` is a type name or a phrase (`blocks`, `is blocked by`, `relates to`, `contains`, `is contained in`, `implements`), resolved against the site's link types; the dry-run prints the sentence as Jira will show it |
-| `fixed-in` | every `--add` entry is already in the field | append-only union in the release map's grammar (`<slug>@<version>; …`): current entries keep their order, new ones follow; no entry is ever removed, because an older build stays a true record when a newer one is added. The value comes from `ela fixed-in <KEY>` (commit → carrying build), not from a developer's comment alone |
+| `fixed-in` | every `--add` entry is already in the field | append-only union in the release map's grammar (`<slug>@<version>; …`): current entries keep their order, new ones follow; no entry is ever removed, because an older build stays a true record when a newer one is added. The value comes from `ela fixed-in <KEY>` (commit → carrying build), not from a developer's comment alone; a value that disagrees with the rule is corrected by appending the right one and saying so in the comment |
+| `close` | each step's own no-op | **one ticket, one bundle, one confirm**: `--fixed-in`, `--label`, the comment (`--text` / `--from-file`) and the walk to `--to` (default Done, `--path` implied), shown together as one dry run and applied in that order. A ticket assigned to someone else is refused without a comment (`--allow-no-comment` overrides): the assignee otherwise sees a status change with no reason. On a partial failure the dry run says which steps are done; a re-run skips them |
 
 Confirm rule for a Claude session: show the dry-run, ask Evan, and only then re-run with `--apply` —
-the same wording he saw. Never batch a confirm across different texts: one text, one confirm, any
-number of keys.
+the same wording he saw. The unit of a confirm is **one ticket's bundle**: Fixed In, labels, the
+comment and the status walk for one key are one dry run and one word; several keys are several
+confirms, unless one text fans out unchanged over all of them (then one dry run, one confirm, any
+number of keys). This supersedes the earlier "one text, one confirm" wording (2026-10-19): a close is
+one decision about one ticket, and splitting it into four confirms produced closes with the comment
+missing. **Pre-authorisation:** when his instruction already names the writes ("fill Fixed In, comment
+and close"), that sentence covers Fixed In, labels and the transition; it covers a comment only if he
+said so ("with a comment"); after a pre-authorised run, every posted text is shown back verbatim.
 
 ## Credentials
 

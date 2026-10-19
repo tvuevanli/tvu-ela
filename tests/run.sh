@@ -15,6 +15,7 @@ python3 tests/test_publish_redact.py || fail=1
 python3 tests/test_mr_dryrun.py || fail=1
 python3 tests/test_fixedin_offline.py || fail=1
 python3 tests/test_jira_fixedin_offline.py || fail=1
+python3 tests/test_jira_close_offline.py || fail=1
 python3 tests/test_description_budget.py || fail=1
 [ $fail -eq 0 ] && echo "ela: verification passed" || echo "ela: verification FAILED"
 exit $fail
