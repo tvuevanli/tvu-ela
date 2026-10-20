@@ -315,6 +315,69 @@ def text_to_adf(text, mentions=None, detail=False):
     return {"type": "doc", "version": 1, "content": top or [{"type": "paragraph"}]}
 
 
+MARK_RX = re.compile(r"(\*\*[^*]+\*\*|`[^`]+`)")
+HEADING_RX = re.compile(r"^(#{1,3})\s+(.*)$")
+BULLET_RX = re.compile(r"^[-*]\s+(.*)$")
+NUMBERED_RX = re.compile(r"^\d+\.\s+(.*)$")
+
+
+def _marked(line):
+    """`**bold**` and `` `code` `` as ADF marks; everything else is plain text."""
+    nodes = []
+    for part in MARK_RX.split(line):
+        if not part:
+            continue
+        if part.startswith("**") and part.endswith("**") and len(part) > 4:
+            nodes.append({"type": "text", "text": part[2:-2], "marks": [{"type": "strong"}]})
+        elif part.startswith("`") and part.endswith("`") and len(part) > 2:
+            nodes.append({"type": "text", "text": part[1:-1], "marks": [{"type": "code"}]})
+        else:
+            nodes.append({"type": "text", "text": part})
+    return nodes or [{"type": "text", "text": line}]
+
+
+def _md_blocks(lines):
+    blocks, lst = [], None
+    for line in lines:
+        s = line.strip()
+        if not s:
+            lst = None
+            continue
+        h, b, n = HEADING_RX.match(s), BULLET_RX.match(s), NUMBERED_RX.match(s)
+        if h:
+            lst = None
+            blocks.append({"type": "heading", "attrs": {"level": len(h.group(1))}, "content": _marked(h.group(2))})
+        elif b or n:
+            kind = "bulletList" if b else "orderedList"
+            if not lst or lst["type"] != kind:
+                lst = {"type": kind, "content": []}
+                blocks.append(lst)
+            item = (b or n).group(1)
+            lst["content"].append({"type": "listItem", "content": [{"type": "paragraph", "content": _marked(item)}]})
+        else:
+            lst = None
+            blocks.append({"type": "paragraph", "content": _marked(line)})
+    return blocks
+
+
+def markdown_to_adf(text):
+    """A ticket description in a Markdown subset → ADF: `#`..`###` headings, `- `/`* ` bullets, `1. ` numbered
+    lists, `**bold**`, `` `code` ``. A line of three or more dashes folds everything after it into a collapsed
+    block titled by the words on that line (default 'Technical detail'), as in a comment. A line with none of
+    these is a plain paragraph, exactly as `text_to_adf` renders it, so a plain-text description is unchanged."""
+    top, rest, title, inside = [], [], "Technical detail", False
+    for line in (text or "").splitlines():
+        m = DETAIL_RX.match(line.strip())
+        if m and not inside:
+            inside, title = True, (m.group(1).strip() or title)
+            continue
+        (rest if inside else top).append(line)
+    content, folded = _md_blocks(top), _md_blocks(rest)
+    if folded:
+        content.append({"type": "expand", "attrs": {"title": title}, "content": folded})
+    return {"type": "doc", "version": 1, "content": content or [{"type": "paragraph"}]}
+
+
 # ── Rendering ────────────────────────────────────────────────────────────────
 
 def name_of(obj, key="displayName"):
@@ -675,7 +738,7 @@ def cmd_create(creds, args):
         "assignee": {"accountId": account_id},
     }
     if args.description:
-        fields["description"] = text_to_adf(args.description)
+        fields["description"] = markdown_to_adf(args.description)
     resp = api_post(creds, "/rest/api/3/issue", {"fields": fields})
     result["created"] = True
     result["key"] = resp.get("key")
@@ -751,7 +814,7 @@ def cmd_create_subtask(creds, args):
         "assignee": {"accountId": account_id},
     }
     if args.description:
-        fields["description"] = text_to_adf(args.description)
+        fields["description"] = markdown_to_adf(args.description)
     resp = api_post(creds, "/rest/api/3/issue", {"fields": fields})
     result["created"] = True
     result["key"] = resp.get("key")
@@ -1139,7 +1202,9 @@ def main():
                    help="issue type name (default Task; also Bug, Story)")
     p.add_argument("--summary", required=True,
                    help="title; a parent carries cross-layer scope, no token required")
-    p.add_argument("--description", help="plain text; rendered as ADF paragraphs")
+    p.add_argument("--description",
+                   help="Markdown subset: # headings, - and 1. lists, **bold**, `code`; "
+                        "a --- line folds what follows into a collapsed block")
     p.add_argument("--assignee",
                    help="assignee email or accountId "
                         "(default: the token's own account)")
@@ -1154,7 +1219,9 @@ def main():
     p.add_argument("--parent", required=True, help="parent issue key")
     p.add_argument("--summary", required=True,
                    help="'[Token] action' — token from the seven-layer vocabulary")
-    p.add_argument("--description", help="plain text; rendered as ADF paragraphs")
+    p.add_argument("--description",
+                   help="Markdown subset: # headings, - and 1. lists, **bold**, `code`; "
+                        "a --- line folds what follows into a collapsed block")
     p.add_argument("--assignee",
                    help="assignee email or accountId "
                         "(default: the token's own account)")

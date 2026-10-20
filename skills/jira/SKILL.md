@@ -44,6 +44,37 @@ Same gates as create-subtask minus the token rule (a parent carries cross-layer 
 title is free-form; single-layer tokens belong on subtasks). Idempotent against open issues in the
 project with the same title. **Dry-run default; the confirm gate below applies before `--apply`.**
 
+## The description (`create`, `create-subtask`)
+
+`--description` is a Markdown subset rendered to ADF: `#`..`###` headings, `- `/`* ` bullets, `1. `
+numbered lists, `**bold**`, `` `code` ``. A line of three or more dashes folds everything after it into
+a collapsed block titled by the words on that line (default "Technical detail"), as in `comment`. A line
+with none of these is a plain paragraph, so plain text renders as before.
+
+A ticket a developer implements and QA then verifies reads as sections, each for the person who acts on
+it (the accepted shape is MH-3797's):
+
+```
+### Problem
+What fails, for whom, with the exact error in `code`.
+### Steps to reproduce
+1. … numbered, each step one action.
+### Cause
+- The mechanism in a sentence per bullet; no file paths here.
+### Change
+- [UI] … one bullet per lane token, the observable result.
+- [App] …
+- Not in this ticket: what was considered and left out.
+### QA verification
+The environment and where the evidence is read (which log line).
+1. do this → expect that.
+--- Technical detail
+- file:line citations, call sites, the rule's source, dates of the commits that matter.
+```
+
+The part above the fold is read by the developer and QA without opening the code; the fold is for
+whoever implements it or investigates later.
+
 ## create-subtask — gated twice
 
 **Safety gate (in the script, no caller can skip it):**
