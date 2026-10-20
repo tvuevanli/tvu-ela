@@ -1,6 +1,6 @@
 # ela
 
-Evan's working assistant at TVU, as a Claude Code plugin. Definition layer only — no product code,
+Evan's assistant (the name is short for that) at TVU, as a Claude Code plugin. Definition layer only — no product code,
 no knowledge. `CLAUDE.md` says what it is and is not; `docs/architecture.md` how the pieces fit;
 `ROADMAP.md` what exists yet.
 
