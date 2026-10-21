@@ -107,22 +107,24 @@ nothing else is reported). The verdict names what it rejects: a pass says which 
 
 ## 4 — the two outputs
 
-1. **The report for the owner**, and for nobody else — rendered, not written: the run leaves a directory
-   `<runtime>/browser/runs/<KEY>-<date>/` holding `ticket.json`, `plan.json` (the confirmed goals, each with `kind`), `env.json`
-   (`ela browser env --json`), `cases.json` (`ela browser run --json`), `ancestry.json`, `technique.json` and
-   `shots/`; `ela verify --key <KEY> --run <dir>` renders them into `<reports>/verify/<KEY>-<date>/index.html`
-   with the screenshots beside it (verdict strip with lane and the two builds; the ticket; the goals with
-   sources; the environment proof with the panel and the map comparison; results with one screenshot per
-   case; the technique — the MH-2570 record of 2026-10-21 is the shape). The session then publishes that
-   page as a private artifact for the owner (the Artifact tool: the page plus its `img/` files). It is never
-   linked from the ticket, a Slack thread or any shared place: the page is his reading, the comment below is
-   the record.
-2. **The comment for the ticket**, `$JIRA comment <KEY> --from-file …` as a dry run, in the Markdown subset
-   the atom renders (bold, bullets, numbered lists, code): above the fold the verdict in bold, the lane and
-   the two builds on one line, what changed, the person addressed first as a real `@mention`, in English;
-   after a `---` line the method, the environment, the cases T1..Tn with PASS / FAIL / CHANGED / N/A, and
-   the build ancestry. About 1,500 characters, no link to the report. The owner's word posts it; it never
-   changes the status — a close is `/ela:revisit`.
+1. **The QA record, rendered, not written** — the run leaves `<runtime>/browser/runs/<KEY>-<date>/` holding
+   `ticket.json`, `plan.json` (the confirmed goals, each with `kind`), `env.json` (`ela browser env --json`),
+   `cases.json` (`ela browser run --json`), `ancestry.json`, `technique.json` and `shots/`;
+   `ela verify --key <KEY> --run <dir> --single <runtime>/browser/runs/<KEY>-<date>/<KEY>-verify-<date>.html`
+   renders two copies from the same data: the page under `<reports>/verify/<KEY>-<date>/` for the owner's
+   reading (publishable as a private artifact), and one self-contained HTML with the screenshots embedded for
+   the ticket. The record is written for colleagues: the verdict strip with lane and the two builds, the
+   ticket, the goals with kind and source, the environment proof (the panel, the map comparison, the
+   ancestry), the results with one screenshot per case, the technique — facts only, no account of how the run
+   went. Nothing in it links to claude.ai.
+2. **The ticket gets the attachment and a summary**: `$JIRA attach <KEY> <single.html>` and
+   `$JIRA comment <KEY> --from-file …`, both dry runs first, one confirm. The comment is the summary
+   register in the Markdown subset: the verdict in bold, the lane and the two builds on one line, what
+   changed, the attachment named (`full record: MH-2570-verify-2026-10-21.html`), in English; after a `---`
+   line the cases T1..Tn with PASS / FAIL / CHANGED / N/A and the ancestry line. About 1,000 characters, no
+   link. The comment never changes the status — a close is `/ela:revisit`.
+   (Supersedes the 2026-10-21 rule that the report is never on the ticket: that rule was about a claude.ai
+   link; an attachment lives with the ticket under its own permissions, and the owner asked for it the same day.)
 
 ## What this skill does not do
 

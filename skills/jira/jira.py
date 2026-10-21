@@ -1185,6 +1185,38 @@ def cmd_fixed_in(creds, args):
     _emit(args, {"results": results} if len(results) > 1 else results[0], lines)
 
 
+# ── attach: one file onto an issue ───────────────────────────────────────────
+
+def cmd_attach(creds, args):
+    """Attach one file to one issue — dry run names the file and its size; --apply uploads. A file of the same name
+    already on the issue is a no-op, so a re-run does not pile up copies."""
+    key = extract_key(args.target)
+    path = os.path.realpath(args.file)
+    if not os.path.isfile(path):
+        sys.exit(f"attach: no such file {path}")
+    name, size = os.path.basename(path), os.path.getsize(path)
+    f = _issue(creds, key, "summary,attachment")
+    dup = next((a for a in f.get("attachment") or [] if a.get("filename") == name), None)
+    r = {"key": key, "file": name, "bytes": size, "dry_run": not args.apply, "uploaded": False, "duplicate_of": (dup or {}).get("id")}
+    if dup:
+        _emit(args, r, [f"{key}: {name} is already attached (id {dup.get('id')}, {short_date(dup.get('created'))}) — skipped"]); return
+    if not args.apply:
+        _emit(args, r, [f"DRY RUN — attach {name} ({size} bytes) to {key}  {f.get('summary','')}", "pass --apply to upload"]); return
+    import mimetypes, uuid
+    boundary = uuid.uuid4().hex
+    ctype = mimetypes.guess_type(name)[0] or "application/octet-stream"
+    body = (f"--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"{name}\"\r\nContent-Type: {ctype}\r\n\r\n").encode() \
+        + open(path, "rb").read() + f"\r\n--{boundary}--\r\n".encode()
+    import base64 as _b64, urllib.request
+    req = urllib.request.Request(creds["JIRA_BASE_URL"].rstrip("/") + f"/rest/api/3/issue/{key}/attachments", data=body, method="POST")
+    req.add_header("Authorization", "Basic " + _b64.b64encode(f"{creds['JIRA_EMAIL']}:{creds['JIRA_TOKEN']}".encode()).decode())
+    req.add_header("X-Atlassian-Token", "no-check"); req.add_header("Content-Type", f"multipart/form-data; boundary={boundary}")
+    with urllib.request.urlopen(req, timeout=120) as resp:
+        out = json.loads(resp.read().decode() or "[]")
+    r["uploaded"], r["attachment_id"] = True, (out[0].get("id") if out else None)
+    _emit(args, r, [f"{key}: attached {name} (id {r['attachment_id']})"])
+
+
 # ── describe: the description, rewritten in the Markdown subset ──────────────
 
 def cmd_describe(creds, args):
@@ -1365,6 +1397,10 @@ def main():
     p.add_argument("--clear", action="store_true", help="empty the field — same rule as --remove")
     p.add_argument("--apply", action="store_true"); p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_fixed_in)
+
+    p = sub.add_parser("attach", help="attach one file to an issue — dry-run names file and size; --apply uploads; a same-named attachment is a no-op")
+    p.add_argument("target"); p.add_argument("file"); p.add_argument("--apply", action="store_true"); p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_attach)
 
     p = sub.add_parser("describe", help="replace an issue's description from a file in the Markdown subset — dry-run shows was/now and any link the new text drops; --apply writes")
     p.add_argument("target"); p.add_argument("--from-file", required=True); p.add_argument("--allow-dropped-links", action="store_true")
