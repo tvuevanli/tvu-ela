@@ -7,7 +7,7 @@ L1: stdlib only.
 
 The run directory is what /ela:verify leaves behind:
   ticket.json   {key, summary, type, status, parent, asked, added: [..], commits: [{sha, subject}], later: [{key, what}]}
-  plan.json     [{id, kind: black|white, goal, source, expected, superseded_by}]
+  plan.json     [{id, kind: black|provenance|precondition, goal, source, expected, superseded_by}]
   env.json      `ela browser env --json` (panel, lane, compare, verdict)
   cases.json    `ela browser run --json` (result: [{id, action, observed, result, shot}], page_errors)
   ancestry.json {lane, build, sha, descends, commits: [..]}            (optional)
@@ -130,7 +130,7 @@ figure{{margin:0;display:flex;flex-direction:column;gap:8px}}figure img{{width:1
     if plan:
         by_id = {str(c.get("id")): c for c in cases}
         grows = "".join(f"<tr><td class=num>{esc(g.get('id'))}</td><td>{esc(g.get('kind') or 'black')}</td><td>{esc(g.get('goal'))}</td><td>{esc(g.get('source'))}" + (f" · superseded by {esc(g['superseded_by'])}" if g.get("superseded_by") else "") + f"</td><td>{pill((by_id.get(str(g.get('id'))) or {}).get('result') or g.get('result'))}</td></tr>" for g in plan)
-        H.append(f'<section><h2>Goals</h2><p>Black-box: the product observed as a user sees it. White-box: what the build is — ancestry, the file at the build, config, logs. The default plan is the tech lead\'s acceptance of the ticket\'s claim, not QA\'s matrix.</p><div class="scroll"><table><tr><th>#</th><th>Kind</th><th>Goal</th><th>Source</th><th>Result</th></tr>{grows}</table></div></section>')
+        H.append(f'<section><h2>Goals</h2><p>Expectations come from the requirement, never from the code. Black-box cases observe the product as a user sees it; provenance and precondition checks prove the build under test carries the fix and the lane holds what it depends on. The default plan is the tech lead\'s acceptance of the ticket\'s claim, not QA\'s matrix.</p><div class="scroll"><table><tr><th>#</th><th>Kind</th><th>Goal</th><th>Source</th><th>Result</th></tr>{grows}</table></div></section>')
     # environment proof
     srows = "".join(service_row(c) for c in env.get("compare") or [])
     anc_row = f"<tr><td>Build {esc(anc.get('build'))} sha descends from the fix commits</td><td class=num>{esc((anc.get('sha') or '')[:8])}</td><td>{pill('pass' if anc.get('descends') else 'fail')}</td></tr>" if anc else ""

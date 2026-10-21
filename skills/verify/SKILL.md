@@ -56,23 +56,27 @@ the build under test. On MH-2570 the description was two lines; two of the four 
 rewritten the same file, so one goal's behaviour had changed and one had nothing left to test. A plan from
 the description alone tests too little; a plan from the ticket's own commits tests what no longer exists.
 
-**Two kinds of case, and the default is the tech lead's acceptance, not QA's matrix.** A *black-box* case
-observes the product as a user does on the lane: the asked behaviour, through the UI (or the wire, for a
-media ticket: `ela stream`). A *white-box* case reads what the build is: the lane's build descends from the
-fix commits (`ancestry`), the file at that build still carries the change, the runtime config the change
-depends on holds the expected value (`ela configserver`), the logs show the new path taken (`ela logs`).
-The default plan carries both, scoped to the ticket's claim: every black-box case the ticket asks for, plus
-the white-box cases that say the change is really in this build and nothing later undid it. It is not the
-exhaustive matrix QA runs (every combination, regression around it): that stays QA's, and the report says
-so. `--kind black` or `--kind white` narrows a run; `--kind qa` adds the regression cases the ticket's QA
-section lists, when the owner wants them.
+**Expectations come from the requirement, never from the code.** A test whose expected result is read off
+the diff passes a wrong fix with it. So every case's expected result comes from the description, the
+comments (what product or QA asked for), or the owner's word. The code is used for three things only, none
+of them an expectation: *provenance* — the lane's build descends from the fix commits (`ancestry`) and the
+file at that build still carries the change, which proves the thing under test is the thing claimed;
+*preconditions* — the config key the behaviour depends on holds what it needs on this lane
+(`ela configserver`); and *mechanics* — the selectors and the controls come from the file at the build. A
+behaviour the diff adds that no requirement names is listed as "undocumented, for the product owner", not
+as an expectation. The default plan is the tech lead's acceptance of the ticket's claim: the black-box cases
+the requirement asks for, plus the provenance and precondition checks; not QA's regression matrix, which
+stays QA's and the report says so. `--kind black` runs the cases alone; `--kind qa` adds the regression
+cases the ticket's QA section lists, when the owner wants them.
 
-So the plan is built in four reads, each goal carrying its source and its kind:
+So the plan is built in four reads, each goal carrying its source (where its expectation came from) and
+its kind (`black` for a behaviour, `provenance` / `precondition` for a check on the build):
 
 1. **The description** — the asked behaviour, in the reporter's terms.
 2. **The comments** — what the developer said they built, what QA failed, what product added later.
-3. **The fix commits** (`$FIXEDIN <KEY>`) — what the diff actually changes, including behaviour nobody wrote
-   down on the ticket.
+3. **The fix commits** (`$FIXEDIN <KEY>`) — the scope: which files and controls changed, for the provenance
+   check and the selectors; a behaviour the diff adds that no requirement names becomes a question for the
+   product owner, never an expectation.
 4. **Every later commit on the same files, up to the lane's build sha** (`git log <fix>..<build sha> -- <files>`)
    — each one is read for whether it supersedes a goal; a superseding ticket is named on the goal, and the
    selectors and expectations are taken from the file at the build sha, never from the ticket's commits.
