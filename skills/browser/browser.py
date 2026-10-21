@@ -4,18 +4,24 @@ L1: subcommands, --json, stdlib; the driver is browser.js (Playwright, node) bes
 
   setup [--url U]      install playwright into <runtime>/browser (no root; the system libraries are the owner's
                        `playwright install-deps`), record the product URL in site.json `mediahub_url`
-  env [--lane L]       open the product, read the version panel (every service's ENV and build) and compare it with
-                       the release map for the lane: the environment proof a browser result needs. Exit 4 when the
+  env [--lane L] [--key K]  open the product, read the version panel (every service's ENV and build) and compare it
+                       with the release map for the lane: the environment proof a browser result needs. Exit 4 when the
                        panel carries no ENV (the session cookies are stale or missing: `ela login tvu --force`), exit 3
-                       when a service of the lane disagrees with the map
+                       when a service of the lane disagrees with the map. --key: the lanes carrying the ticket's fix
+                       (`ela fixed-in`, ancestry) are read first; exit 6 when the panel's lane is not one of them —
+                       the owner's account sits on a daily or prod lane, and a fix that only reached a QA lane is not
+                       testable there
   shot <path> --out F  a screenshot of one product path
-  run <case.js> [--shots D]   run one case script (exports async ({p, ctx, b, panel, url, shots}) => result) and
-                       print its result; a case reads, and never saves unless the owner confirmed that run
+  run <case.js> [--shots D] [--phase P --state F] [--timeout S]
+                       run one case script (exports async ({p, ctx, b, panel, url, shots, phase, state, fakeTime}) =>
+                       result) and print its result; a case reads, and never saves unless the owner confirmed that
+                       run. A scheduled behaviour is two runs over one state file: create, then observe after the
+                       scheduled time; fakeTime(iso) fakes the browser clock for a form or display case
 
 Why a sense at all: a ticket verified in the product is evidence only when the lane and the versions were read in
 the same browser run; the gateway routes each service by per-user tag cookies, so a session with the SID alone
 lands on the default lane and the panel shows no ENV (MH-2570, 2026-10-21). Exit codes: 0 ok · 2 usage · 3 mismatch ·
-4 unproven (no ENV / no cookies) · 5 browser or network failure.
+4 unproven (no ENV / no cookies) · 5 browser or network failure · 6 the fix is not on the panel's lane.
 """
 import argparse, json, os, re, subprocess, sys
 
@@ -23,7 +29,7 @@ HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(HERE), "release"))
 import release as R  # noqa: E402 — the release map, parse_version, vlabel, envs
 
-EX_USAGE, EX_MISMATCH, EX_UNPROVEN, EX_FAIL = 2, 3, 4, 5
+EX_USAGE, EX_MISMATCH, EX_UNPROVEN, EX_FAIL, EX_ABSENT = 2, 3, 4, 5, 6
 SITE = os.path.expanduser("~/.claude/ela/site.json")
 PLAYWRIGHT = "playwright@1.64.1"
 
@@ -55,6 +61,44 @@ def site():
 def runtime_dir():
     s = site()
     return s.get("runtime") or os.path.join(s.get("projects") or os.getcwd(), ".ela")
+
+
+def timezone():
+    """The wall clock the page should keep: site.json `timezone`, else the box's /etc/timezone, else the browser's own."""
+    tz = site().get("timezone")
+    if tz:
+        return tz
+    try:
+        return open("/etc/timezone").read().strip() or None
+    except OSError:
+        return None
+
+
+def fix_lanes(env_file, key):
+    """The lanes whose build carries the key's fix, by ancestry (ela fixed-in); [] when unread, with the reason."""
+    try:
+        r = subprocess.run(["python3", os.path.join(os.path.dirname(HERE), "fixedin", "fixedin.py"), "--env-file", env_file or "",
+                            "draft", key, "--json"], capture_output=True, text=True, timeout=300)
+        recs = json.loads(r.stdout).get("keys") or []
+    except (subprocess.TimeoutExpired, ValueError):
+        return [], "fixed-in unread"
+    if not recs:
+        return [], "fixed-in: no record"
+    rec = recs[0]
+    lanes = sorted({x["lane"] for x in rec.get("lanes") or [] if x.get("lane")})
+    return lanes, "; ".join(rec.get("gaps") or []) if not lanes else ""
+
+
+def fix_verdict(lane, lanes):
+    """The panel's lane against the lanes carrying the fix: None when it is one of them, else the sentence to stop on."""
+    if not lanes:
+        return "fix lanes unknown: no lane's build was shown to carry the fix (see ela fixed-in)"
+    if lane in lanes:
+        return None
+    qa_only = all(l.startswith("qa") for l in lanes)
+    where = ", ".join(lanes)
+    return (f"fix absent: the fix is on QA lanes only ({where}); the panel shows {lane}, a lane whose build does not carry it"
+            if qa_only else f"fix absent: the fix is on {where}; the panel shows {lane} — switch the account's bundle and run ela login tvu --force")
 
 
 def node_path():
@@ -162,7 +206,7 @@ def R_envs(env_file, slug):
     return r.returncode, [], (r.stderr or r.stdout).strip()[:120]
 
 
-def node(cmd, *args):
+def node(cmd, *args, timeout=240):
     np = node_path()
     if not np:
         print("playwright is not installed for ela — run: ela browser setup", file=sys.stderr); sys.exit(EX_UNPROVEN)
@@ -170,7 +214,10 @@ def node(cmd, *args):
     if not url:
         print("site.json has no `mediahub_url` — run: ela browser setup --url <product url>", file=sys.stderr); sys.exit(EX_USAGE)
     env = dict(os.environ, NODE_PATH=np)
-    r = subprocess.run(["node", os.path.join(HERE, "browser.js"), cmd, "--url", url, *args], capture_output=True, text=True, timeout=240, env=env)
+    tz = timezone()
+    if tz:
+        env["ELA_TZ"] = tz
+    r = subprocess.run(["node", os.path.join(HERE, "browser.js"), cmd, "--url", url, *args], capture_output=True, text=True, timeout=timeout, env=env)
     if r.returncode != 0:
         print(f"browser: {(r.stderr or r.stdout).strip()[-300:]}", file=sys.stderr); sys.exit(EX_FAIL)
     try:
@@ -202,10 +249,13 @@ def cmd_setup(a):
 
 
 def cmd_env(a):
+    lanes, why = fix_lanes(a.env_file, a.key) if a.key else ([], "")
     d = node("env")
     parsed = parse_panel(d.get("panel") or "")
     res = {"url": d.get("url"), "panel": d.get("panel"), "sections": parsed["sections"], "lanes": parsed["lanes"], "proven": parsed["proven"],
-           "lane": a.lane, "compare": [], "verdict": None}
+           "lane": a.lane, "compare": [], "verdict": None, "clock": d.get("clock"), "key": a.key, "fix_lanes": lanes, "fix_verdict": None}
+    if a.key and why:
+        res["fix_verdict"] = why
     if not parsed["proven"]:
         res["verdict"] = "unproven: the panel names no ENV — the session cookies are stale or missing (ela login tvu --force)"
     else:
@@ -215,6 +265,10 @@ def cmd_env(a):
             res["compare"] = compare(parsed, lane, a.env_file)
             bad = [c for c in res["compare"] if c["verdict"] == "differs" or (c["panel_lane"] and c["panel_lane"] != lane)]
             res["verdict"] = "proven" if not bad else "mismatch: " + ", ".join(f"{c['slug']} panel {c['panel']} ({c['panel_lane']}) vs map {c['map']} ({lane})" for c in bad)
+            if a.key and res["verdict"] == "proven":
+                res["fix_verdict"] = fix_verdict(lane, lanes)
+                if res["fix_verdict"]:
+                    res["verdict"] = res["fix_verdict"]
         else:
             res["verdict"] = "proven lane unknown: ENV names map to no lane in release.yaml"
     for s in res["sections"]:
@@ -228,11 +282,17 @@ def cmd_env(a):
         print()
         for c in res["compare"]:
             print(f"  {c['slug']:<26} panel {c['panel']:<24} map[{c['lane']}] {str(c['map']):<28} {c['verdict']}")
+        if res["clock"]:
+            print(f"clock: {res['clock'].get('tz')} {res['clock'].get('now')}")
+        if a.key:
+            print(f"fix lanes ({a.key}): {', '.join(res['fix_lanes']) or '(none)'}")
         print(f"verdict: {res['verdict']}")
     if res["verdict"].startswith("unproven"):
         sys.exit(EX_UNPROVEN)
     if res["verdict"].startswith("mismatch"):
         sys.exit(EX_MISMATCH)
+    if res["verdict"].startswith("fix "):
+        sys.exit(EX_ABSENT)
 
 
 def cmd_shot(a):
@@ -246,7 +306,12 @@ def cmd_run(a):
     if not os.path.isfile(script):
         print(f"no such script: {script}", file=sys.stderr); sys.exit(EX_USAGE)
     shots = a.shots or os.path.join(runtime_dir(), "browser", "shots", os.path.splitext(os.path.basename(script))[0])
-    d = node("run", "--script", script, "--shots", shots)
+    extra = []
+    if a.phase:
+        extra += ["--phase", a.phase]
+    if a.state:
+        extra += ["--state", os.path.realpath(a.state)]
+    d = node("run", "--script", script, "--shots", shots, *extra, timeout=a.timeout)
     if a.json:
         print(json.dumps(d, ensure_ascii=False))
     else:
@@ -264,9 +329,9 @@ def main():
     ap.add_argument("--env-file")
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("setup", help="install playwright into the runtime directory (no root) and record the product url"); p.add_argument("--url")
-    p = sub.add_parser("env", help="the version panel, compared with the release map: the environment proof"); p.add_argument("--lane", help="prod-3, prod-8 … (default: the lane the panel names)"); p.add_argument("--json", action="store_true")
+    p = sub.add_parser("env", help="the version panel, compared with the release map: the environment proof"); p.add_argument("--lane", help="prod-3, prod-8 … (default: the lane the panel names)"); p.add_argument("--key", help="a ticket: its fix must be on the panel's lane (ela fixed-in), else exit 6"); p.add_argument("--json", action="store_true")
     p = sub.add_parser("shot", help="screenshot the product"); p.add_argument("--out", required=True); p.add_argument("--full", action="store_true"); p.add_argument("--json", action="store_true")
-    p = sub.add_parser("run", help="run one case script and print its result"); p.add_argument("script"); p.add_argument("--shots"); p.add_argument("--json", action="store_true")
+    p = sub.add_parser("run", help="run one case script and print its result"); p.add_argument("script"); p.add_argument("--shots"); p.add_argument("--phase", help="create | observe: one script, two runs over --state"); p.add_argument("--state", help="json file the phases share"); p.add_argument("--timeout", type=int, default=240, help="seconds the run may take (default 240)"); p.add_argument("--json", action="store_true")
     a = ap.parse_args()
     {"setup": cmd_setup, "env": cmd_env, "shot": cmd_shot, "run": cmd_run}[a.cmd](a)
 

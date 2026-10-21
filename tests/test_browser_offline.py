@@ -39,5 +39,10 @@ UNPROVEN = "TVU MediaHub\nFrontend\nBackend\nUnified Media Service\nUnified Reso
 u = B.parse_panel(UNPROVEN)
 check("a panel with names only is unproven", not u["proven"] and not u["lanes"])
 
+check("the fix on the panel's lane passes the gate", B.fix_verdict("prod-3", ["daily-test2", "prod-3"]) is None)
+check("a fix on QA lanes only names them and stops", "QA lanes only" in (B.fix_verdict("prod-3", ["qa-aws3"]) or ""))
+check("a fix on another daily or prod lane says which and asks for the bundle switch", "daily-test2" in (B.fix_verdict("prod-3", ["daily-test2"]) or "") and "login tvu" in B.fix_verdict("prod-3", ["daily-test2"]))
+check("no carrying lane is a gate failure, not a pass", B.fix_verdict("prod-3", []) is not None)
+
 print("browser: all offline checks passed" if not failures else f"browser: {len(failures)} check(s) failed")
 sys.exit(1 if failures else 0)

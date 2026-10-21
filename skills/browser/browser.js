@@ -15,11 +15,20 @@ function cookies() {
 
 async function open(opts = {}) {
   const b = await chromium.launch();
-  const ctx = await b.newContext({ ignoreHTTPSErrors: true, viewport: { width: 1600, height: 1000 } });
+  // The clock the page sees: the site's timezone (browser.py passes ELA_TZ), so a cross-day or a scheduled-time
+  // case reads the same wall clock the owner reads; the resolved zone and time go into every result.
+  const opt = { ignoreHTTPSErrors: true, viewport: { width: 1600, height: 1000 } };
+  if (process.env.ELA_TZ) opt.timezoneId = process.env.ELA_TZ;
+  if (process.env.ELA_LOCALE) opt.locale = process.env.ELA_LOCALE;
+  const ctx = await b.newContext(opt);
   await ctx.addCookies(cookies());
   const p = await ctx.newPage(); p.setDefaultTimeout(opts.timeout || 10000);
   const errors = []; p.on("pageerror", e => errors.push(String(e.message).split("\n")[0]));
   return { b, ctx, p, errors };
+}
+
+async function clockOf(p) {
+  return p.evaluate(() => ({ tz: Intl.DateTimeFormat().resolvedOptions().timeZone, now: new Date().toISOString() }));
 }
 
 // The version panel: an el-tooltip on the MediaHub logo (tvu-common-ui top-header). Its text names every
@@ -41,22 +50,30 @@ async function panel(p, url) {
   const out = (o) => process.stdout.write(JSON.stringify(o) + "\n");
   const url = arg("--url");
   if (cmd === "env") {
-    const { b, p } = await open(); try { out({ url, panel: await panel(p, url) }); } finally { await b.close(); }
+    const { b, p } = await open(); try { const text = await panel(p, url); out({ url, panel: text, clock: await clockOf(p) }); } finally { await b.close(); }
   } else if (cmd === "shot") {
     const { b, p } = await open(); try {
       await p.goto(url, { waitUntil: "networkidle", timeout: 60000 }); await p.waitForTimeout(2000);
       await p.screenshot({ path: arg("--out"), fullPage: !!arg("--full", false) }); out({ url, out: arg("--out") });
     } finally { await b.close(); }
   } else if (cmd === "run") {
-    // A case script exports `async ({ p, ctx, b, panel, url, shots }) => result`. It reads; it never saves unless
-    // the owner's confirm reached the script by its own flag. `shots` is the directory for its screenshots.
+    // A case script exports `async ({ p, ctx, b, panel, url, shots, phase, state, fakeTime }) => result`. It reads; it
+    // never saves unless the owner's confirm reached the script by its own flag. `shots` is the directory for its
+    // screenshots. A scheduled behaviour spans two runs: `--phase create` leaves what it made in `--state F` (ids,
+    // the scheduled time), `--phase observe` reads it back later. `fakeTime(iso)` installs a fake browser clock for a
+    // form or display case (the server's clock stays real); the result records it so the report can say so.
     const script = path.resolve(arg("--script")); const shots = arg("--shots"); if (shots) fs.mkdirSync(shots, { recursive: true });
-    const { b, ctx, p, errors } = await open(); let result, err = null;
-    try { result = await require(script)({ p, ctx, b, panel, url, shots }); }
+    const phase = arg("--phase", null), stateFile = arg("--state", null);
+    let state = {}; if (stateFile && fs.existsSync(stateFile)) state = JSON.parse(fs.readFileSync(stateFile, "utf8"));
+    const { b, ctx, p, errors } = await open(); let result, err = null, faked = null;
+    const fakeTime = async (iso) => { await p.clock.install({ time: new Date(iso) }); faked = iso; };
+    try { result = await require(script)({ p, ctx, b, panel, url, shots, phase, state, fakeTime }); }
     catch (e) { err = String(e.message).split("\n")[0]; }
-    finally { await b.close(); }
-    out({ script, result, error: err, page_errors: errors });
+    const clock = await clockOf(p).catch(() => null);
+    await b.close();
+    if (stateFile) fs.writeFileSync(stateFile, JSON.stringify(state, null, 1));
+    out({ script, phase, result, error: err, page_errors: errors, clock, fake_time: faked, state: stateFile ? state : undefined });
   } else {
-    process.stderr.write("usage: browser.js env|shot|run --url U [--out F] [--script S] [--shots D]\n"); process.exit(2);
+    process.stderr.write("usage: browser.js env|shot|run --url U [--out F] [--script S] [--shots D] [--phase P] [--state F]\n"); process.exit(2);
   }
 })().catch(e => { process.stderr.write(String(e.message).split("\n")[0] + "\n"); process.exit(5); });

@@ -50,6 +50,21 @@ def pill(result):
     return f'<span class="pill {RESULT_CLASS.get(r, "na")}">{esc(result or "—").upper()}</span>'
 
 
+def clock_line(env):
+    """The browser's clock and, when the gate ran with a ticket, the lanes whose build carries its fix."""
+    clock = env.get("clock") or {}
+    if not clock and not env.get("key"):
+        return ""
+    parts = []
+    if clock:
+        parts.append(f"Browser clock: {clock.get('tz') or '?'} at {clock.get('now') or '?'}.")
+    if env.get("key"):
+        parts.append(f"Lanes whose build carries the fix ({env.get('key')}): {', '.join(env.get('fix_lanes') or []) or 'none shown'}.")
+    if env.get("fix_verdict"):
+        parts.append(str(env["fix_verdict"]))
+    return "<p>" + esc(" ".join(parts)) + "</p>"
+
+
 def overall(cases, env):
     if not env or not str(env.get("verdict", "")).startswith("proven"):
         return "unproven"
@@ -139,6 +154,7 @@ figure{{margin:0;display:flex;flex-direction:column;gap:8px}}figure img{{width:1
         panel_img = "data:image/png;base64," + base64.b64encode(open(os.path.join(out_dir, panel_img), "rb").read()).decode()
     H.append(f'<section><h2>Environment proof</h2><p>A result counts only when the version panel (hover the MediaHub logo) names the lane and the versions in the same browser run; every service the panel lists is recorded and compared with the release map for <code>{esc(env.get("lane") or "?")}</code>. Verdict of the gate: <b>{esc(env.get("verdict") or "not run")}</b>.</p>'
              f'<pre class="panel">{esc(env.get("panel") or "(no panel)")}</pre>'
+             + clock_line(env) +
              f'<div class="scroll"><table><tr><th>Service</th><th>Panel</th><th>Release map</th><th></th></tr>{srows}{anc_row}</table></div>'
              + (f'<figure><img src="{panel_img}" alt="The version panel captured in the same browser run"><figcaption>Version panel, same run as the cases.</figcaption></figure>' if panel_img else "") + "</section>")
     # results
