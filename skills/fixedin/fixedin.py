@@ -876,6 +876,35 @@ def print_text(recs):
         print()
 
 
+def group_of(r):
+    """One of four groups a clean-up batch sorts into: derivable (a build was found) · declared (only a developer's
+    comment names a version) · unmapped (the service has no job or checkout in the release map) · none."""
+    if r.get("exit"):
+        return "unreadable"
+    if r.get("draft"):
+        return "derivable"
+    if (r.get("declared") or {}).get("declared"):
+        return "declared"
+    if any("unmapped" in g or "no checkout" in g for g in r.get("gaps") or []):
+        return "unmapped"
+    return "none"
+
+
+def print_groups(recs):
+    groups = {}
+    for r in recs:
+        groups.setdefault(group_of(r), []).append(r)
+    order = ["derivable", "declared", "unmapped", "none", "unreadable"]
+    print("## groups")
+    for g in order:
+        rows = groups.get(g) or []
+        if not rows:
+            continue
+        print(f"   {g:<10} {len(rows):>3}  " + ", ".join(r["key"] for r in rows))
+    print("   derivable → `jira close` with the draft; declared → verify the declared build by ancestry first, or write it as declared;")
+    print("   unmapped → ask the service's owner for the build; none → the comment names what closed it, the field stays")
+
+
 def cmd_draft(a):
     keys = [k.upper() for k in a.keys]
     if a.jql:
@@ -902,10 +931,12 @@ def cmd_draft(a):
         for r in recs:
             r.pop("comments", None)
     if a.json:
-        print(json.dumps({"keys": [{f: r.get(f) for f in ("key", "summary", "status", "labels", "current", "compare", "draft",
-                                                          "commits", "builds", "lanes", "evidence", "gaps", "declared")} for r in recs]}, ensure_ascii=False))
+        print(json.dumps({"keys": [dict({f: r.get(f) for f in ("key", "summary", "status", "labels", "current", "compare", "draft",
+                                                               "commits", "builds", "lanes", "evidence", "gaps", "declared")}, group=group_of(r)) for r in recs]}, ensure_ascii=False))
     else:
         print_text(recs)
+        if a.group or len(recs) > 1:
+            print_groups(recs)
     codes = {r.get("exit") for r in recs}
     if EX_REMOTE in codes:
         sys.exit(EX_REMOTE)
@@ -932,6 +963,7 @@ def main():
     p.add_argument("--author", help="hint: also take this author's commits since --since as candidates")
     p.add_argument("--path", help="hint: also take commits touching this path since --since as candidates")
     p.add_argument("--thread", help="hint: also take commits whose message carries this Slack permalink")
+    p.add_argument("--group", action="store_true", help="end with the four groups a batch sorts into (always on for more than one key)")
     p.add_argument("--json", action="store_true")
     p = sub.add_parser("declared", help="what the developers' comments declare was built (unverified) — no checkout, no Jenkins")
     p.add_argument("keys", nargs="*"); p.add_argument("--json", action="store_true")
