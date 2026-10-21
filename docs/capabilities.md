@@ -22,6 +22,7 @@ manage. Each names the skill or verb that serves it today; "not built" marks a g
 | S15 | Know the owner in any directory without a persona or a global agent | `hooks/session-start.sh` |
 | S16 | Read a process's logs and state on a box, and the platform's diagnostic records, without a person at a terminal | `ela logs` (tvulog process-log and java-log, Loki), used by `/ela:route`; `ela configserver` (the runtime configuration a decision reads, per environment, redacted); `ela connect/exec` interactive only; `inspect`, UR diagnostics not built |
 | S17 | Make one ticket judgeable before acting on it: the runtime instance, whether the fix named on it still exists, the ticket's assertions against the thread's decisions, who it waits on | `/ela:explain` |
+| S19 | Verify a ticket's behaviour in the product in a real browser on a named lane, read-only: the version panel read in the same browser run and matched against the release map is the proof, the cases come from the ticket and from the file at the lane's build, and the result goes to the owner as a report and to the ticket as a short comment | `/ela:verify`, `ela browser env · run`; the browser is a sense, the verdict is the skill's |
 | S18 | Decide whether an old ticket still needs to exist: the problem read apart from the plan written for it, checked against today in cost order, then close / carry to a keyed ticket / keep with the next skill named | `/ela:revisit` |
 
 ## Exposure by kind

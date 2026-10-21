@@ -74,6 +74,7 @@ flowchart LR
 | 想看 ela 自己现在什么状态 | `reports` | `ela reports list` |
 | 临时目录占地方了 | `runtime` | `ela runtime status` · `ela runtime clean` |
 | 找之前那个关于 X 的 session | `sessions` | `ela sessions <word>` |
+| 一张票要在真实环境的浏览器里按票验一遍，结果要带环境和版本的证明 | `verify` · `browser` | `/ela:verify MH-xxxx --lane prod-3` · `ela browser env --lane prod-3` |
 
 ---
 
