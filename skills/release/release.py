@@ -435,7 +435,7 @@ def login_tvu(env_file, force=False, timeout=300, json_out=False, open_browser=T
     crt, key = _ensure_cert()
     port = _login_port()
     url = f"https://{LOGIN_HOST}:{port}/"
-    state = {"sid": None, "source": None, "note": ""}
+    state = {"sid": None, "source": None, "note": "", "cookies": {}}
 
     class H(BaseHTTPRequestHandler):
         def log_message(self, *a):
@@ -445,16 +445,19 @@ def login_tvu(env_file, force=False, timeout=300, json_out=False, open_browser=T
             data = _PAGE.format(body=body).encode()
             self.send_response(code); self.send_header("Content-Type", "text/html; charset=utf-8"); self.send_header("Content-Length", str(len(data))); self.end_headers(); self.wfile.write(data)
 
-        def _accept(self, sid, source):
+        def _accept(self, sid, source, cookies=None):
             if _validate_sid(host_url, sid):
-                state["sid"], state["source"] = sid, source
+                state["sid"], state["source"], state["cookies"] = sid, source, cookies or {}
                 self._send('<p class="ok">✓ TVU session stored in ~/.claude/ela/session.json. You can close this tab.</p>'); return True
             return False
 
         def do_GET(self):
             c = SimpleCookie(self.headers.get("Cookie") or "")
             sid = c["SID"].value.strip() if "SID" in c else None
-            if sid and self._accept(sid, "browser"):
+            # The browser sends every .tvunetworks.com cookie, among them the per-service tag cookies
+            # (mediahubNN, …) login-service sets from the user's group; the gateway routes on them, so a
+            # browser test that replays SID alone lands on the gateway default instead of the account's lane.
+            if sid and self._accept(sid, "browser", {k: m.value for k, m in c.items()}):
                 return
             note = '<p class="bad">The browser sent a SID but userservice refused it — sign in again, then reload.</p>' if sid else \
                    '<p>No SID cookie reached this page. Either you are not signed in to userservice yet, or this page is not under the <code>.tvunetworks.com</code> domain in your browser (hosts entry missing).</p>'
@@ -492,7 +495,7 @@ def login_tvu(env_file, force=False, timeout=300, json_out=False, open_browser=T
     if not state["sid"]:
         print("no session collected before the timeout", file=sys.stderr); sys.exit(EX_AUTH)
     sessions["tvu"] = {"sid": state["sid"], "obtained_at": _now(), "rejected_at": None, "source": state["source"],
-                        "lifetimes_s": cur.get("lifetimes_s") or []}
+                        "cookies": state["cookies"], "lifetimes_s": cur.get("lifetimes_s") or []}
     _save_sessions(sessions)
     msg = {"tvu": "stored", "obtained_at": sessions["tvu"]["obtained_at"], "source": state["source"]}
     print(json.dumps(msg) if json_out else f"TVU session stored ({state['source']}, {msg['obtained_at']}) — ela versions --host prod")
