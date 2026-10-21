@@ -78,6 +78,9 @@
                                    triage · breakdown · incidents · backlog · yours
   ela route <KEY>                  the routing facts: [Layer] token, ids, signal words per layer,
                                    services named, who to ask first, gaps
+  ela stage <KEY>… [--jql Q]       the board against the builds: where each fix is (none/qa/daily/prod),
+                                   what the ticket still owes, grouped by action; an Epic expands;
+                                   --days N: fix on prod this long → close candidate (default 30)
   ela fixed-in <KEY>… [--jql Q]    the Fixed In the evidence supports: commits → build → lanes
                                    → QA words; draft only, no Jira write
   ela team <verb>                  the roster, first-hand: people|areas|who|emails|check
@@ -141,6 +144,7 @@ VERBS = {
     "sessions": ("sessions", "find"),
     "route": ("route", "facts"),
     "fixed-in": ("fixedin", "draft"),
+    "stage": ("stage", "queue"),
     "logs": ("logs", None),
     "configserver": ("configserver", None),
     "browser": ("browser", None),
