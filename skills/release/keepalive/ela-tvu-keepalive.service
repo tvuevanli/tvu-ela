@@ -1,0 +1,10 @@
+# A template: @ELA@ is the absolute path of the `ela` command, substituted at install (skills/release/SKILL.md).
+[Unit]
+Description=ela: renew the TVU session's idle TTL (one validation call, never a login)
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=@ELA@ login tvu --keepalive
+# Exit 4 (refused or missing: run `ela login tvu`) and 5 (network) leave the unit failed, visible in
+# `systemctl --user status`; the timer fires again regardless and nothing retries in between.

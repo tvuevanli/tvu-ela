@@ -1,0 +1,10 @@
+[Unit]
+Description=ela: renew the TVU session every 30 minutes while the machine is up
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=30min
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target

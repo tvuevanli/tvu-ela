@@ -14,6 +14,9 @@ L1: subcommands, --json, stdlib only. No store, no scheduler: every answer is th
                                           SID after Google SSO (a paste field is the fallback); stored in
                                           ~/.claude/ela/session.json (mode 600) with obtained_at; the first refusal
                                           records rejected_at so the session's real lifetime is measured.
+  login tvu --keepalive                   one validation call to user-auth, which renews the session's idle TTL; never
+                                          logs in, never retries. 0 renewed · 4 refused (recorded) or already refused ·
+                                          5 network. A systemd user timer runs it every 30 min (skills/release/keepalive/).
 
 Hosts. qa = site.json services.userservice-test, account login (TVUTEST_ACCOUNT / TVUTEST_PASSWORD), QA bundles and
 qa-* lanes. prod = site.json services.userservice, the person's TVU SSO session — `ela login tvu` (elak `blueprint/decisions/2026-09-04-prod-gm-read-through-a-person-login.md`): daily-*, stage and prod-N lanes and their bundles.
@@ -30,6 +33,8 @@ SITE = os.path.expanduser("~/.claude/ela/site.json")
 SESSION_FILE = os.path.expanduser("~/.claude/ela/session.json")
 TLS_DIR = os.path.expanduser("~/.claude/ela/tls")
 LOGIN_HOST = "ela.tvunetworks.com"
+USER_AUTH_DEFAULT = "https://cc-ms.tvunetworks.com/userAuth"   # the userAuthUrl UAS's initData returns; .env TVU_USER_AUTH_BASE overrides
+SESSION_REFUSED = "0x80060005"                                  # user-auth: "Session is not correct or expired"
 
 
 def _login_port():
@@ -348,6 +353,47 @@ def _validate_sid(host_url, sid):
                     {"bundleName": "", "operator": "", "createStartTime": "", "createEndTime": "", "pageNum": 1, "pageSize": 1},
                     cookie=f"SID={sid}", timeout=15)
     return st == 200 and isinstance(body, dict) and body.get("result") is not None and not _auth_failed(st, body)
+
+
+def keepalive_tvu(env_file, json_out=False):
+    """One validation call so user-auth renews the session's idle TTL. Never logs in, never retries.
+
+    user-auth holds the session in Redis for `sessionInterval` and renews it whenever a validation finds less than
+    `left.expire.time` left (UserAuthServiceImpl getUserFromSession); both are 7200 in Config Server, so each call
+    renews to two hours. The SID goes in the form body, never the URL, so it stays out of access logs; only the
+    email and the errorCode are printed. A refusal is recorded like any other reader's; a network failure is not.
+    """
+    def out(code, state, msg, **kw):
+        print(json.dumps({"tvu": state, **kw}) if json_out else msg, file=sys.stdout if code == 0 else sys.stderr)
+        sys.exit(code)
+
+    s = _load_sessions().get("tvu") or {}
+    if not s.get("sid"):
+        out(EX_AUTH, "missing", "tvu session missing — run: ela login tvu")
+    if s.get("rejected_at"):
+        out(EX_AUTH, "refused", f"tvu session refused at {s['rejected_at']} — run: ela login tvu", rejected_at=s["rejected_at"])
+    base = (env_value("TVU_USER_AUTH_BASE", env_file) or USER_AUTH_DEFAULT).rstrip("/")
+    req = urllib.request.Request(base + "/main/GetInfoJSON", data=urllib.parse.urlencode({"session": s["sid"]}).encode(),
+                                 headers={"Accept": "application/json", "Content-Type": "application/x-www-form-urlencoded"}, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=15) as r:
+            st, raw = r.status, r.read()
+    except urllib.error.HTTPError as e:
+        st, raw = e.code, e.read()
+    except Exception as e:
+        out(EX_REMOTE, "network", f"tvu keepalive: network failure ({type(e).__name__}) — not recorded as a refusal")
+    try:
+        body = json.loads(raw)
+    except ValueError:
+        body = None
+    code = str(body.get("errorCode") or "") if isinstance(body, dict) else ""
+    if code == SESSION_REFUSED:
+        _mark_rejected("tvu")
+        out(EX_AUTH, "refused", f"tvu session refused ({code}) — run: ela login tvu", errorCode=code)
+    if st != 200 or code != "0x0":
+        out(EX_REMOTE, "remote", f"tvu keepalive: HTTP {st} errorCode {code or '?'} — not recorded as a refusal", errorCode=code or None)
+    email = ((body.get("user") or {}).get("email")) or "?"
+    out(0, "renewed", f"tvu session renewed ({email}, {code})", email=email, errorCode=code)
 
 
 def _ensure_cert():
@@ -717,6 +763,10 @@ def cmd_drift(a):
 
 
 def cmd_login(a):
+    if a.keepalive:
+        if a.target != "tvu":
+            print("--keepalive applies to the tvu session only: ela login tvu --keepalive", file=sys.stderr); sys.exit(EX_USAGE)
+        keepalive_tvu(a.env_file, json_out=a.json)
     if a.target == "tvu":
         login_tvu(a.env_file, force=a.force, timeout=a.timeout, json_out=a.json, open_browser=not a.no_browser); return
     host = _service_url("userservice-test")
@@ -741,6 +791,7 @@ def main():
     p = sub.add_parser("builds"); p.add_argument("job"); p.add_argument("--limit", type=int, default=15); p.add_argument("--json", action="store_true")
     p = sub.add_parser("drift"); p.add_argument("line", nargs="?", default="mh2.1@"); p.add_argument("--bundles", type=int, default=5, help="newest N bundles to union (default 5)"); host_arg(p); p.add_argument("--json", action="store_true")
     p = sub.add_parser("login"); p.add_argument("target", nargs="?", choices=("qa", "tvu"), default="qa"); p.add_argument("--force", action="store_true"); p.add_argument("--no-browser", action="store_true"); p.add_argument("--timeout", type=int, default=300); p.add_argument("--json", action="store_true")
+    p.add_argument("--keepalive", action="store_true", help="tvu: one validation call that renews the session's idle TTL; never logs in, never retries")
     a = ap.parse_args()
     {"bundles": cmd_bundles, "bundle": cmd_bundle, "bundle-diff": cmd_bundle_diff, "envs": cmd_envs, "builds": cmd_builds, "drift": cmd_drift, "login": cmd_login}[a.cmd](a)
 
