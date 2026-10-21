@@ -287,6 +287,14 @@ def _inline(line, mentions):
         aid, disp = mentions[m.group(1)]
         nodes.append({"type": "mention", "attrs": {"id": aid, "text": "@" + disp}})
         pos = m.end()
+        # `@Erin Zhang`: the rest of the display name typed after the token is the same person, not more text
+        rest = disp.lower().split()[1:]
+        tail = line[pos:]
+        for word in rest:
+            tm = re.match(r"\s+(" + re.escape(word) + r")\b", tail, re.I)
+            if not tm:
+                break
+            pos += tm.end(); tail = line[pos:]
     if pos < len(line):
         nodes.append({"type": "text", "text": line[pos:]})
     return nodes or [{"type": "text", "text": line}]
@@ -975,9 +983,11 @@ def _transition_one(creds, key, to, apply, path=False):
     hit, required = _hop(trans, to)
     hops = [to] if hit else None
     if not hit and path:
-        plan = plan_path(cur, to)
+        plan = plan_path(cur, to) or (plan_path(cur, "Done") if _norm(to) not in {_norm(x) for x in STATUS_PATH} else None)
         if plan:
             hops = plan[1:]
+            if _norm(hops[-1]) != _norm(to):
+                hops.append(to)                  # walked toward Done until Jira offers the target (Cancelled, On Hold)
             hit, required = _hop(trans, hops[0])
     if not hit:
         opts = ", ".join(sorted({(t.get("to") or {}).get("name", "?") for t in trans}))
@@ -1000,7 +1010,11 @@ def _transition_one(creds, key, to, apply, path=False):
     for n, h in enumerate(hops):
         if n:
             trans = _transitions(creds, key)
-            hit, required = _hop(trans, h)
+            early, early_req = _hop(trans, to)
+            if early and _norm(h) != _norm(to):          # the target became reachable before the plan's end
+                hit, required, h = early, early_req, to
+            else:
+                hit, required = _hop(trans, h)
             if not hit:
                 r["error"] = f"no transition from {cur} to {h} (after {' -> '.join(r['walked'])})"
                 return r, lines + [f"{key}: {r['error']}"]
@@ -1009,6 +1023,8 @@ def _transition_one(creds, key, to, apply, path=False):
                 return r, lines + [f"{key}: {r['error']}"]
         api_post(creds, f"/rest/api/3/issue/{key}/transitions", {"transition": {"id": hit["id"]}})
         r["walked"].append(h); lines.append(f"{key}: {cur} -> {h}"); cur = h
+        if _norm(h) == _norm(to):
+            break
     r["changed"] = True
     return r, lines
 
@@ -1118,17 +1134,28 @@ def fixed_in_merge(current, add):
     return cur, new, "; ".join(cur + new)
 
 
-def _fixed_in_one(creds, key, add, apply):
+def _fixed_in_one(creds, key, add, apply, remove=None, clear=False):
+    """Append entries; `remove` takes named entries out and `clear` empties the field — both only for a value that
+    should never have been written (an automated write on a `flag:no-version` ticket), behind the same --apply."""
     f = _issue(creds, key, f"summary,{FIXED_IN_FIELD}")
     raw = f.get(FIXED_IN_FIELD)
     current = body_text(raw) if raw else ""
-    cur, new, value = fixed_in_merge(current, add)
-    r = {"key": key, "current": "; ".join(cur), "add": new, "value": value, "dry_run": not apply, "changed": False}
-    if not new:
-        return r, [f"{key}: Fixed In already has {'; '.join(add)}"]
+    cur, new, value = fixed_in_merge(current, add or [])
+    gone = []
+    if clear:
+        gone, cur_after = list(cur), []
+    else:
+        gone = [e for e in (remove or []) if e in cur]
+        cur_after = [e for e in cur if e not in gone]
+    value = "; ".join(cur_after + new)
+    r = {"key": key, "current": "; ".join(cur), "add": new, "remove": gone, "value": value, "dry_run": not apply, "changed": False}
+    if not new and not gone:
+        return r, [f"{key}: Fixed In already as requested ({r['current'] or 'empty'})"]
     if not apply:
-        return r, [f"DRY RUN — {key}  {f.get('summary','')}\n  Fixed In  {r['current'] or '(empty)'}\n  + {'; '.join(new)}"]
-    body = value if isinstance(raw, str) else text_to_adf(value)
+        return r, [f"DRY RUN — {key}  {f.get('summary','')}\n  Fixed In  {r['current'] or '(empty)'}"
+                   + (f"\n  + {'; '.join(new)}" if new else "") + (f"\n  - {'; '.join(gone)}" if gone else "")
+                   + (f"\n  = {value or '(empty)'}" if gone else "")]
+    body = (value if isinstance(raw, str) else text_to_adf(value)) if value else None
     _request(creds, f"/rest/api/3/issue/{key}", payload={"fields": {FIXED_IN_FIELD: body}}, method="PUT")
     after = _issue(creds, key, FIXED_IN_FIELD).get(FIXED_IN_FIELD)
     r["changed"], r["value"] = True, "; ".join(fixed_in_entries(body_text(after) if after else ""))
@@ -1145,14 +1172,48 @@ def _fixed_in_args(text):
 
 def cmd_fixed_in(creds, args):
     """Append <slug>@<version> entries to Fixed In. Idempotent: present entries are skipped."""
-    add = _fixed_in_args(args.add)
+    add = _fixed_in_args(args.add) if args.add else []
+    remove = fixed_in_entries(args.remove) if args.remove else []
+    if not add and not remove and not args.clear:
+        sys.exit("fixed-in: pass --add, --remove or --clear")
     results, lines = [], []
     for key in _keys(args.targets):
-        r, ls = _fixed_in_one(creds, key, add, args.apply)
+        r, ls = _fixed_in_one(creds, key, add, args.apply, remove=remove, clear=args.clear)
         results.append(r); lines += ls
-    if not args.apply and any(r["add"] for r in results):
+    if not args.apply and any(r["add"] or r["remove"] for r in results):
         lines.append("pass --apply to write")
     _emit(args, {"results": results} if len(results) > 1 else results[0], lines)
+
+
+# ── describe: the description, rewritten in the Markdown subset ──────────────
+
+def cmd_describe(creds, args):
+    """Replace one issue's description from a file (the Markdown subset: headings, bullets, numbered lists, bold,
+    code, a --- fold). Dry run prints the current text and the new text rendered; --apply writes. Links the
+    original author posted must be carried into the new text by the caller — the atom does not merge."""
+    text = _read_text(args)
+    if not text.strip():
+        sys.exit("describe: empty text")
+    key = extract_key(args.target)
+    f = _issue(creds, key, "summary,description")
+    before = body_text(f.get("description"))
+    adf = markdown_to_adf(text)
+    after = body_text(adf)
+    r = {"key": key, "dry_run": not args.apply, "changed": False, "chars_before": len(before), "chars_after": len(after)}
+    if _norm(before) == _norm(after):
+        _emit(args, r, [f"{key}: description already reads so"]); return
+    lost = [l for l in re.findall(r"https?://\S+", before) if l.rstrip(".,)") not in after]
+    if not args.apply:
+        lines = [f"DRY RUN — describe {key}  {f.get('summary','')}", "  was:", "    " + before.replace("\n", "\n    "), "  now:", "    " + after.replace("\n", "\n    ")]
+        if lost:
+            lines.append(f"  ! links in the current description not in the new one: {', '.join(lost)}")
+        lines.append("pass --apply to write")
+        _emit(args, dict(r, links_dropped=lost), lines); return
+    if lost and not args.allow_dropped_links:
+        _emit(args, dict(r, error="links dropped", links_dropped=lost), [f"{key}: the new text drops {len(lost)} link(s) the description carries — keep them, or pass --allow-dropped-links"]); sys.exit(2)
+    _request(creds, f"/rest/api/3/issue/{key}", payload={"fields": {"description": adf}}, method="PUT")
+    r["changed"] = True
+    _emit(args, r, [f"{key}: description replaced ({len(after)} chars)"])
 
 
 # ── close: one ticket, one bundle, one confirm ────────────────────────────────
@@ -1299,9 +1360,16 @@ def main():
 
     p = sub.add_parser("fixed-in", help="append entries to Fixed In — dry-run unless --apply; present entries are skipped, none removed")
     p.add_argument("targets", nargs="+", help="issue keys or browse URLs")
-    p.add_argument("--add", required=True, help="'<slug>@<version>[; <slug>@<version> …]' in the release map's grammar")
+    p.add_argument("--add", help="'<slug>@<version>[; <slug>@<version> …]' in the release map's grammar")
+    p.add_argument("--remove", help="entries to take out — only for a value that should never have been written")
+    p.add_argument("--clear", action="store_true", help="empty the field — same rule as --remove")
     p.add_argument("--apply", action="store_true"); p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_fixed_in)
+
+    p = sub.add_parser("describe", help="replace an issue's description from a file in the Markdown subset — dry-run shows was/now and any link the new text drops; --apply writes")
+    p.add_argument("target"); p.add_argument("--from-file", required=True); p.add_argument("--allow-dropped-links", action="store_true")
+    p.add_argument("--apply", action="store_true"); p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_describe)
 
     p = sub.add_parser("close", help="one ticket, one bundle, one confirm: Fixed In + labels + comment + the walk to Done — dry-run unless --apply")
     p.add_argument("targets", nargs="+", help="issue keys or browse URLs")

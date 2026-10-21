@@ -91,8 +91,10 @@ seen the dry-run output (or an equivalent listing of parent + title + assignee)
 and explicitly confirmed. One confirmation covers the batch it was shown for,
 nothing later.
 
-Assignee defaults to the token's own account (Evan). Cross-layer scope belongs on the
-parent ticket — a subtask carries exactly one token.
+Assignee defaults to the token's own account (the owner). Cross-layer scope belongs on the
+parent ticket — a subtask carries exactly one token. **A ticket the owner asks for carries no
+sub-tasks and is assigned to him**: he routes it himself; a sub-task is created only when he names
+the lane and the person (2026-10-20, MH-3797; 2026-10-21).
 
 ## comment · transition · label · link · fixed-in · close — the field atoms, gated twice
 
@@ -106,6 +108,7 @@ and does nothing without `--apply`. Each is idempotent, so a re-run after a part
 | `label` | requested labels already present / absent | only the delta is sent (`add` / `remove` ops) |
 | `link` | a link of that type already joins the pair in that direction | `--type` is a type name or a phrase (`blocks`, `is blocked by`, `relates to`, `contains`, `is contained in`, `implements`), resolved against the site's link types; the dry-run prints the sentence as Jira will show it |
 | `fixed-in` | every `--add` entry is already in the field | append-only union in the release map's grammar (`<slug>@<version>; …`): current entries keep their order, new ones follow; no entry is ever removed, because an older build stays a true record when a newer one is added. The value comes from `ela fixed-in <KEY>` (commit → carrying build), not from a developer's comment alone; a value that disagrees with the rule is corrected by appending the right one and saying so in the comment |
+| `describe` | the description already reads so | replaces one issue's description from a file, in the Markdown subset; the dry run shows was / now and names every link the current description carries that the new text drops, and `--apply` refuses while any is dropped (the reporter's links are theirs). The caller writes the new text in the ticket's established shape (Problem / Steps / Cause / Change / QA verification) and keeps the reporter's paragraphs where they stand |
 | `close` | each step's own no-op | **one ticket, one bundle, one confirm**: `--fixed-in`, `--label`, the comment (`--text` / `--from-file`) and the walk to `--to` (default Done, `--path` implied), shown together as one dry run and applied in that order. A ticket assigned to someone else is refused without a comment (`--allow-no-comment` overrides): the assignee otherwise sees a status change with no reason. On a partial failure the dry run says which steps are done; a re-run skips them |
 
 Confirm rule for a Claude session: show the dry-run, ask Evan, and only then re-run with `--apply` —
@@ -114,7 +117,7 @@ comment and the status walk for one key are one dry run and one word; several ke
 confirms, unless one text fans out unchanged over all of them (then one dry run, one confirm, any
 number of keys). This supersedes the earlier "one text, one confirm" wording (2026-10-19): a close is
 one decision about one ticket, and splitting it into four confirms produced closes with the comment
-missing. **Pre-authorisation:** when his instruction already names the writes ("fill Fixed In, comment
+missing. **The confirm vocabulary** is `apply`, `go`, `yes`, `confirm`, `ok`, `do it`, and a Chinese equivalent (好, 可以, 执行); any other reply — an answer to a question (`No sub`), a fact (`it is good on prod 8`), a correction — is input, not a confirm, and the dry run is shown again if it changed. **Pre-authorisation:** when his instruction already names the writes ("fill Fixed In, comment
 and close"), that sentence covers Fixed In, labels and the transition; it covers a comment only if he
 said so ("with a comment"); after a pre-authorised run, every posted text is shown back verbatim.
 

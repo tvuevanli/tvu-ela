@@ -53,5 +53,11 @@ check("a bullet list renders before the fold", top[1]["type"] == "bulletList")
 check("the fold is a titled expand holding a numbered list", top[2]["type"] == "expand" and top[2]["attrs"]["title"] == "Test report" and top[2]["content"][0]["type"] == "orderedList")
 check("rendered text keeps the words for the duplicate check", "Verdict: PASS" in J.body_text(doc) and "@Erin Zhang" in J.body_text(doc))
 
+# mentions written with the surname render once; Fixed In removal is a dry-run decision like the append
+n = J._inline("@erin Zhang please verify", {"erin": ("acc-erin", "Erin Zhang")})
+check("the surname typed after the token is folded into the mention", [x.get("text") or x["attrs"]["text"] for x in n] == ["@Erin Zhang", " please verify"])
+cur, new, value = J.fixed_in_merge("a@1.0; b@2.0", ["c@3.0"])
+check("merge keeps order and appends", value == "a@1.0; b@2.0; c@3.0")
+
 print("jira close: all offline checks passed" if not failures else f"jira close: {len(failures)} check(s) failed")
 sys.exit(1 if failures else 0)
