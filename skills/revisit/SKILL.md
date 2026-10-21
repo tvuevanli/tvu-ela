@@ -1,6 +1,6 @@
 ---
 name: revisit
-description: Decide whether an old ticket should still exist — close, carry or keep — and carry a close out as one bundle (Fixed In, labels, comment, Done). Use for "fill Fixed In and close", "填 Fixed In 关票", "这票能关了吗", "旧票清一清", or a ticket whose face has aged.
+description: Decide whether an old ticket should still exist — close, carry or keep — and propose a close as one bundle (Fixed In, labels, comment, Done). Use for "fill Fixed In and close", "填 Fixed In 关票", "这票能关了吗", "旧票清一清", or a ticket whose face has aged.
 user-invocable: true
 ---
 
@@ -56,8 +56,9 @@ the verdict that can be undone — never toward closing something whose problem 
 - **The verdict names the option it rejects.** Every close carries the reason the ticket could have
   been kept, so a later reopen is a decision and not a discovery.
 - **Writes gated, one bundle per ticket.** A close is one decision, so its writes are one dry run and one
-  word: `jira.py close <KEY> --fixed-in … --label … --from-file … --to Done` carries Fixed In, labels, the
-  comment and the walk to Done together (`skills/jira/SKILL.md`). A carry's link is `jira.py link`.
+  word: `jira.py close <KEY> --fixed-in … --label … --from-file …` carries Fixed In, labels, the comment,
+  `flag:closing` and the assignment to the owner together (`skills/jira/SKILL.md`); the status itself is
+  his click in Jira, never this skill's. A carry's link is `jira.py link`.
   Several tickets are several confirms. (Supersedes "each verdict confirms separately", 2026-10-19:
   split confirms produced closes with the comment missing.)
 

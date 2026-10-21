@@ -16,9 +16,9 @@ status-spec.md: Review assigned to product is the sign-off gate, not a stale tic
 the assignee, who is the person responsible — that difference is shown, never flagged.
 
 Actions (the flag is the row's, the dry run is the owner's to confirm):
-  close-notice  fix on prod for --days or more, no QA refutation, ticket open, no notice yet → jira close --notice
-                (the notice, flag:closing, and the ticket assigned to the owner for review)
-  your-review   the notice is posted and the ticket is the owner's; nothing closes a ticket but him
+  close-notice  fix on prod for --days or more, no QA refutation, ticket open, no notice yet → jira close
+                (the proposal: Fixed In, the notice, flag:closing, the ticket assigned to the owner; no status moves)
+  your-review   the proposal is on the ticket and the ticket is the owner's; the status is his own click in Jira
   reached-qa    fix on a QA lane, no Fixed In or status before Review → fixed-in --apply, transition Review, tell QA
   awaiting-qa   fix on daily or prod, Review, QA has not spoken → ask QA (comment, dry run)
   awaiting-product  Review, assignee in the product area → nothing; the gate is theirs
@@ -106,7 +106,7 @@ def row_of(rec, roster, days, today=None):
             row.update(action="your-review", why=f"closing notice posted and the ticket assigned to you; fix on {prod} for {age} days — the close is yours",
                        dry_run=None); return row
         row.update(action="close-notice", why=f"fix on {prod} for {age if age is not None else '?'} days, QA {qa or 'silent'}; no notice yet",
-                   dry_run=f"ela jira close {k} --notice --fixed-in <draft> --from-file <notice naming the rule and the date>"); return row
+                   dry_run=f"ela jira close {k} --fixed-in <draft> --from-file <notice naming the rule and the evidence>"); return row
     if stage == "qa" and (not row["fixed_in"] or status in OPEN_BEFORE_REVIEW):
         need = [] if row["fixed_in"] else ["fixed-in"]
         if status in OPEN_BEFORE_REVIEW:
@@ -166,7 +166,7 @@ def roll_up_epics(rows):
         summary = ", ".join(f"{n} {act}" for act, n in sorted(counts.items(), key=lambda kv: -kv[1]))
         if all(k["action"] in ("done", "close-notice", "your-review") for k in kids):
             r.update(action="close-notice", why=f"every child is terminal or proposed for closing: {summary}",
-                     dry_run=f"ela jira close {r['key']} --notice --from-file <notice: children closed, feature on prod>")
+                     dry_run=f"ela jira close {r['key']} --from-file <notice: children closed, feature on prod>")
         else:
             r.update(action="epic", why=f"children: {summary}", dry_run=None)
     return rows

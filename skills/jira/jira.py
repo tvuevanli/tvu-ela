@@ -944,6 +944,14 @@ def cmd_comment(creds, args):
 # ── transitions: one hop looked up live, or the lifecycle walked hop by hop ───
 
 STATUS_PATH = ["Backlog", "In Progress", "Review", "Done"]
+# A terminal status is the owner's own click in Jira. ela proposes a close (Fixed In, comment, flag:closing, the
+# ticket assigned to him) and never performs the transition — so a close he does not know about cannot happen
+# (conventions.md section Clean-up rules, 2026-10-21).
+TERMINAL = {"Done", "Cancelled", "Failed", "Closed Ambigous"}
+
+
+def terminal(to):
+    return _norm(to) in {_norm(x) for x in TERMINAL}
 CLOSING_FLAG = "flag:closing"   # a close announced, waiting out its objection window (conventions.md § Clean-up rules)   # the MH lifecycle (published mediahub/jira/status-spec.md)
 
 
@@ -980,6 +988,9 @@ def _transition_one(creds, key, to, apply, path=False):
     r = {"key": key, "from": cur, "to": to, "dry_run": not apply, "changed": False, "walked": []}
     if _norm(cur) == _norm(to):
         return r, [f"{key}: already {cur}"]
+    if terminal(to):
+        r["error"] = f"{to} is a terminal status: ela never performs that transition — propose it with `close` (the ticket is assigned to the owner, who clicks Done in Jira)"
+        return r, [f"{key}: {r['error']}"]
     trans = _transitions(creds, key)
     hit, required = _hop(trans, to)
     hops = [to] if hit else None
@@ -1269,9 +1280,9 @@ def _assign_to_me(creds, key, me, apply):
 
 
 def cmd_close(creds, args):
-    """Fixed In + labels + comment + the walk to `--to`, shown as one dry run per ticket and applied in that order.
-    A ticket assigned to someone else is closed with a comment or not at all — the assignee otherwise sees a status
-    change with no reason. Every step is idempotent, so a re-run after a partial failure finishes what is missing."""
+    """The close proposal: Fixed In + labels + comment + flag:closing + the ticket assigned to the owner, shown as one dry
+    run per ticket and applied in that order. No step moves the status: a terminal status is the owner's own click in
+    Jira, so a close he does not know about cannot happen. Every step is idempotent; a re-run finishes what is missing."""
     text = _read_text(args)
     add = _fixed_in_args(args.fixed_in) if args.fixed_in else []
     labels = _split_csv(args.label)
@@ -1280,31 +1291,19 @@ def cmd_close(creds, args):
     for key in _keys(args.targets):
         f = _issue(creds, key, "summary,status,assignee,labels")
         assignee = f.get("assignee") or {}
-        steps, out = [], [f"== {key}  {f.get('summary','')}  [{name_of(f.get('status'), 'name')} → {'notice: ' + CLOSING_FLAG if args.notice else args.to}; assignee {name_of(assignee)}]"]
-        if args.notice and not text.strip():
-            r = {"key": key, "error": "a closing notice is a comment: pass --text/--from-file naming the rule and the date it closes"}
-            results.append(r); lines += out + [f"{key}: {r['error']}"]; failed = True
-            continue
-        if not text.strip() and assignee.get("accountId") != me and not args.allow_no_comment:
-            r = {"key": key, "error": f"assigned to {name_of(assignee)}, not you — a close carries a comment (where verified, build, why); pass --text/--from-file"}
+        steps, out = [], [f"== {key}  {f.get('summary','')}  [{name_of(f.get('status'), 'name')}; proposed for closing → {CLOSING_FLAG}, assigned to you; assignee now {name_of(assignee)}]"]
+        if not text.strip() and not args.allow_no_comment:
+            r = {"key": key, "error": "a close proposal carries a comment (where verified, build, why); pass --text/--from-file"}
             results.append(r); lines += out + [f"{key}: {r['error']}"]; failed = True
             continue
         plan = []
         if add:
             plan.append(("fixed_in", lambda k=key: _fixed_in_one(creds, k, add, args.apply)))
-        if args.notice:
-            # The careful close: nothing closes a ticket but the owner. The notice names the rule and the evidence, the
-            # flag makes the pending close visible on the board, and the ticket is assigned to the owner, who reviews
-            # and closes it himself (conventions.md § Clean-up rules). `close` without --notice is his own command.
-            plan.append(("labels", lambda k=key: _label_one(creds, k, labels + [CLOSING_FLAG], [], args.apply)))
-            plan.append(("comment", lambda k=key: _comment_one(creds, k, text, args.apply, mention=not args.no_mention)))
-            plan.append(("assign", lambda k=key: _assign_to_me(creds, k, me, args.apply)))
-        else:
-            if labels or CLOSING_FLAG in (f.get("labels") or []):
-                plan.append(("labels", lambda k=key: _label_one(creds, k, labels, [CLOSING_FLAG], args.apply)))
-            if text.strip():
-                plan.append(("comment", lambda k=key: _comment_one(creds, k, text, args.apply, mention=not args.no_mention)))
-            plan.append(("transition", lambda k=key: _transition_one(creds, k, args.to, args.apply, path=True)))
+        # The close is a proposal: the evidence and the comment on the ticket, flag:closing on the board, and the ticket
+        # assigned to the owner, who reviews it and clicks Done himself. No step here moves a status.
+        plan.append(("labels", lambda k=key: _label_one(creds, k, labels + [CLOSING_FLAG], [], args.apply)))
+        plan.append(("comment", lambda k=key: _comment_one(creds, k, text, args.apply, mention=not args.no_mention)))
+        plan.append(("assign", lambda k=key: _assign_to_me(creds, k, me, args.apply)))
         for name, fn in plan:
             r, ls = fn()
             steps.append(dict(r, step=name)); out += ["  " + l.replace("\n", "\n  ") for l in ls]
@@ -1315,7 +1314,7 @@ def cmd_close(creds, args):
                 break
         results.append({"key": key, "steps": steps}); lines += out
     if not args.apply and not failed:
-        lines.append("pass --apply to write all of the above, in this order")
+        lines.append("pass --apply to write all of the above, in this order; the status itself is the owner's click in Jira")
     _emit(args, {"results": results} if len(results) > 1 else results[0], lines)
     if failed:
         sys.exit(2)
@@ -1437,15 +1436,13 @@ def main():
     p.add_argument("--apply", action="store_true"); p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_describe)
 
-    p = sub.add_parser("close", help="one ticket, one bundle, one confirm: Fixed In + labels + comment + the walk to Done — dry-run unless --apply")
+    p = sub.add_parser("close", help="propose a close: Fixed In + labels + comment + flag:closing + the ticket assigned to you; the status is your own click in Jira — dry-run unless --apply")
     p.add_argument("targets", nargs="+", help="issue keys or browse URLs")
     p.add_argument("--fixed-in", help="'<slug>@<version>[; …]' to append (release map grammar)")
     p.add_argument("--label", help="comma-separated labels to add, e.g. release:mh-2.0,release:mh-2.1")
     p.add_argument("--text", help="the closing comment; `@name` mentions resolve through the roster; a `---` line starts the collapsed technical part")
     p.add_argument("--from-file", help="read the comment from a file instead")
-    p.add_argument("--to", default="Done", help="target status (default Done), walked along the lifecycle when not directly reachable")
-    p.add_argument("--allow-no-comment", action="store_true", help="close a ticket assigned to someone else without a comment (normally refused)")
-    p.add_argument("--notice", action="store_true", help="the careful close: the notice, the flag:closing label and the ticket assigned to you for review; no transition — the close is yours")
+    p.add_argument("--allow-no-comment", action="store_true", help="propose without a comment (normally refused: the assignee and the reporter must see why)")
     p.add_argument("--no-mention", action="store_true")
     p.add_argument("--apply", action="store_true"); p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_close)
