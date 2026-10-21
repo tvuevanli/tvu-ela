@@ -42,6 +42,7 @@
                                    effective|search|history · effective <app> <profile> --key k
   ela browser env [--lane L]       the product's version panel vs the release map: the environment proof
   ela browser run <case.js>        one read-only browser case as the owner's session; shot <url> --out F
+  ela verify --key K --run DIR     render the verification report page from a run directory (<reports>/verify/)
  code & map
   ela find <name>                  repos, images, services matching: J2N type · slug · GM name, tied
   ela where <ref>                  the checkout path(s) of an alias/path, repo, slug or image
@@ -141,6 +142,7 @@ VERBS = {
     "logs": ("logs", None),
     "configserver": ("configserver", None),
     "browser": ("browser", None),
+    "verify": ("verify", "report"),
 }
 PROMOTE_SUBS = {"lanes", "commits", "delta", "tickets", "evidence", "bundles", "report", "compare-helm"}
 

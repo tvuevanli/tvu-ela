@@ -16,6 +16,7 @@ python3 tests/test_mr_dryrun.py || fail=1
 python3 tests/test_fixedin_offline.py || fail=1
 python3 tests/test_fixedin_declared_offline.py || fail=1
 python3 tests/test_browser_offline.py || fail=1
+python3 tests/test_verify_report_offline.py || fail=1
 python3 tests/test_jira_fixedin_offline.py || fail=1
 python3 tests/test_jira_close_offline.py || fail=1
 python3 tests/test_jira_description_offline.py || fail=1

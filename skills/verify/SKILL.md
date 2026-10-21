@@ -6,6 +6,9 @@ user-invocable: true
 
 # /ela:verify <KEY> [--lane prod-3 | prod-8 | qa-cn3 …] — a ticket checked in the product, with proof
 
+Replies to the owner follow the working preferences (Chinese in conversation unless he asks otherwise); the
+English of this file is not the language of the answer.
+
 Self-contained. Read-only over the product: the browser session is the owner's own, and a case never presses
 Save. Jira writes are dry-run until the owner's word. The browser is `ela browser` (a sense); the verdict,
 the cases and the report are this skill's.
@@ -53,7 +56,18 @@ the build under test. On MH-2570 the description was two lines; two of the four 
 rewritten the same file, so one goal's behaviour had changed and one had nothing left to test. A plan from
 the description alone tests too little; a plan from the ticket's own commits tests what no longer exists.
 
-So the plan is built in four reads, each goal carrying its source:
+**Two kinds of case, and the default is the tech lead's acceptance, not QA's matrix.** A *black-box* case
+observes the product as a user does on the lane: the asked behaviour, through the UI (or the wire, for a
+media ticket: `ela stream`). A *white-box* case reads what the build is: the lane's build descends from the
+fix commits (`ancestry`), the file at that build still carries the change, the runtime config the change
+depends on holds the expected value (`ela configserver`), the logs show the new path taken (`ela logs`).
+The default plan carries both, scoped to the ticket's claim: every black-box case the ticket asks for, plus
+the white-box cases that say the change is really in this build and nothing later undid it. It is not the
+exhaustive matrix QA runs (every combination, regression around it): that stays QA's, and the report says
+so. `--kind black` or `--kind white` narrows a run; `--kind qa` adds the regression cases the ticket's QA
+section lists, when the owner wants them.
+
+So the plan is built in four reads, each goal carrying its source and its kind:
 
 1. **The description** — the asked behaviour, in the reporter's terms.
 2. **The comments** — what the developer said they built, what QA failed, what product added later.
@@ -63,8 +77,8 @@ So the plan is built in four reads, each goal carrying its source:
    — each one is read for whether it supersedes a goal; a superseding ticket is named on the goal, and the
    selectors and expectations are taken from the file at the build sha, never from the ticket's commits.
 
-The plan is then shown to the owner as a dry run — a table of goals with source, expected result and any
-superseding ticket — and he confirms or edits it before a browser opens. A goal the current build no
+The plan is then shown to the owner as a dry run — a table of goals with kind, source, expected result and
+any superseding ticket — and he confirms or edits it before a browser opens. A goal the current build no
 longer has is kept in the table, so the report can say `changed` or `n/a` with the superseding ticket, which
 is the product owner's question and never this skill's `fail`.
 
@@ -93,12 +107,16 @@ nothing else is reported). The verdict names what it rejects: a pass says which 
 
 ## 4 — the two outputs
 
-1. **The report for the owner**, and for nobody else: an HTML page written to `<reports>/verify/<KEY>-<date>.html`
-   (his private reading surface, `/ela:reports` conventions) and published as a private artifact. It is never
+1. **The report for the owner**, and for nobody else — rendered, not written: the run leaves a directory
+   `<runtime>/browser/runs/<KEY>-<date>/` holding `ticket.json`, `plan.json` (the confirmed goals, each with `kind`), `env.json`
+   (`ela browser env --json`), `cases.json` (`ela browser run --json`), `ancestry.json`, `technique.json` and
+   `shots/`; `ela verify --key <KEY> --run <dir>` renders them into `<reports>/verify/<KEY>-<date>/index.html`
+   with the screenshots beside it (verdict strip with lane and the two builds; the ticket; the goals with
+   sources; the environment proof with the panel and the map comparison; results with one screenshot per
+   case; the technique — the MH-2570 record of 2026-10-21 is the shape). The session then publishes that
+   page as a private artifact for the owner (the Artifact tool: the page plus its `img/` files). It is never
    linked from the ticket, a Slack thread or any shared place: the page is his reading, the comment below is
-   the record (decided 2026-10-21 on MH-2570). Verdict strip with lane, frontend and backend builds; the
-   ticket; the goals with sources; the environment proof (panel text, the map comparison, the ancestry line);
-   results with one screenshot per case; the technique.
+   the record.
 2. **The comment for the ticket**, `$JIRA comment <KEY> --from-file …` as a dry run, in the Markdown subset
    the atom renders (bold, bullets, numbered lists, code): above the fold the verdict in bold, the lane and
    the two builds on one line, what changed, the person addressed first as a real `@mention`, in English;
