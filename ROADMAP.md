@@ -1,6 +1,8 @@
 # Roadmap
 
-What exists, what each phase must prove before the next starts, and what is deliberately not built.
+What exists, the exit test each part must pass, and what is deliberately not built. The rows below
+were once phases; the order is no longer a plan (ADR 0007): the only plan is the two-week window in
+elak `blueprint/plans/`, and a row here is open until its exit test passes, whatever its number.
 The architecture is `docs/architecture.md`; the scenarios are `docs/capabilities.md`.
 
 | phase | delivers | exit test | state |
