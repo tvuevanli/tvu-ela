@@ -38,6 +38,8 @@
   ela logs chain <traceId>         read-only: a trace's hops, the first failing one marked
   ela logs java|calls …            own lines: java --trace T|--app A --at T; calls --server S --at T
   ela logs loki --pid P            a media process's Loki lines; tvulog needs `ela login tvu`
+  ela configserver <verb> …        Config Server, read-only, values redacted: apps|profiles|get|
+                                   effective|search|history · effective <app> <profile> --key k
  code & map
   ela find <name>                  repos, images, services matching: J2N type · slug · GM name, tied
   ela where <ref>                  the checkout path(s) of an alias/path, repo, slug or image
@@ -135,6 +137,7 @@ VERBS = {
     "route": ("route", "facts"),
     "fixed-in": ("fixedin", "draft"),
     "logs": ("logs", None),
+    "configserver": ("configserver", None),
 }
 PROMOTE_SUBS = {"lanes", "commits", "delta", "tickets", "evidence", "bundles", "report", "compare-helm"}
 

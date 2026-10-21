@@ -38,7 +38,11 @@ needs `ela login tvu`, and exit 4 names it.
    line that carries the real reason, and find where the code catches it (the `catch` that logs and
    replaces the exception). That line is the evidence; the generic code is only the symptom.
 4. **Runtime config.** When the code's decision turns on a configuration value (a config server key,
-   `@ConfigurationProperties`, a refreshable map), name the key, the endpoint that exposes the live
+   `@ConfigurationProperties`, a refreshable map), name the key and read it:
+   `ela configserver effective <app> <profile> --key <key>`, the profile found from the java-log's
+   `env` (`ela configserver get <app> all --key elk.config.env`; the rule is in that skill); the value prints with the layer it came from, `(default)` or
+   `(<profile>)`. When the key is redacted, absent from the config server (the code's default then
+   applies — read it from the code), or not held there at all, name the endpoint that exposes the live
    value if the code has one, and mark the cause *needs the owner to confirm the config*. Never guess
    the value, and never call a refresh or write endpoint.
 
@@ -57,4 +61,5 @@ ela logs chain --help   # process-log records of one trace, the first failing ho
 ela logs calls --help   # process-log records around a moment for one service or user
 ela logs java --help    # java-log lines by trace, or by app around a moment
 ela logs loki --help    # Loki lines through Observer
+ela configserver --help # step 4: a config key's value per environment (skills/configserver)
 ```

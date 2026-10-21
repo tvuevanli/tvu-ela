@@ -85,8 +85,8 @@ Write, in this shape:
   needs a product decision and from whom.
 - **Owner and check** — name and the exact discriminating check, via `/ela:route` when the layer is
   not obvious.
-- A cause that turns on runtime config is stated as *needs the owner to confirm the config*, never
-  guessed.
+- A cause that turns on runtime config cites the value read with `ela configserver effective` and its
+  layer; redacted or absent, it is stated as *needs the owner to confirm the config*, never guessed.
 
 ## 4 — record and draft
 - Record what the probe **established**, not that it ran — drafted here, written on Evan's word: the conclusion and its paths go where the

@@ -60,7 +60,7 @@ and local; the java-log's clock is UTC, so `--at` is UTC unless an offset is giv
 1. **The chain**, always: `ela logs chain <traceId>` (or `ela logs calls --email --at`, `ela logs loki --pid`) marks the first failing hop; `ela logs java --trace` reads its lines.
 2. **When the trace breaks**, only if the failing hop forwarded: grep the code map (§1) for the thrower, then `ela logs java --app --at --window --grep <business id>`.
 3. **A generic error code**: read the thrower's warn or error line in the second before the reply, and the `catch` that swallowed it.
-4. **Runtime config**: name the key and its read endpoint; mark the cause *needs the owner to confirm the config*.
+4. **Runtime config**: name the key and read it, `ela configserver effective <app> <profile> --key <key>` (profile from the log env, `/ela:configserver`); redacted or absent, name its read endpoint and mark the cause *needs the owner to confirm the config*.
 - The full steps: `${CLAUDE_PLUGIN_ROOT}/skills/logs/SKILL.md`.
 - Stop at the handoff card (§2): the service and its owner are the answer, not the line.
 
