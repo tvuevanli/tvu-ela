@@ -17,8 +17,8 @@ the assignee, who is the person responsible — that difference is shown, never 
 
 Actions (the flag is the row's, the dry run is the owner's to confirm):
   close-notice  fix on prod for --days or more, no QA refutation, ticket open, no notice yet → jira close --notice
-  closing-wait  the notice is posted; the objection window (7 days without an update) is still open
-  close         the window passed → the close bundle, flag removed
+                (the notice, flag:closing, and the ticket assigned to the owner for review)
+  your-review   the notice is posted and the ticket is the owner's; nothing closes a ticket but him
   reached-qa    fix on a QA lane, no Fixed In or status before Review → fixed-in --apply, transition Review, tell QA
   awaiting-qa   fix on daily or prod, Review, QA has not spoken → ask QA (comment, dry run)
   awaiting-product  Review, assignee in the product area → nothing; the gate is theirs
@@ -53,7 +53,7 @@ def stage_of(lanes):
     return best
 
 
-CLOSING_FLAG, WINDOW_DAYS = "flag:closing", 7
+CLOSING_FLAG = "flag:closing"
 
 
 def days_since(date, today=None):
@@ -103,11 +103,8 @@ def row_of(rec, roster, days, today=None):
     if stage == "prod" and (age is None or age >= days) and qa != "fail":
         prod = ", ".join(l for l in row["lanes"] if l.startswith("prod"))
         if CLOSING_FLAG in (rec.get("labels") or []):
-            quiet = days_since(rec.get("updated"), today)
-            if quiet is not None and quiet >= WINDOW_DAYS:
-                row.update(action="close", why=f"closing notice posted, {quiet} days without an objection or an update; fix on {prod} for {age} days",
-                           dry_run=f"ela jira close {k} --text <closing as announced>"); return row
-            row.update(action="closing-wait", why=f"closing notice posted; {WINDOW_DAYS - (quiet or 0)} days of the window left", dry_run=None); return row
+            row.update(action="your-review", why=f"closing notice posted and the ticket assigned to you; fix on {prod} for {age} days — the close is yours",
+                       dry_run=None); return row
         row.update(action="close-notice", why=f"fix on {prod} for {age if age is not None else '?'} days, QA {qa or 'silent'}; no notice yet",
                    dry_run=f"ela jira close {k} --notice --fixed-in <draft> --from-file <notice naming the rule and the date>"); return row
     if stage == "qa" and (not row["fixed_in"] or status in OPEN_BEFORE_REVIEW):
@@ -167,15 +164,15 @@ def roll_up_epics(rows):
         for k in kids:
             counts[k["action"]] = counts.get(k["action"], 0) + 1
         summary = ", ".join(f"{n} {act}" for act, n in sorted(counts.items(), key=lambda kv: -kv[1]))
-        if all(k["action"] in ("done", "close", "close-notice", "closing-wait") for k in kids):
-            r.update(action="close", why=f"every child is terminal or a close candidate: {summary}",
-                     dry_run=f"ela jira close {r['key']} --comment <children closed; feature on prod>")
+        if all(k["action"] in ("done", "close-notice", "your-review") for k in kids):
+            r.update(action="close-notice", why=f"every child is terminal or proposed for closing: {summary}",
+                     dry_run=f"ela jira close {r['key']} --notice --from-file <notice: children closed, feature on prod>")
         else:
             r.update(action="epic", why=f"children: {summary}", dry_run=None)
     return rows
 
 
-ORDER = ["close", "close-notice", "closing-wait", "reached-qa", "awaiting-qa", "declared-only", "no-fix", "awaiting-product", "epic", "none", "done", "unreadable"]
+ORDER = ["your-review", "close-notice", "reached-qa", "awaiting-qa", "declared-only", "no-fix", "awaiting-product", "epic", "none", "done", "unreadable"]
 
 
 def print_queue(rows, days):

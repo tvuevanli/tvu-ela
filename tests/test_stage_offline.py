@@ -26,9 +26,9 @@ check("stage is the lane name's kind", S.stage_of([{"lane": "stage"}]) == "daily
 r = S.row_of(rec(status="Review", lanes=[{"lane": "prod-3"}], commits=old, draft=["x@1"]), ROSTER, 30, TODAY)
 check("an open ticket whose fix sat on prod for the threshold owes a closing notice first", r["action"] == "close-notice" and r["fix_age_days"] == 174)
 r = S.row_of(rec(status="Review", labels=["flag:closing"], updated="2026-10-19", lanes=[{"lane": "prod-3"}], commits=old, draft=["x@1"]), ROSTER, 30, TODAY)
-check("a posted notice inside its window waits", r["action"] == "closing-wait")
+check("a posted notice is the owner's review, never an automatic close", r["action"] == "your-review" and r["dry_run"] is None)
 r = S.row_of(rec(status="Review", labels=["flag:closing"], updated="2026-10-01", lanes=[{"lane": "prod-3"}], commits=old, draft=["x@1"]), ROSTER, 30, TODAY)
-check("a notice older than the window owes the close", r["action"] == "close")
+check("an old notice is still the owner's review", r["action"] == "your-review")
 r = S.row_of(rec(status="Review", lanes=[{"lane": "prod-3"}], commits=old, draft=["x@1"], evidence={"verdict": "fail"}), ROSTER, 30, TODAY)
 check("a QA refutation blocks the close", r["action"] != "close")
 r = S.row_of(rec(status="Review", assignee="Product Person", lanes=[{"lane": "prod-3"}], commits=old, draft=["x@1"]), ROSTER, 30, TODAY)
@@ -52,7 +52,7 @@ rows = [S.row_of(rec(key="MH-10", issuetype="Epic", status="Review"), ROSTER, 30
         S.row_of(rec(key="MH-11", parent="MH-10", status="Review", lanes=[{"lane": "prod-3"}], commits=old, draft=["x@1"]), ROSTER, 30, TODAY),
         S.row_of(rec(key="MH-12", parent="MH-10", status="Done"), ROSTER, 30, TODAY)]
 S.roll_up_epics(rows)
-check("an Epic whose children are all closed or closable owes a close", rows[0]["action"] == "close" and "close-notice" in rows[0]["why"])
+check("an Epic whose children are all closed or proposed owes a notice", rows[0]["action"] == "close-notice" and "close-notice" in rows[0]["why"])
 rows.append(S.row_of(rec(key="MH-13", parent="MH-10", status="Backlog"), ROSTER, 30, TODAY)); S.roll_up_epics(rows)
 check("an Epic with an open child is the feature's head, owing nothing itself", rows[0]["action"] == "epic")
 

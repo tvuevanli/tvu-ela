@@ -1253,6 +1253,21 @@ def cmd_describe(creds, args):
 
 # ── close: one ticket, one bundle, one confirm ────────────────────────────────
 
+def _assign_to_me(creds, key, me, apply):
+    """The owner reviews what is proposed for closing: the ticket moves to him, the previous assignee stays in the comment."""
+    f = _issue(creds, key, "assignee")
+    cur = (f.get("assignee") or {}).get("accountId")
+    if cur == me:
+        return {"key": key, "assign": "already you"}, [f"{key}: already assigned to you"]
+    if not apply:
+        return {"key": key, "assign": "to you", "dry_run": True}, [f"  DRY RUN — assign {key} to you for review (was {name_of(f.get('assignee'))})"]
+    try:
+        _request(creds, f"/rest/api/3/issue/{key}/assignee", payload={"accountId": me}, method="PUT")
+    except Exception as e:  # the request helper raises on a non-2xx
+        return {"key": key, "error": f"assign failed: {str(e)[:120]}"}, [f"{key}: assign failed: {str(e)[:120]}"]
+    return {"key": key, "assign": "to you"}, [f"{key}: assigned to you for review"]
+
+
 def cmd_close(creds, args):
     """Fixed In + labels + comment + the walk to `--to`, shown as one dry run per ticket and applied in that order.
     A ticket assigned to someone else is closed with a comment or not at all — the assignee otherwise sees a status
@@ -1278,11 +1293,12 @@ def cmd_close(creds, args):
         if add:
             plan.append(("fixed_in", lambda k=key: _fixed_in_one(creds, k, add, args.apply)))
         if args.notice:
-            # The careful close: the notice names the rule and the date, the flag makes the pending close visible on the
-            # board, and the transition waits for the objection window (conventions.md § Clean-up rules). An objection
-            # or any update resets the window; `close` without --notice then finishes and removes the flag.
+            # The careful close: nothing closes a ticket but the owner. The notice names the rule and the evidence, the
+            # flag makes the pending close visible on the board, and the ticket is assigned to the owner, who reviews
+            # and closes it himself (conventions.md § Clean-up rules). `close` without --notice is his own command.
             plan.append(("labels", lambda k=key: _label_one(creds, k, labels + [CLOSING_FLAG], [], args.apply)))
             plan.append(("comment", lambda k=key: _comment_one(creds, k, text, args.apply, mention=not args.no_mention)))
+            plan.append(("assign", lambda k=key: _assign_to_me(creds, k, me, args.apply)))
         else:
             if labels or CLOSING_FLAG in (f.get("labels") or []):
                 plan.append(("labels", lambda k=key: _label_one(creds, k, labels, [CLOSING_FLAG], args.apply)))
@@ -1429,7 +1445,7 @@ def main():
     p.add_argument("--from-file", help="read the comment from a file instead")
     p.add_argument("--to", default="Done", help="target status (default Done), walked along the lifecycle when not directly reachable")
     p.add_argument("--allow-no-comment", action="store_true", help="close a ticket assigned to someone else without a comment (normally refused)")
-    p.add_argument("--notice", action="store_true", help="the careful close: post the notice and the flag:closing label, no transition; a later close without --notice finishes it")
+    p.add_argument("--notice", action="store_true", help="the careful close: the notice, the flag:closing label and the ticket assigned to you for review; no transition — the close is yours")
     p.add_argument("--no-mention", action="store_true")
     p.add_argument("--apply", action="store_true"); p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_close)
