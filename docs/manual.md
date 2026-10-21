@@ -61,6 +61,8 @@ flowchart LR
 | 这票的 Fixed In 该填什么，证据在哪；确认后写进去 | `fixedin` · `jira` | `ela fixed-in MH-xxxx` → `ela jira fixed-in MH-xxxx --add '<slug>@<version>; …'`（dry run，你说了再 `--apply`；只追加） |
 | 「这个接口有哪些参数」 | `apifox` | `ela api read ur "GET /v1beta1/graphs/{graphId}"` |
 | 「输出流里到底带了什么」 | `stream` | `ela stream probe <url>` · `ela stream diff <a> <b>` |
+| 「Slack 里谁提过 X」「什么时候 revert 的」「这周期有没有 hotfix」 | `slack` | `ela slack search 'revert|hotfix' --since 2026-09-10 --channels prj_dev_mediahub`（第二次起走缓存，秒级） |
+| 一批票要清账：哪些能推出 build、哪些只有声明、哪些要问 owner | `fixedin` | `ela fixed-in --jql '…'`（结尾按四组汇总） |
 | 「这事以前写过没有」 | `kb` · `confluence` · `gdoc` | `ela kb search …` · `ela wiki search …` · `ela gdoc <链接>` |
 | 「QA 报告邮件说了什么」「Sentry 今天报了什么」 | `mail` · `sentry` | `ela mail search 'newer_than:3d'` · `ela sentry` |
 | 「这个服务的代码在哪」「谁负责这个镜像」 | `map` | `ela find copier` · `ela where media/tvu264` |

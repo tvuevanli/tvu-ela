@@ -445,6 +445,78 @@ def cmd_history(tok, a):
         print(r["text"][:600]); print()
 
 
+def _cache_dir():
+    try:
+        site = json.load(open(os.path.expanduser("~/.claude/ela/site.json")))
+        root = site.get("runtime") or os.path.join(site.get("projects") or os.getcwd(), ".ela")
+    except (OSError, ValueError):
+        root = os.getcwd()
+    d = os.path.join(root, "slack-cache"); os.makedirs(d, exist_ok=True)
+    return d
+
+
+def cached_history(tok, ch, oldest):
+    """Top-level messages of a channel since `oldest`, from a per-channel cache in the runtime directory plus
+    one fetch of what is newer than the cache. A 25-minute pull of months of history is paid once; the
+    cache is raw working state and deletable (`ela runtime clean`)."""
+    path = os.path.join(_cache_dir(), f"{ch}.json")
+    try:
+        cache = json.load(open(path))
+    except (OSError, ValueError):
+        cache = {"oldest": None, "messages": {}}
+    have_from = float(cache["oldest"]) if cache.get("oldest") else None
+    newest = max((float(t) for t in cache["messages"]), default=None)
+    if have_from is None or oldest < have_from:          # the cache does not reach back far enough: refill from `oldest`
+        msgs = fetch_history(tok, ch, f"{oldest:.6f}")
+        cache["oldest"] = oldest
+    else:                                                # extend forward only
+        msgs = fetch_history(tok, ch, f"{(newest if newest else oldest):.6f}")
+    for m in msgs:
+        cache["messages"][m["ts"]] = m
+    json.dump(cache, open(path, "w"))
+    return [m for t, m in cache["messages"].items() if float(t) >= oldest]
+
+
+def cmd_search(tok, a):
+    """Text search over the top-level history of channels the bot is in (the bot token has no search API):
+    a regular expression, case-insensitive, since a point in time, with the thread replies of a hit when
+    --threads. Reads through the per-channel cache so the second search is seconds, not minutes."""
+    rx = re.compile(a.pattern, re.I)
+    names, oldest = Names(tok), float(since_ts(a.since))
+    rows = []
+    for c in pick_channels(tok, a.channels):
+        try:
+            msgs = cached_history(tok, c["id"], oldest)
+        except Transient as e:
+            print(f"slack search: #{c.get('name')} did not come down whole ({e})", file=sys.stderr); continue
+        for m in sorted((m for m in msgs if not is_noise(m)), key=lambda m: float(m["ts"])):
+            text = names.render(m.get("text"))
+            hit = rx.search(text)
+            reps = []
+            if a.threads and m.get("reply_count"):
+                try:
+                    reps = call("conversations.replies", tok, channel=c["id"], ts=m["ts"], limit=200)["messages"][1:]
+                except Transient:
+                    reps = []
+            rep_hits = [{"ts": r["ts"], "user": names.user(r.get("user")) if r.get("user") else "bot", "text": names.render(r.get("text"))}
+                        for r in reps if rx.search(names.render(r.get("text")))]
+            if hit or rep_hits:
+                rows.append({"channel": c.get("name"), "ts": m["ts"], "at": iso(m["ts"]), "permalink": permalink_of(c["id"], m["ts"]),
+                             "user": names.user(m.get("user")) if m.get("user") else (m.get("username") or "bot"), "text": text,
+                             "matched": "message" if hit else "reply", "reply_count": m.get("reply_count", 0), "reply_hits": rep_hits})
+    rows.sort(key=lambda r: float(r["ts"]))
+    if a.json:
+        print(json.dumps({"pattern": a.pattern, "since": a.since, "count": len(rows), "messages": rows}, ensure_ascii=False)); return
+    for r in rows:
+        print(f"--- #{r['channel']}  {r['at']}  {r['user']}  replies={r['reply_count']}  [{r['matched']}]  {r['permalink']}")
+        print(r["text"][:400])
+        for h in r["reply_hits"][:5]:
+            print(f"    ↳ {iso(h['ts'])}  {h['user']}: {h['text'][:300]}")
+        print()
+    if not rows:
+        print(f"no message matching /{a.pattern}/ since {a.since} in {len(pick_channels(tok, a.channels))} channel(s)")
+
+
 def pick_channels(tok, spec):
     """--channels a,b,#name → the channel dicts; None → every channel the bot can see."""
     chans = list_channels(tok)
@@ -657,6 +729,11 @@ def main():
                    help="drop posts whose author is a bot user. A person posting through an app is kept — "
                         "the daily reports arrive that way, so this never hides them")
     p.add_argument("--json", action="store_true")
+    p = sub.add_parser("search", help="text search (regex, case-insensitive) over channel history since a time, through a per-channel cache; --threads searches replies of each message too")
+    p.add_argument("pattern"); p.add_argument("--since", default="60d", help="e.g. 60d, 2026-09-01"); p.add_argument("--channels", help="a,b,#name (default: every channel the bot is in)")
+    p.add_argument("--threads", action="store_true"); p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_search)
+
     p = sub.add_parser("mentions", help="messages mentioning a user, and whether they answered")
     p.add_argument("--since", required=True); p.add_argument("--user", default="me")
     p.add_argument("--channels", help="comma-separated ids or #names; default every channel the bot sees")
@@ -678,7 +755,7 @@ def main():
     p.add_argument("--json", action="store_true")
     a = ap.parse_args()
     tok = token(a.env_file)
-    {"read": cmd_read, "channels": cmd_channels, "history": cmd_history, "mentions": cmd_mentions,
+    {"read": cmd_read, "channels": cmd_channels, "history": cmd_history, "mentions": cmd_mentions, "search": cmd_search,
      "unanswered": cmd_unanswered, "whoami": cmd_whoami, "users": cmd_users, "post": cmd_post,
      "join": cmd_join, "files": cmd_files}[a.cmd](tok, a)
 
