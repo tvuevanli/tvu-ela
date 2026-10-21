@@ -56,6 +56,14 @@ async function panel(p, url) {
       await p.goto(url, { waitUntil: "networkidle", timeout: 60000 }); await p.waitForTimeout(2000);
       await p.screenshot({ path: arg("--out"), fullPage: !!arg("--full", false) }); out({ url, out: arg("--out") });
     } finally { await b.close(); }
+  } else if (cmd === "pdf") {
+    // Print a local page (the verify report) to PDF: Jira previews a PDF inline where an HTML is shown as source.
+    const { b, p } = await open(); try {
+      await p.goto("file://" + path.resolve(arg("--in")), { waitUntil: "load", timeout: 60000 });
+      await p.emulateMedia({ media: "print" });
+      await p.pdf({ path: arg("--out"), format: "A4", printBackground: true, margin: { top: "14mm", bottom: "14mm", left: "12mm", right: "12mm" } });
+      out({ in: arg("--in"), out: arg("--out") });
+    } finally { await b.close(); }
   } else if (cmd === "run") {
     // A case script exports `async ({ p, ctx, b, panel, url, shots, phase, state, fakeTime }) => result`. It reads; it
     // never saves unless the owner's confirm reached the script by its own flag. `shots` is the directory for its
@@ -74,6 +82,6 @@ async function panel(p, url) {
     if (stateFile) fs.writeFileSync(stateFile, JSON.stringify(state, null, 1));
     out({ script, phase, result, error: err, page_errors: errors, clock, fake_time: faked, state: stateFile ? state : undefined });
   } else {
-    process.stderr.write("usage: browser.js env|shot|run --url U [--out F] [--script S] [--shots D] [--phase P] [--state F]\n"); process.exit(2);
+    process.stderr.write("usage: browser.js env|shot|run|pdf --url U [--in F] [--out F] [--script S] [--shots D] [--phase P] [--state F]\n"); process.exit(2);
   }
 })().catch(e => { process.stderr.write(String(e.message).split("\n")[0] + "\n"); process.exit(5); });

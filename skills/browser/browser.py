@@ -12,6 +12,7 @@ L1: subcommands, --json, stdlib; the driver is browser.js (Playwright, node) bes
                        the owner's account sits on a daily or prod lane, and a fix that only reached a QA lane is not
                        testable there
   shot <path> --out F  a screenshot of one product path
+  pdf <html> --out F   print a local html page to PDF (the verify report for a ticket attachment)
   run <case.js> [--shots D] [--phase P --state F] [--timeout S]
                        run one case script (exports async ({p, ctx, b, panel, url, shots, phase, state, fakeTime}) =>
                        result) and print its result; a case reads, and never saves unless the owner confirmed that
@@ -301,6 +302,14 @@ def cmd_shot(a):
     print(json.dumps(d) if a.json else f"screenshot: {d.get('out')}")
 
 
+def cmd_pdf(a):
+    src = os.path.realpath(a.html)
+    if not os.path.isfile(src):
+        print(f"no such file: {src}", file=sys.stderr); sys.exit(EX_USAGE)
+    d = node("pdf", "--in", src, "--out", os.path.realpath(a.out))
+    print(json.dumps(d) if a.json else f"pdf: {d.get('out')}")
+
+
 def cmd_run(a):
     script = os.path.realpath(a.script)
     if not os.path.isfile(script):
@@ -331,9 +340,10 @@ def main():
     p = sub.add_parser("setup", help="install playwright into the runtime directory (no root) and record the product url"); p.add_argument("--url")
     p = sub.add_parser("env", help="the version panel, compared with the release map: the environment proof"); p.add_argument("--lane", help="prod-3, prod-8 … (default: the lane the panel names)"); p.add_argument("--key", help="a ticket: its fix must be on the panel's lane (ela fixed-in), else exit 6"); p.add_argument("--json", action="store_true")
     p = sub.add_parser("shot", help="screenshot the product"); p.add_argument("--out", required=True); p.add_argument("--full", action="store_true"); p.add_argument("--json", action="store_true")
+    p = sub.add_parser("pdf", help="print a local html page to PDF"); p.add_argument("html"); p.add_argument("--out", required=True); p.add_argument("--json", action="store_true")
     p = sub.add_parser("run", help="run one case script and print its result"); p.add_argument("script"); p.add_argument("--shots"); p.add_argument("--phase", help="create | observe: one script, two runs over --state"); p.add_argument("--state", help="json file the phases share"); p.add_argument("--timeout", type=int, default=240, help="seconds the run may take (default 240)"); p.add_argument("--json", action="store_true")
     a = ap.parse_args()
-    {"setup": cmd_setup, "env": cmd_env, "shot": cmd_shot, "run": cmd_run}[a.cmd](a)
+    {"setup": cmd_setup, "env": cmd_env, "shot": cmd_shot, "pdf": cmd_pdf, "run": cmd_run}[a.cmd](a)
 
 
 if __name__ == "__main__":
