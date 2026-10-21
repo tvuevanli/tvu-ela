@@ -302,7 +302,8 @@ def chain(a, key, repos_cache, builds_cache):
     rec.update(summary=f.get("summary"), status=(f.get("status") or {}).get("name"), labels=f.get("labels") or [],
                current=(P.adf_text(raw).strip() if raw else ""), url=d.get("url"),
                assignee=(f.get("assignee") or {}).get("displayName"), issuetype=(f.get("issuetype") or {}).get("name"),
-               parent=(f.get("parent") or {}).get("key"), created=(f.get("created") or "")[:10], updated=(f.get("updated") or "")[:10])
+               parent=(f.get("parent") or {}).get("key"), created=(f.get("created") or "")[:10], updated=(f.get("updated") or "")[:10],
+               subtasks=len(f.get("subtasks") or []), reporter=(f.get("reporter") or {}).get("displayName"))
     rec["comments"] = d.get("comments") or []
     rec["declared"] = declared_from_comments(rec["comments"], f.get("summary") or "", P.load_roster())
     for e in P.parse_fixed_in(rec["current"]):
@@ -935,7 +936,7 @@ def cmd_draft(a):
     if a.json:
         print(json.dumps({"keys": [dict({f: r.get(f) for f in ("key", "summary", "status", "labels", "current", "compare", "draft",
                                                                "commits", "builds", "lanes", "evidence", "gaps", "declared", "assignee", "issuetype", "parent",
-                                                               "created", "updated", "url")}, group=group_of(r)) for r in recs]}, ensure_ascii=False))
+                                                               "created", "updated", "url", "subtasks", "reporter")}, group=group_of(r)) for r in recs]}, ensure_ascii=False))
     else:
         print_text(recs)
         if a.group or len(recs) > 1:

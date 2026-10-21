@@ -28,6 +28,8 @@ Actions (the flag is the row's, the dry run is the owner's to confirm):
                 with its release or its link (a proposal)
   fixed-in-missing  Done, no Fixed In, no no-version flag, and the builds show the carrier → the field, on confirm
   epic          an Epic: its children's actions counted; it owes a close only when every child is closed or closable
+  stale-backlog Backlog, 180 days without an update, no commit, no children → the 14-day notice to the reporter
+                (rule 2 in conventions.md); Cancelled is proposed to the owner after the window
   (none)        Backlog with no fix: the board's queue, nothing owed yet
 
 Exit: 0 ok · 2 usage · 5 fixed-in failed.
@@ -58,6 +60,7 @@ def stage_of(lanes):
 
 
 CLOSING_FLAG = "flag:closing"
+STALE_DAYS = 180
 
 
 def days_since(date, today=None):
@@ -132,6 +135,10 @@ def row_of(rec, roster, days, today=None):
                        dry_run=f"ela jira close {k} --from-file <closes with its release or its link> (proposal)"); return row
         row.update(action="no-fix", why=f"{status} and no commit names {k}",
                    dry_run=f"ela jira comment {k} '<where is the change?>' (to the assignee, no mention)"); return row
+    quiet = days_since(rec.get("updated"), today)
+    if status == "Backlog" and stage == "none" and not declared and not rec.get("subtasks") and quiet is not None and quiet >= STALE_DAYS:
+        row.update(action="stale-backlog", why=f"Backlog, {quiet} days without an update, no commit, no children; reporter {rec.get('reporter') or '?'}",
+                   dry_run=f"ela jira comment {k} --from-file <the 14-day notice to the reporter> (rule 2; Cancelled proposed after the window)"); return row
     row.update(action="none", why=f"{status}, fix {stage}"); return row
 
 
@@ -182,7 +189,7 @@ def roll_up_epics(rows):
     return rows
 
 
-ORDER = ["your-review", "close-notice", "fixed-in-missing", "reached-qa", "awaiting-qa", "declared-only", "no-fix", "non-code", "awaiting-product", "epic", "none", "done", "unreadable"]
+ORDER = ["your-review", "close-notice", "fixed-in-missing", "reached-qa", "awaiting-qa", "declared-only", "no-fix", "non-code", "awaiting-product", "stale-backlog", "epic", "none", "done", "unreadable"]
 
 
 def print_queue(rows, days):
