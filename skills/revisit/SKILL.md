@@ -125,7 +125,7 @@ state this skill exists to end.
 
 ## 4 — the closing draft, as one bundle
 
-One `jira.py close` per ticket, dry run first. Its parts:
+One `jira.py close` per ticket, dry run first — a proposal the owner finishes in Jira. Its parts:
 
 - **Fixed In** — only for a Bug or Task that a code change fixed, and only as the last step of a close
   verdict (never as the entry): `ela fixed-in <KEY> [--author A --since D | --path P | --thread URL]`
@@ -150,8 +150,11 @@ One `jira.py close` per ticket, dry run first. Its parts:
   an agent or an investigator opens. "On <lane>" is written only with ancestry evidence for that
   lane's build; otherwise the comment names the commit and the build, not the lane. No schedule, no
   apology, no restatement of the description.
-- **The status** — `--to Done`, walked along the lifecycle when Jira offers no direct transition;
-  the dry run names every hop and that the assignee is notified at each.
+- **The status is the owner's click, never this skill's.** `jira.py close` ends by adding
+  `flag:closing` and assigning the ticket to the owner; the script refuses every transition to a
+  terminal status. The owner reviews the proposal in his own queue and clicks Done in Jira, or keeps
+  the ticket and removes the flag (2026-10-21, after five tickets were closed in one step). The dry
+  run therefore shows the evidence, the comment, the flag and the assignment, and nothing else.
 
 The link to a carrier is a separate `jira.py link` dry run, confirmed with the same word.
 

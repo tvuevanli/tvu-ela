@@ -24,6 +24,9 @@ Actions (the flag is the row's, the dry run is the owner's to confirm):
   awaiting-product  Review, assignee in the product area → nothing; the gate is theirs
   declared-only Review or Done-bound with a developer's declared build, no lane's build carries it → ask for the sha
   no-fix        In Progress or Review, no commit names the key → ask the assignee where the change is
+  non-code      the same, but the summary reads as a release record, a deck, a pilot or an investigation → closes
+                with its release or its link (a proposal)
+  fixed-in-missing  Done, no Fixed In, no no-version flag, and the builds show the carrier → the field, on confirm
   epic          an Epic: its children's actions counted; it owes a close only when every child is closed or closable
   (none)        Backlog with no fix: the board's queue, nothing owed yet
 
@@ -39,6 +42,7 @@ import promote as P  # noqa: E402 — roster, person_area, l1
 EX_USAGE, EX_REMOTE = 2, 5
 STAGE_ORDER = {"none": 0, "qa": 1, "daily": 2, "prod": 3}
 OPEN_BEFORE_REVIEW = {"Backlog", "In Progress", "Blocked", "On Hold", "Reopened"}
+NON_CODE = re.compile(r"\b(release|deploy|deployment|ppt|deck|slides|pilot|investigat|manual|document|doc\b|meeting|poc|evaluation|test plan|test round|usage report)", re.I)
 TERMINAL = {"Done", "Cancelled", "Failed", "Closed Ambigous"}
 
 
@@ -97,6 +101,9 @@ def row_of(rec, roster, days, today=None):
     if rec.get("exit"):
         row.update(action="unreadable", why="; ".join(row["gaps"])); return row
     if status in TERMINAL:
+        if status == "Done" and not row["fixed_in"] and verified and not any(l in ("flag:no-version", "flag:non-carrier") for l in rec.get("labels") or []):
+            row.update(action="fixed-in-missing", why=f"Done without Fixed In; the builds show {', '.join(d.get('value') if isinstance(d, dict) else str(d) for d in rec.get('draft') or [])}",
+                       dry_run=f"ela jira fixed-in {k} --add '<draft>'"); return row
         row.update(action="done", why=f"{status}"); return row
     if status == "Review" and area == "product":
         row.update(action="awaiting-product", why="the product sign-off gate: Review assigned to product"); return row
@@ -120,8 +127,11 @@ def row_of(rec, roster, days, today=None):
         row.update(action="declared-only", why="a developer declared a build; no lane's build is shown to carry the fix",
                    dry_run=f"ela fixed-in declared {k}"); return row
     if stage == "none" and status in ("In Progress", "Review"):
+        if NON_CODE.search(rec.get("summary") or ""):
+            row.update(action="non-code", why=f"{status}, no commit, and the summary reads as a record, a document or an investigation, not code",
+                       dry_run=f"ela jira close {k} --from-file <closes with its release or its link> (proposal)"); return row
         row.update(action="no-fix", why=f"{status} and no commit names {k}",
-                   dry_run=f"ela jira comment {k} --mention <assignee> '<where is the change?>'"); return row
+                   dry_run=f"ela jira comment {k} '<where is the change?>' (to the assignee, no mention)"); return row
     row.update(action="none", why=f"{status}, fix {stage}"); return row
 
 
@@ -172,7 +182,7 @@ def roll_up_epics(rows):
     return rows
 
 
-ORDER = ["your-review", "close-notice", "reached-qa", "awaiting-qa", "declared-only", "no-fix", "awaiting-product", "epic", "none", "done", "unreadable"]
+ORDER = ["your-review", "close-notice", "fixed-in-missing", "reached-qa", "awaiting-qa", "declared-only", "no-fix", "non-code", "awaiting-product", "epic", "none", "done", "unreadable"]
 
 
 def print_queue(rows, days):
