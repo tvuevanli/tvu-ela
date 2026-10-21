@@ -295,6 +295,31 @@ def _inline(line, mentions):
 DETAIL_RX = re.compile(r"^-{3,}\s*(.*?)\s*-*$")
 
 
+def apply_mentions(node, mentions):
+    """Replace `@name` inside every text node of an ADF tree with a mention node (in place)."""
+    if not mentions or not isinstance(node, dict):
+        return node
+    kids = node.get("content")
+    if isinstance(kids, list):
+        out = []
+        for k in kids:
+            if isinstance(k, dict) and k.get("type") == "text" and MENTION_RX.search(k.get("text") or ""):
+                for n in _inline(k["text"], mentions):
+                    if n["type"] == "text" and k.get("marks"):
+                        n = dict(n, marks=k["marks"])
+                    out.append(n)
+            else:
+                out.append(apply_mentions(k, mentions))
+        node["content"] = out
+    return node
+
+
+def comment_to_adf(text, mentions=None):
+    """A comment: the Markdown subset (bold, code, bullets, numbered lists, headings) above and inside the
+    `---` fold, with `@name` as mention nodes — one renderer for comment and close."""
+    return apply_mentions(markdown_to_adf(text), mentions or {})
+
+
 def text_to_adf(text, mentions=None, detail=False):
     """Plain text → ADF, one paragraph per non-empty line.
     `mentions` ({name: (accountId, display)}) turns `@name` into a real mention node.
@@ -853,19 +878,33 @@ def _read_text(args):
     return text or ""
 
 
-def _comment_one(creds, key, text, apply, mention=True):
+def _comment_one(creds, key, text, apply, mention=True, edit=None):
     """Post one comment to one issue. Idempotent on identical rendered text; `@name` resolved through the roster."""
     mentions, unresolved = resolve_mentions(text) if mention else ({}, [])
     if unresolved:
         return ({"key": key, "error": "unresolved mention(s): " + ", ".join("@" + u for u in unresolved)},
                 [f"{key}: @{', @'.join(unresolved)} is not one person with a Jira id in the roster — add them to "
                  f"elak people.yaml and `ela publish roster`, or write the name without @"])
-    adf = text_to_adf(text, mentions, detail=True)
+    adf = comment_to_adf(text, mentions)
     rendered = body_text(adf)
     existing = fetch_comments(creds, key)
-    dup = next((c for c in existing if _norm(body_text(c.get("body"))) == _norm(rendered)), None)
-    r = {"key": key, "dry_run": not apply, "posted": False, "duplicate_of": (dup or {}).get("id"), "chars": len(text),
+    r = {"key": key, "dry_run": not apply, "posted": False, "duplicate_of": None, "chars": len(text), "edit": edit,
          "mentions": [d for _, d in mentions.values()], "detail": any(n.get("type") == "expand" for n in adf["content"])}
+    if edit:
+        old = next((c for c in existing if str(c.get("id")) == str(edit)), None)
+        if not old:
+            return dict(r, error=f"no comment {edit} on {key}"), [f"{key}: no comment with id {edit}"]
+        before = body_text(old.get("body"))
+        if _norm(before) == _norm(rendered):
+            return r, [f"{key}: comment {edit} already reads so — skipped"]
+        if not apply:
+            return r, [f"DRY RUN — edit comment {edit} on {key} ({name_of(old.get('author'))}, {(old.get('created') or '')[:16]}):",
+                       "  was: " + before.replace("\n", "\n       "), "  now: " + rendered.replace("\n", "\n       ")]
+        _request(creds, f"/rest/api/3/issue/{key}/comment/{edit}", payload={"body": adf}, method="PUT")
+        r["posted"], r["comment_id"] = True, edit
+        return r, [f"{key}: comment {edit} edited"]
+    dup = next((c for c in existing if _norm(body_text(c.get("body"))) == _norm(rendered)), None)
+    r["duplicate_of"] = (dup or {}).get("id")
     if dup:
         return r, [f"{key}: identical comment already posted ({(dup.get('created') or '')[:16]}) — skipped"]
     if not apply:
@@ -885,11 +924,11 @@ def cmd_comment(creds, args):
         sys.exit("comment: empty text")
     results, lines = [], []
     for key in _keys(args.targets):
-        r, ls = _comment_one(creds, key, text, args.apply, mention=not args.no_mention)
+        r, ls = _comment_one(creds, key, text, args.apply, mention=not args.no_mention, edit=args.edit)
         results.append(r); lines += ls
     if any("error" in r for r in results):
         _emit(args, {"results": results} if len(results) > 1 else results[0], lines); sys.exit(2)
-    if not args.apply and any(not r["duplicate_of"] for r in results):
+    if not args.apply and any(not r["duplicate_of"] and not r.get("posted") for r in results):
         lines.append("pass --apply to post")
     _emit(args, {"results": results} if len(results) > 1 else results[0], lines)
 
@@ -1232,11 +1271,12 @@ def main():
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_create_subtask)
 
-    p = sub.add_parser("comment", help="post one comment to one or more issues — dry-run unless --apply; identical text is not re-posted")
+    p = sub.add_parser("comment", help="post one comment to one or more issues (Markdown subset: bold, code, bullets, numbered; @name mentions; a --- line folds the rest) — dry-run unless --apply; identical text is not re-posted; --edit <id> replaces one")
     p.add_argument("targets", nargs="+", help="issue keys or browse URLs")
     p.add_argument("--text", help="plain text; paragraphs become ADF paragraphs")
     p.add_argument("--from-file", help="read the text from a file instead")
     p.add_argument("--no-mention", action="store_true", help="leave @name as text (default: resolve through the roster, refuse what it cannot)")
+    p.add_argument("--edit", metavar="COMMENT_ID", help="replace the body of an existing comment (one key): dry run shows was/now")
     p.add_argument("--apply", action="store_true"); p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_comment)
 

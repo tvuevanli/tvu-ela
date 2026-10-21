@@ -44,5 +44,14 @@ plain = J.text_to_adf("line one\n---\nline two")
 check("without detail=True a dash line is plain text (descriptions keep their rules)", all(n["type"] == "paragraph" for n in plain["content"]) and len(plain["content"]) == 3)
 check("an unresolved @name stays text", J.text_to_adf("@nobody hi", {}, detail=True)["content"][0]["content"][0]["type"] == "text")
 
+# a comment in the Markdown subset: bold, bullets and code render above and inside the fold; mentions survive the marks
+doc = J.comment_to_adf("**Verdict: PASS** on prod-3, @erin please confirm\n- T1 `16:00 -> 17:00` ok\n--- Test report\n1. Method\n2. Build ancestry", {"erin": ("acc-erin", "Erin Zhang")})
+top = doc["content"]
+check("bold renders as a mark", top[0]["type"] == "paragraph" and top[0]["content"][0].get("marks") == [{"type": "strong"}])
+check("the mention follows the bold text in the same paragraph", any(n["type"] == "mention" and n["attrs"]["id"] == "acc-erin" for n in top[0]["content"]))
+check("a bullet list renders before the fold", top[1]["type"] == "bulletList")
+check("the fold is a titled expand holding a numbered list", top[2]["type"] == "expand" and top[2]["attrs"]["title"] == "Test report" and top[2]["content"][0]["type"] == "orderedList")
+check("rendered text keeps the words for the duplicate check", "Verdict: PASS" in J.body_text(doc) and "@Erin Zhang" in J.body_text(doc))
+
 print("jira close: all offline checks passed" if not failures else f"jira close: {len(failures)} check(s) failed")
 sys.exit(1 if failures else 0)
