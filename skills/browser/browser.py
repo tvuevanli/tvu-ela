@@ -4,8 +4,13 @@ L1: subcommands, --json, stdlib; the driver is browser.js (Playwright, node) bes
 
   setup [--url U]      install playwright into <runtime>/browser (no root; the system libraries are the owner's
                        `playwright install-deps`), record the product URL in site.json `mediahub_url`
-  env [--lane L] [--key K]  open the product, read the version panel (every service's ENV and build) and compare it
-                       with the release map for the lane: the environment proof a browser result needs. Exit 4 when the
+  env [--lane L] [--key K] [--shots D]
+                       open the product, read the version panel (every service's ENV and build) and compare it
+                       with the release map for the lane: the environment proof a browser result needs. Services the
+                       panel does not list but the session reaches through the gateway (the scheduler,
+                       tvu-aioc-service, GET /base/version) are read on the same session and recorded beside it —
+                       the account's lane by construction, no map entry to match. --shots D keeps version-panel.png,
+                       the panel as read. Exit 4 when the
                        panel carries no ENV (the session cookies are stale or missing: `ela login tvu --force`), exit 3
                        when a service of the lane disagrees with the map. --key: the lanes carrying the ticket's fix
                        (`ela fixed-in`, ancestry) are read first; exit 6 when the panel's lane is not one of them —
@@ -76,26 +81,33 @@ def timezone():
 
 
 def fix_lanes(env_file, key):
-    """The lanes whose build carries the key's fix, by ancestry (ela fixed-in); [] when unread, with the reason."""
+    """(lanes, gaps): the lanes whose build carries the key's fix, by ancestry (ela fixed-in), and the gaps fixed-in
+    named — a lane whose build fell outside the fetched Jenkins window, or a host read without a session. A lane in
+    the gaps was not judged; it is never read as 'does not carry the fix' (2026-10-21: one read in three answered
+    'QA lanes only' for a fix prod-3 had carried since September)."""
     try:
         r = subprocess.run(["python3", os.path.join(os.path.dirname(HERE), "fixedin", "fixedin.py"), "--env-file", env_file or "",
                             "draft", key, "--json"], capture_output=True, text=True, timeout=300)
         recs = json.loads(r.stdout).get("keys") or []
     except (subprocess.TimeoutExpired, ValueError):
-        return [], "fixed-in unread"
+        return [], ["fixed-in unread"]
     if not recs:
-        return [], "fixed-in: no record"
+        return [], ["fixed-in: no record"]
     rec = recs[0]
     lanes = sorted({x["lane"] for x in rec.get("lanes") or [] if x.get("lane")})
-    return lanes, "; ".join(rec.get("gaps") or []) if not lanes else ""
+    return lanes, list(rec.get("gaps") or [])
 
 
-def fix_verdict(lane, lanes):
-    """The panel's lane against the lanes carrying the fix: None when it is one of them, else the sentence to stop on."""
+def fix_verdict(lane, lanes, gaps=()):
+    """The panel's lane against the lanes carrying the fix: None when it is one of them; 'fix lanes unread' when the
+    lane sits in fixed-in's gaps (not judged: rerun, exit unproven); else the sentence to stop on (exit absent)."""
+    if lane and lane in lanes:
+        return None
+    unread = [g for g in gaps if (lane and lane in g) or "unread" in g or "no record" in g]
+    if unread:
+        return f"fix lanes unread for {lane}: {'; '.join(unread)} — the lane's build was not judged; rerun ela browser env, or ela fixed-in draft, before testing"
     if not lanes:
         return "fix lanes unknown: no lane's build was shown to carry the fix (see ela fixed-in)"
-    if lane in lanes:
-        return None
     qa_only = all(l.startswith("qa") for l in lanes)
     where = ", ".join(lanes)
     return (f"fix absent: the fix is on QA lanes only ({where}); the panel shows {lane}, a lane whose build does not carry it"
@@ -250,13 +262,17 @@ def cmd_setup(a):
 
 
 def cmd_env(a):
-    lanes, why = fix_lanes(a.env_file, a.key) if a.key else ([], "")
-    d = node("env")
+    lanes, gaps = fix_lanes(a.env_file, a.key) if a.key else ([], [])
+    shot = os.path.join(os.path.realpath(a.shots), "version-panel.png") if a.shots else None
+    if shot:
+        os.makedirs(os.path.dirname(shot), exist_ok=True)
+    d = node("env", *(["--shot", shot] if shot else []))
     parsed = parse_panel(d.get("panel") or "")
     res = {"url": d.get("url"), "panel": d.get("panel"), "sections": parsed["sections"], "lanes": parsed["lanes"], "proven": parsed["proven"],
-           "lane": a.lane, "compare": [], "verdict": None, "clock": d.get("clock"), "key": a.key, "fix_lanes": lanes, "fix_verdict": None}
-    if a.key and why:
-        res["fix_verdict"] = why
+           "lane": a.lane, "compare": [], "verdict": None, "clock": d.get("clock"), "key": a.key, "fix_lanes": lanes, "fix_gaps": gaps,
+           "fix_verdict": None, "shot": d.get("shot"), "services": d.get("services") or {}}
+    if a.key and not lanes and gaps:
+        res["fix_verdict"] = "; ".join(gaps)
     if not parsed["proven"]:
         res["verdict"] = "unproven: the panel names no ENV — the session cookies are stale or missing (ela login tvu --force)"
     else:
@@ -266,8 +282,13 @@ def cmd_env(a):
             res["compare"] = compare(parsed, lane, a.env_file)
             bad = [c for c in res["compare"] if c["verdict"] == "differs" or (c["panel_lane"] and c["panel_lane"] != lane)]
             res["verdict"] = "proven" if not bad else "mismatch: " + ", ".join(f"{c['slug']} panel {c['panel']} ({c['panel_lane']}) vs map {c['map']} ({lane})" for c in bad)
+            # services the panel does not list, read through the gateway on the same session: the account's lane by
+            # construction, nothing in the map to match, so recorded (or unreachable), never a mismatch
+            for slug, v in res["services"].items():
+                res["compare"].append({"slug": slug, "panel": v.get("version"), "panel_lane": None, "lane": lane, "map": None,
+                                       "verdict": "recorded" if v.get("version") else "unreachable", "via": f"gateway {v.get('path') or ''}".strip()})
             if a.key and res["verdict"] == "proven":
-                res["fix_verdict"] = fix_verdict(lane, lanes)
+                res["fix_verdict"] = fix_verdict(lane, lanes, gaps)
                 if res["fix_verdict"]:
                     res["verdict"] = res["fix_verdict"]
         else:
@@ -288,7 +309,7 @@ def cmd_env(a):
         if a.key:
             print(f"fix lanes ({a.key}): {', '.join(res['fix_lanes']) or '(none)'}")
         print(f"verdict: {res['verdict']}")
-    if res["verdict"].startswith("unproven"):
+    if res["verdict"].startswith("unproven") or res["verdict"].startswith("fix lanes unread"):
         sys.exit(EX_UNPROVEN)
     if res["verdict"].startswith("mismatch"):
         sys.exit(EX_MISMATCH)
@@ -338,7 +359,7 @@ def main():
     ap.add_argument("--env-file")
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("setup", help="install playwright into the runtime directory (no root) and record the product url"); p.add_argument("--url")
-    p = sub.add_parser("env", help="the version panel, compared with the release map: the environment proof"); p.add_argument("--lane", help="prod-3, prod-8 … (default: the lane the panel names)"); p.add_argument("--key", help="a ticket: its fix must be on the panel's lane (ela fixed-in), else exit 6"); p.add_argument("--json", action="store_true")
+    p = sub.add_parser("env", help="the version panel, compared with the release map: the environment proof"); p.add_argument("--lane", help="prod-3, prod-8 … (default: the lane the panel names)"); p.add_argument("--key", help="a ticket: its fix must be on the panel's lane (ela fixed-in), else exit 6"); p.add_argument("--shots", help="directory for version-panel.png, the panel as read"); p.add_argument("--json", action="store_true")
     p = sub.add_parser("shot", help="screenshot the product"); p.add_argument("--out", required=True); p.add_argument("--full", action="store_true"); p.add_argument("--json", action="store_true")
     p = sub.add_parser("pdf", help="print a local html page to PDF"); p.add_argument("html"); p.add_argument("--out", required=True); p.add_argument("--json", action="store_true")
     p = sub.add_parser("run", help="run one case script and print its result"); p.add_argument("script"); p.add_argument("--shots"); p.add_argument("--phase", help="create | observe: one script, two runs over --state"); p.add_argument("--state", help="json file the phases share"); p.add_argument("--timeout", type=int, default=240, help="seconds the run may take (default 240)"); p.add_argument("--json", action="store_true")

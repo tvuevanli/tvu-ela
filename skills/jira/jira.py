@@ -886,18 +886,51 @@ def _read_text(args):
     return text or ""
 
 
+def participant_mentions(creds, key, names, comments=None):
+    """`@name` tokens the roster could not settle, looked up among the issue's own participants — assignee, reporter
+    and every comment author — whose account ids Jira already shows. A name is taken only when it matches exactly one
+    participant (whole display name, or its first word, case-insensitive); two matches stay unresolved, because the
+    wrong person notified is worse than none. The roster stays the rule; this is the ticket itself supplying the id
+    the roster lacks (2026-10-21, MH-2519: the scheduler service's owner had no Jira id on file)."""
+    found, left = {}, []
+    try:
+        issue = api_get(creds, f"/rest/api/3/issue/{key}", {"fields": "assignee,reporter"})
+    except Exception:
+        issue = {}
+    f = issue.get("fields") or {}
+    people = {}
+    for u in [f.get("assignee"), f.get("reporter")] + [c.get("author") for c in (comments if comments is not None else fetch_comments(creds, key))]:
+        if u and u.get("accountId") and u.get("displayName"):
+            people[u["accountId"]] = u["displayName"]
+    for name in names:
+        n = name.strip().lower()
+        hits = {aid: d for aid, d in people.items() if d.lower() == n or d.lower().split()[0] == n}
+        if len(hits) == 1:
+            (aid, disp), = hits.items()
+            found[name] = (aid, disp)
+        else:
+            left.append(name)
+    return found, left
+
+
 def _comment_one(creds, key, text, apply, mention=True, edit=None):
-    """Post one comment to one issue. Idempotent on identical rendered text; `@name` resolved through the roster."""
+    """Post one comment to one issue. Idempotent on identical rendered text; `@name` resolved through the roster,
+    then among the issue's own participants."""
     mentions, unresolved = resolve_mentions(text) if mention else ({}, [])
+    existing = fetch_comments(creds, key)
+    from_ticket = {}
+    if unresolved:
+        from_ticket, unresolved = participant_mentions(creds, key, unresolved, existing)
+        mentions.update(from_ticket)
     if unresolved:
         return ({"key": key, "error": "unresolved mention(s): " + ", ".join("@" + u for u in unresolved)},
-                [f"{key}: @{', @'.join(unresolved)} is not one person with a Jira id in the roster — add them to "
-                 f"elak people.yaml and `ela publish roster`, or write the name without @"])
+                [f"{key}: @{', @'.join(unresolved)} is not one person with a Jira id in the roster, nor one participant "
+                 f"of {key} — add them to elak people.yaml and `ela publish roster`, or write the name without @"])
     adf = comment_to_adf(text, mentions)
     rendered = body_text(adf)
-    existing = fetch_comments(creds, key)
     r = {"key": key, "dry_run": not apply, "posted": False, "duplicate_of": None, "chars": len(text), "edit": edit,
-         "mentions": [d for _, d in mentions.values()], "detail": any(n.get("type") == "expand" for n in adf["content"])}
+         "mentions": [d for _, d in mentions.values()], "mentions_from_ticket": [d for _, d in from_ticket.values()],
+         "detail": any(n.get("type") == "expand" for n in adf["content"])}
     if edit:
         old = next((c for c in existing if str(c.get("id")) == str(edit)), None)
         if not old:
@@ -919,6 +952,7 @@ def _comment_one(creds, key, text, apply, mention=True, edit=None):
         shown = rendered.replace("\n", "\n  ")
         return r, [f"DRY RUN — comment on {key} ({len(text)} chars"
                    + (f", mentions {', '.join(r['mentions'])}" if r["mentions"] else "")
+                   + (f" ({', '.join(r['mentions_from_ticket'])} resolved from the ticket's participants, not the roster)" if r["mentions_from_ticket"] else "")
                    + (", technical detail collapsed" if r["detail"] else "") + "):", "  " + shown]
     resp = api_post(creds, f"/rest/api/3/issue/{key}/comment", {"body": adf})
     r["posted"], r["comment_id"] = True, resp.get("id")

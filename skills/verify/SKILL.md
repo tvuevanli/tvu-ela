@@ -45,8 +45,14 @@ account happens to be.
   None of them daily or prod → stop: the ticket is not testable on his lanes yet; say which QA lane carries it
   and leave the ticket to QA. The fix on a daily or prod lane the account is not on → say which, and that he
   switches the account's bundle and runs `ela login tvu --force` before the gate.
-- `$BROWSER env --key <KEY> [--lane <lane>] --json` is the gate: exit 4 = unproven (cookies: `ela login tvu
-  --force`), exit 3 = a service differs from the release map, exit 6 = the panel's lane does not carry the fix.
+- `$BROWSER env --key <KEY> [--lane <lane>] --shots <run>/shots --json` is the gate: exit 4 = unproven (cookies:
+  `ela login tvu --force`, or the fix's lanes unread because the lane's build fell outside the fetched Jenkins
+  window — rerun, never read as absent), exit 3 = a service differs from the release map, exit 6 = the panel's lane
+  does not carry the fix. `--shots` keeps `version-panel.png`, the panel as read, for the record. Services the
+  panel does not list but the session reaches through the gateway (the scheduler, `tvu-aioc-service`) are read on
+  the same browser run and appear in `compare` as `recorded`: the account's lane by construction, nothing in the map to
+  match, so they prove the build under test and never fail the gate (MH-2519, 2026-10-21: prod-3's scheduler was
+  seven weeks behind its master, and only that read showed it).
   The lane is the owner's word, else the one the panel names; state which. Every panel section is recorded;
   the ticket's services (its Fixed In, its labels' line, or the layer its prefix names) must read `match`;
   `differs` on another service is noted in the report. The record keeps the browser clock (zone and time)
@@ -133,7 +139,7 @@ it rejects: a pass says which step would have failed it.
 
 1. **The QA record, rendered, not written** — the run leaves `<runtime>/browser/runs/<KEY>-<date>/` holding
    `ticket.json`, `plan.json` (the confirmed goals, each with `kind`), `env.json` (`ela browser env --json`),
-   `cases.json` (`ela browser run --json`), `ancestry.json`, `technique.json` and `shots/`;
+   `cases.json` (`ela browser run --json`), `ancestry.json`, `technique.json` and `shots/` (the gate's `version-panel.png` among them);
    `ela verify --key <KEY> --run <dir> --pdf <dir>/<KEY>-verify-<date>.pdf` renders the page under
    `<reports>/verify/<KEY>-<date>/` for the owner (publishable as a private artifact) and prints the PDF for the
    ticket. **The readable part comes first**: the verdict, the environment in one plain sentence, each step as

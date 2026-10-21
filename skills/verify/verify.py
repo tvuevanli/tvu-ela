@@ -164,7 +164,9 @@ details.tech{{border:1px solid var(--line);border-radius:6px;background:var(--su
     # environment proof
     srows = "".join(service_row(c) for c in env.get("compare") or [])
     anc_row = f"<tr><td>Build {esc(anc.get('build'))} sha descends from the fix commits</td><td class=num>{esc((anc.get('sha') or '')[:8])}</td><td>{pill('pass' if anc.get('descends') else 'fail')}</td></tr>" if anc else ""
-    panel_img = next((v for k, v in copied.items() if "panel" in k.lower() or "env" in k.lower()), None)
+    # the gate's own screenshot (ela browser env --shots: version-panel.png), never a case shot whose name happens to say "panel"
+    panel_img = (next((v for k, v in copied.items() if k.lower() in ("version-panel.png", "panel.png", "env.png")), None)
+                 or next((v for k, v in copied.items() if k.lower().startswith(("version-panel", "env-", "panel-"))), None))
     if panel_img and embed:
         panel_img = "data:image/png;base64," + base64.b64encode(open(os.path.join(out_dir, panel_img), "rb").read()).decode()
     H.append(details('Environment proof', f'<p>A result counts only when the version panel (hover the MediaHub logo) names the lane and the versions in the same browser run; every service the panel lists is recorded and compared with the release map for <code>{esc(env.get("lane") or "?")}</code>. Verdict of the gate: <b>{esc(env.get("verdict") or "not run")}</b>.</p>'

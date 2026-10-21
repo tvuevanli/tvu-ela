@@ -33,15 +33,34 @@ async function clockOf(p) {
 
 // The version panel: an el-tooltip on the MediaHub logo (tvu-common-ui top-header). Its text names every
 // service's ENV and build; a panel without ENV lines is the unproven state.
-async function panel(p, url) {
+async function panel(p, url, shot) {
   await p.goto(url, { waitUntil: "networkidle", timeout: 60000 });
   await p.waitForTimeout(3000);
   await p.locator(".top-header-container .el-tooltip").first().hover();
   const pop = p.locator(".top-header-version").first();
   await pop.waitFor({ state: "visible", timeout: 8000 });
   const text = await pop.innerText();
+  if (shot) await p.screenshot({ path: shot, fullPage: false }); // the panel open, for the record
   await p.mouse.move(800, 900);
   return text.replace(/\n\n+/g, "\n").trim();
+}
+
+// Services the panel does not list but the account's session reaches through the gateway, which routes each
+// service by the session's own tags: the scheduler (tvu-aioc-service) answers GET /base/version with
+// "<build>|<common build>" (its BaseController). The gateway host is the one the product itself was handed in
+// /base/initConfig (store.initConfig.gatewayUrl), captured off the wire, never configured here. A version read
+// this way is recorded beside the panel; it is the account's lane by construction and has no map entry to match.
+const GATEWAY_SERVICES = { "tvu-aioc-service": "/tvu-aioc-service/base/version" };
+async function gatewayVersions(p, gateway) {
+  const out = {};
+  for (const [slug, path] of Object.entries(GATEWAY_SERVICES)) {
+    try {
+      const r = await p.request.get(gateway + path, { timeout: 15000 });
+      const t = (await r.text()).trim();
+      out[slug] = { path, status: r.status(), version: r.status() === 200 && t.length < 200 && !/</.test(t) ? t : null };
+    } catch (e) { out[slug] = { path, status: 0, version: null, error: String(e).slice(0, 120) }; }
+  }
+  return out;
 }
 
 (async () => {
@@ -50,7 +69,17 @@ async function panel(p, url) {
   const out = (o) => process.stdout.write(JSON.stringify(o) + "\n");
   const url = arg("--url");
   if (cmd === "env") {
-    const { b, p } = await open(); try { const text = await panel(p, url); out({ url, panel: text, clock: await clockOf(p) }); } finally { await b.close(); }
+    const { b, p } = await open(); try {
+      let gateway = null;
+      p.on("response", async (res) => {
+        if (gateway || !/\/base\/initConfig/.test(res.url())) return;
+        try { const j = await res.json(); const g = j && j.result && j.result.gatewayUrl; if (g) gateway = /^https?:/.test(g) ? g : new URL(url).protocol + "//" + g; } catch (e) {}
+      });
+      const shot = arg("--shot");
+      const text = await panel(p, url, shot);
+      const services = gateway ? await gatewayVersions(p, gateway) : {};
+      out({ url, panel: text, clock: await clockOf(p), shot: shot || null, gateway_seen: !!gateway, services });
+    } finally { await b.close(); }
   } else if (cmd === "shot") {
     const { b, p } = await open(); try {
       await p.goto(url, { waitUntil: "networkidle", timeout: 60000 }); await p.waitForTimeout(2000);

@@ -43,6 +43,9 @@ check("the fix on the panel's lane passes the gate", B.fix_verdict("prod-3", ["d
 check("a fix on QA lanes only names them and stops", "QA lanes only" in (B.fix_verdict("prod-3", ["qa-aws3"]) or ""))
 check("a fix on another daily or prod lane says which and asks for the bundle switch", "daily-test2" in (B.fix_verdict("prod-3", ["daily-test2"]) or "") and "login tvu" in B.fix_verdict("prod-3", ["daily-test2"]))
 check("no carrying lane is a gate failure, not a pass", B.fix_verdict("prod-3", []) is not None)
+check("a lane in fixed-in's gaps is unread, never absent", "unread" in (B.fix_verdict("prod-3", ["qa-cn3"], ["mediahub-frontend on prod: prod-3 run a build outside Jenkins' last 80 — not compared"]) or ""))
+check("a host read without a session is unread too", "unread" in (B.fix_verdict("prod-3", [], ["prod lanes unread — no session (ela login tvu)"]) or ""))
+check("a gap about another lane does not excuse this one", "QA lanes only" in (B.fix_verdict("prod-3", ["qa-cn3"], ["mediahub-frontend on prod: prod-9 run a build outside Jenkins' last 80 — not compared"]) or ""))
 
 print("browser: all offline checks passed" if not failures else f"browser: {len(failures)} check(s) failed")
 sys.exit(1 if failures else 0)
