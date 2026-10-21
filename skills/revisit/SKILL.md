@@ -6,7 +6,9 @@ user-invocable: true
 
 # /ela:revisit <KEY…| batch class> — an old ticket in, a verdict on its existence out
 
-Self-contained. Argument: one or more Jira keys or URLs, or one of the batch classes in step 5.
+Self-contained. Argument: one or more Jira keys or URLs, or one of the batch classes in step 5. Replies
+to the owner follow the working preferences (Chinese in conversation unless he asks otherwise); the
+English of this file is not the language of the answer.
 Read-only over code and runtime; Jira writes are dry-run until the owner's word.
 
 ## The discipline this skill exists for
@@ -135,9 +137,13 @@ One `jira.py close` per ticket, dry run first. Its parts:
   field stays as it is and the comment names the commit instead. Published
   `mediahub/jira/conventions.md` holds the rule; `map/release.yaml` holds only the grammar.
 - **Labels** — `release:mh-<line>` for every release line whose lane carries the fix by ancestry
-  (`map/release.yaml` lane → line); two lines, two labels.
+  (`map/release.yaml` lane → line); two lines, two labels. **The 1.5 line is not tracked**: no
+  `release:mh-1.5`, and no sentence about 1.5 in the comment, whatever fixed-in reports for it
+  (owner, 2026-10-20, MH-2449 and MH-3156).
 - **The comment** — English by default; bilingual (English first) only when the ticket's own text is
-  Chinese; never Chinese-only. First the sentence to the person, as a real `@mention`, then the fact
+  Chinese; never Chinese-only. **No `@mention` unless the owner names someone** (a close is a record,
+  not a request; he removed every unasked mention on 2026-10-20 and 2026-10-21); when he does, the
+  sentence to that person comes first as a real mention. Then the fact
   that closed it and where it came from, the plan item not done and why it is not a debt, the carrier
   key when there is one; after a `---` line, the technical part (commit, build, ancestry, lane) that
   an agent or an investigator opens. "On <lane>" is written only with ancestry evidence for that

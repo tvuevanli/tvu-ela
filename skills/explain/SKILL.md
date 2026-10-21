@@ -6,6 +6,9 @@ user-invocable: true
 
 # /ela:explain <KEY | permalink> — a ticket in, a judgeable picture out
 
+Replies to the owner follow the working preferences (Chinese in conversation unless he asks otherwise); the
+English of this file is not the language of the answer.
+
 Self-contained. Argument: a Jira key or URL, or the Slack permalink a ticket came from. Read-only
 everywhere; the output lives in the conversation and is not written anywhere.
 

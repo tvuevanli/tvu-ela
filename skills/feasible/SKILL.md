@@ -6,6 +6,9 @@ user-invocable: true
 
 # /ela:feasible <thread | ticket | ask> — a capability question in, two verdicts out
 
+Replies to the owner follow the working preferences (Chinese in conversation unless he asks otherwise); the
+English of this file is not the language of the answer.
+
 Self-contained. Argument: a Slack permalink, a Jira key or URL, or the ask in Evan's own words.
 Read-only everywhere: code, Jira, Slack, UR and the stream are read; nothing is changed and no
 answer leaves the machine until Evan says post.

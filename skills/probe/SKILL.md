@@ -6,6 +6,9 @@ user-invocable: true
 
 # /ela:probe <ticket | symptom> | /ela:probe how <mechanism> — a bug in, a root cause with file:line out
 
+Replies to the owner follow the working preferences (Chinese in conversation unless he asks otherwise); the
+English of this file is not the language of the answer.
+
 Self-contained. Argument: a Jira key or URL, a graph or process id, or a described symptom. Read-only
 throughout: code is read, never changed; Jira and Slack are read, and every proposed comment is a
 draft until Evan says post.
