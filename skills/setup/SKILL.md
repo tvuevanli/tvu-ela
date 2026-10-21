@@ -115,5 +115,16 @@ Not installed → show the owner the two files it would write under `~/.config/s
 cannot revive a session the machine slept through (longer than the TTL); that still needs `ela login tvu`,
 and the brief says so on its first line.
 
+## 3c. The browser sense
+
+`ela browser` drives the product in headless Chromium as the owner's session. Playwright is installed by
+`ela browser setup --url <product url>` into `<runtime>/browser` (no root); the Chromium build it bundles
+needs system libraries that only root installs: when `setup` reports libraries missing, the owner runs
+`sudo npx playwright install-deps chromium` in a terminal of his own and `setup` is run again. Check:
+
+```bash
+ela browser env          # exit 0 and a panel with ENV lines = ready; exit 4 = cookies missing (ela login tvu --force)
+```
+
 ## 4. Done when
 Every sense probes `ok` (optional keys may be absent — say which), `site.json` paths all resolve, `.env` is mode 600. Say so in one line.

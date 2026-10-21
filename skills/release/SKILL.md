@@ -24,7 +24,11 @@ lanes each release line uses — all in `<elak>/map/release.yaml` (origin per bl
   `ela login tvu` opens a page at the hostname `release.py` names for `login tvu`, mapped in the machine's
   hosts file (site configuration, not written here); because that name sits under the company domain, a
   browser already signed in to userservice sends its SID to the page (one self-signed certificate warning
-  the first time); a paste field is the fallback. The session lives in `~/.claude/ela/session.json`
+  the first time); a paste field is the fallback. The session lives in `~/.claude/ela/session.json` —
+  the SID and, since 1a7846f, every `.tvunetworks.com` cookie the browser sent with it: the gateway routes
+  each product service by per-user tag cookies set from the account's user group, so a replay with the SID
+  alone lands on the gateway's default lane (`ela browser env` then shows a panel with no ENV). After the
+  owner switches his account between lanes by bundle, the cookies are stale: `ela login tvu --force`
   (mode 600) and nowhere else; the first refusal records `rejected_at`, so `login tvu` can print how long
   the previous session lasted. Decision elak `blueprint/decisions/2026-09-04-prod-gm-read-through-a-person-login.md`.
   `ela logs` and `ela configserver` read under this login too.

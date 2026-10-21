@@ -40,6 +40,8 @@
   ela logs loki --pid P            a media process's Loki lines; tvulog needs `ela login tvu`
   ela configserver <verb> …        Config Server, read-only, values redacted: apps|profiles|get|
                                    effective|search|history · effective <app> <profile> --key k
+  ela browser env [--lane L]       the product's version panel vs the release map: the environment proof
+  ela browser run <case.js>        one read-only browser case as the owner's session; shot <url> --out F
  code & map
   ela find <name>                  repos, images, services matching: J2N type · slug · GM name, tied
   ela where <ref>                  the checkout path(s) of an alias/path, repo, slug or image
@@ -138,6 +140,7 @@ VERBS = {
     "fixed-in": ("fixedin", "draft"),
     "logs": ("logs", None),
     "configserver": ("configserver", None),
+    "browser": ("browser", None),
 }
 PROMOTE_SUBS = {"lanes", "commits", "delta", "tickets", "evidence", "bundles", "report", "compare-helm"}
 
