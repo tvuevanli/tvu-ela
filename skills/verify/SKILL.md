@@ -117,12 +117,17 @@ nothing else is reported). The verdict names what it rejects: a pass says which 
    ticket, the goals with kind and source, the environment proof (the panel, the map comparison, the
    ancestry), the results with one screenshot per case, the technique — facts only, no account of how the run
    went. Nothing in it links to claude.ai.
-2. **The ticket gets the attachment and a summary**: `$JIRA attach <KEY> <single.html>` and
-   `$JIRA comment <KEY> --from-file …`, both dry runs first, one confirm. The comment is the summary
-   register in the Markdown subset: the verdict in bold, the lane and the two builds on one line, what
-   changed, the attachment named (`full record: MH-2570-verify-2026-10-21.html`), in English; after a `---`
-   line the cases T1..Tn with PASS / FAIL / CHANGED / N/A and the ancestry line. About 1,000 characters, no
-   link. The comment never changes the status — a close is `/ela:revisit`.
+2. **The ticket gets the comment and the attachment**: `$JIRA comment <KEY> --from-file …` and
+   `$JIRA attach <KEY> <single.html>`, both dry runs first, one confirm. **The comment stands on its own**:
+   a reader who never opens the attachment can tell from it whether the ticket is OK. Above the fold, in
+   English, in the Markdown subset: the verdict in bold with one clause of meaning (`**PASS** — the asked
+   behaviour is observed on prod-3`); the environment line (lane, frontend and backend builds, "matches the
+   release map" or what differs); then every case as one line — `T1 PASS — opening the dialog sets end =
+   start + 60 min (16:00 → 17:00)` — with `CHANGED` and `N/A` lines naming the superseding ticket; then what
+   was not covered (QA's regression matrix, a write step not run) and the one line `Full record attached:
+   <file>.html` for the panel text, screenshots, ancestry and method. After a `---` line, the ancestry and
+   the panel's service table for whoever wants them in the ticket itself. About 1,200 characters, no link.
+   The comment never changes the status — a close is `/ela:revisit`.
    (Supersedes the 2026-10-21 rule that the report is never on the ticket: that rule was about a claude.ai
    link; an attachment lives with the ticket under its own permissions, and the owner asked for it the same day.)
 
