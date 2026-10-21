@@ -51,6 +51,14 @@ numbered lists, `**bold**`, `` `code` ``. A line of three or more dashes folds e
 a collapsed block titled by the words on that line (default "Technical detail"), as in `comment`. A line
 with none of these is a plain paragraph, so plain text renders as before.
 
+A description is read by the reporter, the developer and QA, in that order, so it is written in the
+reporter's words first: what was seen, where, what should happen; the technical part comes after, in
+its own section or under the fold. Headings are for sections a reader acts on, never for emphasis; a
+code identifier appears only where the developer needs it. The owner rejected two drafts on 2026-10-20
+for reading like an engineer's note (MH-2281's follow-up). When the description being rewritten is
+someone else's, their shape stays: bold paragraph labels stay bold paragraphs, nested lists stay nested,
+and every link they posted keeps its text (`describe` refuses a draft that drops one).
+
 A ticket a developer implements and QA then verifies reads as sections, each for the person who acts on
 it (the accepted shape is MH-3797's):
 

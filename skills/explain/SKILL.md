@@ -96,7 +96,11 @@ a capability question), `breakdown` (direction settled, work to split), or none 
 
 ## Output
 Four blocks in this order — runtime, fix state, ticket against thread, waiting on — each line
-carrying its source (`file:line`, a commit, a comment date, a graph id). No headings beyond those
+carrying its source (`file:line`, a commit, a comment date, a graph id). Every term the ticket uses
+that a reader outside its thread would not know (a field name, a product word such as a relational
+source, a service nickname) is defined in one clause the first time it appears, from the code or the
+thread, never guessed; the owner's first question on a ticket is often what a word means (MH-3222,
+2026-10-21). No headings beyond those
 four, no restatement of the description, no closing summary. A block with nothing worth saying is one
 line, not a paragraph.
 

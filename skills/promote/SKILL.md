@@ -72,9 +72,13 @@ That reach, plus the lane's docker pin, is the risk sentence — not the commit 
 2. **The Slack body** — English, written to `<runtime>/promote/<date>-<line>-<from>-<to>.post.md`, then shown as
    `slack post '#prj_dev_mediahub' --file … ` **dry run**. Title first (`[MH <line>] <from> → <to> promotion — <scope>`),
    body into the thread; two sends, two confirms.
-3. **Jira backfills as dry runs** — `jira label <key> --add release:mh-<line>`, a `jira comment` proposing the
+3. **The QA list** — one line per ticket in the delta whose QA state is not verified (dev-declared, none, not
+   scheduled): key · what changed in the reporter's words · the lane and build to test on. Written in English,
+   ready to paste to the QA lead under the owner's name; it is the answer to "what does QA still need to test"
+   (2026-10-21) and is not posted by this skill.
+4. **Jira backfills as dry runs** — `jira label <key> --add release:mh-<line>`, a `jira comment` proposing the
    Fixed In value with its evidence — never `--apply` without his word per key.
-4. **What is kept** — the facts belong to the promotion thread, which is where they were posted and where
+5. **What is kept** — the facts belong to the promotion thread, which is where they were posted and where
    the decisions follow them; do not write a second copy. Into `<elak>/blueprint/` goes only what the run
    established about **ela** — a parity result, a capability that now holds — with the thread permalink.
    The report markdown and JSON stay in `<runtime>` and are disposable (elak `blueprint/principles.md` P1); the JSON also carries quoted words, and a tracked file names the
