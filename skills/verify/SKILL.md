@@ -45,15 +45,34 @@ an unproven session.
 - The ancestry check: the lane's build sha (release map, `ela builds`) descends from the fix commits
   (`$FIXEDIN <KEY>`); without it the run tests a build that may not carry the fix, and the report says so.
 
-## 2 — the cases
+## 2 — the plan, shown before anything runs
 
-From three sources, each case naming its source: the ticket's description (the asked behaviour), its
-comments (what the developer said they built, what QA failed), and the file at the lane's build sha — the
-selectors and the expectations come from that file, never from the ticket's own commits, because later
-tickets change the control (MH-2570's dropdowns became date-time pickers under MH-3046). A case whose
-control no longer exists is reported `changed`, not failed.
+A ticket's description is rarely the whole requirement, and its own commits are rarely the whole truth of
+the build under test. On MH-2570 the description was two lines; two of the four goals lived in comments
+(the cross-day marker, the developer's plan) and two in the fix commits; a later ticket, MH-3046, had
+rewritten the same file, so one goal's behaviour had changed and one had nothing left to test. A plan from
+the description alone tests too little; a plan from the ticket's own commits tests what no longer exists.
 
-Write the cases as one script in `<runtime>/browser/cases/<KEY>.js`:
+So the plan is built in four reads, each goal carrying its source:
+
+1. **The description** — the asked behaviour, in the reporter's terms.
+2. **The comments** — what the developer said they built, what QA failed, what product added later.
+3. **The fix commits** (`$FIXEDIN <KEY>`) — what the diff actually changes, including behaviour nobody wrote
+   down on the ticket.
+4. **Every later commit on the same files, up to the lane's build sha** (`git log <fix>..<build sha> -- <files>`)
+   — each one is read for whether it supersedes a goal; a superseding ticket is named on the goal, and the
+   selectors and expectations are taken from the file at the build sha, never from the ticket's commits.
+
+The plan is then shown to the owner as a dry run — a table of goals with source, expected result and any
+superseding ticket — and he confirms or edits it before a browser opens. A goal the current build no
+longer has is kept in the table, so the report can say `changed` or `n/a` with the superseding ticket, which
+is the product owner's question and never this skill's `fail`.
+
+When the ticket has no QA-verification section, the skill offers, after the run, to draft one from the
+confirmed plan into the ticket (the shape `skills/jira/SKILL.md` describes); it is written only on the
+owner's word, like every other Jira write.
+
+Write the confirmed cases as one script in `<runtime>/browser/cases/<KEY>.js`:
 
 ```js
 module.exports = async ({ p, panel, url, shots }) => {
