@@ -33,20 +33,24 @@ BROWSER="python3 ${CLAUDE_PLUGIN_ROOT}/skills/browser/browser.py --env-file <env
 FIXEDIN="python3 ${CLAUDE_PLUGIN_ROOT}/skills/fixedin/fixedin.py --env-file <env>"
 ```
 
-`ela browser env` with no lane first: exit 4 means the cookies are stale or missing — stop and ask the owner
-for `ela login tvu --force` (after a bundle switch the cookies change). Nothing else in this skill runs on
-an unproven session.
+Nothing in this skill runs on an unproven session or on a lane whose build does not carry the fix (§1).
 
-## 1 — the lane and the proof
+## 1 — the fix, the lane and the proof
 
-- The lane is the owner's word, else the ticket's `release:` label through `map/release.yaml` (`lanes:` per
-  line), else the lane the panel names. State which.
-- `$BROWSER env --lane <lane> --json`: every panel section recorded; the ticket's services (from its Fixed
-  In, its labels' line, or the layer its prefix names) must read `match`; `differs` on one of them → abort
-  with the two values shown; `differs` on another service → noted in the report. The owner decides the
-  services the gate covers only when the ticket names none.
-- The ancestry check: the lane's build sha (release map, `ela builds`) descends from the fix commits
-  (`$FIXEDIN <KEY>`); without it the run tests a build that may not carry the fix, and the report says so.
+The owner's account sits on a daily or a prod lane; he does not test on QA lanes. A fix often reaches a QA
+lane days before any lane he can open, so the lane question is answered from the fix, never from where the
+account happens to be.
+
+- `$FIXEDIN <KEY> --json` first: `lanes` are the lanes whose build descends from the fix commits (ancestry).
+  None of them daily or prod → stop: the ticket is not testable on his lanes yet; say which QA lane carries it
+  and leave the ticket to QA. The fix on a daily or prod lane the account is not on → say which, and that he
+  switches the account's bundle and runs `ela login tvu --force` before the gate.
+- `$BROWSER env --key <KEY> [--lane <lane>] --json` is the gate: exit 4 = unproven (cookies: `ela login tvu
+  --force`), exit 3 = a service differs from the release map, exit 6 = the panel's lane does not carry the fix.
+  The lane is the owner's word, else the one the panel names; state which. Every panel section is recorded;
+  the ticket's services (its Fixed In, its labels' line, or the layer its prefix names) must read `match`;
+  `differs` on another service is noted in the report. The record keeps the browser clock (zone and time)
+  with the panel, because a scheduled behaviour is judged against it.
 
 ## 2 — the plan, shown before anything runs
 
@@ -70,7 +74,7 @@ stays QA's and the report says so. `--kind black` runs the cases alone; `--kind 
 cases the ticket's QA section lists, when the owner wants them.
 
 So the plan is built in four reads, each goal carrying its source (where its expectation came from) and
-its kind (`black` for a behaviour, `provenance` / `precondition` for a check on the build):
+its kind (`black` for a behaviour, `timed` for one the clock decides, `provenance` / `precondition` for a check on the build):
 
 1. **The description** — the asked behaviour, in the reporter's terms.
 2. **The comments** — what the developer said they built, what QA failed, what product added later.
@@ -93,14 +97,28 @@ owner's word, like every other Jira write.
 Write the confirmed cases as one script in `<runtime>/browser/cases/<KEY>.js`:
 
 ```js
-module.exports = async ({ p, panel, url, shots }) => {
+module.exports = async ({ p, panel, url, shots, phase, state, fakeTime }) => {
   // read values and texts; screenshot each case into `shots`; return [{id, action, observed, result}]
 };
 ```
 
 `$BROWSER run <runtime>/browser/cases/<KEY>.js --json`. Scope selectors to the dialog or page the case is
-about (the product keeps several hidden `.el-dialog` elements). A case that must write (save, start) is its
-own confirm and its own cleanup, named in the dry run before it runs.
+about (the product keeps several hidden `.el-dialog` elements).
+
+**Behaviour that depends on the clock** (a scheduled route, a cross-day marker, "starts up to one minute
+early", MH-2601 and its children) gets a fourth kind, `timed`, and three rules:
+- The expectation carries a window, not an instant (`starts in [T-60s, T]`), and the evidence is the
+  server's timestamp on the record the page shows, never the browser's clock. The plan row says how long the
+  run waits.
+- A form or display case fakes the browser clock (`await fakeTime("2026-10-21T23:58:00+08:00")`) instead of
+  waiting for midnight; the run records the faked time and the report says the server's clock was real.
+- An execution case is two runs over one state file: `--phase create --state <run>/state.json` makes the
+  schedule and leaves its id and time in the state; `--phase observe` runs after the scheduled time and
+  reads the record back. `--timeout` raises the run's limit when a wait is inside one run.
+
+A case that writes (save, start, schedule) is named in the dry run with its cleanup (cancel, delete) as its
+own row, is its own confirm, and runs on prod only with a confirm for that case: on prod a schedule
+routes a real source. Read-only cases need no such word.
 
 ## 3 — the verdict
 
@@ -122,22 +140,22 @@ nothing else is reported). The verdict names what it rejects: a pass says which 
    ancestry), the results with one screenshot per case, the technique — facts only, no account of how the run
    went. Nothing in it links to claude.ai.
 2. **The ticket gets the comment and the attachment**: `$JIRA comment <KEY> --from-file …` and
-   `$JIRA attach <KEY> <single.html>`, both dry runs first, one confirm. **The comment stands on its own**:
-   a reader who never opens the attachment can tell from it whether the ticket is OK. Above the fold, in
-   English, in the Markdown subset: the verdict in bold with one clause of meaning (`**PASS** — the asked
+   `$JIRA attach <KEY> <single.html>`, both dry runs first, one confirm. **The comment is the short version and
+   stands on its own**: a reader who never opens the attachment can tell whether the ticket is OK, and a reader
+   who wants the panel, the screenshots, the ancestry and the method opens the attachment. In English, in the
+   Markdown subset, about 600 characters: the verdict in bold with one clause of meaning (`**PASS** — the asked
    behaviour is observed on prod-3`); the environment line (lane, frontend and backend builds, "matches the
-   release map" or what differs); then every case as one line — `T1 PASS — opening the dialog sets end =
-   start + 60 min (16:00 → 17:00)` — with `CHANGED` and `N/A` lines naming the superseding ticket; then what
-   was not covered (QA's regression matrix, a write step not run) and the one line `Full record attached:
-   <file>.html` for the panel text, screenshots, ancestry and method. After a `---` line, the ancestry and
-   the panel's service table for whoever wants them in the ticket itself. About 1,200 characters, no link.
-   The comment never changes the status — a close is `/ela:revisit`.
-   (Supersedes the 2026-10-21 rule that the report is never on the ticket: that rule was about a claude.ai
-   link; an attachment lives with the ticket under its own permissions, and the owner asked for it the same day.)
+   release map" or what differs); every case as one line — `T1 PASS — opening the dialog sets end = start + 60
+   min (16:00 → 17:00)` — `CHANGED` and `N/A` lines naming the superseding ticket; what was not covered (QA's
+   regression matrix, a write step not run); and `Full record attached: <file>.html`. Nothing else: no fold, no
+   service table, no link. The comment never changes the status — a close is `/ela:revisit`.
+   (The attachment supersedes the 2026-10-21 rule that the report is never on the ticket: that rule was about a
+   claude.ai link; an attachment lives with the ticket under its own permissions.)
 
 ## What this skill does not do
 
 - Test on an unproven session, or on a lane whose build does not carry the fix, and say it did.
-- Press Save, start a stream, or change the account, without a confirm for that step and its cleanup.
+- Judge a scheduled behaviour by the browser's clock, or wait for midnight when a faked clock answers the case.
+- Press Save, start a stream, schedule a route, or change the account, without a confirm for that step and its cleanup.
 - Keep selectors or expectations as knowledge: they belong to the file at the build, read each time.
 - Replace QA: the report says what a browser observed on one lane; QA's verdict on the ticket is theirs.
