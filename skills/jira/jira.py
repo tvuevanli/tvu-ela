@@ -1326,6 +1326,10 @@ def cmd_close(creds, args):
         f = _issue(creds, key, "summary,status,assignee,labels")
         assignee = f.get("assignee") or {}
         steps, out = [], [f"== {key}  {f.get('summary','')}  [{name_of(f.get('status'), 'name')}; proposed for closing → {CLOSING_FLAG}, assigned to you; assignee now {name_of(assignee)}]"]
+        if terminal(name_of(f.get("status"), "name")):
+            r = {"key": key, "error": f"already {name_of(f.get('status'), 'name')}: nothing to propose"}
+            results.append(r); lines += out + [f"{key}: {r['error']}"]; failed = True
+            continue
         if not text.strip() and not args.allow_no_comment:
             r = {"key": key, "error": "a close proposal carries a comment (where verified, build, why); pass --text/--from-file"}
             results.append(r); lines += out + [f"{key}: {r['error']}"]; failed = True
