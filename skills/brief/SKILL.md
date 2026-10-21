@@ -44,6 +44,16 @@ who <name|email|Uxxx|accountId>` (exit 3 = not in the roster, and that is what t
 private source on the office machine. Today's date and weekday matter: Evan's week is front-loaded
 (Monday sweep), so a Monday brief is allowed to be longer; a Friday brief should be short.
 
+## The runner's page is the input, this skill's reading is the output
+
+On a weekday morning `ela-runner` has already written `<runtime>/runner/<date>.md` from `ela brief`,
+`ela stage` and `ela slack mentions` and sent it to the owner as a direct message. This skill does not
+recompute those facts: it reads that page (or runs the three verbs when the page is missing) and adds
+what only a reading can add — for every intake row, what the ticket is about in the reporter's words,
+the layer, who should hold it, and the one action it owes or "read, nothing to change"; for every
+stage row, whether the owed action still holds today. The drafted actions are dry runs; the page the
+owner reads stays one line per item.
+
 ## 1 — Jira lanes (facts by script)
 
 Operational definitions — narrow on purpose, stated so they can be argued with. Epics hang their
