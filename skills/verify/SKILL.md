@@ -6,8 +6,8 @@ user-invocable: true
 
 # /ela:verify <KEY> [--lane prod-3 | prod-8 | qa-cn3 …] — a ticket checked in the product, with proof
 
-Replies to the owner follow the working preferences (Chinese in conversation unless he asks otherwise); the
-English of this file is not the language of the answer.
+Replies to the owner follow the working preferences' language line; the English of this file is not the
+language of the answer.
 
 Self-contained. Read-only over the product: the browser session is the owner's own, and a case never presses
 Save. Jira writes are dry-run until the owner's word. The browser is `ela browser` (a sense); the verdict,
@@ -86,9 +86,9 @@ its kind (`black` for a behaviour, `timed` for one the clock decides, `provenanc
    selectors and expectations are taken from the file at the build sha, never from the ticket's commits.
 
 The plan is then shown to the owner as a dry run — a table of goals with kind, source, expected result and
-any superseding ticket — and he confirms or edits it before a browser opens. A goal the current build no
-longer has is kept in the table, so the report can say `changed` or `n/a` with the superseding ticket, which
-is the product owner's question and never this skill's `fail`.
+the later ticket whose rule now governs, when there is one — and he confirms or edits it before a browser
+opens. A goal whose rule a later ticket rewrote is judged by that ticket's rule (§3); a goal whose control is
+gone is kept in the table as `n/a` with the ticket that removed it.
 
 When the ticket has no QA-verification section, the skill offers, after the run, to draft one from the
 confirmed plan into the ticket (the shape `skills/jira/SKILL.md` describes); it is written only on the
@@ -123,34 +123,35 @@ routes a real source. Read-only cases need no such word.
 ## 3 — the verdict
 
 One of: `pass` (every asked behaviour observed), `fail` (an asked behaviour not observed, with the step and
-the screenshot), `changed` (the asked control or rule was replaced by a later ticket — name it; whether the
-new behaviour is intended is the product owner's question, not this skill's), `unproven` (the gate failed;
-nothing else is reported). The verdict names what it rejects: a pass says which step would have failed it.
+the screenshot), `unproven` (the gate failed; nothing else is reported). **The newest ticket on the same
+control governs**: an older ticket's goal is judged pass or fail by the later ticket's rule, and that ticket
+is named on the goal; there is no `changed` verdict and no hand-back to the product owner (2026-10-21,
+MH-2602 under MH-3046). A goal is `n/a` only when the control itself no longer exists. The verdict names what
+it rejects: a pass says which step would have failed it.
 
 ## 4 — the two outputs
 
 1. **The QA record, rendered, not written** — the run leaves `<runtime>/browser/runs/<KEY>-<date>/` holding
    `ticket.json`, `plan.json` (the confirmed goals, each with `kind`), `env.json` (`ela browser env --json`),
    `cases.json` (`ela browser run --json`), `ancestry.json`, `technique.json` and `shots/`;
-   `ela verify --key <KEY> --run <dir> --single <runtime>/browser/runs/<KEY>-<date>/<KEY>-verify-<date>.html`
-   renders two copies from the same data: the page under `<reports>/verify/<KEY>-<date>/` for the owner's
-   reading (publishable as a private artifact), and one self-contained HTML with the screenshots embedded for
-   the ticket. The record is written for colleagues: the verdict strip with lane and the two builds, the
-   ticket, the goals with kind and source, the environment proof (the panel, the map comparison, the
-   ancestry), the results with one screenshot per case, the technique — facts only, no account of how the run
-   went. Nothing in it links to claude.ai.
-2. **The ticket gets the comment and the attachment**: `$JIRA comment <KEY> --from-file …` and
-   `$JIRA attach <KEY> <single.html>`, both dry runs first, one confirm. **The comment is the short version and
-   stands on its own**: a reader who never opens the attachment can tell whether the ticket is OK, and a reader
-   who wants the panel, the screenshots, the ancestry and the method opens the attachment. In English, in the
-   Markdown subset, about 600 characters: the verdict in bold with one clause of meaning (`**PASS** — the asked
-   behaviour is observed on prod-3`); the environment line (lane, frontend and backend builds, "matches the
-   release map" or what differs); every case as one line — `T1 PASS — opening the dialog sets end = start + 60
-   min (16:00 → 17:00)` — `CHANGED` and `N/A` lines naming the superseding ticket; what was not covered (QA's
-   regression matrix, a write step not run); and `Full record attached: <file>.html`. Nothing else: no fold, no
-   service table, no link. The comment never changes the status — a close is `/ela:revisit`.
-   (The attachment supersedes the 2026-10-21 rule that the report is never on the ticket: that rule was about a
-   claude.ai link; an attachment lives with the ticket under its own permissions.)
+   `ela verify --key <KEY> --run <dir> --pdf <dir>/<KEY>-verify-<date>.pdf` renders the page under
+   `<reports>/verify/<KEY>-<date>/` for the owner (publishable as a private artifact) and prints the PDF for the
+   ticket. **The readable part comes first**: the verdict, the environment in one plain sentence, each step as
+   what was done and what was seen; everything technical — the panel text, the service table, the ancestry,
+   selectors, the method, the screenshots — is the appendix, collapsed on screen and printed after a page break.
+   The record is written for colleagues: facts only, no account of how the run went, nothing linking to
+   claude.ai. The ticket gets the PDF, one file, because Jira previews it inline where an HTML is shown as
+   source and loose screenshots duplicate the record.
+2. **The ticket gets the comment and the attachment**: `$JIRA attach <KEY> <pdf>` and `$JIRA comment <KEY>
+   --from-file …`, both dry runs first, one confirm. **The comment is the short version and stands on its
+   own**. In English, in the Markdown subset, no mention by default (a leading mention reads as that person
+   having tested). The first sentence names who verified and how: `Verified on prod-3 by an automated browser
+   run on my own session — closing as Done.`; a colleague who should know is named in plain words at the end
+   of that line (`<first name>, FYI.`), never as a mention unless the owner asks. Then one plain line per case, what was
+   done and what was seen, in the reader's words, not the selector's; what was not covered; and `Full record
+   attached: <file>.pdf`. After the `---` line, collapsed: lane, frontend and backend builds, the commit
+   ancestry, the cases as `T1 PASS` lines. About 600 characters above the fold, no link. The comment never
+   changes the status by itself — a close is the `jira close` bundle, where this comment is the bundle's comment.
 
 ## What this skill does not do
 
