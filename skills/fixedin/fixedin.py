@@ -52,14 +52,14 @@ def key_rx(key):
 # ── commits ───────────────────────────────────────────────────────────────────
 
 def parse_log(out):
-    """`%H%x09%ad%x09%s` lines → [{sha, date, subject}], first occurrence of a sha kept."""
+    """`%H%x09%ad%x09%an%x09%s` lines → [{sha, date, author, subject}], first occurrence of a sha kept."""
     rows, seen = [], set()
     for ln in (out or "").splitlines():
-        parts = ln.split("\t", 2)
-        if len(parts) < 3 or not re.fullmatch(r"[0-9a-f]{40}", parts[0]) or parts[0] in seen:
+        parts = ln.split("\t", 3)
+        if len(parts) < 4 or not re.fullmatch(r"[0-9a-f]{40}", parts[0]) or parts[0] in seen:
             continue
         seen.add(parts[0])
-        rows.append({"sha": parts[0], "date": parts[1], "subject": parts[2]})
+        rows.append({"sha": parts[0], "date": parts[1], "author": parts[2], "subject": parts[3]})
     return rows
 
 
@@ -82,7 +82,7 @@ def survey_repos():
 
 def commits_for(key, path):
     """Commits whose message names the key, and the tips of remote branches named for it."""
-    rc, out, err = P.git(path, "log", "--all", f"--grep={key}", "--format=%H%x09%ad%x09%s", "--date=short")
+    rc, out, err = P.git(path, "log", "--all", f"--grep={key}", "--format=%H%x09%ad%x09%an%x09%s", "--date=short")
     if rc != 0:
         return None, "git log failed: " + err.strip()[:120]
     rows = parse_log(out)
@@ -96,7 +96,7 @@ def commits_for(key, path):
     for br in (b.strip() for b in out.splitlines() if b.strip() and "->" not in b):
         if not key_rx(key).search(br):
             continue
-        rc, tip, _ = P.git(path, "log", "-1", "--format=%H%x09%ad%x09%s", "--date=short", br)
+        rc, tip, _ = P.git(path, "log", "-1", "--format=%H%x09%ad%x09%an%x09%s", "--date=short", br)
         for t in parse_log(tip):
             hit = next((r for r in rows if r["sha"] == t["sha"]), None)
             if hit:
@@ -112,7 +112,7 @@ def hinted_commits(path, a):
     """Candidate commits from the caller's hints, each labelled by the hint: --author (within --since), --path
     (within --since), --thread (the permalink in the message, fixed-string). Deduplicated by sha."""
     rows = []
-    fmt = ("--format=%H%x09%ad%x09%s", "--date=short")
+    fmt = ("--format=%H%x09%ad%x09%an%x09%s", "--date=short")
     if a.author or a.path:
         argv = ["log", "--all", f"--since={a.since}", "-n", "200", *fmt]
         via = []
@@ -300,7 +300,9 @@ def chain(a, key, repos_cache, builds_cache):
     f = d.get("fields") or {}
     raw = f.get(fid)
     rec.update(summary=f.get("summary"), status=(f.get("status") or {}).get("name"), labels=f.get("labels") or [],
-               current=(P.adf_text(raw).strip() if raw else ""), url=d.get("url"))
+               current=(P.adf_text(raw).strip() if raw else ""), url=d.get("url"),
+               assignee=(f.get("assignee") or {}).get("displayName"), issuetype=(f.get("issuetype") or {}).get("name"),
+               parent=(f.get("parent") or {}).get("key"), created=(f.get("created") or "")[:10], updated=(f.get("updated") or "")[:10])
     rec["comments"] = d.get("comments") or []
     rec["declared"] = declared_from_comments(rec["comments"], f.get("summary") or "", P.load_roster())
     for e in P.parse_fixed_in(rec["current"]):
@@ -932,7 +934,8 @@ def cmd_draft(a):
             r.pop("comments", None)
     if a.json:
         print(json.dumps({"keys": [dict({f: r.get(f) for f in ("key", "summary", "status", "labels", "current", "compare", "draft",
-                                                               "commits", "builds", "lanes", "evidence", "gaps", "declared")}, group=group_of(r)) for r in recs]}, ensure_ascii=False))
+                                                               "commits", "builds", "lanes", "evidence", "gaps", "declared", "assignee", "issuetype", "parent",
+                                                               "created", "updated", "url")}, group=group_of(r)) for r in recs]}, ensure_ascii=False))
     else:
         print_text(recs)
         if a.group or len(recs) > 1:

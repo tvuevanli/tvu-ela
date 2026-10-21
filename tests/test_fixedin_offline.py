@@ -24,13 +24,13 @@ F.R._MAP = {
 }
 
 A, B, C = "a" * 40, "b" * 40, "c" * 40
-LOG = (f"{A}\t2026-09-01\tfix(player): MH-3568 keep the seek position\n"
-       f"{B}\t2026-09-03\tMH-3568 follow-up: null guard\n"
-       f"{A}\t2026-09-01\tfix(player): MH-3568 keep the seek position\n"
+LOG = (f"{A}\t2026-09-01\tdev\tfix(player): MH-3568 keep the seek position\n"
+       f"{B}\t2026-09-03\tdev\tMH-3568 follow-up: null guard\n"
+       f"{A}\t2026-09-01\tdev\tfix(player): MH-3568 keep the seek position\n"
        "not a log line\n")
 commits = F.parse_log(LOG)
 check([c["sha"] for c in commits] == [A, B], "git log: one row per sha, junk lines dropped")
-check(commits[0] == {"sha": A, "date": "2026-09-01", "subject": "fix(player): MH-3568 keep the seek position"}, "git log: sha, date, subject")
+check(commits[0] == {"sha": A, "date": "2026-09-01", "author": "dev", "subject": "fix(player): MH-3568 keep the seek position"}, "git log: sha, date, author, subject")
 
 check(bool(F.key_rx("MH-356").search("MH-356 fix")) and not F.key_rx("MH-356").search("MH-3568 fix"), "a key matches only as a whole token")
 
