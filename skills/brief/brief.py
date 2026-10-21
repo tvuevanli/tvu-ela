@@ -43,7 +43,7 @@ PROJECT = "project = MH AND "
 UMBRELLA = "MH-2342"
 RED_H, YELLOW_H, OVERDUE_H = 48, 24, 4
 PREFIX = re.compile(r"^\[(Infra|J2N|Media|App|UI|QA|Design|AI)\]")
-LANES = ("cadence", "triage", "breakdown", "incidents", "backlog", "yours")
+LANES = ("intake", "cadence", "triage", "breakdown", "incidents", "backlog", "yours")
 
 # JQL as SKILL.md §1 states it; `project = MH AND ` is prepended to each.
 Q = {
@@ -52,6 +52,7 @@ Q = {
     "blocked": "status = Blocked ORDER BY updated ASC",
     "yours": ('assignee = currentUser() AND ((status = "In Progress" AND updated <= -24h AND updated >= -14d)'
               " OR status = Blocked)"),
+    "intake": "created >= -1d ORDER BY created ASC",
     "triage": "created >= -2d AND statusCategory != Done AND assignee is EMPTY",
     "hygiene": "created >= -2d AND statusCategory != Done",
     "breakdown": ("issuetype in (Epic, Task, Improvement) AND priority in (Highest, High) "
@@ -137,6 +138,23 @@ def split_yours(env, limit, cadence):
     return {"rows": rows, "count": len(rows)}
 
 
+def lane_intake(env, limit, now):
+    """Every ticket created since yesterday, whatever its status: each gets one pass and one line on the page, even
+    when nothing needs changing. The flags are the mechanical part of the pass; what the ticket is about is the
+    session's reading. A new ticket the owner never saw is the failure this lane exists to prevent."""
+    rows = []
+    for r in jql(env, Q["intake"], limit):
+        flags = []
+        if not r.get("assignee"):
+            flags.append("UNASSIGNED")
+        if (r.get("type") or "") == "Sub-task" and not PREFIX.match(r.get("summary") or ""):
+            flags.append("NOPREFIX")
+        if (r.get("type") or "") == "Epic" and not r.get("subtasks") and not r.get("parent"):
+            flags.append("EPIC-NO-CHILDREN")
+        rows.append({**r, "hours_since_created": hours_since(r.get("created"), now), "flag": " ".join(flags)})
+    return {"rows": rows, "count": len(rows), "flagged": sum(1 for r in rows if r["flag"])}
+
+
 def lane_triage(env, limit, now):
     rows = []
     for r in jql(env, Q["triage"], limit):
@@ -199,6 +217,8 @@ def print_table(name, lane):
     if name == "cadence":
         z = lane["zombies"]
         print(f"  zombies {z['count']}: " + ", ".join(f"{o['assignee']} ×{o['count']}" for o in z["owners"]))
+    if name == "intake":
+        print(f"  every ticket above gets one pass today; {lane['flagged']} carry a flag, the rest are read and left as they are")
     if name == "triage":
         h = lane["hygiene"]
         print(f"  hygiene: {h['count']} without a layer prefix" + (f" ({', '.join(h['missing_prefix'])})" if h["count"] else ""))
@@ -214,7 +234,7 @@ def print_table(name, lane):
 def cmd_lanes(args):
     now = datetime.datetime.now(datetime.timezone.utc)
     want = [args.lane] if args.lane else list(LANES)
-    fns = {"triage": lane_triage, "breakdown": lane_breakdown, "incidents": lane_incidents, "backlog": lane_backlog}
+    fns = {"intake": lane_intake, "triage": lane_triage, "breakdown": lane_breakdown, "incidents": lane_incidents, "backlog": lane_backlog}
     lanes, errors = {}, []
 
     if "cadence" in want or "yours" in want:
