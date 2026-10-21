@@ -665,7 +665,7 @@ def _norm(s):
 
 def resolve_assignee(creds, who):
     """Email or accountId → accountId; without either, the token's own account."""
-    if not who:
+    if not who or who.lower() == "me":
         me = api_get(creds, "/rest/api/3/myself")
         return me["accountId"], f"{me.get('displayName')} (self)"
     if "@" not in who:
@@ -1351,7 +1351,7 @@ def main():
     p = sub.add_parser(
         "assign", help="re-assign one issue — dry-run unless --apply")
     p.add_argument("target", help="issue key or browse URL")
-    p.add_argument("--assignee", required=True, help="email or accountId")
+    p.add_argument("--assignee", required=True, help="email, accountId, or me")
     p.add_argument("--apply", action="store_true")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_assign)
