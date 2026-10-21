@@ -24,7 +24,11 @@ old = [{"sha": "a", "date": "2026-04-30", "author": "dev"}]
 check("prod outranks daily and qa", S.stage_of([{"lane": "qa-cn3"}, {"lane": "daily-tue"}, {"lane": "prod-3"}]) == "prod")
 check("stage is the lane name's kind", S.stage_of([{"lane": "stage"}]) == "daily" and S.stage_of([]) == "none")
 r = S.row_of(rec(status="Review", lanes=[{"lane": "prod-3"}], commits=old, draft=["x@1"]), ROSTER, 30, TODAY)
-check("an open ticket whose fix sat on prod for the threshold owes a close", r["action"] == "close" and r["fix_age_days"] == 174)
+check("an open ticket whose fix sat on prod for the threshold owes a closing notice first", r["action"] == "close-notice" and r["fix_age_days"] == 174)
+r = S.row_of(rec(status="Review", labels=["flag:closing"], updated="2026-10-19", lanes=[{"lane": "prod-3"}], commits=old, draft=["x@1"]), ROSTER, 30, TODAY)
+check("a posted notice inside its window waits", r["action"] == "closing-wait")
+r = S.row_of(rec(status="Review", labels=["flag:closing"], updated="2026-10-01", lanes=[{"lane": "prod-3"}], commits=old, draft=["x@1"]), ROSTER, 30, TODAY)
+check("a notice older than the window owes the close", r["action"] == "close")
 r = S.row_of(rec(status="Review", lanes=[{"lane": "prod-3"}], commits=old, draft=["x@1"], evidence={"verdict": "fail"}), ROSTER, 30, TODAY)
 check("a QA refutation blocks the close", r["action"] != "close")
 r = S.row_of(rec(status="Review", assignee="Product Person", lanes=[{"lane": "prod-3"}], commits=old, draft=["x@1"]), ROSTER, 30, TODAY)
@@ -42,13 +46,13 @@ check("Backlog with no fix owes nothing", r["action"] == "none")
 r = S.row_of(rec(status="Done", lanes=[{"lane": "prod-3"}], commits=old), ROSTER, 30, TODAY)
 check("a terminal ticket is done", r["action"] == "done")
 r = S.row_of(rec(assignee="Dev Person", commits=[{"sha": "a", "date": "2026-04-01", "author": "someone else"}], status="In Progress", lanes=[{"lane": "prod-3"}], draft=["x@1"]), ROSTER, 30, TODAY)
-check("the implementer is shown beside the assignee, not flagged", r["implementers"] == ["someone else"] and r["action"] == "close")
+check("the implementer is shown beside the assignee, not flagged", r["implementers"] == ["someone else"] and r["action"] == "close-notice")
 
 rows = [S.row_of(rec(key="MH-10", issuetype="Epic", status="Review"), ROSTER, 30, TODAY),
         S.row_of(rec(key="MH-11", parent="MH-10", status="Review", lanes=[{"lane": "prod-3"}], commits=old, draft=["x@1"]), ROSTER, 30, TODAY),
         S.row_of(rec(key="MH-12", parent="MH-10", status="Done"), ROSTER, 30, TODAY)]
 S.roll_up_epics(rows)
-check("an Epic whose children are all closed or closable owes a close", rows[0]["action"] == "close" and "1 close" in rows[0]["why"])
+check("an Epic whose children are all closed or closable owes a close", rows[0]["action"] == "close" and "close-notice" in rows[0]["why"])
 rows.append(S.row_of(rec(key="MH-13", parent="MH-10", status="Backlog"), ROSTER, 30, TODAY)); S.roll_up_epics(rows)
 check("an Epic with an open child is the feature's head, owing nothing itself", rows[0]["action"] == "epic")
 

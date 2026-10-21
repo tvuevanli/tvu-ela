@@ -943,7 +943,8 @@ def cmd_comment(creds, args):
 
 # ── transitions: one hop looked up live, or the lifecycle walked hop by hop ───
 
-STATUS_PATH = ["Backlog", "In Progress", "Review", "Done"]   # the MH lifecycle (published mediahub/jira/status-spec.md)
+STATUS_PATH = ["Backlog", "In Progress", "Review", "Done"]
+CLOSING_FLAG = "flag:closing"   # a close announced, waiting out its objection window (conventions.md § Clean-up rules)   # the MH lifecycle (published mediahub/jira/status-spec.md)
 
 
 def plan_path(cur, to):
@@ -1262,9 +1263,13 @@ def cmd_close(creds, args):
     me = (api_get(creds, "/rest/api/3/myself") or {}).get("accountId")
     results, lines, failed = [], [], False
     for key in _keys(args.targets):
-        f = _issue(creds, key, "summary,status,assignee")
+        f = _issue(creds, key, "summary,status,assignee,labels")
         assignee = f.get("assignee") or {}
-        steps, out = [], [f"== {key}  {f.get('summary','')}  [{name_of(f.get('status'), 'name')} → {args.to}; assignee {name_of(assignee)}]"]
+        steps, out = [], [f"== {key}  {f.get('summary','')}  [{name_of(f.get('status'), 'name')} → {'notice: ' + CLOSING_FLAG if args.notice else args.to}; assignee {name_of(assignee)}]"]
+        if args.notice and not text.strip():
+            r = {"key": key, "error": "a closing notice is a comment: pass --text/--from-file naming the rule and the date it closes"}
+            results.append(r); lines += out + [f"{key}: {r['error']}"]; failed = True
+            continue
         if not text.strip() and assignee.get("accountId") != me and not args.allow_no_comment:
             r = {"key": key, "error": f"assigned to {name_of(assignee)}, not you — a close carries a comment (where verified, build, why); pass --text/--from-file"}
             results.append(r); lines += out + [f"{key}: {r['error']}"]; failed = True
@@ -1272,11 +1277,18 @@ def cmd_close(creds, args):
         plan = []
         if add:
             plan.append(("fixed_in", lambda k=key: _fixed_in_one(creds, k, add, args.apply)))
-        if labels:
-            plan.append(("labels", lambda k=key: _label_one(creds, k, labels, [], args.apply)))
-        if text.strip():
+        if args.notice:
+            # The careful close: the notice names the rule and the date, the flag makes the pending close visible on the
+            # board, and the transition waits for the objection window (conventions.md § Clean-up rules). An objection
+            # or any update resets the window; `close` without --notice then finishes and removes the flag.
+            plan.append(("labels", lambda k=key: _label_one(creds, k, labels + [CLOSING_FLAG], [], args.apply)))
             plan.append(("comment", lambda k=key: _comment_one(creds, k, text, args.apply, mention=not args.no_mention)))
-        plan.append(("transition", lambda k=key: _transition_one(creds, k, args.to, args.apply, path=True)))
+        else:
+            if labels or CLOSING_FLAG in (f.get("labels") or []):
+                plan.append(("labels", lambda k=key: _label_one(creds, k, labels, [CLOSING_FLAG], args.apply)))
+            if text.strip():
+                plan.append(("comment", lambda k=key: _comment_one(creds, k, text, args.apply, mention=not args.no_mention)))
+            plan.append(("transition", lambda k=key: _transition_one(creds, k, args.to, args.apply, path=True)))
         for name, fn in plan:
             r, ls = fn()
             steps.append(dict(r, step=name)); out += ["  " + l.replace("\n", "\n  ") for l in ls]
@@ -1417,6 +1429,7 @@ def main():
     p.add_argument("--from-file", help="read the comment from a file instead")
     p.add_argument("--to", default="Done", help="target status (default Done), walked along the lifecycle when not directly reachable")
     p.add_argument("--allow-no-comment", action="store_true", help="close a ticket assigned to someone else without a comment (normally refused)")
+    p.add_argument("--notice", action="store_true", help="the careful close: post the notice and the flag:closing label, no transition; a later close without --notice finishes it")
     p.add_argument("--no-mention", action="store_true")
     p.add_argument("--apply", action="store_true"); p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_close)

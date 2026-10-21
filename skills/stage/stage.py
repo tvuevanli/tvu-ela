@@ -16,7 +16,9 @@ status-spec.md: Review assigned to product is the sign-off gate, not a stale tic
 the assignee, who is the person responsible — that difference is shown, never flagged.
 
 Actions (the flag is the row's, the dry run is the owner's to confirm):
-  close         fix on prod for --days or more, no QA refutation, ticket open → one jira close bundle
+  close-notice  fix on prod for --days or more, no QA refutation, ticket open, no notice yet → jira close --notice
+  closing-wait  the notice is posted; the objection window (7 days without an update) is still open
+  close         the window passed → the close bundle, flag removed
   reached-qa    fix on a QA lane, no Fixed In or status before Review → fixed-in --apply, transition Review, tell QA
   awaiting-qa   fix on daily or prod, Review, QA has not spoken → ask QA (comment, dry run)
   awaiting-product  Review, assignee in the product area → nothing; the gate is theirs
@@ -49,6 +51,16 @@ def stage_of(lanes):
         if kind and STAGE_ORDER[kind] > STAGE_ORDER[best]:
             best = kind
     return best
+
+
+CLOSING_FLAG, WINDOW_DAYS = "flag:closing", 7
+
+
+def days_since(date, today=None):
+    try:
+        return ((today or datetime.date.today()) - datetime.date.fromisoformat((date or "")[:10])).days
+    except ValueError:
+        return None
 
 
 def fix_age_days(commits, today=None):
@@ -89,8 +101,15 @@ def row_of(rec, roster, days, today=None):
     if status == "Review" and area == "product":
         row.update(action="awaiting-product", why="the product sign-off gate: Review assigned to product"); return row
     if stage == "prod" and (age is None or age >= days) and qa != "fail":
-        row.update(action="close", why=f"fix on {', '.join(l for l in row['lanes'] if l.startswith('prod'))} for {age if age is not None else '?'} days, QA {qa or 'silent'}",
-                   dry_run=f"ela jira close {k} --comment <where verified, build, commit>"); return row
+        prod = ", ".join(l for l in row["lanes"] if l.startswith("prod"))
+        if CLOSING_FLAG in (rec.get("labels") or []):
+            quiet = days_since(rec.get("updated"), today)
+            if quiet is not None and quiet >= WINDOW_DAYS:
+                row.update(action="close", why=f"closing notice posted, {quiet} days without an objection or an update; fix on {prod} for {age} days",
+                           dry_run=f"ela jira close {k} --text <closing as announced>"); return row
+            row.update(action="closing-wait", why=f"closing notice posted; {WINDOW_DAYS - (quiet or 0)} days of the window left", dry_run=None); return row
+        row.update(action="close-notice", why=f"fix on {prod} for {age if age is not None else '?'} days, QA {qa or 'silent'}; no notice yet",
+                   dry_run=f"ela jira close {k} --notice --fixed-in <draft> --from-file <notice naming the rule and the date>"); return row
     if stage == "qa" and (not row["fixed_in"] or status in OPEN_BEFORE_REVIEW):
         need = [] if row["fixed_in"] else ["fixed-in"]
         if status in OPEN_BEFORE_REVIEW:
@@ -148,7 +167,7 @@ def roll_up_epics(rows):
         for k in kids:
             counts[k["action"]] = counts.get(k["action"], 0) + 1
         summary = ", ".join(f"{n} {act}" for act, n in sorted(counts.items(), key=lambda kv: -kv[1]))
-        if all(k["action"] in ("done", "close") for k in kids):
+        if all(k["action"] in ("done", "close", "close-notice", "closing-wait") for k in kids):
             r.update(action="close", why=f"every child is terminal or a close candidate: {summary}",
                      dry_run=f"ela jira close {r['key']} --comment <children closed; feature on prod>")
         else:
@@ -156,7 +175,7 @@ def roll_up_epics(rows):
     return rows
 
 
-ORDER = ["close", "reached-qa", "awaiting-qa", "declared-only", "no-fix", "awaiting-product", "epic", "none", "done", "unreadable"]
+ORDER = ["close", "close-notice", "closing-wait", "reached-qa", "awaiting-qa", "declared-only", "no-fix", "awaiting-product", "epic", "none", "done", "unreadable"]
 
 
 def print_queue(rows, days):
