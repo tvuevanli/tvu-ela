@@ -994,7 +994,9 @@ def _transition_one(creds, key, to, apply, path=False):
         r["error"] = f"no transition from {cur} to {to}; available: {opts}" + ("" if path or not plan_path(cur, to) else " (pass --path to walk the lifecycle)")
         return r, [f"{key}: {r['error']}"]
     assignee = name_of(f.get("assignee"))
-    signoff = _norm("Review") in {_norm(cur)} | {_norm(h) for h in hops[:-1]} and _norm(hops[-1]) == _norm("Done") and person_area(assignee) == "product"
+    # The sign-off gate of status-spec.md is a ticket parked in Review for product; a Backlog or In Progress ticket that
+    # happens to be assigned to product was never parked, so the walk to Done is not a sign-off skipped.
+    signoff = _norm(cur) == _norm("Review") and _norm(hops[-1]) == _norm("Done") and person_area(assignee) == "product"
     if signoff:
         r["error"] = f"product sign-off pending: {assignee} holds {key} in Review, and Review → Done is theirs to give"
         return r, [f"{key}: {r['error']}"]

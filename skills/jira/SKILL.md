@@ -113,14 +113,13 @@ and does nothing without `--apply`. Each is idempotent, so a re-run after a part
 | `close` | each step's own no-op | **one ticket, one bundle, one confirm**: `--fixed-in`, `--label`, the comment (`--text` / `--from-file`) and the walk to `--to` (default Done, `--path` implied), shown together as one dry run and applied in that order. A ticket assigned to someone else is refused without a comment (`--allow-no-comment` overrides): the assignee otherwise sees a status change with no reason. On a partial failure the dry run says which steps are done; a re-run skips them |
 
 Confirm rule for a Claude session: show the dry-run, ask Evan, and only then re-run with `--apply` —
-the same wording he saw. The unit of a confirm is **one ticket's bundle**: Fixed In, labels, the
-comment and the status walk for one key are one dry run and one word; several keys are several
-confirms, unless one text fans out unchanged over all of them (then one dry run, one confirm, any
-number of keys). This supersedes the earlier "one text, one confirm" wording (2026-10-19): a close is
-one decision about one ticket, and splitting it into four confirms produced closes with the comment
-missing. **The confirm vocabulary** is `apply`, `go`, `yes`, `confirm`, `ok`, `do it`, and a Chinese equivalent (好, 可以, 执行); any other reply — an answer to a question (`No sub`), a fact (`it is good on prod 8`), a correction — is input, not a confirm, and the dry run is shown again if it changed. **Pre-authorisation:** when his instruction already names the writes ("fill Fixed In, comment
-and close"), that sentence covers Fixed In, labels and the transition; it covers a comment only if he
-said so ("with a comment"); after a pre-authorised run, every posted text is shown back verbatim.
+the same wording he saw. The unit of a confirm is **one ticket's bundle** — Fixed In, labels, the
+comment and the walk — or **one batch of one shape**: when a rule the owner has recorded (elak
+`knowledge/products/mediahub/jira/conventions.md` § Clean-up rules) selects the tickets and the same
+text and the same steps fan out over all of them, the whole batch is one dry run, shown in full, and one
+word applies it. A batch of mixed shapes is several confirms. This supersedes the 2026-10-19 wording
+(one ticket, one confirm) for rule-selected batches only (2026-10-21); a hand-picked set of tickets is
+still one confirm each.
 
 ## Credentials
 
