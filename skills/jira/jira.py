@@ -1486,6 +1486,10 @@ def main():
     p.set_defaults(func=cmd_close)
 
     args = ap.parse_args()
+    # An unattended session (ela-runner's headless job, ELA_NO_APPLY=1) may read and dry-run, never write:
+    # the owner's word for a write is given in the Slack thread and executed by the runner, not by a model.
+    if os.environ.get("ELA_NO_APPLY") and getattr(args, "apply", False):
+        print("refused: --apply inside an unattended session (ELA_NO_APPLY); the dry run above is the answer, the owner's word applies it", file=sys.stderr); sys.exit(2)
     creds = load_env(args.env_file)
     args.func(creds, args)
 

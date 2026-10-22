@@ -754,6 +754,10 @@ def main():
     p.add_argument("--apply", action="store_true", help="actually send; without it nothing leaves the machine")
     p.add_argument("--json", action="store_true")
     a = ap.parse_args()
+    # An unattended session (ela-runner's headless job, ELA_NO_APPLY=1) may read and dry-run, never write:
+    # the owner's word for a write is given in the Slack thread and executed by the runner, not by a model.
+    if os.environ.get("ELA_NO_APPLY") and getattr(a, "apply", False):
+        print("refused: --apply inside an unattended session (ELA_NO_APPLY); the dry run above is the answer, the owner's word applies it", file=sys.stderr); sys.exit(2)
     tok = token(a.env_file)
     {"read": cmd_read, "channels": cmd_channels, "history": cmd_history, "mentions": cmd_mentions, "search": cmd_search,
      "unanswered": cmd_unanswered, "whoami": cmd_whoami, "users": cmd_users, "post": cmd_post,
