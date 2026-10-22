@@ -187,6 +187,22 @@ Every ticket key is a Jira link, every Slack item a permalink. Under the list, t
 prints each candidate's sentence verbatim with its permalink and the proposed record title; Evan
 says which to keep. Close with what could not be read, if anything.
 
+## 3b — when the runner asked (unattended): the page and the numbered actions, written to files
+
+ela-runner starts this skill headless every weekday morning after it wrote the facts page
+(`/ela:brief --page <reports>/runner/<date>.md`). Then the output of §3 is written, not only printed:
+
+- `<reports>/runner/<date>-brief.md` — the page of §3 as Markdown, the judgment included (what each new
+  ticket is about, who should hold it, the drafted reply or nudge), every key a Jira link.
+- `<reports>/runner/<date>-actions.json` — the drafted actions as a list, in the page's order:
+  `[{"n": 1, "text": "<the one line the page shows>", "command": "<the exact ela command, dry run as written>", "kind": "comment|assign|label|transition|close|slack|fixed-in"}]`.
+  A command is one of ela's own write verbs — `ela jira comment|assign|label|fixed-in|close …`, `ela slack
+  post …` — complete with its key and text (a `--from-file` under `<reports>/runner/actions/<date>/`), and
+  runnable as it stands; the runner appends `--apply` to it when the owner answers `apply <n>` in Slack or on
+  the page. Nothing else goes in the list: a reading, a question for the owner, a hand-off to another skill is
+  text on the page, not an action. The session itself applies nothing (the write scripts refuse `--apply` under
+  `ELA_NO_APPLY`).
+
 ## 4 — what this skill does not do
 - Post, comment, transition, assign, create, or write a file. The drafted actions name the skill
   or the jira capability's write atoms that will, behind their own confirm.
