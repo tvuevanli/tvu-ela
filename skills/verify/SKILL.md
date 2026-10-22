@@ -37,14 +37,16 @@ Nothing in this skill runs on an unproven session or on a lane whose build does 
 
 ## 1 — the fix, the lane and the proof
 
-The owner's account sits on a daily or a prod lane; he does not test on QA lanes. A fix often reaches a QA
-lane days before any lane he can open, so the lane question is answered from the fix, never from where the
-account happens to be.
+Two hosts, two sessions. The gateway (test, daily and prod lanes) is opened on the owner's own login,
+wherever his account's bundle puts it; the QA deployment (`qa-*` lanes, its own domain) is opened on ela's
+own session with the QA test account (`ela browser login --host qa`), never his. `ela browser env` picks
+the host from the lane prefix. A fix often reaches a QA lane days before any gateway lane, so the lane
+question is answered from the fix, never from where an account happens to be.
 
 - `$FIXEDIN <KEY> --json` first: `lanes` are the lanes whose build descends from the fix commits (ancestry).
-  None of them daily or prod → stop: the ticket is not testable on his lanes yet; say which QA lane carries it
-  and leave the ticket to QA. The fix on a daily or prod lane the account is not on → say which, and that he
-  switches the account's bundle and runs `ela login tvu --force` before the gate.
+  Only QA lanes carry it → the run is on the QA deployment with ela's own session, and the report says so.
+  The fix on a daily or prod lane the owner's account is not on → say which, and that he switches the
+  account's bundle and runs `ela login tvu --force` before the gate.
 - `$BROWSER env --key <KEY> [--lane <lane>] --shots <run>/shots --json` is the gate: exit 4 = unproven (cookies:
   `ela login tvu --force`, or the fix's lanes unread because the lane's build fell outside the fetched Jenkins
   window — rerun, never read as absent), exit 3 = a service differs from the release map, exit 6 = the panel's lane
