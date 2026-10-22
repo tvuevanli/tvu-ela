@@ -13,7 +13,7 @@ Usage:
     jira.py create-subtask --parent MH-3513 --summary '[App] ...' \
             [--description TEXT] [--assignee EMAIL|ACCOUNTID] [--apply] [--json]
     jira.py comment MH-1 [MH-2 …] --text '…' | --from-file f   [--apply]   # identical text is never re-posted
-    jira.py transition MH-1 [MH-2 …] --to Review               [--apply]   # transition looked up by target status
+    jira.py transition MH-1 [MH-2 …] --to Review  [--terminal] [--apply]   # looked up by target status; a terminal one needs --terminal
     jira.py label MH-1 [MH-2 …] --add a,b --remove c           [--apply]   # only the delta is written
     jira.py link MH-1 MH-2 --type Blocks|"is blocked by"|Relates [--apply]  # existing link of that type is a no-op
     jira.py fixed-in MH-1 [MH-2 …] --add 'slug@1.2.3; slug2@4.5.6' [--apply]  # append-only; present entries skipped
@@ -978,9 +978,10 @@ def cmd_comment(creds, args):
 # ── transitions: one hop looked up live, or the lifecycle walked hop by hop ───
 
 STATUS_PATH = ["Backlog", "In Progress", "Review", "Done"]
-# A terminal status is the owner's own click in Jira. ela proposes a close (Fixed In, comment, flag:closing, the
-# ticket assigned to him) and never performs the transition — so a close he does not know about cannot happen
-# (conventions.md section Clean-up rules, 2026-10-21).
+# A terminal status is the owner's own decision. ela proposes a close (Fixed In, comment, flag:closing, the ticket
+# assigned to him) and performs the transition only on his explicit word, which the caller states with --terminal —
+# so a close he does not know about cannot happen (conventions.md section Clean-up rules, 2026-10-21; the opt-in
+# added 2026-10-22, MH-3645).
 TERMINAL = {"Done", "Cancelled", "Failed", "Closed Ambigous"}
 
 
@@ -1013,17 +1014,18 @@ def _hop(trans, to):
     return hit, required
 
 
-def _transition_one(creds, key, to, apply, path=False):
+def _transition_one(creds, key, to, apply, path=False, terminal_ok=False):
     """Move one issue to `to`. Direct when Jira offers it; with `path`, along STATUS_PATH hop by hop. Stops, without
     writing, at a hop that needs a field, and at Review → Done while the assignee is in the product area — that is
-    the product sign-off the status spec describes, and it is theirs to give."""
+    the product sign-off the status spec describes, and it is theirs to give. A terminal `to` is refused unless
+    `terminal_ok`, the caller's statement that the owner named that status himself."""
     f = _issue(creds, key, "summary,status,assignee")
     cur = name_of(f.get("status"), "name")
     r = {"key": key, "from": cur, "to": to, "dry_run": not apply, "changed": False, "walked": []}
     if _norm(cur) == _norm(to):
         return r, [f"{key}: already {cur}"]
-    if terminal(to):
-        r["error"] = f"{to} is a terminal status: ela never performs that transition — propose it with `close` (the ticket is assigned to the owner, who clicks Done in Jira)"
+    if terminal(to) and not terminal_ok:
+        r["error"] = f"{to} is a terminal status: refused unless the owner names it himself (pass --terminal) — otherwise propose it with `close` (the ticket is assigned to the owner for his decision)"
         return r, [f"{key}: {r['error']}"]
     trans = _transitions(creds, key)
     hit, required = _hop(trans, to)
@@ -1081,7 +1083,7 @@ def cmd_transition(creds, args):
     """Move issues to a target status by name; the transition is looked up, never guessed."""
     results, lines = [], []
     for key in _keys(args.targets):
-        r, ls = _transition_one(creds, key, args.to, args.apply, path=args.path)
+        r, ls = _transition_one(creds, key, args.to, args.apply, path=args.path, terminal_ok=args.terminal)
         results.append(r); lines += ls
     if not args.apply and any("hops" in r and not r["changed"] for r in results):
         lines.append("pass --apply to transition")
@@ -1449,6 +1451,7 @@ def main():
     p = sub.add_parser("transition", help="move issues to a status by name — dry-run unless --apply; already there is a no-op; --path walks Backlog → In Progress → Review → Done hop by hop")
     p.add_argument("targets", nargs="+"); p.add_argument("--to", required=True, help='target status name, e.g. "In Progress", Review, Done')
     p.add_argument("--path", action="store_true", help="when no direct transition exists, walk the MH lifecycle one hop at a time (each hop notifies the assignee)")
+    p.add_argument("--terminal", action="store_true", help="allow a terminal status (Done, Cancelled, Failed, Closed Ambigous): the owner named it himself; without it such a target is refused")
     p.add_argument("--apply", action="store_true"); p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_transition)
 
