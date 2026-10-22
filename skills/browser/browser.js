@@ -40,7 +40,7 @@ async function panel(p, url, shot) {
   const pop = p.locator(".top-header-version").first();
   await pop.waitFor({ state: "visible", timeout: 8000 });
   const text = await pop.innerText();
-  if (shot) await p.screenshot({ path: shot, fullPage: false }); // the panel open, for the record
+  if (shot) { await p.waitForTimeout(400); await p.screenshot({ path: shot, fullPage: false }); } // the panel open, after its fade-in
   await p.mouse.move(800, 900);
   return text.replace(/\n\n+/g, "\n").trim();
 }

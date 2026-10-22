@@ -22,7 +22,7 @@ import argparse, base64, datetime, html, json, os, shutil, subprocess, sys
 
 EX_USAGE, EX_FAIL = 2, 5
 HERE = os.path.dirname(os.path.realpath(__file__))
-RESULT_CLASS = {"pass": "pass", "fail": "fail", "changed": "warn", "n/a": "na", "na": "na", "unproven": "fail", "match": "pass", "differs": "fail"}
+RESULT_CLASS = {"pass": "pass", "fail": "fail", "changed": "warn", "blocked": "warn", "n/a": "na", "na": "na", "unproven": "fail", "match": "pass", "differs": "fail"}
 
 
 def site():
@@ -72,6 +72,8 @@ def overall(cases, env):
     rs = [str(c.get("result", "")).lower() for c in cases]
     if any(r == "fail" for r in rs):
         return "fail"
+    if any(r == "blocked" for r in rs):
+        return "blocked"                         # the lane is proven, a precondition the account lacks stopped a case
     if rs and all(r in ("pass", "n/a", "na") for r in rs):
         return "pass" if any(r == "pass" for r in rs) else "unproven"
     return "unproven"
@@ -116,7 +118,8 @@ def render(key, run, out_dir, embed=False, print_mode=False):
             data = base64.b64encode(open(os.path.join(out_dir, rel), "rb").read()).decode()
             return f"data:image/png;base64,{data}"
         return rel
-    verdict_word = {"pass": "requirement met", "fail": "requirement not met", "unproven": "environment not proven — results discarded"}[verdict]
+    verdict_word = {"pass": "requirement met", "fail": "requirement not met", "blocked": "not observable on this account — environment proven, a precondition missing",
+                    "unproven": "environment not proven — results discarded"}[verdict]
     H = []
     H.append(f"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{esc(key)} Browser Test</title>

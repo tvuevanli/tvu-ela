@@ -129,7 +129,9 @@ routes a real source. Read-only cases need no such word.
 ## 3 — the verdict
 
 One of: `pass` (every asked behaviour observed), `fail` (an asked behaviour not observed, with the step and
-the screenshot), `unproven` (the gate failed; nothing else is reported). **The newest ticket on the same
+the screenshot), `blocked` (the gate passed but a precondition the account lacks — a live destination, a
+routed source — stopped a case; the provenance checks still count and the report says what was missing and
+what would unblock it), `unproven` (the gate failed; nothing else is reported). **The newest ticket on the same
 control governs**: an older ticket's goal is judged pass or fail by the later ticket's rule, and that ticket
 is named on the goal; there is no `changed` verdict and no hand-back to the product owner (2026-10-21,
 MH-2602 under MH-3046). A goal is `n/a` only when the control itself no longer exists. The verdict names what

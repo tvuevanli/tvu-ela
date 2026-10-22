@@ -27,6 +27,8 @@ check("the later change is on the ticket table", "MH-2: replaced the control" in
 check("the footer is a QA record line with no claude.ai link", "QA record generated" in page and "claude.ai" not in page)
 json.dump({"result": [{"id": "T1", "action": "open", "observed": "16:00", "result": "fail"}]}, open(os.path.join(run, "cases.json"), "w"))
 check("one failing case fails the verdict", V.render("MH-1", run, out)[1] == "fail")
+json.dump({"result": [{"id": "T1", "action": "a", "observed": "no live destination", "result": "blocked"}, {"id": "P1", "action": "b", "observed": "c", "result": "pass"}]}, open(os.path.join(run, "cases.json"), "w"))
+check("a blocked case with a proven gate is blocked, not unproven", V.render("MH-1", run, out)[1] == "blocked")
 env["verdict"] = "unproven: no ENV"; json.dump(env, open(os.path.join(run, "env.json"), "w"))
 check("an unproven gate discards the results", V.render("MH-1", run, out)[1] == "unproven")
 single, _ = V.render("MH-1", run, out, embed=True)
