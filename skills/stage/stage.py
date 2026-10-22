@@ -34,7 +34,7 @@ Actions (the flag is the row's, the dry run is the owner's to confirm):
 
 Exit: 0 ok · 2 usage · 5 fixed-in failed.
 """
-import argparse, datetime, json, os, re, subprocess, sys
+import argparse, datetime, hashlib, json, os, re, subprocess, sys
 
 HERE = os.path.dirname(os.path.realpath(__file__))
 SKILLS = os.path.dirname(HERE)
@@ -153,6 +153,60 @@ def expand_epics(env_file, keys):
     return keys + [k for k in kids if k not in keys]
 
 
+# ── cache: a ticket's row is reused while the ticket and the lanes' builds are unchanged ──────────────────────
+# The cost of a row is the git search across every checkout and the build reads; neither can have changed for a
+# ticket whose `updated` is the same and whose lanes run the same builds. The whole board then takes minutes.
+def cache_dir():
+    s = json.load(open(os.path.expanduser("~/.claude/ela/site.json")))
+    d = os.path.join(s.get("runtime") or os.path.join(s.get("projects", os.getcwd()), ".ela"), "stage", "cache")
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def lane_signature(env_file):
+    """A hash of every lane's version on both hosts; any build change on any lane changes it."""
+    parts = []
+    for host in ("prod", "qa"):
+        ok, d, err = P.l1("release", "envs", "--host", host, env_file=env_file, timeout=180)
+        rows = (d or {}).get("rows") or []
+        parts += sorted(f"{host}:{r.get('service')}:{r.get('lane')}:{r.get('version')}" for r in rows if r.get("lane"))
+        if not ok:
+            parts.append(f"{host}:unread:{err[:40]}")
+    return hashlib.sha1("\n".join(parts).encode()).hexdigest()[:16]
+
+
+def cached_rows(keys, updated_by_key, sig):
+    hits, misses = {}, []
+    d = cache_dir()
+    for k in keys:
+        p = os.path.join(d, f"{k}.json")
+        try:
+            c = json.load(open(p, encoding="utf-8"))
+            if c.get("sig") == sig and c.get("updated") == updated_by_key.get(k) and c.get("rec"):
+                hits[k] = c["rec"]; continue
+        except (OSError, ValueError):
+            pass
+        misses.append(k)
+    return hits, misses
+
+
+def cache_store(recs, updated_by_key, sig):
+    d = cache_dir()
+    for r in recs:
+        if r.get("exit"):
+            continue
+        json.dump({"sig": sig, "updated": updated_by_key.get(r["key"]), "rec": r},
+                  open(os.path.join(d, f"{r['key']}.json"), "w", encoding="utf-8"), ensure_ascii=False)
+
+
+def ticket_updated(env_file, keys, jql):
+    """key → updated date, one jql read; also the key list when only a jql was given."""
+    q = jql or f"key in ({', '.join(keys)})"
+    ok, d, err = P.l1("jira", "jql", q, "--limit", "1000", env_file=env_file, timeout=180)
+    rows = (d or {}).get("issues") or []
+    return {r["key"]: (r.get("updated") or "")[:16] for r in rows if r.get("key")}, [r["key"] for r in rows if r.get("key")]
+
+
 def fixedin(env_file, keys, jql):
     cmd = ["python3", os.path.join(SKILLS, "fixedin", "fixedin.py"), "--env-file", env_file or "", "draft", *keys, "--json"]
     if jql:
@@ -216,7 +270,20 @@ def cmd_queue(a):
     if not keys and not a.jql:
         print("queue needs ticket keys or --jql", file=sys.stderr); sys.exit(EX_USAGE)
     keys = expand_epics(a.env_file, keys)
-    recs = fixedin(a.env_file, keys, a.jql)
+    updated, jql_keys = ticket_updated(a.env_file, keys, a.jql)
+    if a.jql:
+        keys = [k for k in jql_keys if k not in keys] + keys
+    recs = []
+    if a.no_cache:
+        recs = fixedin(a.env_file, keys, None)
+    else:
+        sig = lane_signature(a.env_file)
+        hits, misses = cached_rows(keys, updated, sig)
+        fresh = fixedin(a.env_file, misses, None) if misses else []
+        cache_store(fresh, updated, sig)
+        by = {r["key"]: r for r in fresh}; by.update(hits)
+        recs = [by[k] for k in keys if k in by]
+        print(f"# stage: {len(hits)} from cache, {len(misses)} judged", file=sys.stderr)
     roster = P.load_roster()
     rows = [row_of(r, roster, a.days) for r in recs]
     roll_up_epics(rows)
@@ -233,6 +300,7 @@ def main():
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("queue", help="the board rows and the action each owes")
     p.add_argument("keys", nargs="*"); p.add_argument("--jql"); p.add_argument("--days", type=int, default=30, help="fix on prod this long → close (default 30)")
+    p.add_argument("--no-cache", action="store_true", help="judge every ticket afresh (the cache reuses a row while the ticket and the lanes' builds are unchanged)")
     p.add_argument("--json", action="store_true")
     a = ap.parse_args()
     cmd_queue(a)
