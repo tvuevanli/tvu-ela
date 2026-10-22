@@ -18,7 +18,7 @@ The page under `<reports>` is the owner's reading copy; the `--single` file is t
 (`jira attach`), written for colleagues: facts only — lane, versions, goals, cases, screenshots — no narrative of how
 the run went. Nothing here links to claude.ai. Exit codes: 0 ok · 2 usage.
 """
-import argparse, base64, datetime, html, json, os, shutil, subprocess, sys
+import argparse, base64, datetime, html, json, os, re, shutil, subprocess, sys
 
 EX_USAGE, EX_FAIL = 2, 5
 HERE = os.path.dirname(os.path.realpath(__file__))
@@ -49,6 +49,34 @@ def esc(x):
 def pill(result):
     r = str(result or "").lower()
     return f'<span class="pill {RESULT_CLASS.get(r, "na")}">{esc(result or "—").upper()}</span>'
+
+
+def tidy_version(v):
+    """A panel line like v3.0.36build1912026-10-20 09:45:35 has no spaces; put them back for a reader."""
+    v = str(v or "")
+    v = re.sub(r"(?<=\d)(build\d+)", r" \1", v)
+    v = re.sub(r"(build\d+)(\d{4}-\d{2}-\d{2})", r"\1 \2", v)
+    return v
+
+
+def plain_seen(c, limit=150):
+    """What a reader sees in the front table: the case's own `seen` sentence when the script wrote one, else the
+    observed text cut before its first machine part (a json object, a request path, a list). The full observed text
+    stays in the appendix run log."""
+    if c.get("seen"):
+        return str(c["seen"])
+    o = str(c.get("observed") or "")
+    cut = re.split(r"\s*(?:\{|\bPOST\b|\bGET\b|\[\"|;\s*calls:|\(cards\b)", o, maxsplit=1)[0].strip(" ;:,")
+    if len(cut) > limit:
+        cut = cut[:limit].rsplit(" ", 1)[0] + "…"
+    return cut or "(see run log)"
+
+
+def is_fixture(c, plan_by_id):
+    """Setup and cleanup steps (C1, T0, kinds setup/cleanup/fixture) are not checks of the requirement."""
+    cid = str(c.get("id") or "")
+    kind = str((plan_by_id.get(cid) or {}).get("kind") or "")
+    return kind in ("setup", "cleanup", "fixture") or re.match(r"^(C\d+|T0)$", cid) is not None
 
 
 def clock_line(env):
@@ -107,8 +135,8 @@ def render(key, run, out_dir, embed=False, print_mode=False):
     be_slug = fe_slug.replace("frontend", "backend") if any(c.get("slug") == fe_slug.replace("frontend", "backend") for c in compare) else "mediahub-backend"
     fe = next((c for c in compare if c.get("slug") == fe_slug), {})
     be = next((c for c in compare if c.get("slug") == be_slug), {})
-    fe_name = f"{fe_slug} {fe.get('panel')}" if fe.get("panel") else "?"
-    be_name = f"{be_slug} {be.get('panel')}" if be.get("panel") else "?"
+    fe_name = f"{fe_slug} {tidy_version(fe.get('panel'))}" if fe.get("panel") else "?"
+    be_name = f"{be_slug} {tidy_version(be.get('panel'))}" if be.get("panel") else "?"
     # Who was logged in and whether the run wrote: the QA deployment is read with ela's own test account, and a plan
     # with cleanup goals created its own objects — the boilerplate must not claim the owner's login or a read-only run.
     login_words = "as the QA test account" if env.get("host") == "qa" else "as the owner's own login"
@@ -159,12 +187,19 @@ details.tech{{border:1px solid var(--line);border-radius:6px;background:var(--su
 </style></head><body><div class="wrap">
 <header style="display:flex;flex-direction:column;gap:12px"><span class="eyebrow">QA record · MediaHub · {today}</span><h1>{esc(key)} Browser Test</h1>
 <p>{esc(t.get('asked') or t.get('summary') or '')} The test ran in a real browser against the product, on the lane named in the version panel below, {login_words}. {saved_words}</p>
-<div class="verdict"><div><span class="k">Verdict</span><span class="v">{pill(verdict)} {esc(verdict_word)}</span></div><div><span class="k">Environment</span><span class="v num">{esc(lane_env or '—')}</span></div><div><span class="k">Frontend</span><span class="v num">{esc(fe.get('panel') or '—')}</span></div><div><span class="k">Backend</span><span class="v num">{esc(be.get('panel') or '—')}</span></div></div></header>""")
+<div class="verdict"><div><span class="k">Verdict</span><span class="v">{pill(verdict)} {esc(verdict_word)}</span></div><div><span class="k">Environment</span><span class="v num">{esc(lane_env or '—')}</span></div><div><span class="k">Frontend</span><span class="v num">{esc(tidy_version(fe.get('panel')) or '—')}</span></div><div><span class="k">Backend</span><span class="v num">{esc(tidy_version(be.get('panel')) or '—')}</span></div></div></header>""")
     env_words = (f"The test ran on {env.get('lane') or 'an unnamed lane'}, frontend {fe_name} and backend {be_name}, "
                  + ("which match the release map for that lane." if env.get("verdict") == "proven" else f"and the environment gate said: {env.get('verdict') or 'not run'}."))
     H.append(f'<section><h2>What was tested</h2><p>{esc(env_words)}</p>')
-    crows_front = "".join(f"<tr><td class=num>{esc(c.get('id'))}</td><td>{esc(c.get('action'))}</td><td>{esc(c.get('observed'))}</td><td>{pill(c.get('result'))}</td></tr>" for c in cases)
-    H.append(f'<div class="scroll"><table><tr><th>Step</th><th>What was done</th><th>What was seen</th><th>Result</th></tr>{crows_front}</table></div></section>')
+    plan_by_id = {str(g.get("id")): g for g in plan}
+    checks = [c for c in cases if not is_fixture(c, plan_by_id)]
+    fixtures = [c for c in cases if is_fixture(c, plan_by_id)]
+    def check_words(c):
+        g = plan_by_id.get(str(c.get("id")) or "") or {}
+        return g.get("goal") or c.get("action") or ""
+    crows_front = "".join(f"<tr><td class=num>{esc(c.get('id'))}</td><td>{esc(check_words(c))}</td><td>{esc(plain_seen(c))}</td><td>{pill(c.get('result'))}</td></tr>" for c in checks)
+    H.append(f'<div class="scroll"><table><tr><th>Check</th><th>What the ticket asks</th><th>What was seen</th><th>Result</th></tr>{crows_front}</table></div>'
+             + (f'<p class="eyebrow">{len(fixtures)} setup and cleanup steps ran around these checks; they are in the run log below.</p>' if fixtures else "") + '</section>')
     H.append(f'<section class="appendix"><h2>Appendix: technical record</h2><p>Selectors, builds, the version panel, commit ancestry and the method: for whoever needs to repeat or audit the run.</p></section>')
     # ticket
     rows = [f"<tr><th>Key</th><td><a href=\"https://tvunetworks.atlassian.net/browse/{esc(key)}\">{esc(key)}</a> · {esc(t.get('type') or '')} · {esc(t.get('status') or '')}" + (f" · parent {esc(t['parent'])}" if t.get("parent") else "") + "</td></tr>"]
@@ -191,8 +226,9 @@ details.tech{{border:1px solid var(--line);border-radius:6px;background:var(--su
              + clock_line(env) +
              f'<div class="scroll"><table><tr><th>Service</th><th>Panel</th><th>Release map</th><th></th></tr>{srows}{anc_row}</table></div>'
              + (f'<figure><img src="{panel_img}" alt="The version panel captured in the same browser run"><figcaption>Version panel, same run as the cases.</figcaption></figure>' if panel_img else "") + "", print_mode))
-    # results
+    # results: the run log holds every step as the script reported it, machine text included
     crows = "".join(f"<tr><td class=num>{esc(c.get('id'))}</td><td>{esc(c.get('action'))}</td><td>{esc(c.get('observed'))}</td><td>{pill(c.get('result'))}</td></tr>" for c in cases)
+    H.append(details('Run log', '<div class="scroll"><table><tr><th>Step</th><th>What was done</th><th>What was seen, as recorded</th><th>Result</th></tr>' + crows + '</table></div>', print_mode))
     figs = "".join(f'<figure><img src="{shot_of(c)}" alt="{esc(c.get("id"))}: {esc(c.get("action"))}"><figcaption>{esc(c.get("id"))} · {esc(c.get("observed"))}</figcaption></figure>' for c in cases if shot_of(c))
     notes = "".join(f"<div class=note><p><b>For the ticket owner.</b> {esc(n)}</p></div>" for n in (tech.get("notes") or []))
     errs = (cases_out or {}).get("page_errors") or []

@@ -155,9 +155,14 @@ it rejects: a pass says which step would have failed it.
    `cases.json` (`ela browser run --json`), `ancestry.json`, `technique.json` and `shots/` (the gate's `version-panel.png` among them);
    `ela verify --key <KEY> --run <dir> --pdf <dir>/<KEY>-verify-<date>.pdf` renders the page under
    `<reports>/verify/<KEY>-<date>/` for the owner (publishable as a private artifact) and prints the PDF for the
-   ticket. **The readable part comes first**: the verdict, the environment in one plain sentence, each step as
-   what was done and what was seen; everything technical — the panel text, the service table, the ancestry,
-   selectors, the method, the screenshots — is the appendix, collapsed on screen and printed after a page break.
+   ticket. **The readable part comes first**: the verdict, the environment in one plain sentence, and one row
+   per requirement check — what the ticket asks (the goal from the plan) and what was seen, in a reader's
+   sentence. For that, every case result carries `seen` (one plain sentence, no ids, no json, no request paths)
+   beside `observed` (the raw text, kept whole); setup and cleanup steps (`T0`, `C1`, kinds setup/cleanup) never
+   sit in that table. Everything technical — the run log with every step's raw observation, the panel text, the
+   service table, the ancestry, selectors, the method, the screenshots — is the appendix, collapsed on screen and
+   printed after a page break (the PDF opens it). A reader of page one should need nothing else to know whether
+   the ticket is OK; a second reader opens the appendix to repeat or audit the run.
    The record is written for colleagues: facts only, no account of how the run went, nothing linking to
    claude.ai. The ticket gets the PDF, one file, because Jira previews it inline where an HTML is shown as
    source and loose screenshots duplicate the record.
@@ -166,10 +171,13 @@ it rejects: a pass says which step would have failed it.
    own**. In English, in the Markdown subset, no mention by default (a leading mention reads as that person
    having tested). The first sentence names who verified and how: `Verified on prod-3 by an automated browser
    run on my own session — closing as Done.`; a colleague who should know is named in plain words at the end
-   of that line (`<first name>, FYI.`), never as a mention unless the owner asks. Then one plain line per case, what was
-   done and what was seen, in the reader's words, not the selector's; what was not covered; and `Full record
-   attached: <file>.pdf`. After the `---` line, collapsed: lane, frontend and backend builds, the commit
-   ancestry, the cases as `T1 PASS` lines. About 600 characters above the fold, no link. The comment never
+   of that line (`<first name>, FYI.`), never as a mention unless the owner asks. The lane is named in that first
+   sentence and nowhere else above the fold; the builds are not. Then at most four plain lines: what was seen,
+   in the reader's words, not the selector's, grouped by behaviour rather than one line per case; what was not
+   covered; and `Full record attached: <file>.pdf` (no "screenshots inside", no second mention of the file).
+   After the `---` line, collapsed and only there: lane with its ENV name, frontend and backend builds, the
+   commit ancestry in one line, and the cases as `T1 PASS` lines — the one place the cases repeat. Nothing above
+   the fold is repeated below it in the same words. About 600 characters above the fold, no link. The comment never
    changes the status by itself — a close is the `jira close` bundle, where this comment is the bundle's comment.
 
 ## What this skill does not do
