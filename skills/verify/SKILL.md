@@ -124,9 +124,14 @@ early", MH-2601 and its children) gets a fourth kind, `timed`, and three rules:
   schedule and leaves its id and time in the state; `--phase observe` runs after the scheduled time and
   reads the record back. `--timeout` raises the run's limit when a wait is inside one run.
 
-A case that writes (save, start, schedule) is named in the dry run with its cleanup (cancel, delete) as its
-own row, is its own confirm, and runs on prod only with a confirm for that case: on prod a schedule
-routes a real source. Read-only cases need no such word.
+A case that writes is named in the dry run with its cleanup as its own row. On the gateway (test, daily,
+prod) every such case is its own confirm: it runs on the owner's account and a schedule routes a real
+source. On the QA deployment, where the session is ela's own test account, the **fixture** is ela's to
+build and remove without a word — a Partyline destination, HLS sources on the public bipbop stream, named
+`ela-verify <KEY> …` so nothing else is ever touched — and only **starting** a task (routing, going live)
+waits for the owner's approval, given once per run for the exact calls the dry phase printed. A fixture
+script has phases (dry · setup · start · observe · cleanup) and leaves its ids in the run's `state.json`,
+so cleanup is a command, not a memory (2026-10-22, MH-3416 on qa-cn3).
 
 ## 3 — the verdict
 
