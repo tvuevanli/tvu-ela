@@ -98,8 +98,22 @@ def render(key, run, out_dir, embed=False, print_mode=False):
         cases = cases.get("cases") or []
     today = datetime.date.today().isoformat()
     verdict = overall(cases, env)
-    fe = next((c for c in env.get("compare") or [] if c.get("slug") == "mediahub-frontend"), {})
-    be = next((c for c in env.get("compare") or [] if c.get("slug") == "mediahub-backend"), {})
+    # The services named up front are the ticket's (its Fixed In slug, e.g. unified-media-frontend) and that service's
+    # backend; mediahub-frontend/backend only when the ticket names none the panel lists. A record that quotes the
+    # product's frontend for a ticket fixed in another service proves the wrong build (MH-3722, 2026-10-22).
+    compare = env.get("compare") or []
+    fixed_slug = str((t.get("fixed_in") or "")).split("@")[0].strip()
+    fe_slug = fixed_slug if any(c.get("slug") == fixed_slug for c in compare) else "mediahub-frontend"
+    be_slug = fe_slug.replace("frontend", "backend") if any(c.get("slug") == fe_slug.replace("frontend", "backend") for c in compare) else "mediahub-backend"
+    fe = next((c for c in compare if c.get("slug") == fe_slug), {})
+    be = next((c for c in compare if c.get("slug") == be_slug), {})
+    fe_name = f"{fe_slug} {fe.get('panel')}" if fe.get("panel") else "?"
+    be_name = f"{be_slug} {be.get('panel')}" if be.get("panel") else "?"
+    # Who was logged in and whether the run wrote: the QA deployment is read with ela's own test account, and a plan
+    # with cleanup goals created its own objects — the boilerplate must not claim the owner's login or a read-only run.
+    login_words = "as the QA test account" if env.get("host") == "qa" else "as the owner's own login"
+    wrote = any(str(g.get("kind")) in ("cleanup", "write") for g in plan) or any(str(c.get("id", "")).startswith("C") for c in cases)
+    saved_words = "The run created its own test objects and deleted them afterwards; nothing else was saved." if wrote else "Nothing was saved."
     lane_env = next((s.get("env") for s in env.get("sections") or [] if s.get("lane") == env.get("lane")), env.get("lane"))
     # screenshots: copied beside the page
     img_dir = os.path.join(out_dir, "img"); os.makedirs(img_dir, exist_ok=True)
@@ -144,9 +158,9 @@ details.tech{{border:1px solid var(--line);border-radius:6px;background:var(--su
 .note{{border-left:3px solid var(--warn);background:var(--warn-bg);padding:10px 14px;border-radius:0 6px 6px 0;max-width:72ch}}ul,ol{{margin:0;padding-left:1.3em;display:flex;flex-direction:column;gap:6px;max-width:72ch}}
 </style></head><body><div class="wrap">
 <header style="display:flex;flex-direction:column;gap:12px"><span class="eyebrow">QA record · MediaHub · {today}</span><h1>{esc(key)} Browser Test</h1>
-<p>{esc(t.get('asked') or t.get('summary') or '')} The test ran in a real browser against the product, on the lane named in the version panel below, as the owner's own login. Nothing was saved.</p>
+<p>{esc(t.get('asked') or t.get('summary') or '')} The test ran in a real browser against the product, on the lane named in the version panel below, {login_words}. {saved_words}</p>
 <div class="verdict"><div><span class="k">Verdict</span><span class="v">{pill(verdict)} {esc(verdict_word)}</span></div><div><span class="k">Environment</span><span class="v num">{esc(lane_env or '—')}</span></div><div><span class="k">Frontend</span><span class="v num">{esc(fe.get('panel') or '—')}</span></div><div><span class="k">Backend</span><span class="v num">{esc(be.get('panel') or '—')}</span></div></div></header>""")
-    env_words = (f"The test ran on {env.get('lane') or 'an unnamed lane'}, frontend {fe.get('panel') or '?'} and backend {be.get('panel') or '?'}, "
+    env_words = (f"The test ran on {env.get('lane') or 'an unnamed lane'}, frontend {fe_name} and backend {be_name}, "
                  + ("which match the release map for that lane." if env.get("verdict") == "proven" else f"and the environment gate said: {env.get('verdict') or 'not run'}."))
     H.append(f'<section><h2>What was tested</h2><p>{esc(env_words)}</p>')
     crows_front = "".join(f"<tr><td class=num>{esc(c.get('id'))}</td><td>{esc(c.get('action'))}</td><td>{esc(c.get('observed'))}</td><td>{pill(c.get('result'))}</td></tr>" for c in cases)
