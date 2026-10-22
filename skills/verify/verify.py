@@ -141,7 +141,8 @@ def render(key, run, out_dir, embed=False, print_mode=False):
     # with cleanup goals created its own objects — the boilerplate must not claim the owner's login or a read-only run.
     login_words = "as the QA test account" if env.get("host") == "qa" else "as the owner's own login"
     wrote = any(str(g.get("kind")) in ("cleanup", "write") for g in plan) or any(str(c.get("id", "")).startswith("C") for c in cases)
-    saved_words = "The run created its own test objects and deleted them afterwards; nothing else was saved." if wrote else "Nothing was saved."
+    # technique.json may state exactly what the run saved (a cleanup step can be a restored setting, not a created object)
+    saved_words = str(tech.get("saved") or ("The run created its own test objects and deleted them afterwards; nothing else was saved." if wrote else "Nothing was saved."))
     lane_env = next((s.get("env") for s in env.get("sections") or [] if s.get("lane") == env.get("lane")), env.get("lane"))
     # screenshots: copied beside the page
     img_dir = os.path.join(out_dir, "img"); os.makedirs(img_dir, exist_ok=True)
