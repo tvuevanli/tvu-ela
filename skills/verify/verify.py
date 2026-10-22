@@ -201,7 +201,7 @@ details.tech{{border:1px solid var(--line);border-radius:6px;background:var(--su
     if tech.get("stack") or tech.get("procedure"):
         H.append(details('Test technique', ("<h3>Stack</h3><ul>" + "".join(f"<li>{esc(x)}</li>" for x in tech.get("stack") or []) + "</ul>" if tech.get("stack") else "")
                  + ("<h3>Procedure</h3><ol>" + "".join(f"<li>{esc(x)}</li>" for x in tech.get("procedure") or []) + "</ol>" if tech.get("procedure") else ""), print_mode))
-    H.append(f'<footer style="color:var(--muted);font-size:.85rem;border-top:1px solid var(--line);padding-top:14px">QA record generated on {today} from a read-only browser run against the lane named above; the cases and screenshots are from one run.</footer></div></body></html>')
+    H.append(f'<footer style="color:var(--muted);font-size:.85rem;border-top:1px solid var(--line);padding-top:14px">QA record generated on {today} from one browser run against the lane named above, {login_words}; {saved_words[0].lower() + saved_words[1:]} The cases and screenshots are from that run.</footer></div></body></html>')
     return "\n".join(H), verdict
 
 

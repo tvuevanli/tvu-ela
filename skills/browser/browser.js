@@ -125,6 +125,11 @@ async function gatewayVersions(p, gateway) {
     // Print a local page (the verify report) to PDF: Jira previews a PDF inline where an HTML is shown as source.
     const { b, p } = await open(); try {
       await p.goto("file://" + path.resolve(arg("--in")), { waitUntil: "load", timeout: 60000 });
+      // The report keeps its appendix (service table, ancestry, screenshots) in collapsed <details>; Chromium prints a
+      // closed <details> as its summary line only, so a PDF printed as-is carried no screenshot (MH-3722, 2026-10-22).
+      // Open every <details> and wait for the images before printing; the on-screen page stays collapsed.
+      await p.evaluate(() => { document.querySelectorAll("details").forEach(d => { d.open = true; }); });
+      await p.evaluate(() => Promise.all(Array.from(document.images).map(i => i.complete ? null : new Promise(r => { i.onload = i.onerror = r; }))));
       await p.emulateMedia({ media: "print" });
       await p.pdf({ path: arg("--out"), format: "A4", printBackground: true, margin: { top: "14mm", bottom: "14mm", left: "12mm", right: "12mm" } });
       out({ in: arg("--in"), out: arg("--out") });

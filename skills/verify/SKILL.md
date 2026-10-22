@@ -111,7 +111,11 @@ module.exports = async ({ p, panel, url, shots, phase, state, fakeTime }) => {
 ```
 
 `$BROWSER run <runtime>/browser/cases/<KEY>.js --json`. Scope selectors to the dialog or page the case is
-about (the product keeps several hidden `.el-dialog` elements).
+about (the product keeps several hidden `.el-dialog` elements). Two mechanics the QA runs taught (MH-3722,
+2026-10-22): the destination panel keeps a personal tag filter across sessions and it hides an untagged test
+object, so a case clears that filter first (the tag popover's search box) and restores it at the end; and on
+the QA deployment the test account and its group are shared, so another person may edit the object between
+runs — the evidence for one goal's steps comes from one run, and the record says so.
 
 **Behaviour that depends on the clock** (a scheduled route, a cross-day marker, "starts up to one minute
 early", MH-2601 and its children) gets a fourth kind, `timed`, and three rules:

@@ -1246,10 +1246,16 @@ def cmd_attach(creds, args):
     f = _issue(creds, key, "summary,attachment")
     dup = next((a for a in f.get("attachment") or [] if a.get("filename") == name), None)
     r = {"key": key, "file": name, "bytes": size, "dry_run": not args.apply, "uploaded": False, "duplicate_of": (dup or {}).get("id")}
-    if dup:
-        _emit(args, r, [f"{key}: {name} is already attached (id {dup.get('id')}, {short_date(dup.get('created'))}) — skipped"]); return
+    replace = bool(getattr(args, "replace", False))
+    if dup and not replace:
+        _emit(args, r, [f"{key}: {name} is already attached (id {dup.get('id')}, {short_date(dup.get('created'))}) — skipped (--replace deletes it and uploads this file)"]); return
     if not args.apply:
-        _emit(args, r, [f"DRY RUN — attach {name} ({size} bytes) to {key}  {f.get('summary','')}", "pass --apply to upload"]); return
+        _emit(args, r, [f"DRY RUN — attach {name} ({size} bytes) to {key}  {f.get('summary','')}"
+                        + (f"; replaces attachment id {dup.get('id')} ({dup.get('size')} bytes, {short_date(dup.get('created'))}), which is deleted first" if dup else ""), "pass --apply to upload"]); return
+    if dup:
+        # --replace: a corrected record under the same name (the comment names the file) — the old copy goes first,
+        # so the issue never shows two files of one name (MH-3722, 2026-10-22: a PDF printed without its screenshots).
+        _request(creds, f"/rest/api/3/attachment/{dup.get('id')}", method="DELETE"); r["replaced"] = dup.get("id")
     import mimetypes, uuid
     boundary = uuid.uuid4().hex
     ctype = mimetypes.guess_type(name)[0] or "application/octet-stream"
@@ -1262,7 +1268,7 @@ def cmd_attach(creds, args):
     with urllib.request.urlopen(req, timeout=120) as resp:
         out = json.loads(resp.read().decode() or "[]")
     r["uploaded"], r["attachment_id"] = True, (out[0].get("id") if out else None)
-    _emit(args, r, [f"{key}: attached {name} (id {r['attachment_id']})"])
+    _emit(args, r, [f"{key}: attached {name} (id {r['attachment_id']})" + (f", replacing id {r['replaced']}" if r.get("replaced") else "")])
 
 
 # ── describe: the description, rewritten in the Markdown subset ──────────────
@@ -1466,6 +1472,7 @@ def main():
     p.set_defaults(func=cmd_fixed_in)
 
     p = sub.add_parser("attach", help="attach one file to an issue — dry-run names file and size; --apply uploads; a same-named attachment is a no-op")
+    p.add_argument("--replace", action="store_true", help="a same-named attachment is deleted first, then this file uploaded (default: same name = no-op)")
     p.add_argument("target"); p.add_argument("file"); p.add_argument("--apply", action="store_true"); p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_attach)
 
