@@ -141,4 +141,4 @@ content guard's cases pass. Run it before a commit that touches a script or a ho
 English throughout, with one exception: `docs/manual*.md`, the user's manual, is written in the
 language its readers use (Chinese today), because a translated copy would be a second document to
 keep true. `ela` is short for the owner's assistant (his first name, then the word), written lowercase; the expansion
-appears where a reader first meets the name (the README, the manual) and nowhere else; the Slack display name is **Ella**. Describe the owner's responsibility, never a title.
+appears where a reader first meets the name (the README, the manual) and nowhere else; the Slack display name is **ela** as well (the owner set it so on 2026-10-22). Describe the owner's responsibility, never a title.
