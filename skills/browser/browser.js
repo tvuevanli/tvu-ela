@@ -7,10 +7,44 @@ const fs = require("fs"), path = require("path");
 const { chromium } = require("playwright");
 const SITE = path.join(process.env.HOME, ".claude", "ela");
 
+// Two hosts, two sessions. prod (the gateway with the test, daily and prod lanes) is the owner's own login, captured by
+// `ela login tvu`; qa (the separate QA deployment) is ela's own session with the QA test account, captured by
+// `browser.js login` below. Each session's cookies live under their own key in session.json and are set on their own
+// domain; the gateway routes by per-user tag cookies, so a SID alone lands on the default lane and proves nothing.
+const HOST = process.env.ELA_BROWSER_HOST === "qa" ? "qa" : "prod";
+const SESSION_KEY = HOST === "qa" ? "qa" : "tvu";
+const DOMAIN = process.env.ELA_BROWSER_DOMAIN || (HOST === "qa" ? ".tvutest.com" : ".tvunetworks.com");
+
 function cookies() {
-  const s = (JSON.parse(fs.readFileSync(path.join(SITE, "session.json"), "utf8")).tvu) || {};
-  if (!s.cookies || !Object.keys(s.cookies).length) throw new Error("no tvu cookies in session.json — run: ela login tvu --force");
-  return Object.entries(s.cookies).map(([name, value]) => ({ name, value, domain: ".tvunetworks.com", path: "/", secure: name === "SID" }));
+  const s = (JSON.parse(fs.readFileSync(path.join(SITE, "session.json"), "utf8"))[SESSION_KEY]) || {};
+  if (!s.cookies || !Object.keys(s.cookies).length) throw new Error(`no ${SESSION_KEY} cookies in session.json — run: ` + (HOST === "qa" ? "ela browser login --host qa" : "ela login tvu --force"));
+  return Object.entries(s.cookies).map(([name, value]) => ({ name, value, domain: DOMAIN, path: "/", secure: name === "SID" }));
+}
+
+// The QA deployment's own login: the user service's sign-in page (account + password fields, a Sign In button),
+// reached by opening the product without a session; every cookie on the QA domain is kept afterwards.
+async function login(url) {
+  const account = process.env.TVUTEST_ACCOUNT, password = process.env.TVUTEST_PASSWORD;
+  if (!account || !password) throw new Error("TVUTEST_ACCOUNT / TVUTEST_PASSWORD missing");
+  const b = await chromium.launch();
+  const ctx = await b.newContext({ ignoreHTTPSErrors: true, viewport: { width: 1600, height: 1000 } });
+  const p = await ctx.newPage();
+  try {
+    await p.goto(url, { waitUntil: "networkidle", timeout: 60000 });
+    await p.locator("#account").fill(account);
+    await p.locator("#password").fill(password);
+    await p.locator("button.sign-submit-btn").click();
+    await p.waitForURL(u => !/signIn/.test(String(u)), { timeout: 60000 });
+    await p.waitForLoadState("networkidle", { timeout: 60000 }).catch(() => {});
+    await p.waitForTimeout(3000);
+    const jar = {};
+    for (const c of await ctx.cookies()) if (c.domain.endsWith(DOMAIN.replace(/^\./, ""))) jar[c.name] = c.value;
+    const file = path.join(SITE, "session.json");
+    const all = JSON.parse(fs.readFileSync(file, "utf8"));
+    all[SESSION_KEY] = { cookies: jar, obtained_at: new Date().toISOString(), source: "browser login (test account)", account };
+    fs.writeFileSync(file, JSON.stringify(all, null, 2));
+    return { landed: p.url(), cookies: Object.keys(jar).length };
+  } finally { await b.close(); }
 }
 
 async function open(opts = {}) {
@@ -68,7 +102,9 @@ async function gatewayVersions(p, gateway) {
   const arg = (k, d) => { const i = rest.indexOf(k); return i >= 0 ? rest[i + 1] : d; };
   const out = (o) => process.stdout.write(JSON.stringify(o) + "\n");
   const url = arg("--url");
-  if (cmd === "env") {
+  if (cmd === "login") {
+    out(await login(url));
+  } else if (cmd === "env") {
     const { b, p } = await open(); try {
       let gateway = null;
       p.on("response", async (res) => {
@@ -111,6 +147,6 @@ async function gatewayVersions(p, gateway) {
     if (stateFile) fs.writeFileSync(stateFile, JSON.stringify(state, null, 1));
     out({ script, phase, result, error: err, page_errors: errors, clock, fake_time: faked, state: stateFile ? state : undefined });
   } else {
-    process.stderr.write("usage: browser.js env|shot|run|pdf --url U [--in F] [--out F] [--script S] [--shots D] [--phase P] [--state F]\n"); process.exit(2);
+    process.stderr.write("usage: browser.js login|env|shot|run|pdf --url U [--in F] [--out F] [--script S] [--shots D] [--phase P] [--state F]\n"); process.exit(2);
   }
 })().catch(e => { process.stderr.write(String(e.message).split("\n")[0] + "\n"); process.exit(5); });

@@ -2,8 +2,12 @@
 """The browser sense: MediaHub opened in headless Chromium as the owner's own session, read-only.
 L1: subcommands, --json, stdlib; the driver is browser.js (Playwright, node) beside this file.
 
-  setup [--url U]      install playwright into <runtime>/browser (no root; the system libraries are the owner's
-                       `playwright install-deps`), record the product URL in site.json `mediahub_url`
+  setup [--url U] [--url-qa U]  install playwright into <runtime>/browser (no root; the system libraries are the
+                       owner's `playwright install-deps`), record the product URLs in site.json `mediahub_url` (the
+                       gateway with the test, daily and prod lanes) and `mediahub_url_qa` (the QA deployment)
+  login --host qa      ela's own session on the QA deployment: the test account (TVUTEST_ACCOUNT / TVUTEST_PASSWORD)
+                       signs in through the user service's page, every cookie on the QA domain is kept in
+                       session.json under `qa`. The prod session is the owner's own (`ela login tvu`), never this
   env [--lane L] [--key K] [--shots D]
                        open the product, read the version panel (every service's ENV and build) and compare it
                        with the release map for the lane: the environment proof a browser result needs. Services the
@@ -186,12 +190,12 @@ def parse_panel(text):
     return {"sections": sections, "lanes": lanes, "proven": any(s["env"] for s in sections)}
 
 
-def compare(parsed, lane, env_file):
-    """Each panel service against `release envs --host prod` for the lane: match · differs · unread."""
+def compare(parsed, lane, env_file, host="prod"):
+    """Each panel service against `release envs --host <host>` for the lane: match · differs · unread."""
     out = []
     for s in parsed["sections"]:
         for svc in s["services"]:
-            rc, body, err = R_envs(env_file, svc["slug"])
+            rc, body, err = R_envs(env_file, svc["slug"], host)
             row = {"slug": svc["slug"], "panel": svc["version"], "panel_lane": s["lane"], "lane": lane, "map": None, "verdict": "unread"}
             if rc == 0:
                 hit = next((r for r in body if r.get("lane") == lane), None)
@@ -205,10 +209,10 @@ def compare(parsed, lane, env_file):
     return out
 
 
-def R_envs(env_file, slug):
+def R_envs(env_file, slug, host="prod"):
     try:
         r = subprocess.run(["python3", os.path.join(os.path.dirname(HERE), "release", "release.py"), "--env-file", env_file or "",
-                            "envs", slug, "--host", "prod", "--json"], capture_output=True, text=True, timeout=120)
+                            "envs", slug, "--host", host, "--json"], capture_output=True, text=True, timeout=120)
     except subprocess.TimeoutExpired:
         return 5, [], "timeout"
     if r.returncode == 0:
@@ -219,14 +223,26 @@ def R_envs(env_file, slug):
     return r.returncode, [], (r.stderr or r.stdout).strip()[:120]
 
 
-def node(cmd, *args, timeout=240):
+def host_of(lane, host=None):
+    """qa-* lanes live on the QA deployment and use ela's own session; every other lane is the gateway and the owner's."""
+    if host:
+        return host
+    return "qa" if (lane or "").startswith("qa") else "prod"
+
+
+def node(cmd, *args, timeout=240, host="prod", env_file=None):
     np = node_path()
     if not np:
         print("playwright is not installed for ela — run: ela browser setup", file=sys.stderr); sys.exit(EX_UNPROVEN)
-    url = site().get("mediahub_url")
+    url = site().get("mediahub_url_qa" if host == "qa" else "mediahub_url")
     if not url:
-        print("site.json has no `mediahub_url` — run: ela browser setup --url <product url>", file=sys.stderr); sys.exit(EX_USAGE)
-    env = dict(os.environ, NODE_PATH=np)
+        print(f"site.json has no `{'mediahub_url_qa' if host == 'qa' else 'mediahub_url'}` — run: ela browser setup {'--url-qa' if host == 'qa' else '--url'} <product url>", file=sys.stderr); sys.exit(EX_USAGE)
+    env = dict(os.environ, NODE_PATH=np, ELA_BROWSER_HOST=host)
+    if host == "qa" and cmd == "login":
+        for k in ("TVUTEST_ACCOUNT", "TVUTEST_PASSWORD"):
+            v = R.env_value(k, env_file)
+            if v:
+                env[k] = v
     tz = timezone()
     if tz:
         env["ELA_TZ"] = tz
@@ -241,9 +257,13 @@ def node(cmd, *args, timeout=240):
 
 def cmd_setup(a):
     d = os.path.join(runtime_dir(), "browser"); os.makedirs(d, exist_ok=True)
-    if a.url:
-        s = site(); s["mediahub_url"] = a.url
-        json.dump(s, open(SITE, "w"), indent=2, ensure_ascii=False); print(f"site.json mediahub_url set")
+    if a.url or a.url_qa:
+        s = site()
+        if a.url:
+            s["mediahub_url"] = a.url
+        if a.url_qa:
+            s["mediahub_url_qa"] = a.url_qa
+        json.dump(s, open(SITE, "w"), indent=2, ensure_ascii=False); print("site.json product url(s) set")
     if node_path() and os.path.isfile(os.path.join(d, "node_modules", "playwright", "package.json")):
         print(f"playwright present at {d}")
     else:
@@ -261,15 +281,23 @@ def cmd_setup(a):
         print("mediahub_url not set — pass --url once", file=sys.stderr)
 
 
+def cmd_login(a):
+    if a.host != "qa":
+        print("the prod session is the owner's own: ela login tvu --force", file=sys.stderr); sys.exit(EX_USAGE)
+    d = node("login", host="qa", env_file=a.env_file)
+    print(json.dumps(d) if a.json else f"qa session stored: {d.get('cookies')} cookies, landed {d.get('landed')}")
+
+
 def cmd_env(a):
+    host = host_of(a.lane, getattr(a, "host", None))
     lanes, gaps = fix_lanes(a.env_file, a.key) if a.key else ([], [])
     shot = os.path.join(os.path.realpath(a.shots), "version-panel.png") if a.shots else None
     if shot:
         os.makedirs(os.path.dirname(shot), exist_ok=True)
-    d = node("env", *(["--shot", shot] if shot else []))
+    d = node("env", *(["--shot", shot] if shot else []), host=host)
     parsed = parse_panel(d.get("panel") or "")
     res = {"url": d.get("url"), "panel": d.get("panel"), "sections": parsed["sections"], "lanes": parsed["lanes"], "proven": parsed["proven"],
-           "lane": a.lane, "compare": [], "verdict": None, "clock": d.get("clock"), "key": a.key, "fix_lanes": lanes, "fix_gaps": gaps,
+           "lane": a.lane, "host": host, "compare": [], "verdict": None, "clock": d.get("clock"), "key": a.key, "fix_lanes": lanes, "fix_gaps": gaps,
            "fix_verdict": None, "shot": d.get("shot"), "services": d.get("services") or {}}
     if a.key and not lanes and gaps:
         res["fix_verdict"] = "; ".join(gaps)
@@ -279,7 +307,7 @@ def cmd_env(a):
         lane = a.lane or (max(parsed["lanes"], key=parsed["lanes"].get) if parsed["lanes"] else None)
         res["lane"] = lane
         if lane:
-            res["compare"] = compare(parsed, lane, a.env_file)
+            res["compare"] = compare(parsed, lane, a.env_file, host)
             bad = [c for c in res["compare"] if c["verdict"] == "differs" or (c["panel_lane"] and c["panel_lane"] != lane)]
             res["verdict"] = "proven" if not bad else "mismatch: " + ", ".join(f"{c['slug']} panel {c['panel']} ({c['panel_lane']}) vs map {c['map']} ({lane})" for c in bad)
             # services the panel does not list, read through the gateway on the same session: the account's lane by
@@ -318,7 +346,7 @@ def cmd_env(a):
 
 
 def cmd_shot(a):
-    d = node("shot", "--out", a.out, *(["--full", "1"] if a.full else []))
+    d = node("shot", "--out", a.out, *(["--full", "1"] if a.full else []), host=a.host or "prod")
     # the product path is appended to the product url by the driver's caller: here the driver takes the full url
     print(json.dumps(d) if a.json else f"screenshot: {d.get('out')}")
 
@@ -341,7 +369,7 @@ def cmd_run(a):
         extra += ["--phase", a.phase]
     if a.state:
         extra += ["--state", os.path.realpath(a.state)]
-    d = node("run", "--script", script, "--shots", shots, *extra, timeout=a.timeout)
+    d = node("run", "--script", script, "--shots", shots, *extra, timeout=a.timeout, host=a.host or "prod")
     if a.json:
         print(json.dumps(d, ensure_ascii=False))
     else:
@@ -358,13 +386,14 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--env-file")
     sub = ap.add_subparsers(dest="cmd", required=True)
-    p = sub.add_parser("setup", help="install playwright into the runtime directory (no root) and record the product url"); p.add_argument("--url")
-    p = sub.add_parser("env", help="the version panel, compared with the release map: the environment proof"); p.add_argument("--lane", help="prod-3, prod-8 … (default: the lane the panel names)"); p.add_argument("--key", help="a ticket: its fix must be on the panel's lane (ela fixed-in), else exit 6"); p.add_argument("--shots", help="directory for version-panel.png, the panel as read"); p.add_argument("--json", action="store_true")
-    p = sub.add_parser("shot", help="screenshot the product"); p.add_argument("--out", required=True); p.add_argument("--full", action="store_true"); p.add_argument("--json", action="store_true")
+    p = sub.add_parser("setup", help="install playwright into the runtime directory (no root) and record the product urls"); p.add_argument("--url"); p.add_argument("--url-qa")
+    p = sub.add_parser("login", help="ela's own session on the QA deployment with the test account"); p.add_argument("--host", choices=("qa",), default="qa"); p.add_argument("--json", action="store_true")
+    p = sub.add_parser("env", help="the version panel, compared with the release map: the environment proof"); p.add_argument("--lane", help="prod-3, prod-8 … (default: the lane the panel names)"); p.add_argument("--key", help="a ticket: its fix must be on the panel's lane (ela fixed-in), else exit 6"); p.add_argument("--shots", help="directory for version-panel.png, the panel as read"); p.add_argument("--json", action="store_true"); p.add_argument("--host", choices=("prod", "qa"), help="qa: the QA deployment with ela's own session (default from the lane prefix)")
+    p = sub.add_parser("shot", help="screenshot the product"); p.add_argument("--out", required=True); p.add_argument("--full", action="store_true"); p.add_argument("--host", choices=("prod", "qa")); p.add_argument("--json", action="store_true")
     p = sub.add_parser("pdf", help="print a local html page to PDF"); p.add_argument("html"); p.add_argument("--out", required=True); p.add_argument("--json", action="store_true")
-    p = sub.add_parser("run", help="run one case script and print its result"); p.add_argument("script"); p.add_argument("--shots"); p.add_argument("--phase", help="create | observe: one script, two runs over --state"); p.add_argument("--state", help="json file the phases share"); p.add_argument("--timeout", type=int, default=240, help="seconds the run may take (default 240)"); p.add_argument("--json", action="store_true")
+    p = sub.add_parser("run", help="run one case script and print its result"); p.add_argument("script"); p.add_argument("--shots"); p.add_argument("--phase", help="create | observe: one script, two runs over --state"); p.add_argument("--state", help="json file the phases share"); p.add_argument("--timeout", type=int, default=240, help="seconds the run may take (default 240)"); p.add_argument("--host", choices=("prod", "qa")); p.add_argument("--json", action="store_true")
     a = ap.parse_args()
-    {"setup": cmd_setup, "env": cmd_env, "shot": cmd_shot, "pdf": cmd_pdf, "run": cmd_run}[a.cmd](a)
+    {"setup": cmd_setup, "login": cmd_login, "env": cmd_env, "shot": cmd_shot, "pdf": cmd_pdf, "run": cmd_run}[a.cmd](a)
 
 
 if __name__ == "__main__":
