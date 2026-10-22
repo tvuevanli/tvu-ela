@@ -11,7 +11,7 @@ def check(name, cond):
     if not cond:
         failures.append(name)
 
-B.lane_suffixes = lambda: {"Prod3": "prod-3", "Prod8": "prod-8", "Test2": "daily-test2"}
+B.lane_suffixes = lambda host="prod": {"Prod3": "prod-3", "Prod8": "prod-8", "Test2": "daily-test2"}
 PANEL = """TVU MediaHub (ENV: MediaHubProd3)
 Frontend: v2.2.111 build162 2026-09-22 10:06:35
 Backend:  v2.1.26 build256  2026-09-22 10:06:15
@@ -46,6 +46,10 @@ check("no carrying lane is a gate failure, not a pass", B.fix_verdict("prod-3", 
 check("a lane in fixed-in's gaps is unread, never absent", "unread" in (B.fix_verdict("prod-3", ["qa-cn3"], ["mediahub-frontend on prod: prod-3 run a build outside Jenkins' last 80 — not compared"]) or ""))
 check("a host read without a session is unread too", "unread" in (B.fix_verdict("prod-3", [], ["prod lanes unread — no session (ela login tvu)"]) or ""))
 check("a gap about another lane does not excuse this one", "QA lanes only" in (B.fix_verdict("prod-3", ["qa-cn3"], ["mediahub-frontend on prod: prod-9 run a build outside Jenkins' last 80 — not compared"]) or ""))
+
+B.lane_suffixes = lambda host="prod": {"aws-cn3-env": "qa-cn3", "AWSCN3": "qa-cn3"} if host == "qa" else {"Prod3": "prod-3"}
+q = B.parse_panel("TVU MediaHub (ENV: aws-cn3-env)\nBeta\nFrontend: v2.2.116 build171 2026-10-19\nBackend: v2.1.32 build263 2026-10-20\nUnified Resources Caller (ENV: AWSCN3)\nBackend: v2.1.74 build364", "qa")
+check("the QA deployment's ENV names map to lanes by whole tag name", q["lanes"].get("qa-cn3") == 2 and q["proven"])
 
 print("browser: all offline checks passed" if not failures else f"browser: {len(failures)} check(s) failed")
 sys.exit(1 if failures else 0)

@@ -132,20 +132,23 @@ def node_path():
     return None
 
 
-def lane_suffixes():
-    """ENV suffix → lane, read from the release map's own table (tag_suffix_to_lane) rather than retyped."""
+def lane_suffixes(host="prod"):
+    """ENV name → lane from the release map's own tables, never retyped: the gateway's ENV names end in a lane
+    suffix (hosts.prod.tag_suffix_to_lane); the QA deployment's ENV names are whole tag names (hosts.qa.tag_to_lane)."""
     try:
         text = open(os.path.join(site().get("map", ""), "release.yaml"), encoding="utf-8").read()
-        m = re.search(r"tag_suffix_to_lane:\s*(\{.*\})", text)
+        m = re.search(r"tag_to_lane:\s*(\{.*\})" if host == "qa" else r"tag_suffix_to_lane:\s*(\{.*\})", text)
         return json.loads(m.group(1)) if m else {}
     except (OSError, ValueError):
         return {}
 
 
-def parse_panel(text):
+def parse_panel(text, host="prod"):
     """Panel text → {sections: [{title, env, lane, services: [{slug, version, parsed}]}], lanes: {lane: count}}."""
-    suffixes = lane_suffixes()
+    suffixes = lane_suffixes(host)
     def lane_of(env):
+        if host == "qa":
+            return suffixes.get(env) or next((lane for tag, lane in suffixes.items() if env.lower() == tag.lower()), None)
         for suf, lane in sorted(suffixes.items(), key=lambda kv: -len(kv[0])):
             if env.lower().endswith(suf.lower()):
                 return lane
@@ -295,7 +298,7 @@ def cmd_env(a):
     if shot:
         os.makedirs(os.path.dirname(shot), exist_ok=True)
     d = node("env", *(["--shot", shot] if shot else []), host=host)
-    parsed = parse_panel(d.get("panel") or "")
+    parsed = parse_panel(d.get("panel") or "", host)
     res = {"url": d.get("url"), "panel": d.get("panel"), "sections": parsed["sections"], "lanes": parsed["lanes"], "proven": parsed["proven"],
            "lane": a.lane, "host": host, "compare": [], "verdict": None, "clock": d.get("clock"), "key": a.key, "fix_lanes": lanes, "fix_gaps": gaps,
            "fix_verdict": None, "shot": d.get("shot"), "services": d.get("services") or {}}
@@ -308,7 +311,10 @@ def cmd_env(a):
         res["lane"] = lane
         if lane:
             res["compare"] = compare(parsed, lane, a.env_file, host)
-            bad = [c for c in res["compare"] if c["verdict"] == "differs" or (c["panel_lane"] and c["panel_lane"] != lane)]
+            # fatal: a version the map knows for this lane and the panel contradicts, or a service the panel places on
+            # another lane while the map has it on this one. A service the map has no version for on this lane (the
+            # UR portal publishes its own lane on QA) is recorded, not held against the run.
+            bad = [c for c in res["compare"] if c["verdict"] == "differs" or (c["panel_lane"] and c["panel_lane"] != lane and c.get("map"))]
             res["verdict"] = "proven" if not bad else "mismatch: " + ", ".join(f"{c['slug']} panel {c['panel']} ({c['panel_lane']}) vs map {c['map']} ({lane})" for c in bad)
             # services the panel does not list, read through the gateway on the same session: the account's lane by
             # construction, nothing in the map to match, so recorded (or unreachable), never a mismatch
