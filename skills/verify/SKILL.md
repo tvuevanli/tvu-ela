@@ -82,7 +82,8 @@ stays QA's and the report says so. `--kind black` runs the cases alone; `--kind 
 cases the ticket's QA section lists, when the owner wants them.
 
 So the plan is built in four reads, each goal carrying its source (where its expectation came from) and
-its kind (`black` for a behaviour, `timed` for one the clock decides, `provenance` / `precondition` for a check on the build):
+its kind (`black` for a behaviour, `guard` for a behaviour the ticket says is unchanged and the run keeps as a regression
+check, `timed` for one the clock decides, `provenance` / `precondition` for a check on the build):
 
 1. **The description** — the asked behaviour, in the reporter's terms.
 2. **The comments** — what the developer said they built, what QA failed, what product added later.
@@ -146,7 +147,9 @@ what would unblock it), `unproven` (the gate failed; nothing else is reported). 
 control governs**: an older ticket's goal is judged pass or fail by the later ticket's rule, and that ticket
 is named on the goal; there is no `changed` verdict and no hand-back to the product owner (2026-10-21,
 MH-2602 under MH-3046). A goal is `n/a` only when the control itself no longer exists. The verdict names what
-it rejects: a pass says which step would have failed it.
+it rejects: a pass says which step would have failed it. A `guard` goal the fixture could not observe is `blocked` in
+its row and named as not covered, but does not decide the verdict: the ticket is judged on what it asked (MH-3365,
+2026-10-22, an HLS source whose receiving side reports no PID table).
 
 ## 4 — the two outputs
 

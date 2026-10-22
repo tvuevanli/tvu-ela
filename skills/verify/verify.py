@@ -7,7 +7,7 @@ L1: stdlib only.
 
 The run directory is what /ela:verify leaves behind:
   ticket.json   {key, summary, type, status, parent, asked, added: [..], commits: [{sha, subject}], later: [{key, what}]}
-  plan.json     [{id, kind: black|provenance|precondition, goal, source, expected, superseded_by}]
+  plan.json     [{id, kind: black|guard|timed|provenance|precondition, goal, source, expected, superseded_by}]
   env.json      `ela browser env --json` (panel, lane, compare, verdict)
   cases.json    `ela browser run --json` (result: [{id, action, observed, result, shot}], page_errors)
   ancestry.json {lane, build, sha, descends, commits: [..]}            (optional)
@@ -94,16 +94,22 @@ def clock_line(env):
     return "<p>" + esc(" ".join(parts)) + "</p>"
 
 
-def overall(cases, env):
+def overall(cases, env, plan=None):
+    """The ticket's verdict. A `guard` goal (a behaviour the ticket says is unchanged, kept as a regression check) that
+    could not be observed is reported in its row but does not decide the verdict: the asked behaviour was observed or
+    it was not, and a guard blocked by the fixture (an HLS source with no receiving-side PID table, MH-3365,
+    2026-10-22) must not turn a verified ticket into "not observable"."""
     if not env or not str(env.get("verdict", "")).startswith("proven"):
         return "unproven"
-    rs = [str(c.get("result", "")).lower() for c in cases]
-    if any(r == "fail" for r in rs):
+    kinds = {str(g.get("id")): str(g.get("kind") or "") for g in (plan or [])}
+    rs = [(str(c.get("result", "")).lower(), kinds.get(str(c.get("id")), str(c.get("kind") or ""))) for c in cases]
+    if any(r == "fail" for r, _ in rs):
         return "fail"
-    if any(r == "blocked" for r in rs):
+    if any(r == "blocked" and k != "guard" for r, k in rs):
         return "blocked"                         # the lane is proven, a precondition the account lacks stopped a case
-    if rs and all(r in ("pass", "n/a", "na") for r in rs):
-        return "pass" if any(r == "pass" for r in rs) else "unproven"
+    decisive = [r for r, k in rs if not (r == "blocked" and k == "guard")]
+    if decisive and all(r in ("pass", "n/a", "na") for r in decisive):
+        return "pass" if any(r == "pass" for r in decisive) else "unproven"
     return "unproven"
 
 
@@ -125,7 +131,7 @@ def render(key, run, out_dir, embed=False, print_mode=False):
     if isinstance(cases, dict):
         cases = cases.get("cases") or []
     today = datetime.date.today().isoformat()
-    verdict = overall(cases, env)
+    verdict = overall(cases, env, plan)
     # The services named up front are the ticket's (its Fixed In slug, e.g. unified-media-frontend) and that service's
     # backend; mediahub-frontend/backend only when the ticket names none the panel lists. A record that quotes the
     # product's frontend for a ticket fixed in another service proves the wrong build (MH-3722, 2026-10-22).
