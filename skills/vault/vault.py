@@ -19,6 +19,7 @@ split by year, a high-volume one (days, verifications) by month.
     15-weeks/<year>/<year>-w<nn>.md             reserved for the owner's weekly page (not generated yet)
     18-sprints/<year>/<year>-s<nn>.md           sprint commitments from elak
     20-reviews/<year>/<date>-<slug>.md          reviews and reports; a report with no date in its name: undated/
+    25-board/board.md                           the board's debt, one living page; its daily counts stay in the reports root
     30-verify/<year-month>/<key>-<date>.md      a verification: PDF and screenshots embedded, the full record linked
     40-decisions/<year>/<date>-<slug>.md
     50-plans/<year>/<date>-<slug>.md
@@ -44,7 +45,7 @@ MANIFEST = ".ela-sync.json"
 DAYS_KEPT, HELD_LISTED_DAYS, NEW_DAYS = 14, 30, 7
 KEEP_FOREVER = ("brief",)   # the morning page is the record of what ela told the owner; the rest expires
 PROPS = ("type", "date", "kind", "status")      # the whole property vocabulary
-BUDGET = {"day": 1200, "review": 2500, "decision": 1200, "plan": 2500, "sprint": 800}
+BUDGET = {"board": 1000, "day": 1200, "review": 2500, "decision": 1200, "plan": 2500, "sprint": 800}
 TOLERANCE = 1.1                                  # a page 10% over its budget is not worth a rewrite
 KEY_RX = re.compile(r"(?<![\w/#=.-])([A-Z][A-Z0-9]{1,9}-\d{1,6})(?![\w-])")
 # media and standards names that look like keys; a second guard behind the project allow-list
@@ -84,6 +85,7 @@ Start at [[home]]: today's page, what waits for your word, what is new this week
 | `15-weeks/` | reserved for a weekly page, from the first sprint week | by year |
 | `18-sprints/` | sprint commitments | by year |
 | `20-reviews/` | reviews and reports written for Evan | by year |
+| `25-board/` | the board's debt: open tickets by shape, each shape's next move, what waits on Evan | one page, rewritten each morning |
 | `30-verify/` | verification results: PDF, screenshots, the full record | by month |
 | `40-decisions/` | decisions, with what they superseded | by year |
 | `50-plans/` | plans, decided or proposed | by year |
@@ -288,6 +290,12 @@ def report_notes(reports, today):
         fl, body = split_front(open(os.path.join(rd, f), encoding="utf-8").read())
         notes.append(Note(f"10-days/{m.group(1)[:7]}/{m.group(1)}-{m.group(2)}.md", f"{m.group(1)} {d:%a} {m.group(2).capitalize()}", body,
                           {"type": "day", "date": m.group(1), "kind": m.group(2)}, fl, src_rel=f"runner/{f}"))
+    bp = os.path.join(reports, "board", "board.md")
+    if os.path.isfile(bp):                                 # the board's debt, one living page, rewritten each morning
+        fl, body = split_front(open(bp, encoding="utf-8").read())
+        dm = re.search(r"\*(\d{4}-\d{2}-\d{2})", body)
+        notes.append(Note("25-board/board.md", "The board's debt", body,
+                          {"type": "board", "date": dm.group(1) if dm else None}, fl, src_rel="board/board.md"))
     for sub in ("ela", ""):
         d = os.path.join(reports, sub) if sub else reports
         for f in sorted(os.listdir(d)) if os.path.isdir(d) else []:
@@ -496,6 +504,9 @@ def home(today, now, notes):
         L += [f"![[{brief.path[:-3]}]]", ""]
     else:
         L += ["## Today", "", "No morning page yet today" + (f"; the latest is {link(brief)}." if brief else "."), ""]
+    board = next((n for n in notes if n.props.get("type") == "board"), None)
+    if board:
+        L += [f"Board: {link(board)}" + (f", as of {board.props['date']}" if board.props.get("date") else ""), ""]
     if learned and learned.props["date"] >= (today - datetime.timedelta(days=2)).isoformat():
         L += ["## Waiting for your word", "", f"- {link(learned)}: candidate knowledge from your sessions", ""]
     since = (today - datetime.timedelta(days=NEW_DAYS)).isoformat()
