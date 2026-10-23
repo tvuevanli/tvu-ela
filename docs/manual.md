@@ -43,6 +43,7 @@ flowchart LR
 | 早上打开电脑，不知道先看什么 | `brief` | `/ela:brief` |
 | 只想先看 Jira 这几条线：谁超时没更新、谁没人接、哪张该拆没拆 | `brief` | `ela brief` · `ela brief --lane triage` |
 | 昨天发生了什么：按 case 把 Jira 变化、commit、Slack 串起来，没有 ticket 的代码和讨论单列，ela 自己做了什么 | `brief` | `ela yesterday` · `ela yesterday --hours 72` |
+| 在 Obsidian 里读 ela 给我的东西：当天的页、review、验收、决定与计划，每张被提到的票一页；不适合人读的会被扣下并列在 Home | `vault` | `ela vault sync` · `ela vault sync --dry-run` |
 | 一个复杂需求进来，要拆成各层的活并派人 | `breakdown` | `/ela:breakdown MH-3568` |
 | 一张别人写的票落到你手上，先要看懂它才谈得上判断 | `explain` | `/ela:explain MH-3568` |
 | 一张旧票挂了很久，先要判断它还有没有必要存在 | `revisit` | `/ela:revisit MH-1649` |

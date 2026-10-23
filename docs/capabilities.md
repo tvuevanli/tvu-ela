@@ -5,7 +5,7 @@ manage. Each names the skill or verb that serves it today; "not built" marks a g
 
 | # | scenario | served by |
 |---|---|---|
-| S1 | The morning queue: what needs the owner today, ranked, each item with a drafted action; report threads included | `/ela:brief` |
+| S1 | The morning queue: what needs the owner today, ranked, each item with a drafted action; report threads included; read in the owner's Obsidian vault, every note within a reading budget | `/ela:brief`, `ela yesterday`, `ela vault sync` (ADR 0008) |
 | S2 | Break a requirement into layer-tagged lanes with owners and order; publish to Jira on confirm; a ticket is not required to start | `/ela:breakdown` |
 | S3 | Route a bug to a service and a name, or to the first checker with the exact check | `/ela:route` |
 | S4 | Digest a posted report thread into what must be acted on, decided, or ticketed | `/ela:digest` |

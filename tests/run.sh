@@ -23,6 +23,7 @@ python3 tests/test_jira_close_offline.py || fail=1
 python3 tests/test_jira_description_offline.py || fail=1
 python3 tests/test_jira_standard_offline.py || fail=1
 python3 tests/test_brief_yesterday_offline.py || fail=1
+python3 tests/test_vault_offline.py || fail=1
 python3 tests/test_description_budget.py || fail=1
 [ $fail -eq 0 ] && echo "ela: verification passed" || echo "ela: verification FAILED"
 exit $fail
