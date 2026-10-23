@@ -624,12 +624,13 @@ def home(today, now, notes):
 
 # ── the sync ──────────────────────────────────────────────────────────────────────────────────────────
 
-def plan(s, env, today, now):
+def plan(s, env, today, now, removed=frozenset()):
     reports = s.get("reports")
     enotes, titles = elak_notes(s.get("elak"))
     notes = report_notes(reports, today) + enotes
     vnotes, files = verify_notes(reports)
     notes += vnotes
+    notes = [n for n in notes if n.path not in removed]   # what the owner deleted is not written, linked or listed
     taken = set()
     for n in notes:                                        # one note per path; a namesake gets -2, never an overwrite
         stem, i = n.path[:-3], 2
@@ -753,10 +754,6 @@ def cmd_sync(a):
     lock = open(os.path.join(runtime, "vault-sync.lock"), "w")
     fcntl.flock(lock, fcntl.LOCK_EX)                       # one sync at a time
     today, now = datetime.date.today(), datetime.datetime.now()
-    try:
-        planned, files, notes, warnings = plan(s, env, today, now)
-    except SourceError as e:
-        print(f"vault: not synced — {e}", file=sys.stderr); sys.exit(3)
     mpath = os.path.join(vault, MANIFEST)
     old = []
     if os.path.exists(mpath):
@@ -767,13 +764,15 @@ def cmd_sync(a):
     # a note the sync wrote that is gone from disk was deleted by the owner: that is feedback, and it stays deleted
     removed_path = os.path.join(s.get("reports") or "", "ela", "vault-removed.jsonl")
     removed = load_removed(removed_path)
-    newly = sorted(r for r in old if r.endswith(".md") and r in planned and r not in removed
-                   and not os.path.exists(os.path.join(vault, r)) and r not in ("home.md", "readme.md"))
+    newly = sorted(r for r in old if r.endswith(".md") and r not in removed and r not in ("home.md", "readme.md")
+                   and not os.path.exists(os.path.join(vault, r)))
+    try:
+        planned, files, notes, warnings = plan(s, env, today, now, removed | set(newly))
+    except SourceError as e:
+        print(f"vault: not synced — {e}", file=sys.stderr); sys.exit(3)
     if newly and not a.dry_run:
-        record_removed(removed_path, os.path.join(s.get("reports") or "", "ela", "feedback.jsonl"), newly, planned, now)
+        record_removed(removed_path, os.path.join(s.get("reports") or "", "ela", "feedback.jsonl"), newly, {}, now)
     removed |= set(newly)
-    for r in removed:
-        planned.pop(r, None)
     now_files = set(planned) | {dst for src, dst in files}
     if not a.force:                                        # a folder that halves is a failure until shown to be a removal
         kept_old = [r for r in old if r not in removed]       # the owner's deletions are not a source failing
