@@ -144,3 +144,5 @@ python3 "${CLAUDE_PLUGIN_ROOT}/skills/jira/jira.py" --env-file <env> assign <KEY
 Show the verdict and the dry-run. `--apply` only on Evan's explicit confirm, per the jira
 capability's own gate. Never assign more than one person to one ticket — a second name goes in
 the question text, not the assignee field.
+
+A ticket this skill processes is classified in the same drafted edit (component, `proto:`, the summary's `[Account]` bracket), as the jira SKILL's *Classifying a ticket ela processes* says.

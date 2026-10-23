@@ -193,3 +193,5 @@ skill — and the drafts only for the rows the owner marks.
 - Keep a file of what a run checked. The verdict lives in the ticket; a capability limit the run
   established is recorded through the placement test in elak `blueprint/principles.md` P1, on the
   owner's word.
+
+A ticket this skill processes is classified in the same drafted edit (component, `proto:`, the summary's `[Account]` bracket), as the jira SKILL's *Classifying a ticket ela processes* says.

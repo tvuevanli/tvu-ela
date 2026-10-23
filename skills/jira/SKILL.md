@@ -135,6 +135,21 @@ word applies it. A batch of mixed shapes is several confirms. This supersedes th
 (one ticket, one confirm) for rule-selected batches only (2026-10-21); a hand-picked set of tickets is
 still one confirm each.
 
+## Classifying a ticket ela processes
+
+Adopted 2026-10-23 for new tickets (the morning intake) and for any existing ticket ela processes for another
+reason (a breakdown, a route, a revisit, a close); no batch pass over the board. The vocabulary is elak
+`map/jira-labels.yaml`, read through the published map and rendered for the owner as the vault page
+`library/jira-vocabulary`; the design and its rulings are `library/jira-labels-and-components`.
+
+- **Feature:** the ticket's component, one primary, from the vocabulary's components, set only once that component
+  exists in Jira (the owner creates them); until then the value is named in the draft, not written.
+- **Transport or platform:** a `proto:` label when one applies; the gate in `label` refuses a value outside the list.
+- **Customer:** the summary's leading bracket with the account's name from the vocabulary (`[Fox] SRT output drops
+  after 2 h`); never a `customer:` label; sub-tasks do not repeat it.
+- **Retired labels** stay on a ticket until the owner rules on removing them in the classifying edit.
+- The classification is part of the edit ela already drafts for that ticket (one confirm), never a separate write.
+
 ## Credentials
 
 Read `~/.claude/ela/site.json` → `env` (the path of ela's credential file, mode 600) and pass it as

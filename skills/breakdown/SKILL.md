@@ -118,3 +118,5 @@ python3 "${CLAUDE_PLUGIN_ROOT}/skills/jira/jira.py" --env-file <env> create-subt
 Assign **directly to the lane owner** (the plan already names them) unless Evan says otherwise.
 Only after Evan confirms the shown batch, repeat with `--apply`; the capability's own gates
 (token check, duplicate idempotency, the description standard of the jira skill) run regardless. Record created keys back into the plan.
+
+A ticket this skill processes is classified in the same drafted edit (component, `proto:`, the summary's `[Account]` bracket), as the jira SKILL's *Classifying a ticket ela processes* says.
