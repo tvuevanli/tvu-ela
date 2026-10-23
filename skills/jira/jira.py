@@ -27,6 +27,7 @@ error, 2 validation error.
 """
 import argparse
 import base64
+import datetime
 import json
 import os
 import re
@@ -77,7 +78,32 @@ def load_env(env_file):
     return creds
 
 
+def log_write(system, method, path, ok=True):
+    """One line per applied write, so the owner's brief can say what ela did: Jira and Slack record ela's writes
+    under the owner's own account, indistinguishable from his clicks. <reports>/ela/writes.jsonl; never fatal."""
+    try:
+        site = json.load(open(os.path.expanduser("~/.claude/ela/site.json")))
+        d = os.path.join(site.get("reports") or os.path.join(site.get("projects") or "", "reports"), "ela")
+        os.makedirs(d, exist_ok=True)
+        key = (re.search(r"/issue/([A-Z][A-Z0-9]+-\d+)", path) or [None, None])[1]
+        verb = next((a for a in sys.argv[1:] if not a.startswith("-") and not os.path.exists(a)), "")
+        row = {"at": datetime.datetime.now().astimezone().isoformat(timespec="seconds"), "system": system, "verb": verb,
+               "key": key, "method": method, "path": path, "ok": ok, "unattended": bool(os.environ.get("ELA_NO_APPLY"))}
+        with open(os.path.join(d, "writes.jsonl"), "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+
+
 def _request(creds, path, params=None, payload=None, method="GET"):
+    if method != "GET":
+        r = _request_raw(creds, path, params, payload, method)
+        log_write("jira", method, path)
+        return r
+    return _request_raw(creds, path, params, payload, method)
+
+
+def _request_raw(creds, path, params=None, payload=None, method="GET"):
     url = creds["JIRA_BASE_URL"] + path
     if params:
         url += "?" + urllib.parse.urlencode(params)
@@ -1321,6 +1347,7 @@ def cmd_attach(creds, args):
     req.add_header("X-Atlassian-Token", "no-check"); req.add_header("Content-Type", f"multipart/form-data; boundary={boundary}")
     with urllib.request.urlopen(req, timeout=120) as resp:
         out = json.loads(resp.read().decode() or "[]")
+    log_write("jira", "POST", f"/rest/api/3/issue/{key}/attachments")
     r["uploaded"], r["attachment_id"] = True, (out[0].get("id") if out else None)
     _emit(args, r, [f"{key}: attached {name} (id {r['attachment_id']})" + (f", replacing id {r['replaced']}" if r.get("replaced") else "")])
 

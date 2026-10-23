@@ -631,6 +631,23 @@ def post_json(method, tok, payload):
     return d
 
 
+def log_write(where, link, chars):
+    """One line per message sent, so the owner's brief can say what ela did (<reports>/ela/writes.jsonl, shared with
+    the jira capability's log). Never fatal."""
+    try:
+        import datetime
+        site = json.load(open(os.path.expanduser("~/.claude/ela/site.json")))
+        d = os.path.join(site.get("reports") or os.path.join(site.get("projects") or "", "reports"), "ela")
+        os.makedirs(d, exist_ok=True)
+        row = {"at": datetime.datetime.now().astimezone().isoformat(timespec="seconds"), "system": "slack", "verb": "post",
+               "key": None, "where": where, "permalink": link, "chars": chars, "ok": True,
+               "unattended": bool(os.environ.get("ELA_NO_APPLY"))}
+        with open(os.path.join(d, "writes.jsonl"), "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+
+
 def cmd_post(tok, a):
     """The one write. Target by shape: a thread permalink (reply there), #name / Cxxx (top level), or --dm."""
     text = open(a.file).read() if a.file and a.file != "-" else (sys.stdin.read() if a.file == "-" else a.text)
@@ -672,6 +689,7 @@ def cmd_post(tok, a):
         payload["thread_ts"] = thread_ts
     d = post_json("chat.postMessage", tok, payload)
     link = permalink_of(d["channel"], d["ts"])
+    log_write(where, link, len(text))
     print(json.dumps({"posted": True, "as": me.get("user"), "channel": d["channel"], "ts": d["ts"], "permalink": link}) if a.json else f"posted as @{me.get('user')}  {link}")
 
 
