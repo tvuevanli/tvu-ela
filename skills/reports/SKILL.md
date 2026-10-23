@@ -33,9 +33,9 @@ $R build [name…]              # markdown → HTML (all when no name)
 ## Read in the owner's vault
 
 Everything written for the owner reaches him through his Obsidian vault (`ela vault sync`, `skills/vault/vault.py`), and
-the sync holds back a note a person should not have to read: no title heading, over its reading budget, more
-than a quarter code, or machine paths and raw records in the text. A held note is listed on the vault's Home as
-a rewrite this skill owes. Budgets, in English words (two CJK characters count as one): day page 1,200 · review
+the sync marks a note a person should not have to read: no title heading, over its reading budget, more than a
+quarter code, or machine paths and raw records in the text. Such a note carries a warning under its title and is
+listed on the vault's Home for 30 days as a rewrite this skill owes. Budgets, in English words (two CJK characters count as one): day page 1,200 · review
 2,500 · decision 1,200 · plan 2,500 · sprint 800. Write to fit: the conclusion first, one idea per sentence,
 numbers in a short table, file paths and code only where he must act on them, the full record linked, not
 pasted.

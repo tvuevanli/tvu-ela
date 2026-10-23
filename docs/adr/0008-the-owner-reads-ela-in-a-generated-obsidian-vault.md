@@ -3,13 +3,22 @@
 **Decision.** ela reports to the owner through an Obsidian vault on his Windows disk, written entirely by
 `skills/vault/vault.py` (`ela vault sync`) after the runner's morning and evening jobs. The vault holds only what
 is written for him: the judged day pages, reviews, verification results, and elak's decisions and plans. Every
-note passes a reading gate (a title heading, a budget in words per kind, little code, no machine paths) or is held
-back and listed on the vault's Home as a rewrite ela owes. Folder and file names are lowercase and hyphenated;
+note passes a reading gate (a title heading, a budget in words per kind, little code, no machine paths) or carries a
+warning under its title and is listed on Home for 30 days as a rewrite ela owes; nothing readable is withheld.
+Folder and file names are lowercase and hyphenated and come from the source file's name, never its heading, so an
+edited title renames nothing;
 top folders are numbered by range (10–19 by time, 20–39 reports and evidence, 40–59 records, 60–79 reserved,
 80–99 system), and a dated archive is split by year, a high-volume one by month, so the vault grows without
 renames; a generated `readme.md` at the root states the layout; the properties are `type`, `date`, `kind` and `status` and nothing else; a
 ticket key is a direct Jira link. Nothing in the vault is edited by hand, and its `.obsidian/` settings are never
-touched. Helm's `/ela` pages retire after a week in which the vault served every morning.
+touched. A missing source, an unreadable manifest, or a folder that would shrink by more than half stops the
+sync before it writes; removal is limited to files the sync recorded; writes are atomic and serialised. A ticket
+key links only when its project is one the owner works in and its prefix is not a codec's or a standard's name.
+Helm's `/ela` pages retire after a week in which the vault served every morning, and once the morning direct
+message carries a link that opens the vault page.
+
+Revised the same day after an adversarial review: notes that fail the gate are flagged rather than withheld, and
+names come from file names rather than headings.
 
 **Reason.** The owner reads more than he writes, and what he reads lived in WSL, reachable from Windows only in a
 terminal or over a share Obsidian handles badly. A vault he maintained by hand was abandoned on 2026-10-10: the
