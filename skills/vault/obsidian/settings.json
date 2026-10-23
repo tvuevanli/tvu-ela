@@ -1,0 +1,49 @@
+{
+  "app": {
+    "defaultViewMode": "preview",
+    "showInlineTitle": false,
+    "readableLineLength": true,
+    "strictLineBreaks": false,
+    "showFrontmatter": false,
+    "propertiesInDocument": "hidden",
+    "alwaysUpdateLinks": false,
+    "newFileLocation": "root",
+    "promptDelete": true,
+    "useMarkdownLinks": false
+  },
+  "appearance": {
+    "enabledCssSnippets": [
+      "ela"
+    ]
+  },
+  "core_on": [
+    "backlink",
+    "bases",
+    "bookmarks",
+    "command-palette",
+    "file-explorer",
+    "file-recovery",
+    "global-search",
+    "graph",
+    "outgoing-link",
+    "outline",
+    "page-preview",
+    "properties",
+    "switcher",
+    "webviewer"
+  ],
+  "community": [
+    "homepage"
+  ],
+  "homepage_version": "4.5.0",
+  "bookmarks": [
+    {
+      "path": "home.md",
+      "title": "Home"
+    },
+    {
+      "path": "readme.md",
+      "title": "About this vault"
+    }
+  ]
+}

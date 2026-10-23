@@ -10,6 +10,7 @@ reasons: ela docs/adr/0008-the-owner-reads-ela-in-a-generated-obsidian-vault.md.
 Usage:
     vault.py [--env-file F] sync [--dry-run] [--force] [--json]
     vault.py restore <path>          bring back a note the owner deleted
+    vault.py setup                   apply the Obsidian settings kept in obsidian/ (after a reset or on a new machine)
 
 Layout. Names are lowercase with hyphens and no spaces, taken from the source's file name, never from its heading,
 so editing a title renames nothing. Top folders are numbered by range so a new kind takes a free number:
@@ -126,7 +127,7 @@ the text; screenshots are copied as they are.
 
 ## How Obsidian is set up
 
-Set once by ela; the sync never changes these settings.
+Set by ela; the sync never changes these settings. ela keeps a copy, and `ela vault setup` reapplies them after a reset or on another machine.
 
 - Notes open in reading view, without the file-name title or the properties panel, at a readable width; the
   `ela` style sheet tidies tables and callouts.
@@ -656,6 +657,45 @@ def record_removed(path, feedback, rels, planned, now):
                                  f"deleted from the vault: {title} ({r}); not worth reading as written"}, ensure_ascii=False) + "\n")
 
 
+def cmd_setup(a):
+    """Apply the vault's Obsidian settings from ela's versioned copy (obsidian/): reading view, no file-name title or
+    properties panel, the style sheet, the core plugins, Homepage, the bookmarks. Merges into what is there; the
+    plugin's code is fetched only when absent, pinned to the recorded version. Restart Obsidian afterwards."""
+    s = json.load(open(SITE))
+    src = os.path.join(HERE, "obsidian")
+    cfg = json.load(open(os.path.join(src, "settings.json")))
+    o = os.path.join(s["vault"], ".obsidian")
+    os.makedirs(os.path.join(o, "snippets"), exist_ok=True)
+    def merge(name, upd):
+        p = os.path.join(o, name)
+        try:
+            cur = json.load(open(p))
+        except (OSError, ValueError):
+            cur = {}
+        cur.update(upd); atomic_write(p, json.dumps(cur, indent=2))
+    merge("app.json", cfg["app"])
+    merge("appearance.json", cfg["appearance"])
+    try:
+        core = json.load(open(os.path.join(o, "core-plugins.json")))
+    except (OSError, ValueError):
+        core = {}
+    core = {k: (k in cfg["core_on"]) for k in set(core) | set(cfg["core_on"])}
+    atomic_write(os.path.join(o, "core-plugins.json"), json.dumps(core, indent=2))
+    atomic_write(os.path.join(o, "community-plugins.json"), json.dumps(cfg["community"]))
+    shutil.copyfile(os.path.join(src, "ela.css"), os.path.join(o, "snippets", "ela.css"))
+    hp = os.path.join(o, "plugins", "homepage"); os.makedirs(hp, exist_ok=True)
+    shutil.copyfile(os.path.join(src, "homepage-data.json"), os.path.join(hp, "data.json"))
+    for f in ("main.js", "manifest.json", "styles.css"):
+        if not os.path.isfile(os.path.join(hp, f)):
+            url = f"https://github.com/mirnovov/obsidian-homepage/releases/download/{cfg['homepage_version']}/{f}"
+            r = subprocess.run(["curl", "-fsSL", "-m", "60", "-o", os.path.join(hp, f), url], capture_output=True, text=True)
+            if r.returncode != 0:
+                print(f"could not fetch Homepage {f}: {r.stderr.strip()[-120:]}", file=sys.stderr)
+    now = int(datetime.datetime.now().timestamp() * 1000)
+    atomic_write(os.path.join(o, "bookmarks.json"), json.dumps({"items": [dict(b, type="file", ctime=now) for b in cfg["bookmarks"]]}, indent=2))
+    print("vault settings applied; restart Obsidian to load them")
+
+
 def cmd_restore(a):
     """Bring back a note the owner deleted: the next sync writes it again."""
     s = json.load(open(SITE))
@@ -801,6 +841,8 @@ def main():
     p.add_argument("--force", action="store_true", help="sync although a folder shrinks by more than half")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_sync)
+    p = sub.add_parser("setup", help="apply the vault's Obsidian settings from ela's versioned copy, then restart Obsidian")
+    p.set_defaults(func=cmd_setup)
     p = sub.add_parser("restore", help="bring back a note the owner deleted in the vault")
     p.add_argument("path", help="the note's path in the vault, as the deletion log lists it")
     p.set_defaults(func=cmd_restore)
