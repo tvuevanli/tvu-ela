@@ -22,3 +22,7 @@ body { --file-line-width: min(94%, 1600px); }   /* follows the window, capped fo
 .markdown-rendered h1 + p > em:only-child { color: var(--text-muted); font-size: 0.9em; }
 .markdown-rendered .block-language-base { margin: 0.4em 0 1em; }
 .markdown-rendered hr { margin: 1.6em 0 0.8em; }
+
+/* a mermaid diagram fits the reading column instead of being cut at the pane's edge; a very wide one scrolls */
+.markdown-rendered .mermaid { overflow-x: auto; text-align: center; }
+.markdown-rendered .mermaid svg { max-width: 100% !important; height: auto !important; }
