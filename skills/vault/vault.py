@@ -753,8 +753,8 @@ def home(today, now, notes):
         L += ["Nothing waits for your word.", ""]
     if brief and brief.props["date"] == iso:
         head = re.split(r"^## ", re.sub(r"^#[ \t]+.*$", "", brief.body, count=1, flags=re.M), maxsplit=1, flags=re.M)[0].strip()
-        # the heading itself opens the page, so the jump to it is the section's first line
-        L += [f"## [[{brief.path[:-3]}|Today · open the morning page]]", ""] + ([head, ""] if head else [])
+        # the jump to the page is the section's first line, under a plain heading
+        L += ["## Today", "", f"[[{brief.path[:-3]}|→ Open the morning page]]", ""] + ([head, ""] if head else [])
         if re.search(r"^## Needs you[ \t]*$", brief.body, re.M):
             L += [f"![[{brief.path[:-3]}#Needs you]]", "",
                   f"*The rest of the page (yesterday, new tickets, the lanes, the backlog): {link(brief)}.*", ""]
