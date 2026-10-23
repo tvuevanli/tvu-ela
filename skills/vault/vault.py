@@ -676,7 +676,7 @@ def record_removed(path, feedback, rels, planned, now):
     with open(path, "a", encoding="utf-8") as fh, open(feedback, "a", encoding="utf-8") as fb:
         for r in rels:
             m = re.search(r"^#\s+(.+)$", planned.get(r, ""), re.M)
-            title = m.group(1) if m else r
+            title = m.group(1) if m else sentence(re.sub(r"^\d{4}-\d{2}-\d{2}-", "", os.path.basename(r)[:-3]).replace("-", " "))
             fh.write(json.dumps({"at": now.isoformat(timespec="seconds"), "path": r, "title": title}, ensure_ascii=False) + "\n")
             fb.write(json.dumps({"at": now.isoformat(timespec="seconds"), "from": "vault", "text":
                                  f"deleted from the vault: {title} ({r}); not worth reading as written"}, ensure_ascii=False) + "\n")
