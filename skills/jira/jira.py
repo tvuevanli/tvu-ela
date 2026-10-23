@@ -485,6 +485,21 @@ def _standard_gate(args, issuetype, result):
         sys.exit(2)
     return lines
 
+def cmd_projects(creds, args):
+    """Every project key the account can see — the allow-list for recognising a ticket key in free text."""
+    keys, start = [], 0
+    while True:
+        d = api_get(creds, "/rest/api/3/project/search", {"startAt": start, "maxResults": 100})
+        keys += [{"key": p.get("key"), "name": p.get("name")} for p in d.get("values") or []]
+        if d.get("isLast", True) or not d.get("values"):
+            break
+        start += len(d["values"])
+    if args.json:
+        print(json.dumps({"count": len(keys), "projects": keys}, ensure_ascii=False)); return
+    for p in keys:
+        print(f"{p['key']:<12} {p['name']}")
+
+
 # ── changes: what moved on each ticket in a window (read-only) ───────────────
 # The fields a reader acts on; edits to anything else are counted, not listed.
 CHANGE_FIELDS = {"status", "priority", "assignee", "labels", "Fixed In", "issuetype", "resolution", "Link", "Parent", "Sprint"}
@@ -1540,6 +1555,10 @@ def main():
     p.add_argument("--out", help="directory (default <runtime>/jira-files)")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_files)
+
+    p = sub.add_parser("projects", help="every project key the account can see (read-only)")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_projects)
 
     p = sub.add_parser("changes", help="tickets changed since a time, each with its status/priority/assignee/label/"
                                          "Fixed In moves and the comments in the window — read-only")
