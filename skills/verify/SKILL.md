@@ -164,7 +164,9 @@ its row and named as not covered, but does not decide the verdict: the ticket is
    renders the page under
    `<reports>/verify/<KEY>-<date>/` for the owner (publishable as a private artifact), `record.html` (the same page with its images embedded, which opens inside the owner's
    Obsidian through HTML Reader), a `report.md` beside it that the
-   owner's vault shows natively (the same run data, no model call: verdict, environment, checks, captioned screenshots),
+   owner's vault shows natively (the same run data, no model call: verdict, environment, checks, captioned screenshots
+   with a failed or blocked check first). The note is the report the owner reads; `record.html` is the technical record
+   (version panel, ancestry, run log) for audit, print and Jira, linked once under the environment table,
    and prints the PDF for the ticket. **The readable part comes first**: the verdict, the environment in one plain sentence, and one row
    per requirement check — what the ticket asks (the goal from the plan) and what was seen, in a reader's
    sentence. For that, every case result carries `seen` (one plain sentence, no ids, no json, no request paths)

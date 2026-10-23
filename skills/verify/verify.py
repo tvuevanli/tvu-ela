@@ -269,18 +269,20 @@ def write_markdown(out_dir, key, t, verdict, verdict_word, lane_env, fe, be, env
          f"> [!{CALLOUT.get(verdict, 'info')}] {verdict.upper()}: {verdict_word}", "",
          "| environment | frontend | backend |", "|---|---|---|",
          f"| {md_cell(lane_env or '—')} | {md_cell(tidy_version(fe.get('panel')) or '—')} | {md_cell(tidy_version(be.get('panel')) or '—')} |", "",
+         "Technical record (version panel, build ancestry, run log): `index.html` beside this file.", "",
          f"{md_cell(t.get('asked') or t.get('summary') or '')}", "",
          f"{env_words} The browser ran {login_words}. {saved_words}", "",
          "## Checks", "", "| check | what the ticket asks | what was seen | result |", "|---|---|---|---|"]
     L += [f"| {md_cell(c.get('id'))} | {md_cell(check_words(c))} | {md_cell(plain_seen(c))} | {md_cell(str(c.get('result') or '—').upper())} |" for c in checks]
     if fixtures:
         L += ["", f"{len(fixtures)} setup and cleanup steps ran around these checks; they are in the full record."]
-    shots = [(c, shot_of(c)) for c in checks if shot_of(c)]
+    # the screenshots a reader must look at first: a failed or blocked check, then the rest in order
+    order = {"fail": 0, "blocked": 1}
+    shots = sorted(((c, shot_of(c)) for c in checks if shot_of(c)), key=lambda x: order.get(str(x[0].get("result") or "").lower(), 2))
     if shots:
         L += ["", "## Screenshots", ""]
         for c, rel in shots:
             L += [f"**{md_cell(c.get('id'))}** · {md_cell(plain_seen(c))}", "", f"![[{rel}]]", ""]
-    L += ["", "The full record, with the version panel, the build ancestry and the run log, is `index.html` beside this file."]
     open(os.path.join(out_dir, "report.md"), "w", encoding="utf-8").write("\n".join(L) + "\n")
 
 

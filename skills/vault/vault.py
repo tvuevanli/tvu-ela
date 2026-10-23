@@ -394,6 +394,9 @@ def verify_notes(reports):
                 for f in sorted(fs):
                     rel = os.path.relpath(os.path.join(top_, f), p).replace(os.sep, "/")
                     dst = f"{record}/{rel}"
+                    low = f.lower()
+                    if low.endswith((".html", ".md")) and low != "record.html" and os.path.isfile(os.path.join(p, "record.html")):
+                        continue                   # index.html and the print copy repeat record.html
                     files.append((os.path.join(top_, f), dst))
                     low = f.lower()
                     if low.endswith(".pdf"):
@@ -407,9 +410,11 @@ def verify_notes(reports):
         if md and os.path.isfile(md):                  # the record's own Markdown, written by the verify renderer
             body = open(md, encoding="utf-8").read()
             body = re.sub(r"!\[\[(img/[^\]]+)\]\]", lambda m: f"![[{record}/{m.group(1)}]]", body)
-            body = body.replace("is `index.html` beside this file.", f"opens here: [[{page}|the full record]].") if page else body
-            notes.append(Note(f"30-verify/{date[:7]}/{key.lower()}-{date}{extra}.md", f"{key} verification {date}", body,
-                              {"type": "verify", "date": date}))
+            body = body.replace("`index.html` beside this file.", f"[[{page}|open it]].") if page else body
+            vm = re.search(r"\[!\w+\]\s+([A-Z]+)", body)
+            title = f"{key} · {vm.group(1)}" if vm else f"{key} verification {date}"
+            notes.append(Note(f"30-verify/{date[:7]}/{key.lower()}-{date}{extra}.md", title + (f" ({extra.strip('-')})" if extra else ""),
+                              body, {"type": "verify", "date": date}))
             continue
         verdict = record_verdict(os.path.join(vd, name) if single else os.path.join(p, os.path.basename(page or "index.html")))
         body = [f"# {key} verification · {date}{' · ' + extra.strip('-') if extra else ''}", ""]
