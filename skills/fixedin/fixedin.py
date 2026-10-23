@@ -131,6 +131,38 @@ def hinted_commits(path, a):
     return rows
 
 
+# ── neighbours: a fix committed under another key ───────────────────────────
+# MH-3465's fix carried MH-3463 in its title (2026-10-22), so the ticket's own key found nothing. When no commit
+# names the key, the commits a comment cites by hash and the commits of linked tickets are offered instead, each
+# labelled, and the record says the substitution was made.
+
+def ticket_neighbours(key, fields, comments):
+    hashes = sorted(set(re.findall(r"\b[0-9a-f]{7,40}\b", json.dumps(comments))))
+    links = []
+    for l in fields.get("issuelinks") or []:
+        for side in ("inwardIssue", "outwardIssue"):
+            k = (l.get(side) or {}).get("key")
+            if k and k != key:
+                links.append(k)
+    return {"hashes": hashes, "links": sorted(set(links))}
+
+
+def neighbour_commits(path, n):
+    rows, seen = [], set()
+    for h in n.get("hashes") or []:
+        if commit_exists(path, h):
+            rc, out, _ = P.git(path, "log", "-1", "--format=%H%x09%ad%x09%an%x09%s", "--date=short", h)
+            for r in parse_log(out) if rc == 0 else []:
+                if r["sha"] not in seen:
+                    seen.add(r["sha"]); rows.append(dict(r, via=f"commit {h[:10]} cited in a comment"))
+    for k in n.get("links") or []:
+        got, err = commits_for(k, path)
+        for r in got or []:
+            if r["sha"] not in seen:
+                seen.add(r["sha"]); rows.append(dict(r, via=f"linked ticket {k}"))
+    return rows
+
+
 # ── builds ────────────────────────────────────────────────────────────────────
 
 def ledger_builds(job):
@@ -309,6 +341,7 @@ def chain(a, key, repos_cache, builds_cache):
     for e in P.parse_fixed_in(rec["current"]):
         if e["docker"]:
             rec["gaps"].append(f"{e['slug']}@{e['version']}: {DOCKER_GAP}")
+    neighbours = ticket_neighbours(key, f, rec["comments"])
     jobs = {v: k for k, v in (R.rmap("jobs") or {}).items()}          # service → job
     carriers, found = {}, {}                                          # found: slug → (key shas, builds, is_anc)
     for slug, rel in (R.rmap("repos") or {}).items():
@@ -321,6 +354,10 @@ def chain(a, key, repos_cache, builds_cache):
         for h in hinted_commits(path, a) if (a.author or a.path or a.thread) else []:
             if h["sha"] not in {r["sha"] for r in rows}:
                 rows.append(h)
+        if not rows:
+            rows = neighbour_commits(path, neighbours)
+            if rows:
+                rec["gaps"].append(f"{slug}: no commit names {key}; using {', '.join(sorted({r['via'] for r in rows}))} — confirm it is this ticket's fix")
         if not rows:
             continue
         for c in rows:

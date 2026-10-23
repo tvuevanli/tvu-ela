@@ -1219,7 +1219,7 @@ def _transition_one(creds, key, to, apply, path=False, terminal_ok=False):
     r["transition"] = hit.get("name"); r["hops"] = hops
     if not apply:
         walk = " -> ".join([cur] + hops)
-        note = "" if len(hops) == 1 else f"\n  ({len(hops)} hops: later ones looked up live; the assignee is notified at every hop)"
+        note = "" if len(hops) == 1 else f"\n  (up to {len(hops)} hops, looked up live; it stops as soon as Jira offers {to}; the assignee is notified at every hop)"
         return r, [f"DRY RUN — {key}  {f.get('summary','')}\n  status  {walk}  (transition '{hit.get('name')}' first){note}"]
     lines = []
     for n, h in enumerate(hops):
@@ -1499,10 +1499,14 @@ def cmd_close(creds, args):
     labels = _split_csv(args.label)
     me = (api_get(creds, "/rest/api/3/myself") or {}).get("accountId")
     results, lines, failed = [], [], False
+    if getattr(args, "terminal", False) and len(_keys(args.targets)) > 1:
+        print("refused: a close the owner names is one ticket per confirm; name the tickets one at a time", file=sys.stderr); sys.exit(2)
     for key in _keys(args.targets):
         f = _issue(creds, key, "summary,status,assignee,labels")
         assignee = f.get("assignee") or {}
-        steps, out = [], [f"== {key}  {f.get('summary','')}  [{name_of(f.get('status'), 'name')}; proposed for closing → {CLOSING_FLAG}, assigned to you; assignee now {name_of(assignee)}]"]
+        named = bool(getattr(args, "terminal", False))
+        how = (f"closing to {args.to} on your word" if named else f"proposed for closing → {CLOSING_FLAG}, assigned to you")
+        steps, out = [], [f"== {key}  {f.get('summary','')}  [{name_of(f.get('status'), 'name')}; {how}; assignee now {name_of(assignee)}]"]
         if terminal(name_of(f.get("status"), "name")):
             r = {"key": key, "error": f"already {name_of(f.get('status'), 'name')}: nothing to propose"}
             results.append(r); lines += out + [f"{key}: {r['error']}"]; failed = True
@@ -1516,9 +1520,14 @@ def cmd_close(creds, args):
             plan.append(("fixed_in", lambda k=key: _fixed_in_one(creds, k, add, args.apply)))
         # The close is a proposal: the evidence and the comment on the ticket, flag:closing on the board, and the ticket
         # assigned to the owner, who reviews it and clicks Done himself. No step here moves a status.
-        plan.append(("labels", lambda k=key: _label_one(creds, k, labels + [CLOSING_FLAG], [], args.apply)))
+        # When the owner named this close himself (--terminal, one ticket per confirm), the bundle performs it: the
+        # evidence and the comment, then the transition, and no flag or reassignment, which exist only for a proposal.
+        plan.append(("labels", lambda k=key: _label_one(creds, k, labels + ([] if named else [CLOSING_FLAG]), [], args.apply)))
         plan.append(("comment", lambda k=key: _comment_one(creds, k, text, args.apply, mention=not args.no_mention)))
-        plan.append(("assign", lambda k=key: _assign_to_me(creds, k, me, args.apply)))
+        if named:
+            plan.append(("transition", lambda k=key: _transition_one(creds, k, args.to, args.apply, path=True, terminal_ok=True)))
+        else:
+            plan.append(("assign", lambda k=key: _assign_to_me(creds, k, me, args.apply)))
         for name, fn in plan:
             r, ls = fn()
             steps.append(dict(r, step=name)); out += ["  " + l.replace("\n", "\n  ") for l in ls]
@@ -1529,7 +1538,8 @@ def cmd_close(creds, args):
                 break
         results.append({"key": key, "steps": steps}); lines += out
     if not args.apply and not failed:
-        lines.append("pass --apply to write all of the above, in this order; the status itself is the owner's click in Jira")
+        lines.append("pass --apply to write all of the above, in this order"
+                     + ("" if getattr(args, "terminal", False) else "; the status itself is the owner's click in Jira"))
     _emit(args, {"results": results} if len(results) > 1 else results[0], lines)
     if failed:
         sys.exit(2)
@@ -1676,6 +1686,9 @@ def main():
     p.add_argument("--from-file", help="read the comment from a file instead")
     p.add_argument("--allow-no-comment", action="store_true", help="propose without a comment (normally refused: the assignee and the reporter must see why)")
     p.add_argument("--no-mention", action="store_true")
+    p.add_argument("--terminal", action="store_true", help="the owner named this close himself: perform it (evidence, comment, then the "
+                   "transition to --to), one ticket per confirm; without it the close stays a proposal")
+    p.add_argument("--to", default="Done", help="the terminal status with --terminal (default Done; Cancelled, Failed, Closed Ambigous)")
     p.add_argument("--apply", action="store_true"); p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_close)
 
