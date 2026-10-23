@@ -87,12 +87,13 @@ Start at [[home]]: today's page, what waits for your word, what is new this week
 | `10-days/` | the morning page, kept; the evening learning draft, 14 days | by month |
 | `15-weeks/` | reserved for a weekly page, from the first sprint week | by year |
 | `18-sprints/` | sprint commitments | by year |
-| `20-reviews/` | reviews and reports written for Evan | by year |
+| `20-reviews/` | reviews to read; delete one when you are done with it | by year |
 | `25-board/` | the board's debt: open tickets by shape, each shape's next move, what waits on Evan | one page, rewritten each morning |
 | `30-verify/` | verification results to review: verdict, checks, screenshots, the technical record | 14 days; then on the Jira ticket |
 | `40-decisions/` | decisions, with what they superseded | by year |
 | `50-plans/` | plans, decided or proposed | by year |
 | `60-` to `79-` | reserved for new kinds | |
+| `70-library/` | the library: where knowledge lives (your claude.ai reports, the knowledge base, Confluence), as links | rewritten each sync |
 | `80-views/` | one table view with tabs: recent, to review, decisions and plans, morning pages, reviews | |
 | `85-assistant/` | working with ela day to day, and how ela runs: every scheduled job, its last run and result | rewritten each sync |
 | `90-attachments/` | the records and images the notes embed | by month |
@@ -118,8 +119,9 @@ a warning, and Home lists it for 30 days as a rewrite ela owes.
 
 ## Deleting a note
 
-Deleting a note is feedback. ela does not write it again, and reads the deletion as a sign that the note was not
-worth your time, so the writer changes. `ela vault restore <path>` brings one back.
+Delete a note when you are done with it: ela does not write it again, and its source stays in ela's reports and
+their backup. A deletion is not criticism; when something should change, say so (`feedback …` in Slack, or in a
+session). `ela vault restore <path>` brings a note back.
 
 ## What is not here
 
@@ -369,6 +371,10 @@ def report_notes(reports, today):
         dm = re.search(r"\*(\d{4}-\d{2}-\d{2})", body)
         notes.append(Note("25-board/board.md", "The board's debt", body,
                           {"type": "board", "date": dm.group(1) if dm else None}, fl, src_rel="board/board.md"))
+    lp = os.path.join(reports, "library", "library.md")
+    if os.path.isfile(lp):                                 # pointers to where knowledge lives; the vault holds no copies
+        fl, body = split_front(open(lp, encoding="utf-8").read())
+        notes.append(Note("70-library/library.md", "Library", body, {"type": "library"}, fl, src_rel="library/library.md"))
     sp = os.path.join(reports, "system", "how-ela-runs.md")
     if os.path.isfile(sp):                                 # what is scheduled where, read from the machines
         fl, body = split_front(open(sp, encoding="utf-8").read())
@@ -663,7 +669,7 @@ def home(today, now, notes):
     owed = [n for n in notes if n.held and (n.props.get("date") or iso) >= owed_since]
     if owed:
         L += ["## ela owes a shorter version", ""] + [f"- {link(n)}: {'; '.join(n.held)}" for n in owed] + [""]
-    L += ["## Browse", "", "[[80-views/index.base|All notes, as tables]] · [[85-assistant/how-ela-runs|How ela runs]] · "
+    L += ["## Browse", "", "[[70-library/library|Library]] · [[80-views/index.base|All notes, as tables]] · [[85-assistant/how-ela-runs|How ela runs]] · "
           "[[readme|About this vault]]", ""]
     return "\n".join(L)
 
@@ -717,15 +723,14 @@ def load_removed(path):
 
 
 def record_removed(path, feedback, rels, planned, now):
-    """Log each note the owner deleted, and the same as a feedback line the evening run reads."""
+    """Log each note the owner deleted: he has read it and is done with it, so it stays out of the vault. A deletion
+    is not criticism; feedback comes as a message (Slack `feedback`, a session)."""
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "a", encoding="utf-8") as fh, open(feedback, "a", encoding="utf-8") as fb:
+    with open(path, "a", encoding="utf-8") as fh:
         for r in rels:
             m = re.search(r"^#\s+(.+)$", planned.get(r, ""), re.M)
             title = m.group(1) if m else sentence(re.sub(r"^\d{4}-\d{2}-\d{2}-", "", os.path.basename(r)[:-3]).replace("-", " "))
             fh.write(json.dumps({"at": now.isoformat(timespec="seconds"), "path": r, "title": title}, ensure_ascii=False) + "\n")
-            fb.write(json.dumps({"at": now.isoformat(timespec="seconds"), "from": "vault", "text":
-                                 f"deleted from the vault: {title} ({r}); not worth reading as written"}, ensure_ascii=False) + "\n")
 
 
 def cmd_setup(a):

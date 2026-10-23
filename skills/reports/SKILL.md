@@ -40,6 +40,12 @@ listed on the vault's Home for 30 days as a rewrite this skill owes. Budgets, in
 numbers in a short table, file paths and code only where he must act on them, the full record linked, not
 pasted.
 
+## The library's list
+
+A report published or republished as a claude.ai artifact is added to `<reports>/library/artifacts.json` (title,
+url, updated, and its group: `product`, `ela` or `verify`), so the owner's vault library links it the next morning.
+An artifact that a newer one replaces keeps its row with "(earlier version)" in the title.
+
 ## Invariants
 - **Not knowledge.** Reports point at decisions and status; they never become the place a fact lives.
   Anything a report states that is not in ela, elak or a first-hand source is a bug in the report.
