@@ -25,4 +25,7 @@ retirement condition above.
 
 **Rejected.** Mirroring all of elak (a second copy of ela's memory, mostly unreadable to a person); one note per
 ticket (two clicks to Jira, a stale copy of Jira's status); community plugins and templates (the abandoned vault's
-weight); extending Helm's pages for reading (Helm is shrinking to board, ledger and team report).
+weight); extending Helm's pages for reading (Helm is shrinking to board, ledger and team report). Mirroring Helm's team daily and weekly reports (written for the team, they stay in Slack and Helm; the
+owner's need from them is the morning page's Yesterday section, and a gap there is fixed in the brief, not by a
+second copy). The owner's weekly view, when it comes, is a page ela writes for him from the week's Yesterday
+sections and the sprint's state (`15-weeks/YYYY-Www.md`), first on the Friday of the first sprint week.
