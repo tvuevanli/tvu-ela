@@ -10,8 +10,9 @@ edited title renames nothing;
 top folders are numbered by range (10–19 by time, 20–39 reports and evidence, 40–59 records, 60–79 reserved,
 80–99 system), and a dated archive is split by year, a high-volume one by month, so the vault grows without
 renames; a generated `readme.md` at the root states the layout; the properties are `type`, `date`, `kind` and `status` and nothing else; a
-ticket key is a direct Jira link. Nothing in the vault is edited by hand, and its `.obsidian/` settings are never
-touched. A missing source, an unreadable manifest, or a folder that would shrink by more than half stops the
+ticket key is a direct Jira link. Nothing in the vault is edited by hand. Its `.obsidian/` settings were set once and the sync never touches them: reading
+view by default, no file-name title or properties panel, the writing plugins off, and one community plugin,
+Homepage, so the vault opens on Home; a vault that needed eleven plugins was the one abandoned. A missing source, an unreadable manifest, or a folder that would shrink by more than half stops the
 sync before it writes; removal is limited to files the sync recorded; writes are atomic and serialised. A ticket
 key links only when its project is one the owner works in and its prefix is not a codec's or a standard's name.
 Helm's `/ela` pages retire after a week in which the vault served every morning, and once the morning direct

@@ -114,10 +114,16 @@ ela's own knowledge, status table and working rules, which are written for ela; 
 to elak; Helm's team reports, which stay in Slack and Helm. Internal addresses and credentials are redacted from
 the text; screenshots are copied as they are.
 
-## Once, in Obsidian
+## How Obsidian is set up
 
-Settings → Core plugins: turn on **Bases** (the tables in `80-views`) and **Web viewer**. Settings → Editor →
-Default view for new tabs: **Reading view**. Bookmark `home`.
+Set once by ela; the sync never changes these settings.
+
+- Notes open in reading view, without the file-name title or the properties panel, at a readable width; the
+  `ela` style sheet tidies tables and callouts.
+- Core plugins on: search, quick switcher, file explorer, backlinks, outgoing links, page preview, outline,
+  bookmarks, properties, Bases, Web viewer. Off: everything made for writing (templates, daily notes, note
+  composer, canvas, slash commands) and tags, which this vault does not use.
+- One community plugin, **Homepage**, opens `home` in reading view when Obsidian starts.
 """
 
 VIEWS = {
