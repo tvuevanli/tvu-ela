@@ -10,7 +10,8 @@ reasons: ela docs/adr/0008-the-owner-reads-ela-in-a-generated-obsidian-vault.md.
 Usage:
     vault.py [--env-file F] sync [--dry-run] [--force] [--json]
     vault.py restore <path>          bring back a note the owner deleted
-    vault.py guidance [--all] [--json]   his `ela:` lines in to-learn/ and archive/, each handled once
+    vault.py guidance [--all] [--json]   his `ela:` lines anywhere in the vault, each handled once
+    vault.py finish <path> [--to delete|archive|learn]   on his word: finish with a note as he would in Obsidian
     vault.py setup                   apply the Obsidian settings kept in obsidian/ (after a reset or on a new machine)
 
 Layout, by what the owner does with a note (ela ADR 0010). Names are lowercase with hyphens and no spaces, taken
@@ -1047,6 +1048,31 @@ def cmd_guidance(a):
     print(f"{len(lines)} instructions; {len(notes)} notes in to-learn")
 
 
+def cmd_finish(a):
+    """Finish with a note on the owner's word (an `ela:` line asking it): delete it, or move it into archive/ or
+    to-learn/, and log it as his, exactly as if he had done it in Obsidian. Only a note in days/ or to-read/; a living
+    page is not his to finish, and his own folders are already his."""
+    s = json.load(open(SITE))
+    vault = s["vault"]
+    rel = a.path.replace("\\", "/").lstrip("/")
+    p = os.path.realpath(os.path.join(vault, rel))
+    if not p.startswith(os.path.realpath(vault) + os.sep) or top(rel) not in DELETABLE or not rel.endswith(".md") or not os.path.isfile(p):
+        print(f"not a note in days/ or to-read/: {a.path}", file=sys.stderr); sys.exit(2)
+    try:
+        src = (json.load(open(os.path.join(vault, MANIFEST))).get("sources") or {}).get(rel)
+    except (OSError, ValueError):
+        src = None
+    folder = {"archive": ARCHIVE, "learn": TO_LEARN}.get(a.to)
+    if folder:
+        os.makedirs(os.path.join(vault, folder), exist_ok=True)
+        os.replace(p, os.path.join(vault, folder, os.path.basename(rel)))
+    else:
+        os.remove(p)
+    record_removed(os.path.join(s.get("reports") or "", "ela", "vault-removed.jsonl"), [rel], {rel: src} if src else {},
+                   datetime.datetime.now(), {os.path.basename(rel).lower(): folder} if folder else {}, by="owner")
+    print(f"{rel}: {'moved to ' + folder + '/' if folder else 'deleted'}; logged as the owner's")
+
+
 def cmd_restore(a):
     """Bring back a note the owner deleted: the next sync writes it again."""
     s = json.load(open(SITE))
@@ -1274,6 +1300,10 @@ def main():
     p.add_argument("--all", action="store_true", help="include instructions already handled")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_guidance)
+    p = sub.add_parser("finish", help="on the owner's word: delete a note, or move it into archive/ or to-learn/")
+    p.add_argument("path", help="the note's path in the vault, e.g. to-read/2026-09-07-mh-review.md")
+    p.add_argument("--to", choices=("delete", "archive", "learn"), default="delete")
+    p.set_defaults(func=cmd_finish)
     p = sub.add_parser("restore", help="bring back a note the owner deleted in the vault")
     p.add_argument("path", help="the note's path in the vault, as the deletion log lists it")
     p.set_defaults(func=cmd_restore)

@@ -84,6 +84,7 @@
                                    a note you delete is done and stays deleted (ela vault restore PATH)
   ela vault setup                  apply the vault's Obsidian settings from ela's versioned copy, then restart Obsidian
   ela vault guidance [--json]      the owner's `ela:` lines in his to-learn and archive notes, each handled once
+  ela vault finish PATH [--to delete|archive|learn]   on your word: finish with a note as you would in Obsidian
   ela secret NAME                  in your terminal: a credential typed at a prompt that does not echo, written to
                                    the site env file; never paste a token into a chat
   ela route <KEY>                  the routing facts: [Layer] token, ids, signal words per layer,

@@ -118,6 +118,15 @@ with tempfile.TemporaryDirectory() as tmp:
     check("a review untouched for 30 days in the vault is archived by ela", sync() == 0
           and os.path.exists(f"{vault}/archive/{today[:4]}-09-13-review-3.md") and not os.path.exists(f"{vault}/to-read/{today[:4]}-09-13-review-3.md"))
     check("but one whose source is old and that just arrived stays", os.path.exists(f"{vault}/to-read/{today[:4]}-09-14-review-4.md"))
+    V.cmd_finish(types.SimpleNamespace(path=f"to-read/{today[:4]}-09-14-review-4.md", to="archive"))
+    check("finish moves a note into the archive on his word, logged as his", os.path.exists(f"{vault}/archive/{today[:4]}-09-14-review-4.md")
+          and sync() == 0 and not os.path.exists(f"{vault}/to-read/{today[:4]}-09-14-review-4.md")
+          and any(r.get("by") == "owner" and r.get("fate") == "archived" and r["path"].endswith("review-4.md") for r in rows()))
+    try:
+        V.cmd_finish(types.SimpleNamespace(path="home.md", to="delete")); refused = False
+    except SystemExit:
+        refused = True
+    check("finish refuses a living page", refused and os.path.exists(f"{vault}/home.md"))
     os.makedirs(f"{vault}/to-learn", exist_ok=True)
     os.rename(f"{vault}/to-read/{today[:4]}-09-11-review-1.md", f"{vault}/to-learn/{today[:4]}-09-11-review-1.md")
     with open(f"{vault}/to-learn/{today[:4]}-09-11-review-1.md", "a") as fh:
@@ -144,15 +153,15 @@ with tempfile.TemporaryDirectory() as tmp:
     check("a missing reports root stops the sync", sync() == 3)
     check("and nothing was removed", os.path.exists(dec0))
     os.rename(reports + ".gone", reports)
-    for i in range(4, 20):
+    for i in range(5, 20):
         os.remove(f"{reports}/{today[:4]}-09-{i + 10}-review-{i}.md")
     check("the notes halving at once stops the sync", sync() == 3)
     check("--force applies a deliberate removal", sync(force=True) == 0 and not os.path.exists(f"{vault}/to-read/{today[:4]}-09-15-review-5.md"))
-    for i in range(4, 20):
+    for i in range(5, 20):
         open(f"{reports}/{today[:4]}-09-{i + 10}-review-{i}.md", "w").write(f"# Review {i}\n\nText.\n")
     sync(force=True)
     before = len(rows())
-    for i in range(4, 20):
+    for i in range(5, 20):
         os.remove(f"{vault}/to-read/{today[:4]}-09-{i + 10}-review-{i}.md")
     check("a mass disappearance is written again, not recorded as read", sync() == 0
           and os.path.exists(f"{vault}/to-read/{today[:4]}-09-15-review-5.md") and len(rows()) == before)
