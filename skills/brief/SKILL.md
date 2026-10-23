@@ -259,6 +259,10 @@ The page is read in Obsidian, so its form is fixed:
 - **An `apply N` is a drafted action on this page.** Number the actions in the order they appear, every one
   written beside its item; never name an action that is not on the page ("apply 1 is done" from yesterday is
   noise). An action already applied is said in words, without its old number.
+- **Instructions written in the vault.** Run `ela vault guidance --json` first: each line in a note starting
+  `ela:` (in any note, unhandled) is something he asked; the Slack service normally acts on it within minutes, so
+  one still listed here means it was not, and it becomes an item, or its drafted write an `apply N`. Append each id
+  you handled to the log the command names.
 - **One close path, named as such.** A close ela proposes goes through the board's batch (one confirm posts the
   proposals); a close the owner names is `close MH-…` in a session. `ela stage` reads a ticket's lanes; it closes
   nothing, so it is never written as the way to close.

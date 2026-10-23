@@ -67,7 +67,7 @@ with tempfile.TemporaryDirectory() as tmp:
     git("init", "-q"); git("add", "."); git(SAVE, "-qm", "x")
     open(f"{reports}/runner/{today}-brief.md", "w").write("# Brief\n\nShort.\n")
     open(f"{reports}/ela/{today}-long.md", "w").write("# Long review\n\n" + "word " * 3000)
-    for i in range(12):
+    for i in range(20):
         open(f"{reports}/{today[:4]}-09-{i + 10}-review-{i}.md", "w").write(f"# Review {i}\n\nText.\n")
     open(f"{vault}/mine.md", "w").write("the owner's own file")
     site = os.path.join(tmp, "site.json")
@@ -107,6 +107,17 @@ with tempfile.TemporaryDirectory() as tmp:
     check("a note he dragged into the archive is not written again", sync() == 0 and not os.path.exists(f"{vault}/to-read/{today[:4]}-09-10-review-0.md"))
     check("and stays in the archive, recorded as archived", os.path.exists(f"{vault}/archive/{today[:4]}-09-10-review-0.md")
           and any(r.get("fate") == "archived" and r["path"].endswith("review-0.md") for r in rows()))
+    rv = f"{vault}/to-read/{today[:4]}-09-12-review-2.md"
+    with open(rv, "a") as fh:
+        fh.write("\nela: post this to Jira\n")
+    check("his ela: line in a generated note survives its rewrite", sync() == 0 and "ela: post this to Jira" in open(rv).read())
+    check("and a sync after that writes nothing more", (lambda m: sync() == 0 and os.path.getmtime(rv) == m)(os.path.getmtime(rv)))
+    m = json.load(open(f"{vault}/{V.MANIFEST}"))
+    m["seen"][f"to-read/{today[:4]}-09-13-review-3.md"] = "2000-01-01"
+    json.dump(m, open(f"{vault}/{V.MANIFEST}", "w"))
+    check("a review untouched for 30 days in the vault is archived by ela", sync() == 0
+          and os.path.exists(f"{vault}/archive/{today[:4]}-09-13-review-3.md") and not os.path.exists(f"{vault}/to-read/{today[:4]}-09-13-review-3.md"))
+    check("but one whose source is old and that just arrived stays", os.path.exists(f"{vault}/to-read/{today[:4]}-09-14-review-4.md"))
     os.makedirs(f"{vault}/to-learn", exist_ok=True)
     os.rename(f"{vault}/to-read/{today[:4]}-09-11-review-1.md", f"{vault}/to-learn/{today[:4]}-09-11-review-1.md")
     with open(f"{vault}/to-learn/{today[:4]}-09-11-review-1.md", "a") as fh:
@@ -116,7 +127,7 @@ with tempfile.TemporaryDirectory() as tmp:
     with contextlib.redirect_stdout(buf):
         V.cmd_guidance(types.SimpleNamespace(all=False, json=True))
     g = json.loads(buf.getvalue())
-    check("an ela: line in a to-learn note is read as his guidance", [x["says"] for x in g["guidance"]] == ["write this to the KB"]
+    check("ela: lines anywhere in the vault are read as his guidance", sorted(x["says"] for x in g["guidance"]) == ["post this to Jira", "write this to the KB"]
           and len(g["to_learn"]) == 1)
     check("a note he dragged into to-learn is recorded so and left there", sync() == 0
           and os.path.exists(f"{vault}/to-learn/{today[:4]}-09-11-review-1.md") and not os.path.exists(f"{vault}/to-read/{today[:4]}-09-11-review-1.md")
@@ -133,15 +144,15 @@ with tempfile.TemporaryDirectory() as tmp:
     check("a missing reports root stops the sync", sync() == 3)
     check("and nothing was removed", os.path.exists(dec0))
     os.rename(reports + ".gone", reports)
-    for i in range(2, 12):
+    for i in range(4, 20):
         os.remove(f"{reports}/{today[:4]}-09-{i + 10}-review-{i}.md")
     check("the notes halving at once stops the sync", sync() == 3)
-    check("--force applies a deliberate removal", sync(force=True) == 0 and not os.path.exists(f"{vault}/to-read/{today[:4]}-09-12-review-2.md"))
-    for i in range(2, 12):
+    check("--force applies a deliberate removal", sync(force=True) == 0 and not os.path.exists(f"{vault}/to-read/{today[:4]}-09-15-review-5.md"))
+    for i in range(4, 20):
         open(f"{reports}/{today[:4]}-09-{i + 10}-review-{i}.md", "w").write(f"# Review {i}\n\nText.\n")
     sync(force=True)
     before = len(rows())
-    for i in range(2, 12):
+    for i in range(4, 20):
         os.remove(f"{vault}/to-read/{today[:4]}-09-{i + 10}-review-{i}.md")
     check("a mass disappearance is written again, not recorded as read", sync() == 0
           and os.path.exists(f"{vault}/to-read/{today[:4]}-09-15-review-5.md") and len(rows()) == before)

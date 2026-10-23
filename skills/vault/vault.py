@@ -41,7 +41,7 @@ HERE = os.path.dirname(os.path.realpath(__file__))
 JIRA = os.path.join(HERE, "..", "jira", "jira.py")
 SITE = os.path.expanduser("~/.claude/ela/site.json")
 MANIFEST = ".ela-sync.json"
-DAYS_KEPT, HELD_LISTED_DAYS, NEW_DAYS, MASS_DELETE = 14, 30, 7, 8
+DAYS_KEPT, HELD_LISTED_DAYS, NEW_DAYS, MASS_DELETE, UNREAD_DAYS = 14, 30, 7, 8, 30
 LAYOUT = 3                  # the manifest records it; a sync across a change of layout guards the total, not each folder
 DAYS, TO_READ, LIBRARY, ELA, ARCHIVE, TO_LEARN = "days", "to-read", "library", "ela", "archive", "to-learn"
 OWNER_FOLDERS = (TO_LEARN, ARCHIVE)   # where the owner drags a note to say what he wants; ela never rewrites in them
@@ -124,9 +124,9 @@ a warning, and Home lists it for 30 days as a rewrite ela owes.
 | it gone | delete it | nothing: its source stays in the reports and the backup |
 | nothing yet | leave it | it stays, or ela moves it on (below) |
 
-To tell ela what you want of a note, write a line starting `ela:` into it, anywhere, in your own words (Ctrl+E to
-edit, again to read), once the note is in `to-learn/` or `archive/`: those copies are yours and never rewritten, and
-ela handles each such line once, a place included ("write this to the KB", "into elak"); without one, ela chooses between a
+To tell ela what you want of a note, or to answer what it waits for, write a line starting `ela:` into the note,
+anywhere but above its hidden properties (the end is easiest: Ctrl+E, Ctrl+End, write, Ctrl+E), in your own words.
+Any note: a rewrite keeps your lines. The next morning or evening run handles each line once, a place included ("write this to the KB", "into elak"); without one, ela chooses between a
 library page here, its own knowledge in elak and the team's knowledge base (drafted, published on your word). A note
 still in `to-read/` is rewritten by the next sync, so move it first.
 
@@ -141,8 +141,9 @@ back from the nightly backup.
 
 What ela knows was acted on, it archives: a verification once its record is on the Jira ticket, a decision or plan
 once you have ruled on it (what it settled is written into a living page, `ela/` or `library/`). What merely
-expired, it removes: a passed verification nobody posted, after 14 days. A failed verification stays until you
-act on it. Everything else (a review, a report) is your call: archive it, delete it, or leave it.
+expired, it removes: a passed verification nobody posted, after 14 days. A review you leave untouched for 30 days it
+archives, so `to-read/` does not pile up. What waits for your word (a failed verification, a plan to rule on) stays
+until you give it, and the morning page reminds you; only the evening draft expires, after 14 days.
 
 ## What is not here
 
@@ -735,7 +736,8 @@ def home(today, now, notes):
         wait.append(f"{link(board)}: {waiting.group(1)} proposed closes assigned to you")
     # everything that needs his word, from typed state: a failed or blocked verification, a plan proposed to him, the
     # evening draft (a live view, so it leaves when he deletes the note), and proposed closes from the board
-    L += ["## Waiting for your word", ""] + [f"- {w}" for w in wait] + ([""] if wait else []) + [f"![[{ELA}/all-notes.base#Waiting for your word]]", ""]
+    L += ["## Waiting for your word", ""] + [f"- {w}" for w in wait] + ([""] if wait else []) + [f"![[{ELA}/all-notes.base#Waiting for your word]]", "",
+          "*Answer in the note: a line `ela: …` at its end, handled by the next morning or evening run; or in Slack.*", ""]
     if brief and brief.props["date"] == iso:
         head = re.split(r"^## ", re.sub(r"^#[ \t]+.*$", "", brief.body, count=1, flags=re.M), maxsplit=1, flags=re.M)[0].strip()
         L += ["## Today", ""] + ([head, ""] if head else [])   # the page's own line on its sources, and its summary
@@ -1010,8 +1012,8 @@ GUIDE = re.compile(r"^\s*(?:[-*>]\s*)*ela\s*[:：]\s*(.+?)\s*$", re.I | re.M)
 
 
 def cmd_guidance(a):
-    """The owner's instructions written into his notes: every line starting `ela:` in to-learn/ and archive/ (his
-    copies, never rewritten), with a stable id so a job handles each once (ids already in <reports>/ela/
+    """The owner's instructions written into his notes: every line starting `ela:` anywhere in the vault (a generated
+    note keeps his lines through its rewrite), with a stable id so a job handles each once (ids already in <reports>/ela/
     guidance-handled.jsonl are left out unless --all), and every to-learn note, guided or not."""
     import hashlib
     s = json.load(open(SITE))
@@ -1021,15 +1023,16 @@ def cmd_guidance(a):
     except (OSError, ValueError):
         done = set()
     lines, notes = [], []
-    for folder in OWNER_FOLDERS:
-        for top_, _, fs in os.walk(os.path.join(vault, folder)):
+    for top_, dirs, fs in os.walk(vault):
+        dirs[:] = [d for d in dirs if not d.startswith(".") and os.path.relpath(os.path.join(top_, d), vault).replace(os.sep, "/") != ATTACH]
+        if True:
             for f in sorted(fs):
                 if not f.endswith(".md"):
                     continue
                 p = os.path.join(top_, f)
                 rel = os.path.relpath(p, vault).replace(os.sep, "/")
                 text = open(p, encoding="utf-8").read()
-                if folder == TO_LEARN:
+                if top(rel) == TO_LEARN:
                     notes.append({"note": rel, "title": h1(split_front(text)[1]) or f[:-3]})
                 for m in GUIDE.finditer(text):
                     gid = hashlib.sha256(f"{f}\0{m.group(1)}".encode()).hexdigest()[:12]
@@ -1091,11 +1094,12 @@ def cmd_sync(a):
     fcntl.flock(lock, fcntl.LOCK_EX)                       # one sync at a time
     today, now = datetime.date.today(), datetime.datetime.now()
     mpath = os.path.join(vault, MANIFEST)
-    old, old_src, old_layout, old_gen = [], {}, None, {}
+    old, old_src, old_layout, old_gen, old_seen = [], {}, None, {}, {}
     if os.path.exists(mpath):
         try:
             m = json.load(open(mpath))
-            old, old_src, old_layout, old_gen = m["files"], m.get("sources") or {}, m.get("layout"), m.get("generated") or {}
+            old, old_src, old_layout, old_gen, old_seen = (m["files"], m.get("sources") or {}, m.get("layout"), m.get("generated") or {},
+                                                           m.get("seen") or {})
         except (ValueError, KeyError):
             print("vault: the manifest is unreadable; not synced (remove it deliberately to start over)", file=sys.stderr); sys.exit(3)
     # a note the sync wrote that is gone from disk was deleted by the owner: that is feedback, and it stays deleted
@@ -1120,6 +1124,19 @@ def cmd_sync(a):
     if newly and not a.dry_run:
         record_removed(removed_path, newly, old_src, now, archived)
     removed |= set(newly)
+    # a review left untouched in to-read for 30 days is archived by ela: kept, out of the way, never a decision taken
+    # for him (what waits for his word stays until he gives it)
+    # counted from the day the note entered the vault (the manifest's `seen`), not from the day its source was written
+    seen = {r: old_seen.get(r) or today.isoformat() for r in planned if r.endswith(".md")}
+    unread = [n for n in notes if top(n.path) == TO_READ and n.props.get("type") == "review" and n.path in seen
+              and (today - datetime.date.fromisoformat(seen[n.path])).days >= UNREAD_DAYS and os.path.exists(os.path.join(vault, n.path))]
+    if unread and not a.dry_run:
+        os.makedirs(os.path.join(vault, ARCHIVE), exist_ok=True)
+        for n in unread:
+            os.replace(os.path.join(vault, n.path), os.path.join(vault, ARCHIVE, os.path.basename(n.path)))
+            planned.pop(n.path, None)
+        record_removed(removed_path, [n.path for n in unread], {n.path: n.src_rel for n in unread}, now,
+                       {os.path.basename(n.path).lower(): ARCHIVE for n in unread}, by="ela")
     now_files = set(planned) | {dst for src, dst in files}
     if not a.force:
         # the notes as a whole halving is a failure until shown to be a removal (a source that read empty, a broken
@@ -1138,6 +1155,14 @@ def cmd_sync(a):
             listing[d] = set(os.listdir(d)) if os.path.isdir(d) else set()
         return listing[d]
     wrote, same = [], 0
+    for rel in [r for r in planned if r.endswith(".md")]:  # his `ela:` lines in a generated note outlive its rewrite
+        try:
+            disk = open(os.path.join(vault, rel), encoding="utf-8").read()
+        except OSError:
+            continue
+        mine = [m.group(0).strip() for m in GUIDE.finditer(disk) if m.group(0).strip() not in planned[rel]]
+        if mine:
+            planned[rel] = planned[rel].rstrip("\n") + "\n\n" + "\n".join(mine) + "\n"
     for rel, text in planned.items():
         p = os.path.join(vault, rel)
         d, name = os.path.split(p)
@@ -1199,7 +1224,8 @@ def cmd_sync(a):
         # later read as the owner's deletions
         atomic_write(mpath, json.dumps({"synced": now.isoformat(timespec="seconds"), "layout": LAYOUT, "files": sorted(now_files),
                                         "sources": {n.path: n.src_rel for n in notes if n.src_rel},
-                                        "generated": {r: digest(t) for r, t in planned.items() if r.endswith(".base")}}, indent=0))
+                                        "generated": {r: digest(t) for r, t in planned.items() if r.endswith(".base")},
+                                        "seen": {r: d for r, d in seen.items() if r in planned}}, indent=0))
         for rel in gone:
             try:
                 os.remove(os.path.join(vault, rel))
@@ -1213,7 +1239,7 @@ def cmd_sync(a):
                 except OSError:
                     break
     held = [{"note": n.path, "problems": n.held} for n in notes if n.held]
-    r = {"dry_run": a.dry_run, "deleted_by_owner": newly, "archived_by_ela": to_archive, "notes": len(planned), "written": len(wrote), "unchanged": same, "files_copied": copied,
+    r = {"dry_run": a.dry_run, "deleted_by_owner": newly, "archived_by_ela": to_archive + [n.path for n in unread], "notes": len(planned), "written": len(wrote), "unchanged": same, "files_copied": copied,
          "removed": gone, "held": held, "warnings": warnings}
     if a.json:
         print(json.dumps(r, ensure_ascii=False)); return
@@ -1244,7 +1270,7 @@ def main():
     p.set_defaults(func=cmd_sync)
     p = sub.add_parser("setup", help="apply the vault's Obsidian settings from ela's versioned copy, then restart Obsidian")
     p.set_defaults(func=cmd_setup)
-    p = sub.add_parser("guidance", help="the owner's `ela:` lines in to-learn/ and archive/, and the notes in to-learn")
+    p = sub.add_parser("guidance", help="the owner's `ela:` lines anywhere in the vault, and the notes in to-learn")
     p.add_argument("--all", action="store_true", help="include instructions already handled")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_guidance)
