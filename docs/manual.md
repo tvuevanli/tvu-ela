@@ -44,6 +44,7 @@ flowchart LR
 | 只想先看 Jira 这几条线：谁超时没更新、谁没人接、哪张该拆没拆 | `brief` | `ela brief` · `ela brief --lane triage` |
 | 昨天发生了什么：按 case 把 Jira 变化、commit、Slack 串起来，没有 ticket 的代码和讨论单列，ela 自己做了什么 | `brief` | `ela yesterday` · `ela yesterday --hours 72` |
 | 在 Obsidian 里读 ela 给我的东西：当天的页、review、验收、决定与计划，票号直接链到 Jira；超出阅读预算的笔记顶部带警告，并在 Home 列为 ela 欠的改写 | `vault` | `ela vault sync` · `ela vault sync --dry-run` |
+| 输入一个凭据（token）且不经过聊天：在自己的终端里运行，输入不回显，直接写入 ela 的 env 文件 | `setup` | `ela secret SLACK_BOT_TOKEN` |
 | 一个复杂需求进来，要拆成各层的活并派人 | `breakdown` | `/ela:breakdown MH-3568` |
 | 一张别人写的票落到你手上，先要看懂它才谈得上判断 | `explain` | `/ela:explain MH-3568` |
 | 一张旧票挂了很久，先要判断它还有没有必要存在 | `revisit` | `/ela:revisit MH-1649` |

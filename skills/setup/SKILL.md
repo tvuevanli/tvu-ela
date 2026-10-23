@@ -8,6 +8,10 @@ user-invocable: true
 
 Self-contained. Never prints a secret value; only key names and probe results.
 
+**A credential is never asked for in the conversation.** When a token is missing or rotated, ask the owner to run
+`ela secret <NAME>` in his own terminal: the prompt does not echo and the value goes straight into the env file.
+A token that has already appeared in a conversation is rotated first, then entered this way.
+
 ## Invariants
 - Everything you write goes under `~/.claude/ela/` only. Never into the plugin, never into a repo.
 - Host addresses (`hosts`) live **only** here. No tracked file names a git host by address; documents
