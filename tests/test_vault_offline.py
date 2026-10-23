@@ -60,15 +60,20 @@ with tempfile.TemporaryDirectory() as tmp:
         os.makedirs(d)
     today = datetime.date.today().isoformat()
     for i in range(6):
-        open(f"{ELAK}/blueprint/decisions/{today[:4]}-0{i + 1}-01-decision-{i}.md", "w").write(f"---\nreader: owner\n---\n# Decision {i}\n\nText.\n")
-    open(f"{ELAK}/blueprint/decisions/{today[:4]}-01-02-internal.md", "w").write("# How a script is built\n\nText.\n")
+        open(f"{ELAK}/blueprint/decisions/{today[:4]}-0{i + 1}-01-decision-{i}.md", "w").write(
+            f"---\nreader: owner\nstatus: proposed\n---\n# Decision {i}\n\nText.\n")
+    open(f"{ELAK}/blueprint/decisions/{today[:4]}-01-02-internal.md", "w").write("---\nstatus: proposed\n---\n# How a script is built\n\nText.\n")
+    open(f"{ELAK}/blueprint/decisions/{today[:4]}-01-03-ruled.md", "w").write("---\nreader: owner\nstatus: decided\n---\n# Ruled\n\nText.\n")
     git("init", "-q"); git("add", "."); git(SAVE, "-qm", "x")
     open(f"{reports}/runner/{today}-brief.md", "w").write("# Brief\n\nShort.\n")
     open(f"{reports}/ela/{today}-long.md", "w").write("# Long review\n\n" + "word " * 3000)
+    for i in range(12):
+        open(f"{reports}/{today[:4]}-09-{i + 10}-review-{i}.md", "w").write(f"# Review {i}\n\nText.\n")
     open(f"{vault}/mine.md", "w").write("the owner's own file")
     site = os.path.join(tmp, "site.json")
     json.dump({"vault": vault, "elak": ELAK, "reports": reports, "runtime": runtime}, open(site, "w"))
     V.SITE = site
+    log = f"{reports}/ela/vault-removed.jsonl"
 
     def sync(force=False):
         a = types.SimpleNamespace(env_file=os.path.join(tmp, "none.env"), dry_run=False, force=force, json=True)
@@ -76,53 +81,61 @@ with tempfile.TemporaryDirectory() as tmp:
             V.cmd_sync(a); return 0
         except SystemExit as e:
             return e.code or 0
+    def rows():
+        try:
+            return [json.loads(l) for l in open(log)]
+        except OSError:
+            return []
     check("a first sync succeeds", sync() == 0)
     stamp = {f: os.path.getmtime(os.path.join(dp, f)) for dp, _, fs in os.walk(vault) for f in fs if f.endswith(".md")}
     check("a second sync with nothing new writes nothing", sync() == 0 and
           all(os.path.getmtime(os.path.join(dp, f)) == stamp.get(f) for dp, _, fs in os.walk(vault) for f in fs if f.endswith(".md")))
-    dec0 = f"{vault}/records/{today[:4]}/{today[:4]}-01-01-decision-0.md"
-    check("a decision lands in its year folder", os.path.exists(dec0))
-    check("a decision not written for the owner stays out", not os.path.exists(f"{vault}/records/{today[:4]}/{today[:4]}-01-02-internal.md"))
+    dec0 = f"{vault}/to-read/{today[:4]}-01-01-decision-0.md"
+    check("a decision waiting for his ruling is in to-read", os.path.exists(dec0))
+    check("one not written for him stays out", not os.path.exists(f"{vault}/to-read/{today[:4]}-01-02-internal.md"))
+    check("one already ruled on stays out", not os.path.exists(f"{vault}/to-read/{today[:4]}-01-03-ruled.md"))
     check("a long review is written, under a warning", "[!warning]" in open(f"{vault}/to-read/{today}-long.md").read())
     home = open(f"{vault}/home.md").read()
-    check("Home embeds today's page and lists what ela owes", "![[days/" in home and "all-notes.base#To read" in home and "#Waiting for your word" in home and "ela owes a shorter version" in home)
+    check("Home embeds today's page, the waiting and to-read views, and what ela owes", "![[days/" in home and "all-notes.base#To read" in home
+          and "#Waiting for your word" in home and "ela owes a shorter version" in home)
     check("a decision carries its title as an alias and a meta line", 'aliases: ["Decision 0"]' in open(dec0).read() and "*decision · " in open(dec0).read())
     os.remove(dec0)
     check("a note the owner deleted is not written again", sync() == 0 and not os.path.exists(dec0))
-    m = json.load(open(f"{vault}/{V.MANIFEST}")); m["layout"] = 1; m["sources"] = {}
-    json.dump(m, open(f"{vault}/{V.MANIFEST}", "w"))
-    V.RECORDS = "records-next"
-    check("a new layout syncs without --force", sync() == 0)
-    check("and a deleted note stays deleted under its new path, matched by source",
-          not os.path.exists(f"{vault}/records-next/{today[:4]}/{today[:4]}-01-01-decision-0.md")
-          and os.path.exists(f"{vault}/records-next/{today[:4]}/{today[:4]}-02-01-decision-1.md"))
-    V.RECORDS = "records"
-    m = json.load(open(f"{vault}/{V.MANIFEST}")); m["layout"] = 1
-    json.dump(m, open(f"{vault}/{V.MANIFEST}", "w"))
-    check("and moving back works too", sync() == 0 and not os.path.exists(f"{vault}/records-next"))
-    check("and the deletion is recorded, not as feedback", "Decision 0" in open(f"{reports}/ela/vault-removed.jsonl").read())
+    check("and it is recorded as deleted by him", any(r.get("fate") == "deleted" and r.get("by") == "owner" and r["path"].endswith("decision-0.md") for r in rows()))
+    os.makedirs(f"{vault}/archive", exist_ok=True)
+    os.rename(f"{vault}/to-read/{today[:4]}-09-10-review-0.md", f"{vault}/archive/{today[:4]}-09-10-review-0.md")
+    check("a note he dragged into the archive is not written again", sync() == 0 and not os.path.exists(f"{vault}/to-read/{today[:4]}-09-10-review-0.md"))
+    check("and stays in the archive, recorded as archived", os.path.exists(f"{vault}/archive/{today[:4]}-09-10-review-0.md")
+          and any(r.get("fate") == "archived" and r["path"].endswith("review-0.md") for r in rows()))
+    os.makedirs(f"{vault}/to-learn", exist_ok=True)
+    os.rename(f"{vault}/to-read/{today[:4]}-09-11-review-1.md", f"{vault}/to-learn/{today[:4]}-09-11-review-1.md")
+    check("a note he dragged into to-learn is recorded so and left there", sync() == 0
+          and os.path.exists(f"{vault}/to-learn/{today[:4]}-09-11-review-1.md") and not os.path.exists(f"{vault}/to-read/{today[:4]}-09-11-review-1.md")
+          and any(r.get("fate") == "to-learn" and r["path"].endswith("review-1.md") for r in rows()))
+    p1 = f"{ELAK}/blueprint/decisions/{today[:4]}-02-01-decision-1.md"
+    open(p1, "w").write(open(p1).read().replace("status: proposed", "status: decided"))
+    git("add", "-A"); git(SAVE, "-qm", "ruled")
+    check("a decision he ruled on is archived by ela", sync() == 0 and os.path.exists(f"{vault}/archive/{today[:4]}-02-01-decision-1.md")
+          and not os.path.exists(f"{vault}/to-read/{today[:4]}-02-01-decision-1.md")
+          and any(r.get("by") == "ela" and r.get("fate") == "archived" for r in rows()))
     V.cmd_restore(types.SimpleNamespace(path=os.path.relpath(dec0, vault)))
-    check("restore brings it back on the next sync", sync() == 0 and os.path.exists(dec0))
+    check("restore brings a deleted note back on the next sync", sync() == 0 and os.path.exists(dec0))
     os.rename(reports, reports + ".gone")
     check("a missing reports root stops the sync", sync() == 3)
     check("and nothing was removed", os.path.exists(dec0))
     os.rename(reports + ".gone", reports)
-    for i in range(4):
-        os.remove(f"{ELAK}/blueprint/decisions/{today[:4]}-0{i + 1}-01-decision-{i}.md")
-    git("add", "-A"); git(SAVE, "-qm", "y")
-    check("a folder that halves stops the sync", sync() == 3)
-    check("--force applies a deliberate removal", sync(force=True) == 0 and not os.path.exists(dec0))
-    for f in os.listdir(f"{vault}/records/{today[:4]}"):
-        os.remove(f"{vault}/records/{today[:4]}/{f}")
-    for i in range(10, 22):
-        open(f"{ELAK}/blueprint/decisions/{today[:4]}-11-{i}-more-{i}.md", "w").write(f"---\nreader: owner\n---\n# More {i}\n\nText.\n")
-    git("add", "."); git(SAVE, "-qm", "more")
+    for i in range(2, 12):
+        os.remove(f"{reports}/{today[:4]}-09-{i + 10}-review-{i}.md")
+    check("the notes halving at once stops the sync", sync() == 3)
+    check("--force applies a deliberate removal", sync(force=True) == 0 and not os.path.exists(f"{vault}/to-read/{today[:4]}-09-12-review-2.md"))
+    for i in range(2, 12):
+        open(f"{reports}/{today[:4]}-09-{i + 10}-review-{i}.md", "w").write(f"# Review {i}\n\nText.\n")
     sync(force=True)
-    for f in os.listdir(f"{vault}/records/{today[:4]}"):
-        os.remove(f"{vault}/records/{today[:4]}/{f}")
-    log_before = open(f"{reports}/ela/vault-removed.jsonl").read()
-    check("a mass disappearance is written again, not recorded as read", sync(force=True) == 0
-          and len(os.listdir(f"{vault}/records/{today[:4]}")) >= 2 and open(f"{reports}/ela/vault-removed.jsonl").read() == log_before)
+    before = len(rows())
+    for i in range(2, 12):
+        os.remove(f"{vault}/to-read/{today[:4]}-09-{i + 10}-review-{i}.md")
+    check("a mass disappearance is written again, not recorded as read", sync() == 0
+          and os.path.exists(f"{vault}/to-read/{today[:4]}-09-15-review-5.md") and len(rows()) == before)
     check("a file the sync never wrote is never removed", os.path.exists(f"{vault}/mine.md"))
     os.makedirs(f"{vault}/library", exist_ok=True)
     native = f"{vault}/library/topic-a.md"

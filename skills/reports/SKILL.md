@@ -46,6 +46,10 @@ the note's meta line links and the topic's backlinks then list; and, on a plan o
 ruling, `status: proposed`, which puts it in Home's *To read* until the status changes. A mermaid timeline's
 periods carry no colon (`6.30 am`, not `06:30`): the colon separates a period from its event.
 
+Where the owner drags a note states his intent: `to-learn/` (distil it), `archive/` (keep it) or the
+bin. A `to-learn/` entry he keeps from the evening draft is written where the draft said (a library page for what he
+reads, elak for ela's own knowledge), and the note is then moved into `archive/` in the same pass.
+
 ## What a report is now
 
 - **ela's own design and abilities are not a report.** They live in the owner's vault (`ela/overview.md`, its source since 2026-10-23), which the owner

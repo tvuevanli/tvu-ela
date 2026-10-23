@@ -33,6 +33,21 @@ review and a survey of current Obsidian practice informed the choices below.
 - **No inbox page.** Feedback stays in Slack (`feedback …`) and sessions: the laptop only receives the vault, and
   a page both sides write would break the one-way rule ADR 0009 kept.
 
+## Amended the same day
+
+- **No records folder.** A decision or plan is in `to-read/` only while it waits for his ruling (`status: proposed`);
+  once ruled, what it settled is written into a living page (`ela/`, `library/`) and the record stays in elak, for
+  ela. A record of how ela was built is not something he reads.
+- **Finishing has three moves, all his:** drag into `to-learn/` (distil it: the evening draft proposes the
+  conclusion and its place, written on his keep), drag into `archive/` (keep it, no meaning attached: unused but not
+  deleted), or delete. ela archives on its own only what it knows was acted on: a verification whose record went up
+  to Jira, a decision or plan he ruled on. A passed verification nobody posted leaves after 14 days; a failed one
+  stays.
+- **Waiting for his word is one live view** built from typed state (a failed or blocked verification, a proposed
+  plan, the evening draft), embedded on Home.
+- **Value lists ela enforces are data in elak, rendered into the vault** (the Jira vocabulary): he reads them in
+  Obsidian, ela reads the file, and neither is a copy of the other.
+
 ## Consequences
 
 - The deletion log records each note's source as well as its path, and the manifest records the layout, so a

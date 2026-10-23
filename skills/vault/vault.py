@@ -18,8 +18,8 @@ its date, so a folder sorts by time. Folders carry no numbers: Home and the book
     home.md, board.md                           the entry point; the board's debt, one living page
     days/<year>/<date>-brief.md                 the morning page, kept; -learned beside it for 14 days
     to-read/<date>-<slug>.md                    reviews and verifications to read; deleted when read; a verification
-    to-read/<date>-verify-<key>.md              leaves after 14 days and lives on its Jira ticket
-    records/<year>/<date>-<slug>.md             decisions, plans and sprints from elak (`type` tells them apart)
+    to-read/<date>-verify-<key>.md              leaves once its record is on the Jira ticket, or a pass after 14 days
+    to-read/<date>-<slug>.md                    also a decision or plan from elak while it waits for his ruling
     library/                                    topic pages (the vault is their source), the index, the sources
     ela/                                        about this vault, how ela works and runs, the table view, and
     ela/attachments/verify/<year-month>/<record>/   each verification record copied whole, hidden in the explorer
@@ -41,10 +41,11 @@ JIRA = os.path.join(HERE, "..", "jira", "jira.py")
 SITE = os.path.expanduser("~/.claude/ela/site.json")
 MANIFEST = ".ela-sync.json"
 DAYS_KEPT, HELD_LISTED_DAYS, NEW_DAYS, MASS_DELETE = 14, 30, 7, 8
-LAYOUT = 2                  # the manifest records it; a sync across a change of layout guards the total, not each folder
-DAYS, TO_READ, RECORDS, LIBRARY, ELA = "days", "to-read", "records", "library", "ela"
+LAYOUT = 3                  # the manifest records it; a sync across a change of layout guards the total, not each folder
+DAYS, TO_READ, LIBRARY, ELA, ARCHIVE, TO_LEARN = "days", "to-read", "library", "ela", "archive", "to-learn"
+OWNER_FOLDERS = (TO_LEARN, ARCHIVE)   # where the owner drags a note to say what he wants; ela never rewrites in them
 ATTACH = "ela/attachments"
-DELETABLE = (DAYS, TO_READ, RECORDS)
+DELETABLE = (DAYS, TO_READ)
 KEEP_FOREVER = ("brief",)   # the morning page is the record of what ela told the owner; the rest expires
 PROPS = ("title", "aliases", "type", "date", "kind", "status")   # the whole vocabulary; no tags (ADR 0010)
 BUDGET = {"topic": 800, "guide": 1200, "board": 1000, "day": 1200, "review": 2500, "decision": 1200, "plan": 2500, "sprint": 800}
@@ -86,10 +87,11 @@ Start at [[home]]: what waits for your word, today's page, and what there is to 
 |---|---|---|
 | `home`, `board` | today, and the board's debt | look at them each morning |
 | `days/<year>/` | the morning pages, kept; the evening learning draft, 14 days | look back |
-| `to-read/` | reviews and verification results, newest first; a passed verification leaves after 14 days, a failed one stays | read, then delete |
-| `records/<year>/` | decisions, plans and sprints | look up |
+| `to-read/` | reviews, verification results, and plans or decisions waiting for your ruling, newest first | read, then delete |
 | `library/` | one summary page per topic, with links to the originals | look up |
 | `ela/` | how ela works and runs, this page, the table view; attachments, hidden | rarely |
+| `to-learn/` | what you want distilled into knowledge | drag a note in |
+| `archive/` | what was acted on or you chose to keep; ela adds to it, never rewrites it | look back; ask ela to tidy it |
 
 Folders are named for what you do with a note and carry no numbers: Home and the bookmarks are the way in, and
 the file explorer is rarely needed.
@@ -112,14 +114,28 @@ A note is written for a person: a title heading, within its budget (day page 1,2
 decision 1,200, plan 2,500, sprint 800), mostly prose, no machine paths. A note that misses is still here, under
 a warning, and Home lists it for 30 days as a rewrite ela owes.
 
-## Deleting a note
+## Finishing with a note
 
-Delete a note in `days/`, `to-read/` or `records/` when you are done with it, on the desktop (the laptop only
-receives). ela records it as read and does not write it again; a living page (Home, the board, the library, how
-ela runs) is simply written again. A generated note's source stays in ela's reports or elak; a page ela writes in
-place (a library topic, how ela works) is in the nightly backup. A deletion means done, never
-a verdict: deleting a decision does not revoke it; to change one, tell ela. `ela vault restore <path>` brings a
-generated note back; a page ela writes in place comes back from the nightly backup.
+| you want | do | ela does |
+|---|---|---|
+| what it says kept as knowledge | drag it into `to-learn/` | that evening's draft proposes the conclusion and where it goes (a library page, or ela's own knowledge); on your keep it is written and the note moves to `archive/` |
+| to keep it, nothing more | drag it into `archive/` | nothing: it is never written again, and the copy, with its screenshots, is yours |
+| it gone | delete it | nothing: its source stays in the reports and the backup |
+| nothing yet | leave it | it stays, or ela moves it on (below) |
+
+Ask ela now and then to tidy the archive.
+
+Do it on the desktop; the laptop only receives. A living page (Home, the board, the library, how ela runs) is
+written again whatever happens to it. Finishing is never a verdict: deleting a decision does not revoke it; to
+change one, tell ela. `ela vault restore <path>` brings back a generated note; a page ela writes in place comes
+back from the nightly backup.
+
+## What ela moves on by itself
+
+What ela knows was acted on, it archives: a verification once its record is on the Jira ticket, a decision or plan
+once you have ruled on it (what it settled is written into a living page, `ela/` or `library/`). What merely
+expired, it removes: a passed verification nobody posted, after 14 days. A failed verification stays until you
+act on it. Everything else (a review, a report) is your call: archive it, delete it, or leave it.
 
 ## What is not here
 
@@ -161,6 +177,9 @@ VIEWS = {
     "all-notes": """filters:
   and:
     - 'file.ext == "md"'
+    - not:
+        - file.inFolder("archive")
+        - file.inFolder("to-learn")
     - 'type != "home"'
     - 'type != "readme"'
 """ + FORMULAS + """views:
@@ -180,15 +199,6 @@ VIEWS = {
         - 'status != "blocked"'
         - 'status != "proposed"'
     order: [date, formula.note, type]
-    sort:
-      - property: date
-        direction: DESC
-  - type: table
-    name: Records
-    filters:
-      and:
-        - file.inFolder("records")
-    order: [date, formula.note, type, status]
     sort:
       - property: date
         direction: DESC
@@ -330,19 +340,22 @@ def elak_notes(elak):
         base = os.path.basename(rel)[:-3]
         kind = {"decisions": "decision", "plans": "plan", "sprints": "sprint"}[rel.split("/")[1]]
         titles[rel] = sentence(h1(body) or base.replace("-", " "))
-        # most decisions record how ela is built; only those marked `reader: owner` are written for Evan
-        if kind != "sprint" and not any(re.match(r"^reader:\s*owner\b", l) for l in fl):
+        # a decision or plan is in the vault only while it waits for the owner's ruling (`reader: owner` and
+        # `status: proposed`); once decided, what it settled is written into a living page (ela/, library/) and the
+        # record stays in elak, for ela (ADR 0010)
+        if kind != "sprint" and not (any(re.match(r"^reader:\s*owner\b", l) for l in fl)
+                                     and any(re.match(r"^status:\s*['\"]?proposed\b", l) for l in fl)):
             continue
         title = sentence(h1(body) or base.replace("-", " "))
         titles[rel] = title
         sp = re.match(r"^(\d{4})-[sS](\d{2})$", base)
         dm = re.match(r"^(\d{4}-\d{2}-\d{2})-(.+)$", base)
         if sp:
-            path, date = f"{RECORDS}/{sp.group(1)}/{sp.group(1)}-s{sp.group(2)}.md", None
+            path, date = f"{DAYS}/{sp.group(1)}/{sp.group(1)}-s{sp.group(2)}.md", None
         elif dm:
-            path, date = f"{RECORDS}/{dm.group(1)[:4]}/{dm.group(1)}-{slug(dm.group(2))}.md", dm.group(1)
+            path, date = f"{TO_READ}/{dm.group(1)}-{slug(dm.group(2))}.md", dm.group(1)
         else:
-            path, date = f"{RECORDS}/{slug(base)}.md", None
+            path, date = f"{TO_READ}/{slug(base)}.md", None
         notes.append(Note(path, title, body, {"type": kind, "date": date}, fl, src_rel=rel))
     # pages at the top of elak's blueprint marked for the owner go to ela/
     top_files = subprocess.run(["git", "-C", elak, "ls-files", "-z", "--", "blueprint/*.md"], capture_output=True, text=True).stdout.split("\0")
@@ -438,10 +451,27 @@ def verify_path(key, date, extra):
     return f"{TO_READ}/{date}-verify-{key.lower()}{extra}.md"
 
 
+def posted_to_jira(reports):
+    """{key: [times]} ela attached a file to the ticket (a verification's record goes up as its PDF), from ela's write log."""
+    out = {}
+    try:
+        for line in open(os.path.join(reports, "ela", "writes.jsonl"), encoding="utf-8"):
+            try:
+                w = json.loads(line)
+            except ValueError:
+                continue
+            if w.get("system") == "jira" and w.get("verb") == "attach" and w.get("ok") and w.get("key"):
+                out.setdefault(w["key"], []).append(w.get("at") or "")
+    except OSError:
+        pass
+    return out
+
+
 def verify_notes(reports, today=None):
     """One note per verification record. A record folder is copied whole into the attachments, so its own page,
     which refers to its images by relative path, still opens from the vault."""
     notes, files = [], []
+    posted = posted_to_jira(reports)
     vd = os.path.join(reports, "verify")
     for name in sorted(os.listdir(vd)) if os.path.isdir(vd) else []:
         m = re.match(r"^([A-Z][A-Z0-9]+-\d+)-(\d{4}-\d{2}-\d{2})(-[a-z0-9-]+)?(\.html)?$", name)
@@ -455,6 +485,8 @@ def verify_notes(reports, today=None):
             (record_verdict(p_ if single else os.path.join(p_, "record.html")) or [None])[0]
         if today and (today - datetime.date.fromisoformat(date)).days >= DAYS_KEPT and verdict_now not in ("FAIL", "BLOCKED"):
             continue
+        if any(at[:10] >= date for at in posted.get(key, [])):
+            continue                                       # the result is on the ticket, where the report lives; he confirmed it
         if any(re.match(rf"^{key}-(\d{{4}}-\d{{2}}-\d{{2}}){re.escape(extra)}(\.html)?$", o) and o[len(key) + 1:len(key) + 11] > date
                for o in os.listdir(vd)):
             continue                                       # a later run on the same lane replaces this one
@@ -737,7 +769,7 @@ def native_notes(vault):
     place (the overview, the workflow, plans for his decision, the library's topic pages). Read, never written."""
     out = []
     for top_, dirs, fs in os.walk(vault):
-        dirs[:] = [d for d in dirs if not d.startswith(".") and os.path.relpath(os.path.join(top_, d), vault).replace(os.sep, "/") != ATTACH]
+        dirs[:] = [d for d in dirs if not d.startswith(".") and os.path.relpath(os.path.join(top_, d), vault).replace(os.sep, "/") not in (ATTACH,) + OWNER_FOLDERS]
         for f in fs:
             if not f.endswith(".md"):
                 continue
@@ -757,6 +789,46 @@ def native_notes(vault):
             rel = os.path.relpath(p, vault).replace(os.sep, "/")
             out.append(Note(rel, props.pop("title", None) or h1(body) or f[:-3], body, props, fl))
     return out
+
+
+def vocabulary_note(elak):
+    """The Jira vocabulary ela enforces (<elak>/map/jira-labels.yaml), rendered for the owner: one section per
+    namespace, headed by its prefix so a design page can embed one (`![[library/jira-vocabulary#proto]]`). The data
+    stays in elak, where ela reads it; this page is its view, never a copy to edit."""
+    p = os.path.join(elak or "", "map", "jira-labels.yaml")
+    if not os.path.isfile(p):
+        return None
+    sys.path.insert(0, os.path.join(HERE, "..", "release"))
+    from release import _yaml_subset                       # the stdlib subset reader the release map uses
+    d = _yaml_subset(open(p, encoding="utf-8").read()) or {}
+    def cell(x):
+        return str(x if x is not None else "").replace("|", "/").replace("\n", " ")
+    L = ["# Jira vocabulary for MH", "",
+         f"*Every component and label value ela writes, read from Jira on {d.get('read', '?')} ({d.get('tickets', '?')} tickets, "
+         f"{d.get('open', '?')} open); {d.get('status') or 'in force'}. The rules: [[{LIBRARY}/jira-labels-and-components|Labels and components]].*", ""]
+    for n in d.get("namespaces") or []:
+        vals = n.get("values") or []
+        L += [f"## {n.get('prefix')}", "", f"*{cell(n.get('meaning'))}* · {len(vals)} values", ""]
+        moving = any(v.get("to") or v.get("action") in ("rename", "retire") for v in vals) and not any(v.get("meaning") for v in vals[:1]) \
+            or n.get("prefix") in ("bare", "old-component")
+        if moving:                                         # a migration table: where each current value goes
+            L += ["| value | open | all | becomes |", "|---|---|---|---|"]
+            L += [f"| {cell(v.get('value'))} | {cell(v.get('count_open'))} | {cell(v.get('count_all'))} | "
+                  f"{cell(v.get('to')) if v.get('to') else cell(v.get('action'))} |" for v in vals]
+        else:
+            extra = "example" if any(v.get("example") for v in vals) else "aliases" if any(v.get("aliases") for v in vals) else None
+            count = "estimated" if any(v.get("trial") is not None for v in vals) else None   # a component not yet in use: its estimate
+            L += [f"| value | meaning |{f' {extra} |' if extra else ''} {'estimated |' if count else 'open | all |'} action |",
+                  "|---|---|" + ("---|" if extra else "") + ("---|" if count else "---|---|") + "---|"]
+            for v in vals:
+                ex = v.get(extra) if extra else None
+                ex = ", ".join(ex) if isinstance(ex, list) else ex
+                nums = f" {cell(v.get('trial'))} |" if count else f" {cell(v.get('count_open'))} | {cell(v.get('count_all'))} |"
+                L.append(f"| `{cell(v.get('value'))}` | {cell(v.get('meaning'))} |" + (f" {cell(ex)} |" if extra else "") + nums
+                         + f" {cell(v.get('to') or v.get('action'))} |")
+        L.append("")
+    return Note(f"{LIBRARY}/jira-vocabulary.md", "Jira vocabulary for MH", "\n".join(L), {"type": "vocabulary", "date": d.get("read")},
+                src_rel="elak:map/jira-labels.yaml")
 
 
 def library_index(topics):
@@ -791,6 +863,9 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset()):
     by_topic = {os.path.basename(n.path)[:-3]: n for n in topics}
     if topics:
         notes.append(library_index(topics))
+    vocab = vocabulary_note(s.get("elak"))
+    if vocab:
+        notes.append(vocab)
     taken = set()
     for n in notes:                                        # one note per path; a namesake gets -2, never an overwrite
         stem, i = n.path[:-3], 2
@@ -840,14 +915,43 @@ def load_removed(path):
     return paths, set(src_of.values())
 
 
-def record_removed(path, rels, sources, now):
-    """Log each note the owner deleted: he has read it and is done with it, so it stays out of the vault. A deletion
-    is not criticism, and not a verdict on a decision; feedback comes as a message (Slack `feedback`, a session)."""
+def archive_names(vault):
+    """{file name, lowercased: folder} under to-learn/ and archive/: a generated note that left its folder and
+    appears there was moved by the owner, and the folder says what he meant."""
+    out = {}
+    for folder in OWNER_FOLDERS:
+        for top_, _, fs in os.walk(os.path.join(vault, folder)):
+            out.update({f.lower(): folder for f in fs if f.endswith(".md")})
+    return out
+
+
+def archive_refs(vault):
+    """Attachments the archived notes embed or link (a verification's screenshots and record), kept on disk so an
+    archived note still shows them; they leave the manifest and are the owner's from then on."""
+    refs = set()
+    for top_, _, fs in (w for folder in OWNER_FOLDERS for w in os.walk(os.path.join(vault, folder))):
+        for f in fs:
+            if f.endswith(".md"):
+                try:
+                    text = open(os.path.join(top_, f), encoding="utf-8").read()
+                except OSError:
+                    continue
+                refs |= {m.lower() for m in re.findall(r"\[\[(" + re.escape(ATTACH) + r"/[^\]|#]+)", text)}
+    # a record's page sits beside its images: keep the whole record folder of anything referenced
+    return {r.rsplit("/img/", 1)[0] if "/img/" in r else os.path.dirname(r) for r in refs}
+
+
+def record_removed(path, rels, sources, now, archived=None, by="owner"):
+    """Log each note the owner finished with: dragged into to-learn/ (distil it), into archive/ (keep it, nothing to
+    do) or deleted (drop it). Each way he has read it, so it stays out of the generated folders. None is criticism or
+    a verdict on a decision; feedback comes as a message (Slack `feedback`, a session)."""
+    archived = archived or {}
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "a", encoding="utf-8") as fh:
         for r in rels:
             title = sentence(re.sub(r"^\d{4}-\d{2}-\d{2}-", "", os.path.basename(r)[:-3]).replace("-", " "))
-            row = {"at": now.isoformat(timespec="seconds"), "path": r, "title": title}
+            row = {"at": now.isoformat(timespec="seconds"), "path": r, "title": title,
+                   "fate": {TO_LEARN: "to-learn", ARCHIVE: "archived"}.get(archived.get(os.path.basename(r).lower()), "deleted"), "by": by}
             if sources.get(r):
                 row["src"] = sources[r]
             fh.write(json.dumps(row, ensure_ascii=False) + "\n")
@@ -956,39 +1060,32 @@ def cmd_sync(a):
     # ela runs) is rewritten whatever happens to it
     newly = sorted(r for r in old if r.endswith(".md") and r not in removed and top(r) in DELETABLE
                    and not os.path.exists(os.path.join(vault, r)))
-    mass = len(newly) > MASS_DELETE
+    archived = archive_names(vault)
+    kept = [r for r in newly if os.path.basename(r).lower() in archived]
+    mass = len(newly) - len(kept) > MASS_DELETE
     if mass:
-        print(f"vault: {len(newly)} notes vanished in one go; not recorded as read, written again (a move or a wipe, not reading)", file=sys.stderr)
-        newly = []
+        print(f"vault: {len(newly) - len(kept)} notes vanished in one go; not recorded as read, written again (a move or a wipe, "
+              "not reading)", file=sys.stderr)
+        newly = kept
     try:
         planned, files, notes, warnings, native_paths = plan(s, env, today, now, removed | set(newly),
                                                               removed_src | {old_src[r] for r in newly if old_src.get(r)})
     except SourceError as e:
         print(f"vault: not synced — {e}", file=sys.stderr); sys.exit(3)
     if newly and not a.dry_run:
-        record_removed(removed_path, newly, old_src, now)
+        record_removed(removed_path, newly, old_src, now, archived)
     removed |= set(newly)
     now_files = set(planned) | {dst for src, dst in files}
-    if not a.force:                                        # a folder that halves is a failure until shown to be a removal
+    if not a.force:
+        # the notes as a whole halving is a failure until shown to be a removal (a source that read empty, a broken
+        # path); the owner's own finishing and the archive are already out of the count, and single folders shrink by
+        # design (to-read empties as he reads)
         native_lower = {p.lower() for p in native_paths}
-        kept_old = [r for r in old if r not in removed and r.lower() not in native_lower]
-        if old_layout != LAYOUT:
-            # a new layout moves every note, so no folder can be compared with itself; the notes as a whole can
-            before = sum(1 for r in kept_old if r.endswith(".md"))
-            after = sum(1 for r in planned if r.endswith(".md"))
-            if before >= 10 and after < before / 2:
-                print(f"vault: not synced — a new layout would shrink the notes from {before} to {after}; --force if intended", file=sys.stderr)
-                sys.exit(3)
-        else:
-            # the owner's deletions and folders with a retention limit (days, what there is to read, the attachments)
-            # shrink by design; a failing source shows elsewhere (a missing root, an unreadable git) before this
-            kept_old = [r for r in kept_old if top(r) not in (DAYS, TO_READ, ELA)]
-            for t in sorted({top(r) for r in kept_old if "/" in r}):
-                before = sum(1 for r in kept_old if top(r) == t)
-                after = sum(1 for r in now_files if top(r) == t)
-                if before >= 5 and after < before / 2:
-                    print(f"vault: not synced — {t} would shrink from {before} to {after} files; --force if that is intended", file=sys.stderr)
-                    sys.exit(3)
+        before = sum(1 for r in old if r.endswith(".md") and r not in removed and r.lower() not in native_lower)
+        after = sum(1 for r in planned if r.endswith(".md"))
+        if before >= 10 and after < before / 2:
+            print(f"vault: not synced — the notes would shrink from {before} to {after}; --force if that is intended", file=sys.stderr)
+            sys.exit(3)
     listing = {}
 
     def names_in(d):
@@ -1033,8 +1130,25 @@ def cmd_sync(a):
             shutil.copy2(src, dst + ".ela-tmp"); os.replace(dst + ".ela-tmp", dst)
     lower = {r.lower() for r in now_files}
     native_lower = {p.lower() for p in native_paths}
+    # a note that leaves because it was acted on (its verification record went up to Jira, its plan or decision was
+    # ruled on) is archived by ela, once, at that moment; one that merely expired is removed
+    posted = posted_to_jira(s.get("reports") or "")
+    def acted(r):
+        src = old_src.get(r) or ""
+        key = (re.match(r"^verify/([A-Z][A-Z0-9]+-\d+)-(\d{4}-\d{2}-\d{2})", src) or [None, None, None])
+        if key[1]:
+            return any(at[:10] >= key[2] for at in posted.get(key[1], []))
+        return src.startswith("blueprint/")
+    to_archive = sorted(r for r in set(old) - now_files if r.endswith(".md") and top(r) == TO_READ and acted(r)
+                        and os.path.exists(os.path.join(vault, r)))
+    if to_archive and not a.dry_run:
+        os.makedirs(os.path.join(vault, ARCHIVE), exist_ok=True)
+        for r in to_archive:
+            os.replace(os.path.join(vault, r), os.path.join(vault, ARCHIVE, os.path.basename(r)))
+        record_removed(removed_path, to_archive, old_src, now, {os.path.basename(r).lower(): ARCHIVE for r in to_archive}, by="ela")
+    keep_dirs = archive_refs(vault)
     gone = sorted(r for r in set(old) - now_files if not r.startswith(".obsidian") and r.lower() not in lower
-                  and r.lower() not in native_lower)
+                  and r.lower() not in native_lower and not any(r.lower().startswith(d + "/") for d in keep_dirs))
     if not a.dry_run:
         # the manifest first: a crash before the removals leaves files it no longer lists, never removals it would
         # later read as the owner's deletions
@@ -1054,7 +1168,7 @@ def cmd_sync(a):
                 except OSError:
                     break
     held = [{"note": n.path, "problems": n.held} for n in notes if n.held]
-    r = {"dry_run": a.dry_run, "deleted_by_owner": newly, "notes": len(planned), "written": len(wrote), "unchanged": same, "files_copied": copied,
+    r = {"dry_run": a.dry_run, "deleted_by_owner": newly, "archived_by_ela": to_archive, "notes": len(planned), "written": len(wrote), "unchanged": same, "files_copied": copied,
          "removed": gone, "held": held, "warnings": warnings}
     if a.json:
         print(json.dumps(r, ensure_ascii=False)); return
@@ -1064,6 +1178,8 @@ def cmd_sync(a):
         print(f"  removed {g}")
     if len(gone) > 20:
         print(f"  … and {len(gone) - 20} more (--json lists them all)")
+    for d in to_archive:
+        print(f"  acted on, archived by ela: {d}")
     for d in newly:
         print(f"  deleted by the owner, recorded as read: {d}")
     for h in held:
