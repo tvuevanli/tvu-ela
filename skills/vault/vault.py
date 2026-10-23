@@ -24,6 +24,7 @@ split by year, a high-volume one (days, verifications) by month.
     40-decisions/<year>/<date>-<slug>.md
     50-plans/<year>/<date>-<slug>.md
     80-views/*.base                             Bases tables over the notes' properties
+    85-assistant/how-ela-runs.md                every scheduled job, here and on the remote host, read from the machines
     90-attachments/verify/<year-month>/<record>/   each record copied whole, so its own page still opens
 
 The reading gate. The vault is how ela reports to the owner, so a note over its reading budget, mostly code, or
@@ -91,6 +92,7 @@ Start at [[home]]: today's page, what waits for your word, what is new this week
 | `50-plans/` | plans, decided or proposed | by year |
 | `60-` to `79-` | reserved for new kinds | |
 | `80-views/` | Bases tables over the notes' properties | |
+| `85-assistant/` | how ela runs: every scheduled job here and on the remote host, its last run and result | rewritten each sync |
 | `90-attachments/` | the records and images the notes embed | by month |
 
 Folder numbers run by range, so a new kind takes a free number in its range and nothing is renamed:
@@ -296,6 +298,10 @@ def report_notes(reports, today):
         dm = re.search(r"\*(\d{4}-\d{2}-\d{2})", body)
         notes.append(Note("25-board/board.md", "The board's debt", body,
                           {"type": "board", "date": dm.group(1) if dm else None}, fl, src_rel="board/board.md"))
+    sp = os.path.join(reports, "system", "how-ela-runs.md")
+    if os.path.isfile(sp):                                 # what is scheduled where, read from the machines
+        fl, body = split_front(open(sp, encoding="utf-8").read())
+        notes.append(Note("85-assistant/how-ela-runs.md", "How ela runs", body, {"type": "system"}, fl, src_rel="system/how-ela-runs.md"))
     for sub in ("ela", ""):
         d = os.path.join(reports, sub) if sub else reports
         for f in sorted(os.listdir(d)) if os.path.isdir(d) else []:
@@ -519,7 +525,8 @@ def home(today, now, notes):
     if owed:
         L += ["## ela owes a shorter version", ""] + [f"- {link(n)}: {'; '.join(n.held)}" for n in owed] + [""]
     L += ["## Browse", "", "[[80-views/decisions-and-plans.base|Decisions and plans]] · "
-          "[[80-views/days-and-reviews.base|Days, reviews, verifications]] · [[readme|About this vault]]", ""]
+          "[[80-views/days-and-reviews.base|Days, reviews, verifications]] · [[85-assistant/how-ela-runs|How ela runs]] · "
+          "[[readme|About this vault]]", ""]
     return "\n".join(L)
 
 
