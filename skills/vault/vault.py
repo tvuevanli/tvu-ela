@@ -125,7 +125,9 @@ a warning, and Home lists it for 30 days as a rewrite ela owes.
 
 To tell ela what you want of a note, write it into the note, anywhere, in your own words (Ctrl+E to edit, again to
 read), once the note is in `to-learn/` or `archive/`: those copies are yours and never rewritten, and ela reads what
-you added as your guidance. A note still in `to-read/` is rewritten by the next sync, so move it first.
+you added as your guidance, a place included ("write this to the KB", "into elak"); without one, ela chooses between a
+library page here, its own knowledge in elak and the team's knowledge base (drafted, published on your word). A note
+still in `to-read/` is rewritten by the next sync, so move it first.
 
 Ask ela now and then to tidy the archive.
 
