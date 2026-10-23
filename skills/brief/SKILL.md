@@ -194,28 +194,65 @@ first. `backlog` is always last and always three rows: it is the only lane that 
 outright on a busy day. Then:
 
 ```
-# Morning brief · <weekday> <date>
+# Morning brief · Fri 2026-10-23
 
-<n> items · read: Jira, Slack (direct messages not visible)
+*7 items · read Jira and Slack; direct messages are not visible*
 
-1. [triage · OVERDUE 19h] MH-3601 "SRT output stalls after failover" — unassigned, no layer token.
-   → route: [Media] · Lotus Chen (signal: SRT, frame drop). Check first: is the graph still Living?   /ela:route MH-3601
-2. [waiting · 2d] #prj_dev_mediahub — Robin asked for the MH-3049 update "by end of day" on Mon.
-   → reply draft: "Idle-source shutdown: app-only part is on Daily d31; docker gaps tracked in MH-3490 with Lotus."
-…
-lanes in one line each:
-cadence   3 RED · 5 YELLOW · 1 Blocked (MH-3288, 9d)          yours: MH-2191 (In Progress, 3d silent)
-incidents 31 open · 4 clusters (Reuters freeze ×5, Cablevision black ×2, …) · 7 with no evidence at all
-reports   1 — MediaHub QA daily (2/3 parts)                    → /ela:digest <permalink>
-breakdown 2 — MH-3513 (High, 8d), MH-3580 (Highest, 1d)
-monologue 1 — "MH Admin: close a user's graph?" (4d, no reply) → ask Andy Zhao directly
-decisions 2 candidates — see below
-backlog   24 rotting · today's three: MH-83 (close), MH-409 (hand to UI), MH-540 (keep → 09-19)
+One to three sentences: what the day is about. Friday, so the brief is short. The one live customer problem
+is Reuters.
+
+## Needs you
+
+### 1. Reuters feeds froze twice in two days
+MH-3811 · incident, new · Robin Wu holds it
+- Both feeds froze for 23 seconds on 10-22; the same happened on 10-21 (MH-3805).
+- Open lead: the shared decoder input ran at twice real time just before the stall.
+- **Do:** `apply 1` records the findings on MH-3811, then probe MH-3805.
+
+### 2. MH-3745 waits on your ruling, silent 11 days
+MH-3745 · Gabriel Liu (orchestration) · In Progress
+- The fix belongs on the MediaHub side; the ticket offers two options and asks you to choose.
+- **Do:** rule on it, then break it down.
+
+## Yesterday
+
+Two or three sentences, then at most five case lines (§2b).
+
+## New tickets
+
+| ticket | what | holder | owes |
+|---|---|---|---|
+| MH-3809 | two Packs could not push; China cloud capacity, resolved | Robin Wu | nothing; close on customer word |
+
+## Lanes
+
+| lane | today |
+|---|---|
+| cadence | 3 red (MH-3745, MH-3769, MH-3413) · 7 blocked |
+| incidents | 54 open; Reuters freeze ×13 is the big cluster |
+| breakdown | 7 without sub-tasks; MH-3794 and MH-3795 first |
+
+## Backlog, today's three
+
+| ticket | verdict | why |
+|---|---|---|
+| MH-1555 | close | release checklists now live in the promotion threads |
+
+*Not read: Slack direct messages; channels the bot has not joined (Reuters, FloSports).*
 ```
 
-Every ticket key is a Jira link, every Slack item a permalink. Under the list, the decisions lane
-prints each candidate's sentence verbatim with its permalink and the proposed record title; Evan
-says which to keep. Close with what could not be read, if anything.
+The page is read in Obsidian, so its form is fixed:
+
+- **An item is a `###` heading in plain words** (what is happening, never a lane tag such as `[cadence RED]`), one
+  facts line (key, kind, who holds it, age), at most three bullets, and the last bullet **Do:** with the
+  `apply N` number when an action is drafted. A sentence that does not change what the owner does is cut.
+- **At most eight items** under *Needs you*; the rest of the facts are in the tables below, one row each.
+- **A ticket appears once.** A new ticket that is already an item gets no row under *New tickets*.
+- **Tables, not code blocks,** for anything with columns; no nested lists; no bold paragraph labels.
+- **Ticket keys bare** (MH-3811): the vault and the runner turn them into links. Slack threads and other pages
+  are links with a short label.
+- **Under 900 words in all.** The decisions lane, when it runs, adds one table row per candidate with its
+  permalink; the owner chooses which to keep.
 
 ## 3b — when the runner asked (unattended): the page and the numbered actions, written to files
 
@@ -225,9 +262,8 @@ ela-runner starts this skill headless every weekday morning after it wrote the f
 - `<reports>/runner/<date>-brief.md` — the page of §3 as Markdown, the judgment included (what each new
   ticket is about, who should hold it, the drafted reply or nudge), then §2b's `Yesterday`, every key a Jira
   link.
-  The page is read in the owner's Obsidian vault and must fit **900 words** (the vault marks a day page over
-  1,200 with a warning): at most eight ranked items of three lines each, the Yesterday section within that, lanes in one line
-  each, nothing restated that a link carries.
+  The page follows §3's form exactly and fits **900 words** (the vault marks a day page over 1,200 with a
+  warning).
 - `<reports>/runner/<date>-actions.json` — the drafted actions as a list, in the page's order:
   `[{"n": 1, "text": "<the one line the page shows>", "command": "<the exact ela command, dry run as written>", "kind": "comment|assign|label|transition|close|slack|fixed-in"}]`.
   A command is one of ela's own write verbs — `ela jira comment|assign|label|fixed-in|close …`, `ela slack
