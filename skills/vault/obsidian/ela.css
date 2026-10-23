@@ -4,7 +4,7 @@
 .markdown-rendered td, .markdown-rendered th { padding: 4px 10px; vertical-align: top; }
 .markdown-rendered tr:nth-child(even) td { background: var(--background-primary-alt); }
 .markdown-rendered h1 { margin-bottom: 0.3em; }
-.markdown-rendered h1 + p em { color: var(--text-muted); }
+.markdown-rendered .el-h1 + .el-p em:only-child { color: var(--text-muted); }
 .markdown-rendered .callout { margin: 0.8em 0; }
 .markdown-rendered ul { margin-top: 0.2em; }
 
@@ -20,8 +20,7 @@ body { --file-line-width: min(94%, 1600px); }   /* follows the window, capped fo
 .nav-folder-title[data-path="ela/attachments"] { display: none; }
 
 /* the meta line under a title, and a Bases table embedded in a note (Home's "To read") */
-.markdown-rendered h1 + p > em:only-child { color: var(--text-muted); font-size: 0.9em; }
-.markdown-rendered .block-language-base { margin: 0.4em 0 1em; }
+.markdown-rendered .el-h1 + .el-p > p > em:only-child { color: var(--text-muted); font-size: 0.9em; }   /* reading view wraps each block in .el-* */
 .markdown-rendered hr { margin: 1.6em 0 0.8em; }
 
 /* a mermaid diagram fits the reading column instead of being cut at the pane's edge; a very wide one scrolls */

@@ -40,7 +40,7 @@ HERE = os.path.dirname(os.path.realpath(__file__))
 JIRA = os.path.join(HERE, "..", "jira", "jira.py")
 SITE = os.path.expanduser("~/.claude/ela/site.json")
 MANIFEST = ".ela-sync.json"
-DAYS_KEPT, HELD_LISTED_DAYS, NEW_DAYS = 14, 30, 7
+DAYS_KEPT, HELD_LISTED_DAYS, NEW_DAYS, MASS_DELETE = 14, 30, 7, 8
 LAYOUT = 2                  # the manifest records it; a sync across a change of layout guards the total, not each folder
 DAYS, TO_READ, RECORDS, LIBRARY, ELA = "days", "to-read", "records", "library", "ela"
 ATTACH = "ela/attachments"
@@ -86,7 +86,7 @@ Start at [[home]]: what waits for your word, today's page, and what there is to 
 |---|---|---|
 | `home`, `board` | today, and the board's debt | look at them each morning |
 | `days/<year>/` | the morning pages, kept; the evening learning draft, 14 days | look back |
-| `to-read/` | reviews and verification results, newest first; a verification leaves after 14 days | read, then delete |
+| `to-read/` | reviews and verification results, newest first; a passed verification leaves after 14 days, a failed one stays | read, then delete |
 | `records/<year>/` | decisions, plans and sprints | look up |
 | `library/` | one summary page per topic, with links to the originals | look up |
 | `ela/` | how ela works and runs, this page, the table view; attachments, hidden | rarely |
@@ -99,8 +99,9 @@ the file explorer is rarely needed.
 - Names are lowercase, words joined by hyphens, taken from the source file's name; a dated note starts with its
   date. The readable title is the note's first heading, and an alias, so the quick switcher (Ctrl+O) finds a
   note by its title.
-- Properties are `title`, `aliases` and `type`, plus `date`, `kind` on a day page and `status` on a decision or
-  plan; they feed the tables and stay hidden while you read.
+- Properties are `title`, `aliases` and `type`, plus `date`, `kind` on a day page, and `status` where the source
+  states one (a verification's verdict, a plan's state); a page ela writes in place also carries `source: "vault"`.
+  They feed the tables and stay hidden while you read.
 - No tags: a keyword-guessed tag would be wrong often enough to cost trust. A note about one topic links to its
   library page, and that page's backlinks are the cross-cut.
 - A ticket key is a link to Jira, one click in reading mode.
@@ -118,7 +119,7 @@ receives). ela records it as read and does not write it again; a living page (Ho
 ela runs) is simply written again. A generated note's source stays in ela's reports or elak; a page ela writes in
 place (a library topic, how ela works) is in the nightly backup. A deletion means done, never
 a verdict: deleting a decision does not revoke it; to change one, tell ela. `ela vault restore <path>` brings a
-note back.
+generated note back; a page ela writes in place comes back from the nightly backup.
 
 ## What is not here
 
@@ -149,29 +150,39 @@ properties:
     displayName: Note
 """
 
+WAITING = """      or:
+        - 'status == "proposed"'
+        - 'status == "fail"'
+        - 'status == "blocked"'
+        - 'kind == "learned"'
+"""
+
 VIEWS = {
     "all-notes": """filters:
   and:
+    - 'file.ext == "md"'
     - 'type != "home"'
     - 'type != "readme"'
 """ + FORMULAS + """views:
   - type: table
-    name: To read
+    name: Waiting for your word
     filters:
-      or:
-        - file.inFolder("to-read")
-        - 'status == "proposed"'
-    order: [date, formula.note, type]
+""" + WAITING + """    order: [date, formula.note, type, status]
     sort:
       - property: date
         direction: DESC
   - type: table
-    name: Recent
+    name: To read
+    filters:
+      and:
+        - file.inFolder("to-read")
+        - 'status != "fail"'
+        - 'status != "blocked"'
+        - 'status != "proposed"'
     order: [date, formula.note, type]
     sort:
       - property: date
         direction: DESC
-    limit: 60
   - type: table
     name: Records
     filters:
@@ -181,21 +192,6 @@ VIEWS = {
     sort:
       - property: date
         direction: DESC
-  - type: table
-    name: Morning pages
-    filters:
-      and:
-        - 'type == "day"'
-    order: [date, formula.note, kind]
-    sort:
-      - property: date
-        direction: DESC
-  - type: table
-    name: Library
-    filters:
-      and:
-        - file.inFolder("library")
-    order: [formula.note, date]
 """,
 }
 
@@ -430,6 +426,14 @@ def record_verdict(html_path):
     return m.group(1), (m.group(2) or "").strip(), m.group(3)
 
 
+def peek_verdict(path):
+    try:
+        m = re.search(r"\[!\w+\]\s+(PASS|FAIL|BLOCKED)\b", open(path, encoding="utf-8").read(4000))
+    except OSError:
+        return None
+    return m.group(1) if m else None
+
+
 def verify_path(key, date, extra):
     return f"{TO_READ}/{date}-verify-{key.lower()}{extra}.md"
 
@@ -444,9 +448,12 @@ def verify_notes(reports, today=None):
         if not m:
             continue
         key, date, extra, single = m.group(1), m.group(2), (m.group(3) or ""), bool(m.group(4))
-        # a verification is in the vault while it needs the owner's eyes; afterwards it lives on its Jira ticket,
-        # in the reports root and in the backup
-        if today and (today - datetime.date.fromisoformat(date)).days >= DAYS_KEPT:
+        # a pass is in the vault for 14 days, then lives on its Jira ticket, in the reports root and in the backup; a
+        # failed or blocked one stays until the owner deletes it, since it is a finding someone must act on
+        p_ = os.path.join(vd, name)
+        verdict_now = peek_verdict(p_ if single else os.path.join(p_, "report.md")) or \
+            (record_verdict(p_ if single else os.path.join(p_, "record.html")) or [None])[0]
+        if today and (today - datetime.date.fromisoformat(date)).days >= DAYS_KEPT and verdict_now not in ("FAIL", "BLOCKED"):
             continue
         if any(re.match(rf"^{key}-(\d{{4}}-\d{{2}}-\d{{2}}){re.escape(extra)}(\.html)?$", o) and o[len(key) + 1:len(key) + 11] > date
                for o in os.listdir(vd)):
@@ -483,7 +490,9 @@ def verify_notes(reports, today=None):
             title += f" ({extra.strip('-')})" if extra and " on " not in title.split(" · ")[1] else ""
             if not body.lstrip().startswith("# " + key + " · "):  # an older record's heading: the title takes its place
                 body = re.sub(r"^#[ \t]+.*$", "# " + title, body, count=1, flags=re.M)
-            notes.append(Note(verify_path(key, date, extra), title, body, {"type": "verify", "date": date}, src_rel=f"verify/{name}"))
+            title = " · ".join(title.split(" · ")[:2])     # key and verdict on its lane; the summary is the heading's
+            notes.append(Note(verify_path(key, date, extra), title, body, {"type": "verify", "date": date, "status": (vm.group(1).lower() if vm else None)},
+                              src_rel=f"verify/{name}"))
             continue
         verdict = record_verdict(os.path.join(vd, name) if single else os.path.join(p, os.path.basename(page or "index.html")))
         body = [f"# {key} verification{' · ' + extra.strip('-') if extra else ''}", ""]
@@ -500,8 +509,8 @@ def verify_notes(reports, today=None):
             body += ["## Screenshots", ""] + [f"![[{e}]]" for e in imgs[:8]]
             if len(imgs) > 8:
                 body += ["", f"{len(imgs) - 8} more in the full record."]
-        notes.append(Note(verify_path(key, date, extra), f"{key} verification", "\n".join(body) + "\n", {"type": "verify", "date": date},
-                          src_rel=f"verify/{name}"))
+        notes.append(Note(verify_path(key, date, extra), f"{key} · {verdict[0]}", "\n".join(body) + "\n",
+                          {"type": "verify", "date": date, "status": verdict[0].lower()}, src_rel=f"verify/{name}"))
     return notes, files
 
 
@@ -677,21 +686,20 @@ def home(today, now, notes):
     def newest(kind):
         return sorted((n for n in notes if n.props.get("type") == "day" and n.props.get("kind") == kind),
                       key=lambda n: n.props["date"], reverse=True)
-    brief, learned = (next(iter(newest(k)), None) for k in ("brief", "learned"))
+    brief = next(iter(newest("brief")), None)
     iso = today.isoformat()
-    L = [f"# {today:%a %Y-%m-%d}", "", f"*Vault synced at {now:%H:%M}; the morning page says when its own facts were read.*", ""]
+    L = [f"# {today:%a %Y-%m-%d}", ""]
     board = next((n for n in notes if n.props.get("type") == "board"), None)
     wait = []
-    if learned and learned.props["date"] >= (today - datetime.timedelta(days=2)).isoformat():
-        wait.append(f"{link(learned)}: what the day taught; say which entries to keep")
     waiting = re.search(r"^## (?:Proposed closes assigned to you|Waiting for your close) \((\d+)\)", board.body, re.M) if board else None
     if waiting and int(waiting.group(1)):
         wait.append(f"{link(board)}: {waiting.group(1)} proposed closes assigned to you")
-    if wait:
-        L += ["> [!todo] Waiting for your word"] + [f"> - {w}" for w in wait] + [""]
+    # everything that needs his word, from typed state: a failed or blocked verification, a plan proposed to him, the
+    # evening draft (a live view, so it leaves when he deletes the note), and proposed closes from the board
+    L += ["## Waiting for your word", ""] + [f"- {w}" for w in wait] + ([""] if wait else []) + [f"![[{ELA}/all-notes.base#Waiting for your word]]", ""]
     if brief and brief.props["date"] == iso:
         head = re.split(r"^## ", re.sub(r"^#[ \t]+.*$", "", brief.body, count=1, flags=re.M), maxsplit=1, flags=re.M)[0].strip()
-        L += [head, ""] if head else []                    # the page's own line on its sources, and its summary
+        L += ["## Today", ""] + ([head, ""] if head else [])   # the page's own line on its sources, and its summary
         if re.search(r"^## Needs you[ \t]*$", brief.body, re.M):
             L += [f"![[{brief.path[:-3]}#Needs you]]", "",
                   f"*The rest of the page (yesterday, new tickets, the lanes, the backlog): {link(brief)}.*", ""]
@@ -948,6 +956,10 @@ def cmd_sync(a):
     # ela runs) is rewritten whatever happens to it
     newly = sorted(r for r in old if r.endswith(".md") and r not in removed and top(r) in DELETABLE
                    and not os.path.exists(os.path.join(vault, r)))
+    mass = len(newly) > MASS_DELETE
+    if mass:
+        print(f"vault: {len(newly)} notes vanished in one go; not recorded as read, written again (a move or a wipe, not reading)", file=sys.stderr)
+        newly = []
     try:
         planned, files, notes, warnings, native_paths = plan(s, env, today, now, removed | set(newly),
                                                               removed_src | {old_src[r] for r in newly if old_src.get(r)})
@@ -1053,7 +1065,7 @@ def cmd_sync(a):
     if len(gone) > 20:
         print(f"  … and {len(gone) - 20} more (--json lists them all)")
     for d in newly:
-        print(f"  deleted by the owner, kept deleted and logged as feedback: {d}")
+        print(f"  deleted by the owner, recorded as read: {d}")
     for h in held:
         print(f"  warning {h['note']}: {'; '.join(h['problems'])}")
     for w in warnings:

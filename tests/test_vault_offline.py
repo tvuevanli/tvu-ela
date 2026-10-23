@@ -77,12 +77,15 @@ with tempfile.TemporaryDirectory() as tmp:
         except SystemExit as e:
             return e.code or 0
     check("a first sync succeeds", sync() == 0)
+    stamp = {f: os.path.getmtime(os.path.join(dp, f)) for dp, _, fs in os.walk(vault) for f in fs if f.endswith(".md")}
+    check("a second sync with nothing new writes nothing", sync() == 0 and
+          all(os.path.getmtime(os.path.join(dp, f)) == stamp.get(f) for dp, _, fs in os.walk(vault) for f in fs if f.endswith(".md")))
     dec0 = f"{vault}/records/{today[:4]}/{today[:4]}-01-01-decision-0.md"
     check("a decision lands in its year folder", os.path.exists(dec0))
     check("a decision not written for the owner stays out", not os.path.exists(f"{vault}/records/{today[:4]}/{today[:4]}-01-02-internal.md"))
     check("a long review is written, under a warning", "[!warning]" in open(f"{vault}/to-read/{today}-long.md").read())
     home = open(f"{vault}/home.md").read()
-    check("Home embeds today's page and lists what ela owes", "![[days/" in home and "all-notes.base#To read" in home and "ela owes a shorter version" in home)
+    check("Home embeds today's page and lists what ela owes", "![[days/" in home and "all-notes.base#To read" in home and "#Waiting for your word" in home and "ela owes a shorter version" in home)
     check("a decision carries its title as an alias and a meta line", 'aliases: ["Decision 0"]' in open(dec0).read() and "*decision · " in open(dec0).read())
     os.remove(dec0)
     check("a note the owner deleted is not written again", sync() == 0 and not os.path.exists(dec0))
@@ -109,6 +112,17 @@ with tempfile.TemporaryDirectory() as tmp:
     git("add", "-A"); git(SAVE, "-qm", "y")
     check("a folder that halves stops the sync", sync() == 3)
     check("--force applies a deliberate removal", sync(force=True) == 0 and not os.path.exists(dec0))
+    for f in os.listdir(f"{vault}/records/{today[:4]}"):
+        os.remove(f"{vault}/records/{today[:4]}/{f}")
+    for i in range(10, 22):
+        open(f"{ELAK}/blueprint/decisions/{today[:4]}-11-{i}-more-{i}.md", "w").write(f"---\nreader: owner\n---\n# More {i}\n\nText.\n")
+    git("add", "."); git(SAVE, "-qm", "more")
+    sync(force=True)
+    for f in os.listdir(f"{vault}/records/{today[:4]}"):
+        os.remove(f"{vault}/records/{today[:4]}/{f}")
+    log_before = open(f"{reports}/ela/vault-removed.jsonl").read()
+    check("a mass disappearance is written again, not recorded as read", sync(force=True) == 0
+          and len(os.listdir(f"{vault}/records/{today[:4]}")) >= 2 and open(f"{reports}/ela/vault-removed.jsonl").read() == log_before)
     check("a file the sync never wrote is never removed", os.path.exists(f"{vault}/mine.md"))
     os.makedirs(f"{vault}/library", exist_ok=True)
     native = f"{vault}/library/topic-a.md"
