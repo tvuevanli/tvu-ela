@@ -204,15 +204,15 @@ is Reuters.
 ## Needs you
 
 ### 1. Reuters feeds froze twice in two days
-MH-3811 · incident, new · Robin Wu holds it
+MH-3811 · Reuters confidence streams frozen · incident, new · Robin Wu holds it
 - Both feeds froze for 23 seconds on 10-22; the same happened on 10-21 (MH-3805).
 - Open lead: the shared decoder input ran at twice real time just before the stall.
 - **Do:** `apply 1` records the findings on MH-3811, then probe MH-3805.
 
-### 2. MH-3745 waits on your ruling, silent 11 days
-MH-3745 · Gabriel Liu (orchestration) · In Progress
-- The fix belongs on the MediaHub side; the ticket offers two options and asks you to choose.
-- **Do:** rule on it, then break it down.
+### 2. MH-3745: Jira is behind the release mails
+MH-3745 · Search's recording blocks MediaHub's SRT receiver · Gabriel Liu (orchestration) · In Progress
+- Fixed in orchestration 4.0.205; QA verified it on 10-22 and the daily release was requested (release mails).
+- **Do:** `apply 2` posts that status and sets Fixed In.
 
 ## Yesterday
 
@@ -242,12 +242,23 @@ Two or three sentences, then at most five case lines (§2b).
 *Not read: Slack direct messages; channels the bot has not joined (Reuters, FloSports).*
 ```
 
+**Jira is kept true to the conversations: that is ela's job, not the owner's.** Before an item calls a ticket
+silent, stalled or waiting, read what happened since its last Jira update: `ela slack search` for the key and for
+two or three distinctive words of its title, and `ela mail search` for the key and for its service and version
+words (`newer_than:14d`). Release and test mails often describe a fix without its key. When the conversations are
+ahead of Jira, the item says so ("Jira is behind the release mails"), states what they say, and drafts the status
+comment, plus Fixed In when a version is named, as its action, each source cited. A ticket is called silent only
+when Slack and mail are silent too (2026-10-23: MH-3752 and MH-3745 were reported as stalled while their
+progress sat in mail and Slack).
+
 The page is read in Obsidian, so its form is fixed:
 
 - **An item is a `###` heading in plain words** (what is happening, never a lane tag such as `[cadence RED]`), one
-  facts line (key, kind, who holds it, age), at most three bullets, and the last bullet **Do:** with the
+  facts line (key, its Jira title in a few plain words, kind, who holds it, age), at most three bullets, and the last bullet **Do:** with the
   `apply N` number when an action is drafted. A sentence that does not change what the owner does is cut.
 - **At most eight items** under *Needs you*; the rest of the facts are in the tables below, one row each.
+- **Every ticket key carries its Jira title** where it first appears on the page, in a few plain words, so the
+  reader knows the ticket without opening it.
 - **A ticket appears once.** A new ticket that is already an item gets no row under *New tickets*.
 - **Tables, not code blocks,** for anything with columns; no nested lists; no bold paragraph labels.
 - **Ticket keys bare** (MH-3811): the vault and the runner turn them into links. Slack threads and other pages
