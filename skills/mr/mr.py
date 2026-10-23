@@ -197,11 +197,21 @@ def plan(a):
     if not where:
         fail(f"{branch}: no such branch in {wt} or {repo['path']} — `map.py worktree {repo['name']} {key}` creates it", EX_NOTFOUND)
     pid = project_id(remote_path)
+    # how far the branch is behind the lane it targets, read after a fetch: a merge command handed over for a branch
+    # that main has moved past fails (the 2026-10-22 learning draft, E3), so a rebase comes first when it is behind
+    git(where, "fetch", "--quiet", "origin", lane)
+    behind = ahead = None
+    rc, out = git(where, "rev-list", "--left-right", "--count", f"origin/{lane}...{branch}")
+    if rc == 0 and len(out.split()) == 2:
+        behind, ahead = (int(x) for x in out.split())
     body = {"source_branch": branch, "target_branch": lane, "title": title_for(lay, key),
             "description": DESCRIPTION.format(key=key), "remove_source_branch": False}
     return {"key": key, "repo": repo["name"], "path": repo["path"], "governance": repo.get("governance"),
             "host": host, "remote_path": remote_path, "project_id": pid, "lane": lane, "lane_rule": rule,
-            "push": {"cwd": where, "command": f"git push -u origin {branch}"},
+            "behind": behind, "ahead": ahead,
+            "rebase": (f"git rebase origin/{lane}" if behind else None),
+            "push": {"cwd": where, "command": (f"git rebase origin/{lane} && git push --force-with-lease -u origin {branch}" if behind
+                                               else f"git push -u origin {branch}")},
             "request": {"method": "POST", "url": f"<api:{host}>/projects/{pid}/merge_requests", "body": body},
             "dry_run": True}
 
@@ -217,6 +227,10 @@ def cmd_create(a):
     print(f"remote   {p['host']}  {p['remote_path']}  (project id {p['project_id']})")
     print(f"lane     {p['lane']}  (chosen by {p['lane_rule']})")
     print(f"title    {r['body']['title']}")
+    if p.get("behind"):
+        print(f"\nbranch   {p['behind']} commit(s) behind origin/{p['lane']}, {p['ahead']} ahead: it is rebased before the push")
+    elif p.get("behind") == 0:
+        print(f"\nbranch   up to date with origin/{p['lane']} ({p['ahead']} ahead)")
     print(f"\nwould run, in {p['push']['cwd']}:\n  {p['push']['command']}")
     print(f"\nwould send:\n  {r['method']} {r['url']}")
     print("  " + json.dumps(r["body"], ensure_ascii=False, indent=2).replace("\n", "\n  "))
