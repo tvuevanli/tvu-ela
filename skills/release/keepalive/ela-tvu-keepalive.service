@@ -2,6 +2,9 @@
 [Unit]
 Description=ela: renew the TVU session's idle TTL (one validation call, never a login)
 After=network-online.target
+# A failure (the session refused or missing) tells the owner by direct message, at most twice a day, through
+# ela-runner's notice unit; on a machine without ela-runner the line is inert.
+OnFailure=ela-runner-failed@%n.service
 
 [Service]
 Type=oneshot
