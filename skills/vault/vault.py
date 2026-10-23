@@ -742,8 +742,15 @@ def home(today, now, notes):
         wait.append(f"{link(board)}: {waiting.group(1)} proposed closes assigned to you")
     # everything that needs his word, from typed state: a failed or blocked verification, a plan proposed to him, the
     # evening draft (a live view, so it leaves when he deletes the note), and proposed closes from the board
-    L += ["## Waiting for your word", ""] + [f"- {w}" for w in wait] + ([""] if wait else []) + [f"![[{ELA}/all-notes.base#Waiting for your word]]", "",
-          "*Answer in the note: a line `ela: …` at its end, handled by the next morning or evening run; or in Slack.*", ""]
+    # the same rules as the views, so an empty table is a sentence instead
+    waiting = [n for n in notes if note_status(n) in ("proposed", "fail", "blocked") or n.props.get("kind") == "learned"]
+    L += ["## Waiting for your word", ""] + [f"- {w}" for w in wait] + ([""] if wait else [])
+    if waiting:
+        L += [f"![[{ELA}/all-notes.base#Waiting for your word]]", "",
+              "*Tick a box, or type in the ela cell (or a line `ela: …` in the note); ela takes it up within a minute and "
+              "answers in Slack.*", ""]
+    elif not wait:
+        L += ["Nothing waits for your word.", ""]
     if brief and brief.props["date"] == iso:
         head = re.split(r"^## ", re.sub(r"^#[ \t]+.*$", "", brief.body, count=1, flags=re.M), maxsplit=1, flags=re.M)[0].strip()
         L += ["## Today", ""] + ([head, ""] if head else [])   # the page's own line on its sources, and its summary
@@ -754,12 +761,19 @@ def home(today, now, notes):
             L += [f"![[{brief.path[:-3]}]]", ""]
     else:
         L += ["## Today", "", "No morning page yet today" + (f"; the latest is {link(brief)}." if brief else "."), ""]
-    L += ["## To read", "", f"![[{ELA}/all-notes.base#To read]]", ""]
+    reading = [n for n in notes if top(n.path) == TO_READ and note_status(n) not in ("proposed", "fail", "blocked")]
+    L += ["## To read", "", f"![[{ELA}/all-notes.base#To read]]" if reading else "Nothing to read.", ""]
     owed_since = (today - datetime.timedelta(days=HELD_LISTED_DAYS)).isoformat()
     owed = [n for n in notes if n.held and (n.props.get("date") or iso) >= owed_since]
     if owed:
         L += ["> [!warning]- ela owes a shorter version of " + str(len(owed))] + [f"> - {link(n)}: {'; '.join(n.held)}" for n in owed] + [""]
     return "\n".join(L)
+
+
+def note_status(n):
+    """A note's status as its property will read: set by ela, or its source's own `status:` line."""
+    return n.props.get("status") or next((short_status(re.sub(r"^status:\s*", "", l).strip().strip("'\"")) for l in n.front_lines
+                                           if l.startswith("status:")), None)
 
 
 def meta_line(n, topics):
