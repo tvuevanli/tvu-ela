@@ -47,7 +47,7 @@ SITE = os.path.expanduser("~/.claude/ela/site.json")
 MANIFEST = ".ela-sync.json"
 DAYS_KEPT, HELD_LISTED_DAYS, NEW_DAYS = 14, 30, 7
 KEEP_FOREVER = ("brief",)   # the morning page is the record of what ela told the owner; the rest expires
-PROPS = ("type", "date", "kind", "status")      # the whole property vocabulary
+PROPS = ("title", "type", "date", "kind", "status")   # the whole vocabulary; no tags (folders, type and the views classify)
 BUDGET = {"guide": 1200, "board": 1000, "day": 1200, "review": 2500, "decision": 1200, "plan": 2500, "sprint": 800}
 TOLERANCE = 1.1                                  # a page 10% over its budget is not worth a rewrite
 KEY_RX = re.compile(r"(?<![\w/#=.-])([A-Z][A-Z0-9]{1,9}-\d{1,6})(?![\w-])")
@@ -84,7 +84,7 @@ Start at [[home]]: today's page, what waits for your word, what is new this week
 
 | folder | holds | grows |
 |---|---|---|
-| `10-days/` | the judged morning page, kept; the evening learning draft and the intake reading, 14 days | by month |
+| `10-days/` | the morning page, kept; the evening learning draft, 14 days | by month |
 | `15-weeks/` | reserved for a weekly page, from the first sprint week | by year |
 | `18-sprints/` | sprint commitments | by year |
 | `20-reviews/` | reviews and reports written for Evan | by year |
@@ -93,7 +93,7 @@ Start at [[home]]: today's page, what waits for your word, what is new this week
 | `40-decisions/` | decisions, with what they superseded | by year |
 | `50-plans/` | plans, decided or proposed | by year |
 | `60-` to `79-` | reserved for new kinds | |
-| `80-views/` | Bases tables over the notes' properties | |
+| `80-views/` | one table view with tabs: recent, to review, decisions and plans, morning pages, reviews | |
 | `85-assistant/` | working with ela day to day, and how ela runs: every scheduled job, its last run and result | rewritten each sync |
 | `90-attachments/` | the records and images the notes embed | by month |
 
@@ -104,8 +104,10 @@ Folder numbers run by range, so a new kind takes a free number in its range and 
 
 - Names are lowercase, words joined by hyphens, no spaces, taken from the source file's name:
   `2026-10-23-review`, `mh-3103-2026-10-23`, `2026-s01`. The readable title is the note's first heading.
-- Properties are `type`, plus `date` where the source is dated, `kind` on a day page and `status` on a decision
-  or plan. Nothing else.
+- Properties are `title` and `type`, plus `date` where the source is dated, `kind` on a day page and `status` on a
+  decision or plan; they feed the tables and stay hidden while you read. Nothing else.
+- No tags, by design: folders, `type` and the tables already classify every note, and a second vocabulary would
+  drift from the first.
 - A ticket key is a link to Jira, one click in reading mode.
 
 ## Reading budgets
@@ -140,25 +142,57 @@ Set by ela; the sync never changes these settings. ela keeps a copy, and `ela va
 """
 
 VIEWS = {
-    "decisions-and-plans": """filters:
-  or:
-    - 'type == "decision"'
-    - 'type == "plan"'
-    - 'type == "sprint"'
-views:
-  - type: table
-    name: All
-    order: [date, file.name, type, status]
-""",
-    "days-and-reviews": """filters:
-  or:
-    - 'type == "day"'
-    - 'type == "review"'
-    - 'type == "verify"'
+    "index": """filters:
+  and:
+    - 'type != "home"'
+    - 'type != "readme"'
 views:
   - type: table
     name: Recent
-    order: [date, file.name, type, kind]
+    order: [date, title, type]
+    sort:
+      - property: date
+        direction: DESC
+    limit: 60
+  - type: table
+    name: To review
+    filters:
+      or:
+        - 'type == "verify"'
+        - 'status == "proposed"'
+    order: [date, title, type, status]
+    sort:
+      - property: date
+        direction: DESC
+  - type: table
+    name: Decisions and plans
+    filters:
+      or:
+        - 'type == "decision"'
+        - 'type == "plan"'
+        - 'type == "sprint"'
+    order: [date, title, type, status]
+    sort:
+      - property: date
+        direction: DESC
+  - type: table
+    name: Morning pages
+    filters:
+      and:
+        - 'type == "day"'
+    order: [date, title, kind]
+    sort:
+      - property: date
+        direction: DESC
+  - type: table
+    name: Reviews
+    filters:
+      and:
+        - 'type == "review"'
+    order: [date, title]
+    sort:
+      - property: date
+        direction: DESC
 """,
 }
 
@@ -326,7 +360,8 @@ def report_notes(reports, today):
             continue
         d = datetime.date.fromisoformat(m.group(1))
         fl, body = split_front(open(os.path.join(rd, f), encoding="utf-8").read())
-        notes.append(Note(f"10-days/{m.group(1)[:7]}/{m.group(1)}-{m.group(2)}.md", f"{m.group(1)} {d:%a} {m.group(2).capitalize()}", body,
+        label = {"brief": "Morning brief", "learned": "What the day taught"}[m.group(2)]
+        notes.append(Note(f"10-days/{m.group(1)[:7]}/{m.group(1)}-{m.group(2)}.md", f"{label} · {d:%a} {m.group(1)}", body,
                           {"type": "day", "date": m.group(1), "kind": m.group(2)}, fl, src_rel=f"runner/{f}"))
     bp = os.path.join(reports, "board", "board.md")
     if os.path.isfile(bp):                                 # the board's debt, one living page, rewritten each morning
@@ -628,8 +663,7 @@ def home(today, now, notes):
     owed = [n for n in notes if n.held and (n.props.get("date") or iso) >= owed_since]
     if owed:
         L += ["## ela owes a shorter version", ""] + [f"- {link(n)}: {'; '.join(n.held)}" for n in owed] + [""]
-    L += ["## Browse", "", (f"{link(guide)} · " if guide else "") + "[[80-views/decisions-and-plans.base|Decisions and plans]] · "
-          "[[80-views/days-and-reviews.base|Days, reviews, verifications]] · [[85-assistant/how-ela-runs|How ela runs]] · "
+    L += ["## Browse", "", "[[80-views/index.base|All notes, as tables]] · [[85-assistant/how-ela-runs|How ela runs]] · "
           "[[readme|About this vault]]", ""]
     return "\n".join(L)
 
@@ -660,7 +694,7 @@ def plan(s, env, today, now, removed=frozenset()):
     for n in notes:
         n.held = reading_gate(n)
         body = linker(unwrap(callouts(tidy_title(n.body))))
-        planned[n.path] = redact(front(n.front_lines, n.props) + (with_warning(body, n.held) if n.held else body))
+        planned[n.path] = redact(front(n.front_lines, dict(n.props, title=n.title)) + (with_warning(body, n.held) if n.held else body))
     planned["home.md"] = redact(front([], {"type": "home", "date": today.isoformat()}) + linker(home(today, now, notes)))
     planned["readme.md"] = unwrap(README)
     for name, text in VIEWS.items():
