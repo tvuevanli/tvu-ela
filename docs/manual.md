@@ -79,7 +79,7 @@ flowchart LR
 | 想看 ela 自己现在什么状态 | `reports` | `ela reports list` |
 | 临时目录占地方了 | `runtime` | `ela runtime status` · `ela runtime clean` |
 | 找之前那个关于 X 的 session | `sessions` | `ela sessions <word>` |
-| 看板上哪些票的 fix 早就在 prod 了、哪些到了 QA 还没填 Fixed In、哪些等 QA 说话——按动作分组，一批一批确认；关票只能你在 Jira 里点，ela 的 close 是提议（评论 + flag:closing + 转给你） | `stage` | `ela stage --jql 'project = MH AND statusCategory != Done'` · `ela stage MH-2601`（Epic 展开子票） |
+| 看板上哪些票的 fix 早就在 prod 了、哪些到了 QA 还没填 Fixed In、哪些等 QA 说话——按动作分组，一批一批确认；ela 提议的关票（评论 + flag:closing + 转给你）由你在 Jira 里点；你亲口点名的关票，ela 用 `ela jira close KEY --terminal` 一次确认执行 | `stage` | `ela stage --jql 'project = MH AND statusCategory != Done'` · `ela stage MH-2601`（Epic 展开子票） |
 | 一张票要在真实环境的浏览器里按票验一遍，结果要带环境和版本的证明；先看 Fixed In 在哪条 lane，再开浏览器 | `verify` · `browser` | `/ela:verify MH-xxxx --lane prod-3` · `ela browser env --key MH-xxxx --lane prod-3` |
 
 ---
