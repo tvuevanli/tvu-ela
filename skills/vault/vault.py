@@ -123,6 +123,10 @@ a warning, and Home lists it for 30 days as a rewrite ela owes.
 | it gone | delete it | nothing: its source stays in the reports and the backup |
 | nothing yet | leave it | it stays, or ela moves it on (below) |
 
+To tell ela what you want of a note, write it into the note, anywhere, in your own words (Ctrl+E to edit, again to
+read), once the note is in `to-learn/` or `archive/`: those copies are yours and never rewritten, and ela reads what
+you added as your guidance. A note still in `to-read/` is rewritten by the next sync, so move it first.
+
 Ask ela now and then to tidy the archive.
 
 Do it on the desktop; the laptop only receives. A living page (Home, the board, the library, how ela runs) is
