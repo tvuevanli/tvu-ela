@@ -42,6 +42,7 @@ flowchart LR
 |---|---|---|
 | 早上打开电脑，不知道先看什么 | `brief` | `/ela:brief` |
 | 只想先看 Jira 这几条线：谁超时没更新、谁没人接、哪张该拆没拆 | `brief` | `ela brief` · `ela brief --lane triage` |
+| 昨天发生了什么：按 case 把 Jira 变化、commit、Slack 串起来，没有 ticket 的代码和讨论单列，ela 自己做了什么 | `brief` | `ela yesterday` · `ela yesterday --hours 72` |
 | 一个复杂需求进来，要拆成各层的活并派人 | `breakdown` | `/ela:breakdown MH-3568` |
 | 一张别人写的票落到你手上，先要看懂它才谈得上判断 | `explain` | `/ela:explain MH-3568` |
 | 一张旧票挂了很久，先要判断它还有没有必要存在 | `revisit` | `/ela:revisit MH-1649` |

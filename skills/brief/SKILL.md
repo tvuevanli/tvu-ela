@@ -158,6 +158,34 @@ a standing gap, not a lane: `$SLACK channels --all <word>` finds them and joinin
 | **monologues** | `unanswered` rows older than 24h | a spec or a question nobody picked up is a routing gap, not a Slack curiosity | name who should have answered → route, or "convert to ticket" → `$JIRA create --summary … --description …` dry-run |
 | **decisions** | Evan's own replies in the 7-day window that rule something (Chinese cues: 先…再…, 不做, 不改, 我来, 就这样, 既然…; English: `Let's …`, `we will not`, `decided`) in threads whose text carries **no** Jira key | is it a durable decision others act on? | "record" → the ruling as a fact in `<elak>/knowledge/products/mediahub/` via Evan's word (a decision others act on is knowledge about the product, not a log of a conversation — (elak `blueprint/principles.md` P1), or `$JIRA comment <key> --text '<the ruling, verbatim, with the permalink>'` dry-run |
 
+## 2b — yesterday, by case
+
+The owner carries the product's technical responsibility, so the page opens its second half with what
+changed, not only what waits. `ela yesterday --json` (the runner leaves it at
+`<runtime>/runner/<date>-yesterday.json`; 72 hours on a Monday) joins by ticket key what moved in the window:
+each case's Jira moves and comments, the commits naming the key (subject, body or branch, every checkout
+under `<code>` as last fetched), the Slack messages naming it; then the commits and the discussed threads
+that name no ticket; then ela's own jobs and applied writes, and Helm's auto-writes, which Jira shows under
+the owner's account. A message or commit naming more than four keys is a list (release notes) and only
+reinforces cases another source opened.
+
+Write it as one short paragraph and at most eight case lines, under the heading `Yesterday`:
+
+- The paragraph says what the day was, in three sentences at most: where the work moved (which features
+  reached Review or Done, which lane got a release), what broke or was escalated, and the tracking gap.
+- A case line is a case that asks something of the owner or that he would want to know as the product's
+  technical lead: a fix that reached Review with nobody verifying, code that moved on a ticket whose Jira
+  did not, a thread that turned into a decision, a priority raised, a ticket bounced back. One line each:
+  key, what happened across the sources in one sentence, and the next step if any. Cases from other
+  products' projects stay out unless a MediaHub ticket is in the same case.
+- **Code without a ticket** is one line per repository with a count and the authors; when a branch of
+  several commits carries no key, the line names the branch, and the drafted action may be a Slack nudge to
+  the author asking which ticket it belongs to (the owner's rule: every change is tracked by a ticket).
+- **Threads without a ticket**: the ones a ticket should exist for (an outage, a customer ask, a decision)
+  get one line and a drafted `ela jira create` in the description standard; the rest are left out.
+- **ela** is one line: jobs run and failed, writes applied (with keys), Helm's auto-writes, and anything
+  in them that looks wrong (a malformed Fixed In value, a write the owner did not ask for).
+
 ## 3 — rank and write
 Order: triage OVERDUE → waiting (product / QA / partner, > 1 day) → cadence RED → incidents
 (customer spoke last, or created inside 48h) → reports → breakdown → cadence YELLOW → incidents
@@ -193,7 +221,8 @@ ela-runner starts this skill headless every weekday morning after it wrote the f
 (`/ela:brief --page <reports>/runner/<date>.md`). Then the output of §3 is written, not only printed:
 
 - `<reports>/runner/<date>-brief.md` — the page of §3 as Markdown, the judgment included (what each new
-  ticket is about, who should hold it, the drafted reply or nudge), every key a Jira link.
+  ticket is about, who should hold it, the drafted reply or nudge), then §2b's `Yesterday`, every key a Jira
+  link.
 - `<reports>/runner/<date>-actions.json` — the drafted actions as a list, in the page's order:
   `[{"n": 1, "text": "<the one line the page shows>", "command": "<the exact ela command, dry run as written>", "kind": "comment|assign|label|transition|close|slack|fixed-in"}]`.
   A command is one of ela's own write verbs — `ela jira comment|assign|label|fixed-in|close …`, `ela slack

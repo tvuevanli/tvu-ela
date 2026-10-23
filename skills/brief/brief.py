@@ -273,6 +273,194 @@ def cmd_lanes(args):
         sys.exit(EX_REMOTE)
 
 
+# ── yesterday: what changed, joined into cases by ticket key ──────────────────────────────────────────
+# A case is one ticket key with whatever touched it in the window: its Jira moves and comments, the commits
+# that name it (subject, body or branch), the Slack messages that name it. What names no ticket is listed
+# apart: untracked commits (the owner's rule is that every change is tracked by a ticket) and Slack threads
+# with a discussion but no key. ela's own work is the runner's jobs and the write log, plus Helm's
+# auto-writes, which Jira shows under the owner's account. Read-only; the ranking prose is the SKILL's.
+KEY_RX = re.compile(r"\b([A-Z][A-Z0-9]{1,9}-\d{1,6})\b")
+NOT_KEYS = re.compile(r"^(UTF|ISO|SHA|MD|RFC|CVE|HTTP|TLS|SSL|H|X|AV|AAC|MP|PR|MR|ENV|AWS|CN|QA|UR|J2N)-")
+SKIP_CHANNELS = ("alert", "helm-alerts")   # machine alarms: counted, never joined
+BULK = 4   # a commit or message naming more keys is a list (release notes, agent docs): it joins existing cases only
+SITE = os.path.expanduser("~/.claude/ela/site.json")
+SLACK = os.path.join(HERE, "..", "slack", "slack.py")
+
+
+def keys_in(text):
+    return sorted({k for k in KEY_RX.findall(text or "") if not NOT_KEYS.match(k)})
+
+
+def run_json(cmd, timeout=600):
+    r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    if r.returncode != 0:
+        raise LaneError({"query": " ".join(cmd[2:5]), "exit": r.returncode, "stderr": (r.stderr or r.stdout).strip()[-300:]})
+    return json.loads(r.stdout)
+
+
+def git_window(code_root, hours):
+    """Commits of every checkout under the code root in the window, all refs, merges left out, one row per sha."""
+    seen, rows, stale = set(), [], []
+    for top, dirs, _ in os.walk(code_root):
+        if ".git" in dirs:
+            dirs[:] = []
+            repo = os.path.relpath(top, code_root)
+            fh = os.path.join(top, ".git", "FETCH_HEAD")
+            if os.path.exists(fh) and os.path.getmtime(fh) < datetime.datetime.now().timestamp() - 86400:
+                stale.append(repo)
+            r = subprocess.run(["git", "-C", top, "log", "--all", "--no-merges", f"--since={hours} hours ago", "--source",
+                                "--format=%H%x1f%an%x1f%aI%x1f%S%x1f%s%x1f%b%x1e"], capture_output=True, text=True, timeout=60)
+            for rec in r.stdout.split("\x1e"):
+                p = rec.strip("\n").split("\x1f")
+                if len(p) < 6 or p[0] in seen:
+                    continue
+                seen.add(p[0])
+                ref = p[3].replace("refs/remotes/origin/", "").replace("refs/heads/", "")
+                rows.append({"repo": repo, "sha": p[0][:10], "author": p[1], "at": p[2], "ref": ref, "subject": p[4],
+                             "keys": keys_in(p[4] + "\n" + p[5] + "\n" + ref)})
+            continue
+        dirs[:] = [d for d in dirs if not d.startswith(".") and d not in ("node_modules", "vendor", "target", "build")]
+        if top.count(os.sep) - code_root.count(os.sep) >= 5:
+            dirs[:] = []
+    return rows, stale
+
+
+def cmd_yesterday(args):
+    site = json.load(open(SITE))
+    hours = args.hours
+    now = datetime.datetime.now(datetime.timezone.utc)
+    env = ["--env-file", args.env_file] if args.env_file else []
+    errors, cases = [], {}
+
+    def case(k):
+        return cases.setdefault(k, {"key": k, "summary": None, "status": None, "assignee": None, "jira": [], "comments": [],
+                                    "created": False, "commits": [], "slack": []})
+    # Jira
+    machine = []
+    try:
+        ch = run_json(["python3", JIRA, *env, "changes", f"--since=-{hours}h", "--json"])
+        for i in ch["issues"]:
+            c = case(i["key"]); c.update(summary=i["summary"], status=i["status"], assignee=i["assignee"], created=i["created_in_window"])
+            c["jira"] = i["events"]
+            for cm in i["comments"]:
+                (machine if "Helm Lookout" in cm["text"] else c["comments"]).append(dict(cm, key=i["key"]))
+    except (LaneError, subprocess.TimeoutExpired, ValueError) as e:
+        errors.append({"source": "jira", "error": str(e)[:300]})
+    # git
+    code_root = site.get("code") or os.path.join(site.get("projects", ""), "code")
+    commits, stale = git_window(code_root, hours)
+    untracked, bulk = [], []
+    for cm in commits:
+        if len(cm["keys"]) > BULK:
+            bulk.append(("commits", cm))
+        elif cm["keys"]:
+            for k in cm["keys"]:
+                case(k)["commits"].append(cm)
+        else:
+            untracked.append(cm)
+    # Slack
+    threads = []
+    try:
+        chans = [c for c in run_json(["python3", SLACK, *env, "channels", "--json"])["channels"] if c["member"]]
+        for c in chans:
+            if (c["name"] or "").startswith(SKIP_CHANNELS):
+                continue
+            try:
+                h = run_json(["python3", SLACK, *env, "history", c["id"], "--since", f"{hours}h", "--threads", "--json"], timeout=300)
+            except (LaneError, subprocess.TimeoutExpired, ValueError) as e:
+                errors.append({"source": f"slack #{c['name']}", "error": str(e)[:200]}); continue
+            for m in h["messages"]:
+                text = m["text"] + "\n" + "\n".join(r["text"] for r in m.get("replies") or [])
+                row = {"channel": c["name"], "permalink": m["permalink"], "by": m["user"], "is_bot": m["is_bot"],
+                       "text": re.sub(r"\s+", " ", m["text"])[:200], "replies": m.get("reply_count", 0)}
+                ks = keys_in(text)
+                if len(ks) > BULK:
+                    bulk.append(("slack", dict(row, keys=ks)))
+                else:
+                    for k in ks:
+                        case(k)["slack"].append(row)
+                if not ks and not m["is_bot"] and m.get("reply_count", 0) >= 2:
+                    threads.append(row)
+    except (LaneError, subprocess.TimeoutExpired, ValueError) as e:
+        errors.append({"source": "slack", "error": str(e)[:300]})
+    for where, x in bulk:                                   # lists only reinforce cases another source opened
+        for k in (x.get("keys") or []):
+            if k in cases:
+                cases[k][where].append(x)
+    # keys seen only in commits or Slack: their summary and status. Jira refuses a whole `key in (…)` naming one
+    # key it does not know, so a failed batch is retried key by key; a key no Jira knows stays bare.
+    missing = [k for k, c in cases.items() if c["summary"] is None]
+
+    def fill(keys):
+        try:
+            got = run_json(["python3", JIRA, *env, "jql", f"key in ({','.join(keys)})", "--limit", "100", "--json"])
+        except (LaneError, subprocess.TimeoutExpired, ValueError):
+            if len(keys) > 1:
+                for k in keys:
+                    fill([k])
+            return
+        for r in got["issues"]:
+            if r["key"] in cases:
+                cases[r["key"]].update(summary=r["summary"], status=r["status"], assignee=r["assignee"])
+    for i in range(0, len(missing), 80):
+        fill(missing[i:i + 80])
+    # ela's own work
+    reports = site.get("reports") or os.path.join(site.get("projects", ""), "reports")
+    cutoff = now - datetime.timedelta(hours=hours)
+    jobs, writes = [], []
+    jd = os.path.join(reports, "runner", "jobs")
+    for fn in sorted(os.listdir(jd)) if os.path.isdir(jd) else []:
+        try:
+            j = json.load(open(os.path.join(jd, fn)))
+            t = datetime.datetime.fromisoformat(j.get("created") or j.get("started") or "1970-01-01T00:00:00+00:00")
+            if t.astimezone(datetime.timezone.utc) >= cutoff:
+                jobs.append({"id": j.get("id"), "prompt": j.get("prompt"), "status": j.get("status"), "summary": (j.get("summary") or "")[:160]})
+        except (OSError, ValueError, TypeError):
+            pass
+    wl = os.path.join(reports, "ela", "writes.jsonl")
+    if os.path.exists(wl):
+        for line in open(wl, encoding="utf-8"):
+            try:
+                w = json.loads(line)
+                if datetime.datetime.fromisoformat(w["at"]).astimezone(datetime.timezone.utc) >= cutoff:
+                    writes.append(w)
+            except (ValueError, KeyError):
+                pass
+    for c in cases.values():
+        c["sources"] = sum(bool(x) for x in (c["jira"] or c["comments"] or c["created"], c["commits"], c["slack"]))
+    ranked = sorted(cases.values(), key=lambda c: (-c["sources"], -(len(c["jira"]) + len(c["comments"]) + len(c["commits"]) + len(c["slack"]))))
+    out = {"generated": now.strftime("%Y-%m-%dT%H:%M:%SZ"), "hours": hours,
+           "totals": {"cases": len(ranked), "jira_tickets": sum(1 for c in ranked if c["jira"] or c["comments"] or c["created"]),
+                      "commits": len(commits), "untracked_commits": len(untracked), "slack_messages_with_key": sum(len(c["slack"]) for c in ranked),
+                      "unticketed_threads": len(threads), "ela_jobs": len(jobs), "ela_writes": len(writes), "helm_autowrites": len(machine)},
+           "cases": ranked, "untracked_commits": untracked, "unticketed_threads": sorted(threads, key=lambda t: -t["replies"]),
+           "ela": {"jobs": jobs, "writes": writes, "helm_autowrites": machine}, "stale_checkouts": stale, "errors": errors}
+    if args.json:                       # a source not read is named in `errors`; the rest is still the answer
+        print(json.dumps(out, ensure_ascii=False)); return
+    t = out["totals"]
+    print(f"# yesterday · last {hours}h · {t['cases']} cases · {t['commits']} commits ({t['untracked_commits']} without a ticket) · "
+          f"{t['unticketed_threads']} threads without a ticket · ela {t['ela_jobs']} jobs, {t['ela_writes']} writes\n")
+    for c in ranked[: args.top]:
+        moves = "; ".join(f"{e['field']} {e['from'] or '—'}→{e['to'] or '—'}" for e in c["jira"][:3])
+        repos = sorted({x["repo"].split("/")[-1] for x in c["commits"]})
+        print(f"{c['key']:<10} [{c['status'] or '?':<11}] {(c['summary'] or '')[:60]}")
+        print(f"           jira: {moves or ('created' if c['created'] else ('%d comment(s)' % len(c['comments']) if c['comments'] else '—'))}"
+              f" · commits: {len(c['commits'])}{' (' + ', '.join(repos) + ')' if repos else ''} · slack: {len(c['slack'])}")
+    if untracked:
+        print(f"\n## commits without a ticket ({len(untracked)})")
+        for cm in untracked[: args.top]:
+            print(f"  {cm['repo']:<44} {cm['author']:<16} {cm['ref'][:24]:<24} {cm['subject'][:60]}")
+    if threads:
+        print(f"\n## threads without a ticket ({len(threads)})")
+        for th in out["unticketed_threads"][: args.top]:
+            print(f"  #{th['channel']:<28} {th['by']:<14} replies={th['replies']}  {th['text'][:70]}  {th['permalink']}")
+    print(f"\n## ela: {len(jobs)} jobs, {len(writes)} writes, {len(machine)} Helm auto-writes")
+    for e in errors:
+        print(f"not read: {e['source']}: {e['error']}", file=sys.stderr)
+    if errors:
+        sys.exit(EX_REMOTE)
+
+
 def main():
     ap = argparse.ArgumentParser(
         description="Morning brief, Jira lanes: the facts computed, read-only. "
@@ -286,6 +474,12 @@ def main():
     p.add_argument("--limit", type=int, default=300, help="max rows per query (default 300)")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_lanes)
+    p = sub.add_parser("yesterday", help="what changed in the window, joined into cases by ticket key: Jira moves, "
+                                         "commits, Slack messages; untracked commits; unticketed threads; ela's own work")
+    p.add_argument("--hours", type=int, default=24, help="window length (default 24; the runner passes 72 on Mondays)")
+    p.add_argument("--top", type=int, default=15, help="rows per section in the text form (default 15)")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_yesterday)
     args = ap.parse_args()
     if not args.cmd:
         ap.print_usage(sys.stderr)
