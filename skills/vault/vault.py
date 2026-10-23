@@ -607,6 +607,24 @@ def code_lines(body):
     return count
 
 
+def mermaid_problems(body):
+    """Mermaid faults Obsidian shows as a parse error instead of a diagram: a timeline period with a colon in it
+    (`01:00 : event`), since the colon is the period's separator."""
+    out, kind = [], None
+    for line in body.splitlines():
+        t = line.strip()
+        if t.startswith(("```mermaid", "~~~mermaid")):
+            kind = ""; continue
+        if kind is not None and t.startswith(("```", "~~~")):
+            kind = None; continue
+        if kind == "":
+            kind = t.split()[0] if t else ""
+            continue
+        if kind == "timeline" and re.match(r"^[^:]*\d:\d[^:]*:", t):
+            out.append(f"a mermaid timeline period carries a colon ({t[:20]}…)")
+    return out
+
+
 def reading_gate(n):
     kind = n.props.get("type")
     if kind not in BUDGET:
@@ -621,6 +639,7 @@ def reading_gate(n):
     code = code_lines(n.body)
     if code > max(12, lines // 4):
         problems.append(f"{code} of {lines} lines are code")
+    problems += mermaid_problems(n.body)
     machine = len(MACHINE.findall(re.sub(r"```.*?```", "", n.body, flags=re.S)))
     if machine > 2:
         problems.append(f"{machine} machine paths or raw records")
@@ -756,6 +775,9 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset()):
     native = native_notes(s["vault"])
     native_paths = {n.path.lower() for n in native}
     notes = [n for n in notes if n.path.lower() not in native_paths]
+    native_warn = []
+    for n in native:                                       # a page ela writes in place is not gated, only checked
+        native_warn += [f"{n.path}: {p}" for p in mermaid_problems(n.body)]
     topics = [n for n in native if n.props.get("type") == "topic"]
     by_topic = {os.path.basename(n.path)[:-3]: n for n in topics}
     if topics:
@@ -770,7 +792,7 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset()):
     if env and os.path.isfile(env):
         jira_base = next((l.split("=", 1)[1].strip().rstrip("/") for l in open(env) if l.startswith("JIRA_BASE_URL=")), "")
     projects = project_keys(env, s.get("runtime")) if jira_base else set()
-    warnings = [] if jira_base and projects else ["ticket keys are not linked: no Jira base URL or project list"]
+    warnings = native_warn + ([] if jira_base and projects else ["ticket keys are not linked: no Jira base URL or project list"])
     reps = {n.src_rel: n for n in notes if n.src_rel and n.props.get("type") in ("day", "review")}
     linker = Linker({n.src_rel: n for n in enotes}, titles, jira_base, projects, reports, reps)
     planned = {}
