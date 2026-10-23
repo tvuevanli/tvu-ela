@@ -1022,8 +1022,9 @@ def cmd_setup(a):
     print("vault settings applied; restart Obsidian to load them")
 
 
-TICKED = re.compile(r"^\s*[-*]\s+\[[xX]\]\s+(.+?)\s*$", re.M)   # a choice he ticked in a note: a click, not typing
-GUIDE = re.compile(r"^\s*(?:[-*>]\s*)*ela\s*[:：]\s*(.+?)\s*$", re.I | re.M)
+TICKED = re.compile(r"^[ \t]*[-*][ \t]+\[[xX]\][ \t]+(\S.*?)[ \t]*$", re.M)   # a choice he ticked in a note: a click, not typing
+# horizontal whitespace only: an empty `ela:` property must not reach across the line break to the next line
+GUIDE = re.compile(r"^[ \t]*(?:[-*>][ \t]*)*ela[ \t]*[:：][ \t]*(\S.*?)[ \t]*$", re.I | re.M)
 
 
 def cmd_guidance(a):
