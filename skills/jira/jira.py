@@ -485,6 +485,78 @@ def _standard_gate(args, issuetype, result):
         sys.exit(2)
     return lines
 
+# ── changes: what moved on each ticket in a window (read-only) ───────────────
+# The fields a reader acts on; edits to anything else are counted, not listed.
+CHANGE_FIELDS = {"status", "priority", "assignee", "labels", "Fixed In", "issuetype", "resolution", "Link", "Parent", "Sprint"}
+
+
+def cmd_changes(creds, args):
+    """Tickets updated since --since (a JQL relative date such as -1d, or YYYY-MM-DD HH:MM), each with the changelog
+    items and comments inside the window: who moved what, when. Feeds the brief's yesterday section."""
+    jql = f'project = {args.project} AND updated >= "{args.since}" ORDER BY updated DESC' if not args.since.startswith("-") \
+        else f"project = {args.project} AND updated >= {args.since} ORDER BY updated DESC"
+    issues, token = [], None
+    while len(issues) < args.limit:
+        p = {"jql": jql, "maxResults": min(100, args.limit - len(issues)), "expand": "changelog",
+             "fields": "summary,status,assignee,priority,issuetype,parent,comment,created,updated"}
+        if token:
+            p["nextPageToken"] = token
+        d = api_get(creds, "/rest/api/3/search/jql", p)
+        issues += d.get("issues") or []
+        token = d.get("nextPageToken")
+        if not token or d.get("isLast"):
+            break
+    if args.since.startswith("-"):
+        n = int(re.sub(r"\D", "", args.since) or 1); unit = args.since[-1]
+        delta = {"d": datetime.timedelta(days=n), "h": datetime.timedelta(hours=n), "w": datetime.timedelta(weeks=n)}.get(unit, datetime.timedelta(days=n))
+        cutoff = datetime.datetime.now(datetime.timezone.utc) - delta
+    else:
+        cutoff = datetime.datetime.fromisoformat(args.since).astimezone(datetime.timezone.utc)
+
+    def inside(ts):
+        try:
+            return datetime.datetime.strptime(ts[:19], "%Y-%m-%dT%H:%M:%S").replace(tzinfo=datetime.timezone.utc) - \
+                datetime.timedelta(minutes=int(ts[-4:-2]) * 60 + int(ts[-2:])) * (1 if ts[-5] == "+" else -1) >= cutoff
+        except (ValueError, IndexError):
+            return True
+    rows = []
+    for i in issues:
+        f = i.get("fields") or {}
+        events, other = [], 0
+        for h in (i.get("changelog") or {}).get("histories") or []:
+            if not inside(h.get("created", "")):
+                continue
+            who = name_of(h.get("author"))
+            for it in h.get("items") or []:
+                if it.get("field") in CHANGE_FIELDS:
+                    events.append({"at": h.get("created"), "by": who, "field": it.get("field"),
+                                   "from": it.get("fromString"), "to": it.get("toString")})
+                else:
+                    other += 1
+        comments = [{"at": c.get("created"), "by": name_of(c.get("author")), "text": re.sub(r"\s+", " ", body_text(c.get("body")))[:300]}
+                    for c in ((f.get("comment") or {}).get("comments") or []) if inside(c.get("created", ""))]
+        created = inside(f.get("created", ""))
+        if not (events or comments or created or other):
+            continue
+        rows.append({"key": i.get("key"), "summary": f.get("summary", ""), "status": name_of(f.get("status"), "name"),
+                     "assignee": name_of(f.get("assignee")), "priority": name_of(f.get("priority"), "name"),
+                     "type": name_of(f.get("issuetype"), "name"), "parent": (f.get("parent") or {}).get("key"),
+                     "created_in_window": created, "events": events, "comments": comments, "other_edits": other})
+    if args.json:
+        print(json.dumps({"since": args.since, "cutoff": cutoff.isoformat(timespec="seconds"), "count": len(rows), "issues": rows},
+                         ensure_ascii=False)); return
+    print(f"# {len(rows)} issue(s) changed since {args.since}\n")
+    for r in rows:
+        ev = "; ".join(f"{e['field']}: {e['from'] or '—'} → {e['to'] or '—'} ({e['by']})" for e in r["events"])
+        print(f"{r['key']:<10} [{r['status']:<12}] {r['summary'][:70]}")
+        if r["created_in_window"]:
+            print("           created")
+        if ev:
+            print(f"           {ev}")
+        for c in r["comments"]:
+            print(f"           comment by {c['by']}: {c['text'][:120]}")
+
+
 # ── Rendering ────────────────────────────────────────────────────────────────
 
 def name_of(obj, key="displayName"):
@@ -1468,6 +1540,13 @@ def main():
     p.add_argument("--out", help="directory (default <runtime>/jira-files)")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_files)
+
+    p = sub.add_parser("changes", help="tickets changed since a time, each with its status/priority/assignee/label/"
+                                         "Fixed In moves and the comments in the window — read-only")
+    p.add_argument("--since", default="-1d", help="JQL relative date (-1d, -72h) or 'YYYY-MM-DD HH:MM' (default -1d)")
+    p.add_argument("--project", default="MH"); p.add_argument("--limit", type=int, default=400)
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_changes)
 
     p = sub.add_parser("jql", help="search; key/status/assignee/summary rows")
     p.add_argument("jql")
