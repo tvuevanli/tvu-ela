@@ -160,8 +160,10 @@ its row and named as not covered, but does not decide the verdict: the ticket is
 1. **The QA record, rendered, not written** — the run leaves `<runtime>/browser/runs/<KEY>-<date>/` holding
    `ticket.json`, `plan.json` (the confirmed goals, each with `kind`), `env.json` (`ela browser env --json`),
    `cases.json` (`ela browser run --json`), `ancestry.json`, `technique.json` and `shots/` (the gate's `version-panel.png` among them);
-   `ela verify --key <KEY> --run <dir> --pdf <dir>/<KEY>-verify-<date>.pdf` renders the page under
-   `<reports>/verify/<KEY>-<date>/` for the owner (publishable as a private artifact), a `report.md` beside it that the
+   `ela verify --key <KEY> --run <dir> --pdf <dir>/<KEY>-verify-<date>.pdf --single <reports>/verify/<KEY>-<date>/record.html`
+   renders the page under
+   `<reports>/verify/<KEY>-<date>/` for the owner (publishable as a private artifact), `record.html` (the same page with its images embedded, which opens inside the owner's
+   Obsidian through HTML Reader), a `report.md` beside it that the
    owner's vault shows natively (the same run data, no model call: verdict, environment, checks, captioned screenshots),
    and prints the PDF for the ticket. **The readable part comes first**: the verdict, the environment in one plain sentence, and one row
    per requirement check — what the ticket asks (the goal from the plan) and what was seen, in a reader's

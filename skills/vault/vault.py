@@ -132,9 +132,10 @@ Set by ela; the sync never changes these settings. ela keeps a copy, and `ela va
 - Notes open in reading view, without the file-name title or the properties panel, at a readable width; the
   `ela` style sheet tidies tables and callouts.
 - Core plugins on: search, quick switcher, file explorer, backlinks, outgoing links, page preview, outline,
-  bookmarks, properties, Bases, Web viewer. Off: everything made for writing (templates, daily notes, note
+  bookmarks, properties, Bases. Off: everything made for writing, Web viewer (templates, daily notes, note
   composer, canvas, slash commands) and tags, which this vault does not use.
-- One community plugin, **Homepage**, opens `home` in reading view when Obsidian starts.
+- Two community plugins: **Homepage** opens `home` in reading view when Obsidian starts; **HTML Reader** opens a
+  verification's full record (a self-contained `.html`) in a tab. Web links open in the default browser.
 """
 
 VIEWS = {
@@ -398,13 +399,14 @@ def verify_notes(reports):
                         pdfs.append(dst)
                     elif low.endswith((".png", ".jpg", ".jpeg")):
                         imgs.append(dst)
-                    elif low in ("index.html", "print.html") and (page is None or low == "index.html"):
-                        page = dst
+                    elif low in ("index.html", "print.html", "record.html") and (page is None or low == "record.html"
+                                                                                   or (low == "index.html" and not page.endswith("record.html"))):
+                        page = dst             # record.html, images embedded, opens inside Obsidian through HTML Reader
         md = os.path.join(p, "report.md") if not single else ""
         if md and os.path.isfile(md):                  # the record's own Markdown, written by the verify renderer
             body = open(md, encoding="utf-8").read()
             body = re.sub(r"!\[\[(img/[^\]]+)\]\]", lambda m: f"![[{record}/{m.group(1)}]]", body)
-            body = body.replace("is `index.html` beside this file.", f"is [in the attachments]({page}).") if page else body
+            body = body.replace("is `index.html` beside this file.", f"opens here: [[{page}|the full record]].") if page else body
             notes.append(Note(f"30-verify/{date[:7]}/{key.lower()}-{date}{extra}.md", f"{key} verification {date}", body,
                               {"type": "verify", "date": date}))
             continue
@@ -415,7 +417,7 @@ def verify_notes(reports):
         elif verdict:
             body += [f"> [!{ {'PASS': 'success', 'FAIL': 'failure', 'BLOCKED': 'warning'}.get(verdict[0], 'info') }] {verdict[0]}"
                      + (f": {verdict[1]}" if verdict[1] else "") + (f" · {verdict[2]}" if verdict[2] else ""), ""]
-        body.append(f"Ticket {key}" + (f" · [open the full record]({page})" if page else ""))
+        body.append(f"Ticket {key}" + (f" · [[{page}|open the full record]]" if page else ""))
         body.append("")
         if pdfs:
             body += [f"![[{pdfs[0]}]]", ""]
@@ -708,14 +710,15 @@ def cmd_setup(a):
     atomic_write(os.path.join(o, "core-plugins.json"), json.dumps(core, indent=2))
     atomic_write(os.path.join(o, "community-plugins.json"), json.dumps(cfg["community"]))
     shutil.copyfile(os.path.join(src, "ela.css"), os.path.join(o, "snippets", "ela.css"))
-    hp = os.path.join(o, "plugins", "homepage"); os.makedirs(hp, exist_ok=True)
-    shutil.copyfile(os.path.join(src, "homepage-data.json"), os.path.join(hp, "data.json"))
-    for f in ("main.js", "manifest.json", "styles.css"):
-        if not os.path.isfile(os.path.join(hp, f)):
-            url = f"https://github.com/mirnovov/obsidian-homepage/releases/download/{cfg['homepage_version']}/{f}"
-            r = subprocess.run(["curl", "-fsSL", "-m", "60", "-o", os.path.join(hp, f), url], capture_output=True, text=True)
-            if r.returncode != 0:
-                print(f"could not fetch Homepage {f}: {r.stderr.strip()[-120:]}", file=sys.stderr)
+    for pid, spec in cfg["plugins"].items():           # each community plugin pinned to a recorded release
+        hp = os.path.join(o, "plugins", pid); os.makedirs(hp, exist_ok=True)
+        for f in spec["files"]:
+            if not os.path.isfile(os.path.join(hp, f)):
+                url = f"https://github.com/{spec['repo']}/releases/download/{spec['version']}/{f}"
+                r = subprocess.run(["curl", "-fsSL", "-m", "120", "-o", os.path.join(hp, f), url], capture_output=True, text=True)
+                if r.returncode != 0:
+                    print(f"could not fetch {pid} {f}: {r.stderr.strip()[-120:]}", file=sys.stderr)
+    shutil.copyfile(os.path.join(src, "homepage-data.json"), os.path.join(o, "plugins", "homepage", "data.json"))
     now = int(datetime.datetime.now().timestamp() * 1000)
     atomic_write(os.path.join(o, "bookmarks.json"), json.dumps({"items": [dict(b, type="file", ctime=now) for b in cfg["bookmarks"]]}, indent=2))
     print("vault settings applied; restart Obsidian to load them")

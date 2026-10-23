@@ -29,13 +29,12 @@
     "outline",
     "page-preview",
     "properties",
-    "switcher",
-    "webviewer"
+    "switcher"
   ],
   "community": [
-    "homepage"
+    "homepage",
+    "obsidian-html-plugin"
   ],
-  "homepage_version": "4.5.0",
   "bookmarks": [
     {
       "path": "home.md",
@@ -45,5 +44,24 @@
       "path": "readme.md",
       "title": "About this vault"
     }
-  ]
+  ],
+  "plugins": {
+    "homepage": {
+      "version": "4.5.0",
+      "repo": "mirnovov/obsidian-homepage",
+      "files": [
+        "main.js",
+        "manifest.json",
+        "styles.css"
+      ]
+    },
+    "obsidian-html-plugin": {
+      "version": "1.0.19",
+      "repo": "nuthrash/obsidian-html-plugin",
+      "files": [
+        "main.js",
+        "manifest.json"
+      ]
+    }
+  }
 }
