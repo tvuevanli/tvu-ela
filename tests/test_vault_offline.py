@@ -69,6 +69,9 @@ with tempfile.TemporaryDirectory() as tmp:
     open(f"{reports}/ela/{today}-long.md", "w").write("# Long review\n\n" + "word " * 3000)
     for i in range(20):
         open(f"{reports}/{today[:4]}-09-{i + 10}-review-{i}.md", "w").write(f"# Review {i}\n\nText.\n")
+    BATCH = [f"{today[:4]}-08-{i + 10}-batch-{i}.md" for i in range(15)]   # bulk, for the halving and mass checks
+    for f in BATCH:
+        open(f"{reports}/{f}", "w").write("# Batch\n\nText.\n")
     open(f"{vault}/mine.md", "w").write("the owner's own file")
     site = os.path.join(tmp, "site.json")
     json.dump({"vault": vault, "elak": ELAK, "reports": reports, "runtime": runtime}, open(site, "w"))
@@ -133,6 +136,10 @@ with tempfile.TemporaryDirectory() as tmp:
     check("a ticked done box archives the note at the next sync, without the boxes", sync() == 0
           and os.path.exists(f"{vault}/archive/{today[:4]}-09-16-review-6.md") and not os.path.exists(r6)
           and "done:" not in open(f"{vault}/archive/{today[:4]}-09-16-review-6.md").read())
+    r9 = f"{vault}/to-read/{today[:4]}-09-19-review-9.md"
+    txt = open(r9).read(); open(r9, "w").write(txt.replace('ela: ""', 'ela: "1A, post it"'))
+    check("his word typed in the ela cell survives the rewrite", sync() == 0 and 'ela: "1A, post it"' in open(r9).read()
+          and open(r9).read().count("1A, post it") == 1)
     r7 = f"{vault}/to-read/{today[:4]}-09-17-review-7.md"
     txt = open(r7).read(); open(r7, "w").write(txt.replace("drop: false", "drop: true"))
     check("a ticked drop box deletes it, logged as his", [x[1] for x in V.apply_marks(vault, reports)] == ["drop"] and not os.path.exists(r7)
@@ -146,7 +153,7 @@ with tempfile.TemporaryDirectory() as tmp:
     with contextlib.redirect_stdout(buf):
         V.cmd_guidance(types.SimpleNamespace(all=False, json=True))
     g = json.loads(buf.getvalue())
-    check("ela: lines anywhere in the vault are read as his guidance", sorted(x["says"] for x in g["guidance"]) == ["post this to Jira", "write this to the KB"]
+    check("ela: lines anywhere in the vault are read as his guidance", sorted(x["says"] for x in g["guidance"]) == ["1A, post it", "post this to Jira", "write this to the KB"]
           and len(g["to_learn"]) == 1)
     check("a note he dragged into to-learn is recorded so and left there", sync() == 0
           and os.path.exists(f"{vault}/to-learn/{today[:4]}-09-11-review-1.md") and not os.path.exists(f"{vault}/to-read/{today[:4]}-09-11-review-1.md")
@@ -163,18 +170,22 @@ with tempfile.TemporaryDirectory() as tmp:
     check("a missing reports root stops the sync", sync() == 3)
     check("and nothing was removed", os.path.exists(dec0))
     os.rename(reports + ".gone", reports)
-    for i in range(8, 20):
+    for f in BATCH:
+        os.remove(f"{reports}/{f}")
+    for i in range(10, 20):
         os.remove(f"{reports}/{today[:4]}-09-{i + 10}-review-{i}.md")
     check("the notes halving at once stops the sync", sync() == 3)
-    check("--force applies a deliberate removal", sync(force=True) == 0 and not os.path.exists(f"{vault}/to-read/{today[:4]}-09-18-review-8.md"))
-    for i in range(8, 20):
+    check("--force applies a deliberate removal", sync(force=True) == 0 and not os.path.exists(f"{vault}/to-read/{today[:4]}-09-28-review-18.md"))
+    for i in range(10, 20):
         open(f"{reports}/{today[:4]}-09-{i + 10}-review-{i}.md", "w").write(f"# Review {i}\n\nText.\n")
+    for f in BATCH:
+        open(f"{reports}/{f}", "w").write("# Batch\n\nText.\n")
     sync(force=True)
     before = len(rows())
-    for i in range(8, 20):
+    for i in range(10, 20):
         os.remove(f"{vault}/to-read/{today[:4]}-09-{i + 10}-review-{i}.md")
     check("a mass disappearance is written again, not recorded as read", sync() == 0
-          and os.path.exists(f"{vault}/to-read/{today[:4]}-09-15-review-5.md") and len(rows()) == before)
+          and os.path.exists(f"{vault}/to-read/{today[:4]}-09-25-review-15.md") and len(rows()) == before)
     check("a file the sync never wrote is never removed", os.path.exists(f"{vault}/mine.md"))
     os.makedirs(f"{vault}/library", exist_ok=True)
     native = f"{vault}/library/topic-a.md"

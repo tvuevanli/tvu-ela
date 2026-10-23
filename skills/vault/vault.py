@@ -49,7 +49,7 @@ OWNER_FOLDERS = (TO_LEARN, ARCHIVE)   # where the owner drags a note to say what
 ATTACH = "ela/attachments"
 DELETABLE = (DAYS, TO_READ)
 KEEP_FOREVER = ("brief",)   # the morning page is the record of what ela told the owner; the rest expires
-PROPS = ("title", "aliases", "type", "date", "kind", "status", "done", "learn", "drop")   # the whole vocabulary; no tags (ADR 0010)
+PROPS = ("title", "aliases", "type", "date", "kind", "status", "done", "learn", "drop", "ela")   # the whole vocabulary; no tags (ADR 0010)
 MARKS = {"done": ARCHIVE, "learn": TO_LEARN, "drop": None}   # a ticked box in a to-read table row: archive, distil, delete
 BUDGET = {"topic": 800, "guide": 1200, "board": 1000, "day": 1200, "review": 2500, "decision": 1200, "plan": 2500, "sprint": 800}
 TOLERANCE = 1.1                                  # a page 10% over its budget is not worth a rewrite
@@ -199,7 +199,7 @@ VIEWS = {
   - type: table
     name: Waiting for your word
     filters:
-""" + WAITING + """    order: [date, formula.note, type, status, done, learn, drop]
+""" + WAITING + """    order: [date, formula.note, type, status, done, learn, drop, ela]
     sort:
       - property: date
         direction: DESC
@@ -211,7 +211,7 @@ VIEWS = {
         - 'status != "fail"'
         - 'status != "blocked"'
         - 'status != "proposed"'
-    order: [date, formula.note, type, done, learn, drop]
+    order: [date, formula.note, type, done, learn, drop, ela]
     sort:
       - property: date
         direction: DESC
@@ -270,7 +270,8 @@ def front(existing, props):
         props["date"] = (src.get("decided") or src.get("written"))[:10]
     if props.get("title") and props.get("type") not in ("home", "readme"):
         props["aliases"] = [props["title"]]                # the quick switcher matches an alias, not a heading
-    lines = [f"{k}: {json.dumps(props[k], ensure_ascii=False)}" for k in PROPS if props.get(k) or props.get(k) is False]
+    lines = [f"{k}: {json.dumps(props[k], ensure_ascii=False)}" for k in PROPS if props.get(k) or props.get(k) is False
+             or (k == "ela" and props.get(k) == "")]          # an empty ela cell, ready for his word
     return "---\n" + "\n".join(lines) + "\n---\n\n" if lines else ""
 
 
@@ -896,7 +897,7 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset()):
     planned = {}
     for n in notes:
         if top(n.path) == TO_READ:
-            n.props.update({k: False for k in MARKS})
+            n.props.update({k: False for k in MARKS}, ela="")
         n.held = reading_gate(n)
         body = linker(unwrap(callouts(meta_line(Note(n.path, n.title, tidy_title(n.body), n.props, n.front_lines), by_topic))))
         planned[n.path] = redact(front(n.front_lines, dict(n.props, title=n.title)) + (with_warning(body, n.held) if n.held else body))
@@ -1047,10 +1048,10 @@ def cmd_guidance(a):
                 text = open(p, encoding="utf-8").read()
                 if top(rel) == TO_LEARN:
                     notes.append({"note": rel, "title": h1(split_front(text)[1]) or f[:-3]})
-                for m in GUIDE.finditer(text):
+                for m in (x for x in GUIDE.finditer(text) if x.group(1).strip('"\' ')):
                     gid = hashlib.sha256(f"{f}\0{m.group(1)}".encode()).hexdigest()[:12]
                     if a.all or gid not in done:
-                        lines.append({"id": gid, "note": rel, "says": m.group(1)})
+                        lines.append({"id": gid, "note": rel, "says": m.group(1).strip().strip('"').strip("'")})
     r = {"guidance": lines, "to_learn": notes,
          "handled_log": os.path.join(reports, "ela", "guidance-handled.jsonl")}
     if a.json:
@@ -1239,9 +1240,14 @@ def cmd_sync(a):
             disk = open(os.path.join(vault, rel), encoding="utf-8").read()
         except OSError:
             continue
-        mine = [m.group(0).strip() for m in GUIDE.finditer(disk) if m.group(0).strip() not in planned[rel]]
+        dfl, dbody = split_front(disk)
+        mine = [m.group(0).strip() for m in GUIDE.finditer(dbody) if m.group(0).strip() not in planned[rel]]
         if mine:
             planned[rel] = planned[rel].rstrip("\n") + "\n\n" + "\n".join(mine) + "\n"
+        said = next((l for l in dfl if re.match(r'^ela:\s*\S', l) and not re.match(r'^ela:\s*""\s*$', l)), None)
+        if said:                                           # his word typed in the table's ela cell
+            planned[rel] = re.sub(r'^ela: ""$', said.replace("\\", "\\\\"), planned[rel], count=1, flags=re.M) \
+                if re.search(r'^ela: ""$', planned[rel], re.M) else planned[rel]
     for rel, text in planned.items():
         p = os.path.join(vault, rel)
         d, name = os.path.split(p)
