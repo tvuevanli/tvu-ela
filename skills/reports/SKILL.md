@@ -40,6 +40,16 @@ listed on the vault's Home for 30 days as a rewrite this skill owes. Budgets, in
 numbers in a short table, file paths and code only where he must act on them, the full record linked, not
 pasted.
 
+## What a report is now
+
+- **ela's own design and abilities are not a report.** They live in elak `blueprint/overview.md`, which the owner
+  reads in his vault and which changes in the same pass as ela; no claude.ai report about ela is published or
+  republished (decided 2026-10-23).
+- **A review is written as a Claude doc** (shareable, commentable) when colleagues may read it. What it decides is
+  recorded in elak (a decision, a rule, a knowledge entry), and what the owner must act on reaches his vault; the doc
+  stays as the reference, linked from the library.
+- Standing reports for colleagues (release comparisons, product analyses) remain artifacts or docs as before.
+
 ## The library's list
 
 A report published or republished as a claude.ai artifact is added to `<reports>/library/artifacts.json` (title,
