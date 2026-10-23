@@ -609,6 +609,9 @@ def main():
     p = sub.add_parser("sync", help="rsync <published> to site.json `published_remote` — dry run unless --apply")
     p.add_argument("--apply", action="store_true")
     a = ap.parse_args()
+    # an unattended session (ELA_NO_APPLY=1) reads and dry-runs only; the owner's word applies a write
+    if os.environ.get("ELA_NO_APPLY") and getattr(a, "apply", False):
+        print("refused: --apply inside an unattended session (ELA_NO_APPLY)", file=sys.stderr); sys.exit(2)
     {"catalogue": cmd_catalogue, "map": cmd_map, "roster": cmd_roster, "doc": cmd_doc, "all": cmd_all, "list": cmd_list, "sync": cmd_sync}[a.cmd](a)
 
 

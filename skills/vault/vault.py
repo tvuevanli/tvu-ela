@@ -829,7 +829,9 @@ def cmd_sync(a):
     removed |= set(newly)
     now_files = set(planned) | {dst for src, dst in files}
     if not a.force:                                        # a folder that halves is a failure until shown to be a removal
-        kept_old = [r for r in old if r not in removed]       # the owner's deletions are not a source failing
+        # the owner's deletions and folders with a retention limit (days, verifications, their attachments) shrink by
+        # design; a failing source shows elsewhere (a missing root, an unreadable git) before this
+        kept_old = [r for r in old if r not in removed and top(r) not in ("10-days", "30-verify", "90-attachments")]
         for t in sorted({top(r) for r in kept_old if "/" in r}):
             before = sum(1 for r in kept_old if top(r) == t)
             after = sum(1 for r in now_files if top(r) == t)

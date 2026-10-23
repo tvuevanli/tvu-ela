@@ -409,6 +409,9 @@ def main():
     s.set_defaults(fn=cmd_delete)
 
     args = p.parse_args()
+    # an unattended session (ELA_NO_APPLY=1) reads and dry-runs only; the owner's word applies a write
+    if os.environ.get("ELA_NO_APPLY") and getattr(args, "apply", False):
+        print("refused: --apply inside an unattended session (ELA_NO_APPLY)", file=sys.stderr); sys.exit(2)
     # The subcommand's default is None so that `kb --json tree` is not undone by the verb's own
     # absent flag; either position turns it on.
     if getattr(args, "json", None) is None:
