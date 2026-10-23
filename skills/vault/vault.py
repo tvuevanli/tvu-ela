@@ -373,30 +373,11 @@ def report_notes(reports, today):
                           {"type": "board", "date": dm.group(1) if dm else None}, fl, src_rel="board/board.md"))
     # the library: one page per topic, written by ela from the sources it read, and an index; the source lists are an
     # appendix. Pointers and syntheses only: the originals stay where they live.
-    td = os.path.join(reports, "library", "topics")
-    topics = []
-    for f in sorted(os.listdir(td)) if os.path.isdir(td) else []:
-        if not f.endswith(".md"):
-            continue
-        fl, body = split_front(open(os.path.join(td, f), encoding="utf-8").read())
-        dm = re.search(r"\*As of (\d{4}-\d{2}-\d{2})", body)
-        n = Note(f"70-library/{slug(f[:-3])}.md", sentence(h1(body) or f[:-3].replace("-", " ")), body,
-                 {"type": "topic", "date": dm.group(1) if dm else None}, fl, src_rel=f"library/topics/{f}")
-        notes.append(n); topics.append(n)
     lp = os.path.join(reports, "library", "library.md")
     if os.path.isfile(lp):
         fl, body = split_front(open(lp, encoding="utf-8").read())
         body = re.sub(r"^# Library\b", "# Library sources", body, count=1, flags=re.M)
         notes.append(Note("70-library/sources.md", "Library sources", body, {"type": "library"}, fl, src_rel="library/library.md"))
-    if topics:
-        L = ["# Library", "", "*What ela knows, by topic: each page is a summary with links to the originals. "
-             "The [[70-library/sources|full list of sources]] is the appendix.*", "", "| topic | where it stands | as of |", "|---|---|---|"]
-        for n in topics:
-            para = next((p for p in re.split(r"\n\s*\n", re.sub(r"^#.*$", "", n.body, count=1, flags=re.M))
-                         if p.strip() and not p.strip().startswith(("*", "|", "#", "-"))), "")
-            first = re.split(r"(?<=[.!?])\s", " ".join(para.split()), maxsplit=1)[0][:220]
-            L.append(f"| [[{n.path[:-3]}|{n.title}]] | {first.replace('|', '/')} | {n.props.get('date') or ''} |")
-        notes.append(Note("70-library/index.md", "Library", "\n".join(L) + "\n", {"type": "library"}))
     sp = os.path.join(reports, "system", "how-ela-runs.md")
     if os.path.isfile(sp):                                 # what is scheduled where, read from the machines
         fl, body = split_front(open(sp, encoding="utf-8").read())
@@ -698,6 +679,46 @@ def home(today, now, notes):
 
 # ── the sync ──────────────────────────────────────────────────────────────────────────────────────────
 
+def native_notes(vault):
+    """Notes whose source is the vault itself (front matter `source: "vault"`): the owner's documents ela writes in
+    place (the overview, the workflow, plans for his decision, the library's topic pages). Read, never written."""
+    out = []
+    for top_, dirs, fs in os.walk(vault):
+        dirs[:] = [d for d in dirs if not d.startswith(".") and d != "90-attachments"]
+        for f in fs:
+            if not f.endswith(".md"):
+                continue
+            p = os.path.join(top_, f)
+            try:
+                text = open(p, encoding="utf-8").read()
+            except OSError:
+                continue
+            fl, body = split_front(text)
+            if not any(re.match(r"^source:\s*['\"]?vault['\"]?\s*$", l) for l in fl):
+                continue
+            props = {}
+            for l in fl:
+                m = re.match(r"^(type|date|kind|status|title):\s*['\"]?([^'\"]*)['\"]?\s*$", l)
+                if m:
+                    props[m.group(1)] = m.group(2)
+            rel = os.path.relpath(p, vault).replace(os.sep, "/")
+            out.append(Note(rel, props.pop("title", None) or h1(body) or f[:-3], body, props, fl))
+    return out
+
+
+def library_index(topics):
+    """The library's index: one row per topic page (native to the vault), where it stands, as of when."""
+    L = ["# Library", "", "*What ela knows, by topic: each page is a summary with links to the originals. "
+         "The [[70-library/sources|full list of sources]] is the appendix.*", "", "| topic | where it stands | as of |", "|---|---|---|"]
+    for n in sorted(topics, key=lambda n: n.title):
+        para = next((p for p in re.split(r"\n\s*\n", re.sub(r"^#.*$", "", n.body, count=1, flags=re.M))
+                     if p.strip() and not p.strip().startswith(("*", "|", "#", "-"))), "")
+        first = re.split(r"(?<=[.!?])\s", " ".join(para.split()), maxsplit=1)[0][:220]
+        dm = re.search(r"\*As of (\d{4}-\d{2}-\d{2})", n.body)
+        L.append(f"| [[{n.path[:-3]}|{n.title}]] | {first.replace('|', '/')} | {n.props.get('date') or (dm.group(1) if dm else '')} |")
+    return Note("70-library/index.md", "Library", "\n".join(L) + "\n", {"type": "library"})
+
+
 def plan(s, env, today, now, removed=frozenset()):
     reports = s.get("reports")
     enotes, titles = elak_notes(s.get("elak"))
@@ -705,6 +726,12 @@ def plan(s, env, today, now, removed=frozenset()):
     vnotes, files = verify_notes(reports, today)
     notes += vnotes
     notes = [n for n in notes if n.path not in removed]   # what the owner deleted is not written, linked or listed
+    native = native_notes(s["vault"])
+    native_paths = {n.path.lower() for n in native}
+    notes = [n for n in notes if n.path.lower() not in native_paths]
+    topics = [n for n in native if n.props.get("type") == "topic"]
+    if topics:
+        notes.append(library_index(topics))
     taken = set()
     for n in notes:                                        # one note per path; a namesake gets -2, never an overwrite
         stem, i = n.path[:-3], 2
@@ -723,11 +750,11 @@ def plan(s, env, today, now, removed=frozenset()):
         n.held = reading_gate(n)
         body = linker(unwrap(callouts(tidy_title(n.body))))
         planned[n.path] = redact(front(n.front_lines, dict(n.props, title=n.title)) + (with_warning(body, n.held) if n.held else body))
-    planned["home.md"] = redact(front([], {"type": "home", "date": today.isoformat()}) + linker(home(today, now, notes)))
+    planned["home.md"] = redact(front([], {"type": "home", "date": today.isoformat()}) + linker(home(today, now, notes + native)))
     planned["readme.md"] = unwrap(README)
     for name, text in VIEWS.items():
         planned[f"80-views/{name}.base"] = text
-    return planned, files, notes, warnings
+    return planned, files, notes, warnings, {n.path for n in native}
 
 
 def load_removed(path):
@@ -843,7 +870,7 @@ def cmd_sync(a):
     newly = sorted(r for r in old if r.endswith(".md") and r not in removed and r not in ("home.md", "readme.md")
                    and not os.path.exists(os.path.join(vault, r)))
     try:
-        planned, files, notes, warnings = plan(s, env, today, now, removed | set(newly))
+        planned, files, notes, warnings, native_paths = plan(s, env, today, now, removed | set(newly))
     except SourceError as e:
         print(f"vault: not synced — {e}", file=sys.stderr); sys.exit(3)
     if newly and not a.dry_run:
@@ -853,7 +880,8 @@ def cmd_sync(a):
     if not a.force:                                        # a folder that halves is a failure until shown to be a removal
         # the owner's deletions and folders with a retention limit (days, verifications, their attachments) shrink by
         # design; a failing source shows elsewhere (a missing root, an unreadable git) before this
-        kept_old = [r for r in old if r not in removed and top(r) not in ("10-days", "30-verify", "90-attachments")]
+        kept_old = [r for r in old if r not in removed and top(r) not in ("10-days", "30-verify", "90-attachments")
+                    and r.lower() not in {p.lower() for p in native_paths}]     # a note that moved to the vault as its source
         for t in sorted({top(r) for r in kept_old if "/" in r}):
             before = sum(1 for r in kept_old if top(r) == t)
             after = sum(1 for r in now_files if top(r) == t)
@@ -901,7 +929,9 @@ def cmd_sync(a):
             os.makedirs(os.path.dirname(dst), exist_ok=True)
             shutil.copy2(src, dst + ".ela-tmp"); os.replace(dst + ".ela-tmp", dst)
     lower = {r.lower() for r in now_files}
-    gone = sorted(r for r in set(old) - now_files if not r.startswith(".obsidian") and r.lower() not in lower)
+    native_lower = {p.lower() for p in native_paths}
+    gone = sorted(r for r in set(old) - now_files if not r.startswith(".obsidian") and r.lower() not in lower
+                  and r.lower() not in native_lower)
     if not a.dry_run:
         for rel in gone:
             try:

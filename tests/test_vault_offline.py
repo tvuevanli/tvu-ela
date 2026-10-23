@@ -96,6 +96,13 @@ with tempfile.TemporaryDirectory() as tmp:
     check("a folder that halves stops the sync", sync() == 3)
     check("--force applies a deliberate removal", sync(force=True) == 0 and not os.path.exists(dec0))
     check("a file the sync never wrote is never removed", os.path.exists(f"{vault}/mine.md"))
+    os.makedirs(f"{vault}/70-library", exist_ok=True)
+    native = f"{vault}/70-library/topic-a.md"
+    open(native, "w").write('---\ntitle: "Topic A"\ntype: "topic"\nsource: "vault"\n---\n\n# Topic A\n\nIt stands well.\n')
+    check("a sync with a native topic succeeds", sync(force=True) == 0)
+    check("a native note is never overwritten", "It stands well." in open(native).read())
+    check("the library index lists it", "Topic A" in open(f"{vault}/70-library/index.md").read())
+    check("a native note stays out of the manifest", "70-library/topic-a.md" not in open(f"{vault}/{V.MANIFEST}").read())
     open(f"{vault}/{V.MANIFEST}", "w").write("{broken")
     check("an unreadable manifest stops the sync", sync() == 3)
 sys.exit(1 if failures else 0)

@@ -42,8 +42,8 @@ pasted.
 
 ## What a report is now
 
-- **ela's own design and abilities are not a report.** They live in elak `blueprint/overview.md`, which the owner
-  reads in his vault and which changes in the same pass as ela; no claude.ai report about ela is published or
+- **ela's own design and abilities are not a report.** They live in the owner's vault (`85-assistant/overview.md`, its source since 2026-10-23), which the owner
+  reads there and which changes in the same pass as ela; no claude.ai report about ela is published or
   republished (decided 2026-10-23).
 - **A review is written as a Claude doc** (shareable, commentable) when colleagues may read it. What it decides is
   recorded in elak (a decision, a rule, a knowledge entry), and what the owner must act on reaches his vault; the doc
