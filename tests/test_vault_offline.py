@@ -75,14 +75,26 @@ with tempfile.TemporaryDirectory() as tmp:
         except SystemExit as e:
             return e.code or 0
     check("a first sync succeeds", sync() == 0)
-    dec0 = f"{vault}/40-decisions/{today[:4]}/{today[:4]}-01-01-decision-0.md"
+    dec0 = f"{vault}/records/{today[:4]}/{today[:4]}-01-01-decision-0.md"
     check("a decision lands in its year folder", os.path.exists(dec0))
-    check("a decision not written for the owner stays out", not os.path.exists(f"{vault}/40-decisions/{today[:4]}/{today[:4]}-01-02-internal.md"))
-    check("a long review is written, under a warning", "[!warning]" in open(f"{vault}/20-reviews/{today[:4]}/{today}-long.md").read())
+    check("a decision not written for the owner stays out", not os.path.exists(f"{vault}/records/{today[:4]}/{today[:4]}-01-02-internal.md"))
+    check("a long review is written, under a warning", "[!warning]" in open(f"{vault}/to-read/{today}-long.md").read())
     home = open(f"{vault}/home.md").read()
-    check("Home embeds today's page and lists what ela owes", "![[10-days/" in home and "ela owes a shorter version" in home)
+    check("Home embeds today's page and lists what ela owes", "![[days/" in home and "```base" in home and "ela owes a shorter version" in home)
+    check("a decision carries its title as an alias and a meta line", 'aliases: ["Decision 0"]' in open(dec0).read() and "*decision · " in open(dec0).read())
     os.remove(dec0)
     check("a note the owner deleted is not written again", sync() == 0 and not os.path.exists(dec0))
+    m = json.load(open(f"{vault}/{V.MANIFEST}")); m["layout"] = 1; m["sources"] = {}
+    json.dump(m, open(f"{vault}/{V.MANIFEST}", "w"))
+    V.RECORDS = "records-next"
+    check("a new layout syncs without --force", sync() == 0)
+    check("and a deleted note stays deleted under its new path, matched by source",
+          not os.path.exists(f"{vault}/records-next/{today[:4]}/{today[:4]}-01-01-decision-0.md")
+          and os.path.exists(f"{vault}/records-next/{today[:4]}/{today[:4]}-02-01-decision-1.md"))
+    V.RECORDS = "records"
+    m = json.load(open(f"{vault}/{V.MANIFEST}")); m["layout"] = 1
+    json.dump(m, open(f"{vault}/{V.MANIFEST}", "w"))
+    check("and moving back works too", sync() == 0 and not os.path.exists(f"{vault}/records-next"))
     check("and the deletion is recorded, not as feedback", "Decision 0" in open(f"{reports}/ela/vault-removed.jsonl").read())
     V.cmd_restore(types.SimpleNamespace(path=os.path.relpath(dec0, vault)))
     check("restore brings it back on the next sync", sync() == 0 and os.path.exists(dec0))
@@ -96,13 +108,16 @@ with tempfile.TemporaryDirectory() as tmp:
     check("a folder that halves stops the sync", sync() == 3)
     check("--force applies a deliberate removal", sync(force=True) == 0 and not os.path.exists(dec0))
     check("a file the sync never wrote is never removed", os.path.exists(f"{vault}/mine.md"))
-    os.makedirs(f"{vault}/70-library", exist_ok=True)
-    native = f"{vault}/70-library/topic-a.md"
+    os.makedirs(f"{vault}/library", exist_ok=True)
+    native = f"{vault}/library/topic-a.md"
     open(native, "w").write('---\ntitle: "Topic A"\ntype: "topic"\nsource: "vault"\n---\n\n# Topic A\n\nIt stands well.\n')
     check("a sync with a native topic succeeds", sync(force=True) == 0)
     check("a native note is never overwritten", "It stands well." in open(native).read())
-    check("the library index lists it", "Topic A" in open(f"{vault}/70-library/index.md").read())
-    check("a native note stays out of the manifest", "70-library/topic-a.md" not in open(f"{vault}/{V.MANIFEST}").read())
+    check("the library index lists it", "Topic A" in open(f"{vault}/library/index.md").read())
+    check("a native note stays out of the manifest", "library/topic-a.md" not in open(f"{vault}/{V.MANIFEST}").read())
     open(f"{vault}/{V.MANIFEST}", "w").write("{broken")
     check("an unreadable manifest stops the sync", sync() == 3)
+old = ("10-days", "20-reviews", "25-board", "30-verify", "40-decisions", "50-plans", "70-library", "80-views", "85-assistant", "90-attachments")
+src = open(os.path.join(ROOT, "skills", "vault", "vault.py")).read() + open(os.path.join(ROOT, "skills", "reports", "SKILL.md")).read()
+check("no folder of the first layout is named in the code", not any(o in src for o in old))
 sys.exit(1 if failures else 0)

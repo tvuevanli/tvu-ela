@@ -13,3 +13,12 @@ body { --file-line-width: min(94%, 1600px); }   /* follows the window, capped fo
 .markdown-rendered table { width: 100%; max-width: none; }
 .markdown-rendered .table-wrapper, .markdown-rendered table { margin-inline: 0; }
 .markdown-rendered td { word-break: normal; overflow-wrap: anywhere; }
+
+/* the attachments folder holds what the notes embed; nobody browses it (ela ADR 0010) */
+.nav-folder:has(> .nav-folder-title[data-path="ela/attachments"]) { display: none; }
+.nav-folder-title[data-path="ela/attachments"] { display: none; }
+
+/* the meta line under a title, and a Bases table embedded in a note (Home's "To read") */
+.markdown-rendered h1 + p > em:only-child { color: var(--text-muted); font-size: 0.9em; }
+.markdown-rendered .block-language-base { margin: 0.4em 0 1em; }
+.markdown-rendered hr { margin: 1.6em 0 0.8em; }

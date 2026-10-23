@@ -9,7 +9,10 @@
     "alwaysUpdateLinks": false,
     "newFileLocation": "root",
     "promptDelete": true,
-    "useMarkdownLinks": false
+    "useMarkdownLinks": false,
+    "userIgnoreFilters": [
+      "ela/attachments/"
+    ]
   },
   "appearance": {
     "enabledCssSnippets": [
@@ -24,7 +27,6 @@
     "file-explorer",
     "file-recovery",
     "global-search",
-    "graph",
     "outgoing-link",
     "outline",
     "page-preview",
@@ -42,7 +44,23 @@
       "title": "Home"
     },
     {
-      "path": "readme.md",
+      "path": "board.md",
+      "title": "Board"
+    },
+    {
+      "path": "library/index.md",
+      "title": "Library"
+    },
+    {
+      "path": "ela/all-notes.base",
+      "title": "All notes"
+    },
+    {
+      "path": "ela/how-ela-runs.md",
+      "title": "How ela runs"
+    },
+    {
+      "path": "ela/about-this-vault.md",
       "title": "About this vault"
     }
   ],

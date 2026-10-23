@@ -81,7 +81,7 @@
                                    Slack; commits and threads with no ticket; what ela did
   ela vault sync [--dry-run]       regenerate the owner's Obsidian vault: day pages, reviews, verifications,
                                    decisions and plans; a note over its reading budget carries a warning;
-                                   a note you delete stays deleted and counts as feedback (ela vault restore PATH)
+                                   a note you delete is done and stays deleted (ela vault restore PATH)
   ela vault setup                  apply the vault's Obsidian settings from ela's versioned copy, then restart Obsidian
   ela secret NAME                  in your terminal: a credential typed at a prompt that does not echo, written to
                                    the site env file; never paste a token into a chat

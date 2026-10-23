@@ -42,7 +42,7 @@ pasted.
 
 ## What a report is now
 
-- **ela's own design and abilities are not a report.** They live in the owner's vault (`85-assistant/overview.md`, its source since 2026-10-23), which the owner
+- **ela's own design and abilities are not a report.** They live in the owner's vault (`ela/overview.md`, its source since 2026-10-23), which the owner
   reads there and which changes in the same pass as ela; no claude.ai report about ela is published or
   republished (decided 2026-10-23).
 - **A review is written as a Claude doc** (shareable, commentable) when colleagues may read it. What it decides is

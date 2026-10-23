@@ -1,5 +1,7 @@
 # 0008 — The owner reads ela in a generated Obsidian vault
 
+*Status: the layout, naming and property rules are superseded by ADR 0010 (2026-10-23); the rest stands.*
+
 **Decision.** ela reports to the owner through an Obsidian vault on his Windows disk, written entirely by
 `skills/vault/vault.py` (`ela vault sync`) after the runner's morning and evening jobs. The vault holds only what
 is written for him: the judged day pages, reviews, verification results, and elak's decisions and plans. Every
