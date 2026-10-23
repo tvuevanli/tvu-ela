@@ -4,8 +4,10 @@
 `skills/vault/vault.py` (`ela vault sync`) after the runner's morning and evening jobs. The vault holds only what
 is written for him: the judged day pages, reviews, verification results, and elak's decisions and plans. Every
 note passes a reading gate (a title heading, a budget in words per kind, little code, no machine paths) or is held
-back and listed on the vault's Home as a rewrite ela owes. Folder and file names are lowercase and hyphenated,
-folders numbered in reading order; the properties are `type`, `date`, `kind` and `status` and nothing else; a
+back and listed on the vault's Home as a rewrite ela owes. Folder and file names are lowercase and hyphenated;
+top folders are numbered by range (10–19 by time, 20–39 reports and evidence, 40–59 records, 60–79 reserved,
+80–99 system), and a dated archive is split by year, a high-volume one by month, so the vault grows without
+renames; a generated `readme.md` at the root states the layout; the properties are `type`, `date`, `kind` and `status` and nothing else; a
 ticket key is a direct Jira link. Nothing in the vault is edited by hand, and its `.obsidian/` settings are never
 touched. Helm's `/ela` pages retire after a week in which the vault served every morning.
 
@@ -28,4 +30,4 @@ ticket (two clicks to Jira, a stale copy of Jira's status); community plugins an
 weight); extending Helm's pages for reading (Helm is shrinking to board, ledger and team report). Mirroring Helm's team daily and weekly reports (written for the team, they stay in Slack and Helm; the
 owner's need from them is the morning page's Yesterday section, and a gap there is fixed in the brief, not by a
 second copy). The owner's weekly view, when it comes, is a page ela writes for him from the week's Yesterday
-sections and the sprint's state (`15-weeks/YYYY-Www.md`), first on the Friday of the first sprint week.
+sections and the sprint's state (`15-weeks/<year>/<year>-w<nn>.md`), first on the Friday of the first sprint week.

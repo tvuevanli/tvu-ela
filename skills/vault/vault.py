@@ -10,16 +10,21 @@ gone is removed, by its manifest.
 Usage:
     vault.py [--env-file F] sync [--dry-run] [--json]
 
-Layout. Folder and file names are lowercase with hyphens, folders numbered in reading order; the readable title is
-the note's first heading, and the links Home shows use it:
-    home.md                                  the entry point: today's page embedded, then what is new or held back
-    10-days/2026-10-23-brief.md              the judged morning page (14 days); -learned, -intake beside it
-    20-reviews/2026-10-23-ela-review.md      reviews and reports written for the owner
-    30-verify/mh-3103-2026-10-23.md          a verification: screenshots and PDF embedded, the full page linked
-    40-decisions/2026-10-22-<slug>.md        elak decisions
-    50-plans/2026-10-21-<slug>.md            elak plans (55-sprints/ once sprints are recorded)
-    80-views/*.base                          Bases tables over the notes' properties
-    90-attachments/                          images and PDFs the notes embed
+Layout. Names are lowercase with hyphens. Top folders are numbered by range so new kinds slot in without renaming:
+10–19 by time · 20–39 reports and evidence · 40–59 records · 60–79 reserved for new kinds · 80–99 system. A dated
+archive is split by year, a high-volume one (verify, its attachments) by month; only a folder with a retention
+limit stays flat. A note's file name is `<date>-<slug>`, `<key>-<date>`, `<year>-w<nn>` or `<year>-s<nn>`; its
+readable title is its first heading.
+    home.md, readme.md                               the entry point; what the vault is and how it is laid out
+    10-days/2026-10-23-brief.md                      14 days kept; -learned, -intake beside it
+    15-weeks/2026/2026-w44.md                        the owner's weekly page (from the first sprint week)
+    18-sprints/2026/2026-s01.md                      sprint commitments from elak
+    20-reviews/2026/2026-10-23-ela-review.md
+    30-verify/2026-10/mh-3103-2026-10-23.md          screenshots and PDF embedded, the full page linked
+    40-decisions/2026/2026-10-22-<slug>.md
+    50-plans/2026/2026-10-21-<slug>.md
+    80-views/*.base
+    90-attachments/verify/2026-10/<record>/          images and PDFs the notes embed
 elak knowledge, the status table and the working preferences are written for ela and stay out of the vault.
 """
 import argparse, datetime, hashlib, json, os, re, shutil, subprocess, sys
@@ -36,6 +41,60 @@ REDACT = [(re.compile(r"\b(10\.\d{1,3}|192\.168|172\.(?:1[6-9]|2\d|3[01]))\.\d{1
           (re.compile(r"\bxox[abprs]-[A-Za-z0-9-]{10,}"), "<token>"),
           (re.compile(r"(?i)\b(bearer|token|password|passwd|secret)(\s*[:=]\s*)\S{8,}"), r"\1\2<redacted>")]
 
+
+README = """---
+type: "readme"
+---
+
+# About this vault
+
+ela writes this vault for Evan to read. Every note is generated from a first-hand source and rewritten on each
+sync, after the morning and the evening job. Nothing here is edited by hand: an edit is overwritten. To change
+something, ask ela in a session or in Slack.
+
+Start at [[home]]: today's page, recent reviews, decisions and plans, and what was held back.
+
+## Layout
+
+| folder | holds | grows |
+|---|---|---|
+| `10-days/` | the judged morning page, the evening learning draft, the intake reading | 14 days kept |
+| `15-weeks/` | a weekly page for Evan, from the first sprint week | by year |
+| `18-sprints/` | sprint commitments | by year |
+| `20-reviews/` | reviews and reports written for Evan | by year |
+| `30-verify/` | verification results with screenshots and the PDF record | by month |
+| `40-decisions/` | decisions, with what they superseded | by year |
+| `50-plans/` | plans, decided or proposed | by year |
+| `60-` to `79-` | reserved for new kinds | |
+| `80-views/` | Bases tables over the notes' properties | |
+| `90-attachments/` | images and PDFs the notes embed | by month |
+
+Folder numbers run by range, so a new kind takes a free number in its range and nothing is renamed:
+10–19 by time, 20–39 reports and evidence, 40–59 records, 60–79 new kinds, 80–99 system.
+
+## Names and properties
+
+- Names are lowercase, words joined by hyphens, no spaces: `2026-10-23-ela-review`, `mh-3103-2026-10-23`,
+  `2026-w44`, `2026-s01`. The readable title is the first heading of the note.
+- Every note has `type` and `date`; a day page adds `kind`, a decision or plan adds `status`. Nothing else.
+- A ticket key is a link to Jira, one click in reading mode.
+
+## What a note must pass
+
+A note is written for a person, so it must have a title heading, fit its reading budget (day page 1,200 words,
+review 2,500, decision 1,200, plan 2,500, sprint 800), be mostly prose rather than code, and carry no machine paths.
+A note that fails is held back and listed on Home as a rewrite ela owes.
+
+## What is not here
+
+ela's own knowledge, status table and working rules, which are written for ela; Helm's team reports, which stay
+in Slack and Helm; credentials and internal addresses, which are redacted wherever they would appear.
+
+## Once, in Obsidian
+
+Settings, Core plugins: turn on **Bases** (the tables in `80-views`) and **Web viewer** (a verification's full
+page opens inside Obsidian). Bookmark `home`.
+"""
 
 def site():
     return json.load(open(SITE))
@@ -128,9 +187,15 @@ def elak_notes(elak):
         area = None
         if parts[0] == "blueprint":
             kind = {"decisions": "decision", "plans": "plan", "sprints": "sprint"}.get(parts[1] if len(parts) > 2 else "", "blueprint")
-            folder = {"decision": "40-decisions", "plan": "50-plans", "sprint": "55-sprints"}.get(kind, "blueprint")
-            name = f"{date.group(1)}-{slug(undated(title, date.group(1)))}" if date else \
-                ("overview" if base.lower() == "readme" else slug(title))
+            folder = {"decision": "40-decisions", "plan": "50-plans", "sprint": "18-sprints"}.get(kind, "blueprint")
+            if date:
+                folder += "/" + date.group(1)[:4]
+            sprint = re.match(r"^(\d{4})-[sS](\d{2})$", base)
+            if sprint:
+                folder, name = f"18-sprints/{sprint.group(1)}", f"{sprint.group(1)}-s{sprint.group(2)}"
+            else:
+              name = f"{date.group(1)}-{slug(undated(title, date.group(1)))}" if date else \
+                  ("overview" if base.lower() == "readme" else slug(title))
             area = "ela"
         elif parts[0] == "knowledge":
             kind = "knowledge"
@@ -155,7 +220,7 @@ def report_notes(reports, today):
     rd = os.path.join(reports, "runner")
     for f in sorted(os.listdir(rd)) if os.path.isdir(rd) else []:
         m = re.match(r"^(\d{4}-\d{2}-\d{2})-(brief|learned|intake)\.md$", f)
-        if not m or (today - datetime.date.fromisoformat(m.group(1))).days >= DAYS_KEPT:
+        if not m or (today - datetime.date.fromisoformat(m.group(1))).days >= DAYS_KEPT:     # bounded, so flat
             continue
         d = datetime.date.fromisoformat(m.group(1))
         label = {"brief": "Brief", "learned": "Learned", "intake": "Intake"}[m.group(2)]
@@ -173,7 +238,7 @@ def report_notes(reports, today):
             m = re.search(r"(\d{4}-\d{2}-\d{2})", base)
             date = m.group(1) if m else datetime.date.fromtimestamp(os.path.getmtime(p)).isoformat()
             title = h1(body) or re.sub(r"[-_]?\d{4}-\d{2}-\d{2}[-_]?", " ", base).replace("-", " ").strip()
-            notes.append(Note(f"20-reviews/{date}-{slug(undated(title, date))}.md", undated(title, date), body,
+            notes.append(Note(f"20-reviews/{date[:4]}/{date}-{slug(undated(title, date))}.md", undated(title, date), body,
                               {"type": "review", "date": date}, fl))
     return notes
 
@@ -192,7 +257,7 @@ def verify_notes(reports, helm_url):
             for top, _, fs in os.walk(p):
                 for f in sorted(fs):
                     if f.lower().endswith((".png", ".jpg", ".jpeg", ".pdf")):
-                        dst = f"90-attachments/verify/{name.lower()}/{slug(os.path.splitext(os.path.relpath(os.path.join(top, f), p))[0], 80)}{os.path.splitext(f)[1].lower()}"
+                        dst = f"90-attachments/verify/{date[:7]}/{name.lower()}/{slug(os.path.splitext(os.path.relpath(os.path.join(top, f), p))[0], 80)}{os.path.splitext(f)[1].lower()}"
                         files.append((os.path.join(top, f), dst)); embeds.append(dst)
         url = f"{helm_url.rstrip('/')}/ela/verify/{name}{'' if single else '/'}" if helm_url else None
         pdfs = [e for e in embeds if e.endswith(".pdf")]
@@ -203,7 +268,7 @@ def verify_notes(reports, helm_url):
             body += ["## Record", ""] + [f"![[{e}]]" for e in pdfs[:1]] + [""]
         if imgs:
             body += ["## Screenshots", ""] + [f"![[{e}]]" for e in imgs[:8]]
-        notes.append(Note(f"30-verify/{key.lower()}-{date}.md", f"{key} verification {date}", "\n".join(body) + "\n",
+        notes.append(Note(f"30-verify/{date[:7]}/{key.lower()}-{date}.md", f"{key} verification {date}", "\n".join(body) + "\n",
                           {"type": "verify", "date": date, "ticket": key}))
     return notes, files
 
@@ -354,7 +419,14 @@ def cmd_sync(a):
         (held.append((n, p)) if p else passed.append(n))
     notes = passed
     notes.append(home(today, notes, held))
+    taken = set()
+    for n in notes:                                   # a second note with the same name gets -2, never an overwrite
+        stem, i = n.path[:-3], 2
+        while n.path.lower() in taken:
+            n.path = f"{stem}-{i}.md"; i += 1
+        taken.add(n.path.lower())
     planned = {n.path: render(n, by_src) for n in notes}
+    planned["readme.md"] = README
     for name, text in VIEWS.items():
         planned[f"80-views/{slug(name)}.base"] = text
     # write only what changed; remove only what this script wrote before and no longer plans
