@@ -55,8 +55,12 @@ r = S.row_of(rec(status="Done", labels=["flag:no-version"], lanes=[{"lane": "pro
 check("the no-version flag suppresses the Fixed In ask", r["action"] == "done")
 r = S.row_of(rec(status="In Progress", summary="August 05, 2025, Prod 8 Release"), ROSTER, 30, TODAY)
 check("a release record in progress with no commit is non-code, not a missing fix", r["action"] == "non-code")
-r = S.row_of(rec(assignee="Dev Person", commits=[{"sha": "a", "date": "2026-04-01", "author": "someone else"}], status="In Progress", lanes=[{"lane": "prod-3"}], draft=["x@1"]), ROSTER, 30, TODAY)
+r = S.row_of(rec(assignee="Dev Person", commits=[{"sha": "a", "date": "2026-04-01", "author": "someone else"}], status="Backlog", issuetype="Bug", lanes=[{"lane": "prod-3"}], draft=["x@1"]), ROSTER, 30, TODAY)
 check("the implementer is shown beside the assignee, not flagged", r["implementers"] == ["someone else"] and r["action"] == "close-notice")
+r = S.row_of(rec(commits=[{"sha": "a", "date": "2026-04-01", "author": "d"}], status="In Progress", lanes=[{"lane": "prod-3"}], draft=["x@1"]), ROSTER, 30, TODAY)
+check("a fix on prod on a ticket still In Progress asks the holder, never proposes a close", r["action"] == "ask-holder")
+r = S.row_of(rec(commits=[{"sha": "a", "date": "2026-04-01", "author": "d"}], status="Backlog", issuetype="Task", lanes=[{"lane": "prod-3"}], draft=["x@1"]), ROSTER, 30, TODAY)
+check("a feature in Backlog with a commit on prod has its scope checked, not a close", r["action"] == "check-scope")
 
 rows = [S.row_of(rec(key="MH-10", issuetype="Epic", status="Review"), ROSTER, 30, TODAY),
         S.row_of(rec(key="MH-11", parent="MH-10", status="Review", lanes=[{"lane": "prod-3"}], commits=old, draft=["x@1"]), ROSTER, 30, TODAY),

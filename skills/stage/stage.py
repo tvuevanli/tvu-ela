@@ -15,9 +15,12 @@ owner confirms batches instead of finding them. Status rules follow elak knowled
 status-spec.md: Review assigned to product is the sign-off gate, not a stale ticket; the implementer may differ from
 the assignee, who is the person responsible — that difference is shown, never flagged.
 
-Actions (the flag is the row's, the dry run is the owner's to confirm):
+Actions (the flag is the row's, the dry run is the owner's to confirm). A commit dated before its ticket was created is
+not counted (fixedin: a reused key), so it never makes a fix:
   close-notice  fix on prod for --days or more, no QA refutation, ticket open, no notice yet → jira close
                 (the proposal: Fixed In, the notice, flag:closing, the ticket assigned to the owner; no status moves)
+  ask-holder    fix on prod, yet the ticket is In Progress or On Hold → ask whether work remains (not a close)
+  check-scope   fix on prod, a feature (Task, Story) still in Backlog → is the scope done? (not a close)
   your-review   the proposal is on the ticket and the ticket is the owner's; the status is his own click in Jira
   reached-qa    fix on a QA lane, no Fixed In or status before Review → fixed-in --apply, transition Review, tell QA
   awaiting-qa   fix on daily or prod, Review, QA has not spoken → ask QA (comment, dry run)
@@ -110,6 +113,15 @@ def row_of(rec, roster, days, today=None):
         row.update(action="done", why=f"{status}"); return row
     if status == "Review" and area == "product":
         row.update(action="awaiting-product", why="the product sign-off gate: Review assigned to product"); return row
+    if stage == "prod" and (age is None or age >= days) and qa != "fail" and status in ("In Progress", "On Hold"):
+        # the ticket says work goes on or is paused: a commit on prod is part of it, not the end of it
+        row.update(action="ask-holder", why=f"commits on prod for {age} days, yet the ticket is {status}: ask whether work remains",
+                   dry_run=f"ela jira comment {k} '<is anything left beyond what is on prod?>'"); return row
+    if stage == "prod" and (age is None or age >= days) and qa != "fail" and status == "Backlog" \
+            and (rec.get("issuetype") or "") in ("Task", "Story", "New Feature", "Improvement", "Epic"):
+        # a feature never started on the board: a commit naming it may be a piece, not the feature
+        row.update(action="check-scope", why=f"a commit naming it is on prod ({age} days), but a feature in Backlog: is the scope done?",
+                   dry_run=f"ela explain {k}"); return row
     if stage == "prod" and (age is None or age >= days) and qa != "fail":
         prod = ", ".join(l for l in row["lanes"] if l.startswith("prod"))
         if CLOSING_FLAG in (rec.get("labels") or []):
@@ -172,6 +184,12 @@ def lane_signature(env_file):
         parts += sorted(f"{host}:{r.get('service')}:{r.get('lane')}:{r.get('version')}" for r in rows if r.get("lane"))
         if not ok:
             parts.append(f"{host}:unread:{err[:40]}")
+    # the rules are part of the answer: a change to how a fix is found (fixedin.py) or judged (this file) re-judges all
+    for f in (os.path.join(SKILLS, "fixedin", "fixedin.py"), os.path.realpath(__file__)):
+        try:
+            parts.append(hashlib.sha1(open(f, "rb").read()).hexdigest())
+        except OSError:
+            pass
     return hashlib.sha1("\n".join(parts).encode()).hexdigest()[:16]
 
 

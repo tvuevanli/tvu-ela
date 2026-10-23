@@ -351,6 +351,14 @@ def chain(a, key, repos_cache, builds_cache):
         rows, err = commits_for(key, path)
         if err:
             rec["gaps"].append(f"{slug}: {err}"); continue
+        # a commit dated before the ticket existed cannot be its fix: the key was reused (a ticket copied in from
+        # another project takes a free number), so the commit belongs to an earlier ticket of the same number
+        # (MH-1860, created 2025-12-05, was credited with a 2025-03-28 commit and proposed for close)
+        early = [r for r in rows if rec.get("created") and r.get("date") and r["date"] < rec["created"]]
+        if early:
+            rows = [r for r in rows if r not in early]
+            rec["gaps"].append(f"{slug}: {len(early)} commit(s) naming {key} predate the ticket ({rec['created']}): "
+                               + ", ".join(f"{r['sha'][:8]} {r['date']}" for r in early[:3]) + "; an earlier ticket's, not counted")
         for h in hinted_commits(path, a) if (a.author or a.path or a.thread) else []:
             if h["sha"] not in {r["sha"] for r in rows}:
                 rows.append(h)
