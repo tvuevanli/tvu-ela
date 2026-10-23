@@ -32,7 +32,7 @@ manage. Each names the skill or verb that serves it today; "not built" marks a g
 |---|---|---|---|---|---|
 | read | jira, slack, kb, object, graph, release, map, apifox, mail | yes | yes | yes | yes (when built) |
 | gated write | jira comment/transition/label/link/fixed-in/assign, slack post, kb write | yes, dry run until `--apply` | yes, after the owner's word | yes, `--apply` only behind the caller's confirm | no |
-| judgment | explain, brief, breakdown, route, digest, promote, probe, feasible, ask | — | yes | yes (`ela run`, not built) | no — an MCP consumer is a model |
+| judgment | explain, brief, breakdown, route, digest, promote, probe, feasible, ask | — | yes | yes: an unattended session (`claude -p`, reads and dry runs only under `ELA_NO_APPLY`), as ela-runner and its Slack service start one; the `ela run` verb is not built | no — an MCP consumer is a model |
 
 A capability is a script first. A skill exists only where a session needs judgment or invariants to
 use it well; a verb where a person wants it at the shell; an MCP tool where another model needs it.

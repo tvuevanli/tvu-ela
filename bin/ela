@@ -9,7 +9,8 @@
 知道 — read first-hand
  tickets & threads
   ela jira read|files|jql …        a ticket, a JQL search; files: its attachments to disk
-  ela slack <verb> …               read|files|channels|history|mentions|unanswered|whoami|users;
+  ela jira projects|changes …      every project key the account sees; tickets changed since a time
+  ela slack <verb> …               read|files|channels|history|search|mentions|unanswered|whoami|users;
                                    files: a thread's images to disk; channels --all: every public
                                    channel, joined or not
   ela mail search|read|thread …    Gmail, read-only: QA test reports, deploy notices, approvals
@@ -81,6 +82,7 @@
   ela vault sync [--dry-run]       regenerate the owner's Obsidian vault: day pages, reviews, verifications,
                                    decisions and plans; a note over its reading budget carries a warning;
                                    a note you delete stays deleted and counts as feedback (ela vault restore PATH)
+  ela vault setup                  apply the vault's Obsidian settings from ela's versioned copy, then restart Obsidian
   ela secret NAME                  in your terminal: a credential typed at a prompt that does not echo, written to
                                    the site env file; never paste a token into a chat
   ela route <KEY>                  the routing facts: [Layer] token, ids, signal words per layer,
@@ -108,9 +110,11 @@
   ela exec <process>               docker exec into it
   ela start <process> …            --url U --format F --shm S; a Sender working process; asks y/N
   ela stop <process>               stop a Sender working process; asks y/N
-  writes elsewhere:                jira comment|transition|label|link|fixed-in|assign|create|create-subtask,
+  writes elsewhere:                jira comment|transition|label|link|fixed-in|assign|create|create-subtask|
+                                   attach|describe|close (close proposes: Fixed In, labels, comment, the flag, to you),
                                    slack post (a permalink replies in-thread), kb write|update|
                                    delete (on the owner's word) — dry run until --apply
+  ela slack join <channel>         the bot joins a public channel at once (its members see it); typing it is the confirm
 
 站点
   ela login tvu|qa                 prod: a one-time HTTPS page collects the browser's SID;
