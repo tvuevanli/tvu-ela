@@ -113,7 +113,7 @@ with tempfile.TemporaryDirectory() as tmp:
     open(native, "w").write('---\ntitle: "Topic A"\ntype: "topic"\nsource: "vault"\n---\n\n# Topic A\n\nIt stands well.\n')
     check("a sync with a native topic succeeds", sync(force=True) == 0)
     check("a native note is never overwritten", "It stands well." in open(native).read())
-    check("the library index lists it", "Topic A" in open(f"{vault}/library/index.md").read())
+    check("the library index lists it", "Topic A" in open(f"{vault}/library/library.md").read())
     check("a native note stays out of the manifest", "library/topic-a.md" not in open(f"{vault}/{V.MANIFEST}").read())
     open(f"{vault}/{V.MANIFEST}", "w").write("{broken")
     check("an unreadable manifest stops the sync", sync() == 3)

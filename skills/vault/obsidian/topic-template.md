@@ -1,3 +1,11 @@
+---
+title: "<Topic title, plain words>"
+aliases: ["<Topic title, plain words>"]
+type: "topic"
+date: "<YYYY-MM-DD>"
+source: "vault"
+---
+
 # <Topic title, plain words>
 
 *As of <YYYY-MM-DD>. Written by ela from <N> sources, listed under Read more.*

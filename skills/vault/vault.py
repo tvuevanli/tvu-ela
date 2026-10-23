@@ -44,6 +44,7 @@ DAYS_KEPT, HELD_LISTED_DAYS, NEW_DAYS = 14, 30, 7
 LAYOUT = 2                  # the manifest records it; a sync across a change of layout guards the total, not each folder
 DAYS, TO_READ, RECORDS, LIBRARY, ELA = "days", "to-read", "records", "library", "ela"
 ATTACH = "ela/attachments"
+DELETABLE = (DAYS, TO_READ, RECORDS)
 KEEP_FOREVER = ("brief",)   # the morning page is the record of what ela told the owner; the rest expires
 PROPS = ("title", "aliases", "type", "date", "kind", "status")   # the whole vocabulary; no tags (ADR 0010)
 BUDGET = {"topic": 800, "guide": 1200, "board": 1000, "day": 1200, "review": 2500, "decision": 1200, "plan": 2500, "sprint": 800}
@@ -112,8 +113,9 @@ a warning, and Home lists it for 30 days as a rewrite ela owes.
 
 ## Deleting a note
 
-Delete a note when you are done with it, on the desktop (the laptop only receives). ela records it as read and
-does not write it again; its source stays in ela's reports, elak and their backup. A deletion means done, never
+Delete a note in `days/`, `to-read/` or `records/` when you are done with it, on the desktop (the laptop only
+receives). ela records it as read and does not write it again; a living page (Home, the board, the library, how
+ela runs) is simply written again; its source stays in ela's reports, elak and their backup. A deletion means done, never
 a verdict: deleting a decision does not revoke it; to change one, tell ela. `ela vault restore <path>` brings a
 note back.
 
@@ -448,6 +450,9 @@ def verify_notes(reports, today=None):
         # in the reports root and in the backup
         if today and (today - datetime.date.fromisoformat(date)).days >= DAYS_KEPT:
             continue
+        if any(re.match(rf"^{key}-(\d{{4}}-\d{{2}}-\d{{2}}){re.escape(extra)}(\.html)?$", o) and o[len(key) + 1:len(key) + 11] > date
+               for o in os.listdir(vd)):
+            continue                                       # a later run on the same lane replaces this one
         p = os.path.join(vd, name)
         record = f"{ATTACH}/verify/{date[:7]}/{name.lower()}"
         pdfs, imgs, page = [], [], None
@@ -485,8 +490,8 @@ def verify_notes(reports, today=None):
         verdict = record_verdict(os.path.join(vd, name) if single else os.path.join(p, os.path.basename(page or "index.html")))
         body = [f"# {key} verification{' · ' + extra.strip('-') if extra else ''}", ""]
         if not verdict:
-            body += ["> [!info] The record states no single verdict; open it for the per-ticket results.", ""]
-        elif verdict:
+            continue                                       # nothing to read without opening the record; it stays in the reports
+        else:
             body += [f"> [!{ {'PASS': 'success', 'FAIL': 'failure', 'BLOCKED': 'warning'}.get(verdict[0], 'info') }] {verdict[0]}"
                      + (f": {verdict[1]}" if verdict[1] else "") + (f" · {verdict[2]}" if verdict[2] else ""), ""]
         body.append(f"Ticket {key}" + (f" · [[{page}|open the full record]]" if page else ""))
@@ -512,8 +517,9 @@ def project_keys(env, runtime):
         c = json.load(open(cache))
         if c.get("day") == datetime.date.today().isoformat():
             return set(c["projects"])
+        stale = set(c["projects"])
     except (OSError, ValueError, KeyError):
-        pass
+        stale = set()
     cmd = ["python3", JIRA] + (["--env-file", env] if env else []) + [
         "jql", "(assignee was currentUser() OR reporter = currentUser() OR watcher = currentUser()) AND updated >= -180d",
         "--limit", "3000", "--json"]
@@ -522,12 +528,13 @@ def project_keys(env, runtime):
         keys = sorted({i["key"].split("-")[0] for i in json.loads(r.stdout)["issues"]}) if r.returncode == 0 else []
     except (OSError, ValueError, KeyError, subprocess.TimeoutExpired):
         keys = []
-    if keys:
-        try:
-            os.makedirs(os.path.dirname(cache), exist_ok=True)
-            json.dump({"day": datetime.date.today().isoformat(), "projects": keys}, open(cache, "w"))
-        except OSError:
-            pass
+    if not keys:
+        return stale                                       # a failed lookup must not unlink every key in the vault
+    try:
+        os.makedirs(os.path.dirname(cache), exist_ok=True)
+        json.dump({"day": datetime.date.today().isoformat(), "projects": keys}, open(cache, "w"))
+    except OSError:
+        pass
     return set(keys)
 
 
@@ -660,9 +667,9 @@ def home(today, now, notes):
     wait = []
     if learned and learned.props["date"] >= (today - datetime.timedelta(days=2)).isoformat():
         wait.append(f"{link(learned)}: what the day taught; say which entries to keep")
-    if board:
-        wait.append(f"{link(board)}: ticket batches waiting for one confirm each"
-                    + (f", as of {board.props['date']}" if board.props.get("date") else ""))
+    waiting = re.search(r"^## (?:Proposed closes assigned to you|Waiting for your close) \((\d+)\)", board.body, re.M) if board else None
+    if waiting and int(waiting.group(1)):
+        wait.append(f"{link(board)}: {waiting.group(1)} proposed closes assigned to you")
     if wait:
         L += ["> [!todo] Waiting for your word"] + [f"> - {w}" for w in wait] + [""]
     if brief and brief.props["date"] == iso:
@@ -679,8 +686,6 @@ def home(today, now, notes):
     owed = [n for n in notes if n.held and (n.props.get("date") or iso) >= owed_since]
     if owed:
         L += ["> [!warning]- ela owes a shorter version of " + str(len(owed))] + [f"> - {link(n)}: {'; '.join(n.held)}" for n in owed] + [""]
-    L += ["---", "", f"[[board|Board]] · [[{LIBRARY}/index|Library]] · [[{ELA}/all-notes.base|All notes]] · "
-          f"[[{ELA}/overview|How ela works]] · [[{ELA}/how-ela-runs|How ela runs]] · [[{ELA}/about-this-vault|About this vault]]", ""]
     return "\n".join(L)
 
 
@@ -729,16 +734,15 @@ def native_notes(vault):
 def library_index(topics):
     """The library's index: one row per topic page (native to the vault), its first sentence, as of when."""
     L = ["# Library", "", f"*What ela knows, by topic: each page is a summary with links to the originals. "
-         f"The [[{LIBRARY}/sources|full list of sources]] is the appendix.*", "", "| topic | where it stands | as of |", "|---|---|---|"]
+         f"The [[{LIBRARY}/sources|full list of sources]] is the appendix.*", "", "| topic | where it stands |", "|---|---|"]
     for n in sorted(topics, key=lambda n: n.title):
         para = next((p for p in re.split(r"\n\s*\n", re.sub(r"^#.*$", "", n.body, count=1, flags=re.M))
                      if p.strip() and not p.strip().startswith(("*", "|", "#", "-"))), "")
         first = re.split(r"(?<=[.!?])\s", " ".join(para.split()), maxsplit=1)[0]
         if len(first) > 200:
             first = first[:200].rsplit(" ", 1)[0].rstrip(",;:") + " …"
-        dm = re.search(r"\*As of (\d{4}-\d{2}-\d{2})", n.body)
-        L.append(f"| [[{n.path[:-3]}|{n.title}]] | {first.replace('|', '/')} | {n.props.get('date') or (dm.group(1) if dm else '')} |")
-    return Note(f"{LIBRARY}/index.md", "Library", "\n".join(L) + "\n", {"type": "library"})
+        L.append(f"| [[{n.path[:-3]}|{n.title}]] | {first.replace('|', '/')} |")
+    return Note(f"{LIBRARY}/library.md", "Library", "\n".join(L) + "\n", {"type": "library"})
 
 
 def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset()):
@@ -790,7 +794,10 @@ def load_removed(path):
             try:
                 row = json.loads(line)
                 if row.get("restored"):
-                    paths.discard(row["path"]); src_of.pop(row["path"], None)
+                    gone = {row["path"]} | {p for p, s_ in src_of.items() if row.get("src") and s_ == row["src"]}
+                    paths.difference_update(gone)
+                    for p in gone:
+                        src_of.pop(p, None)
                 else:
                     paths.add(row["path"])
                     if row.get("src"):
@@ -861,10 +868,18 @@ def cmd_restore(a):
     """Bring back a note the owner deleted: the next sync writes it again."""
     s = json.load(open(SITE))
     path = os.path.join(s.get("reports") or "", "ela", "vault-removed.jsonl")
-    if a.path not in load_removed(path)[0]:
+    paths, srcs = load_removed(path)
+    try:                                                   # the note's source under the current layout, from the manifest
+        src = (json.load(open(os.path.join(s["vault"], MANIFEST))).get("sources") or {}).get(a.path)
+    except (OSError, ValueError, KeyError):
+        src = None
+    if a.path not in paths and src not in srcs:
         print(f"not among the deleted notes: {a.path}", file=sys.stderr); sys.exit(2)
+    row = {"at": datetime.datetime.now().isoformat(timespec="seconds"), "path": a.path, "restored": True}
+    if src:
+        row["src"] = src
     with open(path, "a", encoding="utf-8") as fh:
-        fh.write(json.dumps({"at": datetime.datetime.now().isoformat(timespec="seconds"), "path": a.path, "restored": True}) + "\n")
+        fh.write(json.dumps(row) + "\n")
     print(f"restored: {a.path}; the next sync writes it again")
 
 
@@ -901,7 +916,9 @@ def cmd_sync(a):
     # a note the sync wrote that is gone from disk was deleted by the owner: that is feedback, and it stays deleted
     removed_path = os.path.join(s.get("reports") or "", "ela", "vault-removed.jsonl")
     removed, removed_src = load_removed(removed_path)
-    newly = sorted(r for r in old if r.endswith(".md") and r not in removed and r not in ("home.md", "readme.md", f"{ELA}/about-this-vault.md")
+    # only a dated note in a reading folder can be done with; a living page (Home, the board, the library index, how
+    # ela runs) is rewritten whatever happens to it
+    newly = sorted(r for r in old if r.endswith(".md") and r not in removed and top(r) in DELETABLE
                    and not os.path.exists(os.path.join(vault, r)))
     try:
         planned, files, notes, warnings, native_paths = plan(s, env, today, now, removed | set(newly),
@@ -977,6 +994,10 @@ def cmd_sync(a):
     gone = sorted(r for r in set(old) - now_files if not r.startswith(".obsidian") and r.lower() not in lower
                   and r.lower() not in native_lower)
     if not a.dry_run:
+        # the manifest first: a crash before the removals leaves files it no longer lists, never removals it would
+        # later read as the owner's deletions
+        atomic_write(mpath, json.dumps({"synced": now.isoformat(timespec="seconds"), "layout": LAYOUT, "files": sorted(now_files),
+                                        "sources": {n.path: n.src_rel for n in notes if n.src_rel}}, indent=0))
         for rel in gone:
             try:
                 os.remove(os.path.join(vault, rel))
@@ -989,8 +1010,6 @@ def cmd_sync(a):
                     os.rmdir(os.path.join(vault, *parts[:i]))
                 except OSError:
                     break
-        atomic_write(mpath, json.dumps({"synced": now.isoformat(timespec="seconds"), "layout": LAYOUT, "files": sorted(now_files),
-                                        "sources": {n.path: n.src_rel for n in notes if n.src_rel}}, indent=0))
     held = [{"note": n.path, "problems": n.held} for n in notes if n.held]
     r = {"dry_run": a.dry_run, "deleted_by_owner": newly, "notes": len(planned), "written": len(wrote), "unchanged": same, "files_copied": copied,
          "removed": gone, "held": held, "warnings": warnings}
