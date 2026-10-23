@@ -259,6 +259,9 @@ The page is read in Obsidian, so its form is fixed:
 - **An `apply N` is a drafted action on this page.** Number the actions in the order they appear, every one
   written beside its item; never name an action that is not on the page ("apply 1 is done" from yesterday is
   noise). An action already applied is said in words, without its old number.
+- **One close path, named as such.** A close ela proposes goes through the board's batch (one confirm posts the
+  proposals); a close the owner names is `close MH-…` in a session. `ela stage` reads a ticket's lanes; it closes
+  nothing, so it is never written as the way to close.
 - **A verification outranks a close.** Before an item or a table row says a ticket can close or be dropped, read
   its latest result under `<reports>/verify/`; a FAIL or BLOCKED after the fix is the item, not the close
   (2026-10-23: the page said drop MH-3416 while two of its verifications had failed).

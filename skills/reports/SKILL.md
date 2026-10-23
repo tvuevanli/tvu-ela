@@ -40,6 +40,12 @@ listed on the vault's Home for 30 days as a rewrite this skill owes. Budgets, in
 numbers in a short table, file paths and code only where he must act on them, the full record linked, not
 pasted.
 
+Two front-matter lines carry a review or a plan to the right place in the vault (ADR 0010): `area: <topic>`, the
+file name of the library topic it is about (`media-pipeline`, `mediahub-app`, `ur-j2n-orchestration`, …), which
+the note's meta line links and the topic's backlinks then list; and, on a plan or proposal that waits for his
+ruling, `status: proposed`, which puts it in Home's *To read* until the status changes. A mermaid timeline's
+periods carry no colon (`6.30 am`, not `06:30`): the colon separates a period from its event.
+
 ## What a report is now
 
 - **ela's own design and abilities are not a report.** They live in the owner's vault (`ela/overview.md`, its source since 2026-10-23), which the owner
