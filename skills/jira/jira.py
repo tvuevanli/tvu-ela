@@ -1257,6 +1257,52 @@ def cmd_transition(creds, args):
         sys.exit(2)
 
 
+# ── the label vocabulary: the values ela may write (elak map/jira-labels.yaml, read through the published map) ──
+OPEN_NAMESPACES = ("release:", "pending-svc:")    # their values follow the release lines and the slug registry
+
+
+def vocabulary():
+    """{namespace: set of values} for the closed label namespaces, and {bare label: what it became}; None when the
+    published map holds no vocabulary (then nothing is checked, and the dry run says so)."""
+    try:
+        site = json.load(open(os.path.expanduser("~/.claude/ela/site.json")))
+        path = os.path.join(site.get("map") or "", "jira-labels.yaml")
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "release"))
+        from release import _yaml_subset
+        d = _yaml_subset(open(path, encoding="utf-8").read()) or {}
+    except Exception:
+        return None
+    closed, bare = {}, {}
+    for n in d.get("namespaces") or []:
+        if n.get("prefix") == "bare":
+            bare = {str(v.get("value")): (v.get("to") or v.get("action") or "retire") for v in n.get("values") or []}
+        elif n.get("kind") == "label":
+            closed[n["prefix"] + ":"] = {str(v.get("value")) for v in n.get("values") or [] if v.get("action") != "retire"}
+    return {"closed": closed, "bare": bare}
+
+
+def label_problems(labels, vocab):
+    """Why each label may not be written: outside a closed namespace's values, a retired or renamed bare label, or a
+    namespace the owner ruled out (customer: is the summary's [Account] bracket; feature is the component)."""
+    out = []
+    for x in labels:
+        pre = x.split(":", 1)[0] + ":" if ":" in x else None
+        if pre in OPEN_NAMESPACES:
+            continue
+        if pre == "customer:":
+            out.append(f"{x}: no customer label; the customer is the summary's leading [Account] bracket")
+        elif pre == "feat:":
+            out.append(f"{x}: the feature is the ticket's component, not a label")
+        elif pre in vocab["closed"]:
+            if x not in vocab["closed"][pre]:
+                out.append(f"{x}: not a {pre} value; the values: {', '.join(sorted(vocab['closed'][pre]))}")
+        elif pre is None and x in vocab["bare"]:
+            out.append(f"{x}: retired" + (f"; use {vocab['bare'][x]}" if vocab["bare"][x] not in ("retire", "rename") else ""))
+        else:
+            out.append(f"{x}: not in the vocabulary")
+    return out
+
+
 def _label_one(creds, key, add, rem, apply):
     f = _issue(creds, key, "summary,labels")
     cur = f.get("labels") or []
@@ -1279,10 +1325,19 @@ def _split_csv(s):
 
 
 def cmd_label(creds, args):
-    """Add and/or remove labels. Idempotent: only the actual delta is written."""
+    """Add and/or remove labels. Idempotent: only the actual delta is written. An added label must be in the
+    vocabulary (elak map/jira-labels.yaml); removing is always allowed. --nonstandard REASON overrides once."""
     add, rem = _split_csv(args.add), _split_csv(args.remove)
     if not add and not rem:
         sys.exit("label: nothing to do — pass --add and/or --remove")
+    vocab = vocabulary()
+    problems = label_problems(add, vocab) if vocab else []
+    if problems:
+        print("label vocabulary:\n  " + "\n  ".join(problems), file=sys.stderr)
+        if args.apply and not getattr(args, "nonstandard", None):
+            sys.exit("label: refused — fix the values, or pass --nonstandard '<reason>'")
+    elif vocab is None:
+        print("label vocabulary: not found in the published map; values not checked", file=sys.stderr)
     results, lines = [], []
     for key in _keys(args.targets):
         r, ls = _label_one(creds, key, add, rem, args.apply)
@@ -1652,6 +1707,7 @@ def main():
     p = sub.add_parser("label", help="add/remove labels — dry-run unless --apply; only the delta is written")
     p.add_argument("targets", nargs="+"); p.add_argument("--add", help="comma-separated"); p.add_argument("--remove", help="comma-separated")
     p.add_argument("--apply", action="store_true"); p.add_argument("--json", action="store_true")
+    p.add_argument("--nonstandard", metavar="REASON", help="write a label outside the vocabulary, once, saying why")
     p.set_defaults(func=cmd_label)
 
     p = sub.add_parser("link", help="link two issues — dry-run unless --apply; an existing link of that type is a no-op")
