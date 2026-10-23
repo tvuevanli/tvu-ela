@@ -22,7 +22,7 @@ split by year, a high-volume one (days, verifications) by month.
     18-sprints/<year>/<year>-s<nn>.md           sprint commitments from elak
     20-reviews/<year>/<date>-<slug>.md          reviews and reports; a report with no date in its name: undated/
     25-board/board.md                           the board's debt, one living page; its daily counts stay in the reports root
-    30-verify/<year-month>/<key>-<date>.md      a verification: PDF and screenshots embedded, the full record linked
+    30-verify/<year-month>/<key>-<date>.md      a verification, for 14 days: the report, the technical record linked
     40-decisions/<year>/<date>-<slug>.md
     50-plans/<year>/<date>-<slug>.md
     80-views/*.base                             Bases tables over the notes' properties
@@ -89,7 +89,7 @@ Start at [[home]]: today's page, what waits for your word, what is new this week
 | `18-sprints/` | sprint commitments | by year |
 | `20-reviews/` | reviews and reports written for Evan | by year |
 | `25-board/` | the board's debt: open tickets by shape, each shape's next move, what waits on Evan | one page, rewritten each morning |
-| `30-verify/` | verification results: PDF, screenshots, the full record | by month |
+| `30-verify/` | verification results to review: verdict, checks, screenshots, the technical record | 14 days; then on the Jira ticket |
 | `40-decisions/` | decisions, with what they superseded | by year |
 | `50-plans/` | plans, decided or proposed | by year |
 | `60-` to `79-` | reserved for new kinds | |
@@ -374,7 +374,7 @@ def record_verdict(html_path):
     return m.group(1), (m.group(2) or "").strip(), m.group(3)
 
 
-def verify_notes(reports):
+def verify_notes(reports, today=None):
     """One note per verification record. A record folder is copied whole into the attachments, so its own page,
     which refers to its images by relative path, still opens from the vault."""
     notes, files = [], []
@@ -384,6 +384,10 @@ def verify_notes(reports):
         if not m:
             continue
         key, date, extra, single = m.group(1), m.group(2), (m.group(3) or ""), bool(m.group(4))
+        # a verification is in the vault while it needs the owner's eyes; afterwards it lives on its Jira ticket,
+        # in the reports root and in the backup
+        if today and (today - datetime.date.fromisoformat(date)).days >= DAYS_KEPT:
+            continue
         p = os.path.join(vd, name)
         record = f"90-attachments/verify/{date[:7]}/{name.lower()}"
         pdfs, imgs, page = [], [], None
@@ -636,7 +640,7 @@ def plan(s, env, today, now, removed=frozenset()):
     reports = s.get("reports")
     enotes, titles = elak_notes(s.get("elak"))
     notes = report_notes(reports, today) + enotes
-    vnotes, files = verify_notes(reports)
+    vnotes, files = verify_notes(reports, today)
     notes += vnotes
     notes = [n for n in notes if n.path not in removed]   # what the owner deleted is not written, linked or listed
     taken = set()
