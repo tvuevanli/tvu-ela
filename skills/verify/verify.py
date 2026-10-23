@@ -271,9 +271,12 @@ def write_markdown(out_dir, key, t, verdict, verdict_word, lane_env, fe, be, env
          f"> [!{CALLOUT.get(verdict, 'info')}] {verdict.upper()}: {verdict_word}", ""]
     if t.get("asked"):
         L += [md_cell(t["asked"]), ""]
-    env = " · ".join(x for x in (md_cell(lane_env), f"frontend {md_cell(tidy_version(fe.get('panel')))}" if fe.get("panel") else "",
-                                  f"backend {md_cell(tidy_version(be.get('panel')))}" if be.get("panel") else "", f"run {day}") if x)
-    L += [f"*{env}*", "", f"{env_words} The browser ran {login_words}. {saved_words}", "",
+    lane = re.search(r"^The test ran on ([^,]+),", env_words)
+    gate = "builds match the release map" if "match the release map" in env_words else env_words.rsplit(" and ", 1)[-1].rstrip(".")
+    env = " · ".join(x for x in ((lane.group(1) if lane else "") + (f" ({md_cell(lane_env)})" if lane_env else ""),
+                                  f"frontend {md_cell(tidy_version(fe.get('panel')))}" if fe.get("panel") else "",
+                                  f"backend {md_cell(tidy_version(be.get('panel')))}" if be.get("panel") else "", gate, f"run {day}") if x.strip())
+    L += [f"*{env}*", "", f"The browser ran {login_words}. {saved_words}", "",
           "Technical record (version panel, build ancestry, run log): `index.html` beside this file.", "",
           "## Checks", "", "| result | check | what the ticket asks | what was seen |", "|---|---|---|---|"]
     def mark(c):
