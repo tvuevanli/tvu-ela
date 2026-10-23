@@ -88,5 +88,10 @@
       "openExternalURLs": false,
       "enableAdblocking": true
     }
+  },
+  "types": {
+    "done": "checkbox",
+    "learn": "checkbox",
+    "drop": "checkbox"
   }
 }

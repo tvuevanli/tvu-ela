@@ -49,7 +49,8 @@ OWNER_FOLDERS = (TO_LEARN, ARCHIVE)   # where the owner drags a note to say what
 ATTACH = "ela/attachments"
 DELETABLE = (DAYS, TO_READ)
 KEEP_FOREVER = ("brief",)   # the morning page is the record of what ela told the owner; the rest expires
-PROPS = ("title", "aliases", "type", "date", "kind", "status")   # the whole vocabulary; no tags (ADR 0010)
+PROPS = ("title", "aliases", "type", "date", "kind", "status", "done", "learn", "drop")   # the whole vocabulary; no tags (ADR 0010)
+MARKS = {"done": ARCHIVE, "learn": TO_LEARN, "drop": None}   # a ticked box in a to-read table row: archive, distil, delete
 BUDGET = {"topic": 800, "guide": 1200, "board": 1000, "day": 1200, "review": 2500, "decision": 1200, "plan": 2500, "sprint": 800}
 TOLERANCE = 1.1                                  # a page 10% over its budget is not worth a rewrite
 KEY_RX = re.compile(r"(?<![\w/#=.-])([A-Z][A-Z0-9]{1,9}-\d{1,6})(?![\w-])")
@@ -125,6 +126,9 @@ a warning, and Home lists it for 30 days as a rewrite ela owes.
 | it gone | delete it | nothing: its source stays in the reports and the backup |
 | nothing yet | leave it | it stays, or ela moves it on (below) |
 
+The same three moves are boxes in the *To read* and *Waiting* tables on Home: tick `done` (archive), `learn`
+(to-learn) or `drop` (delete), and within a minute the note goes there; no typing, no session.
+
 To tell ela what you want of a note, or to answer what it waits for, write a line starting `ela:` into the note,
 anywhere but above its hidden properties (the end is easiest: Ctrl+E, Ctrl+End, write, Ctrl+E), in your own words.
 Any note: a rewrite keeps your lines. The next morning or evening run handles each line once, a place included ("write this to the KB", "into elak"); without one, ela chooses between a
@@ -195,7 +199,7 @@ VIEWS = {
   - type: table
     name: Waiting for your word
     filters:
-""" + WAITING + """    order: [date, formula.note, type, status]
+""" + WAITING + """    order: [date, formula.note, type, status, done, learn, drop]
     sort:
       - property: date
         direction: DESC
@@ -207,7 +211,7 @@ VIEWS = {
         - 'status != "fail"'
         - 'status != "blocked"'
         - 'status != "proposed"'
-    order: [date, formula.note, type]
+    order: [date, formula.note, type, done, learn, drop]
     sort:
       - property: date
         direction: DESC
@@ -266,7 +270,7 @@ def front(existing, props):
         props["date"] = (src.get("decided") or src.get("written"))[:10]
     if props.get("title") and props.get("type") not in ("home", "readme"):
         props["aliases"] = [props["title"]]                # the quick switcher matches an alias, not a heading
-    lines = [f"{k}: {json.dumps(props[k], ensure_ascii=False)}" for k in PROPS if props.get(k)]
+    lines = [f"{k}: {json.dumps(props[k], ensure_ascii=False)}" for k in PROPS if props.get(k) or props.get(k) is False]
     return "---\n" + "\n".join(lines) + "\n---\n\n" if lines else ""
 
 
@@ -891,6 +895,8 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset()):
     linker = Linker({n.src_rel: n for n in enotes}, titles, jira_base, projects, reports, reps)
     planned = {}
     for n in notes:
+        if top(n.path) == TO_READ:
+            n.props.update({k: False for k in MARKS})
         n.held = reading_gate(n)
         body = linker(unwrap(callouts(meta_line(Note(n.path, n.title, tidy_title(n.body), n.props, n.front_lines), by_topic))))
         planned[n.path] = redact(front(n.front_lines, dict(n.props, title=n.title)) + (with_warning(body, n.held) if n.held else body))
@@ -984,6 +990,12 @@ def cmd_setup(a):
             cur = {}
         cur.update(upd); atomic_write(p, json.dumps(cur, indent=2))
     merge("app.json", cfg["app"])
+    try:                                                   # the table's boxes are checkbox properties, so one click ticks
+        types = json.load(open(os.path.join(o, "types.json")))
+    except (OSError, ValueError):
+        types = {}
+    types.setdefault("types", {}).update(cfg.get("types") or {})
+    atomic_write(os.path.join(o, "types.json"), json.dumps(types, indent=2))
     merge("appearance.json", cfg["appearance"])
     try:
         core = json.load(open(os.path.join(o, "core-plugins.json")))
@@ -1048,6 +1060,57 @@ def cmd_guidance(a):
     print(f"{len(lines)} instructions; {len(notes)} notes in to-learn")
 
 
+def apply_marks(vault, reports, dry_run=False):
+    """Notes in to-read whose box he ticked in a table (done, learn, drop): each finished as that box says, as if he
+    had dragged or deleted it. Returns [(path, action)]."""
+    out = []
+    d = os.path.join(vault, TO_READ)
+    for f in sorted(os.listdir(d)) if os.path.isdir(d) else []:
+        if not f.endswith(".md"):
+            continue
+        try:
+            fl, _ = split_front(open(os.path.join(d, f), encoding="utf-8").read())
+        except OSError:
+            continue
+        ticked = [k for k in MARKS if any(re.match(rf"^{k}:\s*true\s*$", l, re.I) for l in fl)]
+        if not ticked:
+            continue
+        k = "drop" if "drop" in ticked else ticked[0]
+        out.append((f"{TO_READ}/{f}", k))
+        if not dry_run:
+            finish(vault, reports, f"{TO_READ}/{f}", {"done": "archive", "learn": "learn", "drop": "delete"}[k])
+    return out
+
+
+def cmd_marks(a):
+    s = json.load(open(SITE))
+    done = apply_marks(s["vault"], s.get("reports") or "", a.dry_run)
+    if a.json:
+        print(json.dumps([{"note": p, "box": k} for p, k in done])); return
+    for p, k in done:
+        print(f"{p}: {k}")
+
+
+def finish(vault, reports, rel, to):
+    p = os.path.realpath(os.path.join(vault, rel))
+    try:
+        src = (json.load(open(os.path.join(vault, MANIFEST))).get("sources") or {}).get(rel)
+    except (OSError, ValueError):
+        src = None
+    folder = {"archive": ARCHIVE, "learn": TO_LEARN}.get(to)
+    if folder:
+        os.makedirs(os.path.join(vault, folder), exist_ok=True)
+        dst = os.path.join(vault, folder, os.path.basename(rel))
+        os.replace(p, dst)
+        text = open(dst, encoding="utf-8").read()   # the boxes belong to to-read; the moved copy goes without them
+        open(dst, "w", encoding="utf-8").write(re.sub(r"^(done|learn|drop):\s*(true|false)\s*\n", "", text, flags=re.M | re.I))
+    else:
+        os.remove(p)
+    record_removed(os.path.join(reports, "ela", "vault-removed.jsonl"), [rel], {rel: src} if src else {},
+                   datetime.datetime.now(), {os.path.basename(rel).lower(): folder} if folder else {}, by="owner")
+    return folder
+
+
 def cmd_finish(a):
     """Finish with a note on the owner's word (an `ela:` line asking it): delete it, or move it into archive/ or
     to-learn/, and log it as his, exactly as if he had done it in Obsidian. Only a note in days/ or to-read/; a living
@@ -1058,18 +1121,7 @@ def cmd_finish(a):
     p = os.path.realpath(os.path.join(vault, rel))
     if not p.startswith(os.path.realpath(vault) + os.sep) or top(rel) not in DELETABLE or not rel.endswith(".md") or not os.path.isfile(p):
         print(f"not a note in days/ or to-read/: {a.path}", file=sys.stderr); sys.exit(2)
-    try:
-        src = (json.load(open(os.path.join(vault, MANIFEST))).get("sources") or {}).get(rel)
-    except (OSError, ValueError):
-        src = None
-    folder = {"archive": ARCHIVE, "learn": TO_LEARN}.get(a.to)
-    if folder:
-        os.makedirs(os.path.join(vault, folder), exist_ok=True)
-        os.replace(p, os.path.join(vault, folder, os.path.basename(rel)))
-    else:
-        os.remove(p)
-    record_removed(os.path.join(s.get("reports") or "", "ela", "vault-removed.jsonl"), [rel], {rel: src} if src else {},
-                   datetime.datetime.now(), {os.path.basename(rel).lower(): folder} if folder else {}, by="owner")
+    folder = finish(vault, s.get("reports") or "", rel, a.to)
     print(f"{rel}: {'moved to ' + folder + '/' if folder else 'deleted'}; logged as the owner's")
 
 
@@ -1130,6 +1182,7 @@ def cmd_sync(a):
             print("vault: the manifest is unreadable; not synced (remove it deliberately to start over)", file=sys.stderr); sys.exit(3)
     # a note the sync wrote that is gone from disk was deleted by the owner: that is feedback, and it stays deleted
     removed_path = os.path.join(s.get("reports") or "", "ela", "vault-removed.jsonl")
+    marked = [] if a.dry_run else apply_marks(vault, s.get("reports") or "")   # ticked boxes first: they are his moves
     removed, removed_src = load_removed(removed_path)
     # only a dated note in a reading folder can be done with; a living page (Home, the board, the library index, how
     # ela runs) is rewritten whatever happens to it
@@ -1300,6 +1353,10 @@ def main():
     p.add_argument("--all", action="store_true", help="include instructions already handled")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_guidance)
+    p = sub.add_parser("marks", help="finish the to-read notes whose done, learn or drop box is ticked (no session)")
+    p.add_argument("--dry-run", action="store_true")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_marks)
     p = sub.add_parser("finish", help="on the owner's word: delete a note, or move it into archive/ or to-learn/")
     p.add_argument("path", help="the note's path in the vault, e.g. to-read/2026-09-07-mh-review.md")
     p.add_argument("--to", choices=("delete", "archive", "learn"), default="delete")

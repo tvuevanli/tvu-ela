@@ -127,6 +127,16 @@ with tempfile.TemporaryDirectory() as tmp:
     except SystemExit:
         refused = True
     check("finish refuses a living page", refused and os.path.exists(f"{vault}/home.md"))
+    r6 = f"{vault}/to-read/{today[:4]}-09-16-review-6.md"
+    check("a to-read note carries its three boxes, unticked", all(f"{k}: false" in open(r6).read() for k in ("done", "learn", "drop")))
+    txt = open(r6).read(); open(r6, "w").write(txt.replace("done: false", "done: true"))
+    check("a ticked done box archives the note at the next sync, without the boxes", sync() == 0
+          and os.path.exists(f"{vault}/archive/{today[:4]}-09-16-review-6.md") and not os.path.exists(r6)
+          and "done:" not in open(f"{vault}/archive/{today[:4]}-09-16-review-6.md").read())
+    r7 = f"{vault}/to-read/{today[:4]}-09-17-review-7.md"
+    txt = open(r7).read(); open(r7, "w").write(txt.replace("drop: false", "drop: true"))
+    check("a ticked drop box deletes it, logged as his", [x[1] for x in V.apply_marks(vault, reports)] == ["drop"] and not os.path.exists(r7)
+          and any(r.get("fate") == "deleted" and r["path"].endswith("review-7.md") for r in rows()))
     os.makedirs(f"{vault}/to-learn", exist_ok=True)
     os.rename(f"{vault}/to-read/{today[:4]}-09-11-review-1.md", f"{vault}/to-learn/{today[:4]}-09-11-review-1.md")
     with open(f"{vault}/to-learn/{today[:4]}-09-11-review-1.md", "a") as fh:
@@ -153,15 +163,15 @@ with tempfile.TemporaryDirectory() as tmp:
     check("a missing reports root stops the sync", sync() == 3)
     check("and nothing was removed", os.path.exists(dec0))
     os.rename(reports + ".gone", reports)
-    for i in range(5, 20):
+    for i in range(8, 20):
         os.remove(f"{reports}/{today[:4]}-09-{i + 10}-review-{i}.md")
     check("the notes halving at once stops the sync", sync() == 3)
-    check("--force applies a deliberate removal", sync(force=True) == 0 and not os.path.exists(f"{vault}/to-read/{today[:4]}-09-15-review-5.md"))
-    for i in range(5, 20):
+    check("--force applies a deliberate removal", sync(force=True) == 0 and not os.path.exists(f"{vault}/to-read/{today[:4]}-09-18-review-8.md"))
+    for i in range(8, 20):
         open(f"{reports}/{today[:4]}-09-{i + 10}-review-{i}.md", "w").write(f"# Review {i}\n\nText.\n")
     sync(force=True)
     before = len(rows())
-    for i in range(5, 20):
+    for i in range(8, 20):
         os.remove(f"{vault}/to-read/{today[:4]}-09-{i + 10}-review-{i}.md")
     check("a mass disappearance is written again, not recorded as read", sync() == 0
           and os.path.exists(f"{vault}/to-read/{today[:4]}-09-15-review-5.md") and len(rows()) == before)
