@@ -207,6 +207,9 @@ details.tech{{border:1px solid var(--line);border-radius:6px;background:var(--su
     crows_front = "".join(f"<tr><td class=num>{esc(c.get('id'))}</td><td>{esc(check_words(c))}</td><td>{esc(plain_seen(c))}</td><td>{pill(c.get('result'))}</td></tr>" for c in checks)
     H.append(f'<div class="scroll"><table><tr><th>Check</th><th>What the ticket asks</th><th>What was seen</th><th>Result</th></tr>{crows_front}</table></div>'
              + (f'<p class="eyebrow">{len(fixtures)} setup and cleanup steps ran around these checks; they are in the run log below.</p>' if fixtures else "") + '</section>')
+    if not embed and not print_mode:
+        write_markdown(out_dir, key, t, verdict, verdict_word, lane_env, fe, be, env_words, login_words, saved_words,
+                       checks, fixtures, check_words, shot_of)
     H.append(f'<section class="appendix"><h2>Appendix: technical record</h2><p>Selectors, builds, the version panel, commit ancestry and the method: for whoever needs to repeat or audit the run.</p></section>')
     # ticket
     rows = [f"<tr><th>Key</th><td><a href=\"https://tvunetworks.atlassian.net/browse/{esc(key)}\">{esc(key)}</a> · {esc(t.get('type') or '')} · {esc(t.get('status') or '')}" + (f" · parent {esc(t['parent'])}" if t.get("parent") else "") + "</td></tr>"]
@@ -246,6 +249,39 @@ details.tech{{border:1px solid var(--line);border-radius:6px;background:var(--su
                  + ("<h3>Procedure</h3><ol>" + "".join(f"<li>{esc(x)}</li>" for x in tech.get("procedure") or []) + "</ol>" if tech.get("procedure") else ""), print_mode))
     H.append(f'<footer style="color:var(--muted);font-size:.85rem;border-top:1px solid var(--line);padding-top:14px">QA record generated on {today} from one browser run against the lane named above, {login_words}; {saved_words[0].lower() + saved_words[1:]} The cases and screenshots are from that run.</footer></div></body></html>')
     return "\n".join(H), verdict
+
+
+CALLOUT = {"pass": "success", "fail": "failure", "blocked": "warning", "unproven": "info"}
+
+
+def md_cell(x):
+    return str(x if x is not None else "").replace("|", "\\|").replace("\n", " ").strip()
+
+
+def write_markdown(out_dir, key, t, verdict, verdict_word, lane_env, fe, be, env_words, login_words, saved_words,
+                   checks, fixtures, check_words, shot_of):
+    """report.md beside index.html: the same record for the owner's vault, rendered from the same run data, so it
+    costs no model call. The verdict first, then what was tested, the checks, and the screenshots with captions;
+    the HTML stays the full record (appendix, ancestry, run log) and the PDF its printable copy."""
+    dated = re.search(r"\d{4}-\d{2}-\d{2}", os.path.basename(os.path.normpath(out_dir)))
+    day = dated.group(0) if dated else datetime.date.today().isoformat()      # the run's day, not the render's
+    L = [f"# {key} verification · {day}", "",
+         f"> [!{CALLOUT.get(verdict, 'info')}] {verdict.upper()}: {verdict_word}", "",
+         "| environment | frontend | backend |", "|---|---|---|",
+         f"| {md_cell(lane_env or '—')} | {md_cell(tidy_version(fe.get('panel')) or '—')} | {md_cell(tidy_version(be.get('panel')) or '—')} |", "",
+         f"{md_cell(t.get('asked') or t.get('summary') or '')}", "",
+         f"{env_words} The browser ran {login_words}. {saved_words}", "",
+         "## Checks", "", "| check | what the ticket asks | what was seen | result |", "|---|---|---|---|"]
+    L += [f"| {md_cell(c.get('id'))} | {md_cell(check_words(c))} | {md_cell(plain_seen(c))} | {md_cell(str(c.get('result') or '—').upper())} |" for c in checks]
+    if fixtures:
+        L += ["", f"{len(fixtures)} setup and cleanup steps ran around these checks; they are in the full record."]
+    shots = [(c, shot_of(c)) for c in checks if shot_of(c)]
+    if shots:
+        L += ["", "## Screenshots", ""]
+        for c, rel in shots:
+            L += [f"**{md_cell(c.get('id'))}** · {md_cell(plain_seen(c))}", "", f"![[{rel}]]", ""]
+    L += ["", "The full record, with the version panel, the build ancestry and the run log, is `index.html` beside this file."]
+    open(os.path.join(out_dir, "report.md"), "w", encoding="utf-8").write("\n".join(L) + "\n")
 
 
 def cmd_report(a):

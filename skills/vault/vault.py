@@ -388,6 +388,14 @@ def verify_notes(reports):
                         imgs.append(dst)
                     elif low in ("index.html", "print.html") and (page is None or low == "index.html"):
                         page = dst
+        md = os.path.join(p, "report.md") if not single else ""
+        if md and os.path.isfile(md):                  # the record's own Markdown, written by the verify renderer
+            body = open(md, encoding="utf-8").read()
+            body = re.sub(r"!\[\[(img/[^\]]+)\]\]", lambda m: f"![[{record}/{m.group(1)}]]", body)
+            body = body.replace("is `index.html` beside this file.", f"is [in the attachments]({page}).") if page else body
+            notes.append(Note(f"30-verify/{date[:7]}/{key.lower()}-{date}{extra}.md", f"{key} verification {date}", body,
+                              {"type": "verify", "date": date}))
+            continue
         verdict = record_verdict(os.path.join(vd, name) if single else os.path.join(p, os.path.basename(page or "index.html")))
         body = [f"# {key} verification · {date}{' · ' + extra.strip('-') if extra else ''}", ""]
         if not verdict:

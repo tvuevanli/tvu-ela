@@ -157,8 +157,9 @@ its row and named as not covered, but does not decide the verdict: the ticket is
    `ticket.json`, `plan.json` (the confirmed goals, each with `kind`), `env.json` (`ela browser env --json`),
    `cases.json` (`ela browser run --json`), `ancestry.json`, `technique.json` and `shots/` (the gate's `version-panel.png` among them);
    `ela verify --key <KEY> --run <dir> --pdf <dir>/<KEY>-verify-<date>.pdf` renders the page under
-   `<reports>/verify/<KEY>-<date>/` for the owner (publishable as a private artifact) and prints the PDF for the
-   ticket. **The readable part comes first**: the verdict, the environment in one plain sentence, and one row
+   `<reports>/verify/<KEY>-<date>/` for the owner (publishable as a private artifact), a `report.md` beside it that the
+   owner's vault shows natively (the same run data, no model call: verdict, environment, checks, captioned screenshots),
+   and prints the PDF for the ticket. **The readable part comes first**: the verdict, the environment in one plain sentence, and one row
    per requirement check — what the ticket asks (the goal from the plan) and what was seen, in a reader's
    sentence. For that, every case result carries `seen` (one plain sentence, no ids, no json, no request paths)
    beside `observed` (the raw text, kept whole); setup and cleanup steps (`T0`, `C1`, kinds setup/cleanup) never
