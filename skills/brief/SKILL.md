@@ -223,6 +223,9 @@ ela-runner starts this skill headless every weekday morning after it wrote the f
 - `<reports>/runner/<date>-brief.md` — the page of §3 as Markdown, the judgment included (what each new
   ticket is about, who should hold it, the drafted reply or nudge), then §2b's `Yesterday`, every key a Jira
   link.
+  The page is read in the owner's Obsidian vault and must fit **900 words** (the vault holds back a day page over
+  1,200): at most eight ranked items of three lines each, the Yesterday section within that, lanes in one line
+  each, nothing restated that a link carries.
 - `<reports>/runner/<date>-actions.json` — the drafted actions as a list, in the page's order:
   `[{"n": 1, "text": "<the one line the page shows>", "command": "<the exact ela command, dry run as written>", "kind": "comment|assign|label|transition|close|slack|fixed-in"}]`.
   A command is one of ela's own write verbs — `ela jira comment|assign|label|fixed-in|close …`, `ela slack

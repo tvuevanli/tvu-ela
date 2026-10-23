@@ -30,6 +30,16 @@ $R build [name…]              # markdown → HTML (all when no name)
    existing report; a new report gets a new file, a new URL, and a row in `README.md`.
 4. **Tell Evan the URL and what changed** in three lines. The report is the deliverable, not the chat.
 
+## Read in the owner's vault
+
+Everything written for the owner reaches him through his Obsidian vault (`ela vault sync`, `skills/vault/vault.py`), and
+the sync holds back a note a person should not have to read: no title heading, over its reading budget, more
+than a quarter code, or machine paths and raw records in the text. A held note is listed on the vault's Home as
+a rewrite this skill owes. Budgets, in English words (two CJK characters count as one): day page 1,200 · review
+2,500 · decision 1,200 · plan 2,500 · sprint 800. Write to fit: the conclusion first, one idea per sentence,
+numbers in a short table, file paths and code only where he must act on them, the full record linked, not
+pasted.
+
 ## Invariants
 - **Not knowledge.** Reports point at decisions and status; they never become the place a fact lives.
   Anything a report states that is not in ela, elak or a first-hand source is a bug in the report.
