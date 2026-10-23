@@ -194,7 +194,9 @@ first. `backlog` is always last and always three rows: it is the only lane that 
 outright on a busy day. Then:
 
 ```
-# brief · <weekday> <date>            <n> items · lanes read: jira ✓ slack ✓ (DMs not visible)
+# Morning brief · <weekday> <date>
+
+<n> items · read: Jira, Slack (direct messages not visible)
 
 1. [triage · OVERDUE 19h] MH-3601 "SRT output stalls after failover" — unassigned, no layer token.
    → route: [Media] · Lotus Chen (signal: SRT, frame drop). Check first: is the graph still Living?   /ela:route MH-3601
