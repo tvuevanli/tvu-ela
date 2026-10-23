@@ -85,7 +85,10 @@ Write, in this shape:
   fences). Name the trade-off the default encodes.
 - **What is affected** — who else sees this; is the reporter a special case or the first to notice.
 - **Options** — the fix the reporter needs now, the product fix, the "real" fix; cost of each; which
-  needs a product decision and from whom.
+  needs a product decision and from whom. A "should we fix it" answer reads the fix's cost in the code first
+  (how many repositories, merge requests and owners, any new state) and states the consequence of not fixing,
+  then recommends; MH-3675's first advice ("two small fixes") reversed once the code showed state in two
+  repositories (2026-10-22).
 - **Owner and check** — name and the exact discriminating check, via `/ela:route` when the layer is
   not obvious.
 - A cause that turns on runtime config cites the value read with `ela configserver effective` and its

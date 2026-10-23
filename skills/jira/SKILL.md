@@ -122,6 +122,10 @@ and does nothing without `--apply`. Each is idempotent, so a re-run after a part
 | `describe` | the description already reads so | replaces one issue's description from a file, in the Markdown subset; the dry run shows was / now and names every link the current description carries that the new text drops, and `--apply` refuses while any is dropped (the reporter's links are theirs). The caller writes the new text in the ticket's established shape (Problem / Steps / Cause / Change / QA verification) and keeps the reporter's paragraphs where they stand |
 | `close` | each step's own no-op | **a proposal, never a status change**: `--fixed-in`, `--label`, the comment (`--text` / `--from-file`), `flag:closing` and the ticket assigned to the owner, shown together as one dry run and applied in that order; the status is then his own click in Jira. Refused without a comment (`--allow-no-comment` overrides): the assignee and the reporter must see why. On a partial failure the dry run says which steps are done; a re-run skips them |
 
+A refusal from this script is the answer, not an obstacle: never reach the Jira API another way to get past it.
+When the rule itself is wrong, change it here in ela's repository, under ela's rules, and say so (2026-10-22,
+MH-3645).
+
 Confirm rule for a Claude session: show the dry-run, ask Evan, and only then re-run with `--apply` —
 the same wording he saw. The unit of a confirm is **one ticket's bundle** — Fixed In, labels, the
 comment and the walk — or **one batch of one shape**: when a rule the owner has recorded (elak

@@ -27,6 +27,9 @@ a reading taken at one layer and promoted to a conclusion about the whole chain:
 
 So a verdict is only as good as the checkpoint it was taken at, and there are five.
 
+A recommendation states what the change costs, read from the code (repositories, merge requests, owners, new
+state), and what not doing it costs, before it recommends either (2026-10-22, MH-3675).
+
 ## The five checkpoints
 Every item is traced along this chain, and the verdict names where it stops:
 

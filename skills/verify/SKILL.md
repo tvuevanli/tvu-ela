@@ -136,7 +136,11 @@ build and remove without a word — a Partyline destination, HLS sources on the 
 `ela-verify <KEY> …` so nothing else is ever touched — and only **starting** a task (routing, going live)
 waits for the owner's approval, given once per run for the exact calls the dry phase printed. A fixture
 script has phases (dry · setup · start · observe · cleanup) and leaves its ids in the run's `state.json`,
-so cleanup is a command, not a memory (2026-10-22, MH-3416 on qa-cn3).
+so cleanup is a command, not a memory (2026-10-22, MH-3416 on qa-cn3). When the harness refuses a fixture write
+on the gateway even after the owner approved it (his production account is a shared resource), hand him the
+phases as one line he runs himself, prefixed with `!` so it runs in the session, and read the run's state back
+afterwards; a verification that ends blocked for want of a sanctioned path is a defect of this skill
+(2026-10-22, MH-3465).
 
 ## 3 — the verdict
 
