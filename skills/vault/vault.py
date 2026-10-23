@@ -1022,6 +1022,7 @@ def cmd_setup(a):
     print("vault settings applied; restart Obsidian to load them")
 
 
+TICKED = re.compile(r"^\s*[-*]\s+\[[xX]\]\s+(.+?)\s*$", re.M)   # a choice he ticked in a note: a click, not typing
 GUIDE = re.compile(r"^\s*(?:[-*>]\s*)*ela\s*[:：]\s*(.+?)\s*$", re.I | re.M)
 
 
@@ -1037,6 +1038,10 @@ def cmd_guidance(a):
     except (OSError, ValueError):
         done = set()
     lines, notes = [], []
+    try:
+        source_ticks = json.load(open(os.path.join(vault, MANIFEST))).get("source_ticks") or {}
+    except (OSError, ValueError):
+        source_ticks = {}
     for top_, dirs, fs in os.walk(vault):
         dirs[:] = [d for d in dirs if not d.startswith(".") and os.path.relpath(os.path.join(top_, d), vault).replace(os.sep, "/") != ATTACH]
         if True:
@@ -1048,7 +1053,8 @@ def cmd_guidance(a):
                 text = open(p, encoding="utf-8").read()
                 if top(rel) == TO_LEARN:
                     notes.append({"note": rel, "title": h1(split_front(text)[1]) or f[:-3]})
-                for m in (x for x in GUIDE.finditer(text) if x.group(1).strip('"\' ')):
+                ticks = [x for x in TICKED.finditer(text) if x.group(1) not in source_ticks.get(rel, [])]
+                for m in (x for x in list(GUIDE.finditer(text)) + ticks if x.group(1).strip('"\' ')):
                     gid = hashlib.sha256(f"{f}\0{m.group(1)}".encode()).hexdigest()[:12]
                     if a.all or gid not in done:
                         lines.append({"id": gid, "note": rel, "says": m.group(1).strip().strip('"').strip("'")})
@@ -1235,12 +1241,16 @@ def cmd_sync(a):
             listing[d] = set(os.listdir(d)) if os.path.isdir(d) else set()
         return listing[d]
     wrote, same = [], 0
+    # a task its source already ticked is not his choice; recorded so the guidance verb tells the two apart
+    source_ticks = {r: [m.group(1) for m in TICKED.finditer(t)] for r, t in planned.items() if r.endswith(".md") and TICKED.search(t)}
     for rel in [r for r in planned if r.endswith(".md")]:  # his `ela:` lines in a generated note outlive its rewrite
         try:
             disk = open(os.path.join(vault, rel), encoding="utf-8").read()
         except OSError:
             continue
         dfl, dbody = split_front(disk)
+        for m in TICKED.finditer(dbody):                   # a choice he ticked stays ticked when the page is rewritten
+            planned[rel] = re.sub(r"^(\s*[-*]\s+)\[ \](\s+" + re.escape(m.group(1)) + r"\s*)$", r"\1[x]\2", planned[rel], count=1, flags=re.M)
         mine = [m.group(0).strip() for m in GUIDE.finditer(dbody) if m.group(0).strip() not in planned[rel]]
         if mine:
             planned[rel] = planned[rel].rstrip("\n") + "\n\n" + "\n".join(mine) + "\n"
@@ -1310,7 +1320,8 @@ def cmd_sync(a):
         atomic_write(mpath, json.dumps({"synced": now.isoformat(timespec="seconds"), "layout": LAYOUT, "files": sorted(now_files),
                                         "sources": {n.path: n.src_rel for n in notes if n.src_rel},
                                         "generated": {r: digest(t) for r, t in planned.items() if r.endswith(".base")},
-                                        "seen": {r: d for r, d in seen.items() if r in planned}}, indent=0))
+                                        "seen": {r: d for r, d in seen.items() if r in planned},
+                                        "source_ticks": source_ticks}, indent=0))
         for rel in gone:
             try:
                 os.remove(os.path.join(vault, rel))

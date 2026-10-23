@@ -65,7 +65,7 @@ with tempfile.TemporaryDirectory() as tmp:
     open(f"{ELAK}/blueprint/decisions/{today[:4]}-01-02-internal.md", "w").write("---\nstatus: proposed\n---\n# How a script is built\n\nText.\n")
     open(f"{ELAK}/blueprint/decisions/{today[:4]}-01-03-ruled.md", "w").write("---\nreader: owner\nstatus: decided\n---\n# Ruled\n\nText.\n")
     git("init", "-q"); git("add", "."); git(SAVE, "-qm", "x")
-    open(f"{reports}/runner/{today}-brief.md", "w").write("# Brief\n\nShort.\n")
+    open(f"{reports}/runner/{today}-brief.md", "w").write("# Brief\n\n## Needs you\n\n### 1. A thing\n\n- [ ] apply 2 — ask QA\n- [ ] probe MH-1 from the replay\n- [x] already done upstream\n")
     open(f"{reports}/ela/{today}-long.md", "w").write("# Long review\n\n" + "word " * 3000)
     for i in range(20):
         open(f"{reports}/{today[:4]}-09-{i + 10}-review-{i}.md", "w").write(f"# Review {i}\n\nText.\n")
@@ -140,6 +140,10 @@ with tempfile.TemporaryDirectory() as tmp:
     txt = open(r9).read(); open(r9, "w").write(txt.replace('ela: ""', 'ela: "1A, post it"'))
     check("his word typed in the ela cell survives the rewrite", sync() == 0 and 'ela: "1A, post it"' in open(r9).read()
           and open(r9).read().count("1A, post it") == 1)
+    bp = f"{vault}/days/{today[:4]}/{today}-brief.md"
+    txt = open(bp).read(); open(bp, "w").write(txt.replace("- [ ] probe MH-1", "- [x] probe MH-1"))
+    check("a choice he ticks stays ticked through the rewrite", sync() == 0 and "- [x] probe MH-1 from the replay" in open(bp).read()
+          and "- [ ] apply 2" in open(bp).read())
     r7 = f"{vault}/to-read/{today[:4]}-09-17-review-7.md"
     txt = open(r7).read(); open(r7, "w").write(txt.replace("drop: false", "drop: true"))
     check("a ticked drop box deletes it, logged as his", [x[1] for x in V.apply_marks(vault, reports)] == ["drop"] and not os.path.exists(r7)
@@ -153,7 +157,7 @@ with tempfile.TemporaryDirectory() as tmp:
     with contextlib.redirect_stdout(buf):
         V.cmd_guidance(types.SimpleNamespace(all=False, json=True))
     g = json.loads(buf.getvalue())
-    check("ela: lines anywhere in the vault are read as his guidance", sorted(x["says"] for x in g["guidance"]) == ["1A, post it", "post this to Jira", "write this to the KB"]
+    check("ela: lines anywhere in the vault are read as his guidance", sorted(x["says"] for x in g["guidance"]) == ["1A, post it", "post this to Jira", "probe MH-1 from the replay", "write this to the KB"]
           and len(g["to_learn"]) == 1)
     check("a note he dragged into to-learn is recorded so and left there", sync() == 0
           and os.path.exists(f"{vault}/to-learn/{today[:4]}-09-11-review-1.md") and not os.path.exists(f"{vault}/to-read/{today[:4]}-09-11-review-1.md")

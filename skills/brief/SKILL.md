@@ -254,8 +254,12 @@ progress sat in mail and Slack).
 The page is read in Obsidian, so its form is fixed:
 
 - **An item is a `###` heading in plain words** (what is happening, never a lane tag such as `[cadence RED]`), one
-  facts line (key, its Jira title in a few plain words, kind, who holds it, age), at most three bullets, and the last bullet **Do:** with the
-  `apply N` number when an action is drafted. A sentence that does not change what the owner does is cut.
+  facts line (key, its Jira title in a few plain words, kind, who holds it, age), at most three bullets, then
+  **Do:** as one to three choices, each a task line he ticks in Obsidian: `- [ ] apply N — what it writes` for a drafted
+  write (a tick runs it, as `apply N` in Slack does), `- [ ] <an instruction to ela>` for work a session does (a tick
+  starts it: "probe MH-3805 from the 2× input replay", "draft the reply to Robin in the thread"), the recommended choice
+  first. A choice is a whole instruction on one line; no "skip" choice (leaving it unticked is skipping). A sentence
+  that does not change what the owner does is cut.
 - **An `apply N` is a drafted action on this page.** Number the actions in the order they appear, every one
   written beside its item; never name an action that is not on the page ("apply 1 is done" from yesterday is
   noise). An action already applied is said in words, without its old number.
