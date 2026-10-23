@@ -10,6 +10,7 @@ reasons: ela docs/adr/0008-the-owner-reads-ela-in-a-generated-obsidian-vault.md.
 Usage:
     vault.py [--env-file F] sync [--dry-run] [--force] [--json]
     vault.py restore <path>          bring back a note the owner deleted
+    vault.py guidance [--all] [--json]   his `ela:` lines in to-learn/ and archive/, each handled once
     vault.py setup                   apply the Obsidian settings kept in obsidian/ (after a reset or on a new machine)
 
 Layout, by what the owner does with a note (ela ADR 0010). Names are lowercase with hyphens and no spaces, taken
@@ -123,9 +124,9 @@ a warning, and Home lists it for 30 days as a rewrite ela owes.
 | it gone | delete it | nothing: its source stays in the reports and the backup |
 | nothing yet | leave it | it stays, or ela moves it on (below) |
 
-To tell ela what you want of a note, write it into the note, anywhere, in your own words (Ctrl+E to edit, again to
-read), once the note is in `to-learn/` or `archive/`: those copies are yours and never rewritten, and ela reads what
-you added as your guidance, a place included ("write this to the KB", "into elak"); without one, ela chooses between a
+To tell ela what you want of a note, write a line starting `ela:` into it, anywhere, in your own words (Ctrl+E to
+edit, again to read), once the note is in `to-learn/` or `archive/`: those copies are yours and never rewritten, and
+ela handles each such line once, a place included ("write this to the KB", "into elak"); without one, ela chooses between a
 library page here, its own knowledge in elak and the team's knowledge base (drafted, published on your word). A note
 still in `to-read/` is rewritten by the next sync, so move it first.
 
@@ -1005,6 +1006,44 @@ def cmd_setup(a):
     print("vault settings applied; restart Obsidian to load them")
 
 
+GUIDE = re.compile(r"^\s*(?:[-*>]\s*)*ela\s*[:：]\s*(.+?)\s*$", re.I | re.M)
+
+
+def cmd_guidance(a):
+    """The owner's instructions written into his notes: every line starting `ela:` in to-learn/ and archive/ (his
+    copies, never rewritten), with a stable id so a job handles each once (ids already in <reports>/ela/
+    guidance-handled.jsonl are left out unless --all), and every to-learn note, guided or not."""
+    import hashlib
+    s = json.load(open(SITE))
+    vault, reports = s["vault"], s.get("reports") or ""
+    try:
+        done = {json.loads(l).get("id") for l in open(os.path.join(reports, "ela", "guidance-handled.jsonl"), encoding="utf-8")}
+    except (OSError, ValueError):
+        done = set()
+    lines, notes = [], []
+    for folder in OWNER_FOLDERS:
+        for top_, _, fs in os.walk(os.path.join(vault, folder)):
+            for f in sorted(fs):
+                if not f.endswith(".md"):
+                    continue
+                p = os.path.join(top_, f)
+                rel = os.path.relpath(p, vault).replace(os.sep, "/")
+                text = open(p, encoding="utf-8").read()
+                if folder == TO_LEARN:
+                    notes.append({"note": rel, "title": h1(split_front(text)[1]) or f[:-3]})
+                for m in GUIDE.finditer(text):
+                    gid = hashlib.sha256(f"{f}\0{m.group(1)}".encode()).hexdigest()[:12]
+                    if a.all or gid not in done:
+                        lines.append({"id": gid, "note": rel, "says": m.group(1)})
+    r = {"guidance": lines, "to_learn": notes,
+         "handled_log": os.path.join(reports, "ela", "guidance-handled.jsonl")}
+    if a.json:
+        print(json.dumps(r, ensure_ascii=False)); return
+    for g in lines:
+        print(f"{g['id']}  {g['note']}: {g['says']}")
+    print(f"{len(lines)} instructions; {len(notes)} notes in to-learn")
+
+
 def cmd_restore(a):
     """Bring back a note the owner deleted: the next sync writes it again."""
     s = json.load(open(SITE))
@@ -1205,6 +1244,10 @@ def main():
     p.set_defaults(func=cmd_sync)
     p = sub.add_parser("setup", help="apply the vault's Obsidian settings from ela's versioned copy, then restart Obsidian")
     p.set_defaults(func=cmd_setup)
+    p = sub.add_parser("guidance", help="the owner's `ela:` lines in to-learn/ and archive/, and the notes in to-learn")
+    p.add_argument("--all", action="store_true", help="include instructions already handled")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_guidance)
     p = sub.add_parser("restore", help="bring back a note the owner deleted in the vault")
     p.add_argument("path", help="the note's path in the vault, as the deletion log lists it")
     p.set_defaults(func=cmd_restore)

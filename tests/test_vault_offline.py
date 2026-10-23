@@ -109,6 +109,15 @@ with tempfile.TemporaryDirectory() as tmp:
           and any(r.get("fate") == "archived" and r["path"].endswith("review-0.md") for r in rows()))
     os.makedirs(f"{vault}/to-learn", exist_ok=True)
     os.rename(f"{vault}/to-read/{today[:4]}-09-11-review-1.md", f"{vault}/to-learn/{today[:4]}-09-11-review-1.md")
+    with open(f"{vault}/to-learn/{today[:4]}-09-11-review-1.md", "a") as fh:
+        fh.write("\n- ela: write this to the KB\n")
+    import io, contextlib
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        V.cmd_guidance(types.SimpleNamespace(all=False, json=True))
+    g = json.loads(buf.getvalue())
+    check("an ela: line in a to-learn note is read as his guidance", [x["says"] for x in g["guidance"]] == ["write this to the KB"]
+          and len(g["to_learn"]) == 1)
     check("a note he dragged into to-learn is recorded so and left there", sync() == 0
           and os.path.exists(f"{vault}/to-learn/{today[:4]}-09-11-review-1.md") and not os.path.exists(f"{vault}/to-read/{today[:4]}-09-11-review-1.md")
           and any(r.get("fate") == "to-learn" and r["path"].endswith("review-1.md") for r in rows()))

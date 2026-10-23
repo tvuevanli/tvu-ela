@@ -83,6 +83,7 @@
                                    decisions and plans; a note over its reading budget carries a warning;
                                    a note you delete is done and stays deleted (ela vault restore PATH)
   ela vault setup                  apply the vault's Obsidian settings from ela's versioned copy, then restart Obsidian
+  ela vault guidance [--json]      the owner's `ela:` lines in his to-learn and archive notes, each handled once
   ela secret NAME                  in your terminal: a credential typed at a prompt that does not echo, written to
                                    the site env file; never paste a token into a chat
   ela route <KEY>                  the routing facts: [Layer] token, ids, signal words per layer,
