@@ -82,7 +82,7 @@ with tempfile.TemporaryDirectory() as tmp:
     check("a decision not written for the owner stays out", not os.path.exists(f"{vault}/records/{today[:4]}/{today[:4]}-01-02-internal.md"))
     check("a long review is written, under a warning", "[!warning]" in open(f"{vault}/to-read/{today}-long.md").read())
     home = open(f"{vault}/home.md").read()
-    check("Home embeds today's page and lists what ela owes", "![[days/" in home and "```base" in home and "ela owes a shorter version" in home)
+    check("Home embeds today's page and lists what ela owes", "![[days/" in home and "all-notes.base#To read" in home and "ela owes a shorter version" in home)
     check("a decision carries its title as an alias and a meta line", 'aliases: ["Decision 0"]' in open(dec0).read() and "*decision · " in open(dec0).read())
     os.remove(dec0)
     check("a note the owner deleted is not written again", sync() == 0 and not os.path.exists(dec0))

@@ -267,11 +267,11 @@ def write_markdown(out_dir, key, t, verdict, verdict_word, lane_env, fe, be, env
     dated = re.search(r"\d{4}-\d{2}-\d{2}", os.path.basename(os.path.normpath(out_dir)))
     day = dated.group(0) if dated else datetime.date.today().isoformat()      # the run's day, not the render's
     summary = md_cell(t.get("summary") or "")
-    L = [f"# {key} · {verdict.upper()}" + (f" · {summary}" if summary else ""), "",
+    lane = re.search(r"^The test ran on ([^,]+),", env_words)
+    L = [f"# {key} · {verdict.upper()}" + (f" on {lane.group(1)}" if lane else "") + (f" · {summary}" if summary else ""), "",
          f"> [!{CALLOUT.get(verdict, 'info')}] {verdict.upper()}: {verdict_word}", ""]
     if t.get("asked"):
         L += [md_cell(t["asked"]), ""]
-    lane = re.search(r"^The test ran on ([^,]+),", env_words)
     gate = "builds match the release map" if "match the release map" in env_words else env_words.rsplit(" and ", 1)[-1].rstrip(".")
     env = " · ".join(x for x in ((lane.group(1) if lane else "") + (f" ({md_cell(lane_env)})" if lane_env else ""),
                                   f"frontend {md_cell(tidy_version(fe.get('panel')))}" if fe.get("panel") else "",

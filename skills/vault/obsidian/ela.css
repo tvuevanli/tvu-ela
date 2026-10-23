@@ -1,5 +1,5 @@
 /* ela vault: reading comfort for generated notes */
-.markdown-rendered table { width: 100%; font-size: 0.92em; border-collapse: collapse; }
+.markdown-rendered table { font-size: 0.92em; border-collapse: collapse; }
 .markdown-rendered th { background: var(--background-secondary); text-align: left; }
 .markdown-rendered td, .markdown-rendered th { padding: 4px 10px; vertical-align: top; }
 .markdown-rendered tr:nth-child(even) td { background: var(--background-primary-alt); }
@@ -10,9 +10,10 @@
 
 /* a wider reading column (Obsidian's default is 700px), and tables that may use the whole pane */
 body { --file-line-width: min(94%, 1600px); }   /* follows the window, capped for very wide screens */
-.markdown-rendered table { width: 100%; max-width: none; }
+/* a table is as wide as its content needs, up to the column; a two-column table does not stretch across the pane */
+.markdown-rendered table { width: auto; max-width: 100%; }
 .markdown-rendered .table-wrapper, .markdown-rendered table { margin-inline: 0; }
-.markdown-rendered td { word-break: normal; overflow-wrap: anywhere; }
+.markdown-rendered td { word-break: normal; overflow-wrap: break-word; }   /* a ticket key is not split mid-word */
 
 /* the attachments folder holds what the notes embed; nobody browses it (ela ADR 0010) */
 .nav-folder:has(> .nav-folder-title[data-path="ela/attachments"]) { display: none; }

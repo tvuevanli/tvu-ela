@@ -86,7 +86,7 @@ Start at [[home]]: what waits for your word, today's page, and what there is to 
 |---|---|---|
 | `home`, `board` | today, and the board's debt | look at them each morning |
 | `days/<year>/` | the morning pages, kept; the evening learning draft, 14 days | look back |
-| `to-read/` | reviews and verification results, newest first | read, then delete |
+| `to-read/` | reviews and verification results, newest first; a verification leaves after 14 days | read, then delete |
 | `records/<year>/` | decisions, plans and sprints | look up |
 | `library/` | one summary page per topic, with links to the originals | look up |
 | `ela/` | how ela works and runs, this page, the table view; attachments, hidden | rarely |
@@ -115,7 +115,8 @@ a warning, and Home lists it for 30 days as a rewrite ela owes.
 
 Delete a note in `days/`, `to-read/` or `records/` when you are done with it, on the desktop (the laptop only
 receives). ela records it as read and does not write it again; a living page (Home, the board, the library, how
-ela runs) is simply written again; its source stays in ela's reports, elak and their backup. A deletion means done, never
+ela runs) is simply written again. A generated note's source stays in ela's reports or elak; a page ela writes in
+place (a library topic, how ela works) is in the nightly backup. A deletion means done, never
 a verdict: deleting a decision does not revoke it; to change one, tell ela. `ela vault restore <path>` brings a
 note back.
 
@@ -146,19 +147,6 @@ FORMULAS = """formulas:
 properties:
   formula.note:
     displayName: Note
-"""
-
-TO_READ_BASE = """filters:
-  or:
-    - file.inFolder("to-read")
-    - 'status == "proposed"'
-""" + FORMULAS + """views:
-  - type: table
-    name: To read
-    order: [date, formula.note, type]
-    sort:
-      - property: date
-        direction: DESC
 """
 
 VIEWS = {
@@ -232,23 +220,33 @@ def split_front(text):
 
 def h1(body):
     m = re.search(r"^#\s+(.+?)\s*$", body, re.M)
-    return re.sub(r"[`*_]", "", m.group(1)).strip() if m else None
+    t = re.sub(r"(\*\*|__)(.+?)\1", r"\2", m.group(1)) if m else None
+    return re.sub(r"(?<!\w)[*_](\S.*?\S|\S)[*_](?!\w)", r"\1", t).replace("`", "").strip() if m else None
 
 
 def sentence(title):
     return title if re.match(r"^(ela|elak)\b", title) else title[:1].upper() + title[1:]
 
 
+def short_status(v):
+    """A source's status as a property: its first clause, cut at a word within 40 characters."""
+    v = re.split(r" — |;| \(|, ", v)[0].strip()
+    dated = re.match(r"^\D{0,30}?\d{4}-\d{2}-\d{2}", v)            # "executed 2026-10-23 without …" → up to its date
+    v = dated.group(0) if dated else v
+    return v if len(v) <= 40 else v[:40].rsplit(" ", 1)[0]
+
+
 def front(existing, props):
     """Properties from the fixed vocabulary only; a source's own status, decided or written date fills a gap."""
     src = {}
     for l in existing:
-        m = re.match(r"^(status|decided|written):\s*['\"]?([^'\"]*)['\"]?\s*$", l)
+        m = re.match(r"^(status|decided|written):\s*(.*?)\s*$", l)
         if m:
-            src[m.group(1)] = m.group(2).strip()
+            v = m.group(2)
+            src[m.group(1)] = (v[1:-1] if len(v) > 1 and v[0] == v[-1] and v[0] in "'\"" else v).strip()
     props = dict(props)
     if src.get("status") and not props.get("status"):
-        props["status"] = src["status"].split(" — ")[0].split(" (")[0][:40]
+        props["status"] = short_status(src["status"])
     if not props.get("date") and (src.get("decided") or src.get("written")):
         props["date"] = (src.get("decided") or src.get("written"))[:10]
     if props.get("title") and props.get("type") not in ("home", "readme"):
@@ -482,7 +480,7 @@ def verify_notes(reports, today=None):
             body = body.replace("`index.html` beside this file.", f"[[{page}|open it]].") if page else body
             vm = re.search(r"\[!\w+\]\s+([A-Z]+)", body)
             title = h1(body) if h1(body) and not h1(body).endswith(date) else (f"{key} · {vm.group(1)}" if vm else f"{key} verification")
-            title += f" ({extra.strip('-')})" if extra else ""
+            title += f" ({extra.strip('-')})" if extra and " on " not in title.split(" · ")[1] else ""
             if not body.lstrip().startswith("# " + key + " · "):  # an older record's heading: the title takes its place
                 body = re.sub(r"^#[ \t]+.*$", "# " + title, body, count=1, flags=re.M)
             notes.append(Note(verify_path(key, date, extra), title, body, {"type": "verify", "date": date}, src_rel=f"verify/{name}"))
@@ -681,7 +679,7 @@ def home(today, now, notes):
                       key=lambda n: n.props["date"], reverse=True)
     brief, learned = (next(iter(newest(k)), None) for k in ("brief", "learned"))
     iso = today.isoformat()
-    L = [f"# {today:%a %Y-%m-%d}", "", f"*Synced {now:%H:%M}. ela writes this vault; delete a note when you are done with it.*", ""]
+    L = [f"# {today:%a %Y-%m-%d}", "", f"*Vault synced at {now:%H:%M}; the morning page says when its own facts were read.*", ""]
     board = next((n for n in notes if n.props.get("type") == "board"), None)
     wait = []
     if learned and learned.props["date"] >= (today - datetime.timedelta(days=2)).isoformat():
@@ -692,7 +690,8 @@ def home(today, now, notes):
     if wait:
         L += ["> [!todo] Waiting for your word"] + [f"> - {w}" for w in wait] + [""]
     if brief and brief.props["date"] == iso:
-        L += [f"## Today · {link(brief)}", ""]
+        head = re.split(r"^## ", re.sub(r"^#[ \t]+.*$", "", brief.body, count=1, flags=re.M), maxsplit=1, flags=re.M)[0].strip()
+        L += [head, ""] if head else []                    # the page's own line on its sources, and its summary
         if re.search(r"^## Needs you[ \t]*$", brief.body, re.M):
             L += [f"![[{brief.path[:-3]}#Needs you]]", "",
                   f"*The rest of the page (yesterday, new tickets, the lanes, the backlog): {link(brief)}.*", ""]
@@ -700,7 +699,7 @@ def home(today, now, notes):
             L += [f"![[{brief.path[:-3]}]]", ""]
     else:
         L += ["## Today", "", "No morning page yet today" + (f"; the latest is {link(brief)}." if brief else "."), ""]
-    L += ["## To read", "", "```base", TO_READ_BASE.rstrip("\n"), "```", ""]
+    L += ["## To read", "", f"![[{ELA}/all-notes.base#To read]]", ""]
     owed_since = (today - datetime.timedelta(days=HELD_LISTED_DAYS)).isoformat()
     owed = [n for n in notes if n.held and (n.props.get("date") or iso) >= owed_since]
     if owed:
@@ -715,7 +714,9 @@ def meta_line(n, topics):
         return n.body
     area = next((re.match(r"^area:\s*['\"]?([\w-]+)", l).group(1) for l in n.front_lines if re.match(r"^area:\s*['\"]?[\w-]+", l)), None)
     t = topics.get(area)
-    bits = [n.props["type"], n.props.get("date"), n.props.get("status"), f"about {link(t)}" if t else None]
+    st = n.props.get("status") or next((short_status(re.sub(r"^status:\s*", "", l).strip().strip("'\"")) for l in n.front_lines
+                                        if l.startswith("status:")), None)
+    bits = [n.props["type"], n.props.get("date"), st, f"about {link(t)}" if t else None]
     line = "*" + " · ".join(b for b in bits if b) + "*"
     m = re.search(r"^#[ \t]+.*$", n.body, re.M)
     return n.body[:m.end()] + "\n\n" + line + n.body[m.end():] if m else n.body
@@ -909,6 +910,11 @@ def top(rel):
     return rel.split("/")[0]
 
 
+def digest(text):
+    import hashlib
+    return hashlib.sha256(text.encode()).hexdigest()[:16]
+
+
 def atomic_write(path, text):
     tmp = path + ".ela-tmp"
     with open(tmp, "w", encoding="utf-8") as fh:
@@ -928,11 +934,11 @@ def cmd_sync(a):
     fcntl.flock(lock, fcntl.LOCK_EX)                       # one sync at a time
     today, now = datetime.date.today(), datetime.datetime.now()
     mpath = os.path.join(vault, MANIFEST)
-    old, old_src, old_layout = [], {}, None
+    old, old_src, old_layout, old_gen = [], {}, None, {}
     if os.path.exists(mpath):
         try:
             m = json.load(open(mpath))
-            old, old_src, old_layout = m["files"], m.get("sources") or {}, m.get("layout")
+            old, old_src, old_layout, old_gen = m["files"], m.get("sources") or {}, m.get("layout"), m.get("generated") or {}
         except (ValueError, KeyError):
             print("vault: the manifest is unreadable; not synced (remove it deliberately to start over)", file=sys.stderr); sys.exit(3)
     # a note the sync wrote that is gone from disk was deleted by the owner: that is feedback, and it stays deleted
@@ -983,6 +989,8 @@ def cmd_sync(a):
         d, name = os.path.split(p)
         present = names_in(d)
         if name in present:
+            if rel.endswith(".base") and old_gen.get(rel) == digest(text):
+                same += 1; continue                       # Obsidian rewrites a base in its own style; ours has not changed
             try:
                 if open(p, encoding="utf-8").read() == text:
                     same += 1; continue
@@ -1019,7 +1027,8 @@ def cmd_sync(a):
         # the manifest first: a crash before the removals leaves files it no longer lists, never removals it would
         # later read as the owner's deletions
         atomic_write(mpath, json.dumps({"synced": now.isoformat(timespec="seconds"), "layout": LAYOUT, "files": sorted(now_files),
-                                        "sources": {n.path: n.src_rel for n in notes if n.src_rel}}, indent=0))
+                                        "sources": {n.path: n.src_rel for n in notes if n.src_rel},
+                                        "generated": {r: digest(t) for r, t in planned.items() if r.endswith(".base")}}, indent=0))
         for rel in gone:
             try:
                 os.remove(os.path.join(vault, rel))
