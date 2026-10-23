@@ -29,7 +29,8 @@
     "outline",
     "page-preview",
     "properties",
-    "switcher"
+    "switcher",
+    "webviewer"
   ],
   "community": [
     "homepage",
@@ -62,6 +63,12 @@
         "main.js",
         "manifest.json"
       ]
+    }
+  },
+  "core_options": {
+    "webviewer": {
+      "openExternalURLs": false,
+      "enableAdblocking": true
     }
   }
 }

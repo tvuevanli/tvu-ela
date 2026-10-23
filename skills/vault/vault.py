@@ -132,10 +132,11 @@ Set by ela; the sync never changes these settings. ela keeps a copy, and `ela va
 - Notes open in reading view, without the file-name title or the properties panel, at a readable width; the
   `ela` style sheet tidies tables and callouts.
 - Core plugins on: search, quick switcher, file explorer, backlinks, outgoing links, page preview, outline,
-  bookmarks, properties, Bases. Off: everything made for writing, Web viewer (templates, daily notes, note
+  bookmarks, properties, Bases, Web viewer (on request only). Off: everything made for writing (templates, daily notes, note
   composer, canvas, slash commands) and tags, which this vault does not use.
 - Two community plugins: **Homepage** opens `home` in reading view when Obsidian starts; **HTML Reader** opens a
-  verification's full record (a self-contained `.html`) in a tab. Web links open in the default browser.
+  verification's full record (a self-contained `.html`) in a tab. A click on a web link opens the default browser;
+  right-click a link and choose *Open in web viewer* to read it inside Obsidian (Jira works there, Slack does not).
 """
 
 VIEWS = {
@@ -709,6 +710,8 @@ def cmd_setup(a):
     core = {k: (k in cfg["core_on"]) for k in set(core) | set(cfg["core_on"])}
     atomic_write(os.path.join(o, "core-plugins.json"), json.dumps(core, indent=2))
     atomic_write(os.path.join(o, "community-plugins.json"), json.dumps(cfg["community"]))
+    for pid, opts in (cfg.get("core_options") or {}).items():   # a core plugin's options live in .obsidian/<id>.json
+        merge(f"{pid}.json", opts)
     shutil.copyfile(os.path.join(src, "ela.css"), os.path.join(o, "snippets", "ela.css"))
     for pid, spec in cfg["plugins"].items():           # each community plugin pinned to a recorded release
         hp = os.path.join(o, "plugins", pid); os.makedirs(hp, exist_ok=True)
