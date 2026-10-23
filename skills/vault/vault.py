@@ -48,7 +48,7 @@ MANIFEST = ".ela-sync.json"
 DAYS_KEPT, HELD_LISTED_DAYS, NEW_DAYS = 14, 30, 7
 KEEP_FOREVER = ("brief",)   # the morning page is the record of what ela told the owner; the rest expires
 PROPS = ("title", "type", "date", "kind", "status")   # the whole vocabulary; no tags (folders, type and the views classify)
-BUDGET = {"guide": 1200, "board": 1000, "day": 1200, "review": 2500, "decision": 1200, "plan": 2500, "sprint": 800}
+BUDGET = {"topic": 800, "guide": 1200, "board": 1000, "day": 1200, "review": 2500, "decision": 1200, "plan": 2500, "sprint": 800}
 TOLERANCE = 1.1                                  # a page 10% over its budget is not worth a rewrite
 KEY_RX = re.compile(r"(?<![\w/#=.-])([A-Z][A-Z0-9]{1,9}-\d{1,6})(?![\w-])")
 # media and standards names that look like keys; a second guard behind the project allow-list
@@ -93,7 +93,7 @@ Start at [[home]]: today's page, what waits for your word, what is new this week
 | `40-decisions/` | decisions, with what they superseded | by year |
 | `50-plans/` | plans, decided or proposed | by year |
 | `60-` to `79-` | reserved for new kinds | |
-| `70-library/` | the library: where knowledge lives (your claude.ai reports, the knowledge base, Confluence), as links | rewritten each sync |
+| `70-library/` | the library: one summary page per topic, written by ela from the sources, with links to the originals; the source lists as an appendix | rewritten when a topic's sources change |
 | `80-views/` | one table view with tabs: recent, to review, decisions and plans, morning pages, reviews | |
 | `85-assistant/` | working with ela day to day, and how ela runs: every scheduled job, its last run and result | rewritten each sync |
 | `90-attachments/` | the records and images the notes embed | by month |
@@ -371,10 +371,32 @@ def report_notes(reports, today):
         dm = re.search(r"\*(\d{4}-\d{2}-\d{2})", body)
         notes.append(Note("25-board/board.md", "The board's debt", body,
                           {"type": "board", "date": dm.group(1) if dm else None}, fl, src_rel="board/board.md"))
+    # the library: one page per topic, written by ela from the sources it read, and an index; the source lists are an
+    # appendix. Pointers and syntheses only: the originals stay where they live.
+    td = os.path.join(reports, "library", "topics")
+    topics = []
+    for f in sorted(os.listdir(td)) if os.path.isdir(td) else []:
+        if not f.endswith(".md"):
+            continue
+        fl, body = split_front(open(os.path.join(td, f), encoding="utf-8").read())
+        dm = re.search(r"\*As of (\d{4}-\d{2}-\d{2})", body)
+        n = Note(f"70-library/{slug(f[:-3])}.md", sentence(h1(body) or f[:-3].replace("-", " ")), body,
+                 {"type": "topic", "date": dm.group(1) if dm else None}, fl, src_rel=f"library/topics/{f}")
+        notes.append(n); topics.append(n)
     lp = os.path.join(reports, "library", "library.md")
-    if os.path.isfile(lp):                                 # pointers to where knowledge lives; the vault holds no copies
+    if os.path.isfile(lp):
         fl, body = split_front(open(lp, encoding="utf-8").read())
-        notes.append(Note("70-library/library.md", "Library", body, {"type": "library"}, fl, src_rel="library/library.md"))
+        body = re.sub(r"^# Library\b", "# Library sources", body, count=1, flags=re.M)
+        notes.append(Note("70-library/sources.md", "Library sources", body, {"type": "library"}, fl, src_rel="library/library.md"))
+    if topics:
+        L = ["# Library", "", "*What ela knows, by topic: each page is a summary with links to the originals. "
+             "The [[70-library/sources|full list of sources]] is the appendix.*", "", "| topic | where it stands | as of |", "|---|---|---|"]
+        for n in topics:
+            para = next((p for p in re.split(r"\n\s*\n", re.sub(r"^#.*$", "", n.body, count=1, flags=re.M))
+                         if p.strip() and not p.strip().startswith(("*", "|", "#", "-"))), "")
+            first = re.split(r"(?<=[.!?])\s", " ".join(para.split()), maxsplit=1)[0][:220]
+            L.append(f"| [[{n.path[:-3]}|{n.title}]] | {first.replace('|', '/')} | {n.props.get('date') or ''} |")
+        notes.append(Note("70-library/index.md", "Library", "\n".join(L) + "\n", {"type": "library"}))
     sp = os.path.join(reports, "system", "how-ela-runs.md")
     if os.path.isfile(sp):                                 # what is scheduled where, read from the machines
         fl, body = split_front(open(sp, encoding="utf-8").read())
@@ -669,7 +691,7 @@ def home(today, now, notes):
     owed = [n for n in notes if n.held and (n.props.get("date") or iso) >= owed_since]
     if owed:
         L += ["## ela owes a shorter version", ""] + [f"- {link(n)}: {'; '.join(n.held)}" for n in owed] + [""]
-    L += ["## Browse", "", "[[70-library/library|Library]] · [[80-views/index.base|All notes, as tables]] · [[85-assistant/how-ela-runs|How ela runs]] · "
+    L += ["## Browse", "", "[[70-library/index|Library]] · [[80-views/index.base|All notes, as tables]] · [[85-assistant/how-ela-runs|How ela runs]] · "
           "[[readme|About this vault]]", ""]
     return "\n".join(L)
 
