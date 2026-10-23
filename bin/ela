@@ -79,7 +79,8 @@
   ela yesterday [--hours N]        what changed, joined into cases by ticket key: Jira moves, commits,
                                    Slack; commits and threads with no ticket; what ela did
   ela vault sync [--dry-run]       regenerate the owner's Obsidian vault: day pages, reviews, verifications,
-                                   decisions and plans; a note over its reading budget carries a warning
+                                   decisions and plans; a note over its reading budget carries a warning;
+                                   a note you delete stays deleted and counts as feedback (ela vault restore PATH)
   ela route <KEY>                  the routing facts: [Layer] token, ids, signal words per layer,
                                    services named, who to ask first, gaps
   ela stage <KEY>… [--jql Q]       the board against the builds: where each fix is (none/qa/daily/prod),

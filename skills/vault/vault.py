@@ -9,6 +9,7 @@ reasons: ela docs/adr/0008-the-owner-reads-ela-in-a-generated-obsidian-vault.md.
 
 Usage:
     vault.py [--env-file F] sync [--dry-run] [--force] [--json]
+    vault.py restore <path>          bring back a note the owner deleted
 
 Layout. Names are lowercase with hyphens and no spaces, taken from the source's file name, never from its heading,
 so editing a title renames nothing. Top folders are numbered by range so a new kind takes a free number:
@@ -111,6 +112,11 @@ Folder numbers run by range, so a new kind takes a free number in its range and 
 A note is written for a person: a title heading, within its budget (day page 1,200 words, review 2,500,
 decision 1,200, plan 2,500, sprint 800), mostly prose, no machine paths. A note that misses is still here, under
 a warning, and Home lists it for 30 days as a rewrite ela owes.
+
+## Deleting a note
+
+Deleting a note is feedback. ela does not write it again, and reads the deletion as a sign that the note was not
+worth your time, so the writer changes. `ela vault restore <path>` brings one back.
 
 ## What is not here
 
@@ -624,6 +630,43 @@ def plan(s, env, today, now):
     return planned, files, notes, warnings
 
 
+def load_removed(path):
+    out = set()
+    try:
+        for line in open(path, encoding="utf-8"):
+            try:
+                row = json.loads(line)
+                (out.discard if row.get("restored") else out.add)(row["path"])
+            except (ValueError, KeyError):
+                pass
+    except OSError:
+        pass
+    return out
+
+
+def record_removed(path, feedback, rels, planned, now):
+    """Log each note the owner deleted, and the same as a feedback line the evening run reads."""
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "a", encoding="utf-8") as fh, open(feedback, "a", encoding="utf-8") as fb:
+        for r in rels:
+            m = re.search(r"^#\s+(.+)$", planned.get(r, ""), re.M)
+            title = m.group(1) if m else r
+            fh.write(json.dumps({"at": now.isoformat(timespec="seconds"), "path": r, "title": title}, ensure_ascii=False) + "\n")
+            fb.write(json.dumps({"at": now.isoformat(timespec="seconds"), "from": "vault", "text":
+                                 f"deleted from the vault: {title} ({r}); not worth reading as written"}, ensure_ascii=False) + "\n")
+
+
+def cmd_restore(a):
+    """Bring back a note the owner deleted: the next sync writes it again."""
+    s = json.load(open(SITE))
+    path = os.path.join(s.get("reports") or "", "ela", "vault-removed.jsonl")
+    if a.path not in load_removed(path):
+        print(f"not among the deleted notes: {a.path}", file=sys.stderr); sys.exit(2)
+    with open(path, "a", encoding="utf-8") as fh:
+        fh.write(json.dumps({"at": datetime.datetime.now().isoformat(timespec="seconds"), "path": a.path, "restored": True}) + "\n")
+    print(f"restored: {a.path}; the next sync writes it again")
+
+
 def top(rel):
     return rel.split("/")[0]
 
@@ -657,10 +700,21 @@ def cmd_sync(a):
             old = json.load(open(mpath))["files"]
         except (ValueError, KeyError):
             print("vault: the manifest is unreadable; not synced (remove it deliberately to start over)", file=sys.stderr); sys.exit(3)
+    # a note the sync wrote that is gone from disk was deleted by the owner: that is feedback, and it stays deleted
+    removed_path = os.path.join(s.get("reports") or "", "ela", "vault-removed.jsonl")
+    removed = load_removed(removed_path)
+    newly = sorted(r for r in old if r.endswith(".md") and r in planned and r not in removed
+                   and not os.path.exists(os.path.join(vault, r)) and r not in ("home.md", "readme.md"))
+    if newly and not a.dry_run:
+        record_removed(removed_path, os.path.join(s.get("reports") or "", "ela", "feedback.jsonl"), newly, planned, now)
+    removed |= set(newly)
+    for r in removed:
+        planned.pop(r, None)
     now_files = set(planned) | {dst for src, dst in files}
     if not a.force:                                        # a folder that halves is a failure until shown to be a removal
-        for t in sorted({top(r) for r in old if "/" in r}):
-            before = sum(1 for r in old if top(r) == t)
+        kept_old = [r for r in old if r not in removed]       # the owner's deletions are not a source failing
+        for t in sorted({top(r) for r in kept_old if "/" in r}):
+            before = sum(1 for r in kept_old if top(r) == t)
             after = sum(1 for r in now_files if top(r) == t)
             if before >= 5 and after < before / 2:
                 print(f"vault: not synced — {t} would shrink from {before} to {after} files; --force if that is intended", file=sys.stderr)
@@ -722,7 +776,7 @@ def cmd_sync(a):
                     break
         atomic_write(mpath, json.dumps({"synced": now.isoformat(timespec="seconds"), "files": sorted(now_files)}, indent=0))
     held = [{"note": n.path, "problems": n.held} for n in notes if n.held]
-    r = {"dry_run": a.dry_run, "notes": len(planned), "written": len(wrote), "unchanged": same, "files_copied": copied,
+    r = {"dry_run": a.dry_run, "deleted_by_owner": newly, "notes": len(planned), "written": len(wrote), "unchanged": same, "files_copied": copied,
          "removed": gone, "held": held, "warnings": warnings}
     if a.json:
         print(json.dumps(r, ensure_ascii=False)); return
@@ -730,6 +784,8 @@ def cmd_sync(a):
           f"{copied} files copied, {len(gone)} removed, {len(held)} under a warning")
     for g in gone[:20]:
         print(f"  removed {g}")
+    for d in newly:
+        print(f"  deleted by the owner, kept deleted and logged as feedback: {d}")
     for h in held:
         print(f"  warning {h['note']}: {'; '.join(h['problems'])}")
     for w in warnings:
@@ -745,6 +801,9 @@ def main():
     p.add_argument("--force", action="store_true", help="sync although a folder shrinks by more than half")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_sync)
+    p = sub.add_parser("restore", help="bring back a note the owner deleted in the vault")
+    p.add_argument("path", help="the note's path in the vault, as the deletion log lists it")
+    p.set_defaults(func=cmd_restore)
     a = ap.parse_args()
     a.func(a)
 
