@@ -228,9 +228,10 @@ Two or three sentences, then at most five case lines (§2b).
 
 | lane | today |
 |---|---|
-| cadence | 3 red (MH-3745, MH-3769, MH-3413) · 7 blocked |
-| incidents | 54 open; Reuters freeze ×13 is the big cluster |
-| breakdown | 7 without sub-tasks; MH-3794 and MH-3795 first |
+| In Progress, gone quiet | 3 silent over 48 hours (MH-3745, MH-3769, MH-3413) · 7 blocked · 102 untouched for 14 days |
+| new and unassigned | none overdue · 8 recent tickets without a layer prefix |
+| customer incidents | 54 open; Reuters freeze ×13 is the big cluster |
+| needs a breakdown | 7 without sub-tasks; MH-3794 and MH-3795 first |
 
 ## Backlog, today's three
 
@@ -251,6 +252,8 @@ The page is read in Obsidian, so its form is fixed:
 - **Tables, not code blocks,** for anything with columns; no nested lists; no bold paragraph labels.
 - **Ticket keys bare** (MH-3811): the vault and the runner turn them into links. Slack threads and other pages
   are links with a short label.
+- **Lanes in plain words,** as in the table above: never ela's internal names (cadence, zombies, triage, stage,
+  runner page) on the page.
 - **Under 900 words in all.** The decisions lane, when it runs, adds one table row per candidate with its
   permalink; the owner chooses which to keep.
 
