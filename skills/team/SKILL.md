@@ -15,16 +15,16 @@ elak `blueprint/principles.md` P6 and elak `blueprint/decisions/2026-09-04-roste
 T="python3 ${CLAUDE_PLUGIN_ROOT}/skills/team/team.py --env-file <env>"     # or: ela team … · ela who …
 $T people [--area ui] [--scope core|related]   # everyone: name · scope · areas · email · slack id · jira accountId
 $T areas                     # every area, who to ask first about it, how many people are in it
-$T who robin                 # one person: identity, then every responsibility they hold; exit 3 when unknown
+$T who <name>                # one person: identity, then every responsibility they hold; exit 3 when unknown
 $T emails                    # the roster's emails (any full address may still be looked up directly — the roster only resolves names)
 $T check                     # read Slack users.list (a minute) and report any email/id that no longer matches
 ```
 
 ## Invariants
-- **First names are the aliases** (wilson, kris, robin, bom …): an exact first-name match outranks a substring; a surname shared by several people is an ambiguity and is listed, not picked.
+- **First names are the aliases** (the name colleagues use in Slack): an exact first-name match outranks a substring; a surname shared by several people is an ambiguity and is listed, not picked.
 - **Unknown means unknown.** A query that matches nobody exits 3 and says "not in the roster". The answer to the
-  user is that the roster does not carry the person — not a composed address. Robin Wu's address is `rwu@`, not
-  `robinwu@`; the composed form was looked up live once (2026-09-03) and was wrong.
+  user is that the roster does not carry the person — not a composed address. A colleague's address may be an initial
+  and a surname rather than the full name; a composed form was looked up live once (2026-09-03) and was wrong.
 - **Adding a person is a first-hand act.** `ela slack users <name>` returns the Slack id, the profile email and
   the title from `users.list`; a Jira accountId comes from a ticket the person is assigned to (`ela MH-… --json`).
   Both go into `people.yaml` (identity; responsibilities in `responsibilities.yaml`) with the source line updated, then `ela publish roster`. Never from memory, a

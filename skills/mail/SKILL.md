@@ -1,6 +1,6 @@
 ---
 name: mail
-description: The owner's Gmail, read-only — the QA leads' test reports, deploy notices, release approvals. Use for "QA 报告说什么", "邮件里有没有", "Erin 验了没", "who approved the release", or what QA verified in full.
+description: The owner's Gmail, read-only — the QA leads' test reports, deploy notices, release approvals. Use for "QA 报告说什么", "邮件里有没有", "QA 验了没", "who approved the release", or what QA verified in full.
 user-invocable: true
 ---
 

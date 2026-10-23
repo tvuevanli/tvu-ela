@@ -69,7 +69,7 @@ flowchart LR
 | 「这事以前写过没有」 | `kb` · `confluence` · `gdoc` | `ela kb search …` · `ela wiki search …` · `ela gdoc <链接>` |
 | 「QA 报告邮件说了什么」「Sentry 今天报了什么」 | `mail` · `sentry` | `ela mail search 'newer_than:3d'` · `ela sentry` |
 | 「这个服务的代码在哪」「谁负责这个镜像」 | `map` | `ela find copier` · `ela where media/tvu264` |
-| 「这个人是谁」「谁管 UI 层」 | `team` | `ela who robin` · `ela team areas` |
+| 「这个人是谁」「谁管 UI 层」 | `team` | `ela who <名字>` · `ela team areas` |
 | 要问另一个团队的 bot（边界 agent） | `ask` | `/ela:ask <graph id> <问题>` |
 | 要自己动手改一个别人家的仓 | `task` | `/ela:task MH-3568 tvu264` |
 | 代码改完了，要提 merge request 给仓的负责人 | `mr` | `ela mr-preflight` · `ela mr MH-3568 media-hub-front`（只打印 push 与 MR 请求，不执行） |

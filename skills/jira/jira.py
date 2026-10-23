@@ -313,7 +313,7 @@ def _inline(line, mentions):
         aid, disp = mentions[m.group(1)]
         nodes.append({"type": "mention", "attrs": {"id": aid, "text": "@" + disp}})
         pos = m.end()
-        # `@Erin Zhang`: the rest of the display name typed after the token is the same person, not more text
+        # `@First Last`: the rest of the display name typed after the token is the same person, not more text
         rest = disp.lower().split()[1:]
         tail = line[pos:]
         for word in rest:

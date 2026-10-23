@@ -1,6 +1,6 @@
 ---
 name: gdoc
-description: Google Docs, Sheets and Drive, read-only. Use for a docs.google.com link, "那个 sheet 里", "Louis 的 service summary", "repo owner map".
+description: Google Docs, Sheets and Drive, read-only. Use for a docs.google.com link, "那个 sheet 里", "service summary 表", "repo owner map".
 user-invocable: true
 ---
 

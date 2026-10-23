@@ -1,6 +1,6 @@
 ---
 name: figma
-description: Read a Figma design first-hand. Use for a figma.com link (file/design/proto), what a design or frame says, design comments, a node screenshot, "看下这个设计", "figma 上怎么画的", "design spec", "Lora 的设计".
+description: Read a Figma design first-hand. Use for a figma.com link (file/design/proto), what a design or frame says, design comments, a node screenshot, "看下这个设计", "figma 上怎么画的", "design spec", "设计负责人的稿".
 ---
 
 # Figma — read a design first-hand

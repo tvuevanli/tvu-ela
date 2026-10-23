@@ -1293,7 +1293,7 @@ def main():
             p.add_argument("--all", action="store_true", help="every env that has it, not just the first")
             p.add_argument("-d", "--detail", action="store_true", help="per node: control port, box location/id, live process status, the image actually running, encoding profile id (one Pilot call per node)")
             p.add_argument("-c", "--connections", action="store_true", help="the edges as a connections list")
-    p = sub.add_parser("graphs"); p.add_argument("email", nargs="?", default="me", help="a full address (any UR user, as given), an alias from site.json emails (me · li …), or a roster name (robin); default me"); p.add_argument("-e", "--env"); p.add_argument("--all", action="store_true")
+    p = sub.add_parser("graphs"); p.add_argument("email", nargs="?", default="me", help="a full address (any UR user, as given), an alias from site.json emails (me · li …), or a roster first name; default me"); p.add_argument("-e", "--env"); p.add_argument("--all", action="store_true")
     p.add_argument("--object", help="keep only graphs whose objectId or businessId equals this")
     p.add_argument("--any", action="store_true", help="stopped graphs too (J2N v2, newest first)")
     p.add_argument("--deleted", action="store_true", help="only stopped graphs (J2N v2, newest first)")
