@@ -113,7 +113,7 @@ Nothing is created here.
 | part | rule |
 |---|---|
 | summary | `[Token] <what is wrong, not what to do>`, token from the seven-layer vocabulary the jira capability enforces. The symptom and its cause if the thread established one — the titles in this project carry both, and they are what make the pile searchable a month later |
-| description | the thread's own conclusion **verbatim**, the permalink, the ids it turned on (graph / process / object / image tag), and what would verify the fix. Never a paraphrase of a QA engineer's wording |
+| description | the jira skill's Bug standard: **Problem** carries the thread's own conclusion **verbatim**, the permalink and the ids it turned on (graph / process / object / image tag); **Steps to reproduce** as the thread gives them; **QA verification**, what would verify the fix. Never a paraphrase of a QA engineer's wording |
 | assignee | from the roster and `<map>/services.yaml` — the owner of the layer that must change. No owner found: leave it unassigned and say so, so it lands in the triage lane instead of on a guess |
 | priority | not set here. The thread's severity is the reporter's; re-grading it is a product call |
 

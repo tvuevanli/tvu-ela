@@ -411,6 +411,54 @@ def markdown_to_adf(text):
     return {"type": "doc", "version": 1, "content": content or [{"type": "paragraph"}]}
 
 
+
+# ── the description standard: what ela creates is held to one shape per issue type ──────────────
+# Recorded in elak knowledge/products/mediahub/jira/conventions.md § Description standard. Of 944 open MH tickets
+# on 2026-10-23, 23 stated what done means; a ticket without a criterion cannot be verified or closed by evidence,
+# which is the board's debt. A heading is a `#`..`###` line or a line that is only bold text, above the fold.
+CRITERION = ("Done when", "QA verification")
+STANDARD = {
+    "Bug": ("Problem", "Steps to reproduce", CRITERION),
+    "Sub-task": ("Scope", CRITERION),
+    "*": ("Goal", "Scope", CRITERION),
+}
+_HEAD_RX = re.compile(r"^\s*(?:#{1,3}\s+(.+?)|\*\*(.+?)\*\*:?)\s*$")
+
+
+def description_standard(issuetype, text):
+    """The sections the issue type requires that the text lacks, and the warnings (language). Empty lists: standard."""
+    want = STANDARD.get(issuetype) or STANDARD["*"]
+    heads = set()
+    for line in (text or "").splitlines():
+        if DETAIL_RX.match(line.strip()):
+            break
+        m = _HEAD_RX.match(line)
+        if m:
+            heads.add((m.group(1) or m.group(2)).strip().rstrip(":").lower())
+    missing = []
+    for w in want:
+        names = w if isinstance(w, tuple) else (w,)
+        if not any(n.lower() in heads for n in names):
+            missing.append(" or ".join(names))
+    warnings = []
+    first = next((l for l in (text or "").splitlines() if l.strip()), "")
+    if re.search(r"[一-鿿]", first):
+        warnings.append("English first: a bilingual description puts the English sections first and a `### 中文` section after them")
+    return missing, warnings
+
+
+def _standard_gate(args, issuetype, result):
+    """Dry run: report the check. --apply: refuse a nonstandard description unless --nonstandard says why."""
+    missing, warnings = description_standard(issuetype, args.description or "")
+    result["standard_missing"], result["standard_warnings"] = missing, warnings
+    lines = [f"  standard   {'ok' if not missing else 'missing: ' + ', '.join(missing)}"] + [f"  note       {w}" for w in warnings]
+    if args.apply and missing and not getattr(args, "nonstandard", None):
+        print("\n".join(lines), file=sys.stderr)
+        print(f"refused: a {issuetype} ela creates carries {', '.join(missing)} (elak jira conventions § Description standard); "
+              "add the sections, or pass --nonstandard '<reason>'", file=sys.stderr)
+        sys.exit(2)
+    return lines
+
 # ── Rendering ────────────────────────────────────────────────────────────────
 
 def name_of(obj, key="displayName"):
@@ -750,6 +798,7 @@ def cmd_create(creds, args):
 
     account_id, assignee_name = resolve_assignee(creds, args.assignee)
     result["assignee"] = assignee_name
+    std = _standard_gate(args, args.type, result)
 
     if not args.apply:
         if args.json:
@@ -761,6 +810,7 @@ def cmd_create(creds, args):
             print(f"  assignee  {assignee_name}")
             if args.description:
                 print(f"  description  {len(args.description)} chars")
+            print("\n".join(std))
             print("pass --apply to create")
         return
 
@@ -823,6 +873,7 @@ def cmd_create_subtask(creds, args):
 
     account_id, assignee_name = resolve_assignee(creds, args.assignee)
     result["assignee"] = assignee_name
+    std = _standard_gate(args, "Sub-task", result)
 
     if not args.apply:
         if args.json:
@@ -836,6 +887,7 @@ def cmd_create_subtask(creds, args):
             print(f"  assignee  {assignee_name}")
             if args.description:
                 print(f"  description  {len(args.description)} chars")
+            print("\n".join(std))
             print("pass --apply to create")
         return
 
@@ -1283,7 +1335,7 @@ def cmd_describe(creds, args):
     if not text.strip():
         sys.exit("describe: empty text")
     key = extract_key(args.target)
-    f = _issue(creds, key, "summary,description")
+    f = _issue(creds, key, "summary,description,issuetype")
     before = body_text(f.get("description"))
     adf = markdown_to_adf(text)
     after = body_text(adf)
@@ -1295,6 +1347,9 @@ def cmd_describe(creds, args):
         lines = [f"DRY RUN — describe {key}  {f.get('summary','')}", "  was:", "    " + before.replace("\n", "\n    "), "  now:", "    " + after.replace("\n", "\n    ")]
         if lost:
             lines.append(f"  ! links in the current description not in the new one: {', '.join(lost)}")
+        missing, _ = description_standard(((f.get("issuetype") or {}).get("name")) or "Task", text)
+        if missing:
+            lines.append(f"  standard   missing: {', '.join(missing)} (information only: a rewrite keeps the author's shape)")
         lines.append("pass --apply to write")
         _emit(args, dict(r, links_dropped=lost), lines); return
     if lost and not args.allow_dropped_links:
@@ -1418,6 +1473,8 @@ def main():
     p.add_argument("--apply", action="store_true",
                    help="actually create; without it, validate and report only")
     p.add_argument("--json", action="store_true")
+    p.add_argument("--nonstandard", metavar="REASON",
+                   help="create although the description lacks the sections its type requires; the reason is printed")
     p.set_defaults(func=cmd_create)
 
     p = sub.add_parser(
@@ -1437,6 +1494,8 @@ def main():
     p.add_argument("--apply", action="store_true",
                    help="actually create; without it, validate and report only")
     p.add_argument("--json", action="store_true")
+    p.add_argument("--nonstandard", metavar="REASON",
+                   help="create although the description lacks the sections its type requires; the reason is printed")
     p.set_defaults(func=cmd_create_subtask)
 
     p = sub.add_parser("comment", help="post one comment to one or more issues (Markdown subset: bold, code, bullets, numbered; @name mentions; a --- line folds the rest) — dry-run unless --apply; identical text is not re-posted; --edit <id> replaces one")

@@ -48,40 +48,42 @@ project with the same title. **Dry-run default; the confirm gate below applies b
 
 `--description` is a Markdown subset rendered to ADF: `#`..`###` headings, `- `/`* ` bullets, `1. `
 numbered lists, `**bold**`, `` `code` ``. A line of three or more dashes folds everything after it into
-a collapsed block titled by the words on that line (default "Technical detail"), as in `comment`. A line
-with none of these is a plain paragraph, so plain text renders as before.
+a collapsed block titled by the words on that line (default "Technical detail").
 
-A description is read by the reporter, the developer and QA, in that order, so it is written in the
-reporter's words first: what was seen, where, what should happen; the technical part comes after, in
-its own section or under the fold. Headings are for sections a reader acts on, never for emphasis; a
-code identifier appears only where the developer needs it. The owner rejected two drafts on 2026-10-20
-for reading like an engineer's note (MH-2281's follow-up). When the description being rewritten is
-someone else's, their shape stays: bold paragraph labels stay bold paragraphs, nested lists stay nested,
-and every link they posted keeps its text (`describe` refuses a draft that drops one).
+**The standard, enforced by the script.** A ticket ela creates carries the sections its type requires,
+above the fold, as `###` headings (a line that is only bold text also counts). The dry run prints
+`standard ok` or what is missing; `--apply` refuses a nonstandard description unless `--nonstandard
+'<reason>'` is passed, and that is passed only when the owner asked for a free-form ticket. The rule and
+its reason are in elak `knowledge/products/mediahub/jira/conventions.md` § Description standard.
 
-A ticket a developer implements and QA then verifies reads as sections, each for the person who acts on
-it (the accepted shape is MH-3797's):
+| type | required sections | optional |
+|---|---|---|
+| Bug | Problem · Steps to reproduce · QA verification (or Done when) | Cause · Change · Evidence |
+| Sub-task | Scope · Done when (or QA verification) | Goal · Related |
+| Task, Story, Improvement, New Feature, Epic, Project, Initiative | Goal · Scope · Done when (or QA verification) | Background · Not in scope · Related |
 
-```
-### Problem
-What fails, for whom, with the exact error in `code`.
-### Steps to reproduce
-1. … numbered, each step one action.
-### Cause
-- The mechanism in a sentence per bullet; no file paths here.
-### Change
-- [UI] … one bullet per lane token, the observable result.
-- [App] …
-- Not in this ticket: what was considered and left out.
-### QA verification
-The environment and where the evidence is read (which log line).
-1. do this → expect that.
---- Technical detail
-- file:line citations, call sites, the rule's source, dates of the commits that matter.
-```
+- **Problem** says what was seen, where (lane, build, account) and what should happen instead, in the
+  reporter's words first. **Goal** says why the work exists and for whom. **Scope** is what changes, one
+  bullet per lane token for a parent, ending with what is deliberately left out. **Done when** /
+  **QA verification** is the criterion a reviewer can check without asking: numbered, each a step and
+  its observable result. A ticket without one cannot be verified or closed by evidence.
+- **English by default.** Bilingual on request or when the reporter wrote in Chinese: the English
+  sections first, then one `### 中文` section with the same content; the check warns when Chinese comes
+  first. Summaries are English.
+- The fold (`--- Technical detail`) holds file and line citations, call sites and commit dates, and only
+  on a ticket the owner implements himself; a ticket for another developer states what was reported,
+  what was confirmed and what done looks like, at most a rough approach.
+- Headings are for sections a reader acts on, never for emphasis. The owner rejected two drafts on
+  2026-10-20 for reading like an engineer's note (MH-2281's follow-up).
 
-The part above the fold is read by the developer and QA without opening the code; the fold is for
-whoever implements it or investigates later.
+The accepted Bug shape is MH-3797's; the accepted Sub-task shape is MH-3802's.
+
+**Someone else's ticket** is not held to the standard. `describe` reports what the standard would want
+as information only; a rewrite keeps the author's shape: bold paragraph labels stay bold paragraphs,
+nested lists stay nested, and every link they posted keeps its text (`describe` refuses a draft that
+drops one). When ela works such a ticket (verify, close, breakdown) and it has no criterion, the
+criterion is added as a `### Done when` section appended after the author's text, on the owner's word,
+never by rewriting what is there.
 
 ## create-subtask — gated twice
 

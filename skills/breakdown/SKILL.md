@@ -105,16 +105,16 @@ No ticket yet (the plan's `key` is a slug)? Create the parent first — same gat
 
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/skills/jira/jira.py" --env-file <env> create \
-        --summary '<requirement>' --description '<summary + decisions + link to plan>'
+        --summary '<requirement>' --description '<### Goal · ### Scope (one bullet per lane, then not in scope) · ### Done when; the plan linked under Related>'
 ```
 
 Then for each lane, run the create **without `--apply`** and show the batch:
 
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/skills/jira/jira.py" --env-file <env> create-subtask \
-        --parent <KEY> --summary '<title>' --assignee <owner email> --description '<scope + verify>'
+        --parent <KEY> --summary '<title>' --assignee <owner email> --description '<### Scope · ### Done when>'
 ```
 
 Assign **directly to the lane owner** (the plan already names them) unless Evan says otherwise.
 Only after Evan confirms the shown batch, repeat with `--apply`; the capability's own gates
-(token check, duplicate idempotency) run regardless. Record created keys back into the plan.
+(token check, duplicate idempotency, the description standard of the jira skill) run regardless. Record created keys back into the plan.
