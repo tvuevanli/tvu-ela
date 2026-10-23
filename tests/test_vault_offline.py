@@ -38,6 +38,12 @@ check("a day page well over budget is flagged", any("budget" in p for p in V.rea
 check("a page 5% over is within tolerance", V.reading_gate(V.Note("x", "x", "# B\n\n" + "word " * 1260, {"type": "day"})) == [])
 check("link targets are not words", V.reading_units("[a](https://x.example/one/two/three)") == 1)
 check("a placeholder root is not a machine path", V.reading_gate(V.Note("x", "x", "# P\n\n<runtime>/a <runtime>/b <runtime>/c", {"type": "plan"})) == [])
+u = V.unwrap("# T\n\nOne line\nwrapped.\n\n- item\n  continues\n- next\n\n| a |\n|---|\n\n```\ncode\nstays\n```")
+check("a wrapped paragraph becomes one line", "One line wrapped." in u)
+check("a wrapped list item joins, the next item stays", "- item continues\n- next" in u)
+check("tables and code keep their lines", "| a |\n|---|" in u and "code\nstays" in u)
+check("a status run under the title becomes a subtitle", V.tidy_title("# brief · Fri            9 items\n\nText.") == "# Brief · Fri\n\n*9 items*\n\nText.")
+check("a lowercase title is raised, ela is not", V.tidy_title("# code layout\n") == "# Code layout\n" and V.tidy_title("# ela review\n") == "# ela review\n")
 check("the warning sits under the title", V.with_warning("# T\n\nbody", ["too long"]).startswith("# T\n\n> [!warning]"))
 
 

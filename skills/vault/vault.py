@@ -13,9 +13,9 @@ Usage:
 Layout. Names are lowercase with hyphens and no spaces, taken from the source's file name, never from its heading,
 so editing a title renames nothing. Top folders are numbered by range so a new kind takes a free number:
 10–19 by time · 20–39 reports and evidence · 40–59 records · 60–79 reserved · 80–99 system. A dated archive is
-split by year, a high-volume one by month; only a folder with a retention limit stays flat.
+split by year, a high-volume one (days, verifications) by month.
     home.md, readme.md                          the entry point; what the vault is
-    10-days/2026-10-23-brief.md                 14 days kept, so flat; -learned and -intake beside it
+    10-days/<year-month>/<date>-brief.md        the morning page, kept; -learned and -intake beside it for 14 days
     15-weeks/<year>/<year>-w<nn>.md             reserved for the owner's weekly page (not generated yet)
     18-sprints/<year>/<year>-s<nn>.md           sprint commitments from elak
     20-reviews/<year>/<date>-<slug>.md          reviews and reports; a report with no date in its name: undated/
@@ -42,6 +42,7 @@ JIRA = os.path.join(HERE, "..", "jira", "jira.py")
 SITE = os.path.expanduser("~/.claude/ela/site.json")
 MANIFEST = ".ela-sync.json"
 DAYS_KEPT, HELD_LISTED_DAYS, NEW_DAYS = 14, 30, 7
+KEEP_FOREVER = ("brief",)   # the morning page is the record of what ela told the owner; the rest expires
 PROPS = ("type", "date", "kind", "status")      # the whole property vocabulary
 BUDGET = {"day": 1200, "review": 2500, "decision": 1200, "plan": 2500, "sprint": 800}
 TOLERANCE = 1.1                                  # a page 10% over its budget is not worth a rewrite
@@ -79,7 +80,7 @@ Start at [[home]]: today's page, what waits for your word, what is new this week
 
 | folder | holds | grows |
 |---|---|---|
-| `10-days/` | the judged morning page, the evening learning draft, the intake reading | 14 days kept |
+| `10-days/` | the judged morning page, kept; the evening learning draft and the intake reading, 14 days | by month |
 | `15-weeks/` | reserved for a weekly page, from the first sprint week | by year |
 | `18-sprints/` | sprint commitments | by year |
 | `20-reviews/` | reviews and reports written for Evan | by year |
@@ -192,6 +193,41 @@ def redact(text):
     return text
 
 
+BLOCK_START = re.compile(r"^\s*(#{1,6}\s|\||>|```|~~~|---\s*$|[-*+]\s|\d+[.)]\s|!\[\[|<|\$\$)")
+
+
+def unwrap(body):
+    """Join hard-wrapped lines into one line per paragraph or list item. Obsidian renders a single newline as a
+    break, so text wrapped at a fixed width for git reads as ragged lines. Headings, tables, quotes, code, rules
+    and embeds keep their lines; a blank line or a new block ends a paragraph."""
+    out, fence, joinable = [], False, False
+    for line in body.split("\n"):
+        if line.lstrip().startswith(("```", "~~~")):
+            fence = not fence
+            out.append(line); joinable = False; continue
+        if fence or not line.strip():
+            out.append(line); joinable = False; continue
+        if joinable and not BLOCK_START.match(line):
+            out[-1] = out[-1].rstrip() + " " + line.strip(); continue
+        out.append(line)
+        # a paragraph or a list item may continue on the next line; a heading, table, quote or embed may not
+        joinable = not re.match(r"^\s*(#{1,6}\s|\||>|---\s*$|!\[\[|<|\$\$)", line)
+    # a heading stands apart, and a table starts after a blank line, or Obsidian may not render it
+    spaced, fence = [], False
+    for i, line in enumerate(out):
+        if line.lstrip().startswith(("```", "~~~")):
+            fence = not fence
+        prev = spaced[-1] if spaced else ""
+        heading = not fence and re.match(r"^#{1,6}\s", line)
+        table = not fence and line.startswith("|") and not prev.startswith("|")
+        if (heading or table) and prev.strip():
+            spaced.append("")
+        spaced.append(line)
+        if heading and i + 1 < len(out) and out[i + 1].strip():
+            spaced.append("")
+    return "\n".join(spaced)
+
+
 class Note:
     def __init__(self, path, title, body, props, front_lines=(), src_rel=None):
         self.path, self.title, self.body, self.props = path, title, body, dict(props)
@@ -240,12 +276,12 @@ def report_notes(reports, today):
     rd = os.path.join(reports, "runner")
     for f in sorted(os.listdir(rd)) if os.path.isdir(rd) else []:
         m = re.match(r"^(\d{4}-\d{2}-\d{2})-(brief|learned|intake)\.md$", f)
-        if not m or (today - datetime.date.fromisoformat(m.group(1))).days >= DAYS_KEPT:
+        if not m or (m.group(2) not in KEEP_FOREVER and (today - datetime.date.fromisoformat(m.group(1))).days >= DAYS_KEPT):
             continue
         d = datetime.date.fromisoformat(m.group(1))
         fl, body = split_front(open(os.path.join(rd, f), encoding="utf-8").read())
-        notes.append(Note(f"10-days/{m.group(1)}-{m.group(2)}.md", f"{m.group(1)} {d:%a} {m.group(2).capitalize()}", body,
-                          {"type": "day", "date": m.group(1), "kind": m.group(2)}, fl))
+        notes.append(Note(f"10-days/{m.group(1)[:7]}/{m.group(1)}-{m.group(2)}.md", f"{m.group(1)} {d:%a} {m.group(2).capitalize()}", body,
+                          {"type": "day", "date": m.group(1), "kind": m.group(2)}, fl, src_rel=f"runner/{f}"))
     for sub in ("ela", ""):
         d = os.path.join(reports, sub) if sub else reports
         for f in sorted(os.listdir(d)) if os.path.isdir(d) else []:
@@ -263,7 +299,8 @@ def report_notes(reports, today):
                 path = f"20-reviews/{m.group(1)[:4]}/{m.group(1)}-{rest}.md"
             else:
                 path = f"20-reviews/undated/{rest}.md"
-            notes.append(Note(path, title, body, {"type": "review", "date": m.group(1) if m else None}, fl))
+            notes.append(Note(path, title, body, {"type": "review", "date": m.group(1) if m else None}, fl,
+                              src_rel=f"{sub + '/' if sub else ''}{f}"))
     return notes
 
 
@@ -345,15 +382,26 @@ SEGMENT = re.compile(r"(```.*?```|\[[^\]]*\]\([^)]*\)|<https?://[^>]+>|https?://
 SLACK_LINK = re.compile(r"<(https?://[^|>]+)\|([^>]+)>")
 
 
+REPORT_PATH = re.compile(r"`?(?:<reports>|REPORTS_ROOT)/([^`\s)]+?\.md)`?")
+
+
 class Linker:
-    def __init__(self, in_vault, titles, jira_base, projects):
+    def __init__(self, in_vault, titles, jira_base, projects, reports=None, report_notes=None):
         self.in_vault, self.titles, self.jira_base, self.projects = in_vault, titles, jira_base, projects
+        self.reports, self.report_notes = (reports or "").rstrip("/"), report_notes or {}
+
+    def report(self, m):
+        n = self.report_notes.get(m.group(1))
+        return f"[[{n.path[:-3]}|{n.title}]]" if n else m.group(0)
 
     def is_key(self, k):
         return bool(self.jira_base) and k.split("-")[0] in self.projects and not NOT_KEYS.match(k)
 
     def __call__(self, text):
         text = SLACK_LINK.sub(lambda m: f"[{m.group(2)}]({m.group(1)})", text)
+        if self.reports:
+            text = text.replace(self.reports + "/", "REPORTS_ROOT/")
+        text = REPORT_PATH.sub(self.report, text).replace("REPORTS_ROOT/", "<reports>/")
 
         def elak(m):
             n = self.in_vault.get(m.group(1))
@@ -401,10 +449,24 @@ def reading_gate(n):
     return problems
 
 
+def tidy_title(body):
+    """The first heading is a title: sentence case, and a status run after it (counts, ticks, wide spacing) moves to
+    an italic line beneath, where it reads as a subtitle."""
+    m = re.search(r"^#[ \t]+(.+?)[ \t]*$", body, re.M)
+    if not m:
+        return body
+    title, rest = m.group(1), ""
+    parts = re.split(r"\s{3,}", title, maxsplit=1)
+    if len(parts) == 2:
+        title, rest = parts[0].strip(), parts[1].strip()
+    line = f"# {sentence(title)}" + (f"\n\n*{rest}*" if rest else "")
+    return body[:m.start()] + line + body[m.end():]
+
+
 def with_warning(body, problems):
     """The warning sits under the note's title, where a reader starts."""
     warn = f"> [!warning] Not yet fit to read: {'; '.join(problems)}. ela owes a shorter version.\n"
-    m = re.search(r"^#\s+.*$", body, re.M)
+    m = re.search(r"^#[ \t]+.*$", body, re.M)
     return body[:m.end()] + "\n\n" + warn + body[m.end():] if m else warn + "\n" + body
 
 
@@ -463,14 +525,15 @@ def plan(s, env, today, now):
         jira_base = next((l.split("=", 1)[1].strip().rstrip("/") for l in open(env) if l.startswith("JIRA_BASE_URL=")), "")
     projects = project_keys(env, s.get("runtime")) if jira_base else set()
     warnings = [] if jira_base and projects else ["ticket keys are not linked: no Jira base URL or project list"]
-    linker = Linker({n.src_rel: n for n in enotes}, titles, jira_base, projects)
+    reps = {n.src_rel: n for n in notes if n.src_rel and n.props.get("type") in ("day", "review")}
+    linker = Linker({n.src_rel: n for n in enotes}, titles, jira_base, projects, reports, reps)
     planned = {}
     for n in notes:
         n.held = reading_gate(n)
-        body = linker(n.body)
+        body = linker(unwrap(tidy_title(n.body)))
         planned[n.path] = redact(front(n.front_lines, n.props) + (with_warning(body, n.held) if n.held else body))
     planned["home.md"] = redact(front([], {"type": "home", "date": today.isoformat()}) + linker(home(today, now, notes)))
-    planned["readme.md"] = README
+    planned["readme.md"] = unwrap(README)
     for name, text in VIEWS.items():
         planned[f"80-views/{name}.base"] = text
     return planned, files, notes, warnings
