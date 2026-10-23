@@ -44,6 +44,7 @@ check("a wrapped list item joins, the next item stays", "- item continues\n- nex
 check("tables and code keep their lines", "| a |\n|---|" in u and "code\nstays" in u)
 check("a status run under the title becomes a subtitle", V.tidy_title("# brief · Fri            9 items\n\nText.") == "# Brief · Fri\n\n*9 items*\n\nText.")
 check("a lowercase title is raised, ela is not", V.tidy_title("# code layout\n") == "# Code layout\n" and V.tidy_title("# ela review\n") == "# ela review\n")
+check("a ::: block becomes a collapsed callout", V.callouts("::: ref Sources\na\n:::") == "> [!quote]- Sources\n> a")
 check("the warning sits under the title", V.with_warning("# T\n\nbody", ["too long"]).startswith("# T\n\n> [!warning]"))
 
 
@@ -57,7 +58,8 @@ with tempfile.TemporaryDirectory() as tmp:
         os.makedirs(d)
     today = datetime.date.today().isoformat()
     for i in range(6):
-        open(f"{ELAK}/blueprint/decisions/{today[:4]}-0{i + 1}-01-decision-{i}.md", "w").write(f"# Decision {i}\n\nText.\n")
+        open(f"{ELAK}/blueprint/decisions/{today[:4]}-0{i + 1}-01-decision-{i}.md", "w").write(f"---\nreader: owner\n---\n# Decision {i}\n\nText.\n")
+    open(f"{ELAK}/blueprint/decisions/{today[:4]}-01-02-internal.md", "w").write("# How a script is built\n\nText.\n")
     git("init", "-q"); git("add", "."); git(SAVE, "-qm", "x")
     open(f"{reports}/runner/{today}-brief.md", "w").write("# Brief\n\nShort.\n")
     open(f"{reports}/ela/{today}-long.md", "w").write("# Long review\n\n" + "word " * 3000)
@@ -75,6 +77,7 @@ with tempfile.TemporaryDirectory() as tmp:
     check("a first sync succeeds", sync() == 0)
     dec0 = f"{vault}/40-decisions/{today[:4]}/{today[:4]}-01-01-decision-0.md"
     check("a decision lands in its year folder", os.path.exists(dec0))
+    check("a decision not written for the owner stays out", not os.path.exists(f"{vault}/40-decisions/{today[:4]}/{today[:4]}-01-02-internal.md"))
     check("a long review is written, under a warning", "[!warning]" in open(f"{vault}/20-reviews/{today[:4]}/{today}-long.md").read())
     home = open(f"{vault}/home.md").read()
     check("Home embeds today's page and lists what ela owes", "![[10-days/" in home and "ela owes a shorter version" in home)

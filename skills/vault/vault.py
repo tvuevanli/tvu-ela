@@ -206,6 +206,17 @@ def redact(text):
 BLOCK_START = re.compile(r"^\s*(#{1,6}\s|\||>|```|~~~|---\s*$|[-*+]\s|\d+[.)]\s|!\[\[|<|\$\$)")
 
 
+FENCED_DIV = re.compile(r"^:::\s*(\w+)?\s*(.*?)\n(.*?)\n:::\s*$", re.M | re.S)
+
+
+def callouts(body):
+    """`::: ref` blocks (a Markdown extension Obsidian does not render) become collapsed callouts."""
+    def one(m):
+        title = (m.group(2) or m.group(1) or "Reference").strip() or "Reference"
+        return "> [!quote]- " + title + "\n" + "\n".join("> " + l for l in m.group(3).splitlines())
+    return FENCED_DIV.sub(one, body)
+
+
 def unwrap(body):
     """Join hard-wrapped lines into one line per paragraph or list item. Obsidian renders a single newline as a
     break, so text wrapped at a fixed width for git reads as ragged lines. Headings, tables, quotes, code, rules
@@ -264,6 +275,10 @@ def elak_notes(elak):
         fl, body = split_front(open(p, encoding="utf-8").read())
         base = os.path.basename(rel)[:-3]
         kind = {"decisions": "decision", "plans": "plan", "sprints": "sprint"}[rel.split("/")[1]]
+        titles[rel] = sentence(h1(body) or base.replace("-", " "))
+        # most decisions record how ela is built; only those marked `reader: owner` are written for Evan
+        if kind != "sprint" and not any(re.match(r"^reader:\s*owner\b", l) for l in fl):
+            continue
         folder = {"decision": "40-decisions", "plan": "50-plans", "sprint": "18-sprints"}[kind]
         title = sentence(h1(body) or base.replace("-", " "))
         titles[rel] = title
@@ -292,7 +307,7 @@ def report_notes(reports, today):
     notes = []
     rd = os.path.join(reports, "runner")
     for f in sorted(os.listdir(rd)) if os.path.isdir(rd) else []:
-        m = re.match(r"^(\d{4}-\d{2}-\d{2})-(brief|learned|intake)\.md$", f)
+        m = re.match(r"^(\d{4}-\d{2}-\d{2})-(brief|learned)\.md$", f)
         if not m or (m.group(2) not in KEEP_FOREVER and (today - datetime.date.fromisoformat(m.group(1))).days >= DAYS_KEPT):
             continue
         d = datetime.date.fromisoformat(m.group(1))
@@ -331,6 +346,20 @@ def report_notes(reports, today):
     return notes
 
 
+def record_verdict(html_path):
+    """(verdict, what it means, environment) from a verification page's own text, or None when it states none."""
+    try:
+        t = open(html_path, encoding="utf-8").read()
+    except OSError:
+        return None
+    t = re.sub(r"<script.*?</script>|<style.*?</style>", " ", t, flags=re.S)
+    t = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", t)).replace("&amp;", "&")
+    m = re.search(r"\bVerdict\s+(PASS|FAIL|BLOCKED|UNPROVEN|PARTIAL)\b\s*([a-z][^.]{0,140}?)?\s*(?:Environment\s+(\S+))?(?=\s+[A-Z])", t)
+    if not m:
+        return None
+    return m.group(1), (m.group(2) or "").strip(), m.group(3)
+
+
 def verify_notes(reports):
     """One note per verification record. A record folder is copied whole into the attachments, so its own page,
     which refers to its images by relative path, still opens from the vault."""
@@ -359,7 +388,13 @@ def verify_notes(reports):
                         imgs.append(dst)
                     elif low in ("index.html", "print.html") and (page is None or low == "index.html"):
                         page = dst
+        verdict = record_verdict(os.path.join(vd, name) if single else os.path.join(p, os.path.basename(page or "index.html")))
         body = [f"# {key} verification · {date}{' · ' + extra.strip('-') if extra else ''}", ""]
+        if not verdict:
+            body += ["> [!info] The record states no single verdict; open it for the per-ticket results.", ""]
+        elif verdict:
+            body += [f"> [!{ {'PASS': 'success', 'FAIL': 'failure', 'BLOCKED': 'warning'}.get(verdict[0], 'info') }] {verdict[0]}"
+                     + (f": {verdict[1]}" if verdict[1] else "") + (f" · {verdict[2]}" if verdict[2] else ""), ""]
         body.append(f"Ticket {key}" + (f" · [open the full record]({page})" if page else ""))
         body.append("")
         if pdfs:
@@ -523,8 +558,16 @@ def home(today, now, notes):
     board = next((n for n in notes if n.props.get("type") == "board"), None)
     if board:
         L += [f"Board: {link(board)}" + (f", as of {board.props['date']}" if board.props.get("date") else ""), ""]
+    wait = []
     if learned and learned.props["date"] >= (today - datetime.timedelta(days=2)).isoformat():
-        L += ["## Waiting for your word", "", f"- {link(learned)}: candidate knowledge from your sessions", ""]
+        wait.append(f"- {link(learned)}: what the day taught; say which entries to keep")
+    for n in notes:
+        if n.props.get("type") == "plan" and any(re.match(r"^status:\s*proposed", l) for l in n.front_lines):
+            wait.append(f"- {link(n)}: a plan with decisions for you")
+    if board:
+        wait.append(f"- {link(board)}: ticket batches waiting for one confirm each")
+    if wait:
+        L += ["## Waiting for your word", ""] + wait + [""]
     since = (today - datetime.timedelta(days=NEW_DAYS)).isoformat()
     new = sorted((n for n in notes if n.props.get("type") in ("verify", "review", "decision", "plan", "sprint")
                   and (n.props.get("date") or "") >= since), key=lambda n: (n.props.get("date") or "", n.path), reverse=True)
@@ -564,7 +607,7 @@ def plan(s, env, today, now):
     planned = {}
     for n in notes:
         n.held = reading_gate(n)
-        body = linker(unwrap(tidy_title(n.body)))
+        body = linker(unwrap(callouts(tidy_title(n.body))))
         planned[n.path] = redact(front(n.front_lines, n.props) + (with_warning(body, n.held) if n.held else body))
     planned["home.md"] = redact(front([], {"type": "home", "date": today.isoformat()}) + linker(home(today, now, notes)))
     planned["readme.md"] = unwrap(README)
