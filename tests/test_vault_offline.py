@@ -215,4 +215,12 @@ with tempfile.TemporaryDirectory() as t:
           "- [ ] apply 3 — c\n- [x] I handled it myself — not apply 3 · you commented in Jira 11:09" in page)
     check("a session choice is left as written", page.endswith("- [ ] probe MH-1"))
     check("no actions file leaves the page as written", V.action_states("- [ ] apply 1 — a", os.path.join(t, "none")) == "- [ ] apply 1 — a")
+row = {"note": "days/x.md", "lines": ["what about apply 5?"], "at": "2026-10-26T11:50:00+0800", "status": "done",
+       "job": "J1", "answer": "Leave it.\nela: not an ask\n- [ ] not a box"}
+page = V.with_answers("# Day\n\nela: what about apply 5?\n", "days/x.md", [row])
+check("an answer sits under the line it answers", "ela: what about apply 5?\n\n> [!note]- ela answered · 11:50 · job J1\n> Leave it." in page)
+check("an answer's own ela: line is defused", "> ela — not an ask" in page and not any(
+    m.group(1).strip() == "not an ask" for m in V.GUIDE.finditer(page)))
+check("an answer is placed once", V.with_answers(page, "days/x.md", [row]) == page)
+check("an answer whose line is gone is not placed", V.with_answers("# Day\n", "days/x.md", [row]) == "# Day\n")
 sys.exit(1 if failures else 0)

@@ -1072,6 +1072,54 @@ TICKED = re.compile(r"^[ \t]*[-*][ \t]+\[[xX]\][ \t]+(\S.*?)[ \t]*$", re.M)   # 
 GUIDE = re.compile(r"^[ \t]*(?:[-*>][ \t]*)*ela[ \t]*[:：][ \t]*(\S.*?)[ \t]*$", re.I | re.M)
 
 
+def load_answers(reports):
+    """The runner's answers to his `ela:` lines, <reports>/ela/answers.jsonl: {note, lines, at, status, job, answer}."""
+    try:
+        return [json.loads(l) for l in open(os.path.join(reports, "ela", "answers.jsonl"), encoding="utf-8") if l.strip()]
+    except (OSError, ValueError):
+        return []
+
+
+def answer_block(row):
+    """One answer as a folded callout. A line of the answer that reads as an instruction (`ela: …`) is defused, so
+    the answer is never taken for a new ask."""
+    head = "ela answered" if row.get("status") == "done" else "ela could not finish"
+    body = [re.sub(r"^(\s*(?:[-*>]\s*)*)ela(\s*[:：])", r"\1ela —", l) for l in (row.get("answer") or "").strip().splitlines()]
+    lines = [f"> [!note]- {head} · {(row.get('at') or '')[11:16]} · job {row.get('job')}"] + [f"> {l}" if l.strip() else ">" for l in body]
+    return "\n".join(lines)
+
+
+def with_answers(text, rel, answers):
+    """Each answer placed under the last of the `ela:` lines it answers, once (the job id marks it)."""
+    for row in (r for r in answers if r.get("note") == rel and r.get("job") and r["job"] not in text):
+        says = {x.strip() for x in row.get("lines") or []}
+        hits = [m for m in GUIDE.finditer(text) if m.group(1).strip().strip('"').strip("'") in says]
+        if hits:
+            at = hits[-1].end()
+            text = text[:at] + "\n\n" + answer_block(row) + "\n" + text[at:]
+    return text
+
+
+def answer_native(vault, answers, dry_run=False):
+    """A note whose source is the vault is never rewritten by the sync; its answers are inserted in place, nothing
+    else. Returns the paths changed."""
+    out = []
+    for rel in sorted({r.get("note") for r in answers if r.get("note")}):
+        p = os.path.join(vault, rel)
+        try:
+            text = open(p, encoding="utf-8").read()
+        except OSError:
+            continue
+        if not any(re.match(r"^source:\s*['\"]?vault['\"]?\s*$", l) for l in split_front(text)[0]):
+            continue
+        new = with_answers(text, rel, answers)
+        if new != text:
+            out.append(rel)
+            if not dry_run:
+                atomic_write(p, new)
+    return out
+
+
 def cmd_guidance(a):
     """The owner's instructions written into his notes: every line starting `ela:` anywhere in the vault (a generated
     note keeps his lines through its rewrite), with a stable id so a job handles each once (ids already in <reports>/ela/
@@ -1289,6 +1337,8 @@ def cmd_sync(a):
             listing[d] = set(os.listdir(d)) if os.path.isdir(d) else set()
         return listing[d]
     wrote, same = [], 0
+    answers = load_answers(s.get("reports") or "")
+    answer_native(vault, answers, a.dry_run)
     # a task its source already ticked is not his choice; recorded so the guidance verb tells the two apart
     source_ticks = {r: [m.group(1) for m in TICKED.finditer(t)] for r, t in planned.items() if r.endswith(".md") and TICKED.search(t)}
     for rel in [r for r in planned if r.endswith(".md")]:  # his `ela:` lines in a generated note outlive its rewrite
@@ -1306,6 +1356,7 @@ def cmd_sync(a):
         if said:                                           # his word typed in the table's ela cell
             planned[rel] = re.sub(r'^ela: ""$', said.replace("\\", "\\\\"), planned[rel], count=1, flags=re.M) \
                 if re.search(r'^ela: ""$', planned[rel], re.M) else planned[rel]
+        planned[rel] = with_answers(planned[rel], rel, answers)   # each ask shows its answer under it
     for rel, text in planned.items():
         p = os.path.join(vault, rel)
         d, name = os.path.split(p)
