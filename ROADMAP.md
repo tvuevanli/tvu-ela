@@ -13,7 +13,7 @@ The architecture is `docs/architecture.md`; the scenarios are `docs/capabilities
 | 3 judgment | breakdown, probe (and `probe how`, a mechanism explained), route, feasible, arch over the senses; explain, one ticket made judgeable; the existence verdict on an old ticket (revisit) | one plan matching what the owner would have written; three root causes that held | built; one root cause held; `verify` (a ticket checked in the product in a browser, with the environment proof) built 2026-10-21 — exit test: three tickets verified with proof, one run refused for a missing or mismatched lane |
 | 4 brief and digest | the morning queue and report digests, drafts only | two weeks in which the brief is read first and nothing it missed surfaced later | built; `brief.py` landed 2026-09-29; the two-week window starts on the owner's word, not before that date |
 | 5 diagnostics | `ela logs`, `ela inspect`, UR diagnostic reads; the boundary agent through its API | the three cases in the 2026-09-07 review answered without a person at a terminal | open; `ela logs` (tvulog process-log and java-log, Loki through Observer) and `/ela:route`'s log steps built 2026-09-29; `ela configserver` (Config Server, read-only, values redacted) built 2026-09-30 for the runtime-config step; exit test unchanged; `inspect`, UR diagnostics and the boundary agent not started |
-| 6 composites | nudge, sweep, ticket-from-thread, decision capture behind the write gate; the headless entry `ela run` | the third follow-up on a bug is never hand-written | not started |
+| 6 composites | nudge, sweep, ticket-from-thread, decision capture behind the write gate; the headless entry | the third follow-up on a bug is never hand-written | the headless entry is built as ela-runner (2026-10-21): timed runs, the owner's Slack asks and his vault lines start unattended sessions; the composites are not started |
 | 7 exposure | an MCP server for the bot and external models; Helm's duplicated skills retired on parity | others use it without the owner in the loop | not started |
 
 Phase 5 was opened on 2026-09-29 for one ability: localise a failure to the service that produced it,
@@ -42,5 +42,5 @@ counterpart: its pages, scheduler, store, permissions, deployment.
 ## Not built, on purpose
 
 A server or web UI in ela; a persona; a broker between sessions; a second copy of any judgment in
-Helm; a ledger of ela's own runs; automatic commits to the knowledge base; per-commit plugin
+Helm; a ledger that replaces first-hand sources (the write, answer and feedback logs under the reports root record only what ela did, as pointers); automatic commits to the knowledge base; per-commit plugin
 versions. Each has a recorded reason in `docs/adr/` or `docs/architecture.md`.

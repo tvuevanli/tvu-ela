@@ -63,6 +63,9 @@ This is how ela knows Evan in any directory without an agent or a global CLAUDE.
 | `/ela:digest` | 4 | digest a posted report thread into what Evan must act on, decide, and pin — cross-checked against Jira |
 | `/ela:route` | 3 | a bug in, a name out: implicated service, owner, or the first checker with the exact discriminating check |
 | `/ela:ask` | 5 | hand one question to a counterpart agent (another team's bot): pick it from the registry, verify first-hand the question is inside its charter, address it in its dialect, then cross-check its reply against what it cannot see. v1: mm-boundary-agent |
+| `/ela:verify` | 4 | verify a ticket in the product in a real browser on a named lane, read-only, the version panel as proof; a report for the owner, a short Jira comment on his word |
+| `/ela:logs` | 5 | a failure's logs first-hand — a trace id, an email and a moment, a process id |
+| `/ela:configserver` | 1 | the Config Server, read-only, values redacted — a service's runtime config per environment |
 | `/ela:brief` | 4 | the morning brief: stale In-Progress, unrouted new tickets, complex tickets not broken down, report threads, threads waiting on Evan, threads he wrote alone, decisions made in Slack without a ticket — ranked, each with a drafted action; read-only |
 | `/ela:task` | 2 | one piece of work Evan implements: worktree, tier, delegation to the area's stack, evidence in the merge request |
 | `ela mr` | 2 | with `task`, the last step of the owner's code path: `ela mr-preflight` (each GitLab token's scopes and expiry) and `ela mr <KEY> <repo>` (the push and the merge-request request for `evan/<key>`), dry run only |
