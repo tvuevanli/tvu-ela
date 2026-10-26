@@ -1243,7 +1243,7 @@ def move_note(vault, reports, rel, to, status=None):
     text = open(p, encoding="utf-8").read()
     kind = (split_front(text)[0] and next((re.sub(r'^type:\s*', "", l).strip().strip('"\'') for l in split_front(text)[0]
                                             if l.startswith("type:")), None))
-    text = PROP_RE.sub("", text)
+    text = clear_two(PROP_RE.sub("", text))
     text = set_front(text, source="vault", status=status, claimed=None)
     fl, body = split_front(text)
     body = with_moves(body, f"{folder}/{os.path.basename(rel)}", kind if folder == TO_READ else None)
@@ -1374,11 +1374,36 @@ def apply_marks(vault, reports, dry_run=False):
             if not on:
                 continue
             rel = f"{folder}/{f}"
-            k = "drop" if "drop" in on else next((x for x in on if x in MARKS), on[0])
+            if len(on) > 1:                                # the moves exclude each other: two boxes are a question, not a move
+                if not dry_run:
+                    warn_two(os.path.join(d, f), on)
+                continue
+            k = on[0]
             out.append((rel, k))
             if k in MARKS and not dry_run:
                 finish(vault, reports, rel, {"done": "archive", "learn": "learn", "drop": "delete"}[k])
     return out
+
+
+TWO_BOXES = "> [!warning] Two moves are ticked"
+
+
+def warn_two(p, on):
+    """Nothing runs while more than one move box is ticked; the note says so once, at its top, until one is unticked."""
+    text = open(p, encoding="utf-8").read()
+    fl, body = split_front(text)
+    body = re.sub(r"^" + re.escape(TWO_BOXES) + r".*\n(?:>.*\n)*\n?", "", body, flags=re.M)
+    line = f"{TWO_BOXES}: {' and '.join(on)}\n> Nothing runs until one is unticked; the other then runs within a minute.\n\n"
+    m = re.search(r"^#[ \t]+.*\n", body, re.M)
+    body = body[:m.end()] + "\n" + line + body[m.end():].lstrip("\n") if m else line + body
+    new = "---\n" + "\n".join(fl) + "\n---\n" + body
+    if new != text:
+        atomic_write(p, new)
+
+
+def clear_two(text):
+    """The warning removed once a single box remains (the move then runs)."""
+    return re.sub(r"^" + re.escape(TWO_BOXES) + r".*\n(?:>.*\n)*\n?", "", text, flags=re.M)
 
 
 def cmd_marks(a):
