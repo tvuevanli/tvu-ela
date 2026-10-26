@@ -50,7 +50,7 @@ OWNER_FOLDERS = (TO_LEARN, ARCHIVE)   # where the owner drags a note to say what
 ATTACH = "ela/attachments"
 DELETABLE = (DAYS, TO_READ)
 KEEP_FOREVER = ("brief",)   # the morning page is the record of what ela told the owner; the rest expires
-PROPS = ("title", "aliases", "type", "date", "kind", "status", "next", "ela")   # the whole vocabulary; no tags (ADR 0010)
+PROPS = ("title", "aliases", "type", "date", "kind", "status", "moves", "next", "ela")   # the whole vocabulary; no tags (ADR 0010)
 MARKS = {"done": ARCHIVE, "learn": TO_LEARN, "drop": None}   # a ticked box in a to-read table row: archive, distil, delete
 BUDGET = {"topic": 800, "guide": 1200, "board": 1000, "day": 1200, "review": 2500, "decision": 1200, "plan": 2500, "sprint": 800}
 TOLERANCE = 1.1                                  # a page 10% over its budget is not worth a rewrite
@@ -108,7 +108,8 @@ the file explorer is rarely needed.
   note by its title.
 - Properties are `title`, `aliases` and `type`, plus `date`, `kind` on a day page, and `status` where the source
   states one (a verification's verdict, a plan's state); a page ela writes in place also carries `source: "vault"`.
-  They feed the tables and show at the top of each note: a status to read, and `next`, the move you choose.
+  They feed the tables and show at the top of each note: a status to read, and `next`, the move you choose. A
+  hidden `moves` property names the note's set of moves, so the chooser lists only those.
 - No tags: a keyword-guessed tag would be wrong often enough to cost trust. A note about one topic links to its
   library page, and that page's backlinks are the cross-cut.
 - A ticket key is a link to Jira, one click in reading mode.
@@ -131,8 +132,8 @@ a warning, and Home lists it for 30 days as a rewrite ela owes.
 The same three moves are choices of the note's `next` field: `done` (archive), `learn` (to-learn) or `drop`
 (delete), and within a minute the note goes there; no session.
 
-Every note to read carries one field for its next move, **next**, at its top. The button beside it lists the
-choices, by kind: a plan *agree*, *not-now*, *reject*; a review *make-plan*; a verification *draft-comment*; all of
+Every note to read carries one field for its next move, **next**, at its top. The button beside it lists only
+that note's choices, by kind: a plan *agree*, *not-now*, *reject*; a review *make-plan*; a verification *draft-comment*; all of
 them *done*, *learn*, *drop*. The note's **Next moves** section says what each does. Choose one, and it is done
 within a minute; ela empties the field once it has acted, and a value that is not a move for the note runs nothing
 and is pointed out under the title. An agreed note moves to `in-progress/`, ela writes each step under its Progress
@@ -207,6 +208,7 @@ VIEWS = {
     - not:
         - file.inFolder("archive")
         - file.inFolder("to-learn")
+        - file.inFolder("ela/moves")
     - 'type != "home"'
     - 'type != "readme"'
 """ + FORMULAS + """views:
@@ -972,7 +974,7 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset()):
     planned = {}
     for n in notes:
         if top(n.path) == TO_READ:
-            n.props.update({NEXT: ""}, ela="")
+            n.props.update({NEXT: "", MOVE_SET: move_set(n.props.get("type"))}, ela="")
         n.held = reading_gate(n)
         body = linker(unwrap(callouts(meta_line(Note(n.path, n.title, tidy_title(n.body), n.props, n.front_lines), by_topic))))
         if top(n.path) == TO_READ:
@@ -1096,6 +1098,7 @@ def cmd_setup(a):
     shutil.copyfile(os.path.join(src, "homepage-data.json"), os.path.join(o, "plugins", "homepage", "data.json"))
     # the note's next field as a Select: the button beside it in the properties lists the moves
     shutil.copyfile(os.path.join(src, "metadata-menu-data.json"), os.path.join(o, "plugins", "metadata-menu", "data.json"))
+    write_move_sets(s["vault"])
     now = int(datetime.datetime.now().timestamp() * 1000)
     atomic_write(os.path.join(o, "bookmarks.json"), json.dumps({"items": [dict(b, type="file", ctime=now) for b in cfg["bookmarks"]]}, indent=2))
     print("vault settings applied; restart Obsidian to load them")
@@ -1179,13 +1182,38 @@ MOVES = MOVE_PROPS               # a kind with moves gets the section that expla
 AGREEABLE = ("plan", "sprint")
 MOVES_HEAD = "## Next moves"
 PROP_RE = re.compile(r"^(?:(?:" + "|".join(re.escape(k) for k in ("done", "learn", "drop") + ALL_MOVE_PROPS)
-                     + r"):\s*(?:true|false)|next:\s*.*)\s*\n", re.M | re.I)   # the move fields, old boxes included
+                     + r"):\s*(?:true|false)|(?:next|moves):\s*.*)\s*\n", re.M | re.I)   # the move fields, old boxes included
 NEXT = "next"   # one field, one value: the move he chose, from the list Metadata Menu shows beside it
+# the note's set of moves, by name: Metadata Menu reads it (its fileClass alias) and lists only that set's moves for
+# `next`; one definition per set lives in MOVE_SETS_DIR, written from MOVE_PROPS so the two cannot disagree
+MOVE_SET, MOVE_SETS_DIR = "moves", "ela/moves"
 
 
 def move_props(kind, in_to_read=True):
     """The checkbox properties a note carries for its next moves: its kind's own, then done, learn and drop."""
     return list(MOVE_PROPS.get(kind) or []) + (list(MARKS) if in_to_read else [])
+
+
+def move_set(kind, in_to_read=True):
+    """The name of the moves a note offers: its kind's when it has its own, else the plain to-read three."""
+    if kind == "built" or (kind in MOVE_PROPS and in_to_read):
+        return kind
+    return "read" if in_to_read else None
+
+
+def write_move_sets(vault):
+    """One Metadata Menu field definition per set of moves, so a note's `next` chooser lists its moves and no other."""
+    d = os.path.join(vault, MOVE_SETS_DIR)
+    os.makedirs(d, exist_ok=True)
+    sets = {k: move_props(k, in_to_read=k != "built") for k in MOVE_PROPS}
+    sets["read"] = list(MARKS)
+    for name, moves in sets.items():
+        vals = "".join(f'\n        "{i}": {m}' for i, m in enumerate(moves, 1))
+        text = ("---\nfields:\n  - name: next\n    id: next\n    type: Select\n    path: \"\"\n    options:\n"
+                f"      sourceType: ValuesList\n      valuesList:{vals}\n---\n")
+        p = os.path.join(d, f"{name}.md")
+        if not os.path.isfile(p) or open(p, encoding="utf-8").read() != text:
+            atomic_write(p, text)
 
 
 def moves_section(rel, kind, stamp=None):
@@ -1288,7 +1316,7 @@ def cmd_note(a):
                              "built: " + " ".join(a.text))
         text = PROP_RE.sub("", text)
         fl0, b0 = split_front(text)
-        text = "---\n" + "\n".join(fl0 + [f'{NEXT}: ""']) + "\n---\n" + b0
+        text = "---\n" + "\n".join(fl0 + [f'{MOVE_SET}: "built"', f'{NEXT}: ""']) + "\n---\n" + b0
         fl, body = split_front(text)
         atomic_write(p, "---\n" + "\n".join(fl) + "\n---\n" + with_moves(body, rel, "built", stamp).lstrip("\n"))
         print(f"{rel}: built; waiting for the owner's acceptance")
@@ -1310,7 +1338,7 @@ def ensure_native_moves(vault, dry_run=False):
         kind = next((re.sub(r"^type:\s*", "", l).strip().strip('"\'') for l in fl if l.startswith("type:")), None)
         has_moves = re.search(r"^" + re.escape(MOVES_HEAD), body, re.M)
         # the same table properties a generated note to read carries, so its Home row has working boxes
-        wanted = [f'{NEXT}: ""', 'ela: ""']
+        wanted = [f'{MOVE_SET}: "{move_set(kind)}"', f'{NEXT}: ""', 'ela: ""']
         missing = [w for w in wanted if not any(l.startswith(w.split(":")[0] + ":") for l in fl)]
         if MOVES.get(kind) and (not has_moves or missing) and not dry_run:
             fl = fl + missing
@@ -1516,6 +1544,8 @@ def cmd_sync(a):
     # a note the sync wrote that is gone from disk was deleted by the owner: that is feedback, and it stays deleted
     removed_path = os.path.join(s.get("reports") or "", "ela", "vault-removed.jsonl")
     marked = [] if a.dry_run else apply_marks(vault, s.get("reports") or "")   # ticked boxes first: they are his moves
+    if not a.dry_run:
+        write_move_sets(vault)                             # the choosers follow MOVE_PROPS without a setup run
     removed, removed_src = load_removed(removed_path)
     # only a dated note in a reading folder can be done with; a living page (Home, the board, the library index, how
     # ela runs) is rewritten whatever happens to it

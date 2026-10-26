@@ -18,6 +18,10 @@ body { --file-line-width: min(94%, 1600px); }   /* follows the window, capped fo
 /* the attachments folder holds what the notes embed; nobody browses it (ela ADR 0010) */
 .nav-folder:has(> .nav-folder-title[data-path="ela/attachments"]) { display: none; }
 .nav-folder-title[data-path="ela/attachments"] { display: none; }
+/* a note's set of moves is for Metadata Menu, which lists only those moves for `next`; nobody reads or edits it */
+.nav-folder:has(> .nav-folder-title[data-path="ela/moves"]) { display: none; }
+.nav-folder-title[data-path="ela/moves"] { display: none; }
+.metadata-property[data-property-key="moves"] { display: none; }
 
 /* the meta line under a title, and a Bases table embedded in a note (Home's "To read") */
 .markdown-rendered .el-h1 + .el-p > p > em:only-child { color: var(--text-muted); font-size: 0.9em; }   /* reading view wraps each block in .el-* */
