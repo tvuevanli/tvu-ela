@@ -396,6 +396,22 @@ ela-runner starts this skill headless every weekday morning after it wrote the f
   `ELA_NO_APPLY`).
 - `<reports>/runner/<date>-deep.json` — the day's deep picks, at most two:
   `[{"key": "MH-2406", "lane": "prod-3", "why": "<one line: what was claimed and what doubts it>"}]`; `[]` when none.
+- `<reports>/runner/<date>-week.md` — **on a Friday, while a sprint is active**, the weekly page; the vault picks
+  it up as a day page of kind week. It reports the week against the sprint, so that what the owner carried beside
+  the list is visible next to what moved on it. Under **700 words**, in §3's form (a `#` title with the date,
+  tables rather than code blocks, ticket keys bare, lanes in plain words), in three sections:
+  - `## The sprint` — one row per goal and committed item: what moved this week, where it stands now (real
+    status, read as in §0), and its "done when". The line above the table gives the day of the sprint and the
+    count on track, at risk and off.
+  - `## Outside the sprint` — from the week's yesterday files (§0's `week_yesterday_files`; a weekday with no
+    file is named as not read): the cases outside the sprint's keys that took the owner's own time — his
+    comments, his commits, the threads he answered, the tickets he broke down or routed — at most eight rows,
+    each the key or thread and what it took. A last line counts the rest. This section is what makes the
+    carrying-along visible; it judges nothing.
+  - `## Next week` — what must happen next week for the sprint to land by its end date: per item at risk or
+    off, the one move and who it waits on. On the sprint's last Friday it also gives the facts for the question
+    the sprint's review answers: keep, change or drop the sprint.
+  The page drafts no actions; anything to write is an item on the morning page.
 
 ## 4 — what this skill does not do
 - Post, comment, transition, assign, create, or write a file. The drafted actions name the skill
