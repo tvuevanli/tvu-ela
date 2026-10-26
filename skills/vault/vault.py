@@ -107,7 +107,7 @@ the file explorer is rarely needed.
   note by its title.
 - Properties are `title`, `aliases` and `type`, plus `date`, `kind` on a day page, and `status` where the source
   states one (a verification's verdict, a plan's state); a page ela writes in place also carries `source: "vault"`.
-  They feed the tables and stay hidden while you read.
+  They feed the tables and show at the top of each note: a status to read, and boxes (agree, done, learn, drop) to tick in place.
 - No tags: a keyword-guessed tag would be wrong often enough to cost trust. A note about one topic links to its
   library page, and that page's backlinks are the cross-cut.
 - A ticket key is a link to Jira, one click in reading mode.
@@ -170,7 +170,7 @@ are.
 Set by ela; the sync never changes these settings. `ela vault setup` reapplies them after a reset or on another
 machine.
 
-- Notes open in reading view, without the file-name title or the properties panel, at a readable width; the
+- Notes open in reading view, without the file-name title, with their properties at the top, at a readable width; the
   `ela` style sheet tidies tables and callouts and hides the attachments folder.
 - Bookmarks: Home, the board, the library, all notes as tables, how ela runs, this page.
 - Core plugins on: search, quick switcher, file explorer, backlinks, outgoing links, page preview, outline,
@@ -811,6 +811,10 @@ def home(today, now, notes):
             L += [f"![[{brief.path[:-3]}]]", ""]
     else:
         L += ["## Today", "", "No morning page yet today" + (f"; the latest is {link(brief)}." if brief else "."), ""]
+    sprint = next((n for n in sorted(notes, key=lambda n: n.props.get("date") or "", reverse=True)
+                   if n.props.get("type") == "sprint" and note_status(n) == "active"), None)
+    if sprint:                                             # the two-week commitment, one click from Home
+        L += ["## Sprint", "", f"{link(sprint)}", ""]
     building = [n for n in notes if top(n.path) == IN_PROGRESS]
     if building:
         L += ["## In progress", "", f"![[{ELA}/all-notes.base#In progress]]", ""]
