@@ -291,6 +291,14 @@ comment, plus Fixed In when a version is named, as its action, each source cited
 when Slack and mail are silent too (2026-10-23: MH-3752 and MH-3745 were reported as stalled while their
 progress sat in mail and Slack).
 
+**Deployed is not a verdict.** An item that says a fix shipped also says the ticket's latest QA verdict and any
+question left open in its last comments; a QA Fail after the fix is the item. A fix that shipped while QA failed or
+a question is open, on a Highest or High ticket or one assigned to the owner, is a **deep pick**: at most two a
+day, most urgent first, written to the deep file (§3b) and run after the page as `/ela:probe fix`, whose verdict
+reaches to-read as its own note; the item says it is being read in depth. Any other ticket item may offer
+`- [ ] go deep on MH-…` as a choice (2026-10-26: MH-2406's frontend fix was on prod-3, yet J2N there no longer
+emitted the code it matched, and QA had failed it).
+
 The page is read in Obsidian, so its form is fixed:
 
 - **An item is a `###` heading in plain words** (what is happening, never a lane tag such as `[cadence RED]`), one
@@ -345,6 +353,8 @@ ela-runner starts this skill headless every weekday morning after it wrote the f
   the page. Nothing else goes in the list: a reading, a question for the owner, a hand-off to another skill is
   text on the page, not an action. The session itself applies nothing (the write scripts refuse `--apply` under
   `ELA_NO_APPLY`).
+- `<reports>/runner/<date>-deep.json` — the day's deep picks, at most two:
+  `[{"key": "MH-2406", "lane": "prod-3", "why": "<one line: what was claimed and what doubts it>"}]`; `[]` when none.
 
 ## 4 — what this skill does not do
 - Post, comment, transition, assign, create, or write a file. The drafted actions name the skill
