@@ -92,6 +92,13 @@
   "types": {
     "done": "checkbox",
     "learn": "checkbox",
-    "drop": "checkbox"
+    "drop": "checkbox",
+    "agree": "checkbox",
+    "date": "date",
+    "status": "text",
+    "progress": "text",
+    "built": "text",
+    "claimed": "text",
+    "ela": "text"
   }
 }

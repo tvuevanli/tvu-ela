@@ -1278,9 +1278,11 @@ def ensure_native_moves(vault, dry_run=False):
             continue
         kind = next((re.sub(r"^type:\s*", "", l).strip().strip('"\'') for l in fl if l.startswith("type:")), None)
         has_moves = re.search(r"^" + re.escape(MOVES_HEAD), body, re.M)
-        needs_agree = kind in AGREEABLE and not any(l.startswith("agree:") for l in fl)
-        if MOVES.get(kind) and (not has_moves or needs_agree) and not dry_run:
-            fl = fl + (["agree: false"] if needs_agree else [])
+        # the same table properties a generated note to read carries, so its Home row has working boxes
+        wanted = [f"{k}: false" for k in MARKS] + ['ela: ""'] + (["agree: false"] if kind in AGREEABLE else [])
+        missing = [w for w in wanted if not any(l.startswith(w.split(":")[0] + ":") for l in fl)]
+        if MOVES.get(kind) and (not has_moves or missing) and not dry_run:
+            fl = fl + missing
             body = body if has_moves else with_moves(body, f"{TO_READ}/{f}", kind)
             atomic_write(p, "---\n" + "\n".join(fl) + "\n---\n" + body.lstrip("\n"))
 
