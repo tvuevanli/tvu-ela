@@ -542,6 +542,11 @@ def resolve_bundle(us, ref, missing_ok=False):
     line = ref.split("@")[0] + "@" if "@" in ref else ref
     rows = bundle_list(us, line, 50)
     hit = next((b for b in rows if str(b.get("bundleName")) == ref), None)
+    if not hit:                                        # a release named by its number ("2.1.15" for "MediaHub 2.1.15"), when only one bundle carries it
+        whole = [b for b in rows if re.search(r"(?<![\w.])" + re.escape(ref) + r"(?![\w.])", str(b.get("bundleName")))]
+        if len(whole) == 1:
+            hit = whole[0]
+            print(f"bundle {ref!r} on {us.kind}: the one name carrying it → {hit.get('bundleName')}", file=sys.stderr)
     if not hit and missing_ok:
         return None
     if not hit:
