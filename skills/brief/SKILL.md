@@ -291,13 +291,17 @@ comment, plus Fixed In when a version is named, as its action, each source cited
 when Slack and mail are silent too (2026-10-23: MH-3752 and MH-3745 were reported as stalled while their
 progress sat in mail and Slack).
 
-**Deployed is not a verdict.** An item that says a fix shipped also says the ticket's latest QA verdict and any
-question left open in its last comments; a QA Fail after the fix is the item. A fix that shipped while QA failed or
-a question is open, on a Highest or High ticket or one assigned to the owner, is a **deep pick**: at most two a
-day, most urgent first, written to the deep file (§3b) and run after the page as `/ela:probe fix`, whose verdict
-reaches to-read as its own note; the item says it is being read in depth. Any other ticket item may offer
-`- [ ] go deep on MH-…` as a choice (2026-10-26: MH-2406's frontend fix was on prod-3, yet J2N there no longer
-emitted the code it matched, and QA had failed it).
+**A ticket on the page is read, not looked up.** Before an item states where a ticket stands, read its comments
+since the fix, its latest QA verdict, any ticket a comment points to, and what the owner himself already did on it.
+The item's facts line is then its **real status** in one sentence (it may contradict Jira: "Review, but it cannot
+work"), and **Do:** is the next move with who it waits on. "Deployed" is a fact, never a status; a QA Fail or an
+open question after the fix is the item. What the owner already did is stated ("waiting on yulong since 10-26") and
+never drafted again. A ticket whose QA observation contradicts what another layer's code expects (a code, a field,
+a status), on a Highest or High ticket or one assigned to the owner, is a **deep pick**: at most two a day, most
+urgent first, written to the deep file (§3b) and run after the page as `/ela:probe fix`, whose page (real status,
+dated timeline, next) reaches to-read; the item links it. Any other ticket item may offer `- [ ] go deep on MH-…`
+(2026-10-26: MH-2406 sat assigned to the owner for eight days with QA's Fail naming the mismatched codes in its
+comments; he traced the J2N–frontend gap by hand).
 
 The page is read in Obsidian, so its form is fixed:
 

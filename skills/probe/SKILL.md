@@ -122,11 +122,19 @@ on 10-14; the contract change had never reached the frontend team.
    (`ela release` → the build → its commit) and read the code at that sha: does the producer still emit
    it, under that name, and does the consumer match what is emitted? `git -C <repo> log -S<value>` dates
    when it changed and in which ticket.
-4. **The verdict**, first line: *works*, *cannot work* or *blocked on <role>*, then the evidence (key,
-   repo@sha file:line, comment id) and the next action with its owner. Unread layers are named as gaps,
-   and the verdict says what they leave open.
-- With `--write PATH`: the result is a page for the owner at PATH — `# <key>: <the verdict in plain words>`,
-  under 600 words, the drafts of §4 included as text — and the answer is one line. Nothing is posted.
+4. **What the owner already did.** His comments, assignments and transitions on the ticket and the linked ones:
+   the page reports them as done and never drafts them again.
+5. **The page**, in this shape, under 600 words, people by name (it is the owner's own page):
+   - `# <key>: <title> — <the real status in a few words>`;
+   - **Real status**, one paragraph: what Jira says, what is true (*works*, *cannot work*, *blocked on <whom>*),
+     and what, if anything, is the owner's to do;
+   - **Timeline**, a table `| date | what happened | source |`, oldest first, every layer's change dated (a
+     commit, a build reaching the lane, a QA run, a comment, an assignment), including the days it sat unmoved;
+     then one line on why it happened;
+   - **Next**, who it waits on and since when, then the move after that; unread layers named as open;
+   - at most three `- [ ] <instruction to ela>` lines the owner can tick (a nudge on a date, a reading, a draft).
+   File:line evidence stays out of the page; it goes in a draft only when the owner implements or asks.
+- With `--write PATH` the page is written to PATH and the answer is one line. Nothing is posted.
 
 ## 5 — what this skill does not do
 Change code, run builds, start or stop processes, post anywhere, or clone from GitHub when the LAN
