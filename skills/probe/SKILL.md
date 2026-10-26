@@ -1,10 +1,10 @@
 ---
 name: probe
-description: Read-only MediaHub code investigation — a bug to root cause with file:line, or `probe how <mechanism>`. Use for "deep check", "查一下根因", "看代码找原因", "why does copier …", "MH-xxxx 到底怎么回事", "这个字段哪来的", "命令行参数什么意思", "上报的数据是什么", "前后端模型", "谁调用谁", "这段逻辑在哪", "how does X work in the code", or when routing is not enough.
+description: Read-only MediaHub code investigation — a bug to root cause with file:line, `probe how <mechanism>`, or `probe fix <key>` (does the shipped fix work on a lane). Use for "deep check", "go deep on MH-xxxx", "修复在 prod 上真的生效吗", "查一下根因", "看代码找原因", "why does copier …", "MH-xxxx 到底怎么回事", "这个字段哪来的", "命令行参数什么意思", "上报的数据是什么", "前后端模型", "谁调用谁", "这段逻辑在哪", "how does X work in the code", or when routing is not enough.
 user-invocable: true
 ---
 
-# /ela:probe <ticket | symptom> | /ela:probe how <mechanism> — a bug in, a root cause with file:line out
+# /ela:probe <ticket | symptom> | how <mechanism> | fix <key> [--lane L] [--write PATH] — a bug in, a root cause with file:line out
 
 Replies to the owner follow the working preferences (Chinese in conversation unless he asks otherwise); the
 English of this file is not the language of the answer.
@@ -20,6 +20,10 @@ defaults where the code fixes them, and what the chain does NOT assert — and (
 written to `<runtime>/drafts/<slug>.md` in elak's house style (front matter `verified`, `source` =
 repo@sha file:line only, no session or transcript cited, no names), for the owner to admit with
 "记下来" (knowledge/README's one-year test).
+
+The `fix` form takes a ticket whose fix is said to be shipped and answers one question: does it work on
+the lane (default prod-3)? It is §fix below in place of §1–§4; "deployed" is a fact it starts from, never
+its verdict.
 
 ## Invariants
 - **Code before people.** The 2026-09-02 MH-3568 investigation found the cause in `addScteStream`
@@ -103,6 +107,26 @@ Write, in this shape:
 - Drafts, each ≤ 8 lines, each a separate confirm: one for the reporter/product (what happens and
   what they can do now, no code), one for the owner (the mechanism, file:line, the question to
   decide). `$JIRA comment <key> --text …` shows the dry-run; `--apply` only after Evan's word.
+
+## fix — does the shipped fix work on the lane
+Worked example: MH-2406 (2026-10-26). The frontend fix was on prod-3, but J2N at the prod-3 sha no longer
+emitted the error code the frontend matched (refactored in March, split in September), and QA had said Fail
+on 10-14; the contract change had never reached the frontend team.
+1. **The ticket's own word.** `$JIRA read <key> --deep`: the latest QA verdict (Pass/Fail and what failed,
+   with the observed values), and any question left open in the last comments. A Fail after the fix is
+   the lead, not a footnote.
+2. **The linked tickets.** Every key in links, subtasks and the last five comments: read each for a
+   contract it set or changed (a code table, a field list, a rename).
+3. **The contracts the fix depends on.** Name each value that crosses a layer — error codes, response
+   fields, statuses, enum values. For each layer the value crosses, find the version running on the lane
+   (`ela release` → the build → its commit) and read the code at that sha: does the producer still emit
+   it, under that name, and does the consumer match what is emitted? `git -C <repo> log -S<value>` dates
+   when it changed and in which ticket.
+4. **The verdict**, first line: *works*, *cannot work* or *blocked on <role>*, then the evidence (key,
+   repo@sha file:line, comment id) and the next action with its owner. Unread layers are named as gaps,
+   and the verdict says what they leave open.
+- With `--write PATH`: the result is a page for the owner at PATH — `# <key>: <the verdict in plain words>`,
+  under 600 words, the drafts of §4 included as text — and the answer is one line. Nothing is posted.
 
 ## 5 — what this skill does not do
 Change code, run builds, start or stop processes, post anywhere, or clone from GitHub when the LAN
