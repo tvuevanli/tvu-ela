@@ -324,7 +324,7 @@ progress sat in mail and Slack).
 since the fix, its latest QA verdict, any ticket a comment points to, and what the owner himself already did on it.
 The item's facts line is then its **real status** in one sentence (it may contradict Jira: "Review, but it cannot
 work"), and **Do:** is the next move with who it waits on. "Deployed" is a fact, never a status; a QA Fail or an
-open question after the fix is the item. What the owner already did is stated ("waiting on yulong since 10-26") and
+open question after the fix is the item. What the owner already did is stated ("waiting on the J2N owner since 10-26") and
 never drafted again. A ticket whose QA observation contradicts what another layer's code expects (a code, a field,
 a status), on a Highest or High ticket or one assigned to the owner, is a **deep pick**: at most two a day, most
 urgent first, written to the deep file (§3b) and run after the page as `/ela:probe fix`, whose page (real status,
