@@ -49,10 +49,10 @@ IN_PROGRESS = "in-progress"   # a note he agreed to, while ela builds it and unt
 OWNER_FOLDERS = (TO_LEARN, ARCHIVE)   # where the owner drags a note to say what he wants; ela never rewrites in them
 ATTACH = "ela/attachments"
 DELETABLE = (DAYS, TO_READ)
-KEEP_FOREVER = ("brief",)   # the morning page is the record of what ela told the owner; the rest expires
+KEEP_FOREVER = ("brief", "week")   # the morning page is the record of what ela told the owner; the rest expires
 PROPS = ("title", "aliases", "type", "date", "kind", "status", "moves", "next", "ela")   # the whole vocabulary; no tags (ADR 0010)
 MARKS = {"done": ARCHIVE, "learn": TO_LEARN, "drop": None}   # a ticked box in a to-read table row: archive, distil, delete
-BUDGET = {"topic": 800, "guide": 1200, "board": 1000, "day": 1200, "review": 2500, "decision": 1200, "plan": 2500, "sprint": 800}
+BUDGET = {"ticket": 700, "topic": 800, "guide": 1200, "board": 1000, "day": 1200, "review": 2500, "decision": 1200, "plan": 2500, "sprint": 800}
 TOLERANCE = 1.1                                  # a page 10% over its budget is not worth a rewrite
 KEY_RX = re.compile(r"(?<![\w/#=.-])([A-Z][A-Z0-9]{1,9}-\d{1,6})(?![\w-])")
 # media and standards names that look like keys; a second guard behind the project allow-list
@@ -134,7 +134,7 @@ The same three moves are choices of the note's `next` field: `done` (archive), `
 
 Every note to read carries one field for its next move, **next**, at its top. The button beside it lists only
 that note's choices, by kind: a plan *agree*, *not-now*, *reject*; a review *make-plan*; a verification *draft-comment*; all of
-them *done*, *learn*, *drop*. The note's **Next moves** section says what each does. Choose one, and it is done
+them *done*, *learn*, *drop*. A ticket page (one ticket read in depth) offers only *nudge*, *seen* and *drop*. The note's **Next moves** section says what each does. Choose one, and it is done
 within a minute; ela empties the field once it has acted, and a value that is not a move for the note runs nothing
 and is pointed out under the title. An agreed note moves to `in-progress/`, ela writes each step under its Progress
 heading, and when it is built the note offers *accept* or *not-done*. You can also answer a note with `ela:` lines,
@@ -228,6 +228,7 @@ VIEWS = {
         - 'status != "blocked"'
         - 'status != "proposed"'
     order: [date, formula.note, type, next, ela]
+    limit: 5
     sort:
       - property: date
         direction: DESC
@@ -417,14 +418,14 @@ def report_notes(reports, today):
     notes = []
     rd = os.path.join(reports, "runner")
     for f in sorted(os.listdir(rd)) if os.path.isdir(rd) else []:
-        m = re.match(r"^(\d{4}-\d{2}-\d{2})-(brief|learned)\.md$", f)
+        m = re.match(r"^(\d{4}-\d{2}-\d{2})-(brief|learned|week)\.md$", f)
         if not m or (m.group(2) not in KEEP_FOREVER and (today - datetime.date.fromisoformat(m.group(1))).days >= DAYS_KEPT):
             continue
         d = datetime.date.fromisoformat(m.group(1))
         fl, body = split_front(open(os.path.join(rd, f), encoding="utf-8").read())
         if m.group(2) == "brief":
             body = action_states(body, os.path.join(rd, f"{m.group(1)}-actions.json"))
-        label = {"brief": "Morning brief", "learned": "What the day taught"}[m.group(2)]
+        label = {"brief": "Morning brief", "learned": "What the day taught", "week": "The week"}[m.group(2)]
         notes.append(Note(f"{DAYS}/{m.group(1)[:4]}/{m.group(1)}-{m.group(2)}.md", f"{label} · {d:%a} {m.group(1)}", body,
                           {"type": "day", "date": m.group(1), "kind": m.group(2)}, fl, src_rel=f"runner/{f}"))
     bp = os.path.join(reports, "board", "board.md")
@@ -461,7 +462,9 @@ def report_notes(reports, today):
                 path = f"{TO_READ}/{m.group(1)}-{rest}.md"
             else:
                 path = f"{TO_READ}/{rest}.md"
-            notes.append(Note(path, title, body, {"type": "review", "date": m.group(1) if m else None}, fl,
+            # a deep reading of one ticket (`ela-runner deep`) is a ticket page: real status, timeline, next
+            kind = "ticket" if re.match(r"^\d{4}-\d{2}-\d{2}-deep-", base) else "review"
+            notes.append(Note(path, title, body, {"type": kind, "date": m.group(1) if m else None}, fl,
                               src_rel=f"{sub + '/' if sub else ''}{f}"))
     return notes
 
@@ -826,6 +829,10 @@ def home(today, now, notes):
         L += ["## In progress", "", f"![[{ELA}/all-notes.base#In progress]]", ""]
     reading = [n for n in notes if top(n.path) == TO_READ and note_status(n) not in ("proposed", "fail", "blocked", "built")]
     L += ["## To read", "", f"![[{ELA}/all-notes.base#To read]]" if reading else "Nothing to read.", ""]
+    if reading:                                            # the table shows five; say what is beyond and what is new
+        new = sum(1 for n in reading if n.props.get("date") == iso)
+        more = f"+{len(reading) - 5} more in [[{ELA}/all-notes.base|all notes]]" if len(reading) > 5 else ""
+        L += ["*" + " · ".join(x for x in (f"{new} new today" if new else "", more) if x) + "*", ""] if new or more else []
     owed_since = (today - datetime.timedelta(days=HELD_LISTED_DAYS)).isoformat()
     owed = [n for n in notes if n.held and (n.props.get("date") or iso) >= owed_since]
     if owed:
@@ -1167,8 +1174,9 @@ MOVE_PROPS = {                   # by kind, beyond done, learn and drop, which e
     "verify": ["draft-comment"],
     "decision": ["confirm"],
     "built": ["accept", "not-done"],
+    "ticket": ["nudge", "seen", "drop"],   # a ticket's moves only: "done" would read as the ticket's Jira Done
 }
-ALL_MOVE_PROPS = ("agree", "not-now", "reject", "make-plan", "draft-comment", "confirm", "accept", "not-done")
+ALL_MOVE_PROPS = ("agree", "not-now", "reject", "make-plan", "draft-comment", "confirm", "accept", "not-done", "nudge", "seen")
 MOVE_MEANING = {
     "agree": "ela builds it: the note moves to `in-progress/` and each step is written under Progress",
     "not-now": "archived as parked", "reject": "archived as rejected",
@@ -1176,6 +1184,8 @@ MOVE_MEANING = {
     "draft-comment": "ela drafts the short Jira comment as `apply N`; nothing is posted",
     "confirm": "archived as confirmed", "accept": "archived as accepted",
     "not-done": "ela carries on; write what is missing as `ela:` lines first",
+    "nudge": "ela drafts a short nudge to whoever the ticket waits on, as `apply N`; nothing is posted",
+    "seen": "archived: you have read where it stands",
     "done": "archived, nothing more", "learn": "distilled into knowledge that evening", "drop": "deleted",
 }
 MOVES = MOVE_PROPS               # a kind with moves gets the section that explains them
@@ -1191,6 +1201,8 @@ MOVE_SET, MOVE_SETS_DIR = "moves", "ela/moves"
 
 def move_props(kind, in_to_read=True):
     """The checkbox properties a note carries for its next moves: its kind's own, then done, learn and drop."""
+    if kind == "ticket":
+        return list(MOVE_PROPS[kind])
     return list(MOVE_PROPS.get(kind) or []) + (list(MARKS) if in_to_read else [])
 
 
@@ -1418,8 +1430,8 @@ def apply_marks(vault, reports, dry_run=False):
                     warn_move(p, move, allowed)
                 continue
             out.append((rel, move))
-            if move in MARKS and not dry_run:
-                finish(vault, reports, rel, {"done": "archive", "learn": "learn", "drop": "delete"}[move])
+            if move in tuple(MARKS) + ("seen",) and not dry_run:
+                finish(vault, reports, rel, {"done": "archive", "seen": "archive", "learn": "learn", "drop": "delete"}[move])
     return out
 
 
