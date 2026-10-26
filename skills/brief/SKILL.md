@@ -37,6 +37,14 @@ JIRA="python3 ${CLAUDE_PLUGIN_ROOT}/skills/jira/jira.py --env-file <env>"
 SLACK="python3 ${CLAUDE_PLUGIN_ROOT}/skills/slack/slack.py --env-file <env>"
 TEAM="python3 ${CLAUDE_PLUGIN_ROOT}/skills/team/team.py --env-file <env>"   # or: ela who … · ela team areas
 ```
+The owner's standing constraints — pins and hand checks his rulings put on a lane, each with an expiry — are one
+call: `python3 "${CLAUDE_PLUGIN_ROOT}/skills/promote/promote.py" --env-file <env> constraints --json` (or `ela
+promote constraints --json`; exit 3 = a pin is over). A pin `over`, or a constraint whose `days_since_expiry` is
+0 or 1 (it lapsed since the last brief), is an item under *Needs you*: what it says, the lane and version, its
+source note, and the one move (roll back or ask the owner to lift it; renew or let it lapse). Otherwise it is one
+row in the lanes table, "standing constraints: N active" (plus "N pins unread" when a pin's `state` is `unknown`).
+A missing file is "none".
+
 A drafted routing line is two reads, never a guess: the area from
 `<published>/knowledge/products/mediahub/team/layer-classification.md`, then the person from `$TEAM
 who <name|email|Uxxx|accountId>` (exit 3 = not in the roster, and that is what the line says) or
@@ -222,9 +230,9 @@ Write it as one short paragraph and at most eight case lines, under the heading 
   in them that looks wrong (a malformed Fixed In value, a write the owner did not ask for).
 
 ## 3 — rank and write
-Order: triage OVERDUE → waiting (product / QA / partner, > 1 day) → cadence RED → incidents
+Order: a standing pin over (§0) → triage OVERDUE → waiting (product / QA / partner, > 1 day) → cadence RED → incidents
 (customer spoke last, or created inside 48h) → reports → breakdown → cadence YELLOW → incidents
-(oldest cluster) → monologues → decisions → Evan's own tickets → backlog. Within a lane, oldest
+(oldest cluster) → monologues → decisions → a standing constraint that lapsed (§0) → Evan's own tickets → backlog. Within a lane, oldest
 first. `backlog` is always last and always three rows: it is the only lane that may be skipped
 outright on a busy day. Then:
 
@@ -272,6 +280,7 @@ Two or three sentences, then at most five case lines (§2b).
 | new and unassigned | none overdue · 8 recent tickets without a layer prefix |
 | customer incidents | 54 open; Reuters freeze ×13 is the big cluster |
 | needs a breakdown | 7 without sub-tasks; MH-3794 and MH-3795 first |
+| standing constraints | 1 active, every pin held |
 
 ## Backlog, today's three
 
