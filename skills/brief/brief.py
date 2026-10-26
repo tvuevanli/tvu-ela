@@ -298,30 +298,52 @@ def run_json(cmd, timeout=600):
     return json.loads(r.stdout)
 
 
-def git_window(code_root, hours):
-    """Commits of every checkout under the code root in the window, all refs, merges left out, one row per sha."""
-    seen, rows, stale = set(), [], []
+def checkouts(code_root):
+    """Every checkout under the code root, at most five levels down, build and dependency trees skipped."""
     for top, dirs, _ in os.walk(code_root):
         if ".git" in dirs:
             dirs[:] = []
-            repo = os.path.relpath(top, code_root)
-            fh = os.path.join(top, ".git", "FETCH_HEAD")
-            if os.path.exists(fh) and os.path.getmtime(fh) < datetime.datetime.now().timestamp() - 86400:
-                stale.append(repo)
-            r = subprocess.run(["git", "-C", top, "log", "--all", "--no-merges", f"--since={hours} hours ago", "--source",
-                                "--format=%H%x1f%an%x1f%aI%x1f%S%x1f%s%x1f%b%x1e"], capture_output=True, text=True, timeout=60)
-            for rec in r.stdout.split("\x1e"):
-                p = rec.strip("\n").split("\x1f")
-                if len(p) < 6 or p[0] in seen:
-                    continue
-                seen.add(p[0])
-                ref = p[3].replace("refs/remotes/origin/", "").replace("refs/heads/", "")
-                rows.append({"repo": repo, "sha": p[0][:10], "author": p[1], "at": p[2], "ref": ref, "subject": p[4],
-                             "keys": keys_in(p[4] + "\n" + p[5] + "\n" + ref)})
+            yield top
             continue
         dirs[:] = [d for d in dirs if not d.startswith(".") and d not in ("node_modules", "vendor", "target", "build")]
         if top.count(os.sep) - code_root.count(os.sep) >= 5:
             dirs[:] = []
+
+
+def fetch_all(code_root, workers=8, timeout=180):
+    """Fetch every checkout, so the window sees what was pushed rather than what was last pulled by hand. Remote refs
+    only; no working tree changes. Returns the repos that failed or timed out."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    def one(top):
+        try:
+            r = subprocess.run(["git", "-C", top, "fetch", "--all", "--quiet", "--prune"], capture_output=True, text=True,
+                               timeout=timeout, env={**os.environ, "GIT_TERMINAL_PROMPT": "0"})
+            return None if r.returncode == 0 else os.path.relpath(top, code_root)
+        except subprocess.TimeoutExpired:
+            return os.path.relpath(top, code_root)
+    with ThreadPoolExecutor(workers) as ex:
+        return [f for f in ex.map(one, list(checkouts(code_root))) if f]
+
+
+def git_window(code_root, hours):
+    """Commits of every checkout under the code root in the window, all refs, merges left out, one row per sha."""
+    seen, rows, stale = set(), [], []
+    for top in checkouts(code_root):
+        repo = os.path.relpath(top, code_root)
+        fh = os.path.join(top, ".git", "FETCH_HEAD")
+        if os.path.exists(fh) and os.path.getmtime(fh) < datetime.datetime.now().timestamp() - 86400:
+            stale.append(repo)
+        r = subprocess.run(["git", "-C", top, "log", "--all", "--no-merges", f"--since={hours} hours ago", "--source",
+                            "--format=%H%x1f%an%x1f%aI%x1f%S%x1f%s%x1f%b%x1e"], capture_output=True, text=True, timeout=60)
+        for rec in r.stdout.split("\x1e"):
+            p = rec.strip("\n").split("\x1f")
+            if len(p) < 6 or p[0] in seen:
+                continue
+            seen.add(p[0])
+            ref = p[3].replace("refs/remotes/origin/", "").replace("refs/heads/", "")
+            rows.append({"repo": repo, "sha": p[0][:10], "author": p[1], "at": p[2], "ref": ref, "subject": p[4],
+                         "keys": keys_in(p[4] + "\n" + p[5] + "\n" + ref)})
     return rows, stale
 
 
@@ -348,6 +370,9 @@ def cmd_yesterday(args):
         errors.append({"source": "jira", "error": str(e)[:300]})
     # git
     code_root = site.get("code") or os.path.join(site.get("projects", ""), "code")
+    if args.fetch:
+        for repo in fetch_all(code_root):
+            errors.append({"source": "git", "error": f"fetch failed: {repo}"})
     commits, stale = git_window(code_root, hours)
     untracked, bulk = [], []
     for cm in commits:
@@ -478,6 +503,7 @@ def main():
                                          "commits, Slack messages; untracked commits; unticketed threads; ela's own work")
     p.add_argument("--hours", type=int, default=24, help="window length (default 24; the runner passes 72 on Mondays)")
     p.add_argument("--top", type=int, default=15, help="rows per section in the text form (default 15)")
+    p.add_argument("--fetch", action="store_true", help="fetch every checkout under the code root first (remote refs only)")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_yesterday)
     args = ap.parse_args()
