@@ -18,6 +18,7 @@ Layout, by what the owner does with a note (ela ADR 0010). Names are lowercase w
 from the source's file name, never from its heading, so editing a title renames nothing; a dated name starts with
 its date, so a folder sorts by time. Folders carry no numbers: Home and the bookmarks are the way in.
     home.md, board.md                           the entry point; the board's debt, one living page
+    constraints.md                              the standing constraints, each pin read on its lane
     days/<year>/<date>-brief.md                 the morning page, kept; -learned beside it for 14 days
     to-read/<date>-<slug>.md                    reviews and verifications to read; deleted when read; a verification
     to-read/<date>-verify-<key>.md              leaves once its record is on the Jira ticket, or a pass after 14 days
@@ -40,9 +41,11 @@ import argparse, datetime, fcntl, json, os, re, shutil, subprocess, sys
 
 HERE = os.path.dirname(os.path.realpath(__file__))
 JIRA = os.path.join(HERE, "..", "jira", "jira.py")
+PROMOTE = os.path.join(HERE, "..", "promote", "promote.py")
 SITE = os.path.expanduser("~/.claude/ela/site.json")
 MANIFEST = ".ela-sync.json"
 DAYS_KEPT, HELD_LISTED_DAYS, NEW_DAYS, MASS_DELETE, UNREAD_DAYS = 14, 30, 7, 8, 30
+CONSTRAINTS_FRESH = 1800    # seconds a read of the pins stands; each read asks the lane hosts, and the sync runs every minute
 LAYOUT = 3                  # the manifest records it; a sync across a change of layout guards the total, not each folder
 DAYS, TO_READ, LIBRARY, ELA, ARCHIVE, TO_LEARN = "days", "to-read", "library", "ela", "archive", "to-learn"
 IN_PROGRESS = "in-progress"   # a note he agreed to, while ela builds it and until he accepts the result
@@ -91,6 +94,7 @@ Start at [[home]]: what waits for your word, today's page, and what there is to 
 | folder | holds | what you do |
 |---|---|---|
 | `home`, `board` | today, and the board's debt | look at them each morning |
+| `constraints` | the standing constraints you confirmed: what each holds, whether its lane still keeps it, when it lifts | look when Home says one is over |
 | `days/<year>/` | the morning pages, kept; the evening learning draft, 14 days | look back |
 | `to-read/` | reviews, verification results, and plans or decisions waiting for your ruling, newest first | read, then delete |
 | `library/` | one summary page per topic, with links to the originals | look up |
@@ -162,6 +166,14 @@ once you have ruled on it (what it settled is written into a living page, `ela/`
 expired, it removes: a passed verification nobody posted, after 14 days. A review you leave untouched for 30 days it
 archives, so `to-read/` does not pile up. What waits for your word (a failed verification, a plan to rule on) stays
 until you give it, and the morning page reminds you; only the evening draft expires, after 14 days.
+
+## Standing constraints
+
+A ruling that holds a lane back (a service kept at or below a version until a condition is met) is a standing
+constraint once you confirm the note that proposes it; `ela promote` then refuses a promotion that would break it.
+The `constraints` page lists each one: what it says, every pin with the version its lane runs now and whether that
+is held or over, when it ends or lifts, and the note it came from. One that ended stays for seven days, marked
+expired, so a lapse is seen. Home says how many there are and how many are over.
 
 ## What is not here
 
@@ -778,6 +790,93 @@ def with_warning(body, problems):
     return body[:m.end()] + "\n\n" + warn + body[m.end():] if m else warn + "\n" + body
 
 
+def standing_constraints(s, env):
+    """`ela promote constraints --json`, or None when it cannot be read. No file is no constraints and needs no read;
+    a read stands for CONSTRAINTS_FRESH, or until the file changes, and a failed read falls back to the last one."""
+    path = os.path.join(s.get("elak") or "", "blueprint", "constraints.yaml")
+    if not os.path.isfile(path):
+        return {"exists": False, "active": [], "expired": [], "gaps": [], "counts": {"active": 0, "expired": 0, "over": 0}}
+    cache = os.path.join(s.get("runtime") or "/tmp", "vault-constraints.json")
+    mtime = os.path.getmtime(path)
+    try:
+        c = json.load(open(cache))
+    except (OSError, ValueError):
+        c = {}
+    if c.get("mtime") == mtime and datetime.datetime.now().timestamp() - c.get("at", 0) < CONSTRAINTS_FRESH:
+        return c.get("data")
+    cmd = ["python3", PROMOTE] + (["--env-file", env] if env else []) + ["--quiet", "constraints", "--json"]
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+        data = json.loads(r.stdout) if r.returncode in (0, 3) else None   # 3: a pin is over, which is the news
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        data = None
+    if data is None:
+        return c.get("data")
+    try:
+        atomic_write(cache, json.dumps({"at": datetime.datetime.now().timestamp(), "mtime": mtime, "data": data}))
+    except OSError:
+        pass
+    return data
+
+
+def constraints_note(data, today):
+    """The standing constraints as one living page: each with its pins read on their lanes, until and lift_when, and
+    the note it came from; an expired one for the seven days promote keeps it."""
+    L = ["# Standing constraints", ""]
+    if data is None:
+        L += ["> [!warning] The constraints could not be read; `ela promote constraints` says why.", ""]
+        return Note("constraints.md", "Standing constraints", "\n".join(L), {"type": "constraints", "date": today.isoformat()})
+    counts = data.get("counts") or {}
+    if not data.get("exists"):
+        L += ["No standing constraint has been confirmed yet. One is written when you confirm a note that proposes it.", ""]
+    elif data.get("error"):
+        L += [f"> [!warning] The constraints file is {data['error']}; nothing below is checked.", ""]
+    else:
+        bits = [f"{counts.get('active', 0)} active", f"{counts.get('over', 0)} over" if counts.get("over") else "",
+                f"{counts.get('expired', 0)} expired" if counts.get("expired") else "", f"read {data.get('today') or today.isoformat()}"]
+        L += ["*" + " · ".join(b for b in bits if b) + "*", ""]
+
+    def entry(c, expired):
+        L.append(f"{'###' if expired else '##'} {c.get('says') or c.get('id')}")
+        L.append("")
+        meta = [c.get("id"), f"ruled {c['ruled']}" if c.get("ruled") else ""]
+        if expired:
+            meta.append(f"**expired** {c.get('days_since_expiry')} day(s) ago ({c.get('until')}), no longer enforced")
+        else:
+            meta.append(f"until {c['until']}" + (f" ({c['days_left']} days)" if c.get("days_left") is not None else "")
+                        if c.get("until") else "no end date")
+        src = c.get("source") or ""
+        meta.append(f"from [[{src[:-3]}|its note]]" if src.endswith(".md") else (f"from {src}" if src else ""))
+        L.append("*" + " · ".join(m for m in meta if m) + "*")
+        L.append("")
+        if c.get("pins"):
+            L.extend(["| service | lane | at most | runs now | state |", "|---|---|---|---|---|"])
+            for p in c["pins"]:
+                st = p.get("state") or "unknown"
+                L.append(f"| {p.get('service')} | {p.get('lane')} | {p.get('max')} | {p.get('version') or '—'} | "
+                         f"{'**over**' if st == 'over' else st} |")
+            L.append("")
+        for ck in c.get("checks") or []:
+            L.append(f"- by hand on {', '.join(ck.get('lanes') or [])}: {ck.get('what')}")
+        if c.get("checks"):
+            L.append("")
+        if c.get("lift_when"):
+            L.extend([f"Lifts when: {c['lift_when']}", ""])
+
+    for c in data.get("active") or []:
+        entry(c, False)
+    if data.get("expired"):
+        L += ["## Expired", "", "*Ended within the last seven days: renew it, or let it lapse.*", ""]
+        for c in data["expired"]:
+            entry(c, True)
+    gaps = data.get("gaps") or []
+    if gaps:
+        L += ["> [!warning]- Not read: " + str(len(gaps))] + [f"> - {g.get('host', '')} {g.get('detail', '')}".rstrip() for g in gaps] + [""]
+    n = Note("constraints.md", "Standing constraints", "\n".join(L), {"type": "constraints", "date": today.isoformat()})
+    n.counts = {k: counts.get(k, 0) for k in ("active", "expired", "over")}
+    return n
+
+
 # ── home ──────────────────────────────────────────────────────────────────────────────────────────────
 
 def link(n):
@@ -822,8 +921,14 @@ def home(today, now, notes):
         L += ["## Today", "", "No morning page yet today" + (f"; the latest is {link(brief)}." if brief else "."), ""]
     sprint = next((n for n in sorted(notes, key=lambda n: n.props.get("date") or "", reverse=True)
                    if n.props.get("type") == "sprint" and note_status(n) == "active"), None)
+    cons = next((n for n in notes if n.props.get("type") == "constraints"), None)
+    held = getattr(cons, "counts", None) or {}
+    cline = (f"[[{cons.path[:-3]}|{held['active']} standing constraint{'s' if held['active'] != 1 else ''}]] · {held['over']} over"
+             + (f" · {held['expired']} expired" if held["expired"] else "")) if held.get("active") or held.get("expired") else ""
     if sprint:                                             # the two-week commitment, one click from Home
-        L += ["## Sprint", "", f"{link(sprint)}", ""]
+        L += ["## Sprint", "", f"{link(sprint)}", ""] + ([cline, ""] if cline else [])
+    elif cline:                                            # what holds a lane back, under the sprint it constrains
+        L += ["## Sprint", "", "No active sprint.", "", cline, ""]
     building = [n for n in notes if top(n.path) == IN_PROGRESS]
     if building:
         L += ["## In progress", "", f"![[{ELA}/all-notes.base#In progress]]", ""]
@@ -947,7 +1052,7 @@ def library_index(topics):
 def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset()):
     reports = s.get("reports")
     enotes, titles = elak_notes(s.get("elak"))
-    notes = report_notes(reports, today) + enotes
+    notes = report_notes(reports, today) + enotes + [constraints_note(standing_constraints(s, env), today)]
     vnotes, files = verify_notes(reports, today)
     notes += vnotes
     # what the owner deleted is not written, linked or listed; matched by source too, so a new layout keeps it deleted

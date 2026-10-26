@@ -91,6 +91,9 @@ with tempfile.TemporaryDirectory() as tmp:
         except OSError:
             return []
     check("a first sync succeeds", sync() == 0)
+    check("with no constraints file the page says none is confirmed, and Home is silent",
+          "No standing constraint has been confirmed yet" in open(f"{vault}/constraints.md").read()
+          and "standing constraint" not in open(f"{vault}/home.md").read())
     stamp = {f: os.path.getmtime(os.path.join(dp, f)) for dp, _, fs in os.walk(vault) for f in fs if f.endswith(".md")}
     check("a second sync with nothing new writes nothing", sync() == 0 and
           all(os.path.getmtime(os.path.join(dp, f)) == stamp.get(f) for dp, _, fs in os.walk(vault) for f in fs if f.endswith(".md")))
@@ -271,4 +274,21 @@ with tempfile.TemporaryDirectory() as t:
     open(two, "w").write(w.replace('next: "agree"', 'next: "make-plan"'))
     check("a move it offers runs", V.apply_marks(vlt, rep, dry_run=True) == [("to-read/two.md", "make-plan")])
     open(two, "w").write(open(two).read().replace('next: "make-plan"', 'next: "noted"'))
+
+day = datetime.date(2026, 10, 26)
+cons = {"exists": True, "error": None, "today": day.isoformat(), "gaps": [{"kind": "host_unreadable", "host": "qa", "detail": "qa login failed"}],
+        "counts": {"active": 1, "expired": 1, "over": 1},
+        "active": [{"id": "held", "says": "The new input stays off prod 3.", "until": "2026-11-09", "days_left": 14,
+                    "lift_when": "QA passes the chain", "source": "archive/2026-10-26-risk.md", "checks": [{"lanes": ["prod-3"], "what": "the topic list is empty"}],
+                    "pins": [{"service": "mediahub-frontend", "lane": "prod-3", "max": "2.2.118", "version": "2.2.120", "state": "over"}]}],
+        "expired": [{"id": "old", "says": "An old hold.", "until": "2026-10-24", "days_since_expiry": 2, "pins": [], "checks": []}]}
+cn = V.constraints_note(cons, day)
+check("a constraint shows what it says, each pin running and over, until, lift and its note",
+      "## The new input stays off prod 3." in cn.body and "| 2.2.120 | **over** |" in cn.body and "until 2026-11-09 (14 days)" in cn.body
+      and "Lifts when: QA passes the chain" in cn.body and "[[archive/2026-10-26-risk|its note]]" in cn.body and "by hand on prod-3" in cn.body)
+check("an expired one is listed, marked expired", "## Expired" in cn.body and "**expired** 2 day(s) ago" in cn.body)
+check("a lane not read is named", "Not read: 1" in cn.body)
+hm = V.home(day, datetime.datetime(2026, 10, 26, 9), [cn])
+check("Home says how many there are and how many are over, linking the page", "[[constraints|1 standing constraint]] · 1 over · 1 expired" in hm)
+check("an unreadable read says so", "could not be read" in V.constraints_note(None, day).body)
 sys.exit(1 if failures else 0)
