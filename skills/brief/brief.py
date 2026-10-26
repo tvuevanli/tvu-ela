@@ -8,6 +8,7 @@ across lanes — stays in the SKILL.md.
 
 Usage:
     brief.py [--env-file F] lanes [--lane cadence|triage|breakdown|incidents|backlog|yours] [--json] [--limit 300]
+    brief.py sprint [--date YYYY-MM-DD] [--json]   the active sprint in <vault>/sprints/: items, keys, day N of M
 
 Lanes (project MH) and the flags computed per row, UTC now:
   cadence    In Progress, updated between 24h and 14d ago · hours_since_update: RED > 48h · YELLOW > 24h
@@ -486,6 +487,97 @@ def cmd_yesterday(args):
         sys.exit(EX_REMOTE)
 
 
+def front_matter(text):
+    """The `key: value` lines between the leading `---` fences; values tried as JSON (the vault writes them quoted)."""
+    m = re.match(r"^---\n(.*?)\n---\n", text, re.S)
+    out = {}
+    for line in (m.group(1).splitlines() if m else []):
+        k, sep, v = line.partition(":")
+        if sep and re.match(r"^[A-Za-z_][\w-]*$", k.strip()):
+            v = v.strip()
+            try:
+                out[k.strip()] = json.loads(v)
+            except ValueError:
+                out[k.strip()] = v
+    return out
+
+
+def working_days(a, b):
+    """Weekdays from a to b, both included; 0 when b is before a."""
+    n, d = 0, a
+    while d <= b:
+        n += d.weekday() < 5
+        d += datetime.timedelta(days=1)
+    return n
+
+
+def plain(cell):
+    cell = re.sub(r"\[\[[^\]|]*\\?\|([^\]]+)\]\]", r"\1", cell)          # [[note\|label]] → label
+    cell = re.sub(r"\[\[([^\]]+)\]\]", r"\1", cell)
+    cell = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", cell)                 # [MH-1](url) → MH-1
+    return re.sub(r"\s+", " ", cell.replace("**", "").replace("`", "")).strip()
+
+
+def table_rows(body, heading):
+    """The first table under `## <heading>`: (header cells, rows), the separator dropped, each row a list of cells."""
+    m = re.search(r"^## " + re.escape(heading) + r"\s*$(.*?)(?=^## |\Z)", body, re.M | re.S)
+    rows = [l.strip() for l in (m.group(1).splitlines() if m else []) if l.strip().startswith("|")]
+    cells = [[c.strip() for c in re.split(r"(?<!\\)\|", r.strip("|"))] for r in rows]
+    return (cells[0] if cells else []), [c for c in cells[1:] if not all(re.fullmatch(r":?-+:?", x) for x in c)]
+
+
+def read_sprint(vault, runtime, today):
+    """The active sprint note under <vault>/sprints/ (front matter type sprint, status active; the latest date wins),
+    its goals and committed items, the working day it is on, and on a Friday the week's yesterday files."""
+    d = os.path.join(vault or "", "sprints")
+    notes = []
+    for f in sorted(os.listdir(d)) if os.path.isdir(d) else []:
+        if f.endswith(".md"):
+            text = open(os.path.join(d, f), encoding="utf-8").read()
+            fm = front_matter(text)
+            if fm.get("type") == "sprint" and fm.get("status") == "active":
+                notes.append((str(fm.get("date") or ""), f, fm, text))
+    if not notes:
+        return {"active": None}
+    _, f, fm, text = max(notes)
+    start = datetime.date.fromisoformat(str(fm.get("start") or fm.get("date")))
+    end = datetime.date.fromisoformat(str(fm["end"])) if fm.get("end") else None
+    items = []
+    for section, heading in (("goal", "Sprint goals"), ("committed", "Committed")):
+        head, rows = table_rows(text, heading)
+        own = [i for i, h in enumerate(head) if "ticket" in h.lower()]     # a ticket column names the item's own keys;
+        for c in rows:                                                     # a status column may cite others
+            if len(c) < 3:
+                continue
+            middle = " ".join(c[i] for i in own if i < len(c)) if own else " ".join(c[1:-1])
+            items.append({"section": section, "id": plain(c[0]), "item": plain(c[1]), "keys": keys_in(middle), "done_when": plain(c[-1])})
+    monday = today - datetime.timedelta(days=today.weekday())
+    week = [os.path.join(runtime or "", "runner", f"{(monday + datetime.timedelta(days=i)).isoformat()}-yesterday.json") for i in range(5)]
+    return {"active": {"path": os.path.join(d, f), "title": fm.get("title"), "start": start.isoformat(), "end": end and end.isoformat(),
+                       "day": min(working_days(start, today), working_days(start, end)) if end else working_days(start, today),
+                       "days": end and working_days(start, end), "days_left": end and max(working_days(today + datetime.timedelta(days=1), end), 0),
+                       "items": items},
+            "friday": today.weekday() == 4,
+            "week_yesterday_files": [p for p in week if os.path.isfile(p)]}
+
+
+def cmd_sprint(args):
+    site = json.load(open(SITE))
+    today = datetime.date.fromisoformat(args.date) if args.date else datetime.date.today()
+    out = read_sprint(site.get("vault"), site.get("runtime"), today)
+    if args.json:
+        print(json.dumps(out, ensure_ascii=False)); return
+    s = out["active"]
+    if not s:
+        print("no active sprint"); return
+    print(f"# {s['title']} · day {s['day']} of {s['days'] or '?'} · ends {s['end'] or '—'}")
+    for i in s["items"]:
+        print(f"  {i['section']:<9} {i['id']:<3} {', '.join(i['keys']) or '—':<18} {i['item'][:70]}")
+        print(f"            done when: {i['done_when'][:110]}")
+    if out["friday"]:
+        print(f"  this week's yesterday files: {len(out['week_yesterday_files'])}")
+
+
 def main():
     ap = argparse.ArgumentParser(
         description="Morning brief, Jira lanes: the facts computed, read-only. "
@@ -506,6 +598,11 @@ def main():
     p.add_argument("--fetch", action="store_true", help="fetch every checkout under the code root first (remote refs only)")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_yesterday)
+    p = sub.add_parser("sprint", help="the active sprint note in the vault: goals and committed items with their keys and "
+                                      "'done when', the working day it is on; on a Friday the week's yesterday files")
+    p.add_argument("--date", help="read as of YYYY-MM-DD (default today)")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_sprint)
     args = ap.parse_args()
     if not args.cmd:
         ap.print_usage(sys.stderr)

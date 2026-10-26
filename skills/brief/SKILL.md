@@ -45,6 +45,17 @@ source note, and the one move (roll back or ask the owner to lift it; renew or l
 row in the lanes table, "standing constraints: N active" (plus "N pins unread" when a pin's `state` is `unknown`).
 A missing file is "none".
 
+The owner's sprint is the commitment the page reports against. `python3 "${CLAUDE_PLUGIN_ROOT}/skills/brief/brief.py"
+sprint --json` finds the active sprint note under `<vault>/sprints/` (front matter `type: "sprint"`, `status:
+"active"`) and returns its goals and committed items, each with its keys and its "done when", the working day it is
+on (`day` of `days`), and on a Friday the week's `<runtime>/runner/<date>-yesterday.json` files. `{"active": null}`
+means no sprint is running. The note's own "where it stands" column is a snapshot from the day it was written; each
+key is read again first-hand (`$JIRA read <key>`): its comments since the fix, its latest QA verdict and any
+question left open, and what the owner already did on it. Its **real status** follows the rule in §3 ("Deployed" is
+a fact, never a status; a QA Fail or an open question after the fix is where it stands), never Jira's status field
+alone. An item without a key (a pair of feed failures, a decision) is judged against its "done when" from the
+day's other reads.
+
 A drafted routing line is two reads, never a guess: the area from
 `<published>/knowledge/products/mediahub/team/layer-classification.md`, then the person from `$TEAM
 who <name|email|Uxxx|accountId>` (exit 3 = not in the roster, and that is what the line says) or
@@ -262,6 +273,15 @@ MH-3745 · Search's recording blocks MediaHub's SRT receiver · Gabriel Liu (orc
 - Customer YouTube output loses audio · support holds it · the capture card reads audio at 0, so the
   customer's SDI source is the lead; nothing in MediaHub so far
 
+## Sprint
+
+Day 5 of 10 · ends Fri 6 Nov · 1 of 9 at risk
+
+| item | where it stands today | on track for 6 Nov |
+|---|---|---|
+| MH-3768 generic MXL | merge request open for the app layer; J2N option name still unanswered | at risk: J2N's owner has not replied since 10-28 |
+| MH-2406 Insufficient Resources UX | the frontend change is in QA; no verdict yet | yes |
+
 ## Yesterday
 
 Two or three sentences, then at most five case lines (§2b).
@@ -337,6 +357,14 @@ The page is read in Obsidian, so its form is fixed:
 - **At most eight items** under *Needs you*; the rest of the facts are in the tables below, one row each.
 - **At most five lines** under *FYI*, each a thread §2a rated FYI: what to know and who holds it, no **Do:**.
   Beyond five, a count in the lanes table; the section is omitted when empty.
+- **The sprint is a table after *FYI*,** under `## Sprint`, from §0's sprint read: one line saying which day of
+  the sprint it is ("day 3 of 10"), its end date and how many rows are at risk or off, then one row per goal and
+  per committed item, at most nine rows (goals first, in the note's order). Columns: the item (its key and a few
+  plain words, or the item's own words when it has no key) · where it stands today, its real status in one clause
+  · on track for the end date: **yes**, **at risk** or **off**, the last two with one reason. A row is judged
+  against its "done when" and the working days left, not against Jira's status. A sprint item that is also a
+  *Needs you* item keeps its row, whose status cell points to the item ("see 2"). The section is omitted when no
+  sprint is active.
 - **Every ticket key carries its Jira title** where it first appears on the page, in a few plain words, so the
   reader knows the ticket without opening it.
 - **A ticket appears once.** A new ticket that is already an item gets no row under *New tickets*.
