@@ -204,4 +204,15 @@ with tempfile.TemporaryDirectory() as tmp:
 old = ("10-days", "20-reviews", "25-board", "30-verify", "40-decisions", "50-plans", "70-library", "80-views", "85-assistant", "90-attachments")
 src = open(os.path.join(ROOT, "skills", "vault", "vault.py")).read() + open(os.path.join(ROOT, "skills", "reports", "SKILL.md")).read()
 check("no folder of the first layout is named in the code", not any(o in src for o in old))
+with tempfile.TemporaryDirectory() as t:
+    ap = os.path.join(t, "actions.json")
+    json.dump([{"n": 1, "applied": "2026-10-26T09:15:10+0800"}, {"n": 2},
+               {"n": 3, "by_owner": {"at": "2026-10-26T11:09:48+0800", "comment": "9"}}], open(ap, "w"))
+    page = V.action_states("- [ ] apply 1 — a\n- [ ] apply 2 — b\n- [ ] apply 3 — c\n- [ ] probe MH-1", ap)
+    check("an applied write shows ticked with its time", "- [x] apply 1 — a · applied 09:15" in page)
+    check("an open write gets a handled-myself box", "- [ ] apply 2 — b\n- [ ] I handled it myself — not apply 2" in page)
+    check("a write he made in Jira shows as handled, its apply left unticked",
+          "- [ ] apply 3 — c\n- [x] I handled it myself — not apply 3 · you commented in Jira 11:09" in page)
+    check("a session choice is left as written", page.endswith("- [ ] probe MH-1"))
+    check("no actions file leaves the page as written", V.action_states("- [ ] apply 1 — a", os.path.join(t, "none")) == "- [ ] apply 1 — a")
 sys.exit(1 if failures else 0)

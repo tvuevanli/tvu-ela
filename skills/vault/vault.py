@@ -397,6 +397,8 @@ def report_notes(reports, today):
             continue
         d = datetime.date.fromisoformat(m.group(1))
         fl, body = split_front(open(os.path.join(rd, f), encoding="utf-8").read())
+        if m.group(2) == "brief":
+            body = action_states(body, os.path.join(rd, f"{m.group(1)}-actions.json"))
         label = {"brief": "Morning brief", "learned": "What the day taught"}[m.group(2)]
         notes.append(Note(f"{DAYS}/{m.group(1)[:4]}/{m.group(1)}-{m.group(2)}.md", f"{label} · {d:%a} {m.group(1)}", body,
                           {"type": "day", "date": m.group(1), "kind": m.group(2)}, fl, src_rel=f"runner/{f}"))
@@ -437,6 +439,34 @@ def report_notes(reports, today):
             notes.append(Note(path, title, body, {"type": "review", "date": m.group(1) if m else None}, fl,
                               src_rel=f"{sub + '/' if sub else ''}{f}"))
     return notes
+
+
+APPLY_BOX = re.compile(r"^([ \t]*[-*][ \t]+)\[[ xX]\]([ \t]+apply[ \t]+(\d+)\b.*?)[ \t]*$", re.M)
+
+
+def action_states(body, actions_path):
+    """The morning page as a checklist: each drafted write shows what became of it, read from the day's actions file.
+    Applied: the apply box ticked, with the time. Not applied: a second box beside it, "I handled it myself", for a
+    write he made his own way (ticking apply would run the drafted one); ticked when he ticks it or when the runner
+    finds his own Jira comment newer than the draft, with the time and how."""
+    try:
+        acts = {str(a.get("n")): a for a in json.load(open(actions_path, encoding="utf-8"))}
+    except (OSError, ValueError):
+        return body
+
+    def one(m):
+        a = acts.get(m.group(3))
+        if not a:
+            return m.group(0)
+        lead, rest, n = m.group(1), m.group(2), m.group(3)
+        if a.get("applied"):
+            return f"{lead}[x]{rest} · applied {a['applied'][11:16]}"
+        o = a.get("by_owner")
+        if not o:
+            return f"{lead}[ ]{rest}\n{lead}[ ] I handled it myself — not apply {n}"
+        how = f"you commented in Jira {o['at'][11:16]}" if o.get("comment") else f"marked {o['at'][11:16]}"
+        return f"{lead}[ ]{rest}\n{lead}[x] I handled it myself — not apply {n} · {how}"
+    return APPLY_BOX.sub(one, body)
 
 
 def record_verdict(html_path):
