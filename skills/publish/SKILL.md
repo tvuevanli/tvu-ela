@@ -26,7 +26,7 @@ $P list           # what the manifest says is published, and whether the source'
   it is, and every limit the source states — "the GM registry has not been read first-hand" — appears where
   the reader sees it. The generator carries `source:` and `note:` from the YAML into the document.
 - **Nothing under `<published>` is edited by hand.** The location guard blocks it; a change is made in elak
-  and published again. The remote receives the directory by rsync with the deploy; it never generates.
+  and published again. No other machine receives a copy: the remote ela site retired (elak decision 2026-10-22), and every reader runs on the owner's box.
 - **The manifest row is the record.** `publish/published.md` gets one row per source: source path,
   destination (by root name), published date, the source's `verified:` at that moment. Drift is computed
   from those two dates, never remembered.

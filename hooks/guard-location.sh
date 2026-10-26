@@ -8,7 +8,7 @@
 #   2. any Edit/Write under <projects>/ela or /helm — unless the session's project dir IS that repo
 #                                                     (their CLAUDE.md and agents load only there; delegate via /ela:task)
 #   3. on a remote site, any Edit/Write under <elak> — the published subset is read-only there;
-#                                                        drafts go to Helm's store or Jira (elak `blueprint/decisions/2026-09-03-ela-runs-on-the-remote-as-a-second-site.md`)
+#                                                        drafts go to Helm's store or Jira (elak `blueprint/decisions/2026-10-22-the-remote-host-retires-everything-runs-on-the-owners-box.md`)
 #   4. any Edit/Write under <elak> outside blueprint/ knowledge/ map/ — elak holds what ela knows, and
 #                                                        a log of what happened is not knowledge
 #                                                        (elak `blueprint/principles.md` P1)
