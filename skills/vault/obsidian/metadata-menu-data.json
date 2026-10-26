@@ -20,15 +20,7 @@
           "10": "learn",
           "11": "drop"
         }
-      },
-      "command": {
-        "id": "insert__presetField__next",
-        "icon": "list",
-        "label": "next",
-        "hotkey": null
-      },
-      "display": "asList",
-      "style": {}
+      }
     }
   ],
   "fileClassQueries": [],
@@ -37,7 +29,6 @@
   "classFilesPath": null,
   "isAutosuggestEnabled": true,
   "fileClassAlias": "fileClass",
-  "settingsVersion": "5.0",
   "firstDayOfWeek": 1,
   "enableLinks": false,
   "enableTabHeader": false,
