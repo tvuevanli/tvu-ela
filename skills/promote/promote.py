@@ -10,6 +10,8 @@ Fixed In, a Fixed In against the build that carries it, a claim against QA's own
   evidence <line> <from> <to> [--scope] [--since YYYY-MM-DD]   QA verdicts per key from Jira comments, mail and Slack
   bundles  <line> <from> <to>                    the two lanes' newest bundles, docker service by docker service
   report   <line> <from> <to> [--purpose regular|prod-staging|demo] [--scope] [--out DIR]   all of it, ranked and capped
+  constraints [--json]                           the owner's standing constraints (<elak>/blueprint/constraints.yaml), each
+                                                 pin read on its lane now; expired ones listed for seven days; exit 3 when a pin is over
   compare-helm <line> <from> <to> [--scope all] [--helm-json F]   test only: Helm's payload as oracle; every difference classified
                                                  agree · timing · coverage · intended · differ · parser (the last two are unexplained)
 
@@ -19,7 +21,7 @@ Nouns: plural names a table of many (lanes · commits · tickets · bundles), si
 (qa-cn3 · daily-wed · prod-3). QA lanes are read on the qa host (account login); daily/stage/prod lanes and their
 bundles on the prod host with the person's TVU session (`ela login tvu`) — a missing session is a finding, never
 a cached number. Judgement is not here: the skill ranks and words; this script collects and reconciles.
-Exit codes: 0 ok · 2 usage · 3 a lane is unreadable · 5 remote error.
+Exit codes: 0 ok · 2 usage · 3 a lane is unreadable, or a standing pin is over · 5 remote error.
 """
 import argparse, datetime, email.utils, json, os, re, signal, subprocess, sys
 
@@ -809,6 +811,142 @@ def collect_untracked(a, delta, gaps):
     return {"window": [lo, hi], "services": out}
 
 
+# ── standing constraints: rulings the owner made that a promotion must honour ────────────────────
+
+EXPIRED_SHOWN_DAYS = 7
+
+
+def constraints_path():
+    return os.path.join(R.site().get("elak") or "", "blueprint", "constraints.yaml")
+
+
+def load_constraints(today=None, path=None):
+    """<elak>/blueprint/constraints.yaml → {path, exists, active, expired, error}. A constraint is active through its
+    `until` date; once past it, it is listed as expired for seven days so a lapse is seen, then dropped. A missing
+    file is no constraints, not an error: the file is written only when the owner confirms a proposing note."""
+    today = today or datetime.date.today()
+    path = path or constraints_path()
+    res = {"path": path, "exists": os.path.isfile(path), "active": [], "expired": [], "error": None}
+    if not res["exists"]:
+        return res
+    try:
+        doc = R._yaml_subset(open(path).read()) or {}
+    except Exception as e:
+        res["error"] = f"unreadable: {e}"; return res
+    for c in doc.get("constraints") or []:
+        if not isinstance(c, dict) or not c.get("id"):
+            continue
+        c = dict(c, pins=list(c.get("pins") or []), checks=list(c.get("checks") or []), applies=list(c.get("applies") or []))
+        try:
+            until = datetime.date.fromisoformat(str(c.get("until"))) if c.get("until") else None
+        except ValueError:
+            until = None; c["until_unparsed"] = True
+        if until is None or until >= today:
+            c["days_left"] = (until - today).days if until else None
+            res["active"].append(c)
+        elif (today - until).days <= EXPIRED_SHOWN_DAYS:
+            c["days_since_expiry"] = (today - until).days
+            res["expired"].append(c)
+    return res
+
+
+def applies_to(c, verb):
+    return not c.get("applies") or verb in c["applies"]
+
+
+def pin_state(pin, version):
+    """held · over · unknown. A `max` without a build number holds every build of that version."""
+    v, m = parse_version(version), parse_version(pin.get("max"))
+    if v is None or m is None:
+        return "unknown"
+    if m[4] == 0:
+        v = v[:4] + (0,)
+    c = cmp_versions(pin.get("service"), v, m)
+    return {1: "over", 0: "held", -1: "held"}.get(c, "unknown")
+
+
+def constraint_findings(cons, lanes):
+    """Findings for a promotion into lanes['to']: a pin the source version would break stops it; each hand check on
+    the target lane is a high open point; each constraint touching the lane says when it lifts."""
+    F = []
+    target = lanes["to"]
+    if cons.get("error"):
+        F.append({"severity": "medium", "kind": "constraints_unreadable", "what": f"{cons['path']}: {cons['error']} — the standing constraints were not checked"})
+    rows = {s["service"]: s for s in lanes["services"]}
+    for c in cons.get("active") or []:
+        if not applies_to(c, "promote"):
+            continue
+        touches = False
+        for p in c["pins"]:
+            s = rows.get(p.get("service"))
+            if p.get("lane") != target and not (s and s["to_lane"] == p.get("lane")):
+                continue
+            touches = True
+            src = (s or {}).get("from") or {}
+            st = pin_state(p, src.get("version")) if src else "unknown"
+            if st == "over":
+                F.append({"severity": "stop", "kind": "constraint_pin", "constraint": c["id"], "service": p.get("service"),
+                          "what": f"{p.get('service')}: {s['from_lane']} runs {short(src)}, over the {p.get('lane')} pin {p.get('max')} — {c.get('says')} ({c['id']}, until {c.get('until')})"})
+            elif st == "unknown":
+                F.append({"severity": "high", "kind": "constraint_pin_unknown", "constraint": c["id"], "service": p.get("service"),
+                          "what": f"{p.get('service')}: the source version was not read or not parsed, so the {p.get('lane')} pin {p.get('max')} ({c['id']}) is unchecked"})
+        for ck in c["checks"]:
+            if target not in (ck.get("lanes") or []):
+                continue
+            touches = True
+            F.append({"severity": "high", "kind": "constraint_check", "constraint": c["id"],
+                      "what": f"by hand on {target}: {ck.get('what')} ({c['id']})"})
+        if touches:
+            F.append({"severity": "note", "kind": "constraint_lift", "constraint": c["id"],
+                      "what": f"{c['id']} holds until {c.get('until') or 'no date'}; lifts when {c.get('lift_when') or 'unstated'} (source: {c.get('source') or 'none'})"})
+    for c in cons.get("expired") or []:
+        if applies_to(c, "promote") and (any(p.get("lane") == target for p in c["pins"]) or any(target in (ck.get("lanes") or []) for ck in c["checks"])):
+            F.append({"severity": "note", "kind": "constraint_lift", "constraint": c["id"],
+                      "what": f"{c['id']} expired {c['days_since_expiry']} day(s) ago ({c.get('until')}) — no longer enforced; renew it or let it lapse"})
+    return F
+
+
+def cmd_constraints(a):
+    """Every active constraint with each pin read now on its lane; expired ones for seven days. Exit 3 when a pin is over."""
+    cons = load_constraints()
+    gaps, hosts = [], {}
+    over = 0
+    for c in cons["active"]:
+        for p in c["pins"]:
+            lane = p.get("lane") or ""
+            h = lane_host(lane)
+            if h not in hosts:
+                say(f"reading {h} host lanes"); hosts[h] = read_host(a.env_file, h, gaps)
+            row = next((r for r in hosts[h] or [] if r["service"] == p.get("service") and r.get("lane") == lane), None)
+            p["version"] = row and row["version"]
+            p["state"] = pin_state(p, row["version"]) if row else "unknown"
+            over += p["state"] == "over"
+    res = {"path": cons["path"], "exists": cons["exists"], "error": cons["error"], "today": datetime.date.today().isoformat(),
+           "active": cons["active"], "expired": cons["expired"], "gaps": gaps,
+           "counts": {"active": len(cons["active"]), "expired": len(cons["expired"]), "over": over}}
+    if a.json:
+        print(json.dumps(res, ensure_ascii=False))
+    else:
+        if not cons["exists"]:
+            print(f"no standing constraints ({cons['path']} does not exist)")
+        if cons["error"]:
+            print(f"! {cons['path']}: {cons['error']}")
+        for c in cons["active"]:
+            print(f"# {c['id']}  until {c.get('until') or '—'}  applies: {', '.join(c['applies']) or 'all'}")
+            print(f"  {c.get('says')}")
+            for p in c["pins"]:
+                print(f"  pin {p.get('service')} @ {p.get('lane')} ≤ {p.get('max')}: {p.get('version') or '—'} → {p['state']}")
+            for ck in c["checks"]:
+                print(f"  check on {', '.join(ck.get('lanes') or [])}: {ck.get('what')}")
+            print(f"  lifts when: {c.get('lift_when') or '—'}")
+        for c in cons["expired"]:
+            print(f"# {c['id']}  EXPIRED {c['days_since_expiry']} day(s) ago ({c.get('until')})")
+        for g in gaps:
+            print(f"! {g['kind']}: {g.get('host', '')} {g['detail']}")
+    if over:
+        sys.exit(EX_LANE)
+
+
 # ── report ────────────────────────────────────────────────────────────────────
 
 SEV = {"stop": 0, "high": 1, "medium": 2, "low": 3, "note": 4}
@@ -879,6 +1017,7 @@ def assess(a, lanes, delta, tickets, evidence, bundles, gaps):
             add("note", "bundle_forward", "docker services newer on the source lane: " + ", ".join(f"{c['service']} {c['from']}" for c in fwd[:6]))
         if bundles.get("only_in_from"):
             add("note", "bundle_new_service", "only in the source bundle: " + ", ".join(x["service"] for x in bundles["only_in_from"][:6]))
+    F.extend(constraint_findings(load_constraints(), lanes))
     F.sort(key=lambda f: SEV[f["severity"]])
     return F
 
@@ -1312,9 +1451,10 @@ def main():
     common(sub.add_parser("bundles"), scope=False)
     p = sub.add_parser("compare-helm", help="test only: Helm's release payload as the oracle; every difference classified"); common(p); p.add_argument("--helm-json", help="a saved oracle payload instead of running Helm"); p.add_argument("--out")
     p = sub.add_parser("report"); common(p); p.add_argument("--purpose", choices=("regular", "prod-staging", "prod-deploy", "demo"), default="regular"); p.add_argument("--since"); p.add_argument("--bundles", action="store_true", help="include the bundle diff even with --scope app"); p.add_argument("--out", help="directory for <date>-mh<line>-<from>-<to>.{json,md}")
+    p = sub.add_parser("constraints", help="the standing constraints in <elak>/blueprint/constraints.yaml, each pin read now; exit 3 when one is over"); p.add_argument("--json", action="store_true")
     a = ap.parse_args()
     global QUIET; QUIET = a.quiet
-    {"lanes": cmd_lanes, "commits": cmd_delta, "delta": cmd_delta, "tickets": cmd_tickets, "evidence": cmd_evidence, "bundles": cmd_bundles, "report": cmd_report, "compare-helm": cmd_compare_helm}[a.cmd](a)
+    {"constraints": cmd_constraints, "lanes": cmd_lanes, "commits": cmd_delta, "delta": cmd_delta, "tickets": cmd_tickets, "evidence": cmd_evidence, "bundles": cmd_bundles, "report": cmd_report, "compare-helm": cmd_compare_helm}[a.cmd](a)
 
 
 if __name__ == "__main__":

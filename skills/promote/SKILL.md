@@ -13,6 +13,7 @@ P="python3 ${CLAUDE_PLUGIN_ROOT}/skills/promote/promote.py --env-file <env>"    
 $P report 2.1 qa daily --purpose prod-staging --bundles --out <runtime>/promote   # everything, ranked; JSON + markdown
 $P report 2.1 qa prod --purpose prod-deploy --out <runtime>/promote                # the deploy gate: four fixed sections
 $P lanes|commits|tickets|evidence|bundles 2.1 qa daily                            # one step at a time when arguing with a finding
+$P constraints [--json]                                                            # the standing constraints, each pin read now; exit 3 when one is over
 # Progress goes to stderr one line per step (--quiet to silence); the JSON contract is what the session reads.
 ```
 `<line>` is a key of `<elak>/map/release.yaml lines`; `<from>`/`<to>` are lane roles (qa · daily · prod) or lane
@@ -33,6 +34,15 @@ to type `! ela login tvu` and stop; never read a cache or another system's file 
   versions, changes **grouped by change** with the services carrying each and its QA state, *Open points* as
   questions, mentioning only Evan. No verdict, no "known issue", nothing attributed to Evan before he writes it
   in the thread. Executors are mentioned by him, afterwards.
+- **Standing constraints bind every promotion.** `<elak>/blueprint/constraints.yaml` holds the owner's rulings a
+  promotion must honour: a pin (a service kept at or below a version on a lane), a check done by hand on a lane,
+  each with its `until`, the condition that lifts it and its source note. `report` reads it on every run: a
+  source version over a pin on the target lane is a **stop** (`constraint_pin`), each hand check on the target
+  lane a **high** open point (`constraint_check`), and the lift condition a note (`constraint_lift`). A stop is
+  lifted only by the owner — through the source note's `ela:` line, the expiry, or a confirmed edit of the entry —
+  never by rewording the finding. An expired constraint is listed for seven days, then dropped. The file is
+  written only when the owner confirms the proposing note; this skill never writes it. A missing file is no
+  constraints.
 - **Rank and cap.** Evan reads at most twelve findings; the rest are counted. A noisy report is an unread one.
 - **Read-only until his word.** Posting (`slack post --apply`), Jira backfills (`jira label|comment … --apply`)
   and the record in elak each wait for an explicit yes, one per action.
