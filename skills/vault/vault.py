@@ -747,8 +747,8 @@ def home(today, now, notes):
     L += ["## Waiting for your word", ""] + [f"- {w}" for w in wait] + ([""] if wait else [])
     if waiting:
         L += [f"![[{ELA}/all-notes.base#Waiting for your word]]", "",
-              "*Tick a box, or type in the ela cell (or a line `ela: …` in the note); ela takes it up within a minute and "
-              "answers in Slack.*", ""]
+              "*Tick a box and ela takes it up within a minute; type in the ela cell (or a line `ela: …` in the note) and "
+              "it is taken up two minutes after you stop typing. Answers come in Slack.*", ""]
     elif not wait:
         L += ["Nothing waits for your word.", ""]
     if brief and brief.props["date"] == iso:
@@ -1070,10 +1070,12 @@ def cmd_guidance(a):
                 if top(rel) == TO_LEARN:
                     notes.append({"note": rel, "title": h1(split_front(text)[1]) or f[:-3]})
                 ticks = [x for x in TICKED.finditer(text) if x.group(1) not in source_ticks.get(rel, [])]
-                for m in (x for x in list(GUIDE.finditer(text)) + ticks if x.group(1).strip('"\' ')):
+                # kind tells a typed line, which a watcher lets settle before taking it up, from a ticked box, a click
+                found = [(x, "line") for x in GUIDE.finditer(text)] + [(x, "tick") for x in ticks]
+                for m, kind in ((x, k) for x, k in found if x.group(1).strip('"\' ')):
                     gid = hashlib.sha256(f"{f}\0{m.group(1)}".encode()).hexdigest()[:12]
                     if a.all or gid not in done:
-                        lines.append({"id": gid, "note": rel, "says": m.group(1).strip().strip('"').strip("'")})
+                        lines.append({"id": gid, "note": rel, "kind": kind, "says": m.group(1).strip().strip('"').strip("'")})
     r = {"guidance": lines, "to_learn": notes,
          "handled_log": os.path.join(reports, "ela", "guidance-handled.jsonl")}
     if a.json:
