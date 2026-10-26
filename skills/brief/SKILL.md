@@ -154,9 +154,43 @@ a standing gap, not a lane: `$SLACK channels --all <word>` finds them and joinin
 | lane | fact | judgment | drafted action → skill |
 |---|---|---|---|
 | **reports** | top-level messages in the last 24h whose author is a bot or whose text carries a report marker (`report`, `日报`, `测试报告`, `release note`, `(1/`) | which are Evan's to digest (MediaHub QA daily, release/service test reports) vs noise | "digest" → `/ela:digest <permalink>` |
-| **waiting** | `mentions` rows with `answered: false`, oldest first | is a reply actually owed, or was the mention an FYI? Product, QA and integration partners waiting > 1 working day rank at the top | a one-line reply draft (Evan posts it; the slack capability's `post` is dry-run and confirm-gated), or "FYI — no reply needed" |
+| **waiting** | `mentions` rows with `answered: false`, oldest first | the thread's role from the assessment below (act · reply · FYI · none), with its reason. Product, QA and integration partners waiting > 1 working day rank at the top of act and reply | act or reply: the drafted action or a one-line reply (Evan posts it; the slack capability's `post` is dry-run and confirm-gated); FYI: one line under *FYI*; none: counted only |
 | **monologues** | `unanswered` rows older than 24h | a spec or a question nobody picked up is a routing gap, not a Slack curiosity | name who should have answered → route, or "convert to ticket" → `$JIRA create --summary … --description …` dry-run |
 | **decisions** | Evan's own replies in the 7-day window that rule something (Chinese cues: 先…再…, 不做, 不改, 我来, 就这样, 既然…; English: `Let's …`, `we will not`, `decided`) in threads whose text carries **no** Jira key | is it a durable decision others act on? | "record" → the ruling as a fact in `<elak>/knowledge/products/mediahub/` via Evan's word (a decision others act on is knowledge about the product, not a log of a conversation — (elak `blueprint/principles.md` P1), or `$JIRA comment <key> --text '<the ruling, verbatim, with the permalink>'` dry-run |
+
+### 2a — what a thread needs from Evan
+
+Every thread that reaches the brief through Evan — a mention, a tag, a cc, a thread he took part in — is
+read to its latest reply and **assessed**. Being tagged does not make a thread his, and someone else
+driving it does not make it not his: an unanswered mention read as owed drafts work in another person's
+lane, and a driven thread read as settled hides a decision only he can make. The assessment gives one
+role, with the reason in one clause:
+
+| role | what it means | on the page |
+|---|---|---|
+| **act** | something only Evan can or should do: a decision, a routing, a ticket the product needs, a merge request of his | an item under *Needs you*, with the drafted action |
+| **reply** | a question to him, or a correction only he can make, that nobody has covered | an item under *Needs you*, with the drafted reply |
+| **FYI** | nothing to do, but something the product's technical lead should know: where an incident stands, a lead, a decision taken | one line under *FYI*: what to know, and who holds it |
+| **none** | nothing to do or know: answered, outside his product, noise | left out; counted in the lanes table |
+
+What the assessment weighs — inputs, not rules; any of them can be outweighed by another:
+
+- **Who drives the thread**, and whether they are moving it. A driver who is moving it lowers the chance
+  Evan needs to act; it does not settle it.
+- **Whether anything asked of Evan is still open**, or someone else covered it.
+- **Where the evidence points.** A defect shown in MediaHub (a component, a log line, a reproduction) can
+  owe a ticket or a lane; a cause outside it (the customer's source, their network, a third-party product)
+  usually owes none from him.
+- **Whether something said is wrong** about how MediaHub behaves, which layer owns what, or what a release
+  contains, checked against elak's knowledge, the map or the code. A claim ela cannot check against a
+  source is not flagged; that call is Evan's.
+- **Whether the thread touches his KPIs**: a ticket to break down, route or update.
+
+The role is this skill's judgment and is written as such; Evan overrules it by answering the item. An
+action on someone else's thread is drafted for Evan to send under his own name, and a nudge on the
+driver's behalf is drafted only when the assessment finds the driver stuck and Evan the one to unstick it
+(2026-10-26: a page drafted an incident ticket and a nudge on a customer audio thread support was
+driving, where the evidence pointed at the customer's SDI source; the right role was FYI).
 
 ## 2b — yesterday, by case
 
@@ -181,8 +215,9 @@ Write it as one short paragraph and at most eight case lines, under the heading 
 - **Code without a ticket** is one line per repository with a count and the authors; when a branch of
   several commits carries no key, the line names the branch, and the drafted action may be a Slack nudge to
   the author asking which ticket it belongs to (the owner's rule: every change is tracked by a ticket).
-- **Threads without a ticket**: the ones a ticket should exist for (an outage, a customer ask, a decision)
-  get one line and a drafted `ela jira create` in the description standard; the rest are left out.
+- **Threads without a ticket**: a thread §2a rates **act** because the product needs a ticket (an outage
+  shown in MediaHub, a customer ask, a decision) gets one line and a drafted `ela jira create` in the
+  description standard; any other thread takes its assessed role.
 - **ela** is one line: jobs run and failed, writes applied (with keys), Helm's auto-writes, and anything
   in them that looks wrong (a malformed Fixed In value, a write the owner did not ask for).
 
@@ -213,6 +248,11 @@ MH-3811 · Reuters confidence streams frozen · incident, new · Robin Wu holds 
 MH-3745 · Search's recording blocks MediaHub's SRT receiver · Gabriel Liu (orchestration) · In Progress
 - Fixed in orchestration 4.0.205; QA verified it on 10-22 and the daily release was requested (release mails).
 - **Do:** `apply 2` posts that status and sets Fixed In.
+
+## FYI
+
+- Customer YouTube output loses audio · support holds it · the capture card reads audio at 0, so the
+  customer's SDI source is the lead; nothing in MediaHub so far
 
 ## Yesterday
 
@@ -274,6 +314,8 @@ The page is read in Obsidian, so its form is fixed:
   its latest result under `<reports>/verify/`; a FAIL or BLOCKED after the fix is the item, not the close
   (2026-10-23: the page said drop MH-3416 while two of its verifications had failed).
 - **At most eight items** under *Needs you*; the rest of the facts are in the tables below, one row each.
+- **At most five lines** under *FYI*, each a thread §2a rated FYI: what to know and who holds it, no **Do:**.
+  Beyond five, a count in the lanes table; the section is omitted when empty.
 - **Every ticket key carries its Jira title** where it first appears on the page, in a few plain words, so the
   reader knows the ticket without opening it.
 - **A ticket appears once.** A new ticket that is already an item gets no row under *New tickets*.
