@@ -50,7 +50,7 @@ OWNER_FOLDERS = (TO_LEARN, ARCHIVE)   # where the owner drags a note to say what
 ATTACH = "ela/attachments"
 DELETABLE = (DAYS, TO_READ)
 KEEP_FOREVER = ("brief",)   # the morning page is the record of what ela told the owner; the rest expires
-PROPS = ("title", "aliases", "type", "date", "kind", "status", "done", "learn", "drop", "ela")   # the whole vocabulary; no tags (ADR 0010)
+PROPS = ("title", "aliases", "type", "date", "kind", "status", "next", "ela")   # the whole vocabulary; no tags (ADR 0010)
 MARKS = {"done": ARCHIVE, "learn": TO_LEARN, "drop": None}   # a ticked box in a to-read table row: archive, distil, delete
 BUDGET = {"topic": 800, "guide": 1200, "board": 1000, "day": 1200, "review": 2500, "decision": 1200, "plan": 2500, "sprint": 800}
 TOLERANCE = 1.1                                  # a page 10% over its budget is not worth a rewrite
@@ -108,7 +108,7 @@ the file explorer is rarely needed.
   note by its title.
 - Properties are `title`, `aliases` and `type`, plus `date`, `kind` on a day page, and `status` where the source
   states one (a verification's verdict, a plan's state); a page ela writes in place also carries `source: "vault"`.
-  They feed the tables and show at the top of each note: a status to read, and boxes (agree, done, learn, drop) to tick in place.
+  They feed the tables and show at the top of each note: a status to read, and `next`, the move you choose.
 - No tags: a keyword-guessed tag would be wrong often enough to cost trust. A note about one topic links to its
   library page, and that page's backlinks are the cross-cut.
 - A ticket key is a link to Jira, one click in reading mode.
@@ -128,16 +128,17 @@ a warning, and Home lists it for 30 days as a rewrite ela owes.
 | it gone | delete it | nothing: its source stays in the reports and the backup |
 | nothing yet | leave it | it stays, or ela moves it on (below) |
 
-The same three moves are boxes in the *To read* and *Waiting* tables on Home: tick `done` (archive), `learn`
-(to-learn) or `drop` (delete), and within a minute the note goes there; no typing, no session.
+The same three moves are choices of the note's `next` field: `done` (archive), `learn` (to-learn) or `drop`
+(delete), and within a minute the note goes there; no session.
 
-Every note to read carries its next moves as boxes at its top, by kind: a plan *agree*, *not-now*, *reject*; a
-review *make-plan*; a verification *draft-comment*; all of them *done*, *learn*, *drop*. Its **Next moves**
-section says what each box does. Tick one, at the top of the note or in its row on Home, and it is done within a
-minute; ela clears the box once it has acted. An agreed note moves to `in-progress/`, ela writes each step under its
-Progress heading, and when it is built the note offers *accept* or *not-done*. You can also answer a note with
-`ela:` lines, or continue it in any Claude session by naming its path; a session that claims a note keeps it, and
-records its conclusions there.
+Every note to read carries one field for its next move, **next**, at its top. The button beside it lists the
+choices, by kind: a plan *agree*, *not-now*, *reject*; a review *make-plan*; a verification *draft-comment*; all of
+them *done*, *learn*, *drop*. The note's **Next moves** section says what each does. Choose one, and it is done
+within a minute; ela empties the field once it has acted, and a value that is not a move for the note runs nothing
+and is pointed out under the title. An agreed note moves to `in-progress/`, ela writes each step under its Progress
+heading, and when it is built the note offers *accept* or *not-done*. You can also answer a note with `ela:` lines,
+or continue it in any Claude session by naming its path; a session that claims a note keeps it, and records its
+conclusions there.
 
 To tell ela what you want of a note, or to answer what it waits for, write a line starting `ela:` into the note,
 below its properties (the end is easiest: Ctrl+E, Ctrl+End, write, Ctrl+E), in your own words. Any note: a
@@ -178,8 +179,9 @@ machine.
 - Core plugins on: search, quick switcher, file explorer, backlinks, outgoing links, page preview, outline,
   bookmarks, properties, Bases, Web viewer (on request only). Off: everything made for writing, tags and the
   graph.
-- Two community plugins: **Homepage** opens `home` in reading view when Obsidian starts; **HTML Reader** opens a
-  verification's full record (a self-contained `.html`) in a tab. A web link opens the default browser;
+- Three community plugins: **Homepage** opens `home` in reading view when Obsidian starts; **HTML Reader** opens a
+  verification's full record (a self-contained `.html`) in a tab; **Metadata Menu** makes a note's `next` field a
+  list to choose from, by the button beside it in the properties. A web link opens the default browser;
   right-click it and choose *Open in web viewer* to read it inside Obsidian (Jira works there, Slack does not).
 """
 
@@ -211,7 +213,7 @@ VIEWS = {
   - type: table
     name: Waiting for your word
     filters:
-""" + WAITING + """    order: [date, formula.note, type, status, agree, accept, done, drop, ela]
+""" + WAITING + """    order: [date, formula.note, type, status, next, ela]
     sort:
       - property: date
         direction: DESC
@@ -223,7 +225,7 @@ VIEWS = {
         - 'status != "fail"'
         - 'status != "blocked"'
         - 'status != "proposed"'
-    order: [date, formula.note, type, make-plan, done, learn, drop, ela]
+    order: [date, formula.note, type, next, ela]
     sort:
       - property: date
         direction: DESC
@@ -232,7 +234,7 @@ VIEWS = {
     filters:
       and:
         - file.inFolder("in-progress")
-    order: [date, formula.note, status, progress, built, accept, not-done, claimed]
+    order: [date, formula.note, status, progress, built, next, claimed]
     sort:
       - property: date
         direction: DESC
@@ -292,7 +294,7 @@ def front(existing, props):
     if props.get("title") and props.get("type") not in ("home", "readme"):
         props["aliases"] = [props["title"]]                # the quick switcher matches an alias, not a heading
     lines = [f"{k}: {json.dumps(props[k], ensure_ascii=False)}" for k in PROPS if props.get(k) or props.get(k) is False
-             or (k == "ela" and props.get(k) == "")]          # an empty ela cell, ready for his word
+             or (k in ("ela", "next") and props.get(k) == "")]   # an empty ela cell or next field, ready for his word
     return "---\n" + "\n".join(lines) + "\n---\n\n" if lines else ""
 
 
@@ -970,9 +972,7 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset()):
     planned = {}
     for n in notes:
         if top(n.path) == TO_READ:
-            n.props.update({k: False for k in MARKS}, ela="")
-            for k in MOVE_PROPS.get(n.props.get("type")) or []:
-                n.props[k] = False
+            n.props.update({NEXT: ""}, ela="")
         n.held = reading_gate(n)
         body = linker(unwrap(callouts(meta_line(Note(n.path, n.title, tidy_title(n.body), n.props, n.front_lines), by_topic))))
         if top(n.path) == TO_READ:
@@ -1094,6 +1094,8 @@ def cmd_setup(a):
                 if r.returncode != 0:
                     print(f"could not fetch {pid} {f}: {r.stderr.strip()[-120:]}", file=sys.stderr)
     shutil.copyfile(os.path.join(src, "homepage-data.json"), os.path.join(o, "plugins", "homepage", "data.json"))
+    # the note's next field as a Select: the button beside it in the properties lists the moves
+    shutil.copyfile(os.path.join(src, "metadata-menu-data.json"), os.path.join(o, "plugins", "metadata-menu", "data.json"))
     now = int(datetime.datetime.now().timestamp() * 1000)
     atomic_write(os.path.join(o, "bookmarks.json"), json.dumps({"items": [dict(b, type="file", ctime=now) for b in cfg["bookmarks"]]}, indent=2))
     print("vault settings applied; restart Obsidian to load them")
@@ -1176,7 +1178,9 @@ MOVE_MEANING = {
 MOVES = MOVE_PROPS               # a kind with moves gets the section that explains them
 AGREEABLE = ("plan", "sprint")
 MOVES_HEAD = "## Next moves"
-PROP_RE = re.compile(r"^(" + "|".join(re.escape(k) for k in ("done", "learn", "drop") + ALL_MOVE_PROPS) + r"):\s*(true|false)\s*\n", re.M | re.I)
+PROP_RE = re.compile(r"^(?:(?:" + "|".join(re.escape(k) for k in ("done", "learn", "drop") + ALL_MOVE_PROPS)
+                     + r"):\s*(?:true|false)|next:\s*.*)\s*\n", re.M | re.I)   # the move fields, old boxes included
+NEXT = "next"   # one field, one value: the move he chose, from the list Metadata Menu shows beside it
 
 
 def move_props(kind, in_to_read=True):
@@ -1185,12 +1189,13 @@ def move_props(kind, in_to_read=True):
 
 
 def moves_section(rel, kind, stamp=None):
-    """What each box at the top of the note does, and where to continue it. The boxes themselves are properties,
-    ticked at the top of the note or in its Home row; ela clears a box once it has acted, so nothing runs twice."""
+    """What each choice of the note's `next` field does, and where to continue it. The field is set at the top of
+    the note (the button beside it lists the choices) or typed in its Home row; ela empties it once it has acted."""
     props = move_props(kind, in_to_read=kind != "built")
     if not MOVE_PROPS.get(kind):
         return ""
-    return "\n".join([MOVES_HEAD, "", "Tick a box at the top of this note, or in its row on Home:", ""]
+    return "\n".join([MOVES_HEAD, "", "Choose one for **next** at the top of this note (the button beside it lists them), "
+                       "or type it in the note's row on Home:", ""]
                       + [f"- **{k}**: {MOVE_MEANING[k]}" for k in props]
                       + ["", f"*Or write `ela:` lines above, or continue in a session: `{rel}`.*"])
 
@@ -1243,7 +1248,7 @@ def move_note(vault, reports, rel, to, status=None):
     text = open(p, encoding="utf-8").read()
     kind = (split_front(text)[0] and next((re.sub(r'^type:\s*', "", l).strip().strip('"\'') for l in split_front(text)[0]
                                             if l.startswith("type:")), None))
-    text = clear_two(PROP_RE.sub("", text))
+    text = clear_warn(PROP_RE.sub("", text))
     text = set_front(text, source="vault", status=status, claimed=None)
     fl, body = split_front(text)
     body = with_moves(body, f"{folder}/{os.path.basename(rel)}", kind if folder == TO_READ else None)
@@ -1283,7 +1288,7 @@ def cmd_note(a):
                              "built: " + " ".join(a.text))
         text = PROP_RE.sub("", text)
         fl0, b0 = split_front(text)
-        text = "---\n" + "\n".join(fl0 + [f"{k}: false" for k in MOVE_PROPS["built"]]) + "\n---\n" + b0
+        text = "---\n" + "\n".join(fl0 + [f'{NEXT}: ""']) + "\n---\n" + b0
         fl, body = split_front(text)
         atomic_write(p, "---\n" + "\n".join(fl) + "\n---\n" + with_moves(body, rel, "built", stamp).lstrip("\n"))
         print(f"{rel}: built; waiting for the owner's acceptance")
@@ -1305,7 +1310,7 @@ def ensure_native_moves(vault, dry_run=False):
         kind = next((re.sub(r"^type:\s*", "", l).strip().strip('"\'') for l in fl if l.startswith("type:")), None)
         has_moves = re.search(r"^" + re.escape(MOVES_HEAD), body, re.M)
         # the same table properties a generated note to read carries, so its Home row has working boxes
-        wanted = [f"{k}: false" for k in move_props(kind)] + ['ela: ""']
+        wanted = [f'{NEXT}: ""', 'ela: ""']
         missing = [w for w in wanted if not any(l.startswith(w.split(":")[0] + ":") for l in fl)]
         if MOVES.get(kind) and (not has_moves or missing) and not dry_run:
             fl = fl + missing
@@ -1357,43 +1362,48 @@ def cmd_guidance(a):
 
 
 def apply_marks(vault, reports, dry_run=False):
-    """Boxes he ticked, at the top of a note or in its Home row. done, learn and drop finish the note here, as if he
-    had dragged or deleted it; every other move is reported for the runner, which acts and clears the box.
-    Returns [(path, box)]."""
+    """The move he chose in a note's `next` field. done, learn and drop finish the note here, as if he had dragged or
+    deleted it; every other move is reported for the runner, which acts and empties the field. A value that is not a
+    move for that note runs nothing, and the note says so. Returns [(path, move)]."""
     out = []
     for folder in (TO_READ, IN_PROGRESS):
         d = os.path.join(vault, folder)
         for f in sorted(os.listdir(d)) if os.path.isdir(d) else []:
             if not f.endswith(".md"):
                 continue
+            p = os.path.join(d, f)
             try:
-                fl, _ = split_front(open(os.path.join(d, f), encoding="utf-8").read())
+                fl, _ = split_front(open(p, encoding="utf-8").read())
             except OSError:
                 continue
-            on = [k for k in tuple(MARKS) + ALL_MOVE_PROPS if any(re.match(rf"^{re.escape(k)}:\s*true\s*$", l, re.I) for l in fl)]
-            if not on:
-                continue
+            props = {m.group(1): m.group(2).strip().strip('"\'') for m in (re.match(r"^([\w-]+):\s*(.*)$", l) for l in fl) if m}
             rel = f"{folder}/{f}"
-            if len(on) > 1:                                # the moves exclude each other: two boxes are a question, not a move
-                if not dry_run:
-                    warn_two(os.path.join(d, f), on)
+            kind = "built" if props.get("status") == "built" else props.get("type")
+            allowed = move_props(kind, in_to_read=folder == TO_READ)
+            # the earlier checkbox form, while a note still carries it
+            boxes = [k for k in tuple(MARKS) + ALL_MOVE_PROPS if props.get(k, "").lower() == "true"]
+            move = (props.get(NEXT) or "").strip().lower() or (boxes[0] if len(boxes) == 1 else "")
+            if not move:
                 continue
-            k = on[0]
-            out.append((rel, k))
-            if k in MARKS and not dry_run:
-                finish(vault, reports, rel, {"done": "archive", "learn": "learn", "drop": "delete"}[k])
+            if move not in allowed:
+                if not dry_run:
+                    warn_move(p, move, allowed)
+                continue
+            out.append((rel, move))
+            if move in MARKS and not dry_run:
+                finish(vault, reports, rel, {"done": "archive", "learn": "learn", "drop": "delete"}[move])
     return out
 
 
-TWO_BOXES = "> [!warning] Two moves are ticked"
+MOVE_WARN = "> [!warning] Not a move for this note"
 
 
-def warn_two(p, on):
-    """Nothing runs while more than one move box is ticked; the note says so once, at its top, until one is unticked."""
+def warn_move(p, move, allowed):
+    """A `next` value that is not one of the note's moves: said once under the title, until the field changes."""
     text = open(p, encoding="utf-8").read()
     fl, body = split_front(text)
-    body = re.sub(r"^" + re.escape(TWO_BOXES) + r".*\n(?:>.*\n)*\n?", "", body, flags=re.M)
-    line = f"{TWO_BOXES}: {' and '.join(on)}\n> Nothing runs until one is unticked; the other then runs within a minute.\n\n"
+    body = clear_warn(body)
+    line = f"{MOVE_WARN}: `{move}`\n> Choose one of: {', '.join(allowed)}.\n\n"
     m = re.search(r"^#[ \t]+.*\n", body, re.M)
     body = body[:m.end()] + "\n" + line + body[m.end():].lstrip("\n") if m else line + body
     new = "---\n" + "\n".join(fl) + "\n---\n" + body
@@ -1401,9 +1411,8 @@ def warn_two(p, on):
         atomic_write(p, new)
 
 
-def clear_two(text):
-    """The warning removed once a single box remains (the move then runs)."""
-    return re.sub(r"^" + re.escape(TWO_BOXES) + r".*\n(?:>.*\n)*\n?", "", text, flags=re.M)
+def clear_warn(text):
+    return re.sub(r"^" + re.escape(MOVE_WARN) + r".*\n(?:>.*\n)*\n?", "", text, flags=re.M)
 
 
 def cmd_marks(a):
@@ -1427,7 +1436,7 @@ def finish(vault, reports, rel, to):
         dst = os.path.join(vault, folder, os.path.basename(rel))
         os.replace(p, dst)
         text = open(dst, encoding="utf-8").read()   # the boxes belong to to-read; the moved copy goes without them
-        open(dst, "w", encoding="utf-8").write(re.sub(r"^(done|learn|drop):\s*(true|false)\s*\n", "", text, flags=re.M | re.I))
+        open(dst, "w", encoding="utf-8").write(clear_warn(PROP_RE.sub("", text)))
     else:
         os.remove(p)
     record_removed(os.path.join(reports, "ela", "vault-removed.jsonl"), [rel], {rel: src} if src else {},

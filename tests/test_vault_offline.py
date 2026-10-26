@@ -132,11 +132,11 @@ with tempfile.TemporaryDirectory() as tmp:
         refused = True
     check("finish refuses a living page", refused and os.path.exists(f"{vault}/home.md"))
     r6 = f"{vault}/to-read/{today[:4]}-09-16-review-6.md"
-    check("a to-read note carries its three boxes, unticked", all(f"{k}: false" in open(r6).read() for k in ("done", "learn", "drop")))
-    txt = open(r6).read(); open(r6, "w").write(txt.replace("done: false", "done: true"))
-    check("a ticked done box archives the note at the next sync, without the boxes", sync() == 0
+    check("a to-read note carries an empty next field", 'next: ""' in open(r6).read() and "done:" not in open(r6).read())
+    txt = open(r6).read(); open(r6, "w").write(txt.replace('next: ""', 'next: "done"'))
+    check("next: done archives the note at the next sync, without the field", sync() == 0
           and os.path.exists(f"{vault}/archive/{today[:4]}-09-16-review-6.md") and not os.path.exists(r6)
-          and "done:" not in open(f"{vault}/archive/{today[:4]}-09-16-review-6.md").read())
+          and "next:" not in open(f"{vault}/archive/{today[:4]}-09-16-review-6.md").read())
     r9 = f"{vault}/to-read/{today[:4]}-09-19-review-9.md"
     txt = open(r9).read(); open(r9, "w").write(txt.replace('ela: ""', 'ela: "1A, post it"'))
     check("his word typed in the ela cell survives the rewrite", sync() == 0 and 'ela: "1A, post it"' in open(r9).read()
@@ -146,8 +146,8 @@ with tempfile.TemporaryDirectory() as tmp:
     check("a choice he ticks stays ticked through the rewrite", sync() == 0 and "- [x] probe MH-1 from the replay" in open(bp).read()
           and "- [ ] apply 2" in open(bp).read())
     r7 = f"{vault}/to-read/{today[:4]}-09-17-review-7.md"
-    txt = open(r7).read(); open(r7, "w").write(txt.replace("drop: false", "drop: true"))
-    check("a ticked drop box deletes it, logged as his", [x[1] for x in V.apply_marks(vault, reports)] == ["drop"] and not os.path.exists(r7)
+    txt = open(r7).read(); open(r7, "w").write(txt.replace('next: ""', "next: drop"))
+    check("next: drop deletes it, logged as his", [x[1] for x in V.apply_marks(vault, reports)] == ["drop"] and not os.path.exists(r7)
           and any(r.get("fate") == "deleted" and r["path"].endswith("review-7.md") for r in rows()))
     os.makedirs(f"{vault}/to-learn", exist_ok=True)
     os.rename(f"{vault}/to-read/{today[:4]}-09-11-review-1.md", f"{vault}/to-learn/{today[:4]}-09-11-review-1.md")
@@ -257,18 +257,18 @@ with tempfile.TemporaryDirectory() as t:
     open(os.path.join(vlt, "to-read", "n.md"), "w").write('---\ntype: "plan"\nsource: "vault"\n---\n# N\n\n## Next moves\n\n- [ ] Agree, build it\n')
     V.ensure_native_moves(vlt)
     n = open(os.path.join(vlt, "to-read", "n.md")).read()
-    check("a plan written in the vault gains its move boxes, its section kept once", all(f"{k}: false" in n for k in ("agree", "not-now", "reject", "done", "learn", "drop"))
-          and n.count(V.MOVES_HEAD) == 1)
+    check("a plan written in the vault gains its next field, its section kept once", 'next: ""' in n and n.count(V.MOVES_HEAD) == 1)
 with tempfile.TemporaryDirectory() as t:
     vlt, rep = os.path.join(t, "v"), os.path.join(t, "r")
     os.makedirs(os.path.join(vlt, "to-read")); os.makedirs(rep)
     two = os.path.join(vlt, "to-read", "two.md")
-    open(two, "w").write('---\ntype: "plan"\nagree: true\ndone: true\n---\n# Two\n\nbody\n')
-    check("two ticked moves run nothing", V.apply_marks(vlt, rep) == [] and os.path.exists(two))
+    open(two, "w").write('---\ntype: "review"\nnext: "agree"\n---\n# Two\n\nbody\n')
+    check("a move the note does not offer runs nothing", V.apply_marks(vlt, rep) == [] and os.path.exists(two))
     w = open(two).read()
-    check("the note says which two, once", w.count(V.TWO_BOXES) == 1 and "agree" in w.split(V.TWO_BOXES)[1].split("\n")[0] and "done" in w.split(V.TWO_BOXES)[1].split("\n")[0])
+    check("the note names the value and its choices, once", w.count(V.MOVE_WARN) == 1 and "`agree`" in w and "make-plan" in w)
     V.apply_marks(vlt, rep)
-    check("the warning is not repeated", open(two).read().count(V.TWO_BOXES) == 1)
-    open(two, "w").write(w.replace("done: true", "done: false"))
-    check("one box left runs it", V.apply_marks(vlt, rep, dry_run=True) == [("to-read/two.md", "agree")])
+    check("the warning is not repeated", open(two).read().count(V.MOVE_WARN) == 1)
+    open(two, "w").write(w.replace('next: "agree"', 'next: "make-plan"'))
+    check("a move it offers runs", V.apply_marks(vlt, rep, dry_run=True) == [("to-read/two.md", "make-plan")])
+    open(two, "w").write(open(two).read().replace('next: "make-plan"', 'next: "noted"'))
 sys.exit(1 if failures else 0)

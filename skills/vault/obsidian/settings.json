@@ -36,6 +36,7 @@
   ],
   "community": [
     "homepage",
+    "metadata-menu",
     "obsidian-html-plugin"
   ],
   "bookmarks": [
@@ -81,6 +82,15 @@
         "main.js",
         "manifest.json"
       ]
+    },
+    "metadata-menu": {
+      "repo": "mdelobelle/metadatamenu",
+      "version": "0.8.12",
+      "files": [
+        "main.js",
+        "manifest.json",
+        "styles.css"
+      ]
     }
   },
   "core_options": {
@@ -93,19 +103,12 @@
     "done": "checkbox",
     "learn": "checkbox",
     "drop": "checkbox",
-    "agree": "checkbox",
-    "not-now": "checkbox",
-    "reject": "checkbox",
-    "make-plan": "checkbox",
-    "draft-comment": "checkbox",
-    "confirm": "checkbox",
-    "accept": "checkbox",
-    "not-done": "checkbox",
     "date": "date",
     "status": "text",
     "progress": "text",
     "built": "text",
     "claimed": "text",
-    "ela": "text"
+    "ela": "text",
+    "next": "text"
   }
 }

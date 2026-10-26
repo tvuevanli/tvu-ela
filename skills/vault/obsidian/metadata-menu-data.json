@@ -1,0 +1,66 @@
+{
+  "presetFields": [
+    {
+      "id": "elanext",
+      "name": "next",
+      "type": "Select",
+      "path": "",
+      "options": {
+        "sourceType": "ValuesList",
+        "valuesList": {
+          "1": "agree",
+          "2": "not-now",
+          "3": "reject",
+          "4": "make-plan",
+          "5": "draft-comment",
+          "6": "confirm",
+          "7": "accept",
+          "8": "not-done",
+          "9": "done",
+          "10": "learn",
+          "11": "drop"
+        }
+      },
+      "command": {
+        "id": "insert__presetField__next",
+        "icon": "list",
+        "label": "next",
+        "hotkey": null
+      },
+      "display": "asList",
+      "style": {}
+    }
+  ],
+  "fileClassQueries": [],
+  "displayFieldsInContextMenu": true,
+  "globallyIgnoredFields": [],
+  "classFilesPath": null,
+  "isAutosuggestEnabled": true,
+  "fileClassAlias": "fileClass",
+  "settingsVersion": "5.0",
+  "firstDayOfWeek": 1,
+  "enableLinks": false,
+  "enableTabHeader": false,
+  "enableEditor": true,
+  "enableBacklinks": false,
+  "enableStarred": false,
+  "enableFileExplorer": false,
+  "enableSearch": false,
+  "enableProperties": true,
+  "tableViewMaxRecords": 20,
+  "frontmatterListDisplay": "asArray",
+  "fileClassExcludedFolders": [],
+  "showIndexingStatusInStatusBar": false,
+  "fileIndexingExcludedFolders": [],
+  "fileIndexingExcludedExtensions": [
+    ".excalidraw.md"
+  ],
+  "fileIndexingExcludedRegex": [],
+  "frontmatterOnly": true,
+  "showFileClassSelectInModal": false,
+  "chooseFileClassAtFileCreation": false,
+  "autoInsertFieldsAtFileClassInsertion": false,
+  "fileClassIcon": "package",
+  "isAutoCalculationEnabled": false,
+  "disableDataviewPrompt": true
+}
