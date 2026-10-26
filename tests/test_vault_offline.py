@@ -242,4 +242,15 @@ with tempfile.TemporaryDirectory() as t:
     check("an agreed note moves to in-progress as the vault's own page", to == "in-progress/p.md" and 'source: "vault"' in moved
           and 'status: "in progress"' in moved and "done:" not in moved and V.MOVES_HEAD not in moved)
     check("the move is logged as his", '"fate": "in-progress"' in open(os.path.join(rep, "ela", "vault-removed.jsonl")).read())
+with tempfile.TemporaryDirectory() as t:
+    vlt, rep = os.path.join(t, "v"), os.path.join(t, "r")
+    os.makedirs(os.path.join(vlt, "to-read")); os.makedirs(rep)
+    open(os.path.join(vlt, "to-read", "a.md"), "w").write('---\ntype: "plan"\nagree: true\ndone: false\n---\n# A\n')
+    got = V.apply_marks(vlt, rep)
+    check("a ticked agree box is reported for the runner and left in place", got == [("to-read/a.md", "agree")]
+          and os.path.exists(os.path.join(vlt, "to-read", "a.md")))
+    open(os.path.join(vlt, "to-read", "n.md"), "w").write('---\ntype: "plan"\nsource: "vault"\n---\n# N\n\n## Next moves\n\n- [ ] Agree, build it\n')
+    V.ensure_native_moves(vlt)
+    n = open(os.path.join(vlt, "to-read", "n.md")).read()
+    check("a plan written in the vault gains its agree box, its moves kept once", "agree: false" in n and n.count(V.MOVES_HEAD) == 1)
 sys.exit(1 if failures else 0)

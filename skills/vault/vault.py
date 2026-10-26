@@ -128,7 +128,8 @@ a warning, and Home lists it for 30 days as a rewrite ela owes.
 | nothing yet | leave it | it stays, or ela moves it on (below) |
 
 The same three moves are boxes in the *To read* and *Waiting* tables on Home: tick `done` (archive), `learn`
-(to-learn) or `drop` (delete), and within a minute the note goes there; no typing, no session.
+(to-learn) or `drop` (delete), and within a minute the note goes there; no typing, no session. A plan's row also has
+an `agree` box: ticking it in the table is the same as ticking *Agree, build it* in the note.
 
 Every note to read also ends in **Next moves**, by kind: a plan offers *Agree, build it*, *Not now*, *Reject*; a
 review *Turn the findings into a plan*, *Noted, archive*, *Drop*; a verification *Post the short Jira comment*,
@@ -208,7 +209,7 @@ VIEWS = {
   - type: table
     name: Waiting for your word
     filters:
-""" + WAITING + """    order: [date, formula.note, type, status, done, learn, drop, ela]
+""" + WAITING + """    order: [date, formula.note, type, status, agree, done, learn, drop, ela]
     sort:
       - property: date
         direction: DESC
@@ -220,7 +221,7 @@ VIEWS = {
         - 'status != "fail"'
         - 'status != "blocked"'
         - 'status != "proposed"'
-    order: [date, formula.note, type, done, learn, drop, ela]
+    order: [date, formula.note, type, agree, done, learn, drop, ela]
     sort:
       - property: date
         direction: DESC
@@ -229,7 +230,7 @@ VIEWS = {
     filters:
       and:
         - file.inFolder("in-progress")
-    order: [date, formula.note, type, status]
+    order: [date, formula.note, status, progress, built, claimed]
     sort:
       - property: date
         direction: DESC
@@ -964,6 +965,8 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset()):
     for n in notes:
         if top(n.path) == TO_READ:
             n.props.update({k: False for k in MARKS}, ela="")
+            if n.props.get("type") in AGREEABLE:
+                n.props["agree"] = False
         n.held = reading_gate(n)
         body = linker(unwrap(callouts(meta_line(Note(n.path, n.title, tidy_title(n.body), n.props, n.front_lines), by_topic))))
         if top(n.path) == TO_READ:
@@ -1154,6 +1157,7 @@ MOVES = {
     "sprint": ["Agree, build it", "Not now"],
 }
 BUILT_MOVES = ["Accept and archive", "Not done yet"]
+AGREEABLE = ("plan", "sprint")   # kinds whose row on Home carries an agree box: one click, the same as "Agree, build it"
 MOVES_HEAD = "## Next moves"
 
 
@@ -1216,7 +1220,7 @@ def move_note(vault, reports, rel, to, status=None):
     text = open(p, encoding="utf-8").read()
     kind = (split_front(text)[0] and next((re.sub(r'^type:\s*', "", l).strip().strip('"\'') for l in split_front(text)[0]
                                             if l.startswith("type:")), None))
-    text = re.sub(r"^(done|learn|drop):\s*(true|false)\s*\n", "", text, flags=re.M | re.I)
+    text = re.sub(r"^(done|learn|drop|agree):\s*(true|false)\s*\n", "", text, flags=re.M | re.I)
     text = set_front(text, source="vault", status=status, claimed=None)
     fl, body = split_front(text)
     body = with_moves(body, f"{folder}/{os.path.basename(rel)}", kind if folder == TO_READ else None)
@@ -1248,10 +1252,12 @@ def cmd_note(a):
     elif a.act == "release":
         atomic_write(p, set_front(text, claimed=None)); print(f"{rel}: released")
     elif a.act == "progress":
-        atomic_write(p, progress_line(text, " ".join(a.text))); print(f"{rel}: progress noted")
+        line = " ".join(a.text)
+        atomic_write(p, progress_line(set_front(text, progress=line[:120]), line)); print(f"{rel}: progress noted")
     elif a.act == "built":
         stamp = datetime.datetime.now().strftime("%m-%d %H:%M")
-        text = progress_line(set_front(text, status="built", claimed=None), "built: " + " ".join(a.text))
+        text = progress_line(set_front(text, status="built", claimed=None, built=stamp, progress=" ".join(a.text)[:120]),
+                             "built: " + " ".join(a.text))
         fl, body = split_front(text)
         atomic_write(p, "---\n" + "\n".join(fl) + "\n---\n" + with_moves(body, rel, "built", stamp).lstrip("\n"))
         print(f"{rel}: built; waiting for the owner's acceptance")
@@ -1268,11 +1274,15 @@ def ensure_native_moves(vault, dry_run=False):
             continue
         text = open(p, encoding="utf-8").read()
         fl, body = split_front(text)
-        if not any(re.match(r"^source:\s*['\"]?vault['\"]?\s*$", l) for l in fl) or re.search(r"^" + re.escape(MOVES_HEAD), body, re.M):
+        if not any(re.match(r"^source:\s*['\"]?vault['\"]?\s*$", l) for l in fl):
             continue
         kind = next((re.sub(r"^type:\s*", "", l).strip().strip('"\'') for l in fl if l.startswith("type:")), None)
-        if MOVES.get(kind) and not dry_run:
-            atomic_write(p, "---\n" + "\n".join(fl) + "\n---\n" + with_moves(body, f"{TO_READ}/{f}", kind).lstrip("\n"))
+        has_moves = re.search(r"^" + re.escape(MOVES_HEAD), body, re.M)
+        needs_agree = kind in AGREEABLE and not any(l.startswith("agree:") for l in fl)
+        if MOVES.get(kind) and (not has_moves or needs_agree) and not dry_run:
+            fl = fl + (["agree: false"] if needs_agree else [])
+            body = body if has_moves else with_moves(body, f"{TO_READ}/{f}", kind)
+            atomic_write(p, "---\n" + "\n".join(fl) + "\n---\n" + body.lstrip("\n"))
 
 
 def cmd_guidance(a):
@@ -1331,6 +1341,9 @@ def apply_marks(vault, reports, dry_run=False):
         except OSError:
             continue
         ticked = [k for k in MARKS if any(re.match(rf"^{k}:\s*true\s*$", l, re.I) for l in fl)]
+        if not ticked and any(re.match(r"^agree:\s*true\s*$", l, re.I) for l in fl):
+            out.append((f"{TO_READ}/{f}", "agree"))      # the runner moves it and starts the build; nothing to finish here
+            continue
         if not ticked:
             continue
         k = "drop" if "drop" in ticked else ticked[0]
