@@ -45,6 +45,7 @@ MANIFEST = ".ela-sync.json"
 DAYS_KEPT, HELD_LISTED_DAYS, NEW_DAYS, MASS_DELETE, UNREAD_DAYS = 14, 30, 7, 8, 30
 LAYOUT = 3                  # the manifest records it; a sync across a change of layout guards the total, not each folder
 DAYS, TO_READ, LIBRARY, ELA, ARCHIVE, TO_LEARN = "days", "to-read", "library", "ela", "archive", "to-learn"
+IN_PROGRESS = "in-progress"   # a note he agreed to, while ela builds it and until he accepts the result
 OWNER_FOLDERS = (TO_LEARN, ARCHIVE)   # where the owner drags a note to say what he wants; ela never rewrites in them
 ATTACH = "ela/attachments"
 DELETABLE = (DAYS, TO_READ)
@@ -129,6 +130,13 @@ a warning, and Home lists it for 30 days as a rewrite ela owes.
 The same three moves are boxes in the *To read* and *Waiting* tables on Home: tick `done` (archive), `learn`
 (to-learn) or `drop` (delete), and within a minute the note goes there; no typing, no session.
 
+Every note to read also ends in **Next moves**, by kind: a plan offers *Agree, build it*, *Not now*, *Reject*; a
+review *Turn the findings into a plan*, *Noted, archive*, *Drop*; a verification *Post the short Jira comment*,
+*Noted, archive*. Tick one and it is done within a minute. An agreed note moves to `in-progress/`, ela writes each
+step under its Progress heading, and when it is built the note offers *Accept and archive* or *Not done yet*. You
+can also answer a note with `ela:` lines, or continue it in any Claude session by naming its path; a session that
+claims a note keeps it, and records its conclusions there.
+
 To tell ela what you want of a note, or to answer what it waits for, write a line starting `ela:` into the note,
 anywhere but above its hidden properties (the end is easiest: Ctrl+E, Ctrl+End, write, Ctrl+E), in your own words.
 Any note: a rewrite keeps your lines. The next morning or evening run handles each line once, a place included ("write this to the KB", "into elak"); without one, ela chooses between a
@@ -180,6 +188,7 @@ properties:
 """
 
 WAITING = """      or:
+        - 'status == "built"'
         - 'status == "proposed"'
         - 'status == "fail"'
         - 'status == "blocked"'
@@ -212,6 +221,15 @@ VIEWS = {
         - 'status != "blocked"'
         - 'status != "proposed"'
     order: [date, formula.note, type, done, learn, drop, ela]
+    sort:
+      - property: date
+        direction: DESC
+  - type: table
+    name: In progress
+    filters:
+      and:
+        - file.inFolder("in-progress")
+    order: [date, formula.note, type, status]
     sort:
       - property: date
         direction: DESC
@@ -773,7 +791,7 @@ def home(today, now, notes):
     # everything that needs his word, from typed state: a failed or blocked verification, a plan proposed to him, the
     # evening draft (a live view, so it leaves when he deletes the note), and proposed closes from the board
     # the same rules as the views, so an empty table is a sentence instead
-    waiting = [n for n in notes if note_status(n) in ("proposed", "fail", "blocked") or n.props.get("kind") == "learned"]
+    waiting = [n for n in notes if note_status(n) in ("proposed", "fail", "blocked", "built") or n.props.get("kind") == "learned"]
     L += ["## Waiting for your word", ""] + [f"- {w}" for w in wait] + ([""] if wait else [])
     if waiting:
         L += [f"![[{ELA}/all-notes.base#Waiting for your word]]", "",
@@ -792,7 +810,10 @@ def home(today, now, notes):
             L += [f"![[{brief.path[:-3]}]]", ""]
     else:
         L += ["## Today", "", "No morning page yet today" + (f"; the latest is {link(brief)}." if brief else "."), ""]
-    reading = [n for n in notes if top(n.path) == TO_READ and note_status(n) not in ("proposed", "fail", "blocked")]
+    building = [n for n in notes if top(n.path) == IN_PROGRESS]
+    if building:
+        L += ["## In progress", "", f"![[{ELA}/all-notes.base#In progress]]", ""]
+    reading = [n for n in notes if top(n.path) == TO_READ and note_status(n) not in ("proposed", "fail", "blocked", "built")]
     L += ["## To read", "", f"![[{ELA}/all-notes.base#To read]]" if reading else "Nothing to read.", ""]
     owed_since = (today - datetime.timedelta(days=HELD_LISTED_DAYS)).isoformat()
     owed = [n for n in notes if n.held and (n.props.get("date") or iso) >= owed_since]
@@ -945,6 +966,8 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset()):
             n.props.update({k: False for k in MARKS}, ela="")
         n.held = reading_gate(n)
         body = linker(unwrap(callouts(meta_line(Note(n.path, n.title, tidy_title(n.body), n.props, n.front_lines), by_topic))))
+        if top(n.path) == TO_READ:
+            body = with_moves(body, n.path, n.props.get("type"))
         planned[n.path] = redact(front(n.front_lines, dict(n.props, title=n.title)) + (with_warning(body, n.held) if n.held else body))
     planned["home.md"] = redact(front([], {"type": "home", "date": today.isoformat()}) + linker(home(today, now, notes + native)))
     planned[f"{ELA}/about-this-vault.md"] = unwrap(README)
@@ -1013,7 +1036,7 @@ def record_removed(path, rels, sources, now, archived=None, by="owner"):
         for r in rels:
             title = sentence(re.sub(r"^\d{4}-\d{2}-\d{2}-", "", os.path.basename(r)[:-3]).replace("-", " "))
             row = {"at": now.isoformat(timespec="seconds"), "path": r, "title": title,
-                   "fate": {TO_LEARN: "to-learn", ARCHIVE: "archived"}.get(archived.get(os.path.basename(r).lower()), "deleted"), "by": by}
+                   "fate": {TO_LEARN: "to-learn", ARCHIVE: "archived", IN_PROGRESS: "in-progress"}.get(archived.get(os.path.basename(r).lower()), "deleted"), "by": by}
             if sources.get(r):
                 row["src"] = sources[r]
             fh.write(json.dumps(row, ensure_ascii=False) + "\n")
@@ -1118,6 +1141,138 @@ def answer_native(vault, answers, dry_run=False):
             if not dry_run:
                 atomic_write(p, new)
     return out
+
+
+# ── a note's life: to-read → in-progress → archive ───────────────────────────────────────────────────
+# Each note to read ends in its next moves, by kind. A tick is the owner's word for that move and nothing wider; the
+# runner does a move by script (a note moved, its status set) and starts a session only to build, plan or draft.
+MOVES = {
+    "plan": ["Agree, build it", "Not now", "Reject"],
+    "review": ["Turn the findings into a plan", "Noted, archive", "Drop"],
+    "verify": ["Post the short Jira comment", "Noted, archive"],
+    "decision": ["Confirm", "Noted, archive"],
+    "sprint": ["Agree, build it", "Not now"],
+}
+BUILT_MOVES = ["Accept and archive", "Not done yet"]
+MOVES_HEAD = "## Next moves"
+
+
+def moves_section(rel, kind, stamp=None):
+    """The section a note ends in: one box per move, then where to continue it. A built note's moves carry the time
+    it was built, so a second round of the same move is a new instruction, not one already handled."""
+    moves = BUILT_MOVES if kind == "built" else MOVES.get(kind)
+    if not moves:
+        return ""
+    tail = f" (built {stamp})" if stamp else ""
+    return "\n".join([MOVES_HEAD, ""] + [f"- [ ] {m}{tail}" for m in moves] + [
+        "", f"*Or write `ela:` lines above, or continue in a session: `{rel}`.*"])
+
+
+def with_moves(body, rel, kind, stamp=None):
+    """The note with its next moves at the end, replacing any it had."""
+    sec = moves_section(rel, kind, stamp)
+    body = re.split(r"^" + re.escape(MOVES_HEAD) + r"[ \t]*$", body, maxsplit=1, flags=re.M)[0].rstrip("\n")
+    return body + ("\n\n" + sec + "\n" if sec else "\n")
+
+
+def set_front(text, **props):
+    """Set or remove (None) front-matter keys in a note's text, keeping the rest as written."""
+    fl, body = split_front(text)
+    fl = [l for l in fl if not any(re.match(rf"^{k}:", l) for k in props)]
+    fl += [f'{k}: "{v}"' for k, v in props.items() if v is not None]
+    return "---\n" + "\n".join(fl) + "\n---\n" + body.lstrip("\n") if fl else body
+
+
+def progress_line(text, line):
+    """A dated line under the note's Progress heading, made before the next moves when it does not exist yet."""
+    stamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+    row = f"- {stamp} · {line}"
+    if re.search(r"^## Progress[ \t]*$", text, re.M):
+        head, rest = re.split(r"^## Progress[ \t]*$\n?", text, maxsplit=1, flags=re.M)
+        nxt = re.search(r"^## ", rest, re.M)
+        cut = nxt.start() if nxt else len(rest)
+        return head + "## Progress\n" + rest[:cut].rstrip("\n") + "\n" + row + "\n\n" + rest[cut:]
+    parts = re.split(r"(^" + re.escape(MOVES_HEAD) + r"[ \t]*$)", text, maxsplit=1, flags=re.M)
+    block = "## Progress\n\n" + row + "\n\n"
+    return parts[0].rstrip("\n") + "\n\n" + block + "".join(parts[1:]) if len(parts) > 1 else text.rstrip("\n") + "\n\n" + block
+
+
+def note_path(vault, path):
+    rel = os.path.relpath(os.path.realpath(path), os.path.realpath(vault)) if os.path.isabs(path) else path
+    rel = rel.replace(os.sep, "/")
+    p = os.path.join(vault, rel)
+    if rel.startswith("..") or not rel.endswith(".md") or not os.path.isfile(p):
+        print(f"not a note in the vault: {path}", file=sys.stderr); sys.exit(2)
+    return rel, p
+
+
+def move_note(vault, reports, rel, to, status=None):
+    """Move a note on the owner's word. Out of to-read it becomes a page whose source is the vault, so the sync
+    never writes it again where it was nor overwrites it where it went; the move is logged as his."""
+    p = os.path.join(vault, rel)
+    if to == "delete":
+        return finish(vault, reports, rel, "delete") or None
+    folder = {"in-progress": IN_PROGRESS, "archive": ARCHIVE, "to-read": TO_READ}[to]
+    text = open(p, encoding="utf-8").read()
+    kind = (split_front(text)[0] and next((re.sub(r'^type:\s*', "", l).strip().strip('"\'') for l in split_front(text)[0]
+                                            if l.startswith("type:")), None))
+    text = re.sub(r"^(done|learn|drop):\s*(true|false)\s*\n", "", text, flags=re.M | re.I)
+    text = set_front(text, source="vault", status=status, claimed=None)
+    fl, body = split_front(text)
+    body = with_moves(body, f"{folder}/{os.path.basename(rel)}", kind if folder == TO_READ else None)
+    text = "---\n" + "\n".join(fl) + "\n---\n" + body.lstrip("\n")
+    dst = os.path.join(vault, folder, os.path.basename(rel))
+    os.makedirs(os.path.dirname(dst), exist_ok=True)
+    atomic_write(dst, text)
+    if os.path.realpath(dst) != os.path.realpath(p):
+        os.remove(p)
+        try:
+            src = (json.load(open(os.path.join(vault, MANIFEST))).get("sources") or {}).get(rel)
+        except (OSError, ValueError):
+            src = None
+        record_removed(os.path.join(reports, "ela", "vault-removed.jsonl"), [rel], {rel: src} if src else {},
+                       datetime.datetime.now(), {os.path.basename(rel).lower(): folder}, by="owner")
+    return f"{folder}/{os.path.basename(rel)}"
+
+
+def cmd_note(a):
+    """A note's life from any session or the runner: claim it (the watcher leaves its `ela:` lines to the session),
+    release it, add a Progress line, mark it built (its acceptance moves follow), or move it."""
+    s = json.load(open(SITE))
+    vault, reports = s["vault"], s.get("reports") or ""
+    rel, p = note_path(vault, a.path)
+    text = open(p, encoding="utf-8").read()
+    if a.act == "claim":
+        atomic_write(p, set_front(text, claimed=datetime.datetime.now().astimezone().isoformat(timespec="seconds")))
+        print(f"{rel}: claimed by this session")
+    elif a.act == "release":
+        atomic_write(p, set_front(text, claimed=None)); print(f"{rel}: released")
+    elif a.act == "progress":
+        atomic_write(p, progress_line(text, " ".join(a.text))); print(f"{rel}: progress noted")
+    elif a.act == "built":
+        stamp = datetime.datetime.now().strftime("%m-%d %H:%M")
+        text = progress_line(set_front(text, status="built", claimed=None), "built: " + " ".join(a.text))
+        fl, body = split_front(text)
+        atomic_write(p, "---\n" + "\n".join(fl) + "\n---\n" + with_moves(body, rel, "built", stamp).lstrip("\n"))
+        print(f"{rel}: built; waiting for the owner's acceptance")
+    elif a.act == "move":
+        print(f"{rel} → {move_note(vault, reports, rel, a.to, a.status) or 'deleted'}")
+
+
+def ensure_native_moves(vault, dry_run=False):
+    """A page ela wrote in place in to-read gets its next moves once, by kind, if it has none."""
+    d = os.path.join(vault, TO_READ)
+    for f in sorted(os.listdir(d)) if os.path.isdir(d) else []:
+        p = os.path.join(d, f)
+        if not f.endswith(".md"):
+            continue
+        text = open(p, encoding="utf-8").read()
+        fl, body = split_front(text)
+        if not any(re.match(r"^source:\s*['\"]?vault['\"]?\s*$", l) for l in fl) or re.search(r"^" + re.escape(MOVES_HEAD), body, re.M):
+            continue
+        kind = next((re.sub(r"^type:\s*", "", l).strip().strip('"\'') for l in fl if l.startswith("type:")), None)
+        if MOVES.get(kind) and not dry_run:
+            atomic_write(p, "---\n" + "\n".join(fl) + "\n---\n" + with_moves(body, f"{TO_READ}/{f}", kind).lstrip("\n"))
 
 
 def cmd_guidance(a):
@@ -1339,6 +1494,7 @@ def cmd_sync(a):
     wrote, same = [], 0
     answers = load_answers(s.get("reports") or "")
     answer_native(vault, answers, a.dry_run)
+    ensure_native_moves(vault, a.dry_run)
     # a task its source already ticked is not his choice; recorded so the guidance verb tells the two apart
     source_ticks = {r: [m.group(1) for m in TICKED.finditer(t)] for r, t in planned.items() if r.endswith(".md") and TICKED.search(t)}
     for rel in [r for r in planned if r.endswith(".md")]:  # his `ela:` lines in a generated note outlive its rewrite
@@ -1477,6 +1633,13 @@ def main():
     p.add_argument("path", help="the note's path in the vault, e.g. to-read/2026-09-07-mh-review.md")
     p.add_argument("--to", choices=("delete", "archive", "learn"), default="delete")
     p.set_defaults(func=cmd_finish)
+    p = sub.add_parser("note", help="a note's life: claim, release, progress TEXT, built TEXT, move --to in-progress|archive|to-read|delete")
+    p.add_argument("act", choices=("claim", "release", "progress", "built", "move"))
+    p.add_argument("path", help="the note's path in the vault, e.g. to-read/2026-10-26-system-plan.md")
+    p.add_argument("text", nargs="*", help="progress or built: the line to record")
+    p.add_argument("--to", choices=("in-progress", "archive", "to-read", "delete"))
+    p.add_argument("--status", help="move: the status the note carries after it")
+    p.set_defaults(func=cmd_note)
     p = sub.add_parser("restore", help="bring back a note the owner deleted in the vault")
     p.add_argument("path", help="the note's path in the vault, as the deletion log lists it")
     p.set_defaults(func=cmd_restore)

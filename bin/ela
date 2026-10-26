@@ -85,6 +85,7 @@
   ela vault setup                  apply the vault's Obsidian settings from ela's versioned copy, then restart Obsidian
   ela vault guidance [--json]      the owner's `ela:` lines and ticked boxes anywhere in the vault, each handled once
   ela vault finish PATH [--to delete|archive|learn]   on your word: finish with a note as you would in Obsidian
+  ela note claim|release|progress|built|move PATH   a note's life from any session: claim it, record progress, mark it built, move it
   ela vault marks [--dry-run]      finish the to-read notes whose done, learn or drop box you ticked
   ela secret NAME                  in your terminal: a credential typed at a prompt that does not echo, written to
                                    the site env file; never paste a token into a chat
@@ -153,7 +154,7 @@ VERBS = {
     "mail": ("mail", None), "login": ("release", "login"), "stream": ("stream", None),
     "sentry": ("sentry", None),
     "promote": ("promote", None), "runtime": ("runtime", None),
-    "brief": ("brief", "lanes"), "yesterday": ("brief", "yesterday"), "vault": ("vault", None), "secret": ("setup", "secret"),
+    "brief": ("brief", "lanes"), "yesterday": ("brief", "yesterday"), "vault": ("vault", None), "note": ("vault", "note"), "secret": ("setup", "secret"),
     "mr": ("mr", "create"), "mr-preflight": ("mr", "preflight"),
     "sessions": ("sessions", "find"),
     "route": ("route", "facts"),
