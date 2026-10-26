@@ -128,15 +128,15 @@ a warning, and Home lists it for 30 days as a rewrite ela owes.
 | nothing yet | leave it | it stays, or ela moves it on (below) |
 
 The same three moves are boxes in the *To read* and *Waiting* tables on Home: tick `done` (archive), `learn`
-(to-learn) or `drop` (delete), and within a minute the note goes there; no typing, no session. A plan's row also has
-an `agree` box: ticking it in the table is the same as ticking *Agree, build it* in the note.
+(to-learn) or `drop` (delete), and within a minute the note goes there; no typing, no session.
 
-Every note to read also ends in **Next moves**, by kind: a plan offers *Agree, build it*, *Not now*, *Reject*; a
-review *Turn the findings into a plan*, *Noted, archive*, *Drop*; a verification *Post the short Jira comment*,
-*Noted, archive*. Tick one and it is done within a minute. An agreed note moves to `in-progress/`, ela writes each
-step under its Progress heading, and when it is built the note offers *Accept and archive* or *Not done yet*. You
-can also answer a note with `ela:` lines, or continue it in any Claude session by naming its path; a session that
-claims a note keeps it, and records its conclusions there.
+Every note to read carries its next moves as boxes at its top, by kind: a plan *agree*, *not-now*, *reject*; a
+review *make-plan*; a verification *draft-comment*; all of them *done*, *learn*, *drop*. Its **Next moves**
+section says what each box does. Tick one, at the top of the note or in its row on Home, and it is done within a
+minute; ela clears the box once it has acted. An agreed note moves to `in-progress/`, ela writes each step under its
+Progress heading, and when it is built the note offers *accept* or *not-done*. You can also answer a note with
+`ela:` lines, or continue it in any Claude session by naming its path; a session that claims a note keeps it, and
+records its conclusions there.
 
 To tell ela what you want of a note, or to answer what it waits for, write a line starting `ela:` into the note,
 anywhere but above its hidden properties (the end is easiest: Ctrl+E, Ctrl+End, write, Ctrl+E), in your own words.
@@ -209,7 +209,7 @@ VIEWS = {
   - type: table
     name: Waiting for your word
     filters:
-""" + WAITING + """    order: [date, formula.note, type, status, agree, done, learn, drop, ela]
+""" + WAITING + """    order: [date, formula.note, type, status, agree, accept, done, drop, ela]
     sort:
       - property: date
         direction: DESC
@@ -221,7 +221,7 @@ VIEWS = {
         - 'status != "fail"'
         - 'status != "blocked"'
         - 'status != "proposed"'
-    order: [date, formula.note, type, agree, done, learn, drop, ela]
+    order: [date, formula.note, type, make-plan, done, learn, drop, ela]
     sort:
       - property: date
         direction: DESC
@@ -230,7 +230,7 @@ VIEWS = {
     filters:
       and:
         - file.inFolder("in-progress")
-    order: [date, formula.note, status, progress, built, claimed]
+    order: [date, formula.note, status, progress, built, accept, not-done, claimed]
     sort:
       - property: date
         direction: DESC
@@ -969,8 +969,8 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset()):
     for n in notes:
         if top(n.path) == TO_READ:
             n.props.update({k: False for k in MARKS}, ela="")
-            if n.props.get("type") in AGREEABLE:
-                n.props["agree"] = False
+            for k in MOVE_PROPS.get(n.props.get("type")) or []:
+                n.props[k] = False
         n.held = reading_gate(n)
         body = linker(unwrap(callouts(meta_line(Note(n.path, n.title, tidy_title(n.body), n.props, n.front_lines), by_topic))))
         if top(n.path) == TO_READ:
@@ -1153,27 +1153,44 @@ def answer_native(vault, answers, dry_run=False):
 # ── a note's life: to-read → in-progress → archive ───────────────────────────────────────────────────
 # Each note to read ends in its next moves, by kind. A tick is the owner's word for that move and nothing wider; the
 # runner does a move by script (a note moved, its status set) and starts a session only to build, plan or draft.
-MOVES = {
-    "plan": ["Agree, build it", "Not now", "Reject"],
-    "review": ["Turn the findings into a plan", "Noted, archive", "Drop"],
-    "verify": ["Post the short Jira comment", "Noted, archive"],
-    "decision": ["Confirm", "Noted, archive"],
-    "sprint": ["Agree, build it", "Not now"],
+MOVE_PROPS = {                   # by kind, beyond done, learn and drop, which every note to read carries
+    "plan": ["agree", "not-now", "reject"],
+    "sprint": ["agree", "not-now"],
+    "review": ["make-plan"],
+    "verify": ["draft-comment"],
+    "decision": ["confirm"],
+    "built": ["accept", "not-done"],
 }
-BUILT_MOVES = ["Accept and archive", "Not done yet"]
-AGREEABLE = ("plan", "sprint")   # kinds whose row on Home carries an agree box: one click, the same as "Agree, build it"
+ALL_MOVE_PROPS = ("agree", "not-now", "reject", "make-plan", "draft-comment", "confirm", "accept", "not-done")
+MOVE_MEANING = {
+    "agree": "ela builds it: the note moves to `in-progress/` and each step is written under Progress",
+    "not-now": "archived as parked", "reject": "archived as rejected",
+    "make-plan": "ela writes a plan from the findings as a new note to read; this one is archived",
+    "draft-comment": "ela drafts the short Jira comment as `apply N`; nothing is posted",
+    "confirm": "archived as confirmed", "accept": "archived as accepted",
+    "not-done": "ela carries on; write what is missing as `ela:` lines first",
+    "done": "archived, nothing more", "learn": "distilled into knowledge that evening", "drop": "deleted",
+}
+MOVES = MOVE_PROPS               # a kind with moves gets the section that explains them
+AGREEABLE = ("plan", "sprint")
 MOVES_HEAD = "## Next moves"
+PROP_RE = re.compile(r"^(" + "|".join(re.escape(k) for k in ("done", "learn", "drop") + ALL_MOVE_PROPS) + r"):\s*(true|false)\s*\n", re.M | re.I)
+
+
+def move_props(kind, in_to_read=True):
+    """The checkbox properties a note carries for its next moves: its kind's own, then done, learn and drop."""
+    return list(MOVE_PROPS.get(kind) or []) + (list(MARKS) if in_to_read else [])
 
 
 def moves_section(rel, kind, stamp=None):
-    """The section a note ends in: one box per move, then where to continue it. A built note's moves carry the time
-    it was built, so a second round of the same move is a new instruction, not one already handled."""
-    moves = BUILT_MOVES if kind == "built" else MOVES.get(kind)
-    if not moves:
+    """What each box at the top of the note does, and where to continue it. The boxes themselves are properties,
+    ticked at the top of the note or in its Home row; ela clears a box once it has acted, so nothing runs twice."""
+    props = move_props(kind, in_to_read=kind != "built")
+    if not MOVE_PROPS.get(kind):
         return ""
-    tail = f" (built {stamp})" if stamp else ""
-    return "\n".join([MOVES_HEAD, ""] + [f"- [ ] {m}{tail}" for m in moves] + [
-        "", f"*Or write `ela:` lines above, or continue in a session: `{rel}`.*"])
+    return "\n".join([MOVES_HEAD, "", "Tick a box at the top of this note, or in its row on Home:", ""]
+                      + [f"- **{k}**: {MOVE_MEANING[k]}" for k in props]
+                      + ["", f"*Or write `ela:` lines above, or continue in a session: `{rel}`.*"])
 
 
 def with_moves(body, rel, kind, stamp=None):
@@ -1224,7 +1241,7 @@ def move_note(vault, reports, rel, to, status=None):
     text = open(p, encoding="utf-8").read()
     kind = (split_front(text)[0] and next((re.sub(r'^type:\s*', "", l).strip().strip('"\'') for l in split_front(text)[0]
                                             if l.startswith("type:")), None))
-    text = re.sub(r"^(done|learn|drop|agree):\s*(true|false)\s*\n", "", text, flags=re.M | re.I)
+    text = PROP_RE.sub("", text)
     text = set_front(text, source="vault", status=status, claimed=None)
     fl, body = split_front(text)
     body = with_moves(body, f"{folder}/{os.path.basename(rel)}", kind if folder == TO_READ else None)
@@ -1262,6 +1279,9 @@ def cmd_note(a):
         stamp = datetime.datetime.now().strftime("%m-%d %H:%M")
         text = progress_line(set_front(text, status="built", claimed=None, built=stamp, progress=" ".join(a.text)[:120]),
                              "built: " + " ".join(a.text))
+        text = PROP_RE.sub("", text)
+        fl0, b0 = split_front(text)
+        text = "---\n" + "\n".join(fl0 + [f"{k}: false" for k in MOVE_PROPS["built"]]) + "\n---\n" + b0
         fl, body = split_front(text)
         atomic_write(p, "---\n" + "\n".join(fl) + "\n---\n" + with_moves(body, rel, "built", stamp).lstrip("\n"))
         print(f"{rel}: built; waiting for the owner's acceptance")
@@ -1283,7 +1303,7 @@ def ensure_native_moves(vault, dry_run=False):
         kind = next((re.sub(r"^type:\s*", "", l).strip().strip('"\'') for l in fl if l.startswith("type:")), None)
         has_moves = re.search(r"^" + re.escape(MOVES_HEAD), body, re.M)
         # the same table properties a generated note to read carries, so its Home row has working boxes
-        wanted = [f"{k}: false" for k in MARKS] + ['ela: ""'] + (["agree: false"] if kind in AGREEABLE else [])
+        wanted = [f"{k}: false" for k in move_props(kind)] + ['ela: ""']
         missing = [w for w in wanted if not any(l.startswith(w.split(":")[0] + ":") for l in fl)]
         if MOVES.get(kind) and (not has_moves or missing) and not dry_run:
             fl = fl + missing
@@ -1335,27 +1355,27 @@ def cmd_guidance(a):
 
 
 def apply_marks(vault, reports, dry_run=False):
-    """Notes in to-read whose box he ticked in a table (done, learn, drop): each finished as that box says, as if he
-    had dragged or deleted it. Returns [(path, action)]."""
+    """Boxes he ticked, at the top of a note or in its Home row. done, learn and drop finish the note here, as if he
+    had dragged or deleted it; every other move is reported for the runner, which acts and clears the box.
+    Returns [(path, box)]."""
     out = []
-    d = os.path.join(vault, TO_READ)
-    for f in sorted(os.listdir(d)) if os.path.isdir(d) else []:
-        if not f.endswith(".md"):
-            continue
-        try:
-            fl, _ = split_front(open(os.path.join(d, f), encoding="utf-8").read())
-        except OSError:
-            continue
-        ticked = [k for k in MARKS if any(re.match(rf"^{k}:\s*true\s*$", l, re.I) for l in fl)]
-        if not ticked and any(re.match(r"^agree:\s*true\s*$", l, re.I) for l in fl):
-            out.append((f"{TO_READ}/{f}", "agree"))      # the runner moves it and starts the build; nothing to finish here
-            continue
-        if not ticked:
-            continue
-        k = "drop" if "drop" in ticked else ticked[0]
-        out.append((f"{TO_READ}/{f}", k))
-        if not dry_run:
-            finish(vault, reports, f"{TO_READ}/{f}", {"done": "archive", "learn": "learn", "drop": "delete"}[k])
+    for folder in (TO_READ, IN_PROGRESS):
+        d = os.path.join(vault, folder)
+        for f in sorted(os.listdir(d)) if os.path.isdir(d) else []:
+            if not f.endswith(".md"):
+                continue
+            try:
+                fl, _ = split_front(open(os.path.join(d, f), encoding="utf-8").read())
+            except OSError:
+                continue
+            on = [k for k in tuple(MARKS) + ALL_MOVE_PROPS if any(re.match(rf"^{re.escape(k)}:\s*true\s*$", l, re.I) for l in fl)]
+            if not on:
+                continue
+            rel = f"{folder}/{f}"
+            k = "drop" if "drop" in on else next((x for x in on if x in MARKS), on[0])
+            out.append((rel, k))
+            if k in MARKS and not dry_run:
+                finish(vault, reports, rel, {"done": "archive", "learn": "learn", "drop": "delete"}[k])
     return out
 
 
