@@ -78,9 +78,10 @@ type: "readme"
 
 # About this vault
 
-ela writes this vault for Evan to read. Every note is generated from a first-hand source and rewritten on each
-sync, after the morning and the evening job; an edit is overwritten. To change something, ask ela in a session
-or in Slack. The exceptions are the pages ela writes in place, whose source is the vault itself: how ela works,
+ela writes this vault for Evan to read and to act from. Every generated note comes from a first-hand source and is
+rewritten on each sync: after the morning and evening runs, within a minute of a tick or an answer, and with the
+board every half hour on working days. An edit to a generated note is overwritten, except your `ela:` lines and
+ticked boxes, which are kept. To change something, write an `ela:` line in the note or ask in a session. The exceptions are the pages ela writes in place, whose source is the vault itself: how ela works,
 the library's topics, plans for your decision.
 
 Start at [[home]]: what waits for your word, today's page, and what there is to read.
@@ -139,10 +140,11 @@ Progress heading, and when it is built the note offers *accept* or *not-done*. Y
 records its conclusions there.
 
 To tell ela what you want of a note, or to answer what it waits for, write a line starting `ela:` into the note,
-anywhere but above its hidden properties (the end is easiest: Ctrl+E, Ctrl+End, write, Ctrl+E), in your own words.
-Any note: a rewrite keeps your lines. The next morning or evening run handles each line once, a place included ("write this to the KB", "into elak"); without one, ela chooses between a
-library page here, its own knowledge in elak and the team's knowledge base (drafted, published on your word). A note
-still in `to-read/` is rewritten by the next sync, so move it first.
+below its properties (the end is easiest: Ctrl+E, Ctrl+End, write, Ctrl+E), in your own words. Any note: a
+rewrite keeps your lines. Two minutes after you stop typing, a session takes the lines up, and its answer appears
+folded under the last of them. A place can be named ("write this to the KB", "into elak"); without one, ela
+chooses between a library page here, its own knowledge in elak and the team's knowledge base (drafted, published
+on your word).
 
 Ask ela now and then to tidy the archive.
 
@@ -797,7 +799,7 @@ def home(today, now, notes):
     if waiting:
         L += [f"![[{ELA}/all-notes.base#Waiting for your word]]", "",
               "*Tick a box and ela takes it up within a minute; type in the ela cell (or a line `ela: …` in the note) and "
-              "it is taken up two minutes after you stop typing. Answers come in Slack.*", ""]
+              "it is taken up two minutes after you stop typing. The answer appears under the line.*", ""]
     elif not wait:
         L += ["Nothing waits for your word.", ""]
     if brief and brief.props["date"] == iso:
