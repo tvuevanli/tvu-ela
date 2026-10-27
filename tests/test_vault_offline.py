@@ -427,6 +427,16 @@ import hashlib  # noqa: E402
 check("an ela: line keeps the id it always had; the same words again get their own", V.guidance_id("n.md", "post it")
       == hashlib.sha256("n.md\0post it".encode()).hexdigest()[:12] and V.guidance_id("n.md", "post it", 2) != V.guidance_id("n.md", "post it"))
 
+with tempfile.TemporaryDirectory() as t:
+    vlt, rep = os.path.join(t, "v"), os.path.join(t, "r")
+    os.makedirs(os.path.join(vlt, "days", "2026")); os.makedirs(rep)
+    lp = os.path.join(vlt, "days", "2026", "2026-10-27-learned.md")
+    open(lp, "w").write('---\ntype: "day"\nkind: "learned"\nmoves: "learned"\nnext: "learn"\n---\n# What the day taught\n')
+    got = V.apply_marks(vlt, rep)
+    check("the evening's learned page offers learn and drop, and learn sends it to be distilled",
+          V.move_props("learned", in_to_read=False) == ["learn", "drop"] and got == [("days/2026/2026-10-27-learned.md", "learn")]
+          and os.path.exists(os.path.join(vlt, "to-learn", "2026-10-27-learned.md")) and not os.path.exists(lp))
+
 day = datetime.date(2026, 10, 26)
 cons = {"exists": True, "error": None, "today": day.isoformat(), "gaps": [{"kind": "host_unreadable", "host": "qa", "detail": "qa login failed"}],
         "counts": {"active": 1, "expired": 1, "over": 1},

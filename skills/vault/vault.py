@@ -37,7 +37,7 @@ this script recorded in its manifest. Writes are atomic and a lock serialises co
 
 Exit codes: 0 ok · 2 usage or site · 3 a source could not be read or shrank (nothing written).
 """
-import argparse, datetime, fcntl, json, os, re, shutil, subprocess, sys
+import argparse, datetime, fcntl, glob, json, os, re, shutil, subprocess, sys
 
 HERE = os.path.dirname(os.path.realpath(__file__))
 JIRA = os.path.join(HERE, "..", "jira", "jira.py")
@@ -155,7 +155,8 @@ The same three moves are choices of the note's `next` field: `done` (archive), `
 Every note to read carries one field for its next move, **next**, at its top. The button beside it lists only
 that note's choices, by kind: a plan *agree*, *park*, *not-now*, *reject*; a review *make-plan*; a verification *draft-comment*; all of
 them *done*, *learn*, *drop*. A ticket page (one ticket read in depth) offers only *nudge*, *go-deep*, *seen* and *drop*;
-a verification plan (a run waiting for your word on its goals) only *run*, *not-now* and *drop*. The note's **Next moves** section says what each does. Choose one, and it is done
+a verification plan (a run waiting for your word on its goals) only *run*, *not-now* and *drop*; the evening's page of
+what the day taught only *learn* (distilled that night) and *drop*. The note's **Next moves** section says what each does. Choose one, and it is done
 within a minute; ela empties the field once it has acted, and a value that is not a move for the note runs nothing
 and is pointed out under the title. An agreed note moves to `in-progress/`, ela writes each step under its Progress
 heading, and when it is built the note offers *accept* or *not-done*. A plan lists each ruling it needs with ela's
@@ -1248,12 +1249,13 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), saw=N
             st, result, _ = settled_status(top(n.path), note_status(n), n.props.get("type"))
             n.props.update(status=st, result=n.props.get("result") or result)
             n.front_lines = [l for l in n.front_lines if not l.startswith("status:")]   # the source's own word is settled
-        if top(n.path) == TO_READ:
-            n.props.update({NEXT: "", MOVE_SET: move_set(n.props.get("type"))})
+        learned = n.props.get("kind") == "learned"         # a day page that waits for his word, like a note to read
+        if top(n.path) == TO_READ or learned:
+            n.props.update({NEXT: "", MOVE_SET: move_set("learned" if learned else n.props.get("type"))})
         n.held = reading_gate(n)
         body = linker(unwrap(callouts(meta_line(Note(n.path, n.title, tidy_title(n.body), n.props, n.front_lines), by_topic))))
-        if top(n.path) == TO_READ:
-            body = with_moves(body, n.path, n.props.get("type"))
+        if top(n.path) == TO_READ or learned:
+            body = with_moves(body, n.path, "learned" if learned else n.props.get("type"))
         planned[n.path] = redact(front(n.front_lines, dict(n.props, title=n.title)) + (with_warning(body, n.held) if n.held else body))
     planned["home.md"] = redact(front([], {"type": "home", "date": today.isoformat()}) + linker(home(today, now, notes + native, saw)))
     planned[f"{ELA}/about-this-vault.md"] = unwrap(README)
@@ -1457,6 +1459,7 @@ MOVE_PROPS = {                   # by kind, beyond done, learn and drop, which e
     "ticket": ["nudge", "go-deep", "seen", "drop"],   # a ticket's moves only: "done" would read as the ticket's Jira Done
     "parked": ["resume", "drop"],          # a parked note's only moves: it comes back, or it ends
     "verify-plan": ["run", "not-now", "drop"],   # the plan gate of a run nobody was at the terminal for
+    "learned": ["learn", "drop"],          # the evening's draft of what the day taught: distil it, or let it go
 }
 OUT_OF_TO_READ = ("built", "parked")       # kinds whose moves are their own, without done, learn and drop
 ALL_MOVE_PROPS = ("agree", "park", "not-now", "reject", "make-plan", "draft-comment", "confirm", "accept", "not-done", "nudge", "go-deep",
@@ -1489,7 +1492,7 @@ MOVE_SET, MOVE_SETS_DIR = "moves", "ela/moves"
 
 def move_props(kind, in_to_read=True):
     """The checkbox properties a note carries for its next moves: its kind's own, then done, learn and drop."""
-    if kind in ("ticket", "verify-plan"):              # their moves only: "done" would read as the ticket's or the run's
+    if kind in ("ticket", "verify-plan", "learned"):   # their moves only: "done" would read as the ticket's or the run's
         return list(MOVE_PROPS[kind])
     return list(MOVE_PROPS.get(kind) or []) + (list(MARKS) if in_to_read else [])
 
@@ -1762,34 +1765,35 @@ def apply_marks(vault, reports, dry_run=False):
     deleted it; every other move is reported for the runner, which acts and empties the field. A value that is not a
     move for that note runs nothing, and the note says so. Returns [(path, move)]."""
     out = []
-    for folder in (TO_READ, IN_PROGRESS, PARKED):
-        d = os.path.join(vault, folder)
-        for f in sorted(os.listdir(d)) if os.path.isdir(d) else []:
-            if not f.endswith(".md"):
-                continue
-            p = os.path.join(d, f)
-            try:
-                fl, _ = split_front(open(p, encoding="utf-8").read())
-            except OSError:
-                continue
-            props = {m.group(1): m.group(2).strip().strip('"\'') for m in (re.match(r"^([\w-]+):\s*(.*)$", l) for l in fl) if m}
-            rel = f"{folder}/{f}"
-            kind = "parked" if folder == PARKED else "built" if props.get("status") == "built" else props.get("type")
-            allowed = move_props(kind, in_to_read=folder == TO_READ)
-            # the earlier checkbox form, while a note still carries it
-            boxes = [k for k in tuple(MARKS) + ALL_MOVE_PROPS if props.get(k, "").lower() == "true"]
-            move = (props.get(NEXT) or "").strip().lower() or (boxes[0] if len(boxes) == 1 else "")
-            if not move:
-                continue
-            if move not in allowed:
-                if not dry_run:
-                    warn_move(p, move, allowed)
-                continue
-            out.append((rel, move))
-            if move in tuple(MARKS) + ("seen",) and not dry_run:
-                finish(vault, reports, rel, {"done": "archive", "seen": "archive", "learn": "learn", "drop": "delete"}[move], move)
-            elif move == "resume" and not dry_run:      # a script move: the note's next decision is his again
-                move_note(vault, reports, rel, "to-read", "proposed")
+    found = [(folder, f"{folder}/{f}") for folder in (TO_READ, IN_PROGRESS, PARKED)
+             for f in (sorted(os.listdir(os.path.join(vault, folder))) if os.path.isdir(os.path.join(vault, folder)) else [])]
+    found += [(DAYS, os.path.relpath(x, vault).replace(os.sep, "/")) for x in sorted(glob.glob(os.path.join(vault, DAYS, "*", "*-learned.md")))]
+    for folder, rel in found:
+        f = os.path.basename(rel)
+        if not f.endswith(".md"):
+            continue
+        p = os.path.join(vault, rel)
+        try:
+            fl, _ = split_front(open(p, encoding="utf-8").read())
+        except OSError:
+            continue
+        props = {m.group(1): m.group(2).strip().strip('"\'') for m in (re.match(r"^([\w-]+):\s*(.*)$", l) for l in fl) if m}
+        kind = "parked" if folder == PARKED else "learned" if folder == DAYS else "built" if props.get("status") == "built" else props.get("type")
+        allowed = move_props(kind, in_to_read=folder == TO_READ)
+        # the earlier checkbox form, while a note still carries it
+        boxes = [k for k in tuple(MARKS) + ALL_MOVE_PROPS if props.get(k, "").lower() == "true"]
+        move = (props.get(NEXT) or "").strip().lower() or (boxes[0] if len(boxes) == 1 else "")
+        if not move:
+            continue
+        if move not in allowed:
+            if not dry_run:
+                warn_move(p, move, allowed)
+            continue
+        out.append((rel, move))
+        if move in tuple(MARKS) + ("seen",) and not dry_run:
+            finish(vault, reports, rel, {"done": "archive", "seen": "archive", "learn": "learn", "drop": "delete"}[move], move)
+        elif move == "resume" and not dry_run:      # a script move: the note's next decision is his again
+            move_note(vault, reports, rel, "to-read", "proposed")
     return out
 
 
