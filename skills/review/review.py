@@ -449,11 +449,11 @@ def cmd_replay(args):
     if args.json:
         print(json.dumps(out, ensure_ascii=False))
     else:
-        print(out["summary"])
         for r in out["rows"]:
             print(f"  {r['kind']}: {r['key'] or ''} {r['said']} — {r['now']}")
         for g in out["gaps"]:
             print(f"  not read: {g['source']}: {g['error'][:100]}")
+        print(out["summary"])                               # last: the runner keeps the last line for the facts page
     if any(g["source"].startswith("jira") for g in out["gaps"]):
         sys.exit(EX_REMOTE)
 
