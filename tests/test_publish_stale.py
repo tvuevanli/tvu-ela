@@ -73,6 +73,7 @@ try:
     os.makedirs(published)
     write(os.path.join(tmp, "site.json"), json.dumps({"elak": elak, "published": published}))
     publish.SITE = os.path.join(tmp, "site.json")
+    publish.DIRTY["on"] = True               # a plain directory, not a repository: the cleanup is under test here
 
     quiet = io.StringIO()
     with contextlib.redirect_stdout(quiet):

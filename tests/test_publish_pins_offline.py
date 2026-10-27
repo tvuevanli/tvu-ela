@@ -17,6 +17,7 @@ with tempfile.TemporaryDirectory() as d:
     open(os.path.join(elak, "map", "published-machines.md"), "w").write("| source | published file | generated | verified | reader |\n|---|---|---|---|---|\n| — | | | | |\n")
     P.roots = lambda: (elak, pub)
     P.write_published_manifest = lambda r, p: None
+    P.DIRTY["on"] = True                     # a plain directory, not a repository: the copying is under test here
     P.cmd_pins(types.SimpleNamespace(json=False))
     check("no pins in elak, nothing published", not os.path.exists(os.path.join(pub, P.PINS_REL)))
     os.makedirs(os.path.join(elak, "blueprint"))

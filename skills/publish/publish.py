@@ -15,7 +15,9 @@ directories. Readers (Helm's context packs, the remote ela) point at these paths
 A publication is written, not exported (elak map/README.md): the document opens by saying what it is,
 carries every limit the source states where the reader sees it, and names its source and dates. Nothing
 under <published> is edited by hand; a change is made in elak and published again. Stdlib only.
-Roots come from site.json: `elak` and `published`. Exit codes: 0 ok · 2 usage · 5 write failed.
+Roots come from site.json: `elak` and `published`. Every source is read from elak's last commit: a source whose
+working copy differs from HEAD stops the publication unless --dirty, and the manifest's published-on date is the
+source's commit date. Exit codes: 0 ok · 2 usage (an uncommitted source included) · 5 write failed.
 """
 import argparse, datetime, json, os, re, sys
 
@@ -38,6 +40,63 @@ def roots():
     if s.get("site") == "remote":
         print("this is a remote site: publications are generated at the office and carried by the deploy", file=sys.stderr); sys.exit(EX_USAGE)
     return rec, pub
+
+
+# ── the source is elak's last commit ──────────────────────────────────────────
+# elak is committed on the owner's word, and publishing is how far that word reaches: what machines read is the output
+# of a commit, never a half-edited tree. Every source is read from a snapshot of HEAD; a source whose working copy
+# differs from HEAD stops the publication (one line naming the files) unless --dirty says the tree is meant.
+
+DIRTY = {"on": False}               # --dirty: read the working tree, as before
+_SNAP = {}
+
+
+def git(records, *args):
+    import subprocess
+    r = subprocess.run(["git", "-C", records, *args], capture_output=True, timeout=60)
+    if r.returncode != 0:
+        raise RuntimeError((r.stderr or b"").decode(errors="replace").strip()[:200] or f"git {args[0]} failed")
+    return r.stdout
+
+
+def source_root(records):
+    """The tree publication reads: elak's HEAD unpacked into a temporary directory, or elak itself with --dirty."""
+    if DIRTY["on"]:
+        return records
+    if records not in _SNAP:
+        import atexit, io, shutil, tarfile, tempfile
+        d = tempfile.mkdtemp(prefix="elak-head-")
+        atexit.register(shutil.rmtree, d, True)
+        try:
+            tarfile.open(fileobj=io.BytesIO(git(records, "archive", "--format=tar", "HEAD"))).extractall(d)
+        except (RuntimeError, tarfile.TarError) as e:
+            print(f"cannot read elak's HEAD: {e}", file=sys.stderr); sys.exit(EX_USAGE)
+        _SNAP[records] = d
+    return _SNAP[records]
+
+
+def require_committed(records, rels):
+    """Stop when a source to publish differs from HEAD (edited, staged or untracked) and --dirty was not given."""
+    if DIRTY["on"] or not rels:
+        return
+    try:
+        out = git(records, "status", "--porcelain", "--untracked-files=all", "--", *rels).decode()
+    except RuntimeError as e:
+        print(f"cannot read elak's status: {e}", file=sys.stderr); sys.exit(EX_USAGE)
+    dirty = sorted({l[3:].strip() for l in out.splitlines() if l.strip()})
+    if dirty:
+        print(f"publish: not committed in elak: {', '.join(dirty)} — commit them first (or --dirty to publish the tree)", file=sys.stderr)
+        sys.exit(EX_USAGE)
+
+
+def source_date(records, rel):
+    """The date the source was committed: the manifest's published-on row says which commit the copy is."""
+    if DIRTY["on"]:
+        return datetime.date.today().isoformat()
+    try:
+        return git(records, "log", "-1", "--format=%cs", "HEAD", "--", rel.split(" ")[0]).decode().strip() or datetime.date.today().isoformat()
+    except RuntimeError:
+        return datetime.date.today().isoformat()
 
 
 # ── services.yaml, the subset of YAML it uses ─────────────────────────────────
@@ -241,11 +300,12 @@ def holds_published(path, protected):
 
 def cmd_catalogue(a):
     records, published = roots()
-    src = os.path.join(records, "map", "services.yaml")
+    require_committed(records, ["map/services.yaml"])
+    src = os.path.join(source_root(records), "map", "services.yaml")
     header, images = read_services(src)
     if not images:
         print(f"{src}: no images parsed", file=sys.stderr); sys.exit(EX_USAGE)
-    today = datetime.date.today().isoformat()
+    today = source_date(records, "map/services.yaml")
     dest_rel = "knowledge/products/mediahub/services.md"
     dest = os.path.join(published, dest_rel)
     doc = render_catalogue(header, images, today)
@@ -368,11 +428,12 @@ def cmd_roster(a):
     import team  # noqa: E402 — the roster reader, same plugin
     records, published = roots()
     src_rel = "knowledge/people/ (people.yaml, responsibilities.yaml)"
-    src = os.path.join(records, "knowledge", "people")
-    header, people = team.read_roster(records)
+    require_committed(records, ["knowledge/people/people.yaml", "knowledge/people/responsibilities.yaml"])
+    src = os.path.join(source_root(records), "knowledge", "people")
+    header, people = team.read_roster(source_root(records))
     if not people:
         print(f"{src}: no people parsed", file=sys.stderr); sys.exit(EX_USAGE)
-    today = datetime.date.today().isoformat()
+    today = source_date(records, "knowledge/people")
     dest_dir = os.path.join(published, "knowledge", "people")
     try:
         os.makedirs(dest_dir, exist_ok=True)
@@ -421,7 +482,8 @@ def cmd_map(a):
     """The machine-readable map — services · absent · release · apis · dependencies and the README — copied
     through `redact`: the file shape is unchanged, addresses are not carried."""
     records, published = roots()
-    src_dir, dst_dir = os.path.join(records, "map"), os.path.join(published, "map")
+    require_committed(records, [f"map/{f}" for f in map_files(os.path.join(records, "map"))])
+    src_dir, dst_dir = os.path.join(source_root(records), "map"), os.path.join(published, "map")
     os.makedirs(dst_dir, exist_ok=True)
     names, redacted = map_files(src_dir), 0
     for f in names:
@@ -434,7 +496,7 @@ def cmd_map(a):
         p = os.path.join(dst_dir, stale)                          # scoped to map/, whose every file this verb writes
         if os.path.isfile(p) and not holds_published(p, protected):
             os.remove(p)
-    today = datetime.date.today().isoformat()
+    today = source_date(records, "map")
     ver = next((l.split(":", 1)[1].strip().strip("'") for l in open(os.path.join(src_dir, "services.yaml")) if l.startswith("verified:")), "?")
     update_manifest(records, "map/", "map/", today, ver, "ela's read verbs (site.json `map` points here), the remote ela, Helm `release_map`")
     write_published_manifest(records, published)
@@ -451,13 +513,15 @@ PINS_REL = "blueprint/releases.yaml"
 def cmd_pins(a):
     """The owner's release pins, copied through `redact`; a line not pinned is simply absent. No source, nothing to do."""
     records, published = roots()
-    src, dst = os.path.join(records, PINS_REL), os.path.join(published, PINS_REL)
+    if os.path.isfile(os.path.join(records, PINS_REL)):
+        require_committed(records, [PINS_REL])
+    src, dst = os.path.join(source_root(records), PINS_REL), os.path.join(published, PINS_REL)
     if not os.path.isfile(src):
         msg = f"no {PINS_REL} in elak: no line is pinned yet (`ela release pin`)"
         print(json.dumps({"published": None, "why": msg}) if a.json else msg); return
     os.makedirs(os.path.dirname(dst), exist_ok=True)
     tmp = dst + ".tmp"; open(tmp, "w", encoding="utf-8").write(redact(open(src, encoding="utf-8").read())); os.replace(tmp, dst)
-    today = datetime.date.today().isoformat()
+    today = source_date(records, PINS_REL)
     update_manifest(records, PINS_REL, PINS_REL, today, today, "ela matrix and ela changes on machines without elak; Helm's official bundle")
     write_published_manifest(records, published)
     print(json.dumps({"destination": dst, "published": today}) if a.json else f"published {PINS_REL} → {dst}")
@@ -474,7 +538,9 @@ def publish_doc(records, published, rel, reader, today):
 
     The published file is the elak source verbatim, front matter included: the reader must see the
     document's own `verified:` and `source:`, and nothing but an address is rewritten on the way."""
-    src = os.path.join(records, "knowledge", rel)
+    require_committed(records, [f"knowledge/{rel}"])
+    src = os.path.join(source_root(records), "knowledge", rel)
+    today = source_date(records, f"knowledge/{rel}")
     if not os.path.isfile(src):
         print(f"no such document: {src}", file=sys.stderr); sys.exit(EX_USAGE)
     text = open(src, encoding="utf-8").read()
@@ -533,6 +599,9 @@ def write_published_manifest(records, published):
 
 def cmd_all(a):
     records, published = roots()
+    require_committed(records, [f"map/{f}" for f in map_files(os.path.join(records, "map"))] + ["knowledge/people/people.yaml",
+                      "knowledge/people/responsibilities.yaml"] + [f"knowledge/{rel}" for rel, _ in doc_rows(records)]
+                      + ([PINS_REL] if os.path.isfile(os.path.join(records, PINS_REL)) else []))   # all or nothing
     cmd_map(argparse.Namespace(json=False)); cmd_catalogue(argparse.Namespace(json=False)); cmd_roster(argparse.Namespace(json=False))
     cmd_pins(argparse.Namespace(json=False))
     today = datetime.date.today().isoformat()
@@ -585,14 +654,14 @@ def cmd_list(a):
         src_rel, dest_rel = cells[0], cells[1].replace("<published>/", "")
         drift = ""
         if src_rel == "map/":
-            src_dir, dst_dir = os.path.join(records, "map"), os.path.join(published, "map")
+            src_dir, dst_dir = os.path.join(source_root(records), "map"), os.path.join(published, "map")
             changed = [f for f in map_files(src_dir)
                        if not os.path.isfile(os.path.join(dst_dir, f))
                        or redact(open(os.path.join(src_dir, f), encoding="utf-8").read()) != open(os.path.join(dst_dir, f), encoding="utf-8").read()]
             if changed:
                 drift = f"  ← differs: {', '.join(changed)}: republish"
         elif DOC_ROW.match(src_rel) or src_rel == PINS_REL:
-            src, dst = os.path.join(records, src_rel), os.path.join(published, dest_rel)
+            src, dst = os.path.join(source_root(records), src_rel), os.path.join(published, dest_rel)
             try:
                 if not os.path.isfile(dst) or redact(open(src, encoding="utf-8").read()) != open(dst, encoding="utf-8").read():
                     drift = "  ← the published file differs from the elak source: republish"
@@ -632,7 +701,11 @@ def main():
     sub.add_parser("list")
     p = sub.add_parser("sync", help="rsync <published> to site.json `published_remote` — dry run unless --apply")
     p.add_argument("--apply", action="store_true")
+    for name, sp in sub.choices.items():
+        if name in ("catalogue", "map", "roster", "doc", "pins", "all", "list"):
+            sp.add_argument("--dirty", action="store_true", help="read elak's working tree instead of its last commit")
     a = ap.parse_args()
+    DIRTY["on"] = bool(getattr(a, "dirty", False))
     # an unattended session (ELA_NO_APPLY=1) reads and dry-runs only; the owner's word applies a write
     if os.environ.get("ELA_NO_APPLY") and getattr(a, "apply", False):
         print("refused: --apply inside an unattended session (ELA_NO_APPLY)", file=sys.stderr); sys.exit(2)
