@@ -976,7 +976,7 @@ def changes_facts(args):
     cand = (pending or {}).get("candidate") or {}
     out["pending"] = pending
     out["findings"] = findings_of(out, rows, tested, env, errors, candidate=frozenset(cand.get("versions") or {})) + out.pop("findings_extra") \
-        + docker_findings(out["docker"], empty_fixed_in(env, {c["key"] for r in out["docker"] for c in r["claims"]}, errors))
+        + docker_findings(out["docker"], fixed_in_targets(env, out["docker"], errors))
     for service, c in (cand.get("versions") or {}).items():
         if isinstance(c, dict) and c.get("awaiting"):
             out["findings"].append({"kind": "candidate_awaiting_owner", "lane": pending["to"], "service": service,
@@ -1007,28 +1007,106 @@ def pin_findings(named, pin):
 DOCKER_LEDGER = os.path.join("releases", "docker-versions.jsonl")
 
 
-def lane_bundles(env, role, host, cfg):
-    """A lane's bundles, newest first: prod's are the release-named ones, the others follow the lane token."""
+def lane_bundles(env, line, role, host, cfg):
+    """A lane's bundles, newest first. Prod's is the owner's pin when there is one (ADR 0012), then the release-named
+    ones; the others follow the lane token."""
     if role == "prod":
-        got = run_json(["python3", RELEASE, *env, "bundles", f"MediaHub {LINE}", "--host", host, "--limit", "50", "--json"], timeout=120)["bundles"]
-        got = [b for b in got if RELEASE_NAME(LINE).match(str(b.get("bundleName", "")))]
-    else:
-        pre = (cfg.get("bundle_line") or "") + (cfg.get("bundle_lanes") or {}).get(role, "")
-        got = run_json(["python3", RELEASE, *env, "bundles", cfg.get("bundle_line") or "", "--host", host, "--limit", "50", "--json"], timeout=120)["bundles"]
-        got = [b for b in got if str(b.get("bundleName", "")) == pre or str(b.get("bundleName", "")).startswith(pre + "-")]
+        got = run_json(["python3", RELEASE, *env, "bundles", f"MediaHub {line}", "--host", host, "--limit", "50", "--json"], timeout=120)["bundles"]
+        got = sorted((b for b in got if RELEASE_NAME(line).match(str(b.get("bundleName", "")))), key=lambda b: str(b.get("createTime") or ""), reverse=True)
+        pin = R.read_pins().get(line) or {}
+        pinned = next((b for b in got if str(b.get("bundleId")) == str(pin.get("id"))), None)
+        return ([pinned] + [b for b in got if b is not pinned and str(b.get("createTime") or "") < str(pinned.get("createTime") or "")]) if pinned else got
+    pre = (cfg.get("bundle_line") or "") + (cfg.get("bundle_lanes") or {}).get(role, "")
+    got = run_json(["python3", RELEASE, *env, "bundles", cfg.get("bundle_line") or "", "--host", host, "--limit", "50", "--json"], timeout=120)["bundles"]
+    got = [b for b in got if str(b.get("bundleName", "")) == pre or str(b.get("bundleName", "")).startswith(pre + "-")]
     return sorted(got, key=lambda b: str(b.get("createTime") or ""), reverse=True)
 
 
-def docker_rows(diff, lane, newest, slugs):
-    """A bundle-diff's added and changed docker services → one announcement row each."""
+def is_version(v):
+    """A tag that can be compared and written in Fixed In; `latest` and GM's named tags ("default Production2") cannot."""
+    return bool(re.match(r"^v?\d+(\.\d+)+", str(v or "").strip()))
+
+
+def norm(name):
+    """Names compare case-insensitively, with `_`, `-` and spaces equal (live_transmit = live transmit = live-transmit)."""
+    return re.sub(r"[\s_-]+", "-", str(name or "").strip().lower())
+
+
+def service_aliases():
+    """Every name a docker image or service goes by in the map → {image, slugs}: the image (the key under `images:`, which
+    names its codebase) and the services the name reaches. An image's own name and its `aliases` reach all its services;
+    a service's slug, GM name, process type, MQTT topic and row `aliases` reach that one."""
+    out = {}
+    try:
+        text = open(os.path.join(json.load(open(SITE)).get("map", ""), "services.yaml"), encoding="utf-8").read()
+    except (OSError, ValueError):
+        return out
+    image, slugs, names = None, [], []
+    def close():
+        if image:
+            for n in [image] + names:
+                out.setdefault(norm(n), {"image": image, "slugs": list(slugs)})
+    for line in text.splitlines():
+        h = re.match(r"^  ([\w.-]+):\s*$", line)
+        if h:                                               # the next image begins
+            close(); image, slugs, names = h.group(1), [], []
+            continue
+        lst = re.match(r"^    (slugs|aliases):\s*(\[.*\])\s*$", line)
+        if lst:
+            try:
+                (slugs if lst.group(1) == "slugs" else names)[:] = json.loads(lst.group(2))
+            except ValueError:
+                pass
+        m = re.match(r"^\s+- (\{.*\})\s*$", line)
+        try:
+            row = json.loads(m.group(1)) if m else None
+        except ValueError:
+            row = None
+        if row and row.get("slug") and image:
+            for n in [row.get(k) for k in ("slug", "gm_name", "process_type", "mqtt_topic")] + list(row.get("aliases") or []):
+                if n:
+                    out.setdefault(norm(n), {"image": image, "slugs": [row["slug"]]})
+    close()
+    return out
+
+
+# a bare "decoder" or "encoder" names the main image of its kind unless the same line names another of that kind; still
+# ambiguous, it is unresolved and drafts nothing (the MediaHub content session's rule, 2026-10-27; the map does not carry it)
+BARE = {"decoder": ("playeroftvu", ("agoradecoder", "tvu_u_2004_capture", "video-decoder", "headlessr", "youtuberender", "zoomlinux")),
+        "encoder": ("tvu264_all", ("agoraencoder", "peerclient", "video-encoder"))}
+
+
+def resolve_bare(name, context):
+    """A bare kind word → its main image, or None when the line names another image of that kind."""
+    rule = BARE.get(norm(name))
+    if not rule:
+        return name
+    word = lambda o: r"(?<![a-z0-9])" + r"[\s_-]+".join(map(re.escape, re.split(r"[\s_-]+", o))) + r"(?![a-z0-9])"
+    others = [o for o in rule[1] if re.search(word(o), context.lower())]
+    return None if others else rule[0]
+
+
+def docker_entry(name, version, aliases, context=""):
+    """The row's identity: what was seen, the image and slugs it reaches when the map knows the name."""
+    resolved = resolve_bare(name, context)
+    if resolved is None:
+        return {"service": f"{name.strip()} (unresolved)", "seen": name.strip(), "image": None, "slugs": [], "mapped": False,
+                "unresolved": True, "version": str(version).strip(), "comparable": is_version(version)}
+    hit = aliases.get(norm(resolved))
+    return {"service": (hit["slugs"][0] if hit and len(hit["slugs"]) == 1 else hit["image"]) if hit else name.strip(),
+            "seen": name.strip(), "image": hit["image"] if hit else None, "slugs": hit["slugs"] if hit else [],
+            "mapped": bool(hit), "version": str(version).strip(), "comparable": is_version(version)}
+
+
+def docker_rows(diff, lane, newest, aliases, line):
+    """A bundle-diff's added and changed docker services → one row each."""
     rows = []
     for r in diff.get("changed", []) + diff.get("added", []):
         if not str(r["service"]).lower().startswith("docker"):
             continue                                        # the SaaS rows mirror the lanes table; docker services only
-        rows.append({"service": slugs.get(r["service"], r["service"]), "gm_name": r["service"], "mapped": r["service"] in slugs,
-                     "version": r.get("to") or r.get("version"),
-                     "from": r.get("from"), "at": R.when(newest.get("createTime")), "source": f"bundle {newest.get('bundleName')}",
-                     "by": newest.get("operator") or None, "claims": [], "lane_or_bundle": f"{lane} · {newest.get('bundleName')}"})
+        rows.append(dict(docker_entry(r["service"], r.get("to") or r.get("version"), aliases), gm_name=r["service"], line=line,
+                         **{"from": r.get("from"), "at": R.when(newest.get("createTime")), "source": f"bundle {newest.get('bundleName')}",
+                            "by": newest.get("operator") or None, "claims": [], "lane_or_bundle": f"{lane} · {newest.get('bundleName')}"}))
     return rows
 
 
@@ -1053,69 +1131,37 @@ def append_ledger(path, rows):
     return len(new)
 
 
-IMAGE_RX = re.compile(r"[\w.-]+\.[a-z]{2,}/(?:[\w.-]+/)*([\w.-]+):v?(\d[\w.+-]*)")
+IMAGE_RX = re.compile(r"[\w.-]+\.[a-z]{2,}/(?:[\w.-]+/)*([\w.-]+):v?([\w.+-]+)")   # matched on the image, the last path segment
+QA_RELEASE_RX = re.compile(r"^\s*\[QA release\]\s*(.+?)\s+v?(\d[\w.+-]*)\s+for test", re.I)
 BOX_RX = re.compile(r"Box images[^:]*:\s*(.+?)(?:\n\s*\n|\n[A-Z][\w ]+:|$)", re.S)
 
 
-def service_aliases():
-    """Every name a docker service goes by in the map (slug, GM name, process type, MQTT topic, and its `aliases`, on the
-    service row or the module when the module has one image), lowercased → slug."""
-    out = {}
-    try:
-        text = open(os.path.join(json.load(open(SITE)).get("map", ""), "services.yaml"), encoding="utf-8").read()
-    except (OSError, ValueError):
-        return out
-    slugs, names = [], []                                   # a module's slugs, and its module-level aliases
-    def module_aliases():
-        if len(slugs) == 1:                                 # an alias of a module with several images names none of them
-            for a in names:
-                out.setdefault(str(a).strip().lower(), slugs[0])
-    for line in text.splitlines():
-        if re.match(r"^  [\w-]+:\s*$", line):               # the next module begins
-            module_aliases(); slugs, names = [], []
-        lst = re.match(r"^    (slugs|aliases):\s*(\[.*\])\s*$", line)
-        if lst:
-            try:
-                (slugs if lst.group(1) == "slugs" else names)[:] = json.loads(lst.group(2))
-            except ValueError:
-                pass
-        m = re.match(r"^\s+- (\{.*\})\s*$", line)
-        try:
-            row = json.loads(m.group(1)) if m else None
-        except ValueError:
-            row = None
-        if row and row.get("slug"):
-            for k in ("slug", "gm_name", "process_type", "mqtt_topic"):
-                if row.get(k):
-                    out.setdefault(str(row[k]).strip().lower(), row["slug"])
-            for a in row.get("aliases") or []:              # the names people write in Slack and mail
-                out.setdefault(str(a).strip().lower(), row["slug"])
-    module_aliases()
-    return out
-
-
-def docker_row(name, version, m, how, aliases, claims=()):
-    return {"service": aliases.get(name.strip().lower(), name.strip()), "seen": name.strip(), "version": version, "from": None,
-            "mapped": name.strip().lower() in aliases,
-            "at": (mail_time(m["date"]) or "")[:16].replace("T", " "), "source": f"mail {m['id']}",
-            "by": email.utils.parseaddr(m["from"])[0] or m["from"], "subject": m["subject"],
-            "claims": [{"key": k, "via": "mail", "ref": m["id"]} for k in claims], "lane_or_bundle": how}
+def docker_row(name, version, m, how, aliases, claims=(), context=""):
+    return dict(docker_entry(name, version, aliases, context), line=None, **{
+        "from": None, "at": (mail_time(m["date"]) or "")[:16].replace("T", " "), "source": f"mail {m['id']}",
+        "by": email.utils.parseaddr(m["from"])[0] or m["from"], "subject": m["subject"],
+        "claims": [{"key": k, "via": "mail", "ref": m["id"]} for k in claims], "lane_or_bundle": how})
 
 
 def docker_from_mail(m, aliases):
-    """Docker versions a mail announces: an image in its subject, a default-tag update, and QA's "Box images" line.
-    The tickets the mail names are its claims, except for the box line, which lists what the box ran, not what changed."""
+    """Docker versions a mail announces: an image path in its subject (a trailing "- 20261026" is the report's date), a
+    `[QA release] <service> <version> for test`, a default-tag update, and QA's "Box images" line. The tickets the mail
+    names are its claims, except for the box line, which lists what the box ran, not what changed."""
     body, subj = m.get("body") or "", m["subject"]
     keys = [k for k in keys_in(body + " " + subj) if k.startswith("MH-")]   # Fixed In lives on MediaHub tickets; AC-3 is a codec
     rows = [docker_row(x.group(1), x.group(2), m, "image in a mail subject", aliases, keys) for x in IMAGE_RX.finditer(subj)]
+    qa = QA_RELEASE_RX.match(subj)
+    if qa:
+        rows.append(docker_row(qa.group(1), qa.group(2), m, "QA release (for test)", aliases, keys, context=subj))
     tag = re.match(r"^\s*\[Release\]\s*<([^>]+)>", subj)
     if tag and TAG_RX.search(body):
         rows.append(docker_row(tag.group(1), TAG_RX.search(body).group("to"), m, "default tag update", aliases, keys))
     box = BOX_RX.search(body)
     for item in (box.group(1).replace("\n", " ").split(",") if box else []):
         v = re.match(r"^\s*(.+?)\s+v?(\d[\w.+-]*)\s*$", item)
-        for name in (v.group(1).split("/") if v else []):
-            rows.append(docker_row(name, v.group(2), m, "QA box images", aliases))
+        if v:                                               # "copier / tvu_live_transmit 1.0.23": the version is the last name's;
+            rows.append(docker_row(v.group(1).split("/")[-1], v.group(2), m, "QA box images", aliases,   # the others are unversioned
+                                   context=box.group(1)))
     return rows
 
 
@@ -1128,8 +1174,8 @@ def adf_text(node):
 def jira_claims(env, rows, errors, days=30, read_max=8):
     """Tickets that name a docker version beside the service's name in a comment, last 30 days: claims via "jira" with
     the comment's id. Jira's text search splits versions into numbers, so it only narrows; each comment is read."""
-    for r in rows:
-        words = {w for w in (r.get("seen"), r["service"], r.get("gm_name")) if w}
+    for r in (r for r in rows if r["comparable"]):
+        words = {w for w in (r.get("seen"), r["service"], r.get("gm_name"), r.get("image")) if w}
         try:
             ver = {i["key"] for i in run_json(["python3", JIRA, *env, "jql", f'project = MH AND updated >= -{days}d AND text ~ "{r["version"]}"',
                                                  "--limit", "100", "--json"])["issues"]}
@@ -1139,7 +1185,8 @@ def jira_claims(env, rows, errors, days=30, read_max=8):
                                                         "--limit", "100", "--json"])["issues"]}
         except (LaneError, subprocess.TimeoutExpired, ValueError) as e:
             errors.append({"source": f"jira claims {r['service']}", "error": str(e)[:200]}); continue
-        near = re.compile("(" + "|".join(re.escape(w) for w in words) + r")\W{0,40}v?" + re.escape(r["version"]) + r"\b", re.I)
+        near = re.compile("(" + "|".join(re.escape(w).replace(r"\_", "[ _-]").replace(r"\-", "[ _-]") for w in words) + r")\W{0,40}v?"
+                          + re.escape(r["version"]) + r"\b", re.I)
         for key in sorted(ver & named)[:read_max]:
             try:
                 issue = run_json(["python3", JIRA, *env, "read", key, "--json"])
@@ -1150,60 +1197,77 @@ def jira_claims(env, rows, errors, days=30, read_max=8):
                 r["claims"].append({"key": key, "via": "jira", "ref": f"comment {hit.get('id')}"})
 
 
-SLUG_RX = re.compile(r"^[a-z0-9][a-z0-9-]*$")   # the Fixed In grammar's service half (jira.py FIXED_IN_ENTRY)
-
-
-def empty_fixed_in(env, keys, errors):
-    """The keys among these whose Fixed In is empty."""
+def fixed_in_targets(env, rows, errors):
+    """{key: release label line or None} for the claimed keys whose Fixed In is empty."""
+    keys = {c["key"] for r in rows for c in r["claims"]}
     if not keys:
-        return set()
+        return {}
     try:
-        return {i["key"] for i in run_json(["python3", JIRA, *env, "jql", f"key in ({','.join(sorted(keys))}) AND cf[11252] is EMPTY",
-                                            "--limit", "100", "--json"])["issues"]}
+        got = run_json(["python3", JIRA, *env, "jql", f"key in ({','.join(sorted(keys))}) AND cf[11252] is EMPTY", "--limit", "100", "--json"])["issues"]
     except (LaneError, subprocess.TimeoutExpired, ValueError) as e:
         errors.append({"source": "jira fixed-in", "error": str(e)[:200]})
-        return set()
+        return {}
+    out = {}
+    for i in got:
+        labels = i.get("labels") or []
+        out[i["key"]] = next((l.split("release:mh-", 1)[1] for l in labels if str(l).startswith("release:mh-")), None)
+    return out
 
 
-def docker_findings(rows, empty):
-    """A docker version that names a ticket whose Fixed In is empty: the brief drafts the Fixed In entry, citing the
-    announcement. A service the map has no slug for gets no command; the finding says so."""
+def fixed_in_entry(r):
+    """The team's media Fixed In form, one entry per service: `<slug>@<image>:<version>` (47 MH tickets carry it)."""
+    return "; ".join(f"{s}@{r['image']}:{r['version']}" for s in r["slugs"])
+
+
+def docker_findings(rows, targets):
+    """A docker version that names a ticket whose Fixed In is empty: the brief drafts the entry, citing the announcement.
+    A bundle's version is drafted only for a ticket whose release label is the bundle's line; a name the map does not
+    know, or a tag that is not a version, gets no command, and the finding says why."""
     F = []
     for r in rows:
         for c in r["claims"]:
-            if c["key"] not in empty:
+            if c["key"] not in targets or (r.get("line") and targets[c["key"]] not in (None, r["line"])):
                 continue
-            entry = f"{r['service']}@{r['version']}"
-            slug = r.get("mapped") and SLUG_RX.match(r["service"])   # only a slug the map knows makes a Fixed In entry
+            why = ("" if r["mapped"] and r["comparable"] else
+                   f"; {r['seen']} is ambiguous in its line (another image of that kind is named), so no entry is drafted" if r.get("unresolved") else
+                   f"; the map has no image for {r['seen']}, so no entry is drafted" if not r["mapped"] else
+                   f"; {r['version']} is a tag, not a version, so no entry is drafted")
+            if not why and len(r["slugs"]) > 1:             # an image of several services: the ticket must say which (design review,
+                why = (f"; {r['image']} carries {len(r['slugs'])} services and neither the announcement nor the ticket says which, "   # 2026-10-27)
+                       "so no entry is drafted")
             F.append({"kind": "docker_version_names_ticket", "key": c["key"], "lane": r.get("lane_or_bundle"), "service": r["service"],
-                      "what": f"{r.get('seen') or r['service']} {r['version']} names {c['key']}, whose Fixed In is empty"
-                              + ("" if slug else f"; the map has no slug for {r['service']}, so no entry is drafted"),
-                      "options": [f"ela jira fixed-in {c['key']} --add '{entry}'"] if slug else [],
-                      "evidence": [f"{r['source']}" if c["via"] != "jira" else f"{c['key']} {c['ref']}"], "at": r["at"],
+                      "what": f"{r['seen']} {r['version']} names {c['key']}, whose Fixed In is empty" + why,
+                      "options": [f"ela jira fixed-in {c['key']} --add '{fixed_in_entry(r)}'"] if not why else [],
+                      "evidence": [r["source"] if c["via"] != "jira" else f"{c['key']} {c['ref']}"], "at": r["at"],
                       "rank": RANKS["prod_fix_without_ticket"]})
     return F
 
 
 def docker_moves(env, errors, win, site, extra=()):
-    """Docker service versions announced by the GM bundles: each lane's newest bundle against the one before it. Every
-    move goes to the ledger <reports>/releases/docker-versions.jsonl; the window's are returned. Media versions are
-    announced, not built from tracked commits, so the bundle BOM is their first-hand record."""
-    cfg = R.rmap("lines").get(LINE) or {}
-    slugs = R._gm_slugs()
+    """Docker versions announced by the GM bundles, every release line: each lane's newest bundle against the one before
+    it (prod's newest is the owner's pin). Every row goes to the ledger <reports>/releases/docker-versions.jsonl; the
+    window's are returned, one per service, version and place. Media versions are announced, not built from tracked
+    commits, so the bundle is their first-hand record."""
+    aliases = service_aliases()
     rows = []
-    for role in ("qa", "daily", "prod"):
-        lane = (cfg.get("lanes") or {}).get(role)
-        host = "qa" if role == "qa" else "prod"
-        try:
-            got = lane_bundles(env, role, host, cfg)
-            if len(got) < 2:
+    for line, cfg in (R.rmap("lines") or {}).items():
+        if not cfg.get("bundle_line") or not cfg.get("lanes"):
+            continue
+        for role in ("qa", "daily", "prod"):
+            lane = cfg["lanes"].get(role)
+            host = "qa" if role == "qa" else "prod"
+            if not lane:
                 continue
-            newest, before = got[0], got[1]
-            diff = run_json(["python3", RELEASE, *env, "bundle-diff", str(before["bundleId"]), str(newest["bundleId"]),
-                             "--host-a", host, "--host-b", host, "--json"], timeout=180)
-            rows += docker_rows(diff, lane, newest, slugs)
-        except (LaneError, subprocess.TimeoutExpired, ValueError) as e:
-            errors.append({"source": f"docker bundles {role}", "error": str(e)[:200]})
+            try:
+                got = lane_bundles(env, line, role, host, cfg)
+                if len(got) < 2:
+                    continue
+                newest, before = got[0], got[1]
+                diff = run_json(["python3", RELEASE, *env, "bundle-diff", str(before["bundleId"]), str(newest["bundleId"]),
+                                 "--host-a", host, "--host-b", host, "--json"], timeout=180)
+                rows += docker_rows(diff, lane, newest, aliases, line)
+            except (LaneError, subprocess.TimeoutExpired, ValueError) as e:
+                errors.append({"source": f"docker bundles {line} {role}", "error": str(e)[:200]})
     rows += list(extra)
     append_ledger(os.path.join(site.get("reports") or "", DOCKER_LEDGER), rows)
     merged = {}                                             # one row per service, version and where; sources and claims joined

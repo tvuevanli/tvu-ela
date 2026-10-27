@@ -148,47 +148,59 @@ check("with no pin, the newest release-named bundle is offered as the pin comman
       len(pf) == 1 and pf[0]["kind"] == "release_newer_than_pin" and pf[0]["options"] == ['ela release pin 2.1 "MediaHub 2.1.15"'])
 check("a pin on an older release is a decision; a pin on the newest is quiet",
       len(B.pin_findings(named, {"official": "MediaHub 2.1.14", "id": "14"})) == 1 and B.pin_findings(named, {"official": "MediaHub 2.1.15", "id": "15"}) == [])
-diff = {"changed": [{"service": "Docker Html Render Uncompresseddecoder", "from": "0.0.22", "to": "0.0.24"},
-                    {"service": "MediaHub Backend", "from": "2.1.33", "to": "2.1.34"}], "added": [{"service": "Docker Srt Copier", "version": "1.0.9"}]}
-dr = B.docker_rows(diff, "qa-cn3", {"bundleName": "mh2.1@qa-q26", "createTime": 1792142586769, "operator": "qa"}, {"Docker Srt Copier": "mds-srt-copier"})
-check("a bundle diff gives one row per docker service moved or added, by slug where the map has one",
-      [(r["service"], r["from"], r["version"]) for r in dr] == [("Docker Html Render Uncompresseddecoder", "0.0.22", "0.0.24"), ("mds-srt-copier", None, "1.0.9")]
-      and dr[0]["source"] == "bundle mh2.1@qa-q26")
+YAML = ('images:\n'
+        '  webemulator:\n    slugs: ["mds-html-decoder"]\n    aliases: ["HTML render", "html_render"]\n    services:\n'
+        '      - {"slug": "mds-html-decoder", "gm_name": "Docker Html Render Uncompresseddecoder", "process_type": "html_render_decoder"}\n'
+        '  tvu_live_transmit:\n    slugs: ["mds-mpegts-receiver", "mds-mpegts-transmitter"]\n    aliases: ["live_transmit"]\n    services:\n'
+        '      - {"slug": "mds-mpegts-receiver", "gm_name": "Docker Mpegts Receiver"}\n'
+        '      - {"slug": "mds-mpegts-transmitter", "gm_name": "Docker Mpegts Transmitter", "aliases": ["MPEG-TS transmitter"]}\n'
+        '  playeroftvu:\n    slugs: ["mds-srt-decoder", "mds-udp-decoder"]\n    services:\n'
+        '      - {"slug": "mds-srt-decoder", "gm_name": "Docker Srt Decoder"}\n      - {"slug": "mds-udp-decoder", "gm_name": "Docker Udp Decoder"}\n')
 with tempfile.TemporaryDirectory() as d:
-    lp = os.path.join(d, "releases", "docker-versions.jsonl")
-    check("the ledger takes a row once per service, version and source", B.append_ledger(lp, dr) == 2 and B.append_ledger(lp, dr) == 0
-          and len(open(lp).read().splitlines()) == 2)
-al = {"mds-html-decoder": "mds-html-decoder", "docker html render uncompresseddecoder": "mds-html-decoder"}
-m1 = {"id": "m1", "from": "Q A <qa@x>", "date": "Mon, 26 Oct 2026 18:55:00 +0800",
-      "subject": "Summary Test report for [AI output] Release docker.example.com/tvurtc/output:v1.0.18 - 20261026",
-      "body": "Covers MH-3802.\nBox images (box): copier / tvu_live_transmit 1.0.23, playeroftvu 1.0.75, agoraencoder 8.13.8build243-ubuntu\n\nEnd"}
-dm = B.docker_from_mail(m1, al)
-check("a mail's image subject is a version that claims the mail's tickets; the box line lists versions without claims",
-      [(r["service"], r["version"], [c["key"] for c in r["claims"]]) for r in dm] ==
-      [("output", "1.0.18", ["MH-3802"]), ("copier", "1.0.23", []), ("tvu_live_transmit", "1.0.23", []), ("playeroftvu", "1.0.75", []),
-       ("agoraencoder", "8.13.8build243-ubuntu", [])])
-m2 = {"id": "m2", "from": "web", "date": "Mon, 26 Oct 2026 09:13:10 +0000", "subject": "[Release] <Docker Html Render Uncompresseddecoder>",
-      "body": "Default Version Tag Update\n From:0.0.24\n To:0.0.25\n"}
-check("a default-tag mail is the new version, by the map's slug", [(r["service"], r["version"]) for r in B.docker_from_mail(m2, al)] == [("mds-html-decoder", "0.0.25")])
-rows = [dict(B.docker_from_mail(m2, al)[0], claims=[{"key": "MH-3790", "via": "jira", "ref": "comment 282857"}]), dm[0]]
-df = B.docker_findings(rows, {"MH-3790", "MH-3802"})
-check("a version naming a ticket with empty Fixed In drafts the entry for a mapped slug, cites the comment, and ranks with prod fixes",
-      df[0]["options"] == ["ela jira fixed-in MH-3790 --add 'mds-html-decoder@0.0.25'"] and df[0]["evidence"] == ["MH-3790 comment 282857"] and df[0]["rank"] == 5
-      and df[1]["options"] == [] and "no slug for output" in df[1]["what"])
-check("a ticket whose Fixed In is set is not a finding", B.docker_findings(rows, set()) == [])
-with tempfile.TemporaryDirectory() as d:
-    open(os.path.join(d, "services.yaml"), "w").write(
-        'modules:\n  live:\n    slugs: ["mds-live-transmit"]\n    aliases: ["tvu_live_transmit", "live transmit"]\n    services:\n'
-        '      - {"slug": "mds-live-transmit", "gm_name": "Docker Live Transmit"}\n'
-        '  copier:\n    slugs: ["mds-a-copier", "mds-b-copier"]\n    aliases: ["copier"]\n    services:\n'
-        '      - {"slug": "mds-a-copier", "gm_name": "Docker A Copier", "aliases": ["a copier"]}\n')
+    open(os.path.join(d, "services.yaml"), "w").write(YAML)
     site = os.path.join(d, "site.json"); json.dump({"map": d}, open(site, "w"))
     saved, B.SITE = B.SITE, site
     try:
         al = B.service_aliases()
     finally:
         B.SITE = saved
-    check("aliases on a service row and on a one-image module map to its slug; a many-image module's alias maps to none",
-          al.get("tvu_live_transmit") == "mds-live-transmit" and al.get("live transmit") == "mds-live-transmit"
-          and al.get("a copier") == "mds-a-copier" and "copier" not in al)
+check("an image's name and aliases reach all its services; a service's names reach that one; _ - and space are equal",
+      al["live-transmit"] == {"image": "tvu_live_transmit", "slugs": ["mds-mpegts-receiver", "mds-mpegts-transmitter"]}
+      and al[B.norm("MPEG-TS transmitter")] == {"image": "tvu_live_transmit", "slugs": ["mds-mpegts-transmitter"]}
+      and al[B.norm("html render")]["slugs"] == ["mds-html-decoder"] and B.norm("live transmit") == B.norm("live_transmit"))
+diff = {"changed": [{"service": "Docker Html Render Uncompresseddecoder", "from": "0.0.22", "to": "0.0.24"},
+                    {"service": "MediaHub Backend", "from": "2.1.33", "to": "2.1.34"}], "added": [{"service": "Docker Audio Splitter", "version": "default Production2"}]}
+dr = B.docker_rows(diff, "qa-cn3", {"bundleName": "mh2.1@qa-q26", "createTime": 1792142586769, "operator": "qa"}, al, "2.1")
+check("a bundle diff gives one row per docker service, by slug and image; a named GM tag is kept but not comparable",
+      [(r["service"], r["image"], r["from"], r["version"], r["comparable"]) for r in dr]
+      == [("mds-html-decoder", "webemulator", "0.0.22", "0.0.24", True), ("Docker Audio Splitter", None, None, "default Production2", False)])
+with tempfile.TemporaryDirectory() as d:
+    lp = os.path.join(d, "releases", "docker-versions.jsonl")
+    check("the ledger takes a row once per service, version and source", B.append_ledger(lp, dr) == 2 and B.append_ledger(lp, dr) == 0)
+m1 = {"id": "m1", "from": "Q A <qa@x>", "date": "Mon, 26 Oct 2026 18:55:00 +0800",
+      "subject": "Summary Test report for [AI output] Release docker.example.com/tvurtc/webemulator:v0.0.25 - 20261026",
+      "body": "Covers MH-3802 and AC-3.\nBox images (box): copier / tvu_live_transmit 1.0.23, decoder 1.0.75, agoraencoder 8.13.8build243-ubuntu\n\nEnd"}
+dm = B.docker_from_mail(m1, al)
+check("a subject's image path is matched on its last segment, its trailing date is not a version, MH keys are its claims",
+      (dm[0]["image"], dm[0]["version"], [c["key"] for c in dm[0]["claims"]]) == ("webemulator", "0.0.25", ["MH-3802"]))
+check("the box line: one version for 'copier / tvu_live_transmit' is the last name's; a bare decoder is playeroftvu",
+      [(r["seen"], r["image"], r["version"]) for r in dm[1:]] == [("tvu_live_transmit", "tvu_live_transmit", "1.0.23"),
+                                                                ("decoder", "playeroftvu", "1.0.75"), ("agoraencoder", None, "8.13.8build243-ubuntu")])
+amb = B.docker_entry("decoder", "1.0.75", al, "decoder 1.0.75, youtuberender 0.0.38")
+check("a bare decoder beside another decoder image is unresolved", amb.get("unresolved") and not amb["mapped"])
+qa = B.docker_from_mail({"id": "m3", "from": "Dev <d@x>", "date": "Tue, 27 Oct 2026 10:00:00 +0800",
+                         "subject": "[QA release] MPEG-TS transmitter 1.0.24 for test", "body": "Fixes MH-3790."}, al)
+check("a [QA release] subject is a version for test, claiming the mail's keys",
+      [(r["service"], r["version"], r["lane_or_bundle"], [c["key"] for c in r["claims"]]) for r in qa] == [("mds-mpegts-transmitter", "1.0.24", "QA release (for test)", ["MH-3790"])])
+img = dict(dm[1], claims=[{"key": "MH-3790", "via": "jira", "ref": "comment 282857"}])
+df = B.docker_findings([img, qa[0], dr[1] | {"claims": [{"key": "MH-1", "via": "mail", "ref": "x"}]}], {"MH-3790": None, "MH-1": None})
+check("an image of several services drafts nothing until the service is known, and says so",
+      df[0]["options"] == [] and "carries 2 services" in df[0]["what"] and df[0]["evidence"] == ["MH-3790 comment 282857"] and df[0]["rank"] == 5)
+check("a service named alone drafts the team's form for that service",
+      df[1]["options"] == ["ela jira fixed-in MH-3790 --add 'mds-mpegts-transmitter@tvu_live_transmit:1.0.24'"])
+check("an unmapped name or a named tag drafts nothing, and says why", df[2]["options"] == [] and "no entry is drafted" in df[2]["what"])
+check("a bundle's version is drafted only for a ticket whose release label is the bundle's line",
+      B.docker_findings([dict(dr[0], claims=[{"key": "MH-9", "via": "jira", "ref": "c"}])], {"MH-9": "2.0"}) == []
+      and len(B.docker_findings([dict(dr[0], claims=[{"key": "MH-9", "via": "jira", "ref": "c"}])], {"MH-9": "2.1"})) == 1)
+check("a ticket whose Fixed In is set is not a finding", B.docker_findings([img], {}) == [])
 sys.exit(1 if failures else 0)
