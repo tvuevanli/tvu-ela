@@ -25,7 +25,7 @@ product responsibility for MediaHub) this month. Lead with the conclusion.>
 
 ## Open
 
-- <an open question or risk, one sentence, with the ticket key if one exists, e.g. MH-3745>
+- <an open question or risk, one sentence, with the ticket key linked to its Jira page if one exists, e.g. [MH-3745](<jira>/browse/MH-3745)>
 
 ## Read more
 
