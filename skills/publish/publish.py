@@ -517,7 +517,7 @@ def cmd_pins(a):
         require_committed(records, [PINS_REL])
     src, dst = os.path.join(source_root(records), PINS_REL), os.path.join(published, PINS_REL)
     if not os.path.isfile(src):
-        msg = f"no {PINS_REL} in elak: no line is pinned yet (`ela release pin`)"
+        msg = f"no {PINS_REL} in elak: no line is held; prod follows the newest official bundle (ADR 0013)"
         print(json.dumps({"published": None, "why": msg}) if a.json else msg); return
     os.makedirs(os.path.dirname(dst), exist_ok=True)
     tmp = dst + ".tmp"; open(tmp, "w", encoding="utf-8").write(redact(open(src, encoding="utf-8").read())); os.replace(tmp, dst)
