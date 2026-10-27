@@ -145,9 +145,10 @@ with tempfile.TemporaryDirectory() as tmp:
           and os.path.exists(a6) and not os.path.exists(r6)
           and 'next: "done"' in open(a6).read() and 'status: "closed"' in open(a6).read() and 'moves: "closed"' in open(a6).read())
     r9 = f"{vault}/to-read/{today[:4]}-09-19-review-9.md"
-    txt = open(r9).read(); open(r9, "w").write(txt.replace('ela: ""', 'ela: "1A, post it"'))
-    check("his word typed in the ela cell survives the rewrite", sync() == 0 and 'ela: "1A, post it"' in open(r9).read()
-          and open(r9).read().count("1A, post it") == 1)
+    check("a note to read carries no ela property for the tables", "\nela:" not in open(r9).read().split("\n---", 1)[0])
+    txt = open(r9).read(); open(r9, "w").write(txt.replace('next: ""', 'next: ""\nela: "1A, post it"'))
+    check("a word typed in the old ela property stays, as a line in the note", sync() == 0
+          and 'ela: "1A, post it"' in open(r9).read().split("\n---", 1)[1] and open(r9).read().count("1A, post it") == 1)
     bp = f"{vault}/days/{today[:4]}/{today}-brief.md"
     txt = open(bp).read(); open(bp, "w").write(txt.replace("- [ ] probe MH-1", "- [x] probe MH-1"))
     check("a choice he ticks stays ticked through the rewrite", sync() == 0 and "- [x] probe MH-1 from the replay" in open(bp).read()

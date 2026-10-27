@@ -66,7 +66,7 @@ OWNER_FOLDERS = (TO_LEARN, ARCHIVE)   # where the owner drags a note to say what
 ATTACH = "ela/attachments"
 DELETABLE = (DAYS, TO_READ)
 KEEP_FOREVER = ("brief", "week", "changes")   # the morning pages are the record of what ela told the owner; the rest expires
-PROPS = ("title", "aliases", "type", "date", "kind", "status", "result", "moves", "next", "ela")   # the whole vocabulary; no tags (ADR 0010)
+PROPS = ("title", "aliases", "type", "date", "kind", "status", "result", "moves", "next")   # the whole vocabulary; no tags (ADR 0010)
 MARKS = {"done": ARCHIVE, "learn": TO_LEARN, "drop": None}   # a ticked box in a to-read table row: archive, distil, delete
 BUDGET = {"ticket": 700, "topic": 800, "guide": 1200, "board": 1000, "day": 1200, "review": 2500, "decision": 1200, "plan": 2500, "sprint": 800}
 TOLERANCE = 1.1                                  # a page 10% over its budget is not worth a rewrite
@@ -157,9 +157,11 @@ that note's choices, by kind: a plan *agree*, *park*, *not-now*, *reject*; a rev
 them *done*, *learn*, *drop*. A ticket page (one ticket read in depth) offers only *nudge*, *go-deep*, *seen* and *drop*. The note's **Next moves** section says what each does. Choose one, and it is done
 within a minute; ela empties the field once it has acted, and a value that is not a move for the note runs nothing
 and is pointed out under the title. An agreed note moves to `in-progress/`, ela writes each step under its Progress
-heading, and when it is built the note offers *accept* or *not-done*. Beside that life (to-read → in-progress →
-archive) sits `parked/`: a plan, decision or review you *park* waits on others, with who (`waits-on`) and what
-brings it back (`wake`); ela watches the wake each morning, and the note offers *resume* or *drop*. You can also answer a note with `ela:` lines,
+heading, and when it is built the note offers *accept* or *not-done*. A plan lists each ruling it needs with ela's
+proposed answer and no boxes: *agree* accepts them as proposed, and to differ on one you write an `ela:` line under
+it. Beside that life (to-read → in-progress → archive) sits `parked/`: a plan, decision or review you *park* waits
+on others, with who (`waits-on`) and what brings it back (`wake`); ela watches the wake each morning, and the note
+offers *resume* or *drop*. You can also answer a note with `ela:` lines,
 or continue it in any Claude session by naming its path; a session that claims a note keeps it, and records its
 conclusions there.
 
@@ -245,7 +247,7 @@ VIEWS = {
   - type: table
     name: Waiting for your word
     filters:
-""" + WAITING + """    order: [date, formula.note, type, status, next, ela]
+""" + WAITING + """    order: [date, formula.note, type, status, next]
     sort:
       - property: date
         direction: DESC
@@ -257,7 +259,7 @@ VIEWS = {
         - 'result != "fail"'
         - 'status != "blocked"'
         - 'status != "proposed"'
-    order: [date, formula.note, type, next, ela]
+    order: [date, formula.note, type, next]
     limit: 5
     sort:
       - property: date
@@ -397,7 +399,7 @@ def front(existing, props):
     if props.get("title") and props.get("type") not in ("home", "readme"):
         props["aliases"] = [props["title"]]                # the quick switcher matches an alias, not a heading
     lines = [f"{k}: {json.dumps(props[k], ensure_ascii=False)}" for k in PROPS if props.get(k) or props.get(k) is False
-             or (k in ("ela", "next") and props.get(k) == "")]   # an empty ela cell or next field, ready for his word
+             or (k == "next" and props.get(k) == "")]   # an empty next field, ready for his word
     return "---\n" + "\n".join(lines) + "\n---\n\n" if lines else ""
 
 
@@ -994,8 +996,8 @@ def home(today, now, notes):
     L += ["## Waiting for your word", ""] + [f"- {w}" for w in wait] + ([""] if wait else [])
     if waiting:
         L += [f"![[{ELA}/all-notes.base#Waiting for your word]]", "",
-              "*Tick a box and ela takes it up within a minute; type in the ela cell (or a line `ela: …` in the note) and "
-              "it is taken up two minutes after you stop typing. The answer appears under the line.*", ""]
+              "*Choose a move in a row's next field and ela takes it up within a minute; to differ on one point, write a "
+              "line `ela: …` in the note, taken up two minutes after you stop typing, with the answer under it.*", ""]
     elif not wait:
         L += ["Nothing waits for your word.", ""]
     if brief and brief.props["date"] == iso:
@@ -1196,7 +1198,7 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset()):
             n.props.update(status=st, result=n.props.get("result") or result)
             n.front_lines = [l for l in n.front_lines if not l.startswith("status:")]   # the source's own word is settled
         if top(n.path) == TO_READ:
-            n.props.update({NEXT: "", MOVE_SET: move_set(n.props.get("type"))}, ela="")
+            n.props.update({NEXT: "", MOVE_SET: move_set(n.props.get("type"))})
         n.held = reading_gate(n)
         body = linker(unwrap(callouts(meta_line(Note(n.path, n.title, tidy_title(n.body), n.props, n.front_lines), by_topic))))
         if top(n.path) == TO_READ:
@@ -1603,7 +1605,7 @@ def ensure_native_moves(vault, dry_run=False):
         kind = next((re.sub(r"^type:\s*", "", l).strip().strip('"\'') for l in fl if l.startswith("type:")), None)
         has_moves = re.search(r"^" + re.escape(MOVES_HEAD), body, re.M)
         # the same table properties a generated note to read carries, so its Home row has working boxes
-        wanted = [f'{MOVE_SET}: "{move_set(kind)}"', f'{NEXT}: ""', 'ela: ""']
+        wanted = [f'{MOVE_SET}: "{move_set(kind)}"', f'{NEXT}: ""']
         missing = [w for w in wanted if not any(l.startswith(w.split(":")[0] + ":") for l in fl)]
         if MOVES.get(kind) and (not has_moves or missing) and not dry_run:
             fl = fl + missing
@@ -1882,12 +1884,13 @@ def cmd_sync(a):
         for m in TICKED.finditer(dbody):                   # a choice he ticked stays ticked when the page is rewritten
             planned[rel] = re.sub(r"^(\s*[-*]\s+)\[ \](\s+" + re.escape(m.group(1)) + r"\s*)$", r"\1[x]\2", planned[rel], count=1, flags=re.M)
         mine = [m.group(0).strip() for m in GUIDE.finditer(dbody) if m.group(0).strip() not in planned[rel]]
+        # a word typed in the ela property, which the tables no longer offer, stays as a line in the note, written as
+        # typed so its guidance id is the one already handled
+        said = next((l.strip() for l in dfl if re.match(r'^ela:\s*\S', l) and not re.match(r'^ela:\s*""\s*$', l)), None)
+        if said and said not in planned[rel] and said not in mine:
+            mine.append(said)
         if mine:
             planned[rel] = planned[rel].rstrip("\n") + "\n\n" + "\n".join(mine) + "\n"
-        said = next((l for l in dfl if re.match(r'^ela:\s*\S', l) and not re.match(r'^ela:\s*""\s*$', l)), None)
-        if said:                                           # his word typed in the table's ela cell
-            planned[rel] = re.sub(r'^ela: ""$', said.replace("\\", "\\\\"), planned[rel], count=1, flags=re.M) \
-                if re.search(r'^ela: ""$', planned[rel], re.M) else planned[rel]
         planned[rel] = with_answers(planned[rel], rel, answers)   # each ask shows its answer under it
     for rel, text in planned.items():
         p = os.path.join(vault, rel)
