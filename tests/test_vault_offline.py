@@ -294,4 +294,12 @@ check("a lane not read is named", "Not read: 1" in cn.body)
 hm = V.home(day, datetime.datetime(2026, 10, 26, 9), [cn])
 check("Home says how many there are and how many are over, linking the page", "[[constraints|1 standing constraint]] · 1 over · 1 expired" in hm)
 check("an unreadable read says so", "could not be read" in V.constraints_note(None, day).body)
+day = datetime.date(2026, 10, 28)
+bp = V.Note("days/2026/2026-10-28-brief.md", "Morning brief", "# B\n\n## Needs you\n\n### 1. x\n\n## The lanes this morning\n\n| | prod-3 |\n|---|---|\n\n"
+            "## Sprint\n\nSprint · day 3 of 10 · 8 on track · 1 at risk · 0 off\n\n| item |\n", {"type": "day", "kind": "brief", "date": "2026-10-28"})
+sp = V.Note("sprints/s.md", "Sprint 1", "# S", {"type": "sprint", "status": "active", "date": "2026-10-26"})
+hm = V.home(day, datetime.datetime(2026, 10, 28, 9), [bp, sp])
+check("Home embeds the page's lanes table beside Needs you", "#The lanes this morning]]" in hm and hm.index("#Needs you]]") < hm.index("#The lanes this morning]]"))
+check("Home shows the page's sprint line, linked to its table, instead of the bare sprint link",
+      "[[days/2026/2026-10-28-brief#Sprint|Sprint · day 3 of 10 · 8 on track · 1 at risk · 0 off]]" in hm and "[[sprints/s|Sprint 1]]" not in hm)
 sys.exit(1 if failures else 0)

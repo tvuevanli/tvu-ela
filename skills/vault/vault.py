@@ -917,8 +917,11 @@ def home(today, now, notes):
             L += [f"[[{changes.path[:-3]}|→ What changed yesterday]]", ""]
         L += [head, ""] if head else []
         if re.search(r"^## Needs you[ \t]*$", brief.body, re.M):
-            L += [f"![[{brief.path[:-3]}#Needs you]]", "",
-                  f"*The rest of the page (yesterday, new tickets, the lanes, the backlog): {link(brief)}.*", ""]
+            L += [f"![[{brief.path[:-3]}#Needs you]]", ""]
+            # the lanes table is `ela matrix` pasted on the page; embedded, it reads the same here as there
+            if re.search(r"^## The lanes this morning[ \t]*$", brief.body, re.M):
+                L += [f"![[{brief.path[:-3]}#The lanes this morning]]", ""]
+            L += [f"*The rest of the page (yesterday, new tickets, the Jira lanes, the backlog): {link(brief)}.*", ""]
         else:
             L += [f"![[{brief.path[:-3]}]]", ""]
     else:
@@ -931,7 +934,12 @@ def home(today, now, notes):
     held = getattr(cons, "counts", None) or {}
     cline = (f"[[{cons.path[:-3]}|{held['active']} standing constraint{'s' if held['active'] != 1 else ''}]] · {held['over']} over"
              + (f" · {held['expired']} expired" if held["expired"] else "")) if held.get("active") or held.get("expired") else ""
-    if sprint:                                             # the two-week commitment, one click from Home
+    # today's page states the sprint in one line ("Sprint · day N of M · …"); Home shows that line, linked to the page's
+    # table, and the bare link to the sprint note only when the page has not said it
+    said = re.search(r"^## Sprint[ \t]*\n+(Sprint · [^\n]+)", brief.body, re.M) if brief and brief.props["date"] == iso else None
+    if said:
+        L += ["## Sprint", "", f"[[{brief.path[:-3]}#Sprint|{said.group(1).strip()}]]", ""] + ([cline, ""] if cline else [])
+    elif sprint:                                           # the two-week commitment, one click from Home
         L += ["## Sprint", "", f"{link(sprint)}", ""] + ([cline, ""] if cline else [])
     elif cline:                                            # what holds a lane back, under the sprint it constrains
         L += ["## Sprint", "", "No active sprint.", "", cline, ""]
