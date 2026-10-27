@@ -254,4 +254,8 @@ check("a patch build sits on its base", "| prod-3 | unified-media-frontend | 3.0
 pg = "### 1. x\n- [ ] apply 1 — post it\n\n## Backlog\n| MH-1 | apply 4 |\n- [x] apply 2 — done\n"
 check("a page names an apply N only with its action and its box", B.page_check(pg, [{"n": 1}, {"n": 2}]) == ([4], [4])
       and B.page_check("- [ ] apply 1 — x\n", [{"n": 1}]) == ([], []))
+cnt = B.counts_of({"window": {"hours": 24}, "code": {"repos": [{"tickets": [{"commits": [1, 2]}], "untracked": [3]}]},
+                    "tickets": [1, 2, 3], "ela": {"jobs": [1], "writes": [1, 2]}, "builds": [1], "versions": [], "findings": [1]})
+check("the day's counts are counted once, with their window", cnt["commits"] == 3 and cnt["commits_without_ticket"] == 1
+      and cnt["tickets_moved"] == 3 and cnt["jobs"] == 1 and cnt["window"] == {"hours": 24})
 sys.exit(1 if failures else 0)

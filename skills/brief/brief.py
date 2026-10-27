@@ -1124,7 +1124,22 @@ def changes_facts(args):
                                     "what": f"{cand.get('label')}: {LABEL.get(service, service)} awaits your choice — {c.get('why') or ''}".rstrip(" —"),
                                     "options": c.get("options") or [], "evidence": [pending.get("report") or ""], "at": pending.get("refreshed"),
                                     "rank": RANKS["candidate_awaiting_owner"]})
+    out["counts"] = counts_of(out)
     return out
+
+
+def counts_of(out):
+    """The day's counts, each with the window it covers, once: every page (the brief, Changes, the board, the sprint
+    line, Home) reads these and never counts for itself, so one number never reads three ways."""
+    repos = (out.get("code") or {}).get("repos") or []
+    keyed = sum(len(t.get("commits") or []) for r in repos for t in r.get("tickets") or [])
+    bare = sum(len(r.get("untracked") or []) for r in repos)
+    return {"window": out.get("window"),
+            "commits": keyed + bare, "commits_without_ticket": bare, "tickets_moved": len(out.get("tickets") or []),
+            "builds": len(out.get("builds") or []), "lane_moves": len(out.get("versions") or []),
+            "docker_moves": len(out.get("docker") or []), "qa_reports": len(out.get("qa") or []),
+            "jobs": len((out.get("ela") or {}).get("jobs") or []), "ela_writes": len((out.get("ela") or {}).get("writes") or []),
+            "findings": len(out.get("findings") or [])}
 
 
 def pin_findings(named, pin):
