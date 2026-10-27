@@ -392,8 +392,13 @@ def lane_carried(env, limit, now):
             pages.append(open(os.path.join(runner, f), encoding="utf-8").read())
         except OSError:
             pass
-    rows = [{"item": k, "mornings": n, "third": n >= 3} for k, n in carried(pages).items()]
-    return {"rows": rows, "count": len(rows), "third": sum(r["third"] for r in rows), "page": files[-1] if files else None}
+    sys.path.insert(0, os.path.join(HERE, "..", "review"))
+    import review                                       # the evening reader's verdicts (brief SKILL §reader)
+    reports = os.path.dirname(runner)
+    repeated = review.repeated_verdicts(reports, files[-1][:10]) if files else {}
+    rows = [{"item": k, "mornings": n, "third": n >= 3, "same_verdict": repeated.get(k)} for k, n in carried(pages).items()]
+    return {"rows": rows, "count": len(rows), "third": sum(r["third"] for r in rows),
+            "same_verdict": sum(bool(r["same_verdict"]) for r in rows), "page": files[-1] if files else None}
 
 
 def owner_jira_name(env):
