@@ -335,7 +335,7 @@ Sprint · day 5 of 10 · 8 on track · 1 at risk · 0 off
 | item | where it stands today | on track for 6 Nov |
 |---|---|---|
 | MH-3768 generic MXL | merge request open for the app layer; J2N option name still unanswered | at risk: J2N's owner has not replied since 10-28 |
-| MH-2406 Insufficient Resources UX | the frontend change is in QA; no verdict yet | yes |
+| MH-2406 Insufficient Resources UX | the mediahub-frontend change is in QA; no verdict yet | yes |
 
 ## Yesterday
 
@@ -385,7 +385,7 @@ a status), on a Highest or High ticket or one assigned to the owner, is a **deep
 urgent first, written to the deep file (§3b) and run after the page as `/ela:probe fix`, whose page (real status,
 dated timeline, next) reaches to-read; the item links it. Any other ticket item may offer `- [ ] go deep on MH-…`
 (2026-10-26: MH-2406 sat assigned to the owner for eight days with QA's Fail naming the mismatched codes in its
-comments; he traced the J2N–frontend gap by hand).
+comments; he traced the J2N–mediahub-frontend gap by hand).
 
 The page is read in Obsidian, so its form is fixed:
 
@@ -430,6 +430,10 @@ The page is read in Obsidian, so its form is fixed:
 - **Tables, not code blocks,** for anything with columns; no nested lists; no bold paragraph labels.
 - **Ticket keys bare** (MH-3811): the vault and the runner turn them into links. Slack threads and other pages
   are links with a short label.
+- **Services by their slug:** mediahub-frontend, mediahub-backend, unified-media-frontend, unified-media-backend,
+  orchestration; a team name carries the slug once (UR Caller (unified-streaming)). Never "the frontend" or "the
+  backend": unified-media-frontend is a frontend too, and the reader cannot tell which is meant. The same holds on the
+  Changes page.
 - **Lanes in plain words,** as in the table above: never ela's internal names (cadence, zombies, triage, stage,
   runner page) on the page.
 - **Under 900 words in all.** The decisions lane, when it runs, adds one table row per candidate with its

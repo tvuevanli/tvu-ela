@@ -109,9 +109,9 @@ Write, in this shape:
   decide). `$JIRA comment <key> --text …` shows the dry-run; `--apply` only after Evan's word.
 
 ## fix — does the shipped fix work on the lane
-Worked example: MH-2406 (2026-10-26). The frontend fix was on prod-3, but J2N at the prod-3 sha no longer
-emitted the error code the frontend matched (refactored in March, split in September), and QA had said Fail
-on 10-14; the contract change had never reached the frontend team.
+Worked example: MH-2406 (2026-10-26). The mediahub-frontend fix was on prod-3, but J2N at the prod-3 sha no longer
+emitted the error code mediahub-frontend matched (refactored in March, split in September), and QA had said Fail
+on 10-14; the contract change had never reached the mediahub-frontend team.
 1. **The ticket's own word.** `$JIRA read <key> --deep`: the latest QA verdict (Pass/Fail and what failed,
    with the observed values), and any question left open in the last comments. A Fail after the fix is
    the lead, not a footnote.
@@ -133,7 +133,9 @@ on 10-14; the contract change had never reached the frontend team.
      then one line on why it happened;
    - **Next**, who it waits on and since when, then the move after that; unread layers named as open;
    - at most three `- [ ] <instruction to ela>` lines the owner can tick (a nudge on a date, a reading, a draft).
-   File:line evidence stays out of the page; it goes in a draft only when the owner implements or asks.
+   File:line evidence stays out of the page; it goes in a draft only when the owner implements or asks. A service is
+   named by its slug (mediahub-frontend, unified-media-frontend, …), never "the frontend" or "the backend": the
+   product has more than one of each.
 - With `--write PATH` the page is written to PATH and the answer is one line. Nothing is posted.
 
 ## 5 — what this skill does not do
