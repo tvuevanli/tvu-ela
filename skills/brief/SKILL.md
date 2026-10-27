@@ -463,7 +463,7 @@ ela-runner starts this skill headless every weekday morning after it wrote the f
   owner, not a list of what moved. The vault shows it as a day page beside the brief. Under **900 words**, in §3's
   form (a `#` title with the date, tables rather than code blocks, ticket keys bare, lanes in plain words):
   - It opens with the day in one line and what needs his word, if anything.
-  - Then the sections, in this order: `## Releases and versions` · `## QA` · `## Code` · `## Tickets` ·
+  - Then the sections, in this order: `## Releases and versions` · `## Docker services` · `## QA` · `## Code` · `## Tickets` ·
     `## What you did` · `## What ela did` · `## Team report`. Each opens with a one-sentence verdict; the facts
     under it are its evidence, folded in a `> [!note]- Evidence` callout, each with its source (a mail subject, a
     permalink, a build number, a sha). The page is evidence for the brief's items, so it reads in a minute folded
@@ -472,6 +472,12 @@ ela-runner starts this skill headless every weekday morning after it wrote the f
     one, a build that reached no lane as "built, not deployed", and which of the window's commits each build
     carried. The release thread's per-build lines (the tickets each carries) outrank Jenkins for what reached a
     lane.
+  - **Docker services**, from `docker[]`: each version that moved or was announced in the window, by slug (the
+    name as announced when the map has no slug), with where it landed (a lane's bundle, a QA box, a default tag) and
+    its source (bundle name, mail subject, the ticket comment). The tickets it claims follow it; a version announced
+    with no ticket is said so in those words. A version whose ticket has no Fixed In is an item on the brief (the
+    drafted Fixed In as `apply N`), not here. *Why: docker services are announced, not built from tracked commits,
+    so the commit join that fills Fixed In for the app services does not reach them.*
   - **Code** is the largest section: per repository, per ticket (key, title, its commits, the thread that
     discusses it), then the commits without a ticket sorted into what is harmless, by category and named once
     (docs, review fixes, refactors), and the few that matter, each with why: a fix that reached a lane or prod
