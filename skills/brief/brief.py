@@ -594,13 +594,21 @@ def parse_qa_mail(m):
     build = re.search(r"build\s+(v[\d.]+\s*build\s*\d+)", body, re.I)
     failing = sorted({f"{x.group(1)}: {' '.join(x.group(2).split())[:140]}" for x in
                       re.finditer(r"\*?([A-Z][A-Z0-9]{1,9}-\d+)\*?\s+FAIL\b[:\s]*([^\n]*)", body)})
+    # the other shape: numbered "new issue / reopened issue / close issue" lists of keys under Test Result
+    listed = {}
+    for x in re.finditer(r"\d\.\s*(new|reopened|close)d?\s+issues?:?\*?(.*?)(?=\*?\s*\d\.\s*(?:new|reopened|close)d?\s+issue|\n-{3,}|\Z)", body, re.I | re.S):
+        listed[x.group(1).lower()] = keys_in(re.sub(r"<https?://[^>]*>", "", x.group(2)))
+    def count(rx, key):
+        n = num(rx)
+        return n if n is not None or key not in listed else len(listed[key])
     return {"subject": m["subject"], "from": m["from"], "date": m["date"], "id": m["id"],
             "env": env.group(1).strip() if env else None, "build": " ".join(build.group(1).split()) if build else None,
-            "pass": num(r"\*?(\d+)\s*Pass\b"), "fail": num(r"\*?(\d+)\s*Fail\b"), "closed": num(r"Closed\s*\*?(\d+)"),
-            "new": num(r"New\s*\*?(\d+)"), "failing": failing, "mediahub": bool(re.search(r"media\s*hub", m["subject"] + head, re.I)),
+            "pass": num(r"\*?(\d+)\s*Pass\b"), "fail": num(r"\*?(\d+)\s*Fail\b"), "closed": count(r"Closed\s*\*?(\d+)", "close"),
+            "new": count(r"New\s*\*?(\d+)", "new"), "reopened": len(listed["reopened"]) if "reopened" in listed else None,
+            "new_keys": listed.get("new", []), "reopened_keys": listed.get("reopened", []), "closed_keys": listed.get("close", []), "failing": failing, "mediahub": bool(re.search(r"media\s*hub", m["subject"] + head, re.I)),
             "results": [" ".join(l.split())[:160] for l in body.splitlines() if re.search(r"\b(PASS|FAIL|Pass|Fail)\b", l)][:10],
             "tested": tested_versions(body), "at": mail_time(m["date"]),
-            "verdict": "partial" if failing or num(r"\*?(\d+)\s*Fail\b") else "pass"}
+            "verdict": "partial" if failing or num(r"\*?(\d+)\s*Fail\b") or listed.get("reopened") else "pass"}
 
 
 # a QA report's product header (`TVU MediaHub (ENV: aws-cn3-env)`) → its (frontend, backend) services
@@ -781,6 +789,8 @@ def changes_facts(args):
                 q = parse_qa_mail(m)
                 if q["mediahub"]:
                     qa.append(q)
+                    if all(q[k] is None for k in ("pass", "fail", "closed", "new")):
+                        errors.append({"source": f"qa mail {q['subject'][:60]}", "error": "no counts in a shape ela parses; read it by hand"})
     except (LaneError, subprocess.TimeoutExpired, ValueError) as e:
         errors.append({"source": "mail", "error": str(e)[:200]})
     for r in releases:                                      # Orchestration publishes no lane version; its mails name it

@@ -96,4 +96,9 @@ with tempfile.TemporaryDirectory() as d:
     check("an unticketed fix on the QA lane is counted once per repo and lane, docs left out",
           [f["what"][:2] for f in F if f["kind"] == "unticketed_change_on_a_prod_path"] == ["1 "])
     check("what was not computed or not read is named", any(e["source"] == "constraints" for e in errs) and any("unanswered_customer_ask" in e["error"] for e in errs))
+q2 = B.parse_qa_mail({"id": "4", "from": "qa", "date": "d", "subject": "Daily Test Report for TVU MediaHub on aws-cn3-env on 2026/10/26",
+                      "body": "*Test Result:*\n   *1. new issue:*\n       MH-3821\n<https://j/browse/MH-3821>\nIn list view   Medium\n"
+                              "   *2. reopened issue:*\n   *3. close issue:*\n       MH-3639\n<https://j/browse/MH-3639>\n       MH-3675\n-----\nBest\n"})
+check("the listed-issues shape: new, reopened and closed by key, counted", (q2["new"], q2["closed"], q2["reopened"], q2["new_keys"], q2["closed_keys"])
+      == (1, 2, 0, ["MH-3821"], ["MH-3639", "MH-3675"]) and q2["verdict"] == "pass")
 sys.exit(1 if failures else 0)
