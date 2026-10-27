@@ -874,10 +874,13 @@ def changes_facts(args):
             errors.append({"source": f"bundles {host}", "error": str(e)[:200]})
     # mail: release notices and QA reports, by subject, inside the window
     span = f"after:{int(datetime.datetime.fromisoformat(win['start']).timestamp())} before:{int(now.timestamp())}"
-    releases, qa = [], []
+    releases, qa, mail_docker = [], [], []
+    aliases = service_aliases()
     try:
         by_thread = {}
         for m in run_json(["python3", MAIL, *env, "search", f"{span} subject:Release", "--limit", "40", "--body", "--json"], timeout=300)["messages"]:
+            if not re.match(r"^\s*Re:", m["subject"], re.I):
+                mail_docker += docker_from_mail(m, aliases)
             if re.search(r"\[Release", m["subject"], re.I) and not re.search(r"test report", m["subject"], re.I):
                 by_thread.setdefault(m["thread"], []).append(m)
         for msgs in by_thread.values():                     # a thread is one release: its first message, the replies counted
@@ -888,6 +891,7 @@ def changes_facts(args):
                 releases.append(r)
         for m in run_json(["python3", MAIL, *env, "search", f'{span} subject:("test report")', "--limit", "25", "--body", "--json"], timeout=300)["messages"]:
             if not re.match(r"^\s*Re:", m["subject"], re.I):
+                mail_docker += docker_from_mail(m, aliases)
                 q = parse_qa_mail(m)
                 if q["mediahub"]:
                     qa.append(q)
@@ -966,11 +970,13 @@ def changes_facts(args):
     except (LaneError, subprocess.TimeoutExpired, ValueError) as e:
         out["findings_extra"] = []
         errors.append({"source": "bundles prod (release names)", "error": str(e)[:200]})
-    out["docker"] = docker_moves(env, errors, win, site)
+    out["docker"] = docker_moves(env, errors, win, site, extra=mail_docker)
+    jira_claims(env, out["docker"], errors)
     pending = read_pending(site)
     cand = (pending or {}).get("candidate") or {}
     out["pending"] = pending
-    out["findings"] = findings_of(out, rows, tested, env, errors, candidate=frozenset(cand.get("versions") or {})) + out.pop("findings_extra")
+    out["findings"] = findings_of(out, rows, tested, env, errors, candidate=frozenset(cand.get("versions") or {})) + out.pop("findings_extra") \
+        + docker_findings(out["docker"], empty_fixed_in(env, {c["key"] for r in out["docker"] for c in r["claims"]}, errors))
     for service, c in (cand.get("versions") or {}).items():
         if isinstance(c, dict) and c.get("awaiting"):
             out["findings"].append({"kind": "candidate_awaiting_owner", "lane": pending["to"], "service": service,
@@ -1019,7 +1025,8 @@ def docker_rows(diff, lane, newest, slugs):
     for r in diff.get("changed", []) + diff.get("added", []):
         if not str(r["service"]).lower().startswith("docker"):
             continue                                        # the SaaS rows mirror the lanes table; docker services only
-        rows.append({"service": slugs.get(r["service"], r["service"]), "gm_name": r["service"], "version": r.get("to") or r.get("version"),
+        rows.append({"service": slugs.get(r["service"], r["service"]), "gm_name": r["service"], "mapped": r["service"] in slugs,
+                     "version": r.get("to") or r.get("version"),
                      "from": r.get("from"), "at": R.when(newest.get("createTime")), "source": f"bundle {newest.get('bundleName')}",
                      "by": newest.get("operator") or None, "claims": [], "lane_or_bundle": f"{lane} · {newest.get('bundleName')}"})
     return rows
@@ -1046,7 +1053,121 @@ def append_ledger(path, rows):
     return len(new)
 
 
-def docker_moves(env, errors, win, site):
+IMAGE_RX = re.compile(r"[\w.-]+\.[a-z]{2,}/(?:[\w.-]+/)*([\w.-]+):v?(\d[\w.+-]*)")
+BOX_RX = re.compile(r"Box images[^:]*:\s*(.+?)(?:\n\s*\n|\n[A-Z][\w ]+:|$)", re.S)
+
+
+def service_aliases():
+    """Every name a docker service goes by in the map (slug, GM name, process type, MQTT topic), lowercased → slug."""
+    out = {}
+    try:
+        text = open(os.path.join(json.load(open(SITE)).get("map", ""), "services.yaml"), encoding="utf-8").read()
+    except (OSError, ValueError):
+        return out
+    for line in text.splitlines():
+        m = re.match(r"^\s+- (\{.*\})\s*$", line)
+        try:
+            row = json.loads(m.group(1)) if m else None
+        except ValueError:
+            row = None
+        if row and row.get("slug"):
+            for k in ("slug", "gm_name", "process_type", "mqtt_topic"):
+                if row.get(k):
+                    out.setdefault(str(row[k]).strip().lower(), row["slug"])
+    return out
+
+
+def docker_row(name, version, m, how, aliases, claims=()):
+    return {"service": aliases.get(name.strip().lower(), name.strip()), "seen": name.strip(), "version": version, "from": None,
+            "mapped": name.strip().lower() in aliases,
+            "at": (mail_time(m["date"]) or "")[:16].replace("T", " "), "source": f"mail {m['id']}",
+            "by": email.utils.parseaddr(m["from"])[0] or m["from"], "subject": m["subject"],
+            "claims": [{"key": k, "via": "mail", "ref": m["id"]} for k in claims], "lane_or_bundle": how}
+
+
+def docker_from_mail(m, aliases):
+    """Docker versions a mail announces: an image in its subject, a default-tag update, and QA's "Box images" line.
+    The tickets the mail names are its claims, except for the box line, which lists what the box ran, not what changed."""
+    body, subj = m.get("body") or "", m["subject"]
+    keys = [k for k in keys_in(body + " " + subj) if k.startswith("MH-")]   # Fixed In lives on MediaHub tickets; AC-3 is a codec
+    rows = [docker_row(x.group(1), x.group(2), m, "image in a mail subject", aliases, keys) for x in IMAGE_RX.finditer(subj)]
+    tag = re.match(r"^\s*\[Release\]\s*<([^>]+)>", subj)
+    if tag and TAG_RX.search(body):
+        rows.append(docker_row(tag.group(1), TAG_RX.search(body).group("to"), m, "default tag update", aliases, keys))
+    box = BOX_RX.search(body)
+    for item in (box.group(1).replace("\n", " ").split(",") if box else []):
+        v = re.match(r"^\s*(.+?)\s+v?(\d[\w.+-]*)\s*$", item)
+        for name in (v.group(1).split("/") if v else []):
+            rows.append(docker_row(name, v.group(2), m, "QA box images", aliases))
+    return rows
+
+
+def adf_text(node):
+    if isinstance(node, dict):
+        return (node.get("text") or "") + " ".join(adf_text(c) for c in node.get("content") or [])
+    return " ".join(adf_text(c) for c in node) if isinstance(node, list) else ""
+
+
+def jira_claims(env, rows, errors, days=30, read_max=8):
+    """Tickets that name a docker version beside the service's name in a comment, last 30 days: claims via "jira" with
+    the comment's id. Jira's text search splits versions into numbers, so it only narrows; each comment is read."""
+    for r in rows:
+        words = {w for w in (r.get("seen"), r["service"], r.get("gm_name")) if w}
+        try:
+            ver = {i["key"] for i in run_json(["python3", JIRA, *env, "jql", f'project = MH AND updated >= -{days}d AND text ~ "{r["version"]}"',
+                                                 "--limit", "100", "--json"])["issues"]}
+            named = set()
+            for w in words:
+                named |= {i["key"] for i in run_json(["python3", JIRA, *env, "jql", f'project = MH AND updated >= -{days}d AND text ~ "\\"{w}\\""',
+                                                        "--limit", "100", "--json"])["issues"]}
+        except (LaneError, subprocess.TimeoutExpired, ValueError) as e:
+            errors.append({"source": f"jira claims {r['service']}", "error": str(e)[:200]}); continue
+        near = re.compile("(" + "|".join(re.escape(w) for w in words) + r")\W{0,40}v?" + re.escape(r["version"]) + r"\b", re.I)
+        for key in sorted(ver & named)[:read_max]:
+            try:
+                issue = run_json(["python3", JIRA, *env, "read", key, "--json"])
+            except (LaneError, subprocess.TimeoutExpired, ValueError):
+                continue
+            hit = next((c for c in issue.get("comments") or [] if near.search(adf_text(c.get("body")))), None)
+            if hit and not any(c["key"] == key for c in r["claims"]):
+                r["claims"].append({"key": key, "via": "jira", "ref": f"comment {hit.get('id')}"})
+
+
+SLUG_RX = re.compile(r"^[a-z0-9][a-z0-9-]*$")   # the Fixed In grammar's service half (jira.py FIXED_IN_ENTRY)
+
+
+def empty_fixed_in(env, keys, errors):
+    """The keys among these whose Fixed In is empty."""
+    if not keys:
+        return set()
+    try:
+        return {i["key"] for i in run_json(["python3", JIRA, *env, "jql", f"key in ({','.join(sorted(keys))}) AND cf[11252] is EMPTY",
+                                            "--limit", "100", "--json"])["issues"]}
+    except (LaneError, subprocess.TimeoutExpired, ValueError) as e:
+        errors.append({"source": "jira fixed-in", "error": str(e)[:200]})
+        return set()
+
+
+def docker_findings(rows, empty):
+    """A docker version that names a ticket whose Fixed In is empty: the brief drafts the Fixed In entry, citing the
+    announcement. A service the map has no slug for gets no command; the finding says so."""
+    F = []
+    for r in rows:
+        for c in r["claims"]:
+            if c["key"] not in empty:
+                continue
+            entry = f"{r['service']}@{r['version']}"
+            slug = r.get("mapped") and SLUG_RX.match(r["service"])   # only a slug the map knows makes a Fixed In entry
+            F.append({"kind": "docker_version_names_ticket", "key": c["key"], "lane": r.get("lane_or_bundle"), "service": r["service"],
+                      "what": f"{r.get('seen') or r['service']} {r['version']} names {c['key']}, whose Fixed In is empty"
+                              + ("" if slug else f"; the map has no slug for {r['service']}, so no entry is drafted"),
+                      "options": [f"ela jira fixed-in {c['key']} --add '{entry}'"] if slug else [],
+                      "evidence": [f"{r['source']}" if c["via"] != "jira" else f"{c['key']} {c['ref']}"], "at": r["at"],
+                      "rank": RANKS["prod_fix_without_ticket"]})
+    return F
+
+
+def docker_moves(env, errors, win, site, extra=()):
     """Docker service versions announced by the GM bundles: each lane's newest bundle against the one before it. Every
     move goes to the ledger <reports>/releases/docker-versions.jsonl; the window's are returned. Media versions are
     announced, not built from tracked commits, so the bundle BOM is their first-hand record."""
@@ -1066,8 +1187,17 @@ def docker_moves(env, errors, win, site):
             rows += docker_rows(diff, lane, newest, slugs)
         except (LaneError, subprocess.TimeoutExpired, ValueError) as e:
             errors.append({"source": f"docker bundles {role}", "error": str(e)[:200]})
+    rows += list(extra)
     append_ledger(os.path.join(site.get("reports") or "", DOCKER_LEDGER), rows)
-    return [r for r in rows if in_window(r["at"], win)]
+    merged = {}                                             # one row per service, version and where; sources and claims joined
+    for r in (r for r in rows if in_window(r["at"], win)):
+        k = (r["service"], r["version"], r["lane_or_bundle"])
+        if k in merged:
+            merged[k]["claims"] += [c for c in r["claims"] if c["key"] not in {x["key"] for x in merged[k]["claims"]}]
+            merged[k]["also"] = merged[k].get("also", []) + [r["source"]]
+        else:
+            merged[k] = dict(r, claims=list(r["claims"]))
+    return list(merged.values())
 
 
 def read_pending(site):

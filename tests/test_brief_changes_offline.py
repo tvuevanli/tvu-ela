@@ -158,4 +158,22 @@ with tempfile.TemporaryDirectory() as d:
     lp = os.path.join(d, "releases", "docker-versions.jsonl")
     check("the ledger takes a row once per service, version and source", B.append_ledger(lp, dr) == 2 and B.append_ledger(lp, dr) == 0
           and len(open(lp).read().splitlines()) == 2)
+al = {"mds-html-decoder": "mds-html-decoder", "docker html render uncompresseddecoder": "mds-html-decoder"}
+m1 = {"id": "m1", "from": "Q A <qa@x>", "date": "Mon, 26 Oct 2026 18:55:00 +0800",
+      "subject": "Summary Test report for [AI output] Release docker.example.com/tvurtc/output:v1.0.18 - 20261026",
+      "body": "Covers MH-3802.\nBox images (box): copier / tvu_live_transmit 1.0.23, playeroftvu 1.0.75, agoraencoder 8.13.8build243-ubuntu\n\nEnd"}
+dm = B.docker_from_mail(m1, al)
+check("a mail's image subject is a version that claims the mail's tickets; the box line lists versions without claims",
+      [(r["service"], r["version"], [c["key"] for c in r["claims"]]) for r in dm] ==
+      [("output", "1.0.18", ["MH-3802"]), ("copier", "1.0.23", []), ("tvu_live_transmit", "1.0.23", []), ("playeroftvu", "1.0.75", []),
+       ("agoraencoder", "8.13.8build243-ubuntu", [])])
+m2 = {"id": "m2", "from": "web", "date": "Mon, 26 Oct 2026 09:13:10 +0000", "subject": "[Release] <Docker Html Render Uncompresseddecoder>",
+      "body": "Default Version Tag Update\n From:0.0.24\n To:0.0.25\n"}
+check("a default-tag mail is the new version, by the map's slug", [(r["service"], r["version"]) for r in B.docker_from_mail(m2, al)] == [("mds-html-decoder", "0.0.25")])
+rows = [dict(B.docker_from_mail(m2, al)[0], claims=[{"key": "MH-3790", "via": "jira", "ref": "comment 282857"}]), dm[0]]
+df = B.docker_findings(rows, {"MH-3790", "MH-3802"})
+check("a version naming a ticket with empty Fixed In drafts the entry for a mapped slug, cites the comment, and ranks with prod fixes",
+      df[0]["options"] == ["ela jira fixed-in MH-3790 --add 'mds-html-decoder@0.0.25'"] and df[0]["evidence"] == ["MH-3790 comment 282857"] and df[0]["rank"] == 5
+      and df[1]["options"] == [] and "no slug for output" in df[1]["what"])
+check("a ticket whose Fixed In is set is not a finding", B.docker_findings(rows, set()) == [])
 sys.exit(1 if failures else 0)
