@@ -91,6 +91,8 @@ That reach, plus the lane's docker pin, is the risk sentence — not the commit 
    there. The page stays within the vault's review budget of 2,500 words and holds no machine paths; the raw report
    is not copied, because its commit lists would fail that gate. A rerun for the same line and lanes on the same
    day rewrites the page.
+   A decision the page touches (a standing constraint, a hold, a plan already in the vault) is linked, never
+   restated: one decision, one note; the page says what changed since that note and when it read the bundles.
 2. **The Slack body** — English, written to `<runtime>/promote/<date>-<line>-<from>-<to>.post.md`, then shown as
    `slack post '#prj_dev_mediahub' --file … ` **dry run**. Title first (`[MH <line>] <from> → <to> promotion — <scope>`),
    body into the thread; two sends, two confirms.

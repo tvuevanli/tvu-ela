@@ -316,6 +316,13 @@ no movement, the owner's own word in the thread restarting the count) is an F it
 to whom `waits-on` names, in the place it names. Before either, the note is not on the page. A row whose `checked`
 is empty has a wake ela cannot read; it is an FYI line once due, asking him to name the ticket or thread.
 
+**A decision has one note.** A later page that touches the same decision (a promotion review, the cadence
+plan, a day page) links to that note and states only what changed. It never restates the note's tables. A note
+that names bundles or versions says when it read them, and a note read after the lanes moved says so at its
+top. *Why: on 2026-10-27 the HTML input pin was spread over three notes. One named the QA and Wednesday bundles
+q26/d44 while the lanes page showed q28/d45, and two said "older" and "newer" about QA's media, each against a
+different baseline.*
+
 **One place per day.** An item appears once. A key inside a lanes-table cell or a Changes page callout is evidence,
 not an appearance.
 
