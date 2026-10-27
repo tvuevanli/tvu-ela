@@ -56,4 +56,44 @@ check("a service outside the scope is left out of the thread", not B.parse_relea
 check("a mail outside the scope is not a release of the page", not B.IN_SCOPE_MAIL.search("[Release Drive AWSQA] Cloud Drive BE Build v2.1.153")
       and B.IN_SCOPE_MAIL.search("[Release prod3] Orchestration Service of version 4.0.205"))
 check("UR Caller is labelled as the mails name it", B.LABEL["unified-streaming"].startswith("UR Caller"))
+
+import json, subprocess, tempfile, types  # noqa: E402
+REPORT = ("Please review.\n*4 Pass*\nTest Environment\nTVU MediaHub (ENV: aws-cn3-env) Beta\nFrontend: v2.2.119 build174 2026-10-26 06:54:05\n"
+          "Backend: v2.1.33 build264 2026-10-22 09:42:12\nUnified Resources Caller (ENV: AWSCN3) Beta\nBackend: v2.1.75 build365 2026-10-22\n"
+          "Billing Service\nFrontend: v1.0.252 build59\n")
+tv = B.tested_versions(REPORT)
+check("a QA report's environment block: the versions it ran on, per lane and service, another product's block left out",
+      [(r["lane"], r["service"], r["version"][:16]) for r in tv] == [("qa-cn3", "mediahub-frontend", "v2.2.119 build17"),
+                                                                     ("qa-cn3", "mediahub-backend", "v2.1.33 build264"), ("qa-cn3", "unified-streaming", "v2.1.75 build365")])
+check("a release mail's environment is a lane", (B.mail_lane("MediaHub Prod3"), B.mail_lane("prod3"), B.mail_lane("Mediahub QA-AWS3"),
+                                                 B.mail_lane("MediaHub Daily WED"), B.mail_lane("Drive Test")) == ("prod-3", "prod-3", "qa-cn3", "daily-wed", None))
+with tempfile.TemporaryDirectory() as d:
+    qa = [{"tested": tv, "at": "2026-10-26T18:39:00+08:00", "verdict": "pass", "subject": "Daily Test Report CN3"}]
+    kept = B.keep_tested(d, qa, now)
+    kept = B.keep_tested(d, [], now)
+    check("tested versions are kept across mornings", B.newest_tested(kept, "qa-cn3", "mediahub-frontend")["version"].startswith("v2.2.119"))
+    out = {"versions": [{"lane": "qa-cn3", "service": "mediahub-frontend", "to": "2.2.121 build 176", "built": "2026-10-26 19:18"}],
+           "builds": [{"service": "unified-media-frontend", "label": "unified-media-frontend", "version": "3.0.36.1", "number": 194,
+                       "branch": "prod3_patch", "patch": True, "deployed_to": ["daily-wed", "prod-3"], "commits": ["abc"], "url": "u", "time": "t"}],
+           "code": {"repos": [{"repo": "web/media-hub-front", "tickets": [], "untracked": [
+               {"sha": "s1", "subject": "fix: drag handle", "lanes": ["qa-cn3"], "at": "a"},
+               {"sha": "s2", "subject": "docs: readme", "lanes": ["qa-cn3"], "at": "a"}]}]},
+           "releases": []}
+    rows = [{"host": "qa", "lane": "qa-cn3", "service": "mediahub-frontend", "version": "v2.2.121 build176 2026-10-26 10:18:25"},
+            {"host": "qa", "lane": "qa-cn3", "service": "mediahub-backend", "version": "v2.1.33 build264 2026-10-22 09:42:12"}]
+    real = B.subprocess
+    B.subprocess = types.SimpleNamespace(run=lambda *a, **k: types.SimpleNamespace(returncode=1, stdout=""), TimeoutExpired=subprocess.TimeoutExpired)
+    errs = []
+    try:
+        F = B.findings_of(out, rows, kept, [], errs)
+    finally:
+        B.subprocess = real
+    kinds = sorted((f["kind"], f.get("service")) for f in F)
+    check("a QA lane running a build newer than its last report is untested, and moved after the run",
+          ("untested_build_on_lane", "mediahub-frontend") in kinds and ("version_moved_after_qa_run", "mediahub-frontend") in kinds
+          and ("untested_build_on_lane", "mediahub-backend") not in kinds)
+    check("a patch build on prod with no ticket is a prod fix without a ticket", ("prod_fix_without_ticket", "unified-media-frontend") in kinds)
+    check("an unticketed fix on the QA lane is counted once per repo and lane, docs left out",
+          [f["what"][:2] for f in F if f["kind"] == "unticketed_change_on_a_prod_path"] == ["1 "])
+    check("what was not computed or not read is named", any(e["source"] == "constraints" for e in errs) and any("unanswered_customer_ask" in e["error"] for e in errs))
 sys.exit(1 if failures else 0)

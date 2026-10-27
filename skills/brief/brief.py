@@ -32,6 +32,7 @@ Exit codes: 0 ok · 2 usage · 5 a lane could not be read (the rest is still pri
 """
 import argparse
 import datetime
+import email.utils
 import json
 import os
 import re
@@ -503,6 +504,8 @@ def cmd_yesterday(args):
 
 RELEASE = os.path.join(HERE, "..", "release", "release.py")
 MAIL = os.path.join(HERE, "..", "mail", "mail.py")
+PROMOTE = os.path.join(HERE, "..", "promote", "promote.py")
+TEAM = os.path.join(HERE, "..", "team", "team.py")
 sys.path.insert(0, os.path.join(HERE, "..", "release"))
 import release as R  # noqa: E402  — the release map and the version grammar; reads still go through the CLI
 
@@ -596,7 +599,39 @@ def parse_qa_mail(m):
             "pass": num(r"\*?(\d+)\s*Pass\b"), "fail": num(r"\*?(\d+)\s*Fail\b"), "closed": num(r"Closed\s*\*?(\d+)"),
             "new": num(r"New\s*\*?(\d+)"), "failing": failing, "mediahub": bool(re.search(r"media\s*hub", m["subject"] + head, re.I)),
             "results": [" ".join(l.split())[:160] for l in body.splitlines() if re.search(r"\b(PASS|FAIL|Pass|Fail)\b", l)][:10],
-            "tested": [" ".join(l.split()) for l in body.splitlines() if re.match(r"^\s*(Frontend|Backend):\s*v", l)][:6]}
+            "tested": tested_versions(body), "at": mail_time(m["date"]),
+            "verdict": "partial" if failing or num(r"\*?(\d+)\s*Fail\b") else "pass"}
+
+
+# a QA report's product header (`TVU MediaHub (ENV: aws-cn3-env)`) → its (frontend, backend) services
+QA_PRODUCTS = {"TVU MediaHub": ("mediahub-frontend", "mediahub-backend"),
+               "Unified Media Service": ("unified-media-frontend", "unified-media-backend"),
+               "Unified Resources Caller": (None, "unified-streaming")}
+
+
+def tested_versions(body):
+    """The versions a QA report's environment block says it ran on: [{lane, service, version}]."""
+    rows, cur = [], None
+    for line in body.splitlines():
+        h = re.match(r"^\s*(.+?)\s*\(ENV:\s*([^)]+)\)", line)
+        v = re.match(r"^\s*(Frontend|Backend):\s*(v\S.*)$", line)
+        if h:
+            prod = next((s for k, s in QA_PRODUCTS.items() if h.group(1).strip().startswith(k)), None)
+            cur = (prod, R.lane_of("qa", h.group(2).strip())) if prod else None
+        elif v and cur and cur[1]:
+            svc = cur[0][0 if v.group(1) == "Frontend" else 1]
+            if svc:
+                rows.append({"lane": cur[1], "service": svc, "version": " ".join(v.group(2).split())})
+        elif line.strip() and not v:
+            cur = None                                      # another product's block (Billing, Home) begins
+    return rows
+
+
+def mail_time(date):
+    try:
+        return email.utils.parsedate_to_datetime(date).astimezone().isoformat(timespec="seconds")
+    except (TypeError, ValueError):
+        return None
 
 
 # the release bot writes its build-result and release-done messages in Chinese; the markers, escaped
@@ -680,15 +715,12 @@ def changes_facts(args):
     rows, read = [], {}
     for host in ("qa", "prod"):
         try:
-            rows += [dict(r, host=host) for r in run_json(["python3", RELEASE, *env, "envs", "--host", host, "--json"], timeout=120)["rows"]
-                     if r["service"] in SCOPE]
+            rows += [dict(r, host=host) for r in run_json(["python3", RELEASE, *env, "envs", "--host", host, "--json"], timeout=120)["rows"]]
             read[host] = True
         except (LaneError, subprocess.TimeoutExpired, ValueError) as e:
             errors.append({"source": f"versions {host}", "error": str(e)[:200]})
             rows += [r for r in (prev or {}).get("rows", []) if r["host"] == host]   # carried, so the next diff has a base
-    json.dump({"date": date, "at": now.isoformat(timespec="seconds"), "read": read, "rows": rows},
-              open(os.path.join(runner, f"versions-{date}.json"), "w"), ensure_ascii=False)
-    versions = [m for m in lane_moves(prev["rows"] if prev else None, rows, win) if read.get(m["host"])]
+    versions = [m for m in lane_moves(prev["rows"] if prev else None, rows, win) if read.get(m["host"]) and m["service"] in SCOPE]
     if prev is None:
         errors.append({"source": "versions", "error": "no earlier snapshot: moves are the builds dated inside the window, `from` unknown"})
     # Jenkins builds in the window, each with the lanes running it and the window's commits it carries
@@ -751,6 +783,17 @@ def changes_facts(args):
                     qa.append(q)
     except (LaneError, subprocess.TimeoutExpired, ValueError) as e:
         errors.append({"source": "mail", "error": str(e)[:200]})
+    for r in releases:                                      # Orchestration publishes no lane version; its mails name it
+        o = re.search(r"Orchestration Service of version\s*v?([\d.]+)", r["subject"], re.I)
+        lane = mail_lane(r["env"])
+        if o and lane:
+            rows = [x for x in rows if not (x["service"] == "orchestration" and x.get("lane") == lane)]
+            rows.append({"host": "mail", "lane": lane, "tag": None, "service": "orchestration", "version": o.group(1), "updated": r["date"]})
+    rows += [x for x in (prev or {}).get("rows", []) if x["host"] == "mail" and not any(
+        y["host"] == "mail" and y["lane"] == x["lane"] and y["service"] == x["service"] for y in rows)]
+    json.dump({"date": date, "at": now.isoformat(timespec="seconds"), "read": read, "rows": rows},
+              open(os.path.join(runner, f"versions-{date}.json"), "w"), ensure_ascii=False)
+    tested = keep_tested(runner, qa, now)
     # Slack by channel: the day's release thread, the dev channel's threads, the team report
     since = (now - datetime.timedelta(hours=args.hours + 24)).date().isoformat()
     for m in slack_rows(env, QA_RELEASE, since, errors):
@@ -799,10 +842,133 @@ def changes_facts(args):
         errors.append({"source": "you: sent mail", "error": str(e)[:200]})
     if not names:
         errors.append({"source": "you", "error": "the owner's Jira name was not read; Jira, commits and Slack by him are not split out"})
-    return {"date": date, "window": win, "releases": releases, "builds": builds, "versions": versions, "bundles": bundles,
+    out = {"date": date, "window": win, "releases": releases, "builds": builds, "versions": versions, "bundles": bundles,
             "qa": qa, "tickets": tickets, "code": {"repos": code, "unticketed_threads": y["unticketed_threads"]},
             "dev_threads": dev_threads, "you": you, "ela": y["ela"], "team_report": team_report,
             "stale_checkouts": y["stale_checkouts"], "errors": errors}
+    out["findings"] = findings_of(out, rows, tested, env, errors)
+    return out
+
+
+def mail_lane(env):
+    """A release mail's environment words → ela's lane name: Prod3 → prod-3, Daily WED → daily-wed, QA-AWS3 → qa-cn3."""
+    e = re.sub(r"\s+", "", env or "").lower()
+    m = re.search(r"prod-?(\d+)", e)
+    if m:
+        return f"prod-{m.group(1)}"
+    return next((lane for k, lane in (("dailywed", "daily-wed"), ("qa-aws3", "qa-cn3"), ("qaaws3", "qa-cn3")) if k in e), None)
+
+
+TESTED_KEPT_DAYS = 60
+
+
+def keep_tested(runner, qa, now):
+    """Every version a QA report says it ran on, kept across days in <runner>/qa-tested.json: {"lane|service|version":
+    {at, verdict, subject}}, the newest report per version. A morning reads one day of mail; a verdict outlives it."""
+    path = os.path.join(runner, "qa-tested.json")
+    try:
+        kept = json.load(open(path))
+    except (OSError, ValueError):
+        kept = {}
+    for q in qa:
+        for r in q["tested"]:
+            k = f"{r['lane']}|{r['service']}|{short_version(r['version'])}"
+            if q["at"] and (k not in kept or (kept[k].get("at") or "") < q["at"]):
+                kept[k] = {"lane": r["lane"], "service": r["service"], "version": r["version"], "at": q["at"],
+                           "verdict": q["verdict"], "subject": q["subject"]}
+    cutoff = (now - datetime.timedelta(days=TESTED_KEPT_DAYS)).isoformat()
+    kept = {k: v for k, v in kept.items() if (v.get("at") or "") >= cutoff}
+    json.dump(kept, open(path, "w"), ensure_ascii=False)
+    return kept
+
+
+def newest_tested(tested, lane, service):
+    rows = [v for v in tested.values() if v["lane"] == lane and v["service"] == service and vkey(v["version"])]
+    return max(rows, key=lambda v: (vkey(v["version"]), v["at"] or ""), default=None)
+
+
+NOT_A_CHANGE = re.compile(r"^(docs|test|chore|style)\b|\[arc-review\]", re.I)   # what rides along harmlessly
+LINE = "2.1"   # the MediaHub release line the morning follows; its lanes come from map/release.yaml lines
+
+
+def findings_of(out, rows, tested, env, errors):
+    """What the facts say needs a judgment, by kind; the brief ranks them, the Changes page never does."""
+    F = []
+    lanes = (R.rmap("lines").get(LINE) or {}).get("lanes") or {}
+    qa_lane = lanes.get("qa")
+    moved = {(m["lane"], m["service"]): m for m in out["versions"]}
+    for r in rows:
+        if r.get("lane") != qa_lane or r["service"] not in SCOPE or not vkey(r["version"]):
+            continue
+        t = newest_tested(tested, qa_lane, r["service"])
+        if t and vkey(r["version"]) <= vkey(t["version"]):
+            continue
+        what = (f"{qa_lane} runs {r['service']} {short_version(r['version'])}; the newest QA report on it tested "
+                f"{short_version(t['version'])} ({(t['at'] or '')[:10]})" if t else f"{qa_lane} runs {r['service']} {short_version(r['version'])}; no QA report names it")
+        F.append({"kind": "untested_build_on_lane", "lane": qa_lane, "service": r["service"], "what": what,
+                  "evidence": [f"mail: {t['subject']}"] if t else [], "at": built_at(r["version"])})
+        m = moved.get((qa_lane, r["service"]))
+        if m and t and (m["built"] or "") > (t["at"] or "")[:16].replace("T", " "):
+            F.append({"kind": "version_moved_after_qa_run", "lane": qa_lane, "service": r["service"],
+                      "what": f"{r['service']} moved to {m['to']} on {qa_lane} after the QA run of {(t['at'] or '')[:16]}",
+                      "evidence": [f"mail: {t['subject']}"], "at": m["built"]})
+    ticketed = {cm["sha"] for r in out["code"]["repos"] for tk in r["tickets"] for cm in tk["commits"]}
+    for b in out["builds"]:
+        prod = [l for l in b["deployed_to"] if str(l).startswith("prod")]
+        if b["patch"] and prod and not any(s in ticketed for s in b["commits"]):
+            F.append({"kind": "prod_fix_without_ticket", "lane": prod[0], "service": b["service"],
+                      "what": f"{b['label']} {b['version']} (#{b['number']}, {b['branch']}) runs on {', '.join(prod)} with no ticket",
+                      "evidence": [b["url"]], "at": b["time"]})
+    groups = {}
+    for r in out["code"]["repos"]:
+        for cm in r["untracked"]:
+            if NOT_A_CHANGE.search(cm["subject"]) or not cm.get("lanes"):
+                continue
+            for lane in cm["lanes"]:
+                groups.setdefault((r["repo"], lane), []).append(cm)
+    for (repo, lane), cms in sorted(groups.items()):
+        kind = "prod_fix_without_ticket" if str(lane).startswith("prod") else "unticketed_change_on_a_prod_path"
+        F.append({"kind": kind, "lane": lane, "service": next((s for s, p in R.rmap("repos").items() if p == repo), repo),
+                  "what": f"{len(cms)} commit(s) in {repo} with no ticket reached {lane}: " + "; ".join(c["subject"][:60] for c in cms[:3]),
+                  "evidence": [f"{repo}@{c['sha']}" for c in cms[:5]], "at": max(c["at"] for c in cms)})
+    for r in out["releases"]:                               # a prod change someone outside the team asked to hold
+        lane = mail_lane(r["env"])
+        if not (lane and lane.startswith("prod") and r.get("replies") and r.get("thread")):
+            continue
+        try:
+            msgs = run_json(["python3", MAIL, *env, "thread", r["thread"], "--json"], timeout=120)["messages"]
+        except (LaneError, subprocess.TimeoutExpired, ValueError) as e:
+            errors.append({"source": f"mail thread {r['subject'][:40]}", "error": str(e)[:200]}); continue
+        last = msgs[-1]
+        said = re.split(r"\n\s*On .{5,80}wrote:", last.get("body") or "", maxsplit=1)[0]
+        sender = (email.utils.parseaddr(last["from"])[1] or "").lower()
+        if re.search(r"\b(hold|wait|stay|until|confirm|do not|don't|before)\b", said, re.I) and not on_roster(sender, env):
+            F.append({"kind": "lane_change_pending_external_word", "lane": lane, "service": None,
+                      "what": f"{r['subject'][:90]}: the last word is a hold or confirm from outside the team, unanswered",
+                      "evidence": [f"mail: {last['subject']}"], "at": mail_time(last["date"])})
+    try:
+        r = subprocess.run(["python3", PROMOTE, *env, "--quiet", "constraints", "--json"], capture_output=True, text=True, timeout=300)
+        cons = json.loads(r.stdout) if r.returncode in (0, 3) else None
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        cons = None
+    if cons is None:
+        errors.append({"source": "constraints", "error": "ela promote constraints did not answer; pins not checked"})
+    for c in (cons or {}).get("active") or []:
+        for pin in c.get("pins") or []:
+            if pin.get("state") == "over":
+                F.append({"kind": "constraint_over", "lane": pin.get("lane"), "service": pin.get("service"),
+                          "what": f"{pin.get('service')} on {pin.get('lane')} runs {pin.get('version')}, over the pin {pin.get('max')}: {c.get('says')}",
+                          "evidence": [c.get("source") or c["id"]], "at": None})
+    errors.append({"source": "findings", "error": "unanswered_customer_ask is not computed: there is no customer and partner list to tell their messages apart"})
+    return F
+
+
+def on_roster(addr, env):
+    """True when the team roster knows the address; an unknown or unreadable roster counts as on it (no false alarm)."""
+    if not addr:
+        return True
+    r = subprocess.run(["python3", TEAM, *env, "who", addr, "--json"], capture_output=True, text=True, timeout=60)
+    return r.returncode != 3
 
 
 def cmd_changes(args):
