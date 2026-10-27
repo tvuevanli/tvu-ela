@@ -376,7 +376,7 @@ def settle_statuses(vault, dry_run=False):
             fl, body = split_front(text)
             if not fl:
                 continue
-            props = {m.group(1): m.group(2).strip().strip("'\"") for m in (re.match(r"^([\w-]+):\s*(.*)$", l) for l in fl) if m}
+            props = props_of(fl)
             st, result, nxt = settled_status(folder, props.get("status"), props.get("type"))
             want = {"status": st, "result": result or props.get("result") or None}
             if nxt and not props.get(NEXT):
@@ -1127,8 +1127,7 @@ def meta_line(n, topics):
         return n.body
     area = next((re.match(r"^area:\s*['\"]?([\w-]+)", l).group(1) for l in n.front_lines if re.match(r"^area:\s*['\"]?[\w-]+", l)), None)
     t = topics.get(area)
-    st = n.props.get("status") or next((short_status(re.sub(r"^status:\s*", "", l).strip().strip("'\"")) for l in n.front_lines
-                                        if l.startswith("status:")), None)
+    st = note_status(n)
     bits = [n.props["type"], n.props.get("date"), st, f"about {link(t)}" if t else None]
     line = "*" + " · ".join(b for b in bits if b) + "*"
     m = re.search(r"^#[ \t]+.*$", n.body, re.M)
@@ -1568,8 +1567,8 @@ def keep_choice(text, disk_lines, rel):
     """The planned note with the `next` he chose on disk, and a status he picked from the folder's chooser, when each is
     one the note offers: a rewrite between his choice and the watcher's poll must not erase it."""
     fl, _ = split_front(text)
-    planned = {m.group(1): m.group(2).strip().strip('"\'') for m in (re.match(r"^([\w-]+):\s*(.*)$", l) for l in fl) if m}
-    disk = {m.group(1): m.group(2).strip().strip('"\'') for m in (re.match(r"^([\w-]+):\s*(.*)$", l) for l in disk_lines) if m}
+    planned = props_of(fl)
+    disk = props_of(disk_lines)
     kind = "built" if planned.get("status") == "built" else planned.get("type")
     keep = {}
     chosen = (disk.get(NEXT) or "").lower()
@@ -1589,6 +1588,11 @@ def free_path(folder, name, own=None):
     while os.path.exists(cand) and (not own or os.path.realpath(cand) != os.path.realpath(own)):
         cand, i = os.path.join(folder, f"{stem}-{i}{ext}"), i + 1
     return cand
+
+
+def props_of(lines):
+    """A note's front-matter lines → {key: value}, quotes taken off: the one reading every caller shares."""
+    return {m.group(1): m.group(2).strip().strip("'\"") for m in (re.match(r"^([\w-]+):\s*(.*)$", l) for l in lines) if m}
 
 
 def set_front(text, **props):
@@ -1632,8 +1636,7 @@ def move_note(vault, reports, rel, to, status=None, waits_on=None, wake=None, ne
         return finish(vault, reports, rel, "delete") or None
     folder = {"in-progress": IN_PROGRESS, "archive": ARCHIVE, "to-read": TO_READ, "parked": PARKED}[to]
     text = open(p, encoding="utf-8").read()
-    kind = (split_front(text)[0] and next((re.sub(r'^type:\s*', "", l).strip().strip('"\'') for l in split_front(text)[0]
-                                            if l.startswith("type:")), None))
+    kind = props_of(split_front(text)[0]).get("type")
     text = clear_warn(PROP_RE.sub("", text))
     st, result, nxt = settled_status(folder, status, kind)
     nxt = next_ or nxt                                     # the move that ended it, as the runner names it
@@ -1715,7 +1718,7 @@ def ensure_native_moves(vault, dry_run=False):
         fl, body = split_front(text)
         if not any(re.match(r"^source:\s*['\"]?vault['\"]?\s*$", l) for l in fl):
             continue
-        kind = next((re.sub(r"^type:\s*", "", l).strip().strip('"\'') for l in fl if l.startswith("type:")), None)
+        kind = props_of(fl).get("type")
         has_moves = re.search(r"^" + re.escape(MOVES_HEAD), body, re.M)
         # the same table properties a generated note to read carries, so its Home row has working boxes
         wanted = [f'{MOVE_SET}: "{move_set(kind)}"', f'{NEXT}: ""']
@@ -1796,7 +1799,7 @@ def apply_marks(vault, reports, dry_run=False):
             fl, _ = split_front(open(p, encoding="utf-8").read())
         except OSError:
             continue
-        props = {m.group(1): m.group(2).strip().strip('"\'') for m in (re.match(r"^([\w-]+):\s*(.*)$", l) for l in fl) if m}
+        props = props_of(fl)
         kind = "parked" if folder == PARKED else "learned" if folder == DAYS else "built" if props.get("status") == "built" else props.get("type")
         allowed = move_props(kind, in_to_read=folder == TO_READ)
         # the earlier checkbox form, while a note still carries it
