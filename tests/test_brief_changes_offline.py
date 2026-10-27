@@ -126,4 +126,10 @@ check("a release runs once a reply says so, and a later hold takes it back",
       B.release_state([msg("please deploy"), msg("Deployed to prod3.")]) == "confirmed"
       and B.release_state([msg("please deploy"), msg("Deployed."), msg("Please hold until I confirm")]) == "requested"
       and B.release_state([msg("please deploy")]) == "requested")
+check("a prod release bundle is found by its name", bool(B.RELEASE_NAME("2.1").match("MediaHub 2.1.14 (Build Version Emission)"))
+      and not B.RELEASE_NAME("2.1").match("MediaHub 2.0 rc11"))
+bc = B.bundle_cell({"bundleName": "MediaHub 2.1.15", "createTime": 1792992135152}, "by name", "2026-10-20 09:45", True)
+check("a prod bundle reads as unconfirmed, and stale only when the lane moved after it",
+      bc["text"].startswith("MediaHub 2.1.15 (2026-10-2") and bc["text"].endswith("unconfirmed") and not bc["stale"]
+      and B.bundle_cell({"bundleName": "mh2.1@rc-s2-d8", "createTime": 1758600000000}, "token", "2026-10-26 08:08", True)["stale"])
 sys.exit(1 if failures else 0)

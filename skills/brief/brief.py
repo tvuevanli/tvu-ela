@@ -1110,6 +1110,21 @@ def matrix_cell(service, lane, rows, prev, tested, pins):
     return {"text": text, "version": label, "moved": moved, "was": old if moved else None, "qa": mark, "pin": pin}
 
 
+def RELEASE_NAME(line):
+    return re.compile(r"^MediaHub " + re.escape(line) + r"\.\d+\b")
+
+
+def bundle_cell(b, how, newest_build, unconfirmed):
+    """The bundle row's cell: name and date, "unconfirmed" for a prod bundle inferred from the list, "list stale" when the
+    lane's newest build is younger than the bundle."""
+    if not b:
+        return {"text": "—"}
+    made = R.when(b.get("createTime"))[:10]
+    stale = made < (newest_build or "")[:10]
+    return {"text": f"{b['bundleName']} ({made})" + (" unconfirmed" if unconfirmed else "") + (" (list stale)" if stale else ""),
+            "name": b["bundleName"], "source": how, "stale": stale}
+
+
 def cmd_matrix(args):
     site = json.load(open(SITE))
     env = ["--env-file", args.env_file] if args.env_file else []
@@ -1150,20 +1165,26 @@ def cmd_matrix(args):
             cand = json.load(open(args.candidate))
         except (OSError, ValueError) as e:
             errors.append({"source": "candidate", "error": str(e)[:200]})
-    # the bundle each lane runs: the newest bundle of its lane token on its host
+    # the bundle each lane runs. GM records no deployment, so it is inferred: QA and daily bundles follow the lane-token
+    # names (mh2.1@qa-q26); prod releases are named "MediaHub <line>.<n>", so prod takes the newest of those, and the
+    # rc token only when none exists. Either is unconfirmed, and marked stale when the lane moved after it.
     bundle = {}
     toks = cfg.get("bundle_lanes") or {}
     for role, lane in zip(roles, lanes):
         host = "qa" if role == "qa" else "prod"
+        newest = max((built_at(r["version"]) or "" for r in rows if r.get("lane") == lane and r["host"] != "mail"), default="")
         try:
-            got = run_json(["python3", RELEASE, *env, "bundles", cfg.get("bundle_line") or "", "--host", host, "--limit", "50", "--json"], timeout=120)["bundles"]
-            pre = (cfg.get("bundle_line") or "") + toks.get(role, "")
-            got = [b for b in got if str(b.get("bundleName", "")) == pre or str(b.get("bundleName", "")).startswith(pre + "-")]
-            b = max(got, key=lambda b: str(b.get("createTime") or ""), default=None)
-            newest = max((built_at(r["version"]) or "" for r in rows if r.get("lane") == lane and r["host"] != "mail"), default="")
-            stale = b and R.when(b.get("createTime"))[:10] < newest[:10]   # the lane moved after its newest bundle: the list lags
-            bundle[lane] = ({"text": f"{b['bundleName']} ({R.when(b.get('createTime'))[:10]})" + (" (list stale)" if stale else ""),
-                             "name": b["bundleName"], "stale": bool(stale)} if b else {"text": "—"})
+            b, how = None, "token"
+            if role == "prod":
+                named = run_json(["python3", RELEASE, *env, "bundles", f"MediaHub {LINE}", "--host", host, "--limit", "50", "--json"], timeout=120)["bundles"]
+                b = max((x for x in named if RELEASE_NAME(LINE).match(str(x.get("bundleName", "")))), key=lambda x: str(x.get("createTime") or ""), default=None)
+                how = "by name"
+            if b is None:
+                got = run_json(["python3", RELEASE, *env, "bundles", cfg.get("bundle_line") or "", "--host", host, "--limit", "50", "--json"], timeout=120)["bundles"]
+                pre = (cfg.get("bundle_line") or "") + toks.get(role, "")
+                got = [x for x in got if str(x.get("bundleName", "")) == pre or str(x.get("bundleName", "")).startswith(pre + "-")]
+                b, how = max(got, key=lambda x: str(x.get("createTime") or ""), default=None), "token"
+            bundle[lane] = bundle_cell(b, how, newest, role == "prod")
         except (LaneError, subprocess.TimeoutExpired, ValueError) as e:
             bundle[lane] = {"text": "not read"}
             errors.append({"source": f"bundles {host}", "error": str(e)[:200]})
