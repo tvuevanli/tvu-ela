@@ -1559,6 +1559,16 @@ def keep_choice(text, disk_lines, rel):
     return set_front(text, **keep) if keep else text
 
 
+def free_path(folder, name, own=None):
+    """A path in `folder` for a note called `name` that overwrites nothing: the name itself, else name-2, name-3, …
+    (`own` is the note's current path, which it may keep)."""
+    stem, ext = os.path.splitext(name)
+    cand, i = os.path.join(folder, name), 2
+    while os.path.exists(cand) and (not own or os.path.realpath(cand) != os.path.realpath(own)):
+        cand, i = os.path.join(folder, f"{stem}-{i}{ext}"), i + 1
+    return cand
+
+
 def set_front(text, **props):
     """Set or remove (None) front-matter keys in a note's text, keeping the rest as written."""
     fl, body = split_front(text)
@@ -1617,10 +1627,10 @@ def move_note(vault, reports, rel, to, status=None, waits_on=None, wake=None, ne
             text = set_front(text, **{MOVE_SET: "closed", NEXT: nxt or ""})
         elif folder == IN_PROGRESS:
             text = set_front(text, **{MOVE_SET: "built", NEXT: ""})
+    dst = free_path(os.path.join(vault, folder), os.path.basename(rel), own=p)
     fl, body = split_front(text)
-    body = with_moves(body, f"{folder}/{os.path.basename(rel)}", "parked" if folder == PARKED else kind if folder == TO_READ else None)
+    body = with_moves(body, f"{folder}/{os.path.basename(dst)}", "parked" if folder == PARKED else kind if folder == TO_READ else None)
     text = "---\n" + "\n".join(fl) + "\n---\n" + body.lstrip("\n")
-    dst = os.path.join(vault, folder, os.path.basename(rel))
     os.makedirs(os.path.dirname(dst), exist_ok=True)
     atomic_write(dst, text)
     if os.path.realpath(dst) != os.path.realpath(p):
@@ -1631,7 +1641,7 @@ def move_note(vault, reports, rel, to, status=None, waits_on=None, wake=None, ne
             src = None
         record_removed(os.path.join(reports, "ela", "vault-removed.jsonl"), [rel], {rel: src} if src else {},
                        datetime.datetime.now(), {os.path.basename(rel).lower(): folder}, by="owner")
-    return f"{folder}/{os.path.basename(rel)}"
+    return f"{folder}/{os.path.basename(dst)}"
 
 
 def cmd_note(a):
@@ -1811,7 +1821,7 @@ def finish(vault, reports, rel, to, move=None):
     folder = {"archive": ARCHIVE, "learn": TO_LEARN}.get(to)
     if folder:
         os.makedirs(os.path.join(vault, folder), exist_ok=True)
-        dst = os.path.join(vault, folder, os.path.basename(rel))
+        dst = free_path(os.path.join(vault, folder), os.path.basename(rel))
         os.replace(p, dst)
         text = clear_warn(PROP_RE.sub("", open(dst, encoding="utf-8").read()))   # the boxes belong to to-read
         if folder == ARCHIVE:                              # closed, and the move that closed it kept in next
@@ -1950,7 +1960,7 @@ def cmd_sync(a):
     if unread and not a.dry_run:
         os.makedirs(os.path.join(vault, ARCHIVE), exist_ok=True)
         for n in unread:
-            os.replace(os.path.join(vault, n.path), os.path.join(vault, ARCHIVE, os.path.basename(n.path)))
+            os.replace(os.path.join(vault, n.path), free_path(os.path.join(vault, ARCHIVE), os.path.basename(n.path)))
             planned.pop(n.path, None)
         record_removed(removed_path, [n.path for n in unread], {n.path: n.src_rel for n in unread}, now,
                        {os.path.basename(n.path).lower(): ARCHIVE for n in unread}, by="ela")
@@ -2046,7 +2056,7 @@ def cmd_sync(a):
     if to_archive and not a.dry_run:
         os.makedirs(os.path.join(vault, ARCHIVE), exist_ok=True)
         for r in to_archive:
-            os.replace(os.path.join(vault, r), os.path.join(vault, ARCHIVE, os.path.basename(r)))
+            os.replace(os.path.join(vault, r), free_path(os.path.join(vault, ARCHIVE), os.path.basename(r)))
         record_removed(removed_path, to_archive, old_src, now, {os.path.basename(r).lower(): ARCHIVE for r in to_archive}, by="ela")
     keep_dirs = archive_refs(vault)
     gone = sorted(r for r in set(old) - now_files if not r.startswith(".obsidian") and r.lower() not in lower

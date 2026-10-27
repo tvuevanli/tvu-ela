@@ -412,6 +412,17 @@ with tempfile.TemporaryDirectory() as t:
     check("every vault writer takes the sync's lock, so a note moved during a sync waits",
           blocked and {"sync", "marks", "finish", "note", "restore"} <= set(V.WRITERS) and "guidance" not in V.WRITERS)
 
+with tempfile.TemporaryDirectory() as t:
+    vlt, rep = os.path.join(t, "v"), os.path.join(t, "r")
+    os.makedirs(os.path.join(vlt, "to-read")); os.makedirs(os.path.join(vlt, "archive")); os.makedirs(rep)
+    open(os.path.join(vlt, "archive", "same.md"), "w").write("# kept\n")
+    open(os.path.join(vlt, "to-read", "same.md"), "w").write('---\ntype: "plan"\n---\n# new\n')
+    to = V.move_note(vlt, rep, "to-read/same.md", "archive", "rejected")
+    check("a move into archive never overwrites a note of the same name", to == "archive/same-2.md"
+          and open(os.path.join(vlt, "archive", "same.md")).read() == "# kept\n" and "# new" in open(os.path.join(vlt, to)).read())
+    check("a note kept in its own folder keeps its name", V.free_path(os.path.join(vlt, "archive"), "same.md", own=os.path.join(vlt, "archive", "same.md"))
+          == os.path.join(vlt, "archive", "same.md"))
+
 day = datetime.date(2026, 10, 26)
 cons = {"exists": True, "error": None, "today": day.isoformat(), "gaps": [{"kind": "host_unreadable", "host": "qa", "detail": "qa login failed"}],
         "counts": {"active": 1, "expired": 1, "over": 1},
