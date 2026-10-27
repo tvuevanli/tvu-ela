@@ -28,8 +28,10 @@ ROUTED_DAYS = 14
 COMMIT_DAYS = 60                                       # a branch naming the key, for rule 1
 VERSION_RX = re.compile(r"(?<![\w.])v?(\d+\.\d+\.\d+(?:\.\d+)?)(?:[-+]\w+)?(?!\w|\.\d)")   # 2.2.121, v2.1.76
 VERDICT_RX = re.compile(r"\b(pass(?:ed)?|fail(?:ed)?|verified|not fixed)\b|\u901a\u8fc7|\u5df2\u4fee\u590d|\u672a\u4fee\u590d|\u5931\u8d25", re.I)
-STILL_FAILS_RX = re.compile(r"\bstill (?:fails?|failing|happens|broken)\b|\b(?:does ?n[o']t|cannot|can't|could ?n[o']t) reproduce\b|"
-                            r"\bnot (?:fixed|working)\b|\bfail(?:s|ed|ing)?\b|\u4ecd\u7136|\u672a\u4fee\u590d|\u5931\u8d25", re.I)
+STILL_FAILS_RX = re.compile(r"\bstill (?:fails?|failing|happens|broken)\b|\bnot (?:fixed|working)\b|\bfail(?:s|ed|ing)?\b|"
+                            r"\u4ecd\u7136|\u672a\u4fee\u590d|\u5931\u8d25", re.I)
+NO_REPRO_RX = re.compile(r"\b(?:does ?n[o']t|cannot|can't|could ?n[o']t|unable to) reproduce\b|\bno longer reproduces?\b|"
+                         r"\u65e0\u6cd5\u590d\u73b0|\u4e0d\u80fd\u590d\u73b0", re.I)   # the bug no longer shows: not a failure, not evidence
 FAIL_RX = re.compile(r"\bfail(?:ed)?\b|\bnot fixed\b|\u672a\u4fee\u590d|\u5931\u8d25", re.I)
 REVIEW = ("review", "in review")
 DONE = ("done", "closed", "resolved")
@@ -210,6 +212,8 @@ def read_change(ch, ctx):
             word = "fail" if FAIL_RX.search(text) else "pass"
             return what, f"sure 2: QA {word} on {version.group(1)}", True, to_me
         dev = who.lower() not in ctx["qa"] and (who == ctx["assignee"] or who.lower() in ctx["devs"])
+        if dev and NO_REPRO_RX.search(text):                 # neither progress nor evidence, and not a failure either
+            return what, "unsure: a developer cannot reproduce it", False, to_me
         if dev and STILL_FAILS_RX.search(text):              # a failure report is neither progress nor evidence
             return what, "unsure: a developer reports it still fails", False, to_me
         if version and dev:

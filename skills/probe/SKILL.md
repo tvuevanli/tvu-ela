@@ -166,8 +166,9 @@ last pass is read on two axes, *understood* and *needs his word*:
    fix reached a build, by evidence rather than declaration; the row is also Fixed In evidence for the drafter. A version
    the ledger does not confirm is unsure ("a version not in the ledger").
 
-Rules 6 and 8 hold only for a comment that asks nothing and reports no failure; a comment saying the fix fails or does
-not reproduce is unsure ("a developer reports it still fails").
+Rules 6 and 8 hold only for a comment that asks nothing and reports no failure; a comment saying the fix still fails
+is unsure ("a developer reports it still fails"); one saying the bug does not reproduce is unsure ("a developer cannot
+reproduce it").
 
 **Then one cross-check on every sure row**: the furthest lane the ledger shows carrying the fix (prod over daily and
 stage over QA) against the ticket's status. A fix on a QA lane while the ticket is Backlog or To Do, on prod while it is

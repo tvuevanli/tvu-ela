@@ -58,6 +58,8 @@ check("a fix on QA while In Progress agrees", T.lane_mismatch({"qa-cn3"}, "In Pr
 check("7: a To Do ticket routed to a developer", R(dict(ev("assignee", "", "Dev One", "Owner Two"), status_at="To Do"))[2])
 check("a developer reporting a failure is neither progress nor evidence", R(cm("Dev One", "Still fails on 2.1.76."), ledger=led)[1:3]
       == ("unsure: a developer reports it still fails", False))
+check("a developer who cannot reproduce it is its own unsure reading", R(cm("Dev One", "I cannot reproduce it on 2.1.76."), ledger=led)[1]
+      == "unsure: a developer cannot reproduce it")
 check("the furthest lane decides: QA and prod, In Progress", T.lane_mismatch({"qa-cn3", "prod-3"}, "In Progress") == "fix on prod-3, ticket In Progress")
 check("on prod while Review with no QA verdict", T.lane_mismatch({"prod-3"}, "Review") == "fix on prod-3, ticket Review with no QA verdict"
       and T.lane_mismatch({"prod-3"}, "Review", True) is None)
