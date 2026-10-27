@@ -150,6 +150,12 @@ One `jira.py close` per ticket, dry run first — a proposal the owner finishes 
   an agent or an investigator opens. "On <lane>" is written only with ancestry evidence for that
   lane's build; otherwise the comment names the commit and the build, not the lane. No schedule, no
   apology, no restatement of the description.
+- **The lane verdict leads with the release line's prod lane.** For a `release:mh-2.1` ticket the
+  report says first whether the Fixed In build is on prod-3, by ancestry; when it is, prod-8 is not
+  checked or mentioned. prod-8 is the 2.0 line's prod lane (`map/release.yaml`: prod-3 became 2.1's
+  target on 2026-08-13, prod-8 never was), so it answers only a `release:mh-2.0` ticket or a 2.1
+  ticket whose fix prod-3 lacks. One lane per line is the owner's question; a table of every lane is
+  noise he reads past (owner, 2026-10-27, after the MH-3073 / MH-3646 / MH-3063 Fixed In pass).
 - **The status is the owner's click, never this skill's.** `jira.py close` ends by adding
   `flag:closing` and assigning the ticket to the owner; the script refuses every transition to a
   terminal status. The owner reviews the proposal in his own queue and clicks Done in Jira, or keeps
