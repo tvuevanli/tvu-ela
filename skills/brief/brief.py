@@ -1748,12 +1748,13 @@ def cmd_matrix(args):
     except (OSError, ValueError):
         tested = {}
         errors.append({"source": "qa", "error": "no QA tested versions kept yet (`ela changes` writes them); every cell is ○"})
-    pins = {}
+    pins, held = {}, []
     try:
         r = subprocess.run(["python3", PROMOTE, *env, "--quiet", "constraints", "--json"], capture_output=True, text=True, timeout=300)
         for c in (json.loads(r.stdout) if r.returncode in (0, 3) else {}).get("active") or []:
             for p in c.get("pins") or []:
                 pins[(p.get("service"), p.get("lane"))] = p.get("state")
+                held.append({"service": p.get("service"), "lane": p.get("lane"), "says": c.get("says") or c.get("id")})
     except (OSError, ValueError, subprocess.TimeoutExpired):
         errors.append({"source": "constraints", "error": "ela promote constraints did not answer; no pin marks"})
     cfg = R.rmap("lines").get(LINE) or {}
@@ -1816,7 +1817,7 @@ def cmd_matrix(args):
         except (OSError, ValueError, KeyError):
             errors.append({"source": "promote report", "error": f"unreadable: {args.promote_report}"})
     out = {"date": date, "lanes": [LANE_SHOWN.get(l, l) for l in lanes] + ([cand.get("label") or "next train"] if cand else []),
-           "rows": table, "same": same, "gate": gate, "errors": errors}
+           "rows": table, "same": same, "gate": gate, "errors": errors, "held": held, "lane_ids": lanes}
     if args.page:
         path = write_lanes_page(out, site, env, runner, tested)
         print(f"written: {path}")
@@ -1832,6 +1833,20 @@ def cmd_matrix(args):
 
 MOVES_DAYS = 14
 PAIRS = (("qa", "daily"), ("daily", "prod"))       # what the next lane does not carry yet, nearest promotion first
+NO_BEHAVIOUR = ("docs", "chore", "test", "style")   # the commit kinds that change no behaviour (promote's rule)
+MAIL_SLUG = (("ur caller", "unified-streaming"), ("mediahub backend", "mediahub-backend"), ("mediahub frontend", "mediahub-frontend"),
+             ("unified media frontend", "unified-media-frontend"), ("unified media backend", "unified-media-backend"),
+             ("orchestration", "orchestration"))   # a release mail's service words → slug
+
+
+def mail_slug(name):
+    n = re.sub(r"\s+", " ", str(name or "")).lower()
+    return next((slug for k, slug in MAIL_SLUG if k in n), str(name or "").strip())
+
+
+def shown_service(slug):
+    """One name per service on the page: the matrix's."""
+    return LABEL.get(slug, slug)
 
 
 def pair_report(env, a, b):
@@ -1840,35 +1855,57 @@ def pair_report(env, a, b):
     return run_json(["python3", PROMOTE, *env, "--quiet", "report", LINE, a, b, "--purpose", "regular", "--json"], timeout=900)
 
 
-def differences(rep_, shown):
-    """The section for one pair: a verdict line, then per service the tickets the next lane lacks and the commits
-    without one, folded."""
+def qa_said(ev):
+    """A ticket's QA cell: a real verdict with its date, else the honest absence (a developer's Fixed In is not QA)."""
+    v = (ev or {}).get("verdict")
+    if v in ("pass", "fail"):
+        when = max((str(i.get("when") or "")[:10] for i in (ev.get("items") or []) if i.get("verdict") == v), default="")
+        return f"QA {v}" + (f" ({when[5:]})" if when else "")
+    if v == "dev-declared":
+        return "○ no QA verdict · Fixed In by developer"
+    return "○ no QA verdict"
+
+
+def differences(rep_, shown, held=()):
+    """The section for one pair: a verdict line, then per service the tickets the next lane lacks, with QA's word and
+    any standing constraint holding them, then the behaviour commits without a ticket, folded; docs and tests are one
+    closing line."""
     frm, to = shown(rep_["lanes"]["from"]), shown(rep_["lanes"]["to"])
     verdicts = (rep_.get("evidence") or {}).get("keys") or {}
     tickets = {t["key"]: t for t in (rep_.get("tickets") or {}).get("tickets") or [] if t.get("exists")}
     ahead = [x for x in rep_["delta"]["services"] if x.get("relation") == "from_ahead"]
-    keys = sorted({k for x in ahead for c in x["commits"] for k in c.get("keys_in_subject") or c.get("keys") or [] if k in tickets})
+    keyed = lambda c: c.get("keys_in_subject") or c.get("keys") or []  # noqa: E731
+    keys = sorted({k for x in ahead for c in x["commits"] for k in keyed(c) if k in tickets})
     verified = [k for k in keys if (verdicts.get(k) or {}).get("verdict") == "pass"]
-    unfiled = [c for x in ahead for c in x["commits"] if not (c.get("keys") or []) and c.get("kind") == "fix"]
-    L = [f"### {frm} ahead of {to}", "",
-         f"**{frm} carries {len(keys)} ticket{'s' if len(keys) != 1 else ''} {to} does not; {len(verified)} verified, "
-         f"{len(keys) - len(verified)} untested" + (f", {len(unfiled)} unfiled fix{'es' if len(unfiled) != 1 else ''}" if unfiled else "") + ".**", ""]
+    unfiled = [c for x in ahead for c in x["commits"] if not keyed(c) and c.get("kind") not in NO_BEHAVIOUR]
+    L = [f"### {frm} ahead of {to}", ""]
     if not ahead:
-        return L[:2] + [f"{to} carries everything {frm} runs.", ""]
+        return L + [f"{to} carries everything {frm} runs.", ""]
+    L += [f"**{frm} carries {len(keys)} ticket{'s' if len(keys) != 1 else ''} {to} does not; {len(verified)} verified, "
+          f"{len(keys) - len(verified)} untested" + (f", {len(unfiled)} unfiled fix{'es' if len(unfiled) != 1 else ''}" if unfiled else "") + ".**", ""]
     for x in ahead:
-        own = sorted({k for c in x["commits"] for k in c.get("keys_in_subject") or c.get("keys") or [] if k in tickets})
-        missing = sorted({k for c in x["commits"] for k in c.get("keys_in_subject") or c.get("keys") or [] if k not in tickets})
-        bare = [c for c in x["commits"] if not (c.get("keys") or [])]
-        L += [f"**{x['service']}** {vlabel_of(x.get('to'))} → {vlabel_of(x.get('from'))}", ""]
+        own = sorted({k for c in x["commits"] for k in keyed(c) if k in tickets})
+        missing = sorted({k for c in x["commits"] for k in keyed(c) if k not in tickets})
+        bare = [c for c in x["commits"] if not keyed(c) and c.get("kind") not in NO_BEHAVIOUR]
+        quiet = [c for c in x["commits"] if not keyed(c) and c.get("kind") in NO_BEHAVIOUR]
+        holds = [h for h in held if h["service"] == x["service"]]
+        L += [f"**{shown_service(x['service'])}** {vlabel_of(x.get('to'))} → {vlabel_of(x.get('from'))}", ""]
         for k in own:
-            t, v = tickets[k], (verdicts.get(k) or {}).get("verdict")
-            L.append(f"- [{k}]({t.get('url') or ''}) {t.get('summary') or ''} — {'QA ' + v if v and v != 'none' else 'no QA verdict'} · {t.get('status') or '?'}")
+            t = tickets[k]
+            lock = "".join(f" · 🔒 held off {h['lane']}: {h['says']}" for h in holds)
+            L.append(f"- [{k}]({t.get('url') or ''}) {t.get('summary') or ''} — {qa_said(verdicts.get(k))} · {t.get('status') or '?'}{lock}")
         L += [f"- {k} — named in a commit, not in Jira" for k in missing]
-        if not (own or missing or bare):
-            L.append(f"{len(x['commits'])} commit{'s' if len(x['commits']) != 1 else ''}, none read" if x["commits"] else "a rebuild with no new commits")
         if bare:
-            L += ["", f"> [!note]- {len(bare)} commit{'s' if len(bare) != 1 else ''} without a ticket"] + \
+            L += ["", f"> [!note]- {len(bare)} behaviour commit{'s' if len(bare) != 1 else ''} without a ticket"] + \
                  [f"> - `{c['sha']}` {c['subject'][:100]}" for c in bare]
+        if quiet:
+            kinds = {}
+            for c in quiet:
+                kinds[c.get("kind")] = kinds.get(c.get("kind"), 0) + 1
+            L += ["", " and ".join(f"{n} {k} commit{'s' if n != 1 else ''}" for k, n in sorted(kinds.items(), key=lambda kv: -kv[1]))
+                  + ", no behaviour."]
+        if not (own or missing or bare or quiet):
+            L.append("a rebuild with no new commits")
         L.append("")
     return L
 
@@ -1878,37 +1915,106 @@ def vlabel_of(raw):
     return R.vlabel(pv) if pv else str(raw or "—")
 
 
-def movements(runtime, reports, tested, today, shown):
-    """Every lane move of the last MOVES_DAYS days, newest first: app services from the daily changes files (their
-    tickets from the builds' commits), docker services from the ledger by slug@image."""
+def version_text(raw):
+    m = re.search(r"\d+\.\d+\.\d+(?:\.\d+)?", str(raw or ""))
+    return m.group(0) if m else None
+
+
+def out_of_order(out):
+    """Versions run QA ≥ daily ≥ prod. Each app service whose lanes break that, within one series (M.m); a pair in
+    two series or without a version is undetermined, never an inversion."""
+    lanes = out["lanes"]
+    lines, und = [], 0
+    for r in out["rows"]:
+        if not r.get("service"):
+            continue
+        vs = [c.get("version") for c in r["cells"][:3]]                    # prod, daily, qa as the matrix orders them
+        for lo, hi in ((0, 1), (1, 2)):
+            a, b = R.parse_version(vs[lo]), R.parse_version(vs[hi])
+            if not vs[lo] or not vs[hi]:
+                continue
+            if not a or not b or a[:2] != b[:2]:
+                und += vs[lo] != vs[hi]
+                continue
+            if a > b:
+                lines.append(f"{r['row']}: {lanes[hi]} {vs[hi]} is below {lanes[lo]} {vs[lo]}")
+    return lines, und
+
+
+def movements(runtime, reports, tested, today, shown, bundles_now=None):
+    """Every lane move of the last MOVES_DAYS days, newest first, from the daily changes files (lane versions, the
+    release mails and threads with their tickets, new bundles) and the docker ledger (docker services as slug@image);
+    today's bundles from the matrix when they moved since the last file. One row per lane, service and version."""
     runner = os.path.join(runtime, "runner")
-    rows, first = [], None
+    rows, first = {}, None
     images = {}
     for n, v in service_aliases().items():
         for slug in v["slugs"]:
             images.setdefault(slug, v["image"])
     since = (today - datetime.timedelta(days=MOVES_DAYS - 1)).isoformat()
+
+    def add(at, lane, service, frm, to, keys=(), qa=None):
+        if not lane or not to:
+            return
+        k = (at, lane, service, version_text(to) or str(to))
+        r = rows.setdefault(k, {"at": at, "lane": lane, "service": service, "from": None, "to": to, "tickets": set(), "qa": qa})
+        r["from"] = r["from"] or frm
+        r["tickets"] |= set(keys)
+        r["qa"] = r["qa"] or qa
+
+    def qa_mark(service, to):
+        qa = [x for x in tested.values() if x["service"] == service and version_text(x["version"]) == version_text(to)]
+        best = max(qa, key=lambda x: x["at"] or "", default=None)
+        return ("✓" if best["verdict"] == "pass" else "◐") if best else "○"
+
+    last_bundle = {}
     for f in sorted(os.listdir(runner)) if os.path.isdir(runner) else []:
         m = re.fullmatch(r"(\d{4}-\d{2}-\d{2})-changes\.json", f)
-        if not m or m.group(1) < since:
+        if not m:
             continue
-        first = first or m.group(1)
         try:
             d = json.load(open(os.path.join(runner, f), encoding="utf-8"))
         except (OSError, ValueError):
             continue
+        dnum = lambda b: int((re.search(r"-d(\d+)$", str(b.get("name") or "")) or [0, 0])[1])  # noqa: E731  (same minute: the counter orders)
+        for b in sorted(d.get("bundles") or [], key=lambda b: (b.get("created") or "", dnum(b))):
+            tok = re.match(r"^[\w.]+@([a-z]+(?:-[a-z]+)?)-", str(b.get("name") or ""))
+            lane = {"daily-wed": "daily-wed", "stage": "daily-stage", "qa": "qa-cn3"}.get(tok.group(1) if tok else "")
+            if lane:
+                if (b.get("created") or "")[:10] >= since:
+                    add((b.get("created") or m.group(1))[:10], shown(lane), "media bundle", last_bundle.get(lane), b["name"])
+                last_bundle[lane] = b["name"]
+        if m.group(1) < since:
+            continue
+        first = first or m.group(1)
         keys_of = {c["sha"][:8]: t["key"] for r in (d.get("code") or {}).get("repos") or [] for t in r.get("tickets") or []
                    for c in t.get("commits") or []}
         for v in d.get("versions") or []:
-            if not v.get("from") or vkey(v["from"]) == vkey(v["to"]):
-                continue
             b = next((b for b in d.get("builds") or [] if b.get("service") == v["service"] and b.get("build") == v.get("build")), None)
-            keys = sorted({keys_of[str(c)[:8]] for c in (b or {}).get("commits") or [] if str(c)[:8] in keys_of})
-            qa = [x for x in tested.values() if x["service"] == v["service"] and vkey(x["version"]) == vkey(v["to"])]
-            best = max(qa, key=lambda x: x["at"] or "", default=None)
-            rows.append({"at": (v.get("built") or m.group(1))[:10], "lane": shown(v["lane"]), "service": v["service"],
-                         "move": f"{vlabel_of(v['from'])} → {vlabel_of(v['to'])}", "tickets": keys,
-                         "qa": ("✓" if best["verdict"] == "pass" else "◐") if best else "○"})
+            keys = {keys_of[str(c)[:8]] for c in (b or {}).get("commits") or [] if str(c)[:8] in keys_of}
+            if v.get("from") and vkey(v["from"]) == vkey(v["to"]):
+                continue
+            add((v.get("built") or m.group(1))[:10], shown(v["lane"]), v["service"], v.get("from"), v["to"], keys, qa_mark(v["service"], v["to"]))
+        for rel in d.get("releases") or []:
+            try:
+                at = email.utils.parsedate_to_datetime(rel["date"]).astimezone().date().isoformat() if "," in str(rel.get("date")) else str(rel.get("date"))[:10]
+            except (TypeError, ValueError):
+                at = m.group(1)
+            for mv in rel.get("moves") or []:
+                lane = mail_lane(mv.get("env") or rel.get("env"))
+                svc = mail_slug(mv.get("service"))
+                keys = {k for it in mv.get("items") or [] for k in it.get("keys") or []}
+                add(at, shown(lane) if lane else None, svc, mv.get("from"), mv.get("to"), keys, qa_mark(svc, mv.get("to")))
+            subj = rel.get("subject") or ""
+            o = re.search(r"Orchestration Service of version (\S+)", subj)
+            if o and not rel.get("moves"):
+                add(at, shown(mail_lane(rel.get("env")) or "?"), "orchestration", None, f"{o.group(1)} requested")
+            b = re.search(r"Release build (\S+) \(([^→)]+)→\s*([^)]+)\)", subj)
+            if b and not rel.get("moves") and not subj.lower().startswith("re:"):
+                add(at, shown(mail_lane(b.group(3)) or b.group(3).strip()), "app bundle", f"from {b.group(2).strip()}", f"build {b.group(1)}")
+    for lane, name in (bundles_now or {}).items():         # a bundle made since the last daily read
+        if name and last_bundle.get(lane) and last_bundle[lane] != name:
+            add(today.isoformat(), shown(lane), "media bundle", last_bundle[lane], name)
     try:
         for line in open(os.path.join(reports, DOCKER_LEDGER), encoding="utf-8"):
             r = json.loads(line)
@@ -1916,9 +2022,8 @@ def movements(runtime, reports, tested, today, shown):
                 continue
             lane = (r.get("lane_or_bundle") or "").split(" · ")[0]
             first = min(first or r["at"][:10], r["at"][:10])
-            rows.append({"at": r["at"][:10], "lane": shown(lane), "service": f"{r['service']}@{images.get(r['service'], '?')}",
-                         "move": f"{r['from']} → {r['version']}", "tickets": sorted({c if isinstance(c, str) else c.get("key") for c in r.get("claims") or []} - {None}),
-                         "qa": "○"})
+            add(r["at"][:10], shown(lane), f"{r['service']}@{images.get(r['service'], '?')}", r["from"], r["version"],
+                {c if isinstance(c, str) else c.get("key") for c in r.get("claims") or []} - {None}, "○")
     except (OSError, ValueError):
         pass
     L = ["| date | lane | service | from → to | tickets | QA |", "|---|---|---|---|---|---|"]
@@ -1926,33 +2031,41 @@ def movements(runtime, reports, tested, today, shown):
         iso = day.isoformat()
         if first and iso < first:
             break
-        got = [r for r in rows if r["at"] == iso]
+        got = sorted((r for r in rows.values() if r["at"] == iso), key=lambda r: (r["lane"], r["service"]))
         if not got:
             L.append(f"| {iso[5:]} | | no movement | | | |")
         for r in got:
-            L.append(f"| {iso[5:]} | {r['lane']} | {r['service']} | {r['move']} | {', '.join(r['tickets']) or '—'} | {r['qa']} |")
+            plain = lambda v: short_version(v) if vkey(v) and re.fullmatch(r"v?[\d.]+(?:\+\d+| build \d+)?", str(v).strip()) else v  # noqa: E731
+            move = f"{plain(r['from']) if r['from'] else '—'} → {plain(r['to'])}"
+            L.append(f"| {iso[5:]} | {r['lane']} | {shown_service(r['service'])} | {move} | {', '.join(sorted(r['tickets'])) or '—'} | {r['qa'] or ''} |")
     note = f"*Kept since {first}; the table fills to {MOVES_DAYS} days as the daily reads accumulate.*" if first and first > since else ""
     return L + ([""] + [note] if note else [])
 
 
 def write_lanes_page(out, site, env, runner, tested):
-    """<reports>/lanes/lanes.md, rewritten whole: the lanes table, what each lane carries that the next does not, and
-    the moves of the last two weeks. The vault carries it as lanes.md beside the board."""
+    """<reports>/lanes/lanes.md, rewritten whole: the lanes table and any version out of order (QA ≥ daily ≥ prod),
+    what each lane carries that the next does not, and the moves of the last two weeks. The vault carries it as
+    lanes.md beside the board."""
     reports = site.get("reports") or os.path.join(site.get("projects", ""), "reports")
     runtime = site.get("runtime") or os.path.join(site.get("projects", ""), ".ela")
     now = datetime.datetime.now().astimezone()
     shown = lambda l: LANE_SHOWN.get(l, l)  # noqa: E731
-    L = ["# The lanes", "", f"*{now:%Y-%m-%d %H:%M} · line {LINE}*", "", "## The lanes this morning", "", render_matrix(out), "",
-         "## Differences", ""]
+    inv, und = out_of_order(out)
+    order = (["", "**Out of order** (versions run QA ≥ daily ≥ prod):", ""] + [f"- {x}" for x in inv]) if inv else \
+            ["", "*Every lane in order: QA ≥ daily ≥ prod*" + (f" *({und} pair{'s' if und != 1 else ''} in two series, not compared)*" if und else "")]
+    L = ["# The lanes", "", f"*{now:%Y-%m-%d %H:%M} · line {LINE}*", "", "## The lanes this morning", "", render_matrix(out)] + order + \
+        ["", "## Differences", ""]
     import concurrent.futures
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(PAIRS)) as ex:
         futs = [(a, b, ex.submit(pair_report, env, a, b)) for a, b in PAIRS]
         for a, b, fu in futs:
             try:
-                L += differences(fu.result(), shown)
+                L += differences(fu.result(), shown, out.get("held") or [])
             except (LaneError, subprocess.TimeoutExpired, ValueError, KeyError) as e:
                 L += [f"### {a} ahead of {b}", "", f"Not read: {str(e)[:200]}", ""]
-    L += ["## Movements, 14 days", ""] + movements(runtime, reports, tested, now.date(), shown) + [""]
+    bundles_now = {lane: (c.get("name") if isinstance(c, dict) else None)
+                   for lane, c in zip(out.get("lane_ids") or [], (out["rows"][0]["cells"] if out["rows"] else []))}
+    L += ["## Movements, 14 days", ""] + movements(runtime, reports, tested, now.date(), shown, bundles_now) + [""]
     path = os.path.join(reports, "lanes", "lanes.md")
     os.makedirs(os.path.dirname(path), exist_ok=True)
     tmp = path + ".tmp"

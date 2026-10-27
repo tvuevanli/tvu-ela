@@ -215,7 +215,25 @@ rep_ = {"lanes": {"from": "qa-cn3", "to": "daily-wed"},
 dl = "\n".join(B.differences(rep_, lambda l: B.LANE_SHOWN.get(l, l)))
 check("a pair opens with one verdict line", "**QA-AWS3 carries 2 tickets daily-wed does not; 1 verified, 1 untested, 1 unfiled fix.**" in dl)
 check("each service lists its tickets with QA's verdict and state, by slug", "**mediahub-frontend** 2.2.118+170 → 2.2.121+176" in dl
-      and "- [MH-1](u1) One — QA pass · Review" in dl and "- [MH-2](u2) Two — no QA verdict · Done" in dl)
-check("commits without a ticket are counted, folded", "> [!note]- 1 commit without a ticket" in dl and "> - `bbbb2222` fix: b" in dl)
+      and "- [MH-1](u1) One — QA pass · Review" in dl and "- [MH-2](u2) Two — ○ no QA verdict · Done" in dl)
+check("behaviour commits without a ticket are counted, folded", "> [!note]- 1 behaviour commit without a ticket" in dl and "> - `bbbb2222` fix: b" in dl)
+rep2 = json.loads(json.dumps(rep_))
+rep2["delta"]["services"][0]["service"] = "unified-streaming"
+rep2["delta"]["services"][0]["commits"] += [{"sha": "dddd4444", "subject": "docs: d [arc-review]", "kind": "docs", "keys": []},
+                                             {"sha": "eeee5555", "subject": "docs: e", "kind": "docs", "keys": []},
+                                             {"sha": "ffff6666", "subject": "test: f", "kind": "test", "keys": []}]
+rep2["evidence"]["keys"]["MH-2"] = {"verdict": "dev-declared"}
+rep2["evidence"]["keys"]["MH-1"] = {"verdict": "pass", "items": [{"verdict": "pass", "when": "2026-10-26T10:00"}]}
+d2 = "\n".join(B.differences(rep2, lambda l: B.LANE_SHOWN.get(l, l), [{"service": "unified-streaming", "lane": "prod-3", "says": "HTML input stays off prod 3"}]))
+check("docs and tests are one closing line, not unfiled fixes", "2 docs and 1 test commits, no behaviour." in d2 or "2 docs commits and 1 test commit, no behaviour." in d2)
+check("a developer's Fixed In is not a QA verdict; a real one carries its date", "○ no QA verdict · Fixed In by developer" in d2 and "QA pass (10-26)" in d2)
+check("a ticket under a standing pin shows the lock and the constraint's word", "🔒 held off prod-3: HTML input stays off prod 3" in d2)
+check("a service is named as the matrix names it", "**UR Caller (unified-streaming)**" in d2)
+mx = {"lanes": ["prod-3", "daily-wed", "QA-AWS3"], "rows": [
+    {"row": "mediahub-backend", "service": "mediahub-backend", "cells": [{"version": "2.1.34+265"}, {"version": "2.1.32+263"}, {"version": "2.1.34+265"}]},
+    {"row": "x", "service": "x", "cells": [{"version": "3.0.36.1+194"}, {"version": "2.9.1"}, {"version": "3.0.38+195"}]}]}
+inv, und = B.out_of_order(mx)
+check("a lane below the one after it is out of order; two series are undetermined", inv == ["mediahub-backend: daily-wed 2.1.32+263 is below prod-3 2.1.34+265"] and und == 2)
+check("a mail's service words are the slug", B.mail_slug("UR Caller Backend (mx-service)") == "unified-streaming" and B.mail_slug("MediaHub Frontend") == "mediahub-frontend")
 check("a service the same on both lanes is not listed", "mediahub-backend" not in dl)
 sys.exit(1 if failures else 0)
