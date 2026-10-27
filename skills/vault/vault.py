@@ -20,6 +20,7 @@ its date, so a folder sorts by time. Folders carry no numbers: Home and the book
     home.md, board.md                           the entry point; the board's debt, one living page
     constraints.md                              the standing constraints, each pin read on its lane
     lanes.md                                    the lanes, what each carries that the next does not, two weeks of moves
+    ela/review/<date>-reader.md                 the evening reader's verdict on each item of that morning's page, 30 days
     days/<year>/<date>-brief.md                 the morning page, kept, with -changes (what changed); -learned for 14 days
     to-read/<date>-<slug>.md                    reviews and verifications to read; deleted when read; a verification
     to-read/<date>-verify-<key>.md              leaves once its record is on the Jira ticket, or a pass after 14 days
@@ -51,6 +52,7 @@ PROMOTE = os.path.join(HERE, "..", "promote", "promote.py")
 SITE = os.path.expanduser("~/.claude/ela/site.json")
 MANIFEST = ".ela-sync.json"
 DAYS_KEPT, HELD_LISTED_DAYS, NEW_DAYS, MASS_DELETE, UNREAD_DAYS = 14, 30, 7, 8, 30
+READER_DAYS = 30                                    # a reader page is evidence for the review of ela itself, then expires
 CONSTRAINTS_FRESH = 1800    # seconds a read of the pins stands; each read asks the lane hosts, and the sync runs every minute
 LAYOUT = 3                  # the manifest records it; a sync across a change of layout guards the total, not each folder
 DAYS, TO_READ, LIBRARY, ELA, ARCHIVE, TO_LEARN = "days", "to-read", "library", "ela", "archive", "to-learn"
@@ -561,6 +563,14 @@ def report_notes(reports, today):
         fl, body = split_front(open(lp, encoding="utf-8").read())
         dm = re.search(r"\*(\d{4}-\d{2}-\d{2})", body)
         notes.append(Note("lanes.md", "The lanes", body, {"type": "lanes", "date": dm.group(1) if dm else None}, fl, src_rel="lanes/lanes.md"))
+    rv = os.path.join(reports, "review")
+    for f in sorted(os.listdir(rv)) if os.path.isdir(rv) else []:   # the evening reader's verdicts on a morning page
+        m = re.match(r"^(\d{4}-\d{2}-\d{2})-reader\.md$", f)
+        if not m or (today - datetime.date.fromisoformat(m.group(1))).days >= READER_DAYS:
+            continue
+        fl, body = split_front(open(os.path.join(rv, f), encoding="utf-8").read())
+        notes.append(Note(f"{ELA}/review/{f}", f"The reader · {m.group(1)}", body, {"type": "reader", "date": m.group(1)}, fl,
+                          src_rel=f"review/{f}"))
     # the library: one page per topic, written by ela from the sources it read, and an index; the source lists are an
     # appendix. Pointers and syntheses only: the originals stay where they live.
     lp = os.path.join(reports, "library", "library.md")
@@ -1255,7 +1265,7 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), saw=N
         jira_base = next((l.split("=", 1)[1].strip().rstrip("/") for l in open(env) if l.startswith("JIRA_BASE_URL=")), "")
     projects = project_keys(env, s.get("runtime")) if jira_base else set()
     warnings = native_warn + ([] if jira_base and projects else ["ticket keys are not linked: no Jira base URL or project list"])
-    reps = {n.src_rel: n for n in notes if n.src_rel and n.props.get("type") in ("day", "review")}
+    reps = {n.src_rel: n for n in notes if n.src_rel and n.props.get("type") in ("day", "review", "reader")}
     linker = Linker({n.src_rel: n for n in enotes}, titles, jira_base, projects, reports, reps)
     planned = {}
     for n in notes:

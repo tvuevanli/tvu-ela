@@ -477,4 +477,12 @@ kept = [(V.section_at(disk, m.start()), m.group(0).strip()) for m in V.GUIDE.fin
 out = V.place_lines(new_page, kept)
 check("a rewrite keeps his line under its meeting, and one whose section is gone at the end",
       out.index("ela: PM rules") < out.index("## Lanes") and out.index("- Sprint 2") < out.index("ela: PM rules") and out.rstrip().endswith("ela: drop the FYI"))
+with tempfile.TemporaryDirectory() as t:
+    os.makedirs(os.path.join(t, "review"))
+    for d in ("2026-10-28", "2026-09-20"):
+        open(os.path.join(t, "review", f"{d}-reader.md"), "w").write("| item | verdict | line |\n|---|---|---|\n| 1. x | tickable | y |\n")
+    open(os.path.join(t, "review", "2026-10-28-replay.json"), "w").write("{}")
+    rn = [n for n in V.report_notes(t, datetime.date(2026, 10, 28)) if n.props.get("type") == "reader"]
+    check("a reader page is carried to ela/review/, typed reader, no status, and leaves after 30 days",
+          [n.path for n in rn] == ["ela/review/2026-10-28-reader.md"] and "status" not in rn[0].props and rn[0].src_rel == "review/2026-10-28-reader.md")
 sys.exit(1 if failures else 0)
