@@ -222,23 +222,17 @@ that name no ticket; then ela's own jobs and applied writes, and Helm's auto-wri
 the owner's account. A message or commit naming more than four keys is a list (release notes) and only
 reinforces cases another source opened.
 
-Write it as one short paragraph and at most eight case lines, under the heading `Yesterday`:
+The day's changes in full are a page of their own, the Changes page (§3b), read from `ela changes --json` (the
+runner leaves it at `<runtime>/runner/<date>-changes.json`): the lane moves, the builds and the commits each
+carries, the release and QA mail, the release thread, the commits per repository and ticket for the MediaHub app
+and Orchestration, what the owner did, what ela and Helm did, and the team report. The brief keeps only what
+needs his word from it.
 
-- The paragraph says what the day was, in three sentences at most: where the work moved (which features
-  reached Review or Done, which lane got a release), what broke or was escalated, and the tracking gap.
-- A case line is a case that asks something of the owner or that he would want to know as the product's
-  technical lead: a fix that reached Review with nobody verifying, code that moved on a ticket whose Jira
-  did not, a thread that turned into a decision, a priority raised, a ticket bounced back. One line each:
-  key, what happened across the sources in one sentence, and the next step if any. Cases from other
-  products' projects stay out unless a MediaHub ticket is in the same case.
-- **Code without a ticket** is one line per repository with a count and the authors; when a branch of
-  several commits carries no key, the line names the branch, and the drafted action may be a Slack nudge to
-  the author asking which ticket it belongs to (the owner's rule: every change is tracked by a ticket).
-- **Threads without a ticket**: a thread §2a rates **act** because the product needs a ticket (an outage
-  shown in MediaHub, a customer ask, a decision) gets one line and a drafted `ela jira create` in the
-  description standard; any other thread takes its assessed role.
-- **ela** is one line: jobs run and failed, writes applied (with keys), Helm's auto-writes, and anything
-  in them that looks wrong (a malformed Fixed In value, a write the owner did not ask for).
+Under the heading `Yesterday`, write **at most three lines** and the link `[[<date>-changes|What changed]]`: what the
+day was (where the work moved, which lane got a release, what broke), and the one or two changes that ask something
+of him. A change that needs a drafted write (a nudge to the author of a branch with no ticket, a `ela jira create`
+for a thread that needs a ticket, a Fixed In to correct) is an item under *Needs you* with its `apply N`; the
+Changes page drafts nothing.
 
 ## 3 — rank and write
 Order: a standing pin over (§0) → triage OVERDUE → waiting (product / QA / partner, > 1 day) → cadence RED → incidents
@@ -284,7 +278,7 @@ Day 5 of 10 · ends Fri 6 Nov · 1 of 9 at risk
 
 ## Yesterday
 
-Two or three sentences, then at most five case lines (§2b).
+At most three lines (§2b), then [[2026-10-28-changes|What changed]].
 
 ## New tickets
 
@@ -396,6 +390,28 @@ ela-runner starts this skill headless every weekday morning after it wrote the f
   `ELA_NO_APPLY`).
 - `<reports>/runner/<date>-deep.json` — the day's deep picks, at most two:
   `[{"key": "MH-2406", "lane": "prod-3", "why": "<one line: what was claimed and what doubts it>"}]`; `[]` when none.
+- `<reports>/runner/<date>-changes.md` — the Changes page, from §2b's changes facts: a review of the day for the
+  owner, not a list of what moved. The vault shows it as a day page beside the brief. Under **900 words**, in §3's
+  form (a `#` title with the date, tables rather than code blocks, ticket keys bare, lanes in plain words):
+  - It opens with the day in one line and what needs his word, if anything.
+  - Then the sections, in this order: `## Releases and versions` · `## QA` · `## Code` · `## Tickets` ·
+    `## What you did` · `## What ela did` · `## Team report`. Each opens with a one-sentence verdict; the facts
+    under it are its evidence, each with its source (a mail subject, a permalink, a build number, a sha).
+  - **Releases and versions**: per lane, each move as `service old → new (#build, date)`, a patch build named as
+    one, a build that reached no lane as "built, not deployed", and which of the window's commits each build
+    carried. The release thread's per-build lines (the tickets each carries) outrank Jenkins for what reached a
+    lane.
+  - **Code** is the largest section: per repository, per ticket (key, title, its commits, the thread that
+    discusses it), then the commits without a ticket sorted into what is harmless, by category and named once
+    (docs, review fixes, refactors), and the few that matter, each with why: a fix that reached a lane or prod
+    without a ticket, a behaviour change riding under another ticket, correctness of billing or auth.
+  - Where two sources disagree, the page says so (Helm's report calling a ticket verified while QA's mail
+    tested the build before its fix).
+  - **What you did** reports his own moves as done and never drafts them again; a Fixed In that Helm wrote
+    under his account is Helm's (`ela.helm_fixed_in`), under *What ela did*.
+  - **Team report** is one line and its Slack link; the report itself stays Helm's.
+  - It ends with at most three `- [ ] <instruction to ela>` lines; drafted writes stay on the brief.
+  A source the facts name in `errors` is named on the page as not read.
 - `<reports>/runner/<date>-week.md` — **on a Friday, while a sprint is active**, the weekly page; the vault picks
   it up as a day page of kind week. It reports the week against the sprint, so that what the owner carried beside
   the list is visible next to what moved on it. Under **700 words**, in §3's form (a `#` title with the date,
