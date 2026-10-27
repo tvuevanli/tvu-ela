@@ -46,4 +46,32 @@ routed_then_own = [{"key": "MH-6", "summary": "routed, then his own comment", "s
 w6 = B.ticket_waits(routed_then_own, "Owner", set(), set(), now)
 check("a ticket he routed and then commented on himself still waits on the assignee",
       len(w6) == 1 and w6[0]["who"] == "Dev E" and w6[0]["threshold"] == 2 and w6[0]["due"])
+import tempfile  # noqa: E402
+with tempfile.TemporaryDirectory() as t:
+    os.makedirs(os.path.join(t, "parked"))
+    open(os.path.join(t, "parked", "p.md"), "w").write('---\ntitle: "RVF for v3 Packs"\nstatus: "parked"\nwaits-on: "the Pack team, in its thread"\n'
+                                                    'parked: "2026-10-22"\nwake: "a reply there, or FB-7 moving"\n---\n# RVF\n')
+    pn = B.parked_notes(t)
+check("a parked note is read from its front matter", pn == [{"note": "parked/p.md", "title": "RVF for v3 Packs", "waits_on": "the Pack team, in its thread",
+                                                        "parked": "2026-10-22", "wake": "a reply there, or FB-7 moving"}])
+quiet = B.parked_row(pn[0], [], {}, "Owner", now)
+check("a parked note with no movement is due after three working days, addressed to whom it waits on",
+      quiet["kind"] == "parked" and quiet["due"] and quiet["working_days_silent"] == 3 and quiet["who"] == "the Pack team, in its thread"
+      and quiet["checked"] == ["FB-7"] and quiet["woke"] == [])
+same_day = [{"key": "FB-7", "events": [{"field": "status", "from": "Open", "to": "In Progress", "by": "Dev F", "at": "2026-10-22T15:00:00.000+0000"}], "comments": []}]
+check("what happened on the day it was parked does not wake it", B.parked_row(pn[0], same_day, {}, "Owner", now)["woke"] == [])
+moved = [{"key": "FB-7", "events": [{"field": "status", "from": "Open", "to": "In Progress", "by": "Dev F", "at": "2026-10-26T09:00:00.000+0000"}], "comments": []}]
+r = B.parked_row(pn[0], moved, {}, "Owner", now)
+check("a status change on the wake's ticket wakes it, and a woken note is not a nudge", len(r["woke"]) == 1 and r["woke"][0]["ref"] == "FB-7" and not r["due"])
+own = [{"key": "FB-7", "events": [], "comments": [{"by": "Owner", "at": "2026-10-27T09:00:00.000+0000", "text": "Any news?"},
+                                                  {"by": "Automation for Jira", "at": "2026-10-27T10:00:00.000+0000", "text": "x"}]}]
+r = B.parked_row(pn[0], own, {}, "Owner", now)
+check("his own comment or a machine's does not wake it, and his restarts the count", r["woke"] == [] and r["working_days_silent"] == 1 and not r["due"])
+link = "https://team.slack.com/archives/C1/p1761000000000100"
+n2 = dict(pn[0], wake=f"a reply on {link}")
+th = {link: {"messages": [{"ts": "1761000000.000100", "user": "Owner", "text": "draft"},
+                          {"ts": str(now.timestamp() - 3600), "user": "Pack Lead", "text": "We can test Friday"}]}}
+r = B.parked_row(n2, [], th, "Owner", now)
+check("a reply in the wake's thread wakes it", r["checked"] == [link] and len(r["woke"]) == 1 and r["woke"][0]["source"] == "slack")
+check("a bare parked date is that day's end", B.parked_since("2026-10-22").day == 23 and B.parked_since("2026-10-22 15:04").hour == 15)
 sys.exit(1 if failures else 0)

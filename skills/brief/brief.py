@@ -178,7 +178,8 @@ def ticket_waits(issues, me, ela_assigned, commit_keys, now):
 
 
 def lane_waiting(env, limit, now):
-    """What the owner waits on (the F lane): his routed tickets and his unanswered asks in Jira, Slack and mail."""
+    """What the owner waits on (the F lane): his routed tickets, his unanswered asks in Jira, Slack and mail, and his
+    parked notes in the vault."""
     e = ["--env-file", env] if env else []
     me = owner_jira_name(e)
     ch = run_json(["python3", JIRA, *e, "changes", f"--since=-{WAIT_DAYS}d", "--limit", str(max(limit, 300)), "--json"])
@@ -212,8 +213,100 @@ def lane_waiting(env, limit, now):
                 rows.append(waiting_row("mail", m["subject"], m["to"][:120], mail_time(m["date"]), m["subject"], now))
     except (LaneError, subprocess.TimeoutExpired, ValueError) as x:
         gaps.append({"source": "mail", "error": str(x)[:200]})
+    rows += parked_waits(e, site.get("vault"), me, now, gaps)
     rows.sort(key=lambda r: -(r["working_days_silent"] or 0))
     return {"rows": rows, "count": len(rows), "due": sum(r["due"] for r in rows), "owner": me, "gaps": gaps}
+
+
+PERMALINK_RX = re.compile(r"https://[\w.-]+\.slack\.com/archives/\S+?(?=[\s)>\]]|$)")
+
+
+def parked_notes(vault):
+    """The vault's parked/ notes, front matter only: a parked note waits on others, and its body is the owner's."""
+    d = os.path.join(vault or "", "parked")
+    out = []
+    for f in sorted(os.listdir(d)) if os.path.isdir(d) else []:
+        if not f.endswith(".md"):
+            continue
+        try:
+            text = open(os.path.join(d, f), encoding="utf-8").read()
+        except OSError:
+            continue
+        m = re.match(r"^---\n(.*?)\n---\n?(.*)$", text, re.S)
+        props = {k: v.strip().strip("'\"") for k, v in re.findall(r"^([\w-]+):[ \t]*(.*)$", m.group(1) if m else "", re.M)}
+        h1 = re.search(r"^#[ \t]+(.+)$", m.group(2) if m else text, re.M)
+        out.append({"note": f"parked/{f}", "title": props.get("title") or (h1.group(1).strip() if h1 else f[:-3]),
+                    "waits_on": props.get("waits-on") or None, "parked": props.get("parked"), "wake": props.get("wake") or ""})
+    return out
+
+
+def parked_since(value):
+    """When the note was parked: a time as written, or a bare date read as that day's end, so nothing said on the
+    day it was parked counts as waking it."""
+    for fmt, end in (("%Y-%m-%d %H:%M", False), ("%Y-%m-%d", True)):
+        try:
+            t = datetime.datetime.strptime((value or "").strip(), fmt)
+        except ValueError:
+            continue
+        return (t + datetime.timedelta(days=1) if end else t).astimezone()
+    return None
+
+
+def parked_row(n, jira_rows, threads, me, now):
+    """One parked note in the F lane. It woke when its wake's ticket changed status or took a comment from someone
+    other than the owner, or its thread took a reply from someone else, after it was parked; otherwise it counts
+    silent working days from the later of the parking and the owner's own last word there."""
+    since = parked_since(n["parked"])
+    keys, links = keys_in(n["wake"]), PERMALINK_RX.findall(n["wake"])
+    woke, last = [], since
+    for r in (r for r in jira_rows if r["key"] in keys):
+        for ev in r["events"]:
+            at = parse_ts(ev["at"])
+            if ev["field"] == "status" and at and since and at > since:
+                woke.append({"source": "jira", "ref": r["key"], "at": ev["at"], "what": f"{ev.get('from')} → {ev.get('to')} by {ev['by']}"})
+        for c in r["comments"]:
+            at = parse_ts(c["at"])
+            if not (at and since and at > since) or MACHINES.search(c["by"] or ""):
+                continue
+            if c["by"] == me:
+                last = max(last, at)
+            else:
+                woke.append({"source": "jira", "ref": r["key"], "at": c["at"], "what": f"{c['by']}: {c['text'][:120]}"})
+    for link in links:
+        for m in (threads.get(link) or {}).get("messages", [])[1:]:
+            at = datetime.datetime.fromtimestamp(float(m["ts"]), datetime.timezone.utc) if m.get("ts") else None
+            if not (at and since and at > since) or MACHINES.search(m.get("user") or ""):
+                continue
+            if m.get("user") == me:
+                last = max(last, at)
+            else:
+                woke.append({"source": "slack", "ref": link, "at": at.isoformat(timespec="seconds"), "what": f"{m['user']}: {m['text'][:120]}"})
+    row = waiting_row("parked", n["note"], n["waits_on"], last, n["title"], now)
+    row.update(since=last.isoformat(timespec="minutes") if last else None, note=n["note"], wake=n["wake"], woke=woke,
+               checked=keys + links, due=row["due"] and not woke)
+    return row
+
+
+def parked_waits(e, vault, me, now, gaps):
+    """The parked notes as F rows, each wake's ticket and thread read now; a wake that names neither is not checked
+    and the row says so (`checked` empty)."""
+    notes = parked_notes(vault)
+    keys = sorted({k for n in notes for k in keys_in(n["wake"])})
+    since = min((t for t in (parked_since(n["parked"]) for n in notes) if t), default=None)
+    jira_rows, threads = [], {}
+    for proj in sorted({k.split("-")[0] for k in keys}):
+        try:
+            got = run_json(["python3", JIRA, *e, "changes", "--project", proj, "--since", since.strftime("%Y-%m-%d %H:%M") if since else f"-{WAIT_DAYS}d",
+                            "--limit", "400", "--json"])
+            jira_rows += [r for r in got["issues"] if r["key"] in keys]
+        except (LaneError, subprocess.TimeoutExpired, ValueError) as x:
+            gaps.append({"source": f"parked: jira {proj}", "error": str(x)[:200]})
+    for link in sorted({l for n in notes for l in PERMALINK_RX.findall(n["wake"])}):
+        try:
+            threads[link] = run_json(["python3", SLACK, *e, "read", link, "--json"], timeout=120)
+        except (LaneError, subprocess.TimeoutExpired, ValueError) as x:
+            gaps.append({"source": "parked: slack", "error": str(x)[:200]})
+    return [parked_row(n, jira_rows, threads, me, now) for n in notes]
 
 
 def owner_jira_name(env):
@@ -308,7 +401,8 @@ def print_table(name, lane):
     print(f"## {name} — {lane['count']}")
     if name == "waiting":
         for r in lane["rows"]:
-            print(f"  {r['kind']:<6} {'DUE' if r['due'] else '':<4} {r['working_days_silent']}/{r['threshold']}d  {str(r['who'] or '—')[:18]:<18} "
+            flag = "WOKE" if r.get("woke") else "DUE" if r["due"] else ""
+            print(f"  {r['kind']:<6} {flag:<4} {r['working_days_silent']}/{r['threshold']}d  {str(r['who'] or '—')[:18]:<18} "
                   f"{r['ref'][:60]}  {r['what'][:60]}")
         for g in lane["gaps"]:
             print(f"  not read: {g['source']}: {g['error'][:100]}")

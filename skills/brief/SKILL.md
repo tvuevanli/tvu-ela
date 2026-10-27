@@ -239,7 +239,7 @@ Changes page drafts nothing.
 **One list of what needs his word, merged by key.** The items under *Needs you* come from five sources, read as
 facts and never re-derived: this skill's own lanes (§1, §2); the findings of `ela changes --json`
 (`<runtime>/runner/<date>-changes.json`, `findings[]`, each with its `rank`); the waiting lane (`ela brief --json`,
-`lanes.waiting`, the F items); the vault notes waiting for his `next` (Home's waiting table, `ela vault guidance`);
+`lanes.waiting`, the F items, the vault's parked notes among them); the vault notes waiting for his `next` (Home's waiting table, `ela vault guidance`);
 and the sprint items at risk or off (§0). A key that comes from several sources is **one item**. Its facts line
 takes the most first-hand status: QA's verdict, then the version on the lane, then the Jira status. Its action is
 the single strongest one: a drafted write, then a decision, then a reply, then a nudge. At most eight items; the
@@ -287,6 +287,14 @@ person named by role in the text and mentioned for him to retype. A row not yet 
 never read as verified:** Review is the team's "on QA, waiting for QA" state, so a ticket in Review whose QA
 assignee has been silent past the threshold is an F item for QA (2026-10-26: MH-3808, MH-3821 and MH-3825 sat in
 Review, moved there by their developers, with Fixed In set by Helm Lookout and no QA verdict yet).
+
+**A parked note** (`<vault>/parked/`, a row of kind `parked`) is a plan or draft the owner sent out and set aside
+until others answer; its `wake` names the ticket or Slack thread that brings it back, and the script reads those
+(`checked`). A row with `woke` is one class B item, *Parked note woke: <title>*: the facts line is what woke it
+(who, where, when), the action its `next` choices, *resume* or *drop*. A row that is `due` (three working days with
+no movement, the owner's own word in the thread restarting the count) is an F item: the nudge drafted as `apply N`
+to whom `waits-on` names, in the place it names. Before either, the note is not on the page. A row whose `checked`
+is empty has a wake ela cannot read; it is an FYI line once due, asking him to name the ticket or thread.
 
 **One place per day.** An item appears once. A key inside a lanes-table cell or a Changes page callout is evidence,
 not an appearance.
