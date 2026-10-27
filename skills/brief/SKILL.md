@@ -351,7 +351,7 @@ MH-3745 · Search's recording blocks MediaHub's SRT receiver · Gabriel Liu (orc
 
 | | prod-3 | daily-wed | QA-AWS3 |
 |---|---|---|---|
-| media bundle | MediaHub 2.1.15 (2026-10-26) unconfirmed | mh2.1@daily-wed-s1-d44 (2026-10-26) | mh2.1@qa-q26 (2026-10-22) (list stale) |
+| media bundle | MediaHub 2.1.15 (2026-10-26) | mh2.1@daily-wed-s1-d44 (2026-10-26) | mh2.1@qa-q26 (2026-10-22) (list stale) |
 | mediahub-frontend | 2.2.116+171 ○ | 2.2.116+171 ○ | ▲ 2.2.121+176 (was 2.2.119+174) ○ |
 
 *3 more the same on every lane: …*

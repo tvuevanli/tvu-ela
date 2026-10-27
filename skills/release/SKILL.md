@@ -62,8 +62,10 @@ lanes each release line uses — all in `<elak>/map/release.yaml` (origin per bl
   `US.call` refuses any write path but `tagBundle/create` (delete, update, bind, …) by path, since reads POST too, and
   create off prod. Temporary or never-published bundles have no name form yet; they stay in the GM UI until the owner
   names one.
-- **Prod's bundle is the official one.** The owner keeps `MediaHub <line>.N` current and pins it (`$R pin`, ADR 0012);
-  an rc bundle is a special-purpose bundle, not a lane (owner's ruling, 2026-10-27).
+- **Prod's bundle is the newest official one** (`MediaHub <M.m>.N [(qualifier)]`, `MediaHub <M.m> rcN`, anchored; a
+  side bundle such as "Docker Only" or "pre" never counts). `$R pin <line> <bundle> --why "…"` only holds prod on an
+  older official on purpose, `$R unpin <line>` lifts it (ADR 0013); an rc bundle is special-purpose, not a lane (owner's
+  ruling, 2026-10-27).
 - **Names are three things.** `slug` (Evan's convention), `gm_name` (what GM registers), `service_id`.
   `drift` compares GM names; a difference is either a new service or a stale table row — say which.
 

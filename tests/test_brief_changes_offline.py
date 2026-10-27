@@ -128,9 +128,10 @@ check("a release runs once a reply says so, and a later hold takes it back",
       and B.release_state([msg("please deploy")]) == "requested")
 check("a prod release bundle is found by its name", B.R.is_official("MediaHub 2.1.14 (Build Version Emission)", "2.1")
       and not B.R.is_official("MediaHub 2.0 rc11", "2.1") and not B.R.is_official("MediaHub 2.1.10 Docker Only", "2.1"))
-bc = B.bundle_cell({"bundleName": "MediaHub 2.1.15", "createTime": 1792992135152}, "by name", "2026-10-20 09:45", True)
-check("a prod bundle reads as unconfirmed, and stale only when the lane moved after it",
-      bc["text"].startswith("MediaHub 2.1.15 (2026-10-2") and bc["text"].endswith("unconfirmed") and not bc["stale"]
+bc = B.bundle_cell({"bundleName": "MediaHub 2.1.15", "createTime": 1792992135152}, "official", "2026-10-20 09:45", True)
+check("a held prod bundle reads as pinned, and stale only when the lane moved after it",
+      bc["text"].startswith("MediaHub 2.1.15 (2026-10-2") and bc["text"].endswith("pinned") and not bc["stale"]
+      and not B.bundle_cell({"bundleName": "MediaHub 2.1.15", "createTime": 1792992135152}, "by name", "", False)["text"].endswith("pinned")
       and B.bundle_cell({"bundleName": "mh2.1@rc-s2-d8", "createTime": 1758600000000}, "token", "2026-10-26 08:08", True)["stale"])
 check("findings carry the morning's rank; a QA build outside the candidate is the lanes table only",
       B.finding_rank({"kind": "constraint_over"}, set()) == 2
@@ -143,11 +144,11 @@ check("a candidate cell awaiting the owner reads as a question with its options"
 named = [{"bundleName": "MediaHub 2.1.15", "bundleId": "15", "createTime": 1792992135152},
          {"bundleName": "MediaHub 2.1.14 (Build Version Emission)", "bundleId": "14", "createTime": 1792142586769},
          {"bundleName": "mh2.1@rc-s2-d8", "bundleId": "8", "createTime": 1792999999999}]
-pf = B.pin_findings(named, None)
-check("with no pin, the newest release-named bundle is offered as the pin command",
-      len(pf) == 1 and pf[0]["kind"] == "release_newer_than_pin" and pf[0]["options"] == ['ela release pin 2.1 "MediaHub 2.1.15"'])
-check("a pin on an older release is a decision; a pin on the newest is quiet",
-      len(B.pin_findings(named, {"official": "MediaHub 2.1.14", "id": "14"})) == 1 and B.pin_findings(named, {"official": "MediaHub 2.1.15", "id": "15"}) == [])
+check("with no pin, prod follows the newest official and nothing is asked", B.pin_findings(named, None) == [])
+pf = B.pin_findings(named, {"official": "MediaHub 2.1.14", "id": "14", "why": "the HTML input waits for QA"})
+check("a hold on an older official is his decision again while a newer one exists, offered as unpin",
+      len(pf) == 1 and pf[0]["options"] == ["ela release unpin 2.1"] and "the HTML input waits for QA" in pf[0]["what"]
+      and B.pin_findings(named, {"official": "MediaHub 2.1.15", "id": "15"}) == [])
 YAML = ('images:\n'
         '  webemulator:\n    slugs: ["mds-html-decoder"]\n    aliases: ["HTML render", "html_render"]\n    services:\n'
         '      - {"slug": "mds-html-decoder", "gm_name": "Docker Html Render Uncompresseddecoder", "process_type": "html_render_decoder"}\n'

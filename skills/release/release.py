@@ -600,8 +600,8 @@ def read_pins(path=None):
 
 
 def render_pins(lines):
-    out = ["# The official prod bundle per release line, set on the owner's word with `ela release pin` (ela ADR 0012).",
-           "# GM records no deployment; this is the ruling. Readers: ela matrix, ela changes, Helm (from the published copy).",
+    out = ["# A hold on prod's bundle per release line, set on the owner's word with `ela release pin` (ela ADR 0013).",
+           "# Without one, prod follows the newest official bundle; a line here is held on an older one, with why.",
            "lines:"]
     for line in sorted(lines):
         out.append(f"  {json.dumps(line)}: {json.dumps(lines[line], ensure_ascii=False)}")
@@ -617,7 +617,12 @@ def cmd_pin(a):
     path = os.path.join(elak, PINS_REL)
     lines = read_pins(path) if os.path.isfile(path) else {}
     was = lines.get(a.line)
-    entry = {"official": name, "id": bid, "set": datetime.date.today().isoformat(), "by": "owner"}
+    if not is_official(name, a.line):
+        print(f"pin: {name!r} is not an official {a.line} bundle", file=sys.stderr); sys.exit(EX_USAGE)
+    newest = official_bundle(us, a.line)
+    if newest and str(newest.get("bundleId")) == bid and not was:
+        print(f"{a.line}: {name} is already the newest official, which prod follows without a pin; nothing to hold"); return
+    entry = {"official": name, "id": bid, "set": datetime.date.today().isoformat(), "by": "owner", "why": a.why}
     if was and was.get("id") == bid:
         print(f"{a.line}: already pinned to {name}"); return
     print(f"{a.line}: {(was or {}).get('official') or 'no pin'} → {name} ({bid})")
@@ -626,7 +631,7 @@ def cmd_pin(a):
     lines[a.line] = entry
     os.makedirs(os.path.dirname(path), exist_ok=True)
     open(path, "w").write(render_pins(lines))
-    msg = f"Pin {a.line}'s official prod bundle to {name}\n\nSet on the owner's apply (ela ADR 0012)."
+    msg = f"Hold {a.line}'s prod bundle on {name}\n\n{a.why}\n\nSet on the owner's apply (ela ADR 0013)."
     for cmd in (["git", "-C", elak, "add", "--", PINS_REL], ["git", "-C", elak, "commit", "-q", "-m", msg, "--", PINS_REL]):
         r = subprocess.run(cmd, capture_output=True, text=True)
         if r.returncode:
@@ -634,14 +639,35 @@ def cmd_pin(a):
     print(f"pinned and committed in elak: {PINS_REL}; `ela publish pins` carries it to the published directory")
 
 
+def cmd_unpin(a):
+    """Lift a line's hold: prod follows the newest official bundle again. Dry run unless --apply, which removes the one
+    entry and commits blueprint/releases.yaml alone (ADR 0012's write, ADR 0013's meaning)."""
+    elak = site().get("elak")
+    path = os.path.join(elak or "", PINS_REL)
+    lines = read_pins(path) if os.path.isfile(path) else {}
+    if a.line not in lines:
+        print(f"{a.line}: no hold; prod follows the newest official"); return
+    print(f"{a.line}: hold on {lines[a.line].get('official')} lifted → prod follows the newest official")
+    if not a.apply:
+        print("dry run; --apply removes the entry and commits blueprint/releases.yaml alone"); return
+    del lines[a.line]
+    open(path, "w").write(render_pins(lines))
+    msg = f"Lift the hold on {a.line}'s prod bundle\n\nProd follows the newest official again (ela ADR 0013)."
+    for cmd in (["git", "-C", elak, "add", "--", PINS_REL], ["git", "-C", elak, "commit", "-q", "-m", msg, "--", PINS_REL]):
+        r = subprocess.run(cmd, capture_output=True, text=True)
+        if r.returncode:
+            print(f"elak: {' '.join(cmd[3:5])} failed: {(r.stderr or r.stdout).strip()[-200:]}", file=sys.stderr); sys.exit(EX_REMOTE)
+    print(f"lifted and committed in elak: {PINS_REL}; `ela publish pins` carries it")
+
+
 def cmd_pins(a):
     lines = read_pins()
     if a.json:
         print(json.dumps({"path": pins_path(), "lines": lines}, ensure_ascii=False)); return
     for line, e in sorted(lines.items()):
-        print(f"{line:<6} {e.get('official')}  (set {e.get('set')} by {e.get('by')})")
+        print(f"{line:<6} held on {e.get('official')}  (set {e.get('set')} by {e.get('by')}: {e.get('why') or 'no reason recorded'})")
     if not lines:
-        print(f"no line pinned ({pins_path()})")
+        print(f"no line held; prod follows the newest official bundle ({pins_path()})")
 
 
 def cmd_bundle(a):
@@ -1132,14 +1158,15 @@ def main():
     p.add_argument("--drop", action="append", help="a service the new bundle leaves out (GM name or slug), repeatable")
     p.add_argument("--note", help="why this bundle exists; written before the change list in its description")
     p.add_argument("--apply", action="store_true"); p.add_argument("--json", action="store_true")
-    p = sub.add_parser("pin", help="pin a line's official prod bundle in elak; dry run unless --apply (ADR 0012)"); p.add_argument("line"); p.add_argument("bundle", help="name (MediaHub 2.1.15), number (2.1.15) or id"); p.add_argument("--apply", action="store_true")
+    p = sub.add_parser("pin", help="hold a line's prod bundle on an older official, with why; dry run unless --apply (ADR 0013)"); p.add_argument("line"); p.add_argument("bundle", help="name (MediaHub 2.1.15), number (2.1.15) or id"); p.add_argument("--why", required=True, help="why prod stays on this bundle"); p.add_argument("--apply", action="store_true")
+    p = sub.add_parser("unpin", help="lift a line's hold: prod follows the newest official again; dry run unless --apply"); p.add_argument("line"); p.add_argument("--apply", action="store_true")
     p = sub.add_parser("pins", help="the official bundle per line, as pinned"); p.add_argument("--json", action="store_true")
     p = sub.add_parser("builds"); p.add_argument("job"); p.add_argument("--limit", type=int, default=15); p.add_argument("--json", action="store_true")
     p = sub.add_parser("drift"); p.add_argument("line", nargs="?", default="mh2.1@"); p.add_argument("--bundles", type=int, default=5, help="newest N bundles to union (default 5)"); host_arg(p); p.add_argument("--json", action="store_true")
     p = sub.add_parser("login"); p.add_argument("target", nargs="?", choices=("qa", "tvu"), default="qa"); p.add_argument("--force", action="store_true"); p.add_argument("--no-browser", action="store_true"); p.add_argument("--timeout", type=int, default=300); p.add_argument("--json", action="store_true")
     p.add_argument("--keepalive", action="store_true", help="tvu: one validation call that renews the session's idle TTL; never logs in, never retries")
     a = ap.parse_args()
-    {"bundles": cmd_bundles, "bundle": cmd_bundle, "bundle-diff": cmd_bundle_diff, "envs": cmd_envs, "builds": cmd_builds, "drift": cmd_drift, "login": cmd_login, "pin": cmd_pin, "pins": cmd_pins,
+    {"bundles": cmd_bundles, "bundle": cmd_bundle, "bundle-diff": cmd_bundle_diff, "envs": cmd_envs, "builds": cmd_builds, "drift": cmd_drift, "login": cmd_login, "pin": cmd_pin, "unpin": cmd_unpin, "pins": cmd_pins,
      "create": cmd_create}[a.cmd](a)
 
 

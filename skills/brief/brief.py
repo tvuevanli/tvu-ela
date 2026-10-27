@@ -1128,20 +1128,20 @@ def changes_facts(args):
 
 
 def pin_findings(named, pin):
-    """The newest release-named bundle on prod against the owner's pin: newer, or no pin at all, is his decision; the
-    option is the pin command as he would run it (ela ADR 0012)."""
+    """Prod follows the newest official bundle; a pin only holds it on an older one, on purpose (ela ADR 0013). While a
+    newer official exists the hold is his decision again: keep it, or unpin to follow the newest."""
     rel = [x for x in named if R.is_official(str(x.get("bundleName", "")), LINE)]
     newest = max(rel, key=lambda x: str(x.get("createTime") or ""), default=None)
-    if not newest or (pin and str(pin.get("id")) == str(newest.get("bundleId"))):
+    if not newest or not pin or str(pin.get("id")) == str(newest.get("bundleId")):
         return []
     pinned = next((x for x in rel if pin and str(x.get("bundleId")) == str(pin.get("id"))), None)
     if pinned and str(pinned.get("createTime") or "") >= str(newest.get("createTime") or ""):
         return []
     name = newest["bundleName"]
     return [{"kind": "release_newer_than_pin", "lane": "prod", "service": None,
-             "what": (f"{name} ({R.when(newest.get('createTime'))[:10]}) is newer than the official pin {pin.get('official')}" if pin
-                      else f"no official bundle is pinned for {LINE}; the newest release is {name} ({R.when(newest.get('createTime'))[:10]})"),
-             "options": [f'ela release pin {LINE} "{name}"'], "note": "the runner appends --apply on the owner's apply N", "evidence": [f"bundle {newest.get('bundleId')}"],
+             "what": f"prod is held on {pin.get('official')} by a pin ({pin.get('why') or 'no reason recorded'}); {name} "
+                     f"({R.when(newest.get('createTime'))[:10]}) is newer",
+             "options": [f"ela release unpin {LINE}"], "note": "the runner appends --apply on the owner's apply N", "evidence": [f"bundle {newest.get('bundleId')}"],
              "at": R.when(newest.get("createTime")), "rank": RANKS["candidate_awaiting_owner"]}]
 
 
@@ -1710,14 +1710,14 @@ def matrix_cell(service, lane, rows, prev, tested, pins):
     return {"text": text, "version": label, "moved": moved, "was": old if moved else None, "qa": mark, "pin": pin}
 
 
-def bundle_cell(b, how, newest_build, unconfirmed):
-    """The bundle row's cell: name and date, "unconfirmed" for a prod bundle inferred from the list, "list stale" when the
+def bundle_cell(b, how, newest_build, pinned):
+    """The bundle row's cell: name and date, "pinned" for a prod bundle a pin holds (ADR 0013), "list stale" when the
     lane's newest build is younger than the bundle."""
     if not b:
         return {"text": "—"}
     made = R.when(b.get("createTime"))[:10]
     stale = made < (newest_build or "")[:10]
-    return {"text": f"{b['bundleName']} ({made})" + (" unconfirmed" if unconfirmed else "") + (" (list stale)" if stale else ""),
+    return {"text": f"{b['bundleName']} ({made})" + (" pinned" if pinned else "") + (" (list stale)" if stale else ""),
             "name": b["bundleName"], "source": how, "stale": stale}
 
 
@@ -1788,7 +1788,7 @@ def cmd_matrix(args):
                 pre = (cfg.get("bundle_line") or "") + toks.get(role, "")
                 got = [x for x in got if str(x.get("bundleName", "")) == pre or str(x.get("bundleName", "")).startswith(pre + "-")]
                 b, how = max(got, key=lambda x: str(x.get("createTime") or ""), default=None), "token"
-            bundle[lane] = bundle_cell(b, how, newest, role == "prod" and how != "official")
+            bundle[lane] = bundle_cell(b, how, newest, role == "prod" and how == "official")
         except (LaneError, subprocess.TimeoutExpired, ValueError) as e:
             bundle[lane] = {"text": "not read"}
             errors.append({"source": f"bundles {host}", "error": str(e)[:200]})
