@@ -278,6 +278,36 @@ with tempfile.TemporaryDirectory() as t:
     check("a move it offers runs", V.apply_marks(vlt, rep, dry_run=True) == [("to-read/two.md", "make-plan")])
     open(two, "w").write(open(two).read().replace('next: "make-plan"', 'next: "noted"'))
 
+with tempfile.TemporaryDirectory() as t:
+    vlt, rep = os.path.join(t, "v"), os.path.join(t, "r")
+    os.makedirs(os.path.join(vlt, "to-read")); os.makedirs(rep)
+    open(os.path.join(vlt, "to-read", "q.md"), "w").write('---\ntype: "plan"\nmoves: "plan"\nnext: "park"\n---\n# Q\n\nbody\n\n## Next moves\n\n- **agree**: x\n')
+    check("a plan offers park, and park is the runner's", V.apply_marks(vlt, rep, dry_run=True) == [("to-read/q.md", "park")])
+    to = V.move_note(vlt, rep, "to-read/q.md", "parked", waits_on="the Pack team, in its thread", wake="FB-1 moving")
+    q = open(os.path.join(vlt, to)).read()
+    check("a parked note says who it waits on, since when and what wakes it, and offers resume and drop only",
+          to == "parked/q.md" and 'status: "parked"' in q and 'waits-on: "the Pack team, in its thread"' in q and 'wake: "FB-1 moving"' in q
+          and 'parked: "' in q and 'moves: "parked"' in q and "**resume**" in q and "**drop**" in q and "**agree**" not in q
+          and "**done**" not in q)
+    check("the move to parked is logged as his", '"fate": "parked"' in open(os.path.join(rep, "ela", "vault-removed.jsonl")).read())
+    hm = V.home(datetime.date(2026, 10, 27), datetime.datetime(2026, 10, 27, 9), [V.Note("parked/q.md", "Q", "# Q", {"type": "plan", "date": "2026-10-27"})])
+    check("Home shows the Parked view when a note is parked", "## Parked" in hm and "all-notes.base#Parked]]" in hm)
+    check("and no Parked block without one", "## Parked" not in V.home(datetime.date(2026, 10, 27), datetime.datetime(2026, 10, 27, 9), []))
+    open(os.path.join(vlt, "parked", "h.md"), "w").write('---\ntype: "plan"\nstatus: "parked"\nwake: "FB-2"\n---\n# H\n\nhis body\n')
+    V.ensure_native_moves(vlt)
+    h = open(os.path.join(vlt, "parked", "h.md")).read()
+    check("a note parked by hand gains its chooser fields, its body untouched", 'moves: "parked"' in h and 'next: ""' in h and h.endswith("# H\n\nhis body\n"))
+    open(os.path.join(vlt, "parked", "h.md"), "w").write(h.replace('next: ""', 'next: "agree"'))
+    check("a parked note runs only resume or drop", V.apply_marks(vlt, rep) == [])
+    open(os.path.join(vlt, "parked", "q.md"), "w").write(q.replace('next: ""', 'next: "resume"'))
+    V.apply_marks(vlt, rep)
+    r = open(os.path.join(vlt, "to-read", "q.md")).read()
+    check("resume brings it back to to-read as proposed, its parked fields gone",
+          'status: "proposed"' in V.split_front(r)[0] and not any(l.startswith(("wake:", "waits-on:", "parked:")) for l in V.split_front(r)[0])
+          and "**agree**" in r
+          and not os.path.exists(os.path.join(vlt, "parked", "q.md")))
+    check("the parked moves are a set of their own", V.move_props("parked", in_to_read=False) == ["resume", "drop"] and V.move_set("parked") == "parked")
+
 day = datetime.date(2026, 10, 26)
 cons = {"exists": True, "error": None, "today": day.isoformat(), "gaps": [{"kind": "host_unreadable", "host": "qa", "detail": "qa login failed"}],
         "counts": {"active": 1, "expired": 1, "over": 1},

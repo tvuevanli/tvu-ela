@@ -46,7 +46,7 @@ flowchart LR
 | 昨天真正变了什么：哪条 lane 上了哪个版本、哪次 build 带了哪些 commit、发版和 QA 邮件、发版 thread、按 repo 和票分组的 commit（没有票的单列）、我自己做了什么、团队日报；读不到的来源逐一列出 | `brief` | `ela changes` · `ela changes --hours 72 --json` |
 | 今天各条 lane 上跑的是哪个版本：prod / daily / QA 按组件对照，昨天以来变了的标 ▲，QA 是否测过这个确切版本（✓ ◐ ○），standing constraint 的 🔒 / ⛔ | `brief` | `ela matrix` · `ela matrix --json` |
 | 在 Obsidian 里读 ela 给我的东西：当天的页、review、验收、决定与计划，票号直接链到 Jira；超出阅读预算的笔记顶部带警告，并在 Home 列为 ela 欠的改写 | `vault` | `ela vault sync` · `ela vault sync --dry-run` |
-| 一条待读笔记的生命周期：勾 Next moves（同意并实施、暂不、拒绝、归档……），同意后移到 `in-progress/`，ela 把进度写进笔记，做完等我验收再归档；任何 session 都能接手同一条笔记 | `note` | `ela note claim PATH` · `ela note progress PATH 文字` · `ela note built PATH 摘要` · `ela note move PATH --to in-progress\|archive\|to-read\|delete` |
+| 一条待读笔记的生命周期：勾 Next moves（同意并实施、暂不、拒绝、归档……），同意后移到 `in-progress/`；等别人回复的放进 `parked/`（写明等谁、什么时候唤醒，可 resume 或 drop），ela 把进度写进笔记，做完等我验收再归档；任何 session 都能接手同一条笔记 | `note` | `ela note claim PATH` · `ela note progress PATH 文字` · `ela note built PATH 摘要` · `ela note move PATH --to in-progress\|parked\|archive\|to-read\|delete` · `--to parked --waits-on 谁 --wake 什么` |
 | 输入一个凭据（token）且不经过聊天：在自己的终端里运行，输入不回显，直接写入 ela 的 env 文件 | `setup` | `ela secret SLACK_BOT_TOKEN` |
 | 一个复杂需求进来，要拆成各层的活并派人 | `breakdown` | `/ela:breakdown MH-3568` |
 | 一张别人写的票落到你手上，先要看懂它才谈得上判断 | `explain` | `/ela:explain MH-3568` |

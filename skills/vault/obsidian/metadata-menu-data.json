@@ -9,16 +9,18 @@
         "sourceType": "ValuesList",
         "valuesList": {
           "1": "agree",
-          "2": "not-now",
-          "3": "reject",
-          "4": "make-plan",
-          "5": "draft-comment",
-          "6": "confirm",
-          "7": "accept",
-          "8": "not-done",
-          "9": "done",
-          "10": "learn",
-          "11": "drop"
+          "2": "park",
+          "3": "not-now",
+          "4": "reject",
+          "5": "make-plan",
+          "6": "draft-comment",
+          "7": "confirm",
+          "8": "accept",
+          "9": "not-done",
+          "10": "resume",
+          "11": "done",
+          "12": "learn",
+          "13": "drop"
         }
       }
     }
