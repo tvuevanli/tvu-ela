@@ -156,6 +156,12 @@ One `jira.py close` per ticket, dry run first — a proposal the owner finishes 
   target on 2026-08-13, prod-8 never was), so it answers only a `release:mh-2.0` ticket or a 2.1
   ticket whose fix prod-3 lacks. One lane per line is the owner's question; a table of every lane is
   noise he reads past (owner, 2026-10-27, after the MH-3073 / MH-3646 / MH-3063 Fixed In pass).
+  When prod-3 lacks the fix, the report says which of the line's earlier lanes carries it, daily then QA
+  (`map/release.yaml` lanes), because the owner's question is where a change sits between the three
+  lanes, and a lane ahead of a later one (prod ahead of daily) is a finding in itself. A service none
+  of the lanes versions (`no_lane_version`) is named as outside the lanes, never silently placed from
+  a document; the fix for that class is a version declaration, not a longer trace (owner, 2026-10-27,
+  the release 2.1 cannot-evaluate review).
 - **The status is the owner's click, never this skill's.** `jira.py close` ends by adding
   `flag:closing` and assigning the ticket to the owner; the script refuses every transition to a
   terminal status. The owner reviews the proposal in his own queue and clicks Done in Jira, or keeps
