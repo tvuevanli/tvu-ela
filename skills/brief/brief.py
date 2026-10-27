@@ -962,7 +962,7 @@ def findings_of(out, rows, tested, env, errors):
                 else "lane_change_pending_internal_word" if not on_roster(sender, env) else None)
         if kind:
             F.append({"kind": kind, "lane": lane, "service": None,
-                      "what": f"{r['subject'][:90]}: the last word, from {sender}, asks to hold or confirm; no answer follows",
+                      "what": f"{r['subject'][:90]}: the last word, from {email.utils.parseaddr(last['from'])[0] or sender}, asks to hold or confirm; no answer follows",
                       "evidence": [f"mail: {last['subject']}"], "at": mail_time(last["date"])})
     try:
         r = subprocess.run(["python3", PROMOTE, *env, "--quiet", "constraints", "--json"], capture_output=True, text=True, timeout=300)
