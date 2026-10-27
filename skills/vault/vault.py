@@ -136,7 +136,10 @@ the file explorer is rarely needed.
   verification (pass or fail); a page ela writes in place also carries `source: "vault"`. status is ela's, never
   yours to set, and follows the folder: to-read *proposed* (waits on your word) or *blocked* (only you can unblock);
   in-progress *building*, *built* (waits on your accept), *waiting* (a loop that cannot finish; Progress says why) or
-  *blocked*; parked *parked*; archive *closed*, with the outcome in `next`.
+  *blocked*; parked *parked*; archive *closed*, with the outcome in `next`. Home's *Waiting for your word* holds only
+  what blocks something until you answer: a plan or decision proposed, a build to accept, something blocked, a failed
+  verification, a verification plan, the evening's learnings. Reviews and ticket pages carry no status and stay in
+  *To read*.
   They feed the tables and show at the top of each note: a status to read, and `next`, the move you choose. A
   hidden `moves` property names the note's set of moves, so the chooser lists only those.
 - No tags: a keyword-guessed tag would be wrong often enough to cost trust. A note about one topic links to its
