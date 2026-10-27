@@ -1262,9 +1262,20 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), saw=N
     return planned, files, notes, warnings, {n.path for n in native}
 
 
+def ruled(elak, src):
+    """Whether an elak decision or plan left to-read because it was ruled on: its file still exists and no longer says
+    proposed. A renamed or deleted file was not ruled on, so its note is not archived as if it had been."""
+    try:
+        head = open(os.path.join(elak or "", src), encoding="utf-8").read(4000)
+    except OSError:
+        return False
+    return not re.search(r"^status:\s*['\"]?proposed\b", head, re.M)
+
+
 def load_removed(path):
     """(paths, sources) the owner deleted and has not restored. A row names the note's path and, since layout 2,
-    its source, so a note keeps its deletion when the layout moves it."""
+    its source, so a note keeps its deletion when the layout moves it. ela's own archiving of a ruled elak source is
+    not a deletion: the source no longer qualifies anyway, and if it comes back as proposed it must come back."""
     paths, src_of = set(), {}
     try:
         for line in open(path, encoding="utf-8"):
@@ -1275,7 +1286,7 @@ def load_removed(path):
                     paths.difference_update(gone)
                     for p in gone:
                         src_of.pop(p, None)
-                else:
+                elif not (row.get("by") == "ela" and str(row.get("src") or "").startswith("blueprint/")):
                     paths.add(row["path"])
                     if row.get("src"):
                         src_of[row["path"]] = row["src"]
@@ -2017,7 +2028,7 @@ def cmd_sync(a):
         key = (re.match(r"^verify/([A-Z][A-Z0-9]+-\d+)-(\d{4}-\d{2}-\d{2})", src) or [None, None, None])
         if key[1]:
             return any(at[:10] >= key[2] for at in posted.get(key[1], []))
-        return src.startswith("blueprint/")
+        return src.startswith("blueprint/") and ruled(s.get("elak"), src)
     to_archive = sorted(r for r in set(old) - now_files if r.endswith(".md") and top(r) == TO_READ and acted(r)
                         and os.path.exists(os.path.join(vault, r)))
     if to_archive and not a.dry_run:

@@ -382,6 +382,21 @@ with tempfile.TemporaryDirectory() as t:
 check("a plan offers run, not-now and drop only", V.move_props("verify-plan") == ["run", "not-now", "drop"] and V.move_set("verify-plan") == "verify-plan"
       and "result replaces this note" in V.MOVE_MEANING["run"])
 
+with tempfile.TemporaryDirectory() as t:
+    os.makedirs(os.path.join(t, "blueprint", "decisions"))
+    open(os.path.join(t, "blueprint", "decisions", "a.md"), "w").write('---\nstatus: proposed\n---\n# A\n')
+    open(os.path.join(t, "blueprint", "decisions", "b.md"), "w").write('---\nstatus: accepted\n---\n# B\n')
+    check("only a decision that exists and is no longer proposed counts as ruled",
+          not V.ruled(t, "blueprint/decisions/a.md") and V.ruled(t, "blueprint/decisions/b.md") and not V.ruled(t, "blueprint/decisions/gone.md"))
+    log = os.path.join(t, "removed.jsonl")
+    open(log, "w").write("\n".join(json.dumps(r) for r in (
+        {"path": "to-read/x.md", "src": "blueprint/decisions/x.md", "by": "ela", "fate": "archived"},
+        {"path": "to-read/y.md", "src": "reviews/y.md", "by": "ela", "fate": "archived"},
+        {"path": "to-read/z.md", "src": "blueprint/decisions/z.md", "by": "owner", "fate": "deleted"})) + "\n")
+    paths, _ = V.load_removed(log)
+    check("ela archiving a ruled decision does not keep it out if it is proposed again; his own deletion and ela's 30-day "
+          "archive still do", paths == {"to-read/y.md", "to-read/z.md"})
+
 day = datetime.date(2026, 10, 26)
 cons = {"exists": True, "error": None, "today": day.isoformat(), "gaps": [{"kind": "host_unreadable", "host": "qa", "detail": "qa login failed"}],
         "counts": {"active": 1, "expired": 1, "over": 1},
