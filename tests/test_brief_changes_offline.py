@@ -119,4 +119,11 @@ check("the listed-issues shape: new, reopened and closed by key, counted", (q2["
 orch = [{"host": "mail", "service": "orchestration", "lane": "prod-3", "version": "4.0.205"}]
 check("a lane with no release mail for a mail-only service says so, not a bare dash",
       B.matrix_cell("orchestration", "qa-cn3", orch, None, {}, {})["text"] == "no release mail")
+req = [{"host": "mail", "service": "orchestration", "lane": "prod-3", "version": "4.0.205", "state": "requested"}]
+check("a version known only from a request mail reads as requested", B.matrix_cell("orchestration", "prod-3", req, None, {}, {})["text"] == "4.0.205 requested")
+msg = lambda body: {"body": body}
+check("a release runs once a reply says so, and a later hold takes it back",
+      B.release_state([msg("please deploy"), msg("Deployed to prod3.")]) == "confirmed"
+      and B.release_state([msg("please deploy"), msg("Deployed."), msg("Please hold until I confirm")]) == "requested"
+      and B.release_state([msg("please deploy")]) == "requested")
 sys.exit(1 if failures else 0)

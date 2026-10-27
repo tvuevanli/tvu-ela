@@ -798,9 +798,11 @@ def changes_facts(args):
     for r in releases:                                      # Orchestration publishes no lane version; its mails name it
         o = re.search(r"Orchestration Service of version\s*v?([\d.]+)", r["subject"], re.I)
         lane = mail_lane(r["env"])
-        if o and lane:
+        if o and lane:                                      # a request until a reply in its thread says it was done
+            msgs = read_thread(env, r.get("thread"), errors) if r.get("replies") else []
             rows = [x for x in rows if not (x["service"] == "orchestration" and x.get("lane") == lane)]
-            rows.append({"host": "mail", "lane": lane, "tag": None, "service": "orchestration", "version": o.group(1), "updated": r["date"]})
+            rows.append({"host": "mail", "lane": lane, "tag": None, "service": "orchestration", "version": o.group(1), "updated": r["date"],
+                         "state": release_state(msgs)})
     rows += [x for x in (prev or {}).get("rows", []) if x["host"] == "mail" and not any(
         y["host"] == "mail" and y["lane"] == x["lane"] and y["service"] == x["service"] for y in rows)]
     json.dump({"date": date, "at": now.isoformat(timespec="seconds"), "read": read, "rows": rows},
@@ -947,16 +949,20 @@ def findings_of(out, rows, tested, env, errors):
         lane = mail_lane(r["env"])
         if not (lane and lane.startswith("prod") and r.get("replies") and r.get("thread")):
             continue
-        try:
-            msgs = run_json(["python3", MAIL, *env, "thread", r["thread"], "--json"], timeout=120)["messages"]
-        except (LaneError, subprocess.TimeoutExpired, ValueError) as e:
-            errors.append({"source": f"mail thread {r['subject'][:40]}", "error": str(e)[:200]}); continue
+        msgs = read_thread(env, r["thread"], errors)
+        if not msgs:
+            continue
         last = msgs[-1]
-        said = re.split(r"\n\s*On .{5,80}wrote:", last.get("body") or "", maxsplit=1)[0]
         sender = (email.utils.parseaddr(last["from"])[1] or "").lower()
-        if re.search(r"\b(hold|wait|stay|until|confirm|do not|don't|before)\b", said, re.I) and not on_roster(sender, env):
-            F.append({"kind": "lane_change_pending_external_word", "lane": lane, "service": None,
-                      "what": f"{r['subject'][:90]}: the last word, from {sender} (not on the team roster), asks to hold or confirm; no answer follows",
+        if not HOLD.search(said_part(last)):
+            continue
+        # outside the company's mail domains is a customer or partner, ranked first; a colleague off the MediaHub roster
+        # is an internal word, ranked with the ordinary items; the roster's own people answer for themselves
+        kind = ("lane_change_pending_external_word" if sender.split("@")[-1] not in company_domains()
+                else "lane_change_pending_internal_word" if not on_roster(sender, env) else None)
+        if kind:
+            F.append({"kind": kind, "lane": lane, "service": None,
+                      "what": f"{r['subject'][:90]}: the last word, from {sender}, asks to hold or confirm; no answer follows",
                       "evidence": [f"mail: {last['subject']}"], "at": mail_time(last["date"])})
     try:
         r = subprocess.run(["python3", PROMOTE, *env, "--quiet", "constraints", "--json"], capture_output=True, text=True, timeout=300)
@@ -973,6 +979,51 @@ def findings_of(out, rows, tested, env, errors):
                           "evidence": [c.get("source") or c["id"]], "at": None})
     errors.append({"source": "findings", "error": "unanswered_customer_ask is not computed: there is no customer and partner list to tell their messages apart"})
     return F
+
+
+HOLD = re.compile(r"\b(hold|wait|stay|until|confirm|do not|don't|before)\b", re.I)
+DONE = re.compile(r"\b(done|deployed|completed|finished|upgraded|released)\b", re.I)
+_THREADS = {}
+
+
+def read_thread(env, thread, errors):
+    """A mail thread's messages, read once per run; [] and an error when it cannot be read."""
+    if not thread:
+        return []
+    if thread not in _THREADS:
+        try:
+            _THREADS[thread] = run_json(["python3", MAIL, *env, "thread", thread, "--json"], timeout=120)["messages"]
+        except (LaneError, subprocess.TimeoutExpired, ValueError) as e:
+            errors.append({"source": f"mail thread {thread}", "error": str(e)[:200]})
+            _THREADS[thread] = []
+    return _THREADS[thread]
+
+
+def said_part(m):
+    """A mail's own words, the quoted thread below it cut off."""
+    return re.split(r"\n\s*On .{5,80}wrote:", m.get("body") or "", maxsplit=1)[0]
+
+
+def release_state(msgs):
+    """A release mail asks for a deploy; it ran only when a reply says so and no hold follows that reply."""
+    state = "requested"
+    for m in msgs[1:]:
+        said = said_part(m)
+        if HOLD.search(said):
+            state = "requested"
+        elif DONE.search(said):
+            state = "confirmed"
+    return state
+
+
+def company_domains():
+    """The company's mail domains, from the owner's address in site.json, with its .cn twin."""
+    try:
+        me = (json.load(open(SITE)).get("emails") or {}).get("me") or ""
+    except (OSError, ValueError):
+        me = ""
+    d = me.split("@")[-1].lower()
+    return {d, d.rsplit(".", 1)[0] + ".cn"} if d else set()
 
 
 def on_roster(addr, env):
@@ -1039,7 +1090,8 @@ def snapshots(runner, date):
 def matrix_cell(service, lane, rows, prev, tested, pins):
     """One cell: the version, ▲ and the old one when it moved since the last snapshot, QA's mark on that exact version,
     and the constraint's mark."""
-    v = next((r["version"] for r in rows if r["service"] == service and r.get("lane") == lane), None)
+    row = next((r for r in rows if r["service"] == service and r.get("lane") == lane), None)
+    v = row["version"] if row else None
     if v is None:                                           # a service known only from its release mails has no lane row
         mail_only = any(r["service"] == service and r["host"] == "mail" for r in rows)
         return {"text": "no release mail" if mail_only else "—", "version": None}
@@ -1051,6 +1103,8 @@ def matrix_cell(service, lane, rows, prev, tested, pins):
     best = max(qa, key=lambda x: x["at"] or "", default=None)
     mark = ("✓ " if best["verdict"] == "pass" else "◐ ") + (best["at"] or "")[5:10] if best else "○"
     pin = pins.get((service, lane))
+    if row.get("host") == "mail" and row.get("state") != "confirmed":
+        return {"text": f"{label} requested", "version": label, "moved": False, "pin": pin}   # asked for, not known to run
     text = ("▲ " if moved else "") + label + (" patch" if pv and pv[3] else "") + (f" (was {R.vlabel(R.parse_version(old)) if R.parse_version(old) else old})" if moved else "") \
         + f" {mark}" + {"held": " 🔒", "over": " ⛔"}.get(pin, "")
     return {"text": text, "version": label, "moved": moved, "was": old if moved else None, "qa": mark, "pin": pin}
@@ -1106,7 +1160,10 @@ def cmd_matrix(args):
             pre = (cfg.get("bundle_line") or "") + toks.get(role, "")
             got = [b for b in got if str(b.get("bundleName", "")) == pre or str(b.get("bundleName", "")).startswith(pre + "-")]
             b = max(got, key=lambda b: str(b.get("createTime") or ""), default=None)
-            bundle[lane] = {"text": f"{b['bundleName']} ({R.when(b.get('createTime'))[:10]})", "name": b["bundleName"]} if b else {"text": "—"}
+            newest = max((built_at(r["version"]) or "" for r in rows if r.get("lane") == lane and r["host"] != "mail"), default="")
+            stale = b and R.when(b.get("createTime"))[:10] < newest[:10]   # the lane moved after its newest bundle: the list lags
+            bundle[lane] = ({"text": f"{b['bundleName']} ({R.when(b.get('createTime'))[:10]})" + (" (list stale)" if stale else ""),
+                             "name": b["bundleName"], "stale": bool(stale)} if b else {"text": "—"})
         except (LaneError, subprocess.TimeoutExpired, ValueError) as e:
             bundle[lane] = {"text": "not read"}
             errors.append({"source": f"bundles {host}", "error": str(e)[:200]})
