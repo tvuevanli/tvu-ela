@@ -154,7 +154,7 @@ The same three moves are choices of the note's `next` field: `done` (archive), `
 
 Every note to read carries one field for its next move, **next**, at its top. The button beside it lists only
 that note's choices, by kind: a plan *agree*, *park*, *not-now*, *reject*; a review *make-plan*; a verification *draft-comment*; all of
-them *done*, *learn*, *drop*. A ticket page (one ticket read in depth) offers only *nudge*, *seen* and *drop*. The note's **Next moves** section says what each does. Choose one, and it is done
+them *done*, *learn*, *drop*. A ticket page (one ticket read in depth) offers only *nudge*, *go-deep*, *seen* and *drop*. The note's **Next moves** section says what each does. Choose one, and it is done
 within a minute; ela empties the field once it has acted, and a value that is not a move for the note runs nothing
 and is pointed out under the title. An agreed note moves to `in-progress/`, ela writes each step under its Progress
 heading, and when it is built the note offers *accept* or *not-done*. Beside that life (to-read → in-progress →
@@ -1390,12 +1390,12 @@ MOVE_PROPS = {                   # by kind, beyond done, learn and drop, which e
     "verify": ["draft-comment"],
     "decision": ["confirm", "park"],
     "built": ["accept", "not-done"],
-    "ticket": ["nudge", "seen", "drop"],   # a ticket's moves only: "done" would read as the ticket's Jira Done
+    "ticket": ["nudge", "go-deep", "seen", "drop"],   # a ticket's moves only: "done" would read as the ticket's Jira Done
     "parked": ["resume", "drop"],          # a parked note's only moves: it comes back, or it ends
 }
 OUT_OF_TO_READ = ("built", "parked")       # kinds whose moves are their own, without done, learn and drop
-ALL_MOVE_PROPS = ("agree", "park", "not-now", "reject", "make-plan", "draft-comment", "confirm", "accept", "not-done", "nudge", "seen",
-                  "resume")
+ALL_MOVE_PROPS = ("agree", "park", "not-now", "reject", "make-plan", "draft-comment", "confirm", "accept", "not-done", "nudge", "go-deep",
+                  "seen", "resume")
 MOVE_MEANING = {
     "agree": "ela builds it: the note moves to `in-progress/` and each step is written under Progress",
     "park": "parked: it waits on others; comes back when `wake` happens",
@@ -1405,6 +1405,7 @@ MOVE_MEANING = {
     "confirm": "archived as confirmed", "accept": "archived as accepted",
     "not-done": "ela carries on; write what is missing as `ela:` lines first",
     "nudge": "ela drafts a short nudge to whoever the ticket waits on, as `apply N`; nothing is posted",
+    "go-deep": "ela reads the ticket to its root cause in the code (`ela probe`) and writes what it finds under this page",
     "seen": "archived: you have read where it stands",
     "resume": "back to `to-read/` as proposed, for your next decision",
     "done": "archived, nothing more", "learn": "distilled into knowledge that evening", "drop": "deleted",
