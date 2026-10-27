@@ -98,6 +98,7 @@
                                    since yesterday, QA's mark on that exact version, a pin's 🔒 or ⛔
   ela matrix --page                the lanes page in the vault: that table, what each lane carries that the next
                                    does not (tickets, QA verdicts, commits without a ticket), 14 days of moves
+  ela page-check PAGE --actions F  every apply N on a brief page has its drafted action and its box; exit 1 naming any
   ela ticket refresh KEY|--all     each change on a tracked ticket since the last pass, read as sure (a rule
                                    in probe §fix) or unsure; appended to its fix page; findings for the brief
   ela vault sync [--dry-run]       regenerate the owner's Obsidian vault: day pages, reviews, verifications,
@@ -175,7 +176,7 @@ VERBS = {
     "mail": ("mail", None), "login": ("release", "login"), "stream": ("stream", None),
     "sentry": ("sentry", None),
     "promote": ("promote", None), "runtime": ("runtime", None),
-    "brief": ("brief", "lanes"), "yesterday": ("brief", "yesterday"), "changes": ("brief", "changes"), "matrix": ("brief", "matrix"), "ticket": ("ticket", None), "vault": ("vault", None), "note": ("vault", "note"), "secret": ("setup", "secret"),
+    "brief": ("brief", "lanes"), "yesterday": ("brief", "yesterday"), "changes": ("brief", "changes"), "matrix": ("brief", "matrix"), "page-check": ("brief", "page-check"), "ticket": ("ticket", None), "vault": ("vault", None), "note": ("vault", "note"), "secret": ("setup", "secret"),
     "mr": ("mr", "create"), "mr-preflight": ("mr", "preflight"),
     "sessions": ("sessions", "find"),
     "route": ("route", "facts"),

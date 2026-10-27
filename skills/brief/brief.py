@@ -2139,6 +2139,33 @@ def render_matrix(out):
     return "\n".join(L)
 
 
+APPLY_RX = re.compile(r"\bapply\s+(\d+)\b", re.I)
+APPLY_BOX_RX = re.compile(r"^\s*[-*]\s+\[[ xX]\]\s+apply\s+(\d+)\b", re.I | re.M)
+
+
+def page_check(page, actions):
+    """Every `apply N` on a page has its drafted action in the actions file and its box on the page: ([numbers
+    with no action], [numbers named without a box]). A page with either is a failed page."""
+    named = {int(n) for n in APPLY_RX.findall(page)}
+    boxed = {int(n) for n in APPLY_BOX_RX.findall(page)}
+    have = {int(a["n"]) for a in actions if str(a.get("n", "")).isdigit()}
+    return sorted(named - have), sorted(named - boxed)
+
+
+def cmd_page_check(args):
+    try:
+        page = open(args.page, encoding="utf-8").read()
+        actions = json.load(open(args.actions, encoding="utf-8")) if args.actions else []
+    except (OSError, ValueError) as e:
+        print(f"page-check: {e}", file=sys.stderr); sys.exit(2)
+    orphan, unboxed = page_check(page, actions)
+    for n in orphan:
+        print(f"apply {n}: no such action in {os.path.basename(args.actions or '(none)')}")
+    for n in unboxed:
+        print(f"apply {n}: named without its box on the page")
+    sys.exit(1 if orphan or unboxed else 0)
+
+
 def front_matter(text):
     """The `key: value` lines between the leading `---` fences; values tried as JSON (the vault writes them quoted)."""
     m = re.match(r"^---\n(.*?)\n---\n", text, re.S)
@@ -2266,6 +2293,9 @@ def main():
     p.add_argument("--page", action="store_true", help="write the lanes page (<reports>/lanes/lanes.md, the vault's lanes.md): this table, "
                                                       "what each lane carries that the next does not, and 14 days of moves; minutes, it reads two promotions")
     p.set_defaults(func=cmd_matrix)
+    p = sub.add_parser("page-check", help="every apply N on a brief page has its action in the actions file and its box; exit 1 naming any that does not")
+    p.add_argument("page"); p.add_argument("--actions", help="<reports>/runner/<date>-actions.json")
+    p.set_defaults(func=cmd_page_check)
     p = sub.add_parser("sprint", help="the active sprint note in the vault: goals and committed items with their keys and "
                                       "'done when', the working day it is on; on a Friday the week's yesterday files")
     p.add_argument("--date", help="read as of YYYY-MM-DD (default today)")

@@ -431,6 +431,12 @@ The page is read in Obsidian, so its form is fixed:
 - **An `apply N` is a drafted action on this page.** Number the actions in the order they appear, every one
   written beside its item; never name an action that is not on the page ("apply 1 is done" from yesterday is
   noise). An action already applied is said in words, without its old number.
+  A number is minted only when its drafted write is in `<date>-actions.json` and its box is on the page, beside
+  its item. A table row, the backlog and an answer to a vault line never name a number without that box, and a
+  number from another day is never cited. Before the page is written, `ela page-check <page> --actions
+  <date>-actions.json` checks every `apply N` in it; a number with no action, or named without its box, fails the
+  page. *Why: the 10-27 Backlog named apply 4, 5 and 6 with no boxes, and the 10-26 answers cited apply 9 and
+  11–16, which never existed.*
 - **Instructions written in the vault.** Run `ela vault guidance --json` first: each line in a note starting
   `ela:` (in any note, unhandled) is something he asked; the Slack service normally acts on it within minutes, so
   one still listed here means it was not, and it becomes an item, or its drafted write an `apply N`. Append each id

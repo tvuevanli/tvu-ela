@@ -251,4 +251,7 @@ with tempfile.TemporaryDirectory() as t:
 check("a release-branch build without a lane is on the QA lane, and each from chains to the last to",
       "| QA-AWS3 | mediahub-frontend | — → 2.2.119 build 174 |" in mv and "| QA-AWS3 | mediahub-frontend | 2.2.119 build 174 → 2.2.120 build 175 |" in mv)
 check("a patch build sits on its base", "| prod-3 | unified-media-frontend | 3.0.36 → 3.0.36.1 build 194 |" in mv)
+pg = "### 1. x\n- [ ] apply 1 — post it\n\n## Backlog\n| MH-1 | apply 4 |\n- [x] apply 2 — done\n"
+check("a page names an apply N only with its action and its box", B.page_check(pg, [{"n": 1}, {"n": 2}]) == ([4], [4])
+      and B.page_check("- [ ] apply 1 — x\n", [{"n": 1}]) == ([], []))
 sys.exit(1 if failures else 0)
