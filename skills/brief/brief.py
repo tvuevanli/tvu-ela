@@ -1103,9 +1103,19 @@ def findings_of(out, rows, tested, env, errors, candidate=frozenset()):
         kind = ("lane_change_pending_external_word" if sender.split("@")[-1] not in company_domains()
                 else "lane_change_pending_internal_word" if not on_roster(sender, env) else None)
         if kind:
+            # whose answer it waits for: the owner's only when the ask is addressed to him; otherwise its first addressee
+            # holds it, and the owner nudges after a working day (morning-package spec §2, amended 2026-10-27)
+            to = email.utils.getaddresses([last.get("to") or ""])
+            mine = (json.load(open(SITE)).get("emails") or {}).get("me", "").lower()
+            to_owner = any(a.lower() == mine for _, a in to)
+            holder = None if to_owner else next(((n or a) for n, a in to if a.lower() != mine), None)
+            at = mail_time(last["date"])
             F.append({"kind": kind, "lane": lane, "service": None,
-                      "what": f"{r['subject'][:90]}: the last word, from {email.utils.parseaddr(last['from'])[0] or sender}, asks to hold or confirm; no answer follows",
-                      "evidence": [f"mail: {last['subject']}"], "at": mail_time(last["date"])})
+                      "what": f"{r['subject'][:90]}: the last word, from {email.utils.parseaddr(last['from'])[0] or sender}, asks "
+                              f"{'you' if to_owner else holder or 'the thread'} to hold or confirm; no answer follows",
+                      "to_owner": to_owner, "holder": holder,
+                      "working_days_silent": working_days(to_date(at) + datetime.timedelta(days=1), now_date()) if at else None,
+                      "evidence": [f"mail: {last['subject']}"], "at": at})
     try:
         r = subprocess.run(["python3", PROMOTE, *env, "--quiet", "constraints", "--json"], capture_output=True, text=True, timeout=300)
         cons = json.loads(r.stdout) if r.returncode in (0, 3) else None
@@ -1128,6 +1138,10 @@ def findings_of(out, rows, tested, env, errors, candidate=frozenset()):
 # the order the morning ranks findings in (morning-package spec §2); None = the lanes table only, not an item
 RANKS = {"lane_change_pending_external_word": 1, "constraint_over": 2, "candidate_awaiting_owner": 3, "customer_ask_unanswered": 4,
          "prod_fix_without_ticket": 5, "lane_change_pending_internal_word": 6, "unticketed_change_on_a_prod_path": 9}
+
+
+def now_date():
+    return datetime.datetime.now().astimezone().date()
 
 
 def finding_rank(f, candidate):

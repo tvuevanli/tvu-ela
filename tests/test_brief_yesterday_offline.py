@@ -40,4 +40,10 @@ check("his ask as the last human comment waits; Helm's edit after it is not an a
 self_assigned = [{"key": "MH-5", "summary": "mine", "status": "Review", "assignee": "Owner", "comments": [],
                   "events": [{"field": "assignee", "to": "Owner", "by": "Owner", "at": "2026-10-23T09:00:00.000+0000"}]}]
 check("a ticket he assigned to himself waits on nobody", B.ticket_waits(self_assigned, "Owner", set(), set(), now) == [])
+routed_then_own = [{"key": "MH-6", "summary": "routed, then his own comment", "status": "To Do", "assignee": "Dev E",
+                    "events": [{"field": "assignee", "to": "Dev E", "by": "Owner", "at": "2026-10-23T09:00:00.000+0000"}],
+                    "comments": [{"by": "Owner", "at": "2026-10-24T09:00:00.000+0000", "text": "Context for you: logs attached."}]}]
+w6 = B.ticket_waits(routed_then_own, "Owner", set(), set(), now)
+check("a ticket he routed and then commented on himself still waits on the assignee",
+      len(w6) == 1 and w6[0]["who"] == "Dev E" and w6[0]["threshold"] == 2 and w6[0]["due"])
 sys.exit(1 if failures else 0)

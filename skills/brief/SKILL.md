@@ -264,7 +264,11 @@ His own work is a sprint row, never an item.
    prod build no QA report names; a hold asked by a colleague; then, only for services in this week's prod
    candidate, a QA build untested or moved after the run; then a change without a ticket on the way to prod.
    A finding with no `rank` is not an item: it shows in the lanes table only (○ and ▲), because QA lanes move
-   several times a day.
+   several times a day. A hold from outside (`lane_change_pending_external_word`) is class C only when it is
+   addressed to the owner (`to_owner`); addressed to someone else, it is an FYI line naming that person as its
+   holder, and after one working day without a reply (`working_days_silent`) an F item with the nudge to the holder
+   drafted. Its rank stays first either way: the prod change waits on it. *Why: on 2026-10-27 a customer-side hold
+   on the Orchestration release was addressed to a colleague, not the owner, and was not his to answer.*
 2. Sprint items at risk or off (D).
 3. Triage overdue.
 4. Class A.
