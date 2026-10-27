@@ -251,6 +251,18 @@ with tempfile.TemporaryDirectory() as t:
 check("a release-branch build without a lane is on the QA lane, and each from chains to the last to",
       "| QA-AWS3 | mediahub-frontend | — → 2.2.119 build 174 |" in mv and "| QA-AWS3 | mediahub-frontend | 2.2.119 build 174 → 2.2.120 build 175 |" in mv)
 check("a patch build sits on its base", "| prod-3 | unified-media-frontend | 3.0.36 → 3.0.36.1 build 194 |" in mv)
+with tempfile.TemporaryDirectory() as t:
+    rn = os.path.join(t, "runner"); os.makedirs(rn)
+    vr = lambda v, b, at: {"service": "mediahub-backend", "lane": "qa-cn3", "host": "qa", "version": f"v{v} build{b} {at}"}  # noqa: E731
+    json.dump({"rows": [vr("2.1.34", 265, "2026-10-26 09:46:52")]}, open(os.path.join(rn, "versions-2026-10-27.json"), "w"))
+    json.dump({"rows": [vr("2.1.35", 266, "2026-10-27 09:46:52")]}, open(os.path.join(rn, "2026-10-27-versions-1730.json"), "w"))
+    check("lane reads are in time order, the morning's first", [(d, hm) for d, hm, _ in B.lane_reads(rn)] == [("2026-10-27", "0000"), ("2026-10-27", "1730")])
+    mv = "\n".join(B.movements(t, t, {}, datetime.date(2026, 10, 27), lambda l: B.LANE_SHOWN.get(l, l)))
+    check("a deploy between the morning read and a later one is a move", "| QA-AWS3 | mediahub-backend | 2.1.34 build 265 → 2.1.35 build 266 |" in mv)
+    now = datetime.datetime(2026, 10, 27, 18, 0).astimezone()
+    last = [vr("2.1.35", 266, "2026-10-27 09:46:52")]
+    check("a later read is kept only when a lane in scope moved", B.save_intraday(rn, now, last, {"qa": True}, last) is None
+          and B.save_intraday(rn, now, [vr("2.1.36", 267, "2026-10-27 17:50:00")], {"qa": True}, last).endswith("2026-10-27-versions-1800.json"))
 pg = "### 1. x\n- [ ] apply 1 — post it\n\n## Backlog\n| MH-1 | apply 4 |\n- [x] apply 2 — done\n"
 check("a page names an apply N only with its action and its box", B.page_check(pg, [{"n": 1}, {"n": 2}]) == ([4], [4])
       and B.page_check("- [ ] apply 1 — x\n", [{"n": 1}]) == ([], []))

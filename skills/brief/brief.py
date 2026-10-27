@@ -1814,6 +1814,55 @@ def snapshots(runner, date):
     return today, (load(before[-1]) if before else None)
 
 
+INTRADAY_RX = re.compile(r"(\d{4}-\d{2}-\d{2})-versions-(\d{4})\.json")
+
+
+def lane_reads(runner, since=""):
+    """Every saved lane read from a date on, in time order: [(date, HHMM, rows)]. The morning's
+    `versions-<date>.json` (written by `ela changes`) and the reads `matrix --page` saves later in the day
+    (`<date>-versions-HHMM.json`) when a lane moved since the last one."""
+    out = []
+    for f in sorted(os.listdir(runner)) if os.path.isdir(runner) else []:
+        m = re.fullmatch(r"versions-(\d{4}-\d{2}-\d{2})\.json", f)
+        d, hm = (m.group(1), "0000") if m else (INTRADAY_RX.fullmatch(f).groups() if INTRADAY_RX.fullmatch(f) else (None, None))
+        if not d or d < since:
+            continue
+        try:
+            rows = json.load(open(os.path.join(runner, f), encoding="utf-8")).get("rows") or []
+        except (OSError, ValueError):
+            continue
+        out.append((d, hm, rows))
+    return sorted(out, key=lambda x: (x[0], x[1]))
+
+
+def read_lanes_live(env, base_rows):
+    """The lanes as they run now, both hosts; a host that does not answer keeps its rows from the base read, and the
+    mail-only rows (Orchestration) come from it too. (rows, {host: read}, errors)."""
+    rows, read, errors = [], {}, []
+    for host in ("qa", "prod"):
+        try:
+            rows += [dict(r, host=host) for r in run_json(["python3", RELEASE, *env, "envs", "--host", host, "--json"], timeout=120)["rows"]]
+            read[host] = True
+        except (LaneError, subprocess.TimeoutExpired, ValueError) as e:
+            errors.append({"source": f"versions {host}", "error": str(e)[:200]})
+            rows += [r for r in base_rows or [] if r.get("host") == host]
+    return rows + [r for r in base_rows or [] if r.get("host") == "mail"], read, errors
+
+
+def save_intraday(runner, now, rows, read, last_rows):
+    """Keep a later read when a lane in scope moved since the last saved one, so the moves page and tomorrow's diff see
+    a deploy between the morning reads. Returns the path, or None when nothing moved."""
+    moved = [m for m in lane_moves(last_rows, rows, None) if read.get(m["host"]) and m["service"] in SCOPE]
+    if not moved or last_rows is None:
+        return None
+    path = os.path.join(runner, f"{now:%Y-%m-%d}-versions-{now:%H%M}.json")
+    tmp = path + ".tmp"
+    json.dump({"date": now.date().isoformat(), "at": now.isoformat(timespec="seconds"), "read": read, "rows": rows},
+              open(tmp, "w", encoding="utf-8"), ensure_ascii=False)
+    os.replace(tmp, path)
+    return path
+
+
 def matrix_cell(service, lane, rows, prev, tested, pins):
     """One cell: the version, ▲ and the old one when it moved since the last snapshot, QA's mark on that exact version,
     and the constraint's mark."""
@@ -1855,7 +1904,12 @@ def cmd_matrix(args):
     runner = os.path.join(site.get("runtime") or os.path.join(site.get("projects", ""), ".ela"), "runner")
     errors = []
     today, before = snapshots(runner, date)
-    if today is None:                                       # no `changes` run yet today: read the lanes now, not saved
+    if getattr(args, "page", False) and today is not None:  # the page is right whenever it is built: read the lanes now
+        last = (lane_reads(runner, date) or [(None, None, today["rows"])])[-1][2]
+        rows, read, errs = read_lanes_live(env, last)
+        errors += errs
+        save_intraday(runner, datetime.datetime.now().astimezone(), rows, read, last)
+    elif today is None:                                     # no `changes` run yet today: read the lanes now, not saved
         rows = []
         for host in ("qa", "prod"):
             try:
@@ -2166,6 +2220,14 @@ def movements(runtime, reports, tested, today, shown, bundles_now=None):
                     if twin and vkey(twin["version"]) == vkey(r["version"]) and sent and built and \
                             datetime.datetime.fromisoformat(built).replace(tzinfo=datetime.timezone.utc) <= sent:
                         add(at, shown(dst), r["service"], None, short_version(r["version"]), (), qa_mark(r["service"], r["version"]))
+    reads = lane_reads(runner, since)
+    for (d0, _, base), (d, hm, now_rows) in zip(reads, reads[1:]):   # a deploy between two reads of one day
+        if hm == "0000" or d0 != d:
+            continue
+        for mv in lane_moves(base, now_rows, None):
+            if mv["service"] in SCOPE and mv["host"] != "mail":
+                first = min(first or d, d)
+                add((mv.get("built") or d)[:10], shown(mv["lane"]), mv["service"], mv["from"], mv["to"], (), qa_mark(mv["service"], mv["to"]))
     for lane, name in (bundles_now or {}).items():         # a bundle made since the last daily read
         if name and last_bundle.get(lane) and last_bundle[lane] != name:
             add(today.isoformat(), shown(lane), "media bundle", last_bundle[lane], name)
