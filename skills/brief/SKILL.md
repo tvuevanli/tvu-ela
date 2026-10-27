@@ -323,6 +323,12 @@ top. *Why: on 2026-10-27 the HTML input pin was spread over three notes. One nam
 q26/d44 while the lanes page showed q28/d45, and two said "older" and "newer" about QA's media, each against a
 different baseline.*
 
+**The morning count.** Each item's facts line ends with the number of mornings it has been carried ("3rd morning"),
+read from `lanes.carried` (`ela brief --lane carried`): the earlier brief pages, by key, or by heading for an item with
+no key. An item on its third morning means the brief failed to make it tickable: that evening's run rewrites it as an
+`apply N`, or drops it with one line on the next page saying why. *Why: items carried for days with nothing he could
+tick became the page he stopped reading (from 2026-10-28).*
+
 **One place per day.** An item appears once. A key inside a lanes-table cell or a Changes page callout is evidence,
 not an appearance.
 

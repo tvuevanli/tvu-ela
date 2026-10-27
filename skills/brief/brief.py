@@ -52,7 +52,7 @@ PROJECT = "project = MH AND "
 UMBRELLA = "MH-2342"
 RED_H, YELLOW_H, OVERDUE_H = 48, 24, 4
 PREFIX = re.compile(r"^\[(Infra|J2N|Media|App|UI|QA|Design|AI)\]")
-LANES = ("intake", "cadence", "triage", "breakdown", "incidents", "backlog", "yours", "waiting", "tracked")
+LANES = ("intake", "cadence", "triage", "breakdown", "incidents", "backlog", "yours", "waiting", "tracked", "carried")
 
 # JQL as SKILL.md §1 states it; `project = MH AND ` is prepended to each.
 Q = {
@@ -352,6 +352,50 @@ def lane_tracked(env, limit, now):
     return {"rows": items, "count": len(items), "hours": hours}
 
 
+def needs_you(page):
+    """The items under a brief page's Needs you: [(key or None, heading words)]."""
+    m = re.search(r"^## Needs you[ \t]*$(.*?)(?=^## |\Z)", page, re.M | re.S)
+    out = []
+    for h in re.findall(r"^### (?:\d+\.\s*)?(.+)$", m.group(1) if m else "", re.M):
+        keys = keys_in(h)
+        out.append((keys[0] if keys else None, re.sub(r"\s+", " ", h.strip().lower())))
+    return out
+
+
+def carried(pages):
+    """{key or heading: mornings carried} over brief pages oldest first, counting back from the last page while the
+    item stays under Needs you on each earlier page: 1 is a first morning."""
+    seen = [needs_you(p) for p in pages]
+    if not seen:
+        return {}
+    out = {}
+    for key, head in seen[-1]:
+        n = 1
+        for earlier in reversed(seen[:-1]):
+            if any((key and k == key) or (not key and h == head) for k, h in earlier):
+                n += 1
+            else:
+                break
+        out[key or head] = n
+    return out
+
+
+def lane_carried(env, limit, now):
+    """How many mornings each of the last brief page's items has been carried, read from the pages themselves: the
+    third morning means the brief failed to make it tickable, and the evening rewrites or drops it."""
+    site = json.load(open(SITE))
+    runner = os.path.join(site.get("reports") or os.path.join(site.get("projects", ""), "reports"), "runner")
+    files = sorted(f for f in (os.listdir(runner) if os.path.isdir(runner) else []) if re.fullmatch(r"\d{4}-\d{2}-\d{2}-brief\.md", f))[-10:]
+    pages = []
+    for f in files:
+        try:
+            pages.append(open(os.path.join(runner, f), encoding="utf-8").read())
+        except OSError:
+            pass
+    rows = [{"item": k, "mornings": n, "third": n >= 3} for k, n in carried(pages).items()]
+    return {"rows": rows, "count": len(rows), "third": sum(r["third"] for r in rows), "page": files[-1] if files else None}
+
+
 def owner_jira_name(env):
     """The owner's Jira display name, read from a ticket assigned to him; None when he has none."""
     try:
@@ -442,6 +486,10 @@ def age_of(r):
 
 def print_table(name, lane):
     print(f"## {name} — {lane['count']}")
+    if name == "carried":
+        for r in lane["rows"]:
+            print(f"  {r['mornings']} morning(s){'  THIRD' if r['third'] else ''}  {r['item'][:100]}")
+        print(); return
     if name == "tracked":
         for r in lane["rows"]:
             print(f"  {r['key']:<10} {r['class']}  {r['first_line'][:110]}")
@@ -481,7 +529,7 @@ def cmd_lanes(args):
     now = datetime.datetime.now(datetime.timezone.utc)
     want = [args.lane] if args.lane else list(LANES)
     fns = {"intake": lane_intake, "triage": lane_triage, "breakdown": lane_breakdown, "incidents": lane_incidents, "backlog": lane_backlog,
-           "waiting": lane_waiting, "tracked": lane_tracked}
+           "waiting": lane_waiting, "tracked": lane_tracked, "carried": lane_carried}
     lanes, errors = {}, []
 
     if "cadence" in want or "yours" in want:

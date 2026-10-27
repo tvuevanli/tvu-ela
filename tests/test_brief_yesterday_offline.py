@@ -87,4 +87,11 @@ check("one tracked item per ticket; addressed to him is C with who said what", t
       and ti["MH-7"]["rows"] == 2 and ti["MH-7"]["prod_or_customer"])
 check("otherwise D, saying what ela could not place", ti["MH-8"]["class"] == "D" and ti["MH-8"]["first_line"] == "ela could not place: reassigned 3 times in a day")
 check("sure rows and rows outside the window are not items", "MH-9" not in ti and "MH-10" not in ti)
+pg = lambda *hs: "# B\n\n## Needs you\n\n" + "".join(f"### {i}. {h}\n\nfacts\n\n" for i, h in enumerate(hs, 1)) + "## FYI\n\n### not an item\n"  # noqa: E731
+cr = B.carried([pg("MH-1: a", "Nobody owns X"), pg("MH-1: a, again", "Nobody owns X", "MH-9: b"), pg("MH-2: c"),
+                pg("MH-1: a", "Nobody owns X", "MH-2: c, still")])
+check("an item's mornings count back while it stays under Needs you, by key or by heading",
+      cr == {"MH-1": 1, "nobody owns x": 1, "MH-2": 2})
+cr = B.carried([pg("MH-1: a"), pg("MH-1: b"), pg("MH-1: c")])
+check("the third morning is counted", cr == {"MH-1": 3})
 sys.exit(1 if failures else 0)
