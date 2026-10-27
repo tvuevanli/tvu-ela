@@ -19,7 +19,7 @@ from the source's file name, never from its heading, so editing a title renames 
 its date, so a folder sorts by time. Folders carry no numbers: Home and the bookmarks are the way in.
     home.md, board.md                           the entry point; the board's debt, one living page
     constraints.md                              the standing constraints, each pin read on its lane
-    days/<year>/<date>-brief.md                 the morning page, kept; -learned beside it for 14 days
+    days/<year>/<date>-brief.md                 the morning page, kept, with -changes (what changed); -learned for 14 days
     to-read/<date>-<slug>.md                    reviews and verifications to read; deleted when read; a verification
     to-read/<date>-verify-<key>.md              leaves once its record is on the Jira ticket, or a pass after 14 days
     to-read/<date>-<slug>.md                    also a decision or plan from elak while it waits for his ruling
@@ -52,7 +52,7 @@ IN_PROGRESS = "in-progress"   # a note he agreed to, while ela builds it and unt
 OWNER_FOLDERS = (TO_LEARN, ARCHIVE)   # where the owner drags a note to say what he wants; ela never rewrites in them
 ATTACH = "ela/attachments"
 DELETABLE = (DAYS, TO_READ)
-KEEP_FOREVER = ("brief", "week")   # the morning page is the record of what ela told the owner; the rest expires
+KEEP_FOREVER = ("brief", "week", "changes")   # the morning pages are the record of what ela told the owner; the rest expires
 PROPS = ("title", "aliases", "type", "date", "kind", "status", "moves", "next", "ela")   # the whole vocabulary; no tags (ADR 0010)
 MARKS = {"done": ARCHIVE, "learn": TO_LEARN, "drop": None}   # a ticked box in a to-read table row: archive, distil, delete
 BUDGET = {"ticket": 700, "topic": 800, "guide": 1200, "board": 1000, "day": 1200, "review": 2500, "decision": 1200, "plan": 2500, "sprint": 800}
@@ -95,7 +95,7 @@ Start at [[home]]: what waits for your word, today's page, and what there is to 
 |---|---|---|
 | `home`, `board` | today, and the board's debt | look at them each morning |
 | `constraints` | the standing constraints you confirmed: what each holds, whether its lane still keeps it, when it lifts | look when Home says one is over |
-| `days/<year>/` | the morning pages, kept; the evening learning draft, 14 days | look back |
+| `days/<year>/` | the morning pages and what changed the day before, kept; the evening learning draft, 14 days | look back |
 | `to-read/` | reviews, verification results, and plans or decisions waiting for your ruling, newest first | read, then delete |
 | `library/` | one summary page per topic, with links to the originals | look up |
 | `ela/` | how ela works and runs, this page, the table view; attachments, hidden | rarely |
@@ -430,14 +430,14 @@ def report_notes(reports, today):
     notes = []
     rd = os.path.join(reports, "runner")
     for f in sorted(os.listdir(rd)) if os.path.isdir(rd) else []:
-        m = re.match(r"^(\d{4}-\d{2}-\d{2})-(brief|learned|week)\.md$", f)
+        m = re.match(r"^(\d{4}-\d{2}-\d{2})-(brief|learned|week|changes)\.md$", f)
         if not m or (m.group(2) not in KEEP_FOREVER and (today - datetime.date.fromisoformat(m.group(1))).days >= DAYS_KEPT):
             continue
         d = datetime.date.fromisoformat(m.group(1))
         fl, body = split_front(open(os.path.join(rd, f), encoding="utf-8").read())
         if m.group(2) == "brief":
             body = action_states(body, os.path.join(rd, f"{m.group(1)}-actions.json"))
-        label = {"brief": "Morning brief", "learned": "What the day taught", "week": "The week"}[m.group(2)]
+        label = {"brief": "Morning brief", "learned": "What the day taught", "week": "The week", "changes": "What changed"}[m.group(2)]
         notes.append(Note(f"{DAYS}/{m.group(1)[:4]}/{m.group(1)}-{m.group(2)}.md", f"{label} · {d:%a} {m.group(1)}", body,
                           {"type": "day", "date": m.group(1), "kind": m.group(2)}, fl, src_rel=f"runner/{f}"))
     bp = os.path.join(reports, "board", "board.md")
@@ -890,6 +890,7 @@ def home(today, now, notes):
         return sorted((n for n in notes if n.props.get("type") == "day" and n.props.get("kind") == kind),
                       key=lambda n: n.props["date"], reverse=True)
     brief = next(iter(newest("brief")), None)
+    changes = next(iter(newest("changes")), None)
     iso = today.isoformat()
     L = [f"# {today:%a %Y-%m-%d}", ""]
     board = next((n for n in notes if n.props.get("type") == "board"), None)
@@ -911,7 +912,10 @@ def home(today, now, notes):
     if brief and brief.props["date"] == iso:
         head = re.split(r"^## ", re.sub(r"^#[ \t]+.*$", "", brief.body, count=1, flags=re.M), maxsplit=1, flags=re.M)[0].strip()
         # the jump to the page is the section's first line, under a plain heading
-        L += ["## Today", "", f"[[{brief.path[:-3]}|→ Open the morning page]]", ""] + ([head, ""] if head else [])
+        L += ["## Today", "", f"[[{brief.path[:-3]}|→ Open the morning page]]", ""]
+        if changes and changes.props["date"] == iso:     # the day's changes in code, lanes and QA, beside the brief
+            L += [f"[[{changes.path[:-3]}|→ What changed yesterday]]", ""]
+        L += [head, ""] if head else []
         if re.search(r"^## Needs you[ \t]*$", brief.body, re.M):
             L += [f"![[{brief.path[:-3]}#Needs you]]", "",
                   f"*The rest of the page (yesterday, new tickets, the lanes, the backlog): {link(brief)}.*", ""]
@@ -919,6 +923,8 @@ def home(today, now, notes):
             L += [f"![[{brief.path[:-3]}]]", ""]
     else:
         L += ["## Today", "", "No morning page yet today" + (f"; the latest is {link(brief)}." if brief else "."), ""]
+        if changes and changes.props["date"] == iso:
+            L += [f"[[{changes.path[:-3]}|→ What changed yesterday]]", ""]
     sprint = next((n for n in sorted(notes, key=lambda n: n.props.get("date") or "", reverse=True)
                    if n.props.get("type") == "sprint" and note_status(n) == "active"), None)
     cons = next((n for n in notes if n.props.get("type") == "constraints"), None)

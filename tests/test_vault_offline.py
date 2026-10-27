@@ -67,6 +67,7 @@ with tempfile.TemporaryDirectory() as tmp:
     open(f"{ELAK}/blueprint/decisions/{today[:4]}-01-03-ruled.md", "w").write("---\nreader: owner\nstatus: decided\n---\n# Ruled\n\nText.\n")
     git("init", "-q"); git("add", "."); git(SAVE, "-qm", "x")
     open(f"{reports}/runner/{today}-brief.md", "w").write("# Brief\n\n## Needs you\n\n### 1. A thing\n\n- [ ] apply 2 — ask QA\n- [ ] probe MH-1 from the replay\n- [x] already done upstream\n")
+    open(f"{reports}/runner/{today}-changes.md", "w").write("# What changed\n\n## Code\n\nOne commit.\n")
     open(f"{reports}/ela/{today}-long.md", "w").write("# Long review\n\n" + "word " * 3000)
     for i in range(20):
         open(f"{reports}/{today[:4]}-09-{i + 10}-review-{i}.md", "w").write(f"# Review {i}\n\nText.\n")
@@ -105,6 +106,8 @@ with tempfile.TemporaryDirectory() as tmp:
     home = open(f"{vault}/home.md").read()
     check("Home embeds today's page, the waiting and to-read views, and what ela owes", "![[days/" in home and "all-notes.base#To read" in home
           and "#Waiting for your word" in home and "ela owes a shorter version" in home)
+    check("the changes page is a day page, linked from Home's Today", os.path.exists(f"{vault}/days/{today[:4]}/{today}-changes.md")
+          and "→ What changed yesterday" in home)
     check("a decision carries its title as an alias and a meta line", 'aliases: ["Decision 0"]' in open(dec0).read() and "*decision · " in open(dec0).read())
     os.remove(dec0)
     check("a note the owner deleted is not written again", sync() == 0 and not os.path.exists(dec0))
