@@ -411,19 +411,23 @@ open question after the fix is the item. What the owner already did is stated ("
 never drafted again. A ticket whose QA observation contradicts what another layer's code expects (a code, a field,
 a status), on a Highest or High ticket or one assigned to the owner, is a **deep pick**: at most two a day, most
 urgent first, written to the deep file (§3b) and run after the page as `/ela:probe fix`, whose page (real status,
-dated timeline, next) reaches to-read; the item links it. Any other ticket item may offer `- [ ] go deep on MH-…`
-(2026-10-26: MH-2406 sat assigned to the owner for eight days with QA's Fail naming the mismatched codes in its
+dated timeline, next) reaches to-read; the item links it (2026-10-26: MH-2406 sat assigned to the owner for eight days with QA's Fail naming the mismatched codes in its
 comments; he traced the J2N–mediahub-frontend gap by hand).
 
 The page is read in Obsidian, so its form is fixed:
 
 - **An item is a `###` heading in plain words** (what is happening, never a lane tag such as `[cadence RED]`), one
   facts line (key, its Jira title in a few plain words, kind, who holds it, age), at most three bullets, then
-  **Do:** as one to three choices, each a task line he ticks in Obsidian: `- [ ] apply N — what it writes` for a drafted
-  write (a tick runs it, as `apply N` in Slack does), `- [ ] <an instruction to ela>` for work a session does (a tick
-  starts it: "probe MH-3805 from the 2× input replay", "draft the reply to Robin in the thread"), the recommended choice
-  first. A choice is a whole instruction on one line; no "skip" choice (leaving it unticked is skipping). A sentence
-  that does not change what the owner does is cut.
+  then **Do:** as one to three task lines, each with a box, and every box is finished work by ela:
+  `- [ ] apply N — what it writes` for a drafted write, or `- [ ] <option>` for a decision (class D), where the
+  tick is the ruling. A Do line is never a command for him to run or a draft for him to write. A breakdown, a
+  draft, a lookup or a probe is done before 06:30, and the item carries its result: an `apply N`, or a link to the
+  note it produced. When ela cannot do it unattended (it needs a login, a person to ask, or a judgment only he
+  holds), the item says why in one line and offers no box. No Do line without a box. A deep pick runs in the same
+  morning pass (§3b) and the item links its page, so an item never offers "go deep on MH-…". The recommended choice comes first; no "skip" choice
+  (leaving it unticked is skipping). A sentence that does not change what the owner does is cut. *Why: on
+  2026-10-27 the eight items carried 13 Do lines. He ticked the three apply lines and none of the ten commands or
+  drafts left for him.*
 - **An `apply N` is a drafted action on this page.** Number the actions in the order they appear, every one
   written beside its item; never name an action that is not on the page ("apply 1 is done" from yesterday is
   noise). An action already applied is said in words, without its old number.
