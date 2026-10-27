@@ -960,10 +960,16 @@ def changes_facts(args):
             "qa": qa, "tickets": tickets, "code": {"repos": code, "unticketed_threads": y["unticketed_threads"]},
             "dev_threads": dev_threads, "you": you, "ela": y["ela"], "team_report": team_report,
             "stale_checkouts": y["stale_checkouts"], "errors": errors}
+    try:
+        named = run_json(["python3", RELEASE, *env, "bundles", f"MediaHub {LINE}", "--host", "prod", "--limit", "50", "--json"], timeout=120)["bundles"]
+        out["findings_extra"] = pin_findings(named, R.read_pins().get(LINE))
+    except (LaneError, subprocess.TimeoutExpired, ValueError) as e:
+        out["findings_extra"] = []
+        errors.append({"source": "bundles prod (release names)", "error": str(e)[:200]})
     pending = read_pending(site)
     cand = (pending or {}).get("candidate") or {}
     out["pending"] = pending
-    out["findings"] = findings_of(out, rows, tested, env, errors, candidate=frozenset(cand.get("versions") or {}))
+    out["findings"] = findings_of(out, rows, tested, env, errors, candidate=frozenset(cand.get("versions") or {})) + out.pop("findings_extra")
     for service, c in (cand.get("versions") or {}).items():
         if isinstance(c, dict) and c.get("awaiting"):
             out["findings"].append({"kind": "candidate_awaiting_owner", "lane": pending["to"], "service": service,
@@ -971,6 +977,24 @@ def changes_facts(args):
                                     "options": c.get("options") or [], "evidence": [pending.get("report") or ""], "at": pending.get("refreshed"),
                                     "rank": RANKS["candidate_awaiting_owner"]})
     return out
+
+
+def pin_findings(named, pin):
+    """The newest release-named bundle on prod against the owner's pin: newer, or no pin at all, is his decision; the
+    option is the pin command as he would run it (ela ADR 0012)."""
+    rel = [x for x in named if RELEASE_NAME(LINE).match(str(x.get("bundleName", "")))]
+    newest = max(rel, key=lambda x: str(x.get("createTime") or ""), default=None)
+    if not newest or (pin and str(pin.get("id")) == str(newest.get("bundleId"))):
+        return []
+    pinned = next((x for x in rel if pin and str(x.get("bundleId")) == str(pin.get("id"))), None)
+    if pinned and str(pinned.get("createTime") or "") >= str(newest.get("createTime") or ""):
+        return []
+    name = newest["bundleName"]
+    return [{"kind": "release_newer_than_pin", "lane": "prod", "service": None,
+             "what": (f"{name} ({R.when(newest.get('createTime'))[:10]}) is newer than the official pin {pin.get('official')}" if pin
+                      else f"no official bundle is pinned for {LINE}; the newest release is {name} ({R.when(newest.get('createTime'))[:10]})"),
+             "options": [f'ela release pin {LINE} "{name}" --apply'], "evidence": [f"bundle {newest.get('bundleId')}"],
+             "at": R.when(newest.get("createTime")), "rank": RANKS["candidate_awaiting_owner"]}]
 
 
 def read_pending(site):
@@ -1315,16 +1339,20 @@ def cmd_matrix(args):
         newest = max((built_at(r["version"]) or "" for r in rows if r.get("lane") == lane and r["host"] != "mail"), default="")
         try:
             b, how = None, "token"
-            if role == "prod":
+            if role == "prod":                              # the owner's pin first (ADR 0012), then the newest release name
                 named = run_json(["python3", RELEASE, *env, "bundles", f"MediaHub {LINE}", "--host", host, "--limit", "50", "--json"], timeout=120)["bundles"]
-                b = max((x for x in named if RELEASE_NAME(LINE).match(str(x.get("bundleName", "")))), key=lambda x: str(x.get("createTime") or ""), default=None)
-                how = "by name"
+                pin = R.read_pins().get(LINE) or {}
+                b = next((x for x in named if pin and str(x.get("bundleId")) == str(pin.get("id"))), None)
+                how = "official"
+                if b is None:
+                    b = max((x for x in named if RELEASE_NAME(LINE).match(str(x.get("bundleName", "")))), key=lambda x: str(x.get("createTime") or ""), default=None)
+                    how = "by name"
             if b is None:
                 got = run_json(["python3", RELEASE, *env, "bundles", cfg.get("bundle_line") or "", "--host", host, "--limit", "50", "--json"], timeout=120)["bundles"]
                 pre = (cfg.get("bundle_line") or "") + toks.get(role, "")
                 got = [x for x in got if str(x.get("bundleName", "")) == pre or str(x.get("bundleName", "")).startswith(pre + "-")]
                 b, how = max(got, key=lambda x: str(x.get("createTime") or ""), default=None), "token"
-            bundle[lane] = bundle_cell(b, how, newest, role == "prod")
+            bundle[lane] = bundle_cell(b, how, newest, role == "prod" and how != "official")
         except (LaneError, subprocess.TimeoutExpired, ValueError) as e:
             bundle[lane] = {"text": "not read"}
             errors.append({"source": f"bundles {host}", "error": str(e)[:200]})
