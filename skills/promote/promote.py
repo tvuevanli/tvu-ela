@@ -728,20 +728,22 @@ def bundle_map(us, b):
 def collect_bundles(a, gaps):
     cfg = line_cfg(a.line)
     bl = cfg.get("bundle_line"); toks = cfg.get("bundle_lanes") or {}
-    f_role = a.src if a.src in toks else next((r for r, l in (cfg.get("lanes") or {}).items() if l == a.src), None)
-    t_role = a.dst if a.dst in toks else next((r for r, l in (cfg.get("lanes") or {}).items() if l == a.dst), None)
+    f_role = a.src if a.src in toks or a.src == "prod" else next((r for r, l in (cfg.get("lanes") or {}).items() if l == a.src), None)
+    t_role = a.dst if a.dst in toks or a.dst == "prod" else next((r for r, l in (cfg.get("lanes") or {}).items() if l == a.dst), None)
     res = {"line": a.line, "from": None, "to": None, "changed": [], "only_in_from": [], "only_in_to": [], "identical": 0, "comparable_direction": []}
     if not bl or not f_role or not t_role:
         gaps.append({"kind": "bundle_lanes_unknown", "detail": f"line {a.line} has no bundle_lanes for {a.src}/{a.dst}"}); return res
     maps = {}
     for role, key in ((f_role, "from"), (t_role, "to")):
         host = "qa" if role == "qa" else "prod"
-        say(f"bundle {bl}{toks[role]}* on {host}")
+        what = f"the official MediaHub {a.line} bundle" if role == "prod" else f"{bl}{toks.get(role, '?')}*"
+        say(f"bundle {what} on {host}")
         try:
             us = R.US(a.env_file, host)
-            b = newest_bundle(us, bl, toks[role])
+            # prod's bundle is the official one the owner pins, not an rc token (owner's ruling, 2026-10-27)
+            b = R.official_bundle(us, a.line) if role == "prod" else newest_bundle(us, bl, toks[role]) if role in toks else None
             if not b:
-                gaps.append({"kind": "bundle_missing", "detail": f"no {bl}{toks[role]}* on {host}"}); continue
+                gaps.append({"kind": "bundle_missing", "detail": f"no {what} on {host}"}); continue
             res[key] = {"name": b.get("bundleName"), "id": str(b.get("bundleId")), "created": R.when(b.get("createTime")), "host": host}
             maps[key] = bundle_map(us, b)
         except SystemExit as e:

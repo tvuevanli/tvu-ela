@@ -1786,7 +1786,7 @@ def cmd_matrix(args):
                 if b is None:
                     b = max((x for x in named if RELEASE_NAME(LINE).match(str(x.get("bundleName", "")))), key=lambda x: str(x.get("createTime") or ""), default=None)
                     how = "by name"
-            if b is None:
+            if b is None and role != "prod":                # prod has no token lane: an rc bundle is special-purpose (2026-10-27)
                 got = run_json(["python3", RELEASE, *env, "bundles", cfg.get("bundle_line") or "", "--host", host, "--limit", "50", "--json"], timeout=120)["bundles"]
                 pre = (cfg.get("bundle_line") or "") + toks.get(role, "")
                 got = [x for x in got if str(x.get("bundleName", "")) == pre or str(x.get("bundleName", "")).startswith(pre + "-")]

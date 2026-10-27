@@ -748,6 +748,15 @@ def cmd_bundle_diff(a):
 
 # ── create: a new bundle from a base, one service at a time ─────────────────
 
+def official_bundle(us, line):
+    """Prod's bundle for a line ("2.1"): the owner's pin (ADR 0012), else the newest "MediaHub <line>.N". An rc bundle
+    is a special-purpose bundle, not prod's lane (owner's ruling, 2026-10-27), so it is never the answer."""
+    pin = read_pins().get(line) or {}
+    rows = [x for x in bundle_list(us, f"MediaHub {line}", 50) if re.match(r"^MediaHub " + re.escape(line) + r"\.\d+", str(x.get("bundleName") or ""))]
+    return next((x for x in rows if pin and str(x.get("bundleId")) == str(pin.get("id"))), None) or \
+        max(rows, key=lambda x: str(x.get("createTime") or ""), default=None)
+
+
 def name_rules(line):
     """The closed set of bundle names the owner uses for a line (map release.yaml bundle_names; Helm's bundle
     management note): (class, regex). Temporary and unpublished bundles have no form yet and are refused."""
@@ -832,11 +841,7 @@ def neighbour_maps(env_file, line, cls):
         try:
             if role == "prod":
                 us = US(env_file, "prod")
-                pin = read_pins().get(line.replace("mh", "").rstrip("@")) or {}
-                rows = bundle_list(us, "MediaHub", 50)
-                b = next((x for x in rows if pin and str(x.get("bundleId")) == str(pin.get("id"))), None) or \
-                    max((x for x in rows if re.match(r"^MediaHub " + re.escape(line.replace("mh", "").rstrip("@")) + r"\.\d+", str(x.get("bundleName")))),
-                        key=lambda x: str(x.get("createTime") or ""), default=None)
+                b = official_bundle(us, line.replace("mh", "").rstrip("@"))
             else:
                 us = US(env_file, "qa" if role == "qa" else "prod")
                 pre = line + toks.get(role, role)
