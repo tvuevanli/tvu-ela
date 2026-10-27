@@ -979,7 +979,7 @@ def link(n):
     return f"[[{n.path[:-3]}|{n.title}]]"
 
 
-def home(today, now, notes):
+def home(today, now, notes, saw=None):
     """Home, short: what waits for his word, today's "Needs you" (the whole page when it has no such section), a live
     table of what there is to read (a Bases block, so a deleted note leaves it at once), and what ela owes."""
     def newest(kind):
@@ -1049,14 +1049,29 @@ def home(today, now, notes):
                and n.props.get("result") != "fail"]
     L += ["## To read", "", f"![[{ELA}/all-notes.base#To read]]" if reading else "Nothing to read.", ""]
     if reading:                                            # the table shows five; say what is beyond and what is new
-        new = sum(1 for n in reading if n.props.get("date") == iso)
+        # new against the notes to read when he last opened Home; before Home was ever seen open, against today
+        new = sum(1 for n in reading if (n.path not in saw if saw is not None else n.props.get("date") == iso))
+        said_new = (f"{new} new since you last opened Home" if saw is not None else f"{new} new today") if new else ""
         more = f"+{len(reading) - 5} more in [[{ELA}/all-notes.base|all notes]]" if len(reading) > 5 else ""
-        L += ["*" + " · ".join(x for x in (f"{new} new today" if new else "", more) if x) + "*", ""] if new or more else []
+        L += ["*" + " · ".join(x for x in (said_new, more) if x) + "*", ""] if new or more else []
     owed_since = (today - datetime.timedelta(days=HELD_LISTED_DAYS)).isoformat()
     owed = [n for n in notes if n.held and (n.props.get("date") or iso) >= owed_since]
     if owed:
         L += ["> [!warning]- ela owes a shorter version of " + str(len(owed))] + [f"> - {link(n)}: {'; '.join(n.held)}" for n in owed] + [""]
     return "\n".join(L)
+
+
+def home_open(vault):
+    """Whether Home is open in a tab, read from Obsidian's own workspace file; False when it cannot be read."""
+    def files(node):
+        if node.get("type") == "leaf":
+            yield ((node.get("state") or {}).get("state") or {}).get("file")
+        for c in node.get("children") or []:
+            yield from files(c)
+    try:
+        return "home.md" in set(files(json.load(open(os.path.join(vault, ".obsidian", "workspace.json"), encoding="utf-8")).get("main") or {}))
+    except (OSError, ValueError, AttributeError):
+        return False
 
 
 def note_status(n):
@@ -1163,7 +1178,7 @@ def library_index(topics):
     return Note(f"{LIBRARY}/library.md", "Library", "\n".join(L) + "\n", {"type": "library"})
 
 
-def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset()):
+def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), saw=None):
     reports = s.get("reports")
     enotes, titles = elak_notes(s.get("elak"))
     notes = report_notes(reports, today) + enotes + [constraints_note(standing_constraints(s, env), today)]
@@ -1210,7 +1225,7 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset()):
         if top(n.path) == TO_READ:
             body = with_moves(body, n.path, n.props.get("type"))
         planned[n.path] = redact(front(n.front_lines, dict(n.props, title=n.title)) + (with_warning(body, n.held) if n.held else body))
-    planned["home.md"] = redact(front([], {"type": "home", "date": today.isoformat()}) + linker(home(today, now, notes + native)))
+    planned["home.md"] = redact(front([], {"type": "home", "date": today.isoformat()}) + linker(home(today, now, notes + native, saw)))
     planned[f"{ELA}/about-this-vault.md"] = unwrap(README)
     for name, text in VIEWS.items():
         planned[f"{ELA}/{name}.base"] = text
@@ -1810,12 +1825,13 @@ def cmd_sync(a):
     fcntl.flock(lock, fcntl.LOCK_EX)                       # one sync at a time
     today, now = datetime.date.today(), datetime.datetime.now()
     mpath = os.path.join(vault, MANIFEST)
-    old, old_src, old_layout, old_gen, old_seen = [], {}, None, {}, {}
+    old, old_src, old_layout, old_gen, old_seen, old_home = [], {}, None, {}, {}, {}
     if os.path.exists(mpath):
         try:
             m = json.load(open(mpath))
             old, old_src, old_layout, old_gen, old_seen = (m["files"], m.get("sources") or {}, m.get("layout"), m.get("generated") or {},
                                                            m.get("seen") or {})
+            old_home = m.get("home") or {}
         except (ValueError, KeyError):
             print("vault: the manifest is unreadable; not synced (remove it deliberately to start over)", file=sys.stderr); sys.exit(3)
     # a note the sync wrote that is gone from disk was deleted by the owner: that is feedback, and it stays deleted
@@ -1837,9 +1853,17 @@ def cmd_sync(a):
         print(f"vault: {len(newly) - len(kept)} notes vanished in one go; not recorded as read, written again (a move or a wipe, "
               "not reading)", file=sys.stderr)
         newly = kept
+    # "new since you last opened Home": the notes to read are remembered at each opening of Home (a sync that finds it
+    # open after one that did not); while it is open, new counts against the opening before, so the count he sees
+    # stays put until he comes back
+    is_open = home_open(vault)
+    opening = is_open and not old_home.get("open")
+    before = old_home.get("saw") if opening else old_home.get("before")
+    baseline = before if is_open else old_home.get("saw")
     try:
         planned, files, notes, warnings, native_paths = plan(s, env, today, now, removed | set(newly),
-                                                              removed_src | {old_src[r] for r in newly if old_src.get(r)})
+                                                              removed_src | {old_src[r] for r in newly if old_src.get(r)},
+                                                              set(baseline) if baseline is not None else None)
     except SourceError as e:
         print(f"vault: not synced — {e}", file=sys.stderr); sys.exit(3)
     if newly and not a.dry_run:
@@ -1961,6 +1985,8 @@ def cmd_sync(a):
                                         "sources": {n.path: n.src_rel for n in notes if n.src_rel},
                                         "generated": {r: digest(t) for r, t in planned.items() if r.endswith(".base")},
                                         "seen": {r: d for r, d in seen.items() if r in planned},
+                                        "home": {"open": is_open, "before": before,
+                                                 "saw": sorted(r for r in planned if top(r) == TO_READ) if opening else old_home.get("saw")},
                                         "source_ticks": source_ticks}, indent=0))
         for rel in gone:
             try:

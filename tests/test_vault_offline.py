@@ -122,6 +122,19 @@ with tempfile.TemporaryDirectory() as tmp:
         fh.write("\nela: post this to Jira\n")
     check("his ela: line in a generated note survives its rewrite", sync() == 0 and "ela: post this to Jira" in open(rv).read())
     check("and a sync after that writes nothing more", (lambda m: sync() == 0 and os.path.getmtime(rv) == m)(os.path.getmtime(rv)))
+    os.makedirs(f"{vault}/.obsidian", exist_ok=True)
+    def tab(f):                                            # Obsidian's workspace file, one tab open on f
+        json.dump({"main": {"type": "split", "children": [{"type": "leaf", "state": {"type": "markdown", "state": {"file": f}}}]}},
+                  open(f"{vault}/.obsidian/workspace.json", "w"))
+    tab("home.md"); sync(); tab(f"to-read/{today[:4]}-09-12-review-2.md"); sync()
+    fresh = f"{reports}/{today[:4]}-09-30-review-fresh.md"
+    open(fresh, "w").write("# Review fresh\n\nText.\n")
+    check("Home counts what is new since he last opened it", sync() == 0 and "1 new since you last opened Home" in open(f"{vault}/home.md").read())
+    tab("home.md")
+    check("and keeps the count while he has it open", sync() == 0 and "1 new since you last opened Home" in open(f"{vault}/home.md").read())
+    tab(f"to-read/{today[:4]}-09-12-review-2.md")
+    check("once he has seen it, nothing is new", sync() == 0 and "new since you last opened Home" not in open(f"{vault}/home.md").read())
+    os.remove(fresh); sync()
     m = json.load(open(f"{vault}/{V.MANIFEST}"))
     m["seen"][f"to-read/{today[:4]}-09-13-review-3.md"] = "2000-01-01"
     json.dump(m, open(f"{vault}/{V.MANIFEST}", "w"))
