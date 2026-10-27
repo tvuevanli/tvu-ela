@@ -2279,6 +2279,15 @@ def snapshot_on_or_after(runner, date):
         return None
 
 
+def deploy_note(now, plan):
+    """The line under the lanes table that places the read against the day's QA deploy (`ela day`: qa_deploy), so a
+    page read at 13:00 is known to predate the build; none on a day off or when the hour is not set."""
+    qa = str(plan.get("qa_deploy") or "")
+    if not plan.get("working_day") or not re.fullmatch(r"\d{2}:\d{2}", qa):
+        return None
+    return f"*Read at {now:%H:%M}, {'before' if f'{now:%H:%M}' < qa else 'after'} today's {LANE_SHOWN.get('qa-cn3', 'QA')} deploy (~{qa})*"
+
+
 def write_lanes_page(out, site, env, runner, tested):
     """<reports>/lanes/lanes.md, rewritten whole: the lanes table and any version out of order (QA ≥ daily ≥ prod),
     what each lane carries that the next does not, and the moves of the last two weeks. The vault carries it as
@@ -2290,8 +2299,9 @@ def write_lanes_page(out, site, env, runner, tested):
     inv, und = out_of_order(out)
     order = (["", "**Out of order** (versions run QA ≥ daily ≥ prod):", ""] + [f"- {x}" for x in inv]) if inv else \
             ["", "*Every lane in order: QA ≥ daily ≥ prod*" + (f" *({und} pair{'s' if und != 1 else ''} in two series, not compared)*" if und else "")]
+    note = deploy_note(now, day_plan(now.date()))
     L = ["# The lanes", "", f"*{now:%Y-%m-%d %H:%M} · line {LINE}*", "", "## The lanes this morning", "", render_matrix(out)] + order + \
-        ["", "## Differences", ""]
+        (["", note] if note else []) + ["", "## Differences", ""]
     import concurrent.futures
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(PAIRS)) as ex:
         futs = [(a, b, ex.submit(pair_report, env, a, b)) for a, b in PAIRS]

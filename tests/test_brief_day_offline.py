@@ -59,4 +59,9 @@ check("a meeting with no time renders nothing", B.day_plan(datetime.date(2026, 1
 fri = B.day_plan(datetime.date(2026, 10, 30), doc)
 check("a holiday is not a working day and has no meetings", not fri["working_day"] and fri["holiday"] and fri["meetings"] == [])
 check("a missing file is an empty day, never an error", B.owner_day(os.path.join(ROOT, "no-such.yaml"))["meetings"] == [])
+at = lambda h, m: datetime.datetime(2026, 10, 28, h, m)  # noqa: E731
+check("the lanes page says whether it was read before or after the QA deploy",
+      B.deploy_note(at(13, 0), wed) == "*Read at 13:00, before today's QA-AWS3 deploy (~17:00)*"
+      and B.deploy_note(at(17, 30), wed) == "*Read at 17:30, after today's QA-AWS3 deploy (~17:00)*")
+check("no line on a day off", B.deploy_note(at(13, 0), fri) is None)
 sys.exit(1 if failures else 0)
