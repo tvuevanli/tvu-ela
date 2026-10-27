@@ -19,10 +19,14 @@ from the source's file name, never from its heading, so editing a title renames 
 its date, so a folder sorts by time. Folders carry no numbers: Home and the bookmarks are the way in.
     home.md, board.md                           the entry point; the board's debt, one living page
     constraints.md                              the standing constraints, each pin read on its lane
+    lanes.md                                    the lanes, what each carries that the next does not, two weeks of moves
     days/<year>/<date>-brief.md                 the morning page, kept, with -changes (what changed); -learned for 14 days
     to-read/<date>-<slug>.md                    reviews and verifications to read; deleted when read; a verification
     to-read/<date>-verify-<key>.md              leaves once its record is on the Jira ticket, or a pass after 14 days
     to-read/<date>-<slug>.md                    also a decision or plan from elak while it waits for his ruling
+    in-progress/<name>.md                       a note he agreed to, while ela builds it and until he accepts it
+    parked/<name>.md                            a note that waits on others, with who and what brings it back
+    to-learn/, archive/                         where he drags a note: to distil it, or to keep it
     library/                                    topic pages (the vault is their source), the index, the sources
     ela/                                        about this vault, how ela works and runs, the table view, and
     ela/attachments/verify/<year-month>/<record>/   each verification record copied whole, hidden in the explorer
@@ -31,8 +35,10 @@ The reading gate. The vault is how ela reports to the owner, so a note over its 
 carrying machine paths is still written, under a warning that names the problem, and Home lists it for 30 days
 as a rewrite ela owes. Nothing readable is withheld; nothing unreadable passes unmarked.
 
-Safety. A missing or unreadable source, or a folder that shrinks by more than half since the last sync, stops
-the sync before anything is written (--force overrides after a deliberate removal). Removal is limited to files
+Safety. A missing or unreadable source, or the notes as a whole shrinking by more than half since the last sync
+(counted from ten notes up), stops the sync before anything is written (--force overrides after a deliberate removal).
+The count is the vault's total, not each folder's as ADR 0008 first described: to-read empties by design as he reads.
+In archive/ and to-learn/ ela never rewrites a note's text; it keeps their front matter's status current. Removal is limited to files
 this script recorded in its manifest. Writes are atomic and a lock serialises concurrent syncs.
 
 Exit codes: 0 ok · 2 usage or site · 3 a source could not be read or shrank (nothing written).
@@ -62,7 +68,7 @@ STATUSES = tuple(dict.fromkeys(v for vs in STATUS_BY_FOLDER.values() for v in vs
 CLOSED_NEXT = {"accepted": "accept", "rejected": "reject", "not now": "not-now", "not-now": "not-now", "parked": "not-now",
                "confirmed": "confirm", "planned": "make-plan", "nudged": "nudge", "drafted": "draft-comment"}
 # an archived note's old outcome status, as the move that made it; the runner names the move itself with --next
-OWNER_FOLDERS = (TO_LEARN, ARCHIVE)   # where the owner drags a note to say what he wants; ela never rewrites in them
+OWNER_FOLDERS = (TO_LEARN, ARCHIVE)   # where the owner drags a note to say what he wants; ela never rewrites their text
 ATTACH = "ela/attachments"
 DELETABLE = (DAYS, TO_READ)
 KEEP_FOREVER = ("brief", "week", "changes")   # the morning pages are the record of what ela told the owner; the rest expires
@@ -110,10 +116,13 @@ Start at [[home]]: what waits for your word, today's page, and what there is to 
 | `constraints` | the standing constraints you confirmed: what each holds, whether its lane still keeps it, when it lifts | look when Home says one is over |
 | `days/<year>/` | the morning pages and what changed the day before, kept; the evening learning draft, 14 days | look back |
 | `to-read/` | reviews, verification results, and plans or decisions waiting for your ruling, newest first | read, then delete |
+| `in-progress/` | what you agreed to, while ela builds it, until you accept it | accept or say what is missing |
+| `parked/` | what waits on others, with who it waits on and what brings it back | resume or drop |
+| `lanes` | the lanes, what each carries that the next does not, two weeks of moves | look before a promotion |
 | `library/` | one summary page per topic, with links to the originals | look up |
 | `ela/` | how ela works and runs, this page, the table view; attachments, hidden | rarely |
 | `to-learn/` | what you want distilled into knowledge | drag a note in |
-| `archive/` | what was acted on or you chose to keep; ela adds to it, never rewrites it | look back; ask ela to tidy it |
+| `archive/` | what was acted on or you chose to keep; ela adds to it and keeps its status current, never its text | look back; ask ela to tidy it |
 
 Folders are named for what you do with a note and carry no numbers: Home and the bookmarks are the way in, and
 the file explorer is rarely needed.
@@ -1372,7 +1381,11 @@ def cmd_setup(a):
         core = {}
     core = {k: (k in cfg["core_on"]) for k in set(core) | set(cfg["core_on"])}
     atomic_write(os.path.join(o, "core-plugins.json"), json.dumps(core, indent=2))
-    atomic_write(os.path.join(o, "community-plugins.json"), json.dumps(cfg["community"]))
+    try:                                                   # his own plugins stay enabled beside ela's
+        mine = json.load(open(os.path.join(o, "community-plugins.json")))
+    except (OSError, ValueError):
+        mine = []
+    atomic_write(os.path.join(o, "community-plugins.json"), json.dumps(list(dict.fromkeys(list(cfg["community"]) + [x for x in mine if isinstance(x, str)]))))
     for pid, opts in (cfg.get("core_options") or {}).items():   # a core plugin's options live in .obsidian/<id>.json
         merge(f"{pid}.json", opts)
     shutil.copyfile(os.path.join(src, "ela.css"), os.path.join(o, "snippets", "ela.css"))
@@ -1389,7 +1402,13 @@ def cmd_setup(a):
     shutil.copyfile(os.path.join(src, "metadata-menu-data.json"), os.path.join(o, "plugins", "metadata-menu", "data.json"))
     write_move_sets(s["vault"])
     now = int(datetime.datetime.now().timestamp() * 1000)
-    atomic_write(os.path.join(o, "bookmarks.json"), json.dumps({"items": [dict(b, type="file", ctime=now) for b in cfg["bookmarks"]]}, indent=2))
+    try:                                                   # his own bookmarks stay, after ela's
+        had = [b for b in json.load(open(os.path.join(o, "bookmarks.json"))).get("items") or [] if isinstance(b, dict)]
+    except (OSError, ValueError, AttributeError):
+        had = []
+    ours = [dict(b, type="file", ctime=now) for b in cfg["bookmarks"]]
+    taken = {b.get("path") for b in ours}
+    atomic_write(os.path.join(o, "bookmarks.json"), json.dumps({"items": ours + [b for b in had if b.get("path") not in taken]}, indent=2))
     print("vault settings applied; restart Obsidian to load them")
 
 
@@ -2124,7 +2143,7 @@ def main():
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("sync", help="regenerate the vault from the reports root and elak's decisions and plans")
     p.add_argument("--dry-run", action="store_true", help="report what would change; write nothing")
-    p.add_argument("--force", action="store_true", help="sync although a folder shrinks by more than half")
+    p.add_argument("--force", action="store_true", help="sync although the notes as a whole shrink by more than half")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_sync)
     p = sub.add_parser("setup", help="apply the vault's Obsidian settings from ela's versioned copy, then restart Obsidian")
