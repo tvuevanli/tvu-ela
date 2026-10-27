@@ -4,6 +4,8 @@
   all [--json]              everything below, then <published>/MANIFEST.md (what this directory holds, from where, when)
   catalogue [--json]        <elak>/map/services.yaml → <published>/knowledge/products/mediahub/services.md
   map [--json]              <elak>/map/*.yaml + README.md → <published>/map/ (addresses replaced by placeholders)
+  pins [--json]             <elak>/blueprint/releases.yaml → <published>/blueprint/releases.yaml, the official bundle
+                            per release line (ela ADR 0012), so Helm and the other machines read the owner's pin
   doc <rel> [--reader …]    <elak>/knowledge/<rel> → <published>/knowledge/<rel>, the elak document verbatim through `redact`
   list                      every manifest row and whether its source changed since (exit 1 when a republish is due)
 
@@ -441,6 +443,26 @@ def cmd_map(a):
     print(f"published map/ ({', '.join(names)}) → {dst_dir}" + (f"  · {redacted} address(es) replaced by placeholders" if redacted else ""))
 
 
+# ── the official bundle per release line (ADR 0012) ───────────────────────────
+
+PINS_REL = "blueprint/releases.yaml"
+
+
+def cmd_pins(a):
+    """The owner's release pins, copied through `redact`; a line not pinned is simply absent. No source, nothing to do."""
+    records, published = roots()
+    src, dst = os.path.join(records, PINS_REL), os.path.join(published, PINS_REL)
+    if not os.path.isfile(src):
+        msg = f"no {PINS_REL} in elak: no line is pinned yet (`ela release pin`)"
+        print(json.dumps({"published": None, "why": msg}) if a.json else msg); return
+    os.makedirs(os.path.dirname(dst), exist_ok=True)
+    tmp = dst + ".tmp"; open(tmp, "w", encoding="utf-8").write(redact(open(src, encoding="utf-8").read())); os.replace(tmp, dst)
+    today = datetime.date.today().isoformat()
+    update_manifest(records, PINS_REL, PINS_REL, today, today, "ela matrix and ela changes on machines without elak; Helm's official bundle")
+    write_published_manifest(records, published)
+    print(json.dumps({"destination": dst, "published": today}) if a.json else f"published {PINS_REL} → {dst}")
+
+
 # ── a written document from elak's knowledge tree ─────────────────────────────
 
 DOC_READER = ("Helm context packs once the rel is adopted (config_loader.PUBLISHED_ADOPTED_RELS); the remote ela")
@@ -512,6 +534,7 @@ def write_published_manifest(records, published):
 def cmd_all(a):
     records, published = roots()
     cmd_map(argparse.Namespace(json=False)); cmd_catalogue(argparse.Namespace(json=False)); cmd_roster(argparse.Namespace(json=False))
+    cmd_pins(argparse.Namespace(json=False))
     today = datetime.date.today().isoformat()
     for rel, reader in doc_rows(records):            # every document already published stays published
         r = publish_doc(records, published, rel, reader, today)
@@ -568,7 +591,7 @@ def cmd_list(a):
                        or redact(open(os.path.join(src_dir, f), encoding="utf-8").read()) != open(os.path.join(dst_dir, f), encoding="utf-8").read()]
             if changed:
                 drift = f"  ← differs: {', '.join(changed)}: republish"
-        elif DOC_ROW.match(src_rel):
+        elif DOC_ROW.match(src_rel) or src_rel == PINS_REL:
             src, dst = os.path.join(records, src_rel), os.path.join(published, dest_rel)
             try:
                 if not os.path.isfile(dst) or redact(open(src, encoding="utf-8").read()) != open(dst, encoding="utf-8").read():
@@ -604,6 +627,7 @@ def main():
     p.add_argument("rel", help="path relative to <elak>/knowledge/, e.g. products/mediahub/team/layer-classification.md")
     p.add_argument("--reader", default=DOC_READER, help="who reads it, for the manifest row")
     p.add_argument("--json", action="store_true")
+    p = sub.add_parser("pins"); p.add_argument("--json", action="store_true")
     p = sub.add_parser("all"); p.add_argument("--json", action="store_true")
     sub.add_parser("list")
     p = sub.add_parser("sync", help="rsync <published> to site.json `published_remote` — dry run unless --apply")
@@ -612,7 +636,7 @@ def main():
     # an unattended session (ELA_NO_APPLY=1) reads and dry-runs only; the owner's word applies a write
     if os.environ.get("ELA_NO_APPLY") and getattr(a, "apply", False):
         print("refused: --apply inside an unattended session (ELA_NO_APPLY)", file=sys.stderr); sys.exit(2)
-    {"catalogue": cmd_catalogue, "map": cmd_map, "roster": cmd_roster, "doc": cmd_doc, "all": cmd_all, "list": cmd_list, "sync": cmd_sync}[a.cmd](a)
+    {"catalogue": cmd_catalogue, "map": cmd_map, "roster": cmd_roster, "doc": cmd_doc, "pins": cmd_pins, "all": cmd_all, "list": cmd_list, "sync": cmd_sync}[a.cmd](a)
 
 
 if __name__ == "__main__":

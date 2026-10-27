@@ -612,7 +612,7 @@ def cmd_pin(a):
         r = subprocess.run(cmd, capture_output=True, text=True)
         if r.returncode:
             print(f"elak: {' '.join(cmd[3:5])} failed: {(r.stderr or r.stdout).strip()[-200:]}", file=sys.stderr); sys.exit(EX_REMOTE)
-    print(f"pinned and committed in elak: {PINS_REL}")
+    print(f"pinned and committed in elak: {PINS_REL}; `ela publish pins` carries it to the published directory")
 
 
 def cmd_pins(a):
