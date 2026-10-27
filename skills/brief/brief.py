@@ -966,6 +966,7 @@ def changes_facts(args):
     except (LaneError, subprocess.TimeoutExpired, ValueError) as e:
         out["findings_extra"] = []
         errors.append({"source": "bundles prod (release names)", "error": str(e)[:200]})
+    out["docker"] = docker_moves(env, errors, win, site)
     pending = read_pending(site)
     cand = (pending or {}).get("candidate") or {}
     out["pending"] = pending
@@ -995,6 +996,78 @@ def pin_findings(named, pin):
                       else f"no official bundle is pinned for {LINE}; the newest release is {name} ({R.when(newest.get('createTime'))[:10]})"),
              "options": [f'ela release pin {LINE} "{name}"'], "note": "the runner appends --apply on the owner's apply N", "evidence": [f"bundle {newest.get('bundleId')}"],
              "at": R.when(newest.get("createTime")), "rank": RANKS["candidate_awaiting_owner"]}]
+
+
+DOCKER_LEDGER = os.path.join("releases", "docker-versions.jsonl")
+
+
+def lane_bundles(env, role, host, cfg):
+    """A lane's bundles, newest first: prod's are the release-named ones, the others follow the lane token."""
+    if role == "prod":
+        got = run_json(["python3", RELEASE, *env, "bundles", f"MediaHub {LINE}", "--host", host, "--limit", "50", "--json"], timeout=120)["bundles"]
+        got = [b for b in got if RELEASE_NAME(LINE).match(str(b.get("bundleName", "")))]
+    else:
+        pre = (cfg.get("bundle_line") or "") + (cfg.get("bundle_lanes") or {}).get(role, "")
+        got = run_json(["python3", RELEASE, *env, "bundles", cfg.get("bundle_line") or "", "--host", host, "--limit", "50", "--json"], timeout=120)["bundles"]
+        got = [b for b in got if str(b.get("bundleName", "")) == pre or str(b.get("bundleName", "")).startswith(pre + "-")]
+    return sorted(got, key=lambda b: str(b.get("createTime") or ""), reverse=True)
+
+
+def docker_rows(diff, lane, newest, slugs):
+    """A bundle-diff's added and changed docker services → one announcement row each."""
+    rows = []
+    for r in diff.get("changed", []) + diff.get("added", []):
+        if not str(r["service"]).lower().startswith("docker"):
+            continue                                        # the SaaS rows mirror the lanes table; docker services only
+        rows.append({"service": slugs.get(r["service"], r["service"]), "gm_name": r["service"], "version": r.get("to") or r.get("version"),
+                     "from": r.get("from"), "at": R.when(newest.get("createTime")), "source": f"bundle {newest.get('bundleName')}",
+                     "by": newest.get("operator") or None, "claims": [], "lane_or_bundle": f"{lane} · {newest.get('bundleName')}"})
+    return rows
+
+
+def append_ledger(path, rows):
+    """Append rows not yet in the ledger, one per service + version + source; returns how many were new."""
+    seen = set()
+    try:
+        for line in open(path, encoding="utf-8"):
+            try:
+                r = json.loads(line)
+                seen.add((r["service"], r["version"], r["source"]))
+            except (ValueError, KeyError):
+                pass
+    except OSError:
+        pass
+    new = [r for r in rows if (r["service"], r["version"], r["source"]) not in seen]
+    if new:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "a", encoding="utf-8") as fh:
+            for r in new:
+                fh.write(json.dumps(r, ensure_ascii=False) + "\n")
+    return len(new)
+
+
+def docker_moves(env, errors, win, site):
+    """Docker service versions announced by the GM bundles: each lane's newest bundle against the one before it. Every
+    move goes to the ledger <reports>/releases/docker-versions.jsonl; the window's are returned. Media versions are
+    announced, not built from tracked commits, so the bundle BOM is their first-hand record."""
+    cfg = R.rmap("lines").get(LINE) or {}
+    slugs = R._gm_slugs()
+    rows = []
+    for role in ("qa", "daily", "prod"):
+        lane = (cfg.get("lanes") or {}).get(role)
+        host = "qa" if role == "qa" else "prod"
+        try:
+            got = lane_bundles(env, role, host, cfg)
+            if len(got) < 2:
+                continue
+            newest, before = got[0], got[1]
+            diff = run_json(["python3", RELEASE, *env, "bundle-diff", str(before["bundleId"]), str(newest["bundleId"]),
+                             "--host-a", host, "--host-b", host, "--json"], timeout=180)
+            rows += docker_rows(diff, lane, newest, slugs)
+        except (LaneError, subprocess.TimeoutExpired, ValueError) as e:
+            errors.append({"source": f"docker bundles {role}", "error": str(e)[:200]})
+    append_ledger(os.path.join(site.get("reports") or "", DOCKER_LEDGER), rows)
+    return [r for r in rows if in_window(r["at"], win)]
 
 
 def read_pending(site):

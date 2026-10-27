@@ -148,4 +148,14 @@ check("with no pin, the newest release-named bundle is offered as the pin comman
       len(pf) == 1 and pf[0]["kind"] == "release_newer_than_pin" and pf[0]["options"] == ['ela release pin 2.1 "MediaHub 2.1.15"'])
 check("a pin on an older release is a decision; a pin on the newest is quiet",
       len(B.pin_findings(named, {"official": "MediaHub 2.1.14", "id": "14"})) == 1 and B.pin_findings(named, {"official": "MediaHub 2.1.15", "id": "15"}) == [])
+diff = {"changed": [{"service": "Docker Html Render Uncompresseddecoder", "from": "0.0.22", "to": "0.0.24"},
+                    {"service": "MediaHub Backend", "from": "2.1.33", "to": "2.1.34"}], "added": [{"service": "Docker Srt Copier", "version": "1.0.9"}]}
+dr = B.docker_rows(diff, "qa-cn3", {"bundleName": "mh2.1@qa-q26", "createTime": 1792142586769, "operator": "qa"}, {"Docker Srt Copier": "mds-srt-copier"})
+check("a bundle diff gives one row per docker service moved or added, by slug where the map has one",
+      [(r["service"], r["from"], r["version"]) for r in dr] == [("Docker Html Render Uncompresseddecoder", "0.0.22", "0.0.24"), ("mds-srt-copier", None, "1.0.9")]
+      and dr[0]["source"] == "bundle mh2.1@qa-q26")
+with tempfile.TemporaryDirectory() as d:
+    lp = os.path.join(d, "releases", "docker-versions.jsonl")
+    check("the ledger takes a row once per service, version and source", B.append_ledger(lp, dr) == 2 and B.append_ledger(lp, dr) == 0
+          and len(open(lp).read().splitlines()) == 2)
 sys.exit(1 if failures else 0)
