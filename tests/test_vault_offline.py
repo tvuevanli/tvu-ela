@@ -465,4 +465,16 @@ check("with the lanes page, Home embeds its table and links its differences", "!
       and "[[lanes|→ Differences and two weeks of moves]]" in hl and "2026-10-28-brief#The lanes this morning" not in hl)
 check("Home shows the page's sprint line, linked to its table, instead of the bare sprint link",
       "[[days/2026/2026-10-28-brief#Sprint|Sprint · day 3 of 10 · 8 on track · 1 at risk · 0 off]]" in hm and "[[sprints/s|Sprint 1]]" not in hm)
+mb = V.Note("days/2026/2026-10-28-brief.md", "Morning brief", "# B\n\n## Needs you\n\n### 1. x\n\n## Scrum with the PM at 10:00\n\n- Sprint: day 3\n",
+            {"type": "day", "kind": "brief", "date": "2026-10-28"})
+hm = V.home(day, datetime.datetime(2026, 10, 28, 9), [mb])
+check("Home embeds the day's meeting section above Needs you", "![[days/2026/2026-10-28-brief#Scrum with the PM at 10 00]]" in hm
+      and hm.index("#Scrum with the PM") < hm.index("#Needs you]]"))
+disk = "# B\n\n## Needs you\n\n- x\n\n## Scrum with the PM at 10:00\n\n- Sprint\nela: PM rules 0x81004009 shows the notice too\n\n## FYI\n\n- y\nela: drop the FYI\n"
+check("a line's section is the heading above it", V.section_at(disk, disk.index("ela: PM")) == "Scrum with the PM at 10:00")
+new_page = "# B\n\n## Needs you\n\n- x2\n\n## Scrum with the PM at 10:00\n\n- Sprint 2\n\n## Lanes\n\n- z\n"
+kept = [(V.section_at(disk, m.start()), m.group(0).strip()) for m in V.GUIDE.finditer(disk)]
+out = V.place_lines(new_page, kept)
+check("a rewrite keeps his line under its meeting, and one whose section is gone at the end",
+      out.index("ela: PM rules") < out.index("## Lanes") and out.index("- Sprint 2") < out.index("ela: PM rules") and out.rstrip().endswith("ela: drop the FYI"))
 sys.exit(1 if failures else 0)

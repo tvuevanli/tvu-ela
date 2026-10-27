@@ -1054,6 +1054,9 @@ def home(today, now, notes, saw=None):
             L += [f"[[{changes.path[:-3]}|→ What changed yesterday]]", ""]
         L += [head, ""] if head else []
         if re.search(r"^## Needs you[ \t]*$", brief.body, re.M):
+            # the day's meetings first (`## <name> at HH:MM`, from <elak>/blueprint/meetings.yaml), each the meeting's agenda
+            for sec in re.findall(r"^## (.+ at \d{2}:\d{2})[ \t]*$", brief.body, re.M):
+                L += [f"![[{brief.path[:-3]}#{sec.replace(':', ' ')}]]", ""]   # Obsidian links a heading's colon as a space
             L += [f"![[{brief.path[:-3]}#Needs you]]", ""]
             # the lanes table: the standing lanes page when there is one (rewritten each pass), else the brief's copy
             lanes = next((n for n in notes if n.props.get("type") == "lanes"), None)
@@ -1417,6 +1420,30 @@ def cmd_setup(a):
 TICKED = re.compile(r"^[ \t]*[-*][ \t]+\[[xX]\][ \t]+(\S.*?)[ \t]*$", re.M)   # a choice he ticked in a note: a click, not typing
 # horizontal whitespace only: an empty `ela:` property must not reach across the line break to the next line
 GUIDE = re.compile(r"^[ \t]*(?:[-*>][ \t]*)*ela[ \t]*[:：][ \t]*(\S.*?)[ \t]*$", re.I | re.M)
+SECTION = re.compile(r"^##[ \t]+(.+?)[ \t]*$", re.M)
+
+
+def section_at(text, pos):
+    """The `## ` heading a position in a note sits under, or None above the first."""
+    found = None
+    for m in SECTION.finditer(text, 0, pos):
+        found = m.group(1)
+    return found
+
+
+def place_lines(text, lines):
+    """His kept lines put back into a rewritten note, each at the end of the section it was written under when that
+    section is still there (a meeting's rulings stay under the meeting), the rest at the end. lines: [(section, line)]."""
+    tail = []
+    for sec, line in lines:
+        m = re.search(r"^##[ \t]+" + re.escape(sec) + r"[ \t]*$", text, re.M) if sec else None
+        if not m:
+            tail.append(line); continue
+        nxt = re.compile(r"^#{1,2}[ \t]", re.M).search(text, m.end())
+        end = nxt.start() if nxt else len(text)
+        body = text[:end].rstrip("\n")
+        text = body + "\n\n" + line + "\n" + ("\n" + text[end:] if nxt else "")
+    return text.rstrip("\n") + ("\n\n" + "\n".join(tail) if tail else "") + "\n"
 
 
 def load_answers(reports):
@@ -1775,7 +1802,8 @@ def cmd_guidance(a):
                     times[m.group(1)] = times.get(m.group(1), 0) + 1
                     gid = guidance_id(f, m.group(1), times[m.group(1)])
                     if a.all or gid not in done:
-                        lines.append({"id": gid, "note": rel, "kind": kind, "says": m.group(1).strip().strip('"').strip("'")})
+                        lines.append({"id": gid, "note": rel, "kind": kind, "says": m.group(1).strip().strip('"').strip("'"),
+                                      "section": section_at(text, m.start())})
     r = {"guidance": lines, "to_learn": notes,
          "handled_log": os.path.join(reports, "ela", "guidance-handled.jsonl")}
     if a.json:
@@ -2035,14 +2063,14 @@ def cmd_sync(a):
         planned[rel] = keep_choice(planned[rel], dfl, rel)   # the move he chose waits for the watcher, not for this rewrite
         for m in TICKED.finditer(dbody):                   # a choice he ticked stays ticked when the page is rewritten
             planned[rel] = re.sub(r"^(\s*[-*]\s+)\[ \](\s+" + re.escape(m.group(1)) + r"\s*)$", r"\1[x]\2", planned[rel], count=1, flags=re.M)
-        mine = [m.group(0).strip() for m in GUIDE.finditer(dbody) if m.group(0).strip() not in planned[rel]]
+        mine = [(section_at(dbody, m.start()), m.group(0).strip()) for m in GUIDE.finditer(dbody) if m.group(0).strip() not in planned[rel]]
         # a word typed in the ela property, which the tables no longer offer, stays as a line in the note, written as
         # typed so its guidance id is the one already handled
         said = next((l.strip() for l in dfl if re.match(r'^ela:\s*\S', l) and not re.match(r'^ela:\s*""\s*$', l)), None)
-        if said and said not in planned[rel] and said not in mine:
-            mine.append(said)
+        if said and said not in planned[rel] and said not in [l for _, l in mine]:
+            mine.append((None, said))
         if mine:
-            planned[rel] = planned[rel].rstrip("\n") + "\n\n" + "\n".join(mine) + "\n"
+            planned[rel] = place_lines(planned[rel], mine)
         planned[rel] = with_answers(planned[rel], rel, answers)   # each ask shows its answer under it
     for rel, text in planned.items():
         p = os.path.join(vault, rel)
