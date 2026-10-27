@@ -28,6 +28,8 @@ ROUTED_DAYS = 14
 COMMIT_DAYS = 60                                       # a branch naming the key, for rule 1
 VERSION_RX = re.compile(r"(?<![\w.])v?(\d+\.\d+\.\d+(?:\.\d+)?)(?:[-+]\w+)?(?!\w|\.\d)")   # 2.2.121, v2.1.76
 VERDICT_RX = re.compile(r"\b(pass(?:ed)?|fail(?:ed)?|verified|not fixed)\b|\u901a\u8fc7|\u5df2\u4fee\u590d|\u672a\u4fee\u590d|\u5931\u8d25", re.I)
+STILL_FAILS_RX = re.compile(r"\bstill (?:fails?|failing|happens|broken)\b|\b(?:does ?n[o']t|cannot|can't|could ?n[o']t) reproduce\b|"
+                            r"\bnot (?:fixed|working)\b|\bfail(?:s|ed|ing)?\b|\u4ecd\u7136|\u672a\u4fee\u590d|\u5931\u8d25", re.I)
 FAIL_RX = re.compile(r"\bfail(?:ed)?\b|\bnot fixed\b|\u672a\u4fee\u590d|\u5931\u8d25", re.I)
 REVIEW = ("review", "in review")
 DONE = ("done", "closed", "resolved")
@@ -159,16 +161,21 @@ def carrying(text, led):
     return None
 
 
-def lane_mismatch(lanes, status):
-    """A fix on a QA lane while the ticket is Backlog or To Do, or on prod while In Progress: the ticket's status and
-    where its code runs disagree, and that is the reason he reads first."""
+def lane_mismatch(lanes, status, qa_verdict=None):
+    """The furthest lane carrying the fix (prod over daily and stage over QA) against the ticket's status: on QA while
+    Backlog or To Do, on prod while In Progress, or on prod while Review with no QA verdict on the timeline. Then the
+    status and where the code runs disagree, and that is the reason he reads first."""
     st = (status or "").lower()
-    qa = sorted(l for l in lanes if l.startswith("qa"))
-    prod = sorted(l for l in lanes if l.startswith("prod"))
-    if qa and st in ("backlog", "to do"):
-        return f"fix on {B.LANE_SHOWN.get(qa[0], qa[0])}, ticket {status}"
-    if prod and st == "in progress":
-        return f"fix on {prod[0]}, ticket {status}"
+    rank = lambda l: 2 if l.startswith("prod") else 1 if l.startswith(("daily", "stage")) else 0 if l.startswith("qa") else -1  # noqa: E731
+    known = sorted((l for l in lanes if rank(l) >= 0), key=lambda l: (-rank(l), l))
+    if not known:
+        return None
+    far = known[0]
+    shown = f"fix on {B.LANE_SHOWN.get(far, far)}, ticket {status}"
+    if rank(far) == 0 and st in ("backlog", "to do"):
+        return shown
+    if rank(far) == 2 and (st == "in progress" or (st in REVIEW and not qa_verdict)):
+        return shown + (" with no QA verdict" if st in REVIEW else "")
     return None
 
 
@@ -202,7 +209,10 @@ def read_change(ch, ctx):
         if who.lower() in ctx["qa"] and version and verdict:
             word = "fail" if FAIL_RX.search(text) else "pass"
             return what, f"sure 2: QA {word} on {version.group(1)}", True, to_me
-        if version and who.lower() not in ctx["qa"] and (who == ctx["assignee"] or who.lower() in ctx["devs"]):
+        dev = who.lower() not in ctx["qa"] and (who == ctx["assignee"] or who.lower() in ctx["devs"])
+        if dev and STILL_FAILS_RX.search(text):              # a failure report is neither progress nor evidence
+            return what, "unsure: a developer reports it still fails", False, to_me
+        if version and dev:
             b = carrying(text, ctx["ledger"])
             if b:
                 return what, f"sure 8: {b['version']} carries the fix, ledger agrees", True, to_me
@@ -241,7 +251,7 @@ def read_change(ch, ctx):
             return what, "unsure: reassigned to you", False, True
         if tl in ctx["qa"] and st in REVIEW:
             return what, "sure 7: to QA in Review", True, False
-        if tl in ctx["devs"] and tl not in ctx["qa"] and st in ("in progress", "backlog"):
+        if tl in ctx["devs"] and tl not in ctx["qa"] and st in ("to do", "open", "backlog", "in progress"):
             return what, f"sure 7: to a developer in {ch.get('status_at') or ctx['status']}", True, False
         if to == ctx.get("reporter") and st in DONE:
             return what, "sure 7: back to the reporter on Done", True, False
@@ -340,6 +350,16 @@ def qa_pass(comments, qa):
     return found
 
 
+def qa_verdict_any(comments, qa):
+    """Whether any QA person gave a verdict with a version on the ticket, pass or fail."""
+    for c in comments:
+        text = c.get("text") if "text" in c else J.body_text(c.get("body"))
+        who = c.get("by") if "by" in c else J.name_of(c.get("author"))
+        if (who or "").lower() in qa and VERSION_RX.search(text or "") and VERDICT_RX.search(text or ""):
+            return True
+    return False
+
+
 def changes_of(row, since):
     out = []
     for ev in row["events"]:
@@ -428,7 +448,7 @@ def refresh(keys, site, e, me, dry_run=False, now=None):
                "status": name(f.get("status"), "name") or "", "awaited": awaited(page_text),
                "commit_keys": commit_keys or set(), "qa_pass": qa_pass(issue.get("comments") or [], qa), "fixed_in": fixed}
         pc = prod_or_customer(k, f)
-        mismatch = lane_mismatch(led["lanes"], ctx["status"])
+        mismatch = lane_mismatch(led["lanes"], ctx["status"], ctx["qa_pass"] or qa_verdict_any(issue.get("comments") or [], qa))
         read = []
         for c in chs:
             got = read_change(c, ctx)

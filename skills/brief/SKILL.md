@@ -265,8 +265,8 @@ understood means it matches one rule (Review on a branch whose commits name the 
 Fixed In equal to the ledger's carrying build; an answer to a question the timeline holds; Done after a QA pass on
 the lane's version; progress from the assignee or a developer on an In Progress ticket, asking nothing and naming no
 new version; an assignment consistent with the status; a developer naming a version the ledger confirms), and anything
-else is unsure; a sure row whose fix lane disagrees with the status (on QA while Backlog, on prod while In Progress)
-becomes unsure with that reason. Understood and no word needed: a timeline row and a count on the
+else is unsure, as is a developer reporting it still fails; a sure row whose furthest fix lane disagrees with the status
+(on QA while Backlog, on prod while In Progress or before QA's verdict) becomes unsure with that reason. Understood and no word needed: a timeline row and a count on the
 Changes page, never an item. Understood and word needed: one item, A or D. Unsure: one item, C or D, whose first
 line says what ela could not place; on a prod ticket or a customer ask the runner also DMs him at the pass. Addressed
 to him (his name, an assignment, a question): always a C item, whatever the reading. *Why: an item he cannot act on

@@ -55,6 +55,12 @@ check("a version the ledger does not hold is unsure", R(cm("Dev One", "Fixed in 
 check("a fix on QA while the ticket is Backlog disagrees", T.lane_mismatch({"qa-cn3"}, "Backlog") == "fix on QA-AWS3, ticket Backlog")
 check("a fix on prod while In Progress disagrees", T.lane_mismatch({"prod-3"}, "In Progress") == "fix on prod-3, ticket In Progress")
 check("a fix on QA while In Progress agrees", T.lane_mismatch({"qa-cn3"}, "In Progress") is None)
+check("7: a To Do ticket routed to a developer", R(dict(ev("assignee", "", "Dev One", "Owner Two"), status_at="To Do"))[2])
+check("a developer reporting a failure is neither progress nor evidence", R(cm("Dev One", "Still fails on 2.1.76."), ledger=led)[1:3]
+      == ("unsure: a developer reports it still fails", False))
+check("the furthest lane decides: QA and prod, In Progress", T.lane_mismatch({"qa-cn3", "prod-3"}, "In Progress") == "fix on prod-3, ticket In Progress")
+check("on prod while Review with no QA verdict", T.lane_mismatch({"prod-3"}, "Review") == "fix on prod-3, ticket Review with no QA verdict"
+      and T.lane_mismatch({"prod-3"}, "Review", True) is None)
 check("a comment row is its first sentence", T.first_sentence("Done on QA. Next I look at prod.") == "Done on QA."
       and T.first_sentence("word " * 80).endswith(" …"))
 check("the page names whom it waits on", T.awaited("**Real status.** Waiting on Robin's ruling.\n\n## Next\n\n- **Then Summer**: x\n") == {"robin"})
