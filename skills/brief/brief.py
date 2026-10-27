@@ -993,7 +993,7 @@ def pin_findings(named, pin):
     return [{"kind": "release_newer_than_pin", "lane": "prod", "service": None,
              "what": (f"{name} ({R.when(newest.get('createTime'))[:10]}) is newer than the official pin {pin.get('official')}" if pin
                       else f"no official bundle is pinned for {LINE}; the newest release is {name} ({R.when(newest.get('createTime'))[:10]})"),
-             "options": [f'ela release pin {LINE} "{name}" --apply'], "evidence": [f"bundle {newest.get('bundleId')}"],
+             "options": [f'ela release pin {LINE} "{name}"'], "note": "the runner appends --apply on the owner's apply N", "evidence": [f"bundle {newest.get('bundleId')}"],
              "at": R.when(newest.get("createTime")), "rank": RANKS["candidate_awaiting_owner"]}]
 
 

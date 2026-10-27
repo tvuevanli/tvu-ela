@@ -145,7 +145,7 @@ named = [{"bundleName": "MediaHub 2.1.15", "bundleId": "15", "createTime": 17929
          {"bundleName": "mh2.1@rc-s2-d8", "bundleId": "8", "createTime": 1792999999999}]
 pf = B.pin_findings(named, None)
 check("with no pin, the newest release-named bundle is offered as the pin command",
-      len(pf) == 1 and pf[0]["kind"] == "release_newer_than_pin" and pf[0]["options"] == ['ela release pin 2.1 "MediaHub 2.1.15" --apply'])
+      len(pf) == 1 and pf[0]["kind"] == "release_newer_than_pin" and pf[0]["options"] == ['ela release pin 2.1 "MediaHub 2.1.15"'])
 check("a pin on an older release is a decision; a pin on the newest is quiet",
       len(B.pin_findings(named, {"official": "MediaHub 2.1.14", "id": "14"})) == 1 and B.pin_findings(named, {"official": "MediaHub 2.1.15", "id": "15"}) == [])
 sys.exit(1 if failures else 0)
