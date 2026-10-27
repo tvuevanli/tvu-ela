@@ -349,7 +349,7 @@ def answered_nudges(actions, issues, me):
 
 def next_workday_end(t):
     d = t.date() + datetime.timedelta(days=1)
-    while d.weekday() >= 5:
+    while not B.is_working_day(d):
         d += datetime.timedelta(days=1)
     return datetime.datetime.combine(d, datetime.time(23, 59), t.tzinfo)
 

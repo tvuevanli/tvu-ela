@@ -560,8 +560,8 @@ def cmd_lanes(args):
                 errors.append({"lane": name, **exc.args[0]})
 
     if args.json:
-        print(json.dumps({"generated": now.strftime("%Y-%m-%dT%H:%M:%SZ"), "lanes": lanes, "errors": errors},
-                         ensure_ascii=False))
+        print(json.dumps({"generated": now.strftime("%Y-%m-%dT%H:%M:%SZ"), "day": day_plan(datetime.date.today()),
+                          "lanes": lanes, "errors": errors}, ensure_ascii=False))
     else:
         print(f"# brief · jira lanes · {now.strftime('%Y-%m-%d %H:%M')}Z\n")
         for name in want:
@@ -2381,11 +2381,76 @@ def front_matter(text):
     return out
 
 
+WEEKDAY_NAMES = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+_DAY = None
+
+
+def flow_list(v):
+    """A YAML list the stdlib subset left as text ("[Mon, Wed]"), or a list as it is."""
+    if isinstance(v, list):
+        return [str(x) for x in v]
+    v = str(v or "").strip()
+    return [x.strip().strip("\"'") for x in v.strip("[]").split(",") if x.strip()] if v.startswith("[") else ([v] if v else [])
+
+
+def owner_day(path=None):
+    """The owner's day as data, <elak>/blueprint/meetings.yaml: {day: {at_desk, leaves, dm_hours, qa_deploy},
+    holidays, meetings}. Empty parts when the file is absent; the owner writes it, ela only reads it."""
+    global _DAY
+    if _DAY is not None and path is None:
+        return _DAY
+    if path is None:
+        try:
+            path = os.path.join(json.load(open(SITE)).get("elak") or "", "blueprint", "meetings.yaml")
+        except (OSError, ValueError):
+            path = ""
+    try:
+        doc = R._yaml_subset(open(path, encoding="utf-8").read()) or {}
+    except (OSError, ValueError):
+        doc = {}
+    day = dict(doc.get("day") or {})
+    day["dm_hours"] = flow_list(day.get("dm_hours"))
+    out = {"path": path, "day": day, "holidays": flow_list(doc.get("holidays")), "meetings": list(doc.get("meetings") or [])}
+    if path and path.endswith(os.path.join("blueprint", "meetings.yaml")):
+        _DAY = out
+    return out
+
+
+def is_working_day(d, doc=None):
+    return d.weekday() < 5 and d.isoformat() not in (doc or owner_day())["holidays"]
+
+
+def day_plan(date, doc=None):
+    """One date as the owner lives it: working or not, his hours, and the meetings he has that day in time order, each
+    with the heading its brief section takes (`<name> at HH:MM`). A meeting not enabled, or with no time, is none."""
+    doc = doc or owner_day()
+    wd = WEEKDAY_NAMES[date.weekday()]
+    meetings = sorted(({"name": m.get("name"), "key": m.get("key"), "time": str(m.get("time")), "audience": flow_list(m.get("audience")),
+                        "section": f"{m.get('name')} at {m.get('time')}"}
+                       for m in doc["meetings"] if isinstance(m, dict) and m.get("enabled") is True and str(m.get("time") or "").strip()
+                       and wd in flow_list(m.get("weekdays"))), key=lambda m: m["time"])
+    return {"date": date.isoformat(), "weekday": wd, "working_day": is_working_day(date, doc),
+            "holiday": date.isoformat() in doc["holidays"], **doc["day"], "holidays": doc["holidays"],
+            "meetings": meetings if is_working_day(date, doc) else [], "source": doc["path"]}
+
+
+def cmd_day(args):
+    d = datetime.date.fromisoformat(args.date) if args.date else datetime.date.today()
+    plan = day_plan(d)
+    if args.json:
+        print(json.dumps(plan, ensure_ascii=False)); return
+    print(f"{plan['date']} {plan['weekday']} · {'working day' if plan['working_day'] else 'not a working day'}"
+          + (f" · at desk {plan.get('at_desk')}, leaves {plan.get('leaves')} · DM {'–'.join(plan['dm_hours'])} · QA deploy {plan.get('qa_deploy')}"
+             if plan.get("at_desk") else ""))
+    for m in plan["meetings"]:
+        print(f"  {m['section']} ({', '.join(m['audience'])})")
+
+
 def working_days(a, b):
-    """Weekdays from a to b, both included; 0 when b is before a."""
+    """Working days from a to b, both included (weekdays less the owner's holidays); 0 when b is before a."""
     n, d = 0, a
     while d <= b:
-        n += d.weekday() < 5
+        n += is_working_day(d)
         d += datetime.timedelta(days=1)
     return n
 
@@ -2496,6 +2561,11 @@ def main():
     p = sub.add_parser("page-check", help="every apply N on a brief page has its action in the actions file and its box, and the page passes `ela review lint`; exit 1 naming any failure")
     p.add_argument("page"); p.add_argument("--actions", help="<reports>/runner/<date>-actions.json")
     p.set_defaults(func=cmd_page_check)
+    p = sub.add_parser("day", help="the owner's day from <elak>/blueprint/meetings.yaml: working day, hours, DM window, QA deploy hour, "
+                                   "and the meetings that day with their brief section headings")
+    p.add_argument("--date", help="YYYY-MM-DD (default today)")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_day)
     p = sub.add_parser("sprint", help="the active sprint note in the vault: goals and committed items with their keys and "
                                       "'done when', the working day it is on; on a Friday the week's yesterday files")
     p.add_argument("--date", help="read as of YYYY-MM-DD (default today)")

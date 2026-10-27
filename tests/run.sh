@@ -28,6 +28,7 @@ python3 tests/test_ticket_refresh_offline.py || fail=1
 python3 tests/test_review_lint_offline.py || fail=1
 python3 tests/test_review_replay_offline.py || fail=1
 python3 tests/test_review_reader_offline.py || fail=1
+python3 tests/test_brief_day_offline.py || fail=1
 python3 tests/test_brief_sprint_offline.py || fail=1
 python3 tests/test_brief_changes_offline.py || fail=1
 python3 tests/test_vault_offline.py || fail=1
