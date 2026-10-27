@@ -236,4 +236,18 @@ inv, und = B.out_of_order(mx)
 check("a lane below the one after it is out of order; two series are undetermined", inv == ["mediahub-backend: daily-wed 2.1.32+263 is below prod-3 2.1.34+265"] and und == 2)
 check("a mail's service words are the slug", B.mail_slug("UR Caller Backend (mx-service)") == "unified-streaming" and B.mail_slug("MediaHub Frontend") == "mediahub-frontend")
 check("a service the same on both lanes is not listed", "mediahub-backend" not in dl)
+with tempfile.TemporaryDirectory() as t:
+    os.makedirs(os.path.join(t, "runner"))
+    json.dump({"date": "2026-10-26", "versions": [], "bundles": [], "releases": [], "code": {"repos": []},
+               "builds": [{"service": "mediahub-frontend", "version": "2.2.119", "build": 174, "branch": "release2.1", "result": "SUCCESS",
+                           "time": "2026-10-26 14:53", "deployed_to": [], "commits": []},
+                          {"service": "mediahub-frontend", "version": "2.2.120", "build": 175, "branch": "release2.1", "result": "SUCCESS",
+                           "time": "2026-10-26 17:44", "deployed_to": ["qa-cn3"], "commits": []},
+                          {"service": "unified-media-frontend", "version": "3.0.36.1", "build": 194, "branch": "prod3_patch", "result": "SUCCESS",
+                           "time": "2026-10-26 16:08", "deployed_to": ["prod-3"], "commits": []}]},
+              open(os.path.join(t, "runner", "2026-10-26-changes.json"), "w"))
+    mv = "\n".join(B.movements(t, t, {}, datetime.date(2026, 10, 26), lambda l: B.LANE_SHOWN.get(l, l)))
+check("a release-branch build without a lane is on the QA lane, and each from chains to the last to",
+      "| QA-AWS3 | mediahub-frontend | — → 2.2.119 build 174 |" in mv and "| QA-AWS3 | mediahub-frontend | 2.2.119 build 174 → 2.2.120 build 175 |" in mv)
+check("a patch build sits on its base", "| prod-3 | unified-media-frontend | 3.0.36 → 3.0.36.1 build 194 |" in mv)
 sys.exit(1 if failures else 0)

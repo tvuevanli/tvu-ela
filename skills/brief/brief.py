@@ -1981,8 +1981,10 @@ def movements(runtime, reports, tested, today, shown, bundles_now=None):
             tok = re.match(r"^[\w.]+@([a-z]+(?:-[a-z]+)?)-", str(b.get("name") or ""))
             lane = {"daily-wed": "daily-wed", "stage": "daily-stage", "qa": "qa-cn3"}.get(tok.group(1) if tok else "")
             if lane:
+                prev = last_bundle.get(lane)
                 if (b.get("created") or "")[:10] >= since:
-                    add((b.get("created") or m.group(1))[:10], shown(lane), "media bundle", last_bundle.get(lane), b["name"])
+                    back = prev and dnum(b) < dnum({"name": prev})
+                    add((b.get("created") or m.group(1))[:10], shown(lane), "media bundle", prev, b["name"] + (" (rolled back)" if back else ""))
                 last_bundle[lane] = b["name"]
         if m.group(1) < since:
             continue
@@ -1995,6 +1997,18 @@ def movements(runtime, reports, tested, today, shown, bundles_now=None):
             if v.get("from") and vkey(v["from"]) == vkey(v["to"]):
                 continue
             add((v.get("built") or m.group(1))[:10], shown(v["lane"]), v["service"], v.get("from"), v["to"], keys, qa_mark(v["service"], v["to"]))
+        qa_lane = ((R.rmap("lines") or {}).get(LINE) or {}).get("lanes", {}).get("qa")
+        for b in d.get("builds") or []:
+            if b.get("result") != "SUCCESS":
+                continue
+            lanes = b.get("deployed_to") or ([qa_lane] if b.get("branch") == f"release{LINE}" and qa_lane else [])
+            keys = {keys_of[str(c)[:8]] for c in b.get("commits") or [] if str(c)[:8] in keys_of}
+            to = f"{b['version']} build {b['build']}"
+            pv = R.parse_version(b["version"])
+            frm = (f"{pv[0]}.{pv[1]}.{pv[2]}" if pv[3] == 1 else f"{pv[0]}.{pv[1]}.{pv[2]}.{pv[3] - 1}") if pv and pv[3] else None   # a patch sits on its base
+            for lane in lanes:
+                add(str(b.get("time") or m.group(1))[:10], shown(lane), b["service"], frm, to, keys, qa_mark(b["service"], to))
+        snap = None
         for rel in d.get("releases") or []:
             try:
                 at = email.utils.parsedate_to_datetime(rel["date"]).astimezone().date().isoformat() if "," in str(rel.get("date")) else str(rel.get("date"))[:10]
@@ -2008,10 +2022,27 @@ def movements(runtime, reports, tested, today, shown, bundles_now=None):
             subj = rel.get("subject") or ""
             o = re.search(r"Orchestration Service of version (\S+)", subj)
             if o and not rel.get("moves"):
-                add(at, shown(mail_lane(rel.get("env")) or "?"), "orchestration", None, f"{o.group(1)} requested")
+                snap = snap or snapshot_on_or_after(runner, at)
+                row = next((x for x in (snap or {}).get("rows") or [] if x["service"] == "orchestration" and x.get("version") == o.group(1)), None)
+                landed = (row or {}).get("state") == "confirmed"
+                add(at, shown(mail_lane(rel.get("env")) or "?"), "orchestration", None, o.group(1) + ("" if landed else " requested"))
             b = re.search(r"Release build (\S+) \(([^→)]+)→\s*([^)]+)\)", subj)
             if b and not rel.get("moves") and not subj.lower().startswith("re:"):
-                add(at, shown(mail_lane(b.group(3)) or b.group(3).strip()), "app bundle", f"from {b.group(2).strip()}", f"build {b.group(1)}")
+                src, dst = mail_lane(b.group(2)), mail_lane(b.group(3))
+                add(at, shown(dst or b.group(3).strip()), "app bundle", f"from {shown(src or b.group(2).strip())}", f"build {b.group(1)}")
+                try:
+                    sent = email.utils.parsedate_to_datetime(rel["date"])
+                except (TypeError, ValueError):
+                    sent = None
+                snap = snap or snapshot_on_or_after(runner, at)
+                for r in (snap or {}).get("rows") or []:   # what the release carried: prod now equal to daily, built before the mail
+                    if r.get("lane") != dst or r.get("host") == "mail" or r["service"] not in SCOPE:
+                        continue
+                    twin = next((x for x in snap["rows"] if x.get("lane") == src and x["service"] == r["service"]), None)
+                    built = built_at(r["version"])
+                    if twin and vkey(twin["version"]) == vkey(r["version"]) and sent and built and \
+                            datetime.datetime.fromisoformat(built).replace(tzinfo=datetime.timezone.utc) <= sent:
+                        add(at, shown(dst), r["service"], None, short_version(r["version"]), (), qa_mark(r["service"], r["version"]))
     for lane, name in (bundles_now or {}).items():         # a bundle made since the last daily read
         if name and last_bundle.get(lane) and last_bundle[lane] != name:
             add(today.isoformat(), shown(lane), "media bundle", last_bundle[lane], name)
@@ -2026,6 +2057,13 @@ def movements(runtime, reports, tested, today, shown, bundles_now=None):
                 {c if isinstance(c, str) else c.get("key") for c in r.get("claims") or []} - {None}, "○")
     except (OSError, ValueError):
         pass
+    order = lambda r: (r["at"], R.parse_version(version_text(r["to"]) or "") or (0,), str(r["to"]))  # noqa: E731
+    chains = {}
+    for r in sorted(rows.values(), key=order):              # one lane, one service, in time order: each from is the last to
+        k = (r["lane"], r["service"])
+        if not r["from"] and k in chains and r["service"] not in ("app bundle",):
+            r["from"] = chains[k]
+        chains[k] = re.sub(r" requested$", "", str(r["to"]))
     L = ["| date | lane | service | from → to | tickets | QA |", "|---|---|---|---|---|---|"]
     for day in (today - datetime.timedelta(days=i) for i in range(MOVES_DAYS)):
         iso = day.isoformat()
@@ -2040,6 +2078,15 @@ def movements(runtime, reports, tested, today, shown, bundles_now=None):
             L.append(f"| {iso[5:]} | {r['lane']} | {shown_service(r['service'])} | {move} | {', '.join(sorted(r['tickets'])) or '—'} | {r['qa'] or ''} |")
     note = f"*Kept since {first}; the table fills to {MOVES_DAYS} days as the daily reads accumulate.*" if first and first > since else ""
     return L + ([""] + [note] if note else [])
+
+
+def snapshot_on_or_after(runner, date):
+    """The first lane read (`versions-<date>.json`) on or after a date, or None."""
+    names = sorted(f for f in os.listdir(runner) if re.fullmatch(r"versions-\d{4}-\d{2}-\d{2}\.json", f) and f[9:19] >= date) if os.path.isdir(runner) else []
+    try:
+        return json.load(open(os.path.join(runner, names[0]), encoding="utf-8")) if names else None
+    except (OSError, ValueError):
+        return None
 
 
 def write_lanes_page(out, site, env, runner, tested):
