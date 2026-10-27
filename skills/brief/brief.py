@@ -2290,7 +2290,13 @@ def cmd_page_check(args):
         print(f"apply {n}: no such action in {os.path.basename(args.actions or '(none)')}")
     for n in unboxed:
         print(f"apply {n}: named without its box on the page")
-    sys.exit(1 if orphan or unboxed else 0)
+    sys.path.insert(0, os.path.join(HERE, "..", "review"))
+    import review                                       # the rest of the page's mechanical checks (`ela review lint`)
+    _, counts, bundles, in_vault, _ = review.context(args.page, page, args.actions)
+    rest = review.lint(page, None, counts, bundles, in_vault)
+    for line in rest:
+        print(line)
+    sys.exit(1 if orphan or unboxed or rest else 0)
 
 
 def front_matter(text):
@@ -2420,7 +2426,7 @@ def main():
     p.add_argument("--page", action="store_true", help="write the lanes page (<reports>/lanes/lanes.md, the vault's lanes.md): this table, "
                                                       "what each lane carries that the next does not, and 14 days of moves; minutes, it reads two promotions")
     p.set_defaults(func=cmd_matrix)
-    p = sub.add_parser("page-check", help="every apply N on a brief page has its action in the actions file and its box; exit 1 naming any that does not")
+    p = sub.add_parser("page-check", help="every apply N on a brief page has its action in the actions file and its box, and the page passes `ela review lint`; exit 1 naming any failure")
     p.add_argument("page"); p.add_argument("--actions", help="<reports>/runner/<date>-actions.json")
     p.set_defaults(func=cmd_page_check)
     p = sub.add_parser("sprint", help="the active sprint note in the vault: goals and committed items with their keys and "

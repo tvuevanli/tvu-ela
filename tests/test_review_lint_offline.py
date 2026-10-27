@@ -1,0 +1,60 @@
+#!/usr/bin/env python3
+"""review lint, offline: each mechanical check on a page ela writes, passing and failing."""
+import os, sys
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(ROOT, "skills", "review"))
+import review as RV  # noqa: E402
+
+failures = 0
+
+
+def check(name, cond):
+    global failures
+    print(("ok   " if cond else "FAIL ") + name)
+    failures += 0 if cond else 1
+
+
+good = """# Morning brief · Wed 2026-10-28
+
+## Needs you
+
+### 1. MH-1: the train carries build 77
+MH-1 · on QA-AWS3 · 1st morning
+- facts
+- **Do:**
+- [ ] Hold the train
+- [ ] apply 1 — ask the release thread which ticket carries the fixes
+
+### 2. MH-2: a QA bug
+MH-2 · Backlog · 1st morning
+- **Do:**
+- [ ] apply 2 — assign MH-2 to the app layer
+
+## FYI
+
+Counts (24 h): 39 commits · 30 close-ready · 8 commits on feature/x · commits, 7 days: 120 commits, 7 days
+"""
+acts = [{"n": 1}, {"n": 2}]
+counts = {"commits": 39, "close_ready": 30}
+check("a clean page passes", RV.lint(good, acts, counts, {"mh2.1@qa-q28"}) == [])
+bad = good.replace("- [ ] Hold the train", "- Hold the train\n- [ ] /ela:breakdown MH-1\n- [ ] draft the hand-off") \
+          .replace("MH-2 · Backlog", "MH-1 · MH-2 · Backlog").replace("39 commits", "41 commits") + "\nSee apply 3 and the frontend.\n"
+f = RV.lint(bad, acts, counts, {"mh2.1@qa-q28"})
+check("a Do line without a box fails", any("a Do line without a box" in x for x in f))
+check("a slash command or a draft left for him fails", sum("left for him to do" in x for x in f) == 2)
+check("apply N with no action and no box fails twice", "apply 3: no such action in the actions file" in f
+      and "apply 3: named without its box on the page" in f)
+check("a key that is two items fails", any(x.startswith("MH-1: an item 2 times") for x in f))
+check("a count other than the day's fails; a scoped count does not", f.count("commits: the page says 41, the day's counts say 39") == 1
+      and not any("says 8" in x or "says 120" in x for x in f))
+check("'the frontend' fails", any('"the frontend"' in x for x in f))
+check("a bundle no read holds fails, an official is not checked",
+      RV.lint("on mh2.1@qa-q26 and MediaHub 2.1.15", None, None, {"mh2.1@qa-q28"}) == ["mh2.1@qa-q26: a bundle no read of the last 14 days holds"])
+check("a status outside the closed set fails", any("not in the closed set" in x for x in RV.lint('---\nstatus: "doing"\n---\n# x\n')))
+check("a status in the set passes", RV.lint('---\nstatus: "parked"\n---\n# x\n') == [])
+check("in the vault a bare key fails and a linked one passes",
+      RV.lint("MH-5 and [MH-6](https://j/browse/MH-6)", in_vault=True) == ["MH-5: a ticket key that is not a link"])
+check("in a reports source the vault links keys, except in code spans",
+      RV.lint("MH-5 and `MH-7`") == ["MH-7: a ticket key that is not a link"])
+sys.exit(1 if failures else 0)
