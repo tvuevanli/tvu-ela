@@ -116,4 +116,7 @@ q2 = B.parse_qa_mail({"id": "4", "from": "qa", "date": "d", "subject": "Daily Te
                               "   *2. reopened issue:*\n   *3. close issue:*\n       MH-3639\n<https://j/browse/MH-3639>\n       MH-3675\n-----\nBest\n"})
 check("the listed-issues shape: new, reopened and closed by key, counted", (q2["new"], q2["closed"], q2["reopened"], q2["new_keys"], q2["closed_keys"])
       == (1, 2, 0, ["MH-3821"], ["MH-3639", "MH-3675"]) and q2["verdict"] == "pass")
+orch = [{"host": "mail", "service": "orchestration", "lane": "prod-3", "version": "4.0.205"}]
+check("a lane with no release mail for a mail-only service says so, not a bare dash",
+      B.matrix_cell("orchestration", "qa-cn3", orch, None, {}, {})["text"] == "no release mail")
 sys.exit(1 if failures else 0)

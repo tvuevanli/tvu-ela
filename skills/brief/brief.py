@@ -1040,8 +1040,9 @@ def matrix_cell(service, lane, rows, prev, tested, pins):
     """One cell: the version, ▲ and the old one when it moved since the last snapshot, QA's mark on that exact version,
     and the constraint's mark."""
     v = next((r["version"] for r in rows if r["service"] == service and r.get("lane") == lane), None)
-    if v is None:
-        return {"text": "—", "version": None}
+    if v is None:                                           # a service known only from its release mails has no lane row
+        mail_only = any(r["service"] == service and r["host"] == "mail" for r in rows)
+        return {"text": "no release mail" if mail_only else "—", "version": None}
     pv = R.parse_version(v)
     label = R.vlabel(pv) if pv else str(v)
     old = next((r["version"] for r in prev or [] if r["service"] == service and r.get("lane") == lane), None)
