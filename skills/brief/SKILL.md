@@ -258,6 +258,17 @@ sprint row at once), and merging them is ela's work, not the reader's.
 
 His own work is a sprint row, never an item.
 
+**A change on a tracked ticket** (one with a probe `fix` page, in the sprint, routed by him, or with an `apply N`
+pending) is read on two axes, by the closed list in `skills/probe/SKILL.md` §fix — a change on a tracked ticket:
+understood means it matches one rule (Review on a branch whose commits name the key; QA's version and verdict;
+Fixed In equal to the ledger's carrying build; an answer to a question the timeline holds; Done after a QA pass on
+the lane's version; progress from the assignee or a developer on an In Progress ticket, asking nothing and naming no
+new version), and anything else is unsure. Understood and no word needed: a timeline row and a count on the
+Changes page, never an item. Understood and word needed: one item, A or D. Unsure: one item, C or D, whose first
+line says what ela could not place; on a prod ticket or a customer ask the runner also DMs him at the pass. Addressed
+to him (his name, an assignment, a question): always a C item, whatever the reading. *Why: an item he cannot act on
+costs his attention, and a change ela cannot place must never pass as a quiet timeline row.*
+
 **Order.**
 1. Findings by their `rank`, 1 to 9: a hold asked from outside the company on a prod change; a standing pin over;
    a cell of the pending promotion awaiting his choice; a customer ask unanswered; a prod fix without a ticket or a

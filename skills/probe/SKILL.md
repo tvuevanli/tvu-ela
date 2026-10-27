@@ -128,7 +128,7 @@ on 10-14; the contract change had never reached the mediahub-frontend team.
    - `# <key>: <title> — <the real status in a few words>`;
    - **Real status**, one paragraph: what Jira says, what is true (*works*, *cannot work*, *blocked on <whom>*),
      and what, if anything, is the owner's to do;
-   - **Timeline**, a table `| date | what happened | source |`, oldest first, every layer's change dated (a
+   - **Timeline**, a table `| date | what happened | source | reading |`, oldest first, every layer's change dated (a
      commit, a build reaching the lane, a QA run, a comment, an assignment), including the days it sat unmoved;
      then one line on why it happened;
    - **Next**, who it waits on and since when, then the move after that; unread layers named as open;
@@ -137,6 +137,37 @@ on 10-14; the contract change had never reached the mediahub-frontend team.
    named by its slug (mediahub-frontend, unified-media-frontend, …), never "the frontend" or "the backend": the
    product has more than one of each.
 - With `--write PATH` the page is written to PATH and the answer is one line. Nothing is posted.
+
+### fix — a change on a tracked ticket
+A ticket is **tracked** when it has a page from this form, is in the sprint, was routed by the owner, or has a
+drafted `apply N` pending; any other ticket reaches him only through the brief's own lanes. Each change since the
+last pass is read on two axes, *understood* and *needs his word*:
+
+| the change | where it goes |
+|---|---|
+| understood, no word needed | a Timeline row whose `reading` names the rule; counted on the Changes page; never an item |
+| understood, word needed | one item, class A (a drafted write) or D (his decision) |
+| not understood | one item, class C or D, its first line saying what ela could not place; on a prod ticket or a customer ask, also a Slack DM at the pass |
+| addressed to him (his name, assigned to him, a question to him) | always an item, class C, whatever the reading |
+
+**Understood is this closed list**; a change is sure only when it matches one rule:
+1. *A developer moves it to Review on a branch whose commits name the key* — the work exists in code, and Review is the team's "on QA" state; still never read as verified.
+2. *QA comments a version and a verdict* — first-hand evidence bound to a build.
+3. *Fixed In equals the carrying build in the release ledger* — the field agrees with what shipped.
+4. *A comment answers a question the timeline already holds* — it closes a known open and opens none.
+5. *Done after a QA pass on the lane's running version* — the close rests on a verdict for the build actually there.
+6. *The assignee, or a developer on the ticket, comments progress on an In Progress ticket, asking nothing and naming
+   no new version* — the work is moving under its owner; without this rule every progress note would be an unsure
+   item. A comment with a question, a contradiction or a new ticket link still falls to unsure.
+
+**Everything else is unsure**, for example:
+- a reopen — the fix failed somewhere ela has not read;
+- a move backwards — someone disputes the state the page shows;
+- reassignment to the owner — he now holds it, and it is addressed to him;
+- a comment that contradicts the page's real status — either the page or the comment is wrong, and only he can tell;
+- a status jump no rule covers (To Do → Done) — it skips the evidence the rules require;
+- a reply in a customer thread — outside word, whose weight is his to judge;
+- a new linked ticket — a contract may have moved under the fix (MH-2406).
 
 ## 5 — what this skill does not do
 Change code, run builds, start or stop processes, post anywhere, or clone from GitHub when the LAN
