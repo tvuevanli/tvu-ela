@@ -802,11 +802,43 @@ def match_tag(tags, want):
     return None, sorted({str(t.get("tagName")) for t in tags}, key=gap)[:6]
 
 
-def describe(changed, added, removed):
-    """The bundle's description from its own diff: what this upgrade changed, so it cannot be carried over wrong."""
-    parts = [f"{r['service']} {r['from']} → {r['to']}" for r in changed] + [f"add {r['service']} {r['version']}" for r in added] + \
-            [f"drop {r['service']}" for r in removed]
-    return "; ".join(parts) or "no change from the base"
+DESC_MAX = 255                     # GM refuses a longer description (errorCode 80952002)
+
+
+def describe(changed, added, removed, room=DESC_MAX):
+    """The bundle's description from its own diff: what this upgrade changed, so it cannot be carried over wrong. Within
+    `room` characters: in full when it fits, else services moving between the same two versions grouped ("13 Docker
+    decoders 1.0.72 → 1.0.76"), else counts only."""
+    full = [f"{r['service']} {r['from']} → {r['to']}" for r in changed] + [f"add {r['service']} {r['version']}" for r in added] + \
+           [f"drop {r['service']}" for r in removed]
+    text = "; ".join(full) or "no change from the base"
+    if len(text) <= room:
+        return text
+    groups = {}
+    for r in changed:
+        groups.setdefault((r["from"], r["to"]), []).append(r["service"])
+
+    def kind(names):
+        last = {n.split()[-1].lower() for n in names}
+        first = {n.split()[0] for n in names}
+        return f"{len(names)} {first.pop() + ' ' if len(first) == 1 else ''}{last.pop() + 's' if len(last) == 1 else 'services'}"
+    grouped = [f"{names[0] if len(names) == 1 else kind(names)} {f} → {t}" for (f, t), names in sorted(groups.items(), key=lambda kv: -len(kv[1]))] + \
+              [f"add {r['service']} {r['version']}" for r in added] + [f"drop {r['service']}" for r in removed]
+    text = "; ".join(grouped)
+    if len(text) <= room:
+        return text
+    counts = [f"{len(changed)} changed" if changed else "", f"{len(added)} added" if added else "", f"{len(removed)} dropped" if removed else ""]
+    return ", ".join(c for c in counts if c)[:room]
+
+
+def bundle_created(body):
+    """(new bundle id, None) from create's answer, or (None, why): GM answers HTTP 200 with errorCode 0x0 and the id as
+    result on success, and HTTP 200 with another errorCode and errorInfo when it refuses."""
+    if isinstance(body, dict) and str(body.get("errorCode")) == "0x0" and body.get("result"):
+        return str(body["result"]), None
+    if isinstance(body, dict):
+        return None, f"{body.get('errorCode')}: {body.get('errorInfo') or 'no reason given'}"
+    return None, f"unreadable answer: {str(body)[:200]}"
 
 
 def order_warnings(rows, cls, neighbours):
@@ -896,8 +928,10 @@ def cmd_create(a):
     changed = [{"service": k, "from": old[k], "to": new[k]} for k in sorted(set(old) & set(new)) if old[k] != new[k]]
     added = [{"service": k, "version": new[k]} for k in sorted(set(new) - set(old))]
     removed = [{"service": k, "version": old[k]} for k in sorted(set(old) - set(new))]
-    auto = describe(changed, added, removed)
-    desc = (a.note.strip() + " — " + auto) if a.note else auto
+    note = (a.note or "").strip()
+    if len(note) > DESC_MAX - 10:
+        print(f"create: --note is {len(note)} characters; GM keeps {DESC_MAX} for the whole description", file=sys.stderr); sys.exit(EX_USAGE)
+    desc = (note + " — " + describe(changed, added, removed, DESC_MAX - len(note) - 3)) if note else describe(changed, added, removed)
     nb = neighbour_maps(a.env_file, line, cls)
     warns, undetermined = order_warnings(new, cls, {r: (v or {}).get("map") or {} for r, v in nb.items()})
     payload = {"bundleName": name, "description": desc,
@@ -906,11 +940,13 @@ def cmd_create(a):
            "changed": changed, "order": warns, "undetermined": undetermined,
            "neighbours": {r: (v or {}).get("bundle") for r, v in nb.items()}, "applied": False}
     if a.apply:
-        us.call("/userGroup/user-group/tagBundle/create", payload)
-        hit = resolve_bundle(us, name, missing_ok=True)
-        got = {(str(i.get("serviceId")), str(i.get("tagId"))) for i in (bundle_detail(us, hit[0]).get("serviceTagList") or [])} if hit else set()
+        new_id, why = bundle_created(us.call("/userGroup/user-group/tagBundle/create", payload))
+        if why:                                             # GM refused with HTTP 200: say so, never read back an absence
+            print(f"create: GM refused {name}: {why}", file=sys.stderr); sys.exit(EX_REMOTE)
+        detail = bundle_detail(us, new_id)
+        got = {(str(i.get("serviceId")), str(i.get("tagId"))) for i in (detail.get("serviceTagList") or [])}
         meant = {(str(x["serviceId"]), str(x["tagId"])) for x in payload["serviceTagList"]}
-        res.update(applied=True, id=hit[0] if hit else None, verified=got == meant,
+        res.update(applied=True, id=new_id, verified=got == meant and str(detail.get("bundleName") or name) == name,
                    missing=len(meant - got), extra=len(got - meant))
     if a.json:
         print(json.dumps(res, ensure_ascii=False))

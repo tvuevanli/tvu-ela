@@ -66,4 +66,14 @@ check("a daily bundle above QA or below prod is warned", says == ["Docker Copier
 check("another series or a named tag is undetermined, never an inversion", und == 2 and not any("Mixer" in s or "Scope" in s for s in says))
 warns, _ = R.order_warnings({"Docker Encoder": "1.0.57"}, "official", {"daily": {"Docker Encoder": "1.0.56"}})
 check("an official bundle above daily is warned", [w["says"] for w in warns] == ["Docker Encoder 1.0.57 is above daily 1.0.56"])
+many = [{"service": f"Docker {w} Decoder", "from": "1.0.72", "to": "1.0.76"} for w in "Hls Issp Mpegts Ndi Rtmp Rtsp Srt Udp Grid Generic External Push Pull".split()] + \
+       [{"service": "Docker Mpegts Receiver", "from": "1.0.22", "to": "1.0.23"}, {"service": "Docker Mpegts Transmitter", "from": "1.0.22", "to": "1.0.23"}]
+d = R.describe(many, [], [{"service": "Docker Old", "version": "1"}])
+check("a long description is grouped by version pair within GM's 255", len(d) <= R.DESC_MAX and d.startswith("13 Docker decoders 1.0.72 → 1.0.76")
+      and "drop Docker Old" in d)
+check("and falls back to counts when grouping is not enough", len(R.describe(many, [], [], 20)) <= 20 and "15 changed" in R.describe(many, [], [], 20))
+check("success is errorCode 0x0 with the new id", R.bundle_created({"errorCode": "0x0", "result": "1564678600857403392"}) == ("1564678600857403392", None))
+check("a refusal at HTTP 200 is a refusal, with GM's reason",
+      R.bundle_created({"errorInfo": "Description length cannot exceed 255", "errorCode": "80952002", "result": None}) == (None, "80952002: Description length cannot exceed 255"))
+check("an unreadable answer is not success", R.bundle_created("<html>")[0] is None)
 sys.exit(1 if failures else 0)
