@@ -1005,7 +1005,7 @@ NOT_A_CHANGE = re.compile(r"^(docs|test|chore|style)\b|\[arc-review\]", re.I)   
 LINE = "2.1"   # the MediaHub release line the morning follows; its lanes come from map/release.yaml lines
 
 
-def findings_of(out, rows, tested, env, errors):
+def findings_of(out, rows, tested, env, errors, candidate=frozenset()):
     """What the facts say needs a judgment, by kind; the brief ranks them, the Changes page never does."""
     F = []
     lanes = (R.rmap("lines").get(LINE) or {}).get("lanes") or {}
@@ -1077,8 +1077,27 @@ def findings_of(out, rows, tested, env, errors):
                 F.append({"kind": "constraint_over", "lane": pin.get("lane"), "service": pin.get("service"),
                           "what": f"{pin.get('service')} on {pin.get('lane')} runs {pin.get('version')}, over the pin {pin.get('max')}: {c.get('says')}",
                           "evidence": [c.get("source") or c["id"]], "at": None})
-    errors.append({"source": "findings", "error": "unanswered_customer_ask is not computed: there is no customer and partner list to tell their messages apart"})
+    errors.append({"source": "findings", "error": "customer_ask_unanswered is not computed: there is no customer and partner list to tell their messages apart"})
+    for f in F:
+        f["rank"] = finding_rank(f, candidate)
     return F
+
+
+# the order the morning ranks findings in (morning-package spec §2); None = the lanes table only, not an item
+RANKS = {"lane_change_pending_external_word": 1, "constraint_over": 2, "candidate_awaiting_owner": 3, "customer_ask_unanswered": 4,
+         "prod_fix_without_ticket": 5, "lane_change_pending_internal_word": 6, "unticketed_change_on_a_prod_path": 9}
+
+
+def finding_rank(f, candidate):
+    """A build untested on a prod lane ranks with a prod fix; inside this week's candidate it ranks 7, a move after the
+    QA run 8; outside it both stay in the lanes table."""
+    if f["kind"] in RANKS:
+        return RANKS[f["kind"]]
+    if f["kind"] == "untested_build_on_lane" and str(f.get("lane")).startswith("prod"):
+        return 5
+    if f["kind"] in ("untested_build_on_lane", "version_moved_after_qa_run") and f.get("service") in candidate:
+        return 7 if f["kind"] == "untested_build_on_lane" else 8
+    return None
 
 
 HOLD = re.compile(r"\b(hold|wait|stay|until|confirm|do not|don't|before)\b", re.I)

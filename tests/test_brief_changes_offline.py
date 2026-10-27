@@ -95,7 +95,7 @@ with tempfile.TemporaryDirectory() as d:
     check("a patch build on prod with no ticket is a prod fix without a ticket", ("prod_fix_without_ticket", "unified-media-frontend") in kinds)
     check("an unticketed fix on the QA lane is counted once per repo and lane, docs left out",
           [f["what"][:2] for f in F if f["kind"] == "unticketed_change_on_a_prod_path"] == ["1 "])
-    check("what was not computed or not read is named", any(e["source"] == "constraints" for e in errs) and any("unanswered_customer_ask" in e["error"] for e in errs))
+    check("what was not computed or not read is named", any(e["source"] == "constraints" for e in errs) and any("customer_ask_unanswered" in e["error"] for e in errs))
 
 mrows = [{"service": "mediahub-frontend", "lane": "qa-cn3", "version": "v2.2.121 build176 2026-10-26"},
          {"service": "mediahub-backend", "lane": "qa-cn3", "version": "v2.1.33 build264 2026-10-22"},
@@ -132,4 +132,9 @@ bc = B.bundle_cell({"bundleName": "MediaHub 2.1.15", "createTime": 1792992135152
 check("a prod bundle reads as unconfirmed, and stale only when the lane moved after it",
       bc["text"].startswith("MediaHub 2.1.15 (2026-10-2") and bc["text"].endswith("unconfirmed") and not bc["stale"]
       and B.bundle_cell({"bundleName": "mh2.1@rc-s2-d8", "createTime": 1758600000000}, "token", "2026-10-26 08:08", True)["stale"])
+check("findings carry the morning's rank; a QA build outside the candidate is the lanes table only",
+      B.finding_rank({"kind": "constraint_over"}, set()) == 2
+      and B.finding_rank({"kind": "untested_build_on_lane", "lane": "qa-cn3", "service": "mediahub-frontend"}, set()) is None
+      and B.finding_rank({"kind": "untested_build_on_lane", "lane": "qa-cn3", "service": "mediahub-frontend"}, {"mediahub-frontend"}) == 7
+      and B.finding_rank({"kind": "untested_build_on_lane", "lane": "prod-3", "service": "x"}, set()) == 5)
 sys.exit(1 if failures else 0)
