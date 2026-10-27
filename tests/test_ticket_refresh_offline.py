@@ -16,7 +16,8 @@ def check(name, cond):
 
 
 ctx = {"key": "MH-1", "me": "Owner Name", "qa": {"qa person"}, "devs": {"dev one"}, "assignee": "Dev One", "status": "In Progress",
-       "awaited": {"robin"}, "commit_keys": {"MH-1"}, "qa_pass": None, "fixed_in": None}
+       "awaited": {"robin"}, "commit_keys": {"MH-1"}, "qa_pass": None, "fixed_in": None,
+       "reporter": "", "ledger": {"builds": [], "lanes": set()}}
 ev = lambda field, frm, to, by: {"type": "event", "field": field, "from": frm, "to": to, "by": by}  # noqa: E731
 cm = lambda by, text: {"type": "comment", "by": by, "text": text}  # noqa: E731
 R = lambda c, **kw: T.read_change(c, dict(ctx, **kw))  # noqa: E731
@@ -41,6 +42,21 @@ check("a comment naming the owner is addressed to him", r[3] and not r[2])
 check("his own change is a row, never an item", R(cm("Owner Name", "Asked the team."))[1:4] == ("yours", True, False))
 check("a machine's label edit is no row", R(ev("labels", "", "release:mh-2.1", "Helm Lookout")) is None)
 check("a field that moves with a status is no row", R(ev("resolution", None, "Done", "Dev One")) is None)
+check("7: to QA in Review", R(dict(ev("assignee", "Dev One", "QA Person", "Dev One"), status_at="Review"))[1:3] == ("sure 7: to QA in Review", True))
+check("7: to a developer in In Progress", R(dict(ev("assignee", "", "Dev One", "QA Person"), status_at="In Progress"))[2])
+check("7: back to the reporter on Done", R(dict(ev("assignee", "QA Person", "Reporter Two", "QA Person"), status_at="Done"), reporter="Reporter Two")[2])
+check("an assignment the status does not explain is unsure", not R(dict(ev("assignee", "", "QA Person", "Dev One"), status_at="Backlog"))[2])
+led = {"builds": [{"service": "mediahub-backend", "version": "2.1.76", "build": 280, "lanes": ["qa-cn3"]}], "lanes": {"qa-cn3"}}
+check("8: a developer names a version the ledger confirms", R(cm("Dev One", "Fixed in 2.1.76, deployed to QA."), ledger=led)[1:3]
+      == ("sure 8: 2.1.76 carries the fix, ledger agrees", True))
+check("8: or its build number", R(cm("Dev One", "It is in build 280 now"), ledger=led)[2])
+check("a version the ledger does not hold is unsure", R(cm("Dev One", "Fixed in 2.1.77."), ledger=led)[1]
+      == "unsure: Dev One names 2.1.77, a version not in the ledger")
+check("a fix on QA while the ticket is Backlog disagrees", T.lane_mismatch({"qa-cn3"}, "Backlog") == "fix on QA-AWS3, ticket Backlog")
+check("a fix on prod while In Progress disagrees", T.lane_mismatch({"prod-3"}, "In Progress") == "fix on prod-3, ticket In Progress")
+check("a fix on QA while In Progress agrees", T.lane_mismatch({"qa-cn3"}, "In Progress") is None)
+check("a comment row is its first sentence", T.first_sentence("Done on QA. Next I look at prod.") == "Done on QA."
+      and T.first_sentence("word " * 80).endswith(" …"))
 check("the page names whom it waits on", T.awaited("**Real status.** Waiting on Robin's ruling.\n\n## Next\n\n- **Then Summer**: x\n") == {"robin"})
 
 page = ("# MH-1: t — x\n\n**Real status.** Jira says Review, assigned to yulong. In fact it cannot work.\n\n## Timeline\n\n"

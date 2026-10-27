@@ -159,6 +159,19 @@ last pass is read on two axes, *understood* and *needs his word*:
 6. *The assignee, or a developer on the ticket, comments progress on an In Progress ticket, asking nothing and naming
    no new version* — the work is moving under its owner; without this rule every progress note would be an unsure
    item. A comment with a question, a contradiction or a new ticket link still falls to unsure.
+7. *An assignment consistent with the status*: to QA while Review, to a developer while In Progress or Backlog, or back
+   to the reporter on Done — the ticket is moving along its own path. Two or more reassignments within a day are one
+   unsure row ("reassigned 3 times in a day"): the ticket is looking for its owner. One to the owner stays addressed to him.
+8. *A developer's comment naming a version or build the release ledger confirms carries a commit naming the key* — the
+   fix reached a build, by evidence rather than declaration; the row is also Fixed In evidence for the drafter. A version
+   the ledger does not confirm is unsure ("a version not in the ledger").
+
+**Then one cross-check on every sure row**: the fix's lane against the ticket's status. A fix on a QA lane while the
+ticket is Backlog or To Do, or on prod while it is In Progress, makes the row unsure with that reason ("fix on QA-AWS3,
+ticket Backlog"), because the reason is the first thing he reads.
+
+The reading is written `sure N: <short>` or `unsure: <what could not be placed>`; the owner's own change is `yours`, a
+row and never an item. `ela ticket refresh KEY|--all` applies this list (Jira reads only).
 
 **Everything else is unsure**, for example:
 - a reopen — the fix failed somewhere ela has not read;

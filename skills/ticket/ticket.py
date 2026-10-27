@@ -26,7 +26,7 @@ import jira as J  # noqa: E402  — a comment's rich text as plain text
 FIXEDIN = os.path.join(HERE, "..", "fixedin", "fixedin.py")
 ROUTED_DAYS = 14
 COMMIT_DAYS = 60                                       # a branch naming the key, for rule 1
-VERSION_RX = re.compile(r"\b\d+\.\d+\.\d+(?:\.\d+)?(?:[-+]\w+)?\b")
+VERSION_RX = re.compile(r"(?<![\w.])v?(\d+\.\d+\.\d+(?:\.\d+)?)(?:[-+]\w+)?(?!\w|\.\d)")   # 2.2.121, v2.1.76
 VERDICT_RX = re.compile(r"\b(pass(?:ed)?|fail(?:ed)?|verified|not fixed)\b|\u901a\u8fc7|\u5df2\u4fee\u590d|\u672a\u4fee\u590d|\u5931\u8d25", re.I)
 FAIL_RX = re.compile(r"\bfail(?:ed)?\b|\bnot fixed\b|\u672a\u4fee\u590d|\u5931\u8d25", re.I)
 REVIEW = ("review", "in review")
@@ -102,6 +102,82 @@ def awaited(page_text):
     return {n.lower() for n in names if n.lower() not in ("the", "him", "her", "them", "you", "qa")}
 
 
+def ledger(runtime, key):
+    """What the release ledger says about the key: the builds whose commits name it ({service, version, build, lanes})
+    and every lane a commit naming it reached, from the daily `ela changes` files."""
+    builds, lanes = [], set()
+    for f in sorted(glob.glob(os.path.join(runtime, "runner", "*-changes.json"))):
+        try:
+            d = json.load(open(f, encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        shas = set()
+        for repo in (d.get("code") or {}).get("repos") or []:
+            for t in repo.get("tickets") or []:
+                if t.get("key") == key:
+                    for c in t.get("commits") or []:
+                        shas.add(c["sha"][:8]); lanes.update(c.get("lanes") or [])
+        for b in d.get("builds") or []:
+            if any(str(c)[:8] in shas for c in b.get("commits") or []):
+                builds.append({"service": b.get("service"), "version": str(b.get("version") or ""), "build": b.get("build"),
+                               "lanes": b.get("deployed_to") or []})
+                lanes.update(b.get("deployed_to") or [])
+    return {"builds": builds, "lanes": lanes}
+
+
+def drafted_builds(e, key, gaps):
+    """The carrying builds the Fixed In drafter reads from Jenkins (`svc@2.1.76+366`), as ledger rows: asked only when
+    a developer names a version the daily ledger does not hold, since it costs seconds per ticket."""
+    try:
+        got = B.run_json(["python3", FIXEDIN, *e, "draft", key, "--json"], timeout=300)["keys"]
+    except (B.LaneError, subprocess.TimeoutExpired, ValueError) as x:
+        gaps.append({"source": f"fixedin {key}", "error": str(x)[:200]}); return []
+    out = []
+    for d in (got[0].get("draft") or []) if got else []:
+        m = re.match(r"^([\w-]+)@v?([\d.]+)(?:\+(\d+))?", d.get("value") or "")
+        if m:
+            out.append({"service": m.group(1), "version": m.group(2), "build": int(m.group(3)) if m.group(3) else None, "lanes": []})
+    return out
+
+
+LANE_RX = re.compile(r"\b(qa-[a-z0-9]+|prod-\d+|daily-[a-z0-9-]+|stage)\b", re.I)
+
+
+def lanes_named(text):
+    """Lanes a comment names, by id or by the name the team uses (QA-AWS3)."""
+    shown = {v.lower(): k for k, v in B.LANE_SHOWN.items()}
+    return {shown.get(m.lower(), m.lower()) for m in LANE_RX.findall(text or "")} | \
+           {k for v, k in shown.items() if re.search(r"\b" + re.escape(v) + r"\b", text or "", re.I)}
+
+
+def carrying(text, led):
+    """The ledger build a comment names by version or build number, or None."""
+    named = set(VERSION_RX.findall(text))
+    for b in led["builds"]:
+        if b["version"] in named or (b.get("build") and re.search(rf"(?:build|#)\s*{b['build']}\b", text, re.I)):
+            return b
+    return None
+
+
+def lane_mismatch(lanes, status):
+    """A fix on a QA lane while the ticket is Backlog or To Do, or on prod while In Progress: the ticket's status and
+    where its code runs disagree, and that is the reason he reads first."""
+    st = (status or "").lower()
+    qa = sorted(l for l in lanes if l.startswith("qa"))
+    prod = sorted(l for l in lanes if l.startswith("prod"))
+    if qa and st in ("backlog", "to do"):
+        return f"fix on {B.LANE_SHOWN.get(qa[0], qa[0])}, ticket {status}"
+    if prod and st == "in progress":
+        return f"fix on {prod[0]}, ticket {status}"
+    return None
+
+
+def first_sentence(text, limit=200):
+    m = re.match(r"(.+?[.!?\u3002\uff01\uff1f])(?:\s|$)", text)
+    s = m.group(1) if m else text
+    return s if len(s) <= limit else s[:limit].rsplit(" ", 1)[0] + " …"
+
+
 def addressed(text, me):
     """A comment naming the owner (display name, first name or an @-mention of either)."""
     if not me or not text:
@@ -119,13 +195,18 @@ def read_change(ch, ctx):
         if machine:
             return None
         to_me = addressed(text, me) or (ctx["assignee"] == me and "?" in text)
-        what = f"{who}: {text[:140]}"
+        what = f"{who}: {first_sentence(text)}"
         if who == me:
             return what, "yours", True, False
         version, verdict = VERSION_RX.search(text), VERDICT_RX.search(text)
         if who.lower() in ctx["qa"] and version and verdict:
             word = "fail" if FAIL_RX.search(text) else "pass"
-            return what, f"sure 2: QA {word} on {version.group(0)}", True, to_me
+            return what, f"sure 2: QA {word} on {version.group(1)}", True, to_me
+        if version and who.lower() not in ctx["qa"] and (who == ctx["assignee"] or who.lower() in ctx["devs"]):
+            b = carrying(text, ctx["ledger"])
+            if b:
+                return what, f"sure 8: {b['version']} carries the fix, ledger agrees", True, to_me
+            return what, f"unsure: {who} names {version.group(1)}, a version not in the ledger", False, to_me
         asks, new_link = "?" in text or "\uff1f" in text, [k for k in B.keys_in(text) if k != ctx["key"]]
         if first(who) in ctx["awaited"] and not asks and not new_link:
             return what, f"sure 4: answer from {who}", True, to_me
@@ -155,7 +236,16 @@ def read_change(ch, ctx):
             return what, "unsure: Review with no commit naming the key", False, False
         return what, f"unsure: {frm} → {to}, no rule covers it", False, False
     if field == "assignee":
-        return what, f"unsure: reassigned to {to}", False, to == me
+        st, tl = (ch.get("status_at") or ctx["status"]).lower(), to.lower()
+        if to == me:
+            return what, "unsure: reassigned to you", False, True
+        if tl in ctx["qa"] and st in REVIEW:
+            return what, "sure 7: to QA in Review", True, False
+        if tl in ctx["devs"] and tl not in ctx["qa"] and st in ("in progress", "backlog"):
+            return what, f"sure 7: to a developer in {ch.get('status_at') or ctx['status']}", True, False
+        if to == ctx.get("reporter") and st in DONE:
+            return what, "sure 7: back to the reporter on Done", True, False
+        return what, f"unsure: reassigned to {to}", False, False
     if field == "Fixed In":
         if ctx["fixed_in"] == "same":
             return what, f"sure 3: Fixed In {to} is the carrying build", True, False
@@ -244,7 +334,7 @@ def qa_pass(comments, qa):
         who = c.get("by") if "by" in c else J.name_of(c.get("author"))
         v = VERSION_RX.search(text or "")
         if who.lower() in qa and v and VERDICT_RX.search(text) and not FAIL_RX.search(text):
-            found = v.group(0)
+            found = v.group(1)
         elif who.lower() in qa and v and FAIL_RX.search(text or ""):
             found = None
     return found
@@ -322,21 +412,49 @@ def refresh(keys, site, e, me, dry_run=False, now=None):
             except (B.LaneError, subprocess.TimeoutExpired, ValueError, IndexError) as x:
                 gaps.append({"source": f"fixedin {k}", "error": str(x)[:200]})
         page_text = open(page_of[k], encoding="utf-8").read() if k in page_of else ""
+        status_now = name(f.get("status"), "name") or ""
+        running = next((c.get("from") for c in chs if c.get("field") == "status"), None) or status_now
+        for c in chs:                                       # the status each change happened under
+            later = [x for x in chs if x.get("field") == "status" and x["at_dt"] <= c["at_dt"]]
+            c["status_at"] = later[-1].get("to") if later else running
+        led = ledger(site.get("runtime") or os.path.join(site.get("projects", ""), ".ela"), k)
+        named = [c for c in chs if c["type"] == "comment" and VERSION_RX.search(c.get("text") or "")]
+        if any(not carrying(c["text"], led) for c in named):
+            led["builds"] += drafted_builds(e, k, gaps)
+        for c in named:                                     # where a developer says the fix runs, for the cross-check
+            led["lanes"] |= lanes_named(c["text"])
         ctx = {"key": k, "me": me, "qa": qa, "devs": devs, "assignee": name(f.get("assignee")) or "",
+               "reporter": name(f.get("reporter")) or "", "ledger": led,
                "status": name(f.get("status"), "name") or "", "awaited": awaited(page_text),
                "commit_keys": commit_keys or set(), "qa_pass": qa_pass(issue.get("comments") or [], qa), "fixed_in": fixed}
         pc = prod_or_customer(k, f)
-        trows = []
+        mismatch = lane_mismatch(led["lanes"], ctx["status"])
+        read = []
         for c in chs:
             got = read_change(c, ctx)
-            if not got:
-                continue
-            change, reading, sure, to_me = got
+            if got:
+                read.append((c, *got))
+        # two or more reassignments in one day are one unsure row: the ticket is looking for its owner
+        moves = [r for r in read if r[0].get("field") == "assignee" and r[0].get("by") != me and r[0].get("to") != me]
+        while moves:
+            same = [r for r in moves if r[0]["at_dt"] - moves[0][0]["at_dt"] < datetime.timedelta(hours=24)]
+            moves = moves[len(same):]
+            if len(same) > 1:
+                chain = " → ".join([same[0][0].get("from") or "—"] + [r[0].get("to") or "—" for r in same])
+                keep = read.index(same[0])
+                read = [r for r in read if r not in same[1:]]
+                read[keep] = (same[0][0], f"assignee: {chain}", f"unsure: reassigned {len(same)} times in a day", False, False)
+        trows = []
+        for c, change, reading, sure, to_me in read:
+            if mismatch and reading != "yours" and (sure or reading.endswith(("no rule places it", "no rule covers it"))):
+                reading, sure = f"unsure: {mismatch}", False
             src = "comment" if c["type"] == "comment" else "changelog"
             trows.append({"date": c["at_dt"].astimezone().strftime("%m-%d"), "change": change, "source": src,
                           "reading": reading, "sure": sure})
+            ev = re.match(r"sure 8: (\S+) carries", reading)
             findings.append({"key": k, "change": change, "reading": reading, "sure": sure, "addressed_to_owner": to_me,
-                             "prod_or_customer": pc, "at": c["at"], "by": c.get("by"), "page": page_of.get(k)})
+                             "prod_or_customer": pc, "at": c["at"], "by": c.get("by"), "page": page_of.get(k),
+                             "fixed_in_evidence": ev.group(1) if ev else None})
         rec.update(rows=len(trows), unsure=sum(not r["sure"] for r in trows), status=ctx["status"], assignee=ctx["assignee"])
         if k in page_of and not dry_run:
             facts = f"Jira says {ctx['status']}, assigned to {ctx['assignee'] or 'nobody'}."
