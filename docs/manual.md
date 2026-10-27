@@ -63,6 +63,7 @@ flowchart LR
 | QA 日报 / 测试报告贴出来了，要知道哪些跟你有关 | `digest` | 把 Slack 永久链接贴给 ela |
 | 有人甩来一个 graph id / process id / object id | `graph` · `object` | `ela 01M1GD1F…` · `ela <32位十六进制>` · `ela <19位数字>` |
 | 「这个修复上 daily 了吗」「prod-3 是什么版本」 | `release` | `ela versions` · `ela bundles` · `ela builds <job>` · `ela drift` |
+| 从一个 bundle 出发建新 bundle（只建，绝不删）：先看和底版的差异、自动写的说明、各 lane 版本顺序（QA ≥ daily ≥ prod）的警告，我同意后再建，建完按名字读回核对 | `release` | `ela release create --from mh2.1@daily-wed-s1-d45 --set "Docker Encoder=1.0.56"` · 加 `--apply` 才建 |
 | 两个 bundle 之间 docker service 变了什么 | `release` | `ela bundle-diff <A> <B>` |
 | QA 要推 daily、daily 要上 prod | `promote` | `ela promote 2.1 qa daily` |
 | 这票的 Fixed In 该填什么，证据在哪；确认后写进去 | `fixedin` · `jira` | `ela fixed-in MH-xxxx` → `ela jira fixed-in MH-xxxx --add '<slug>@<version>; …'`（dry run，你说了再 `--apply`；只追加） |

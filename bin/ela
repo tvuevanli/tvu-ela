@@ -68,6 +68,9 @@
   ela versions [service]           versions per env (userservice)
   ela builds <job|service>         Jenkins builds: version, branch, sha
   ela drift                        newest bundle's GM names vs services.yaml
+  ela release create [name] --from <base> --set "<svc>=<tag>" [--drop svc] [--note "why"] [--apply]
+                                   a new GM bundle on prod from a base: the diff, a description written from it,
+                                   the lane order (QA ≥ daily ≥ prod); --apply posts and reads it back. Never deletes
   ela release pin <line> <bundle>  the line's official prod bundle, pinned in elak; dry run unless --apply,
                                    which writes it and commits that one file (ADR 0012) · ela release pins
   ela promote <line> <from> <to>   the promotion assessment, ranked

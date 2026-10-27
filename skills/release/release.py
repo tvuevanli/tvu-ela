@@ -309,6 +309,22 @@ def _need_login(kind, why):
     print(f"{kind} session {why} — run: ela login {kind}", file=sys.stderr); sys.exit(EX_AUTH)
 
 
+# ela creates bundles and writes nothing else to userservice: no delete, update or bind. The reads POST too
+# (/tagBundle/page), so the guard is by path, never by method.
+WRITE_PATHS = {"/userGroup/user-group/tagBundle/create"}
+WRITE_RX = re.compile(r"delete|remove|update|edit|modify|save|batch|bind|apply|switch|create", re.I)
+
+
+def write_refused(path, kind):
+    """Why a userservice call may not go out, or None: a write path outside the allowlist, or a create off prod."""
+    bare = path.split("?", 1)[0]
+    if WRITE_RX.search(bare) and bare not in WRITE_PATHS:
+        return f"{bare} is a write ela does not make (the only write is {', '.join(sorted(WRITE_PATHS))})"
+    if bare in WRITE_PATHS and kind != "prod":
+        return f"{bare} is made on the prod host only (daily, rc and official bundles live there)"
+    return None
+
+
 class US:
     """userservice on one host. qa: account login, renewed by the script. prod: the person's session or nothing."""
     def __init__(self, env_file, host="qa"):
@@ -325,6 +341,9 @@ class US:
             self.sid = env_value("TVUTEST_SID", env_file) or tvutest_login(env_file, self.host)
 
     def call(self, path, payload=None):
+        why = write_refused(path, self.kind)
+        if why:
+            print(f"userservice: refused: {why}", file=sys.stderr); sys.exit(EX_USAGE)
         st, body = http(self.host + path, payload, cookie=f"SID={self.sid}")
         if _auth_failed(st, body):
             if self.kind == "prod":
@@ -727,6 +746,197 @@ def cmd_bundle_diff(a):
         print("why — suggested searches (printed, not run):"); [print("  " + s) for s in searches]
 
 
+# ── create: a new bundle from a base, one service at a time ─────────────────
+
+def name_rules(line):
+    """The closed set of bundle names the owner uses for a line (map release.yaml bundle_names; Helm's bundle
+    management note): (class, regex). Temporary and unpublished bundles have no form yet and are refused."""
+    ln = re.escape(line.rstrip("@"))
+    return [("daily", re.compile(rf"^{ln}@daily-[a-z]+-s\d+-d\d+$")), ("daily", re.compile(rf"^{ln}@stage-s\d+-d\d+$")),
+            ("prod", re.compile(rf"^{ln}@(?:rc|beta|ga)-s\d+-d\d+$")),
+            ("official", re.compile(r"^MediaHub \d+\.\d+\.\d+(?: \([^()]+\))?$")), ("official", re.compile(r"^MediaHub \d+\.\d+ rc\d+$"))]
+
+
+def name_class(name, line):
+    return next((c for c, rx in name_rules(line) if rx.match(name)), None)
+
+
+def next_name(base):
+    """The base's successor: d45 → d46, MediaHub 2.1.15 → 2.1.16 (its qualifier dropped), MediaHub 2.0 rc11 → rc12."""
+    m = re.match(r"^(.*-d)(\d+)$", base)
+    if m:
+        return f"{m.group(1)}{int(m.group(2)) + 1}"
+    m = re.match(r"^MediaHub (\d+\.\d+)\.(\d+)", base)
+    if m:
+        return f"MediaHub {m.group(1)}.{int(m.group(2)) + 1}"
+    m = re.match(r"^MediaHub (\d+\.\d+) rc(\d+)$", base)
+    return f"MediaHub {m.group(1)} rc{int(m.group(2)) + 1}" if m else None
+
+
+def match_tag(tags, want):
+    """The one tag of a service whose name is `want`, else the one carrying it as a whole token; (tag, nearest)."""
+    exact = [t for t in tags if str(t.get("tagName") or "").strip() == want]
+    if len(exact) == 1:
+        return exact[0], []
+    token = [t for t in tags if re.search(r"(?<![\w.])" + re.escape(want) + r"(?![\w.])", str(t.get("tagName") or ""))]
+    if len(token) == 1 and not exact:
+        return token[0], []
+    if exact or token:                                     # more than one: the candidates are the answer
+        return None, [str(t.get("tagName")) for t in exact or token]
+    pw = parse_version(want)
+
+    def gap(n):
+        pn = parse_version(n)
+        if not pw or not pn or pn[:2] != pw[:2]:
+            return (1, 0, 0, n)
+        return (0, abs(pn[2] - pw[2]), abs(pn[3] - pw[3]) + abs(pn[4] - pw[4]), n)
+    return None, sorted({str(t.get("tagName")) for t in tags}, key=gap)[:6]
+
+
+def describe(changed, added, removed):
+    """The bundle's description from its own diff: what this upgrade changed, so it cannot be carried over wrong."""
+    parts = [f"{r['service']} {r['from']} → {r['to']}" for r in changed] + [f"add {r['service']} {r['version']}" for r in added] + \
+            [f"drop {r['service']}" for r in removed]
+    return "; ".join(parts) or "no change from the base"
+
+
+def order_warnings(rows, cls, neighbours):
+    """Versions run QA ≥ daily ≥ prod. For each service of the new bundle, the lane above it and below it: a version
+    under the lane above or over the lane below is a warning (a rollback or a special bundle can be meant). A pair that
+    does not parse, or sits in another series (M.m), is undetermined, never an inversion."""
+    out, undetermined = [], 0
+    above, below = {"daily": ("qa", "prod"), "prod": ("daily", None), "official": ("daily", None)}.get(cls, (None, None))
+    for svc, v in sorted(rows.items()):
+        pv = parse_version(v)
+        for role, want in ((above, "≤"), (below, "≥")):
+            if not role or svc not in (neighbours.get(role) or {}):
+                continue
+            ov = neighbours[role][svc]
+            po = parse_version(ov)
+            if not pv or not po or pv[:2] != po[:2]:
+                undetermined += v != ov                    # equal strings need no order
+                continue
+            if (want == "≤" and pv > po) or (want == "≥" and pv < po):
+                out.append({"service": svc, "version": v, "lane": role, "lane_version": ov,
+                            "says": f"{svc} {v} is {'above' if want == '≤' else 'below'} {role} {ov}"})
+    return out, undetermined
+
+
+def neighbour_maps(env_file, line, cls):
+    """{role: {gm name: version}} for the lanes either side of a bundle class: QA's newest bundle (qa host), daily's
+    newest on the line's daily token, prod's pinned official (else the newest MediaHub <line>.N)."""
+    cfg = (rmap("lines") or {}).get(line.replace("mh", "").rstrip("@")) or {}
+    toks, out = cfg.get("bundle_lanes") or {}, {}
+    want = {"daily": ("qa", "prod"), "prod": ("daily",), "official": ("daily",)}.get(cls, ())
+    for role in want:
+        try:
+            if role == "prod":
+                us = US(env_file, "prod")
+                pin = read_pins().get(line.replace("mh", "").rstrip("@")) or {}
+                rows = bundle_list(us, "MediaHub", 50)
+                b = next((x for x in rows if pin and str(x.get("bundleId")) == str(pin.get("id"))), None) or \
+                    max((x for x in rows if re.match(r"^MediaHub " + re.escape(line.replace("mh", "").rstrip("@")) + r"\.\d+", str(x.get("bundleName")))),
+                        key=lambda x: str(x.get("createTime") or ""), default=None)
+            else:
+                us = US(env_file, "qa" if role == "qa" else "prod")
+                pre = line + toks.get(role, role)
+                rows = [x for x in bundle_list(us, pre, 50) if str(x.get("bundleName") or "").startswith(pre)]
+                b = max(rows, key=lambda x: str(x.get("createTime") or ""), default=None)
+            out[role] = {"bundle": b.get("bundleName"), "map": bundle_map(us, b["bundleId"])} if b else None
+        except SystemExit:
+            out[role] = None
+    return out
+
+
+def cmd_create(a):
+    """A new bundle on prod from a base: the base's services and tags, each --set resolved to exactly one tag of
+    that service, each --drop removed. Dry run by default: the diff, the description it writes and the lane order.
+    --apply posts it, then reads it back by name and checks every service and tag."""
+    us = US(a.env_file, "prod")
+    bid, base, _ = resolve_bundle_loose(us, a.base)
+    line = base.split("@")[0] + "@" if "@" in base else "mh" + (re.search(r"(\d+\.\d+)", base) or [None, ""])[1] + "@"
+    name = a.name or next_name(base)
+    cls = name_class(name or "", line)
+    if not cls:
+        print(f"create: {name!r} is not a bundle name the owner uses (daily-<day>-sN-dM, stage-sN-dM, rc|beta|ga-sN-dM, "
+              "MediaHub M.m.N, MediaHub M.m rcN); temporary bundles have no name form yet", file=sys.stderr); sys.exit(EX_USAGE)
+    if any(str(b.get("bundleName")) == name for b in bundle_list(us, name, 50)):
+        print(f"create: {name!r} already exists on prod; ela never replaces a bundle", file=sys.stderr); sys.exit(EX_USAGE)
+    rows = {str(i.get("serviceName") or "").strip(): i for i in bundle_detail(us, bid).get("serviceTagList") or []}
+    by_slug = {v: k for k, v in _gm_slugs().items()}
+    want = {k: {"serviceId": r.get("serviceId"), "tagId": r.get("tagId"), "tagName": r.get("tagName")} for k, r in rows.items()}
+    services = None
+    for d in a.drop or []:
+        gm = by_slug.get(d, d)
+        if gm not in want:
+            print(f"create: --drop {d}: not in {base}", file=sys.stderr); sys.exit(EX_NOTFOUND)
+        del want[gm]
+    for s_ in a.set or []:
+        svc, _, ver = s_.partition("=")
+        gm = by_slug.get(svc.strip(), svc.strip())
+        sid = (rows.get(gm) or {}).get("serviceId")
+        if not sid:                                        # a service the base does not carry: from the service list
+            services = services or ((us.call("/userGroup/user-group/service/list?showInternalFlag=true") or {}).get("result") or [])
+            hit = [x for x in services if str(x.get("serviceName") or "").strip().lower() == gm.lower()]
+            if len(hit) != 1:
+                print(f"create: --set {svc}: {'no' if not hit else len(hit)} GM service named {gm!r}", file=sys.stderr); sys.exit(EX_NOTFOUND)
+            gm, sid = str(hit[0]["serviceName"]).strip(), hit[0]["serviceId"]
+        tags = (us.call(f"/userGroup/user-group/tag/getTagVersionList?serviceId={urllib.parse.quote(str(sid))}") or {}).get("result") or []
+        tag, near = match_tag(tags, ver.strip())
+        if not tag:
+            print(f"create: --set {svc}={ver}: not exactly one tag of {gm}; nearest: {', '.join(near) or '—'}", file=sys.stderr); sys.exit(EX_NOTFOUND)
+        want[gm] = {"serviceId": sid, "tagId": tag.get("id"), "tagName": str(tag.get("tagName"))}
+    old = {k: str(r.get("tagName") or "") for k, r in rows.items()}
+    new = {k: str(v["tagName"] or "") for k, v in want.items()}
+    changed = [{"service": k, "from": old[k], "to": new[k]} for k in sorted(set(old) & set(new)) if old[k] != new[k]]
+    added = [{"service": k, "version": new[k]} for k in sorted(set(new) - set(old))]
+    removed = [{"service": k, "version": old[k]} for k in sorted(set(old) - set(new))]
+    auto = describe(changed, added, removed)
+    desc = (a.note.strip() + " — " + auto) if a.note else auto
+    nb = neighbour_maps(a.env_file, line, cls)
+    warns, undetermined = order_warnings(new, cls, {r: (v or {}).get("map") or {} for r, v in nb.items()})
+    payload = {"bundleName": name, "description": desc,
+               "serviceTagList": [{"serviceId": v["serviceId"], "tagId": v["tagId"]} for _, v in sorted(want.items())]}
+    res = {"name": name, "class": cls, "base": base, "services": len(want), "description": desc, "added": added, "removed": removed,
+           "changed": changed, "order": warns, "undetermined": undetermined,
+           "neighbours": {r: (v or {}).get("bundle") for r, v in nb.items()}, "applied": False}
+    if a.apply:
+        us.call("/userGroup/user-group/tagBundle/create", payload)
+        hit = resolve_bundle(us, name, missing_ok=True)
+        got = {(str(i.get("serviceId")), str(i.get("tagId"))) for i in (bundle_detail(us, hit[0]).get("serviceTagList") or [])} if hit else set()
+        meant = {(str(x["serviceId"]), str(x["tagId"])) for x in payload["serviceTagList"]}
+        res.update(applied=True, id=hit[0] if hit else None, verified=got == meant,
+                   missing=len(meant - got), extra=len(got - meant))
+    if a.json:
+        print(json.dumps(res, ensure_ascii=False))
+    else:
+        print(f"# {'created' if a.apply else 'dry run'}: {name} ({cls}) from {base} — {len(want)} service(s)")
+        print(f"description: {desc}")
+        for r in changed:
+            print(f"  changed  {r['service']:<40} {r['from']} → {r['to']}")
+        for r in added:
+            print(f"  added    {r['service']:<40} {r['version']}")
+        for r in removed:
+            print(f"  dropped  {r['service']:<40} {r['version']}")
+        groups = {}
+        for w in warns:                                     # one line per version pair: eleven decoders share one tag
+            groups.setdefault((w["version"], w["lane"], w["lane_version"], "above" if "above" in w["says"] else "below"), []).append(w["service"])
+        for (v, lane, lv, side), svcs in sorted(groups.items(), key=lambda kv: -len(kv[1])):
+            who = svcs[0] if len(svcs) == 1 else f"{len(svcs)} services ({', '.join(svcs[:3])}{', …' if len(svcs) > 3 else ''})"
+            print(f"  ! order  {who} {v} is {side} {lane} {lv}")
+        if warns:
+            print("           versions run QA ≥ daily ≥ prod; if this is meant (a rollback, a special bundle), say why in --note")
+        print(f"  lanes compared: " + ", ".join(f"{r} {b or 'not read'}" for r, b in res["neighbours"].items())
+              + (f" · {undetermined} pair(s) undetermined (another series or no version)" if undetermined else ""))
+        if a.apply:
+            print(f"  read back: id {res['id']} · " + ("every service and tag as meant" if res["verified"] else
+                  f"DIFFERS: {res['missing']} missing, {res['extra']} extra"))
+        else:
+            print("  nothing was created; add --apply on the owner's word")
+    if a.apply and not res["verified"]:
+        sys.exit(EX_REMOTE)
+
+
 # ── env versions ──────────────────────────────────────────────────────────────
 
 def lane_versions(us, want=None):
@@ -866,6 +1076,13 @@ def main():
     for side in ("a", "b"): p.add_argument(f"--host-{side}", choices=("qa", "prod"), default="qa", help=f"host bundle {side.upper()} is read from (default qa)")
     p.add_argument("--json", action="store_true")
     p = sub.add_parser("envs"); p.add_argument("service", nargs="?"); host_arg(p); p.add_argument("--json", action="store_true")
+    p = sub.add_parser("create", help="a new bundle on prod from a base bundle, services changed one by one; dry run unless --apply; never deletes")
+    p.add_argument("name", nargs="?", help="the new bundle's name; default the base's next (d45 → d46, MediaHub 2.1.15 → 2.1.16)")
+    p.add_argument("--from", dest="base", required=True, help="the base bundle: name, id or prefix")
+    p.add_argument("--set", action="append", help="'<GM name or slug>=<tag name or version>', repeatable; must match exactly one tag")
+    p.add_argument("--drop", action="append", help="a service the new bundle leaves out (GM name or slug), repeatable")
+    p.add_argument("--note", help="why this bundle exists; written before the change list in its description")
+    p.add_argument("--apply", action="store_true"); p.add_argument("--json", action="store_true")
     p = sub.add_parser("pin", help="pin a line's official prod bundle in elak; dry run unless --apply (ADR 0012)"); p.add_argument("line"); p.add_argument("bundle", help="name (MediaHub 2.1.15), number (2.1.15) or id"); p.add_argument("--apply", action="store_true")
     p = sub.add_parser("pins", help="the official bundle per line, as pinned"); p.add_argument("--json", action="store_true")
     p = sub.add_parser("builds"); p.add_argument("job"); p.add_argument("--limit", type=int, default=15); p.add_argument("--json", action="store_true")
@@ -873,7 +1090,8 @@ def main():
     p = sub.add_parser("login"); p.add_argument("target", nargs="?", choices=("qa", "tvu"), default="qa"); p.add_argument("--force", action="store_true"); p.add_argument("--no-browser", action="store_true"); p.add_argument("--timeout", type=int, default=300); p.add_argument("--json", action="store_true")
     p.add_argument("--keepalive", action="store_true", help="tvu: one validation call that renews the session's idle TTL; never logs in, never retries")
     a = ap.parse_args()
-    {"bundles": cmd_bundles, "bundle": cmd_bundle, "bundle-diff": cmd_bundle_diff, "envs": cmd_envs, "builds": cmd_builds, "drift": cmd_drift, "login": cmd_login, "pin": cmd_pin, "pins": cmd_pins}[a.cmd](a)
+    {"bundles": cmd_bundles, "bundle": cmd_bundle, "bundle-diff": cmd_bundle_diff, "envs": cmd_envs, "builds": cmd_builds, "drift": cmd_drift, "login": cmd_login, "pin": cmd_pin, "pins": cmd_pins,
+     "create": cmd_create}[a.cmd](a)
 
 
 if __name__ == "__main__":

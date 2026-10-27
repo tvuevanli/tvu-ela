@@ -52,6 +52,18 @@ lanes each release line uses — all in `<elak>/map/release.yaml` (origin per bl
   build carrying it (`builds`) → the version on the lane (`envs --host prod`), whose +BUILD names the lane's own
   build → whether that build's sha descends from the fix commit → verdict, each step cited. A higher version is
   not containment: one job builds several branches (release.yaml trains), so `ela fixed-in` judges by ancestry.
+- **One write: create a bundle, never anything else.** `$R create [name] --from <base> --set "<GM name or slug>=<tag>"
+  … [--drop <svc>] [--note "why"] [--apply]` makes a new bundle on prod from a base: every `--set` resolves to exactly
+  one tag of that service (else exit 3 with the nearest tags), the name must be one the owner uses (daily-<day>-sN-dM,
+  stage-sN-dM, rc|beta|ga-sN-dM, MediaHub M.m.N, MediaHub M.m rcN; default the base's next) and must not exist, and the
+  description is written from the diff, `--note` first, because the description is the record of that upgrade. The dry
+  run prints the diff, the description and the lane order (QA ≥ daily ≥ prod, a warning per pair, an undetermined pair
+  never called an inversion); `--apply` on the owner's word posts it and reads it back by name, every service and tag.
+  `US.call` refuses any write path but `tagBundle/create` (delete, update, bind, …) by path, since reads POST too, and
+  create off prod. Temporary or never-published bundles have no name form yet; they stay in the GM UI until the owner
+  names one.
+- **Prod's bundle is the official one.** The owner keeps `MediaHub <line>.N` current and pins it (`$R pin`, ADR 0012);
+  an rc bundle is a special-purpose bundle, not a lane (owner's ruling, 2026-10-27).
 - **Names are three things.** `slug` (Evan's convention), `gm_name` (what GM registers), `service_id`.
   `drift` compares GM names; a difference is either a new service or a stale table row — say which.
 
