@@ -235,11 +235,59 @@ for a thread that needs a ticket, a Fixed In to correct) is an item under *Needs
 Changes page drafts nothing.
 
 ## 3 — rank and write
-Order: a standing pin over (§0) → triage OVERDUE → waiting (product / QA / partner, > 1 day) → cadence RED → incidents
-(customer spoke last, or created inside 48h) → reports → breakdown → cadence YELLOW → incidents
-(oldest cluster) → monologues → decisions → a standing constraint that lapsed (§0) → Evan's own tickets → backlog. Within a lane, oldest
-first. `backlog` is always last and always three rows: it is the only lane that may be skipped
-outright on a busy day. Then:
+
+**One list of what needs his word, merged by key.** The items under *Needs you* come from five sources, read as
+facts and never re-derived: this skill's own lanes (§1, §2); the findings of `ela changes --json`
+(`<runtime>/runner/<date>-changes.json`, `findings[]`, each with its `rank`); the waiting lane (`ela brief --json`,
+`lanes.waiting`, the F items); the vault notes waiting for his `next` (Home's waiting table, `ela vault guidance`);
+and the sprint items at risk or off (§0). A key that comes from several sources is **one item**. Its facts line
+takes the most first-hand status: QA's verdict, then the version on the lane, then the Jira status. Its action is
+the single strongest one: a drafted write, then a decision, then a reply, then a nudge. At most eight items; the
+rest are rows in the tables below. The sources overlap by key (one ticket can be a finding, a waiting row and a
+sprint row at once), and merging them is ela's work, not the reader's.
+
+**Each item has one class and one action form**, so the owner knows what a tick does before reading the item:
+
+| class | when | the action line |
+|---|---|---|
+| A | a write ela drafted and he approves | `- [ ] apply N — what it writes` |
+| B | a note waits for his ruling | its `next` choices, named |
+| C | someone waits on him | `- [ ] draft the reply to <who> in <where>`; he sends it |
+| D | a decision only he can make | one `- [ ] <option>` per option, the recommended first |
+| F | he waits on someone, past the threshold | the nudge drafted as `apply N` (§F) |
+
+His own work is a sprint row, never an item.
+
+**Order.**
+1. Findings by their `rank`, 1 to 9: a hold asked from outside the company on a prod change; a standing pin over;
+   a cell of the pending promotion awaiting his choice; a customer ask unanswered; a prod fix without a ticket or a
+   prod build no QA report names; a hold asked by a colleague; then, only for services in this week's prod
+   candidate, a QA build untested or moved after the run; then a change without a ticket on the way to prod.
+   A finding with no `rank` is not an item: it shows in the lanes table only (○ and ▲), because QA lanes move
+   several times a day.
+2. Sprint items at risk or off (D).
+3. Triage overdue.
+4. Class A.
+5. Class C inside the company.
+6. Class F, the longest silence first.
+7. Class B.
+8. Then the lanes' own order: cadence RED → incidents (customer spoke last, or created inside 48h) → reports →
+   breakdown → cadence YELLOW → incidents (oldest cluster) → monologues → decisions → a standing constraint that
+   lapsed (§0) → backlog. Within a lane, oldest first. `backlog` is always last and always three rows: it is the only
+   lane that may be skipped outright on a busy day.
+
+**§F — a nudge when he waits.** A waiting row whose `due` is true (two working days silent for a ticket he routed,
+three for anything else) is an F item: the facts line says who it waits on and since when, and the action is the
+nudge drafted as `apply N` — `ela slack post` in the thread or `ela jira comment` on the ticket, in English, the
+person named by role in the text and mentioned for him to retype. A row not yet due is not on the page. **Review is
+never read as verified:** Review is the team's "on QA, waiting for QA" state, so a ticket in Review whose QA
+assignee has been silent past the threshold is an F item for QA (2026-10-26: MH-3808, MH-3821 and MH-3825 sat in
+Review, moved there by their developers, with Fixed In set by Helm Lookout and no QA verdict yet).
+
+**One place per day.** An item appears once. A key inside a lanes-table cell or a Changes page callout is evidence,
+not an appearance.
+
+Then:
 
 ```
 # Morning brief · Fri 2026-10-23
@@ -267,9 +315,18 @@ MH-3745 · Search's recording blocks MediaHub's SRT receiver · Gabriel Liu (orc
 - Customer YouTube output loses audio · support holds it · the capture card reads audio at 0, so the
   customer's SDI source is the lead; nothing in MediaHub so far
 
+## The lanes this morning
+
+| | prod-3 | daily-wed | QA-AWS3 |
+|---|---|---|---|
+| media bundle | MediaHub 2.1.15 (2026-10-26) unconfirmed | mh2.1@daily-wed-s1-d44 (2026-10-26) | mh2.1@qa-q26 (2026-10-22) (list stale) |
+| mediahub-frontend | 2.2.116+171 ○ | 2.2.116+171 ○ | ▲ 2.2.121+176 (was 2.2.119+174) ○ |
+
+*3 more the same on every lane: …*
+
 ## Sprint
 
-Day 5 of 10 · ends Fri 6 Nov · 1 of 9 at risk
+Sprint · day 5 of 10 · 8 on track · 1 at risk · 0 off
 
 | item | where it stands today | on track for 6 Nov |
 |---|---|---|
@@ -348,11 +405,15 @@ The page is read in Obsidian, so its form is fixed:
 - **A verification outranks a close.** Before an item or a table row says a ticket can close or be dropped, read
   its latest result under `<reports>/verify/`; a FAIL or BLOCKED after the fix is the item, not the close
   (2026-10-23: the page said drop MH-3416 while two of its verifications had failed).
-- **At most eight items** under *Needs you*; the rest of the facts are in the tables below, one row each.
+- **At most eight items** under *Needs you*, merged and ordered as above; the rest of the facts are in the tables
+  below, one row each. An item is a facts line with its real status and one action line of its class.
+- **The lanes this morning** is the table `ela matrix` printed, pasted as it is from the runner's facts page (the
+  runner runs it after `ela changes`), under its own heading after *FYI*. It is not retyped or summarised: the same
+  table is embedded in Home and must read the same in both places.
 - **At most five lines** under *FYI*, each a thread §2a rated FYI: what to know and who holds it, no **Do:**.
   Beyond five, a count in the lanes table; the section is omitted when empty.
-- **The sprint is a table after *FYI*,** under `## Sprint`, from §0's sprint read: one line saying which day of
-  the sprint it is ("day 3 of 10"), its end date and how many rows are at risk or off, then one row per goal and
+- **The sprint is a table after the lanes,** under `## Sprint`, from §0's sprint read. Its first line is exactly
+  `Sprint · day N of M · x on track · y at risk · z off`; Home embeds that line. Then one row per goal and
   per committed item, at most nine rows (goals first, in the note's order). Columns: the item (its key and a few
   plain words, or the item's own words when it has no key) · where it stands today, its real status in one clause
   · on track for the end date: **yes**, **at risk** or **off**, the last two with one reason. A row is judged
@@ -396,7 +457,9 @@ ela-runner starts this skill headless every weekday morning after it wrote the f
   - It opens with the day in one line and what needs his word, if anything.
   - Then the sections, in this order: `## Releases and versions` · `## QA` · `## Code` · `## Tickets` ·
     `## What you did` · `## What ela did` · `## Team report`. Each opens with a one-sentence verdict; the facts
-    under it are its evidence, each with its source (a mail subject, a permalink, a build number, a sha).
+    under it are its evidence, folded in a `> [!note]- Evidence` callout, each with its source (a mail subject, a
+    permalink, a build number, a sha). The page is evidence for the brief's items, so it reads in a minute folded
+    and in full when opened.
   - **Releases and versions**: per lane, each move as `service old → new (#build, date)`, a patch build named as
     one, a build that reached no lane as "built, not deployed", and which of the window's commits each build
     carried. The release thread's per-build lines (the tickets each carries) outrank Jenkins for what reached a
@@ -410,7 +473,7 @@ ela-runner starts this skill headless every weekday morning after it wrote the f
   - **What you did** reports his own moves as done and never drafts them again; a Fixed In that Helm wrote
     under his account is Helm's (`ela.helm_fixed_in`), under *What ela did*.
   - **Team report** is one line and its Slack link; the report itself stays Helm's.
-  - It ends with at most three `- [ ] <instruction to ela>` lines; drafted writes stay on the brief.
+  - It carries no actions: what needs his word is an item on the brief, which links here for its evidence.
   A source the facts name in `errors` is named on the page as not read.
 - `<reports>/runner/<date>-week.md` — **on a Friday, while a sprint is active**, the weekly page; the vault picks
   it up as a day page of kind week. It reports the week against the sprint, so that what the owner carried beside
