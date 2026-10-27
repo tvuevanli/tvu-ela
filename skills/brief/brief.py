@@ -11,6 +11,8 @@ Usage:
     brief.py sprint [--date YYYY-MM-DD] [--json]   the active sprint in <vault>/sprints/: items, keys, day N of M
     brief.py [--env-file F] changes [--hours 24] [--fetch] [--json]   the day's real changes for the Changes page; it
                                      snapshots lane versions to <runtime>/runner/versions-<date>.json and diffs the last one
+    brief.py [--env-file F] matrix [--candidate F] [--promote-report F] [--json]   which version runs on which lane,
+                                     from that snapshot, the QA versions kept by `changes`, and the standing pins
 
 Lanes (project MH) and the flags computed per row, UTC now:
   cadence    In Progress, updated between 24h and 14d ago · hours_since_update: RED > 48h · YELLOW > 24h
@@ -1014,6 +1016,139 @@ def cmd_changes(args):
     for e in out["errors"]:
         print(f"not read: {e['source']}: {e['error']}", file=sys.stderr)
 
+# ── matrix: which version runs on which lane, this morning ─────────────────────────────────────────
+
+MATRIX_ROWS = ("mediahub-backend", "mediahub-frontend", "unified-streaming", "unified-media-frontend", "unified-media-backend",
+               "orchestration")
+LANE_SHOWN = {"qa-cn3": "QA-AWS3"}   # the name the release mails and the team use for the lane
+
+
+def snapshots(runner, date):
+    """(today's versions snapshot, the last one before it), either None."""
+    names = sorted(f for f in os.listdir(runner) if re.fullmatch(r"versions-\d{4}-\d{2}-\d{2}\.json", f)) if os.path.isdir(runner) else []
+    def load(f):
+        try:
+            return json.load(open(os.path.join(runner, f)))
+        except (OSError, ValueError):
+            return None
+    today = load(f"versions-{date}.json") if f"versions-{date}.json" in names else None
+    before = [f for f in names if f[9:19] < date]
+    return today, (load(before[-1]) if before else None)
+
+
+def matrix_cell(service, lane, rows, prev, tested, pins):
+    """One cell: the version, ▲ and the old one when it moved since the last snapshot, QA's mark on that exact version,
+    and the constraint's mark."""
+    v = next((r["version"] for r in rows if r["service"] == service and r.get("lane") == lane), None)
+    if v is None:
+        return {"text": "—", "version": None}
+    pv = R.parse_version(v)
+    label = R.vlabel(pv) if pv else str(v)
+    old = next((r["version"] for r in prev or [] if r["service"] == service and r.get("lane") == lane), None)
+    moved = old is not None and vkey(old) != vkey(v)
+    qa = [x for x in tested.values() if x["service"] == service and vkey(x["version"]) == vkey(v)]
+    best = max(qa, key=lambda x: x["at"] or "", default=None)
+    mark = ("✓ " if best["verdict"] == "pass" else "◐ ") + (best["at"] or "")[5:10] if best else "○"
+    pin = pins.get((service, lane))
+    text = ("▲ " if moved else "") + label + (" patch" if pv and pv[3] else "") + (f" (was {R.vlabel(R.parse_version(old)) if R.parse_version(old) else old})" if moved else "") \
+        + f" {mark}" + {"held": " 🔒", "over": " ⛔"}.get(pin, "")
+    return {"text": text, "version": label, "moved": moved, "was": old if moved else None, "qa": mark, "pin": pin}
+
+
+def cmd_matrix(args):
+    site = json.load(open(SITE))
+    env = ["--env-file", args.env_file] if args.env_file else []
+    date = datetime.date.today().isoformat()
+    runner = os.path.join(site.get("runtime") or os.path.join(site.get("projects", ""), ".ela"), "runner")
+    errors = []
+    today, before = snapshots(runner, date)
+    if today is None:                                       # no `changes` run yet today: read the lanes now, not saved
+        rows = []
+        for host in ("qa", "prod"):
+            try:
+                rows += [dict(r, host=host) for r in run_json(["python3", RELEASE, *env, "envs", "--host", host, "--json"], timeout=120)["rows"]]
+            except (LaneError, subprocess.TimeoutExpired, ValueError) as e:
+                errors.append({"source": f"versions {host}", "error": str(e)[:200]})
+        rows += [r for r in (before or {}).get("rows", []) if r["host"] == "mail"]
+        errors.append({"source": "versions", "error": "no snapshot from `ela changes` today; read live, Orchestration as last known"})
+    else:
+        rows = today["rows"]
+    try:
+        tested = json.load(open(os.path.join(runner, "qa-tested.json")))
+    except (OSError, ValueError):
+        tested = {}
+        errors.append({"source": "qa", "error": "no QA tested versions kept yet (`ela changes` writes them); every cell is ○"})
+    pins = {}
+    try:
+        r = subprocess.run(["python3", PROMOTE, *env, "--quiet", "constraints", "--json"], capture_output=True, text=True, timeout=300)
+        for c in (json.loads(r.stdout) if r.returncode in (0, 3) else {}).get("active") or []:
+            for p in c.get("pins") or []:
+                pins[(p.get("service"), p.get("lane"))] = p.get("state")
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        errors.append({"source": "constraints", "error": "ela promote constraints did not answer; no pin marks"})
+    cfg = R.rmap("lines").get(LINE) or {}
+    roles = [r for r in ("prod", "daily", "qa") if (cfg.get("lanes") or {}).get(r)]
+    lanes = [cfg["lanes"][r] for r in roles]
+    cand = None
+    if args.candidate:
+        try:
+            cand = json.load(open(args.candidate))
+        except (OSError, ValueError) as e:
+            errors.append({"source": "candidate", "error": str(e)[:200]})
+    # the bundle each lane runs: the newest bundle of its lane token on its host
+    bundle = {}
+    toks = cfg.get("bundle_lanes") or {}
+    for role, lane in zip(roles, lanes):
+        host = "qa" if role == "qa" else "prod"
+        try:
+            got = run_json(["python3", RELEASE, *env, "bundles", cfg.get("bundle_line") or "", "--host", host, "--limit", "50", "--json"], timeout=120)["bundles"]
+            pre = (cfg.get("bundle_line") or "") + toks.get(role, "")
+            got = [b for b in got if str(b.get("bundleName", "")) == pre or str(b.get("bundleName", "")).startswith(pre + "-")]
+            b = max(got, key=lambda b: str(b.get("createTime") or ""), default=None)
+            bundle[lane] = {"text": f"{b['bundleName']} ({R.when(b.get('createTime'))[:10]})", "name": b["bundleName"]} if b else {"text": "—"}
+        except (LaneError, subprocess.TimeoutExpired, ValueError) as e:
+            bundle[lane] = {"text": "not read"}
+            errors.append({"source": f"bundles {host}", "error": str(e)[:200]})
+    prev = (before or {}).get("rows")
+    table = [{"row": "media bundle", "cells": [bundle.get(l, {"text": "—"}) for l in lanes]}]
+    same = []
+    for s in MATRIX_ROWS:
+        cells = [matrix_cell(s, l, rows, prev, tested, pins) for l in lanes]
+        if cand:
+            cells.append({"text": str((cand.get("versions") or {}).get(s) or "—")})
+        if len({c.get("version") for c in cells[:len(lanes)]}) == 1 and not any(c.get("moved") or c.get("pin") for c in cells):
+            same.append(f"{LABEL.get(s, s)} {cells[0]['text']}")
+            continue
+        table.append({"row": LABEL.get(s, s), "service": s, "cells": cells})
+    gate = None
+    if args.promote_report and os.path.isfile(args.promote_report) and \
+            datetime.datetime.now().timestamp() - os.path.getmtime(args.promote_report) < 86400:
+        try:
+            c = json.load(open(args.promote_report))["counts"]["findings"]
+            gate = {"stop": c.get("stop", 0), "high": c.get("high", 0), "report": args.promote_report}
+        except (OSError, ValueError, KeyError):
+            errors.append({"source": "promote report", "error": f"unreadable: {args.promote_report}"})
+    out = {"date": date, "lanes": [LANE_SHOWN.get(l, l) for l in lanes] + ([cand.get("label") or "next train"] if cand else []),
+           "rows": table, "same": same, "gate": gate, "errors": errors}
+    if args.json:
+        print(json.dumps(out, ensure_ascii=False)); return
+    print(render_matrix(out))
+    for e in errors:
+        print(f"not read: {e['source']}: {e['error']}", file=sys.stderr)
+
+
+def render_matrix(out):
+    L = ["| | " + " | ".join(out["lanes"]) + " |", "|---|" + "---|" * len(out["lanes"])]
+    for r in out["rows"]:
+        L.append(f"| {r['row']} | " + " | ".join(c["text"] for c in r["cells"]) + " |")
+    if out["same"]:
+        L += ["", f"*{len(out['same'])} more the same on every lane: " + "; ".join(out["same"]) + "*"]
+    L += ["", "*▲ moved since yesterday · ✓ QA passed this exact version (date) · ◐ partly · ○ no QA report names it · 🔒 a pin held · ⛔ over*"]
+    if out["gate"]:
+        g = out["gate"]
+        L += ["", f"prod candidate: {g['stop']} stop · {g['high']} high (promote report `{os.path.basename(g['report'])}`)"]
+    return "\n".join(L)
+
 
 def front_matter(text):
     """The `key: value` lines between the leading `---` fences; values tried as JSON (the vault writes them quoted)."""
@@ -1134,6 +1269,12 @@ def main():
     p.add_argument("--fetch", action="store_true", help="fetch every checkout under the code root first (remote refs only)")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_changes)
+    p = sub.add_parser("matrix", help="which version runs on which lane this morning: components by prod / daily / QA, a move "
+                                      "since yesterday, QA's mark on the exact version, a pin's mark; markdown, or --json")
+    p.add_argument("--candidate", help="a JSON file {label, versions: {service: version}}: the next train as a fourth column")
+    p.add_argument("--promote-report", help="the promotion report JSON (ela promote report --out): its stop and high count, when under a day old")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_matrix)
     p = sub.add_parser("sprint", help="the active sprint note in the vault: goals and committed items with their keys and "
                                       "'done when', the working day it is on; on a Friday the week's yesterday files")
     p.add_argument("--date", help="read as of YYYY-MM-DD (default today)")

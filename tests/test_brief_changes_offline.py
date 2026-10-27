@@ -96,6 +96,21 @@ with tempfile.TemporaryDirectory() as d:
     check("an unticketed fix on the QA lane is counted once per repo and lane, docs left out",
           [f["what"][:2] for f in F if f["kind"] == "unticketed_change_on_a_prod_path"] == ["1 "])
     check("what was not computed or not read is named", any(e["source"] == "constraints" for e in errs) and any("unanswered_customer_ask" in e["error"] for e in errs))
+
+mrows = [{"service": "mediahub-frontend", "lane": "qa-cn3", "version": "v2.2.121 build176 2026-10-26"},
+         {"service": "mediahub-backend", "lane": "qa-cn3", "version": "v2.1.33 build264 2026-10-22"},
+         {"service": "unified-media-frontend", "lane": "prod-3", "version": "v3.0.36.1build1942026-10-26"}]
+mprev = [{"service": "mediahub-frontend", "lane": "qa-cn3", "version": "v2.2.118 build173 2026-10-23"}]
+mtested = {"a": {"lane": "qa-cn3", "service": "mediahub-backend", "version": "v2.1.33 build264", "at": "2026-10-26T18:39:00+08:00", "verdict": "pass"}}
+c = B.matrix_cell("mediahub-frontend", "qa-cn3", mrows, mprev, mtested, {})
+check("a cell that moved shows ▲ and the old version, and ○ when no report names it", c["text"] == "▲ 2.2.121+176 (was 2.2.118+173) ○")
+check("a cell QA passed shows ✓ and the report's date", B.matrix_cell("mediahub-backend", "qa-cn3", mrows, mprev, mtested, {})["text"] == "2.1.33+264 ✓ 10-26")
+pc = B.matrix_cell("unified-media-frontend", "prod-3", mrows, None, {}, {("unified-media-frontend", "prod-3"): "over"})["text"]
+check("a patch build is marked, and a pin over is ⛔", pc.startswith("3.0.36.") and pc.endswith("+194 patch ○ ⛔"))
+md = B.render_matrix({"lanes": ["prod-3", "QA-AWS3"], "rows": [{"row": "media bundle", "cells": [{"text": "x"}, {"text": "y"}]}],
+                      "same": ["Orchestration 4.0.205"], "gate": {"stop": 1, "high": 2, "report": "/r/2026-10-27-mh2.1-daily-wed-prod-3.json"}})
+check("the table renders lanes as columns, the rows that agree as one line, and the gate", md.startswith("| | prod-3 | QA-AWS3 |")
+      and "1 more the same on every lane: Orchestration 4.0.205" in md and "1 stop · 2 high" in md)
 q2 = B.parse_qa_mail({"id": "4", "from": "qa", "date": "d", "subject": "Daily Test Report for TVU MediaHub on aws-cn3-env on 2026/10/26",
                       "body": "*Test Result:*\n   *1. new issue:*\n       MH-3821\n<https://j/browse/MH-3821>\nIn list view   Medium\n"
                               "   *2. reopened issue:*\n   *3. close issue:*\n       MH-3639\n<https://j/browse/MH-3639>\n       MH-3675\n-----\nBest\n"})
