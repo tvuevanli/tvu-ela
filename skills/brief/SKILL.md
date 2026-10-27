@@ -479,7 +479,7 @@ The page is read in Obsidian, so its form is fixed:
   then **Do:** as one to three task lines, each with a box, and every box is finished work by ela:
   `- [ ] apply N — what it writes` for a drafted write, or `- [ ] <option>` for a decision (class D), where the
   tick is the ruling. A Do line is never a command for him to run or a draft for him to write. A breakdown, a
-  draft, a lookup or a probe is done before 06:30, and the item carries its result: an `apply N`, or a link to the
+  draft, a lookup or a probe is done before the 08:00 page, and the item carries its result: an `apply N`, or a link to the
   note it produced. When ela cannot do it unattended (it needs a login, a person to ask, or a judgment only he
   holds), the item says why in one line and offers no box. No Do line without a box. A deep pick runs in the same
   morning pass (§3b) and the item links its page, so an item never offers "go deep on MH-…". The recommended choice comes first; no "skip" choice
@@ -536,6 +536,15 @@ The page is read in Obsidian, so its form is fixed:
   permalink; the owner chooses which to keep.
 
 ## 3b — when the runner asked (unattended): the page and the numbered actions, written to files
+
+**The runner's day** (ela-runner): 08:00 the morning page · 13:00 · 17:30, after the QA deploy · 19:00 the evening
+(replay, the reader, the carried verdicts) · 01:00. The hours of the owner's day, his DM window and holidays are
+`ela day --json`, never constants.
+
+**A second morning run on the same date** rewrites the page, never the record of what was done. The actions already
+in `<date>-actions.json` with `applied` or `by_owner` keep their number and text, and their item is not offered
+again; new drafts take numbers after the highest one in the file, so an `apply N` he has seen never names a
+different write. The carried count reads one page per date, so a rerun does not add a morning.
 
 **Counts come from one file.** Every count on any page comes from the facts pass's counts (`counts` in
 `<runtime>/runner/<date>-changes.json`, from `ela changes --json`), each with the window it covers: commits, commits
