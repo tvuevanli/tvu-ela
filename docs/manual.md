@@ -43,6 +43,7 @@ flowchart LR
 | 早上打开电脑，不知道先看什么 | `brief` | `/ela:brief` |
 | 只想先看 Jira 这几条线：谁超时没更新、谁没人接、哪张该拆没拆 | `brief` | `ela brief` · `ela brief --lane triage` |
 | 昨天发生了什么：按 case 把 Jira 变化、commit、Slack 串起来，没有 ticket 的代码和讨论单列，ela 自己做了什么 | `brief` | `ela yesterday` · `ela yesterday --hours 72` |
+| 昨天真正变了什么：哪条 lane 上了哪个版本、哪次 build 带了哪些 commit、发版和 QA 邮件、发版 thread、按 repo 和票分组的 commit（没有票的单列）、我自己做了什么、团队日报；读不到的来源逐一列出 | `brief` | `ela changes` · `ela changes --hours 72 --json` |
 | 在 Obsidian 里读 ela 给我的东西：当天的页、review、验收、决定与计划，票号直接链到 Jira；超出阅读预算的笔记顶部带警告，并在 Home 列为 ela 欠的改写 | `vault` | `ela vault sync` · `ela vault sync --dry-run` |
 | 一条待读笔记的生命周期：勾 Next moves（同意并实施、暂不、拒绝、归档……），同意后移到 `in-progress/`，ela 把进度写进笔记，做完等我验收再归档；任何 session 都能接手同一条笔记 | `note` | `ela note claim PATH` · `ela note progress PATH 文字` · `ela note built PATH 摘要` · `ela note move PATH --to in-progress\|archive\|to-read\|delete` |
 | 输入一个凭据（token）且不经过聊天：在自己的终端里运行，输入不回显，直接写入 ela 的 env 文件 | `setup` | `ela secret SLACK_BOT_TOKEN` |

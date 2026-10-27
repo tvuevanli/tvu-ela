@@ -9,6 +9,8 @@ across lanes — stays in the SKILL.md.
 Usage:
     brief.py [--env-file F] lanes [--lane cadence|triage|breakdown|incidents|backlog|yours] [--json] [--limit 300]
     brief.py sprint [--date YYYY-MM-DD] [--json]   the active sprint in <vault>/sprints/: items, keys, day N of M
+    brief.py [--env-file F] changes [--hours 24] [--fetch] [--json]   the day's real changes for the Changes page; it
+                                     snapshots lane versions to <runtime>/runner/versions-<date>.json and diffs the last one
 
 Lanes (project MH) and the flags computed per row, UTC now:
   cadence    In Progress, updated between 24h and 14d ago · hours_since_update: RED > 48h · YELLOW > 24h
@@ -348,7 +350,8 @@ def git_window(code_root, hours):
     return rows, stale
 
 
-def cmd_yesterday(args):
+def yesterday_facts(args):
+    """The window's facts joined into cases by ticket key; `errors` names every source not read."""
     site = json.load(open(SITE))
     hours = args.hours
     now = datetime.datetime.now(datetime.timezone.utc)
@@ -460,7 +463,16 @@ def cmd_yesterday(args):
                       "commits": len(commits), "untracked_commits": len(untracked), "slack_messages_with_key": sum(len(c["slack"]) for c in ranked),
                       "unticketed_threads": len(threads), "ela_jobs": len(jobs), "ela_writes": len(writes), "helm_autowrites": len(machine)},
            "cases": ranked, "untracked_commits": untracked, "unticketed_threads": sorted(threads, key=lambda t: -t["replies"]),
-           "ela": {"jobs": jobs, "writes": writes, "helm_autowrites": machine}, "stale_checkouts": stale, "errors": errors}
+           "ela": {"jobs": jobs, "writes": writes, "helm_autowrites": machine}, "stale_checkouts": stale, "errors": errors,
+           "bulk_commits": [x for where, x in bulk if where == "commits"]}
+    return out
+
+
+def cmd_yesterday(args):
+    out = yesterday_facts(args)
+    hours, ranked, errors = out["hours"], out["cases"], out["errors"]
+    untracked, threads = out["untracked_commits"], out["unticketed_threads"]
+    jobs, writes, machine = out["ela"]["jobs"], out["ela"]["writes"], out["ela"]["helm_autowrites"]
     if args.json:                       # a source not read is named in `errors`; the rest is still the answer
         print(json.dumps(out, ensure_ascii=False)); return
     t = out["totals"]
@@ -485,6 +497,346 @@ def cmd_yesterday(args):
         print(f"not read: {e['source']}: {e['error']}", file=sys.stderr)
     if errors:
         sys.exit(EX_REMOTE)
+
+
+# ── changes: the day's real changes, for the Changes page ──────────────────────────────────────────
+
+RELEASE = os.path.join(HERE, "..", "release", "release.py")
+MAIL = os.path.join(HERE, "..", "mail", "mail.py")
+sys.path.insert(0, os.path.join(HERE, "..", "release"))
+import release as R  # noqa: E402  — the release map and the version grammar; reads still go through the CLI
+
+QA_RELEASE, DEV_CHANNEL, REPORT_CHANNEL = "mediahub-qa-release", "prj_dev_mediahub", "helm-alerts"
+TEAM_REPORTS = re.compile(r"Daily Report|MH Weekly Report", re.I)
+# the owner's scope for the page: the MediaHub app and Orchestration, by service slug; their repos and Jenkins jobs come from
+# map/release.yaml. Media, J2N and the other checkouts are other pages' business.
+SCOPE = ("mediahub-backend", "mediahub-frontend", "unified-streaming", "unified-media-frontend", "orchestration")
+IN_SCOPE_MAIL = re.compile(r"media\s*hub|\bMH\b|UR Caller|Unified Media|Orchestration", re.I)
+LABEL = {"unified-streaming": "UR Caller (unified-streaming)"}            # the release mails say UR Caller
+MOVE_RX = re.compile(r"^\s*-\s*(?P<name>[^:\n]+?)\s*(?:\((?P<branch>[^)]*)\))?\s*:\s*v?(?P<from>[\w.+-]+)\s*=>\s*v?(?P<to>[\w.+-]+)"
+                     r"(?:\s*\(deployed to\s*(?P<env>[^)]+)\))?", re.M)
+TAG_RX = re.compile(r"From:\s*(?P<from>\S+)\s*To:\s*(?P<to>\S+)", re.S)
+
+
+def window_of(hours, now):
+    end = now
+    return {"start": (end - datetime.timedelta(hours=hours)).isoformat(timespec="seconds"),
+            "end": end.isoformat(timespec="seconds"), "hours": hours}
+
+
+def in_window(when, win):
+    """A local 'YYYY-MM-DD HH:MM[:SS]' or ISO time inside the window."""
+    try:
+        t = datetime.datetime.fromisoformat(str(when).strip()[:19])
+    except ValueError:
+        return False
+    if t.tzinfo is None:
+        t = t.astimezone()
+    return datetime.datetime.fromisoformat(win["start"]) <= t <= datetime.datetime.fromisoformat(win["end"])
+
+
+def vkey(raw):
+    """(version, build) of any version string the lanes, the builds and the mails write."""
+    v = R.parse_version(raw)
+    return (v[:4], v[4]) if v else None
+
+
+def short_version(raw):
+    v = R.parse_version(raw)
+    return (R.vlabel(v[:4] + (0,)) + (f" build {v[4]}" if v[4] else "")) if v else str(raw or "")
+
+
+def built_at(raw):
+    m = re.search(r"(\d{4}-\d{2}-\d{2})\s*(\d{2}:\d{2}(?::\d{2})?)?", str(raw or ""))
+    return f"{m.group(1)} {m.group(2) or '00:00'}" if m else None
+
+
+def lane_moves(prev, rows, win):
+    """Each (lane, service) whose version differs from the last snapshot; with no snapshot, those whose build is dated
+    inside the window, `from` unknown."""
+    old = {(r["host"], r.get("lane") or r.get("tag"), r["service"]): r["version"] for r in prev or []}
+    out = []
+    for r in rows:
+        k = (r["host"], r.get("lane") or r.get("tag"), r["service"])
+        was = old.get(k)
+        if (prev is not None and k in old and vkey(was) != vkey(r["version"])) or (prev is None and in_window(built_at(r["version"]) or "", win)):
+            v = R.parse_version(r["version"])
+            out.append({"host": r["host"], "lane": k[1], "service": r["service"], "label": LABEL.get(r["service"], r["service"]),
+                        "from": short_version(was) if was else None, "to": short_version(r["version"]),
+                        "build": v[4] if v else None, "built": built_at(r["version"]), "patch": bool(v and v[3])})
+    return out
+
+
+def parse_release_mail(m):
+    """A release mail's service moves (`Name (branch) : vA => vB (deployed to ENV)`) or a default-tag update."""
+    moves = [{"service": x.group("name").strip(), "branch": (x.group("branch") or "").strip(), "from": x.group("from"),
+              "to": x.group("to"), "env": " ".join((x.group("env") or "").split())} for x in MOVE_RX.finditer(m.get("body") or "")]
+    tag = TAG_RX.search(m.get("body") or "")
+    if not moves and tag:
+        name = re.sub(r"^\s*\[Release\]\s*<?|>?\s*$", "", m["subject"])
+        moves = [{"service": name, "branch": "", "from": tag.group("from"), "to": tag.group("to"), "env": "default tag"}]
+    env = re.match(r"^\s*(?:Re:\s*)*\[Release\s*([^\]]*)\]", m["subject"], re.I)
+    return {"subject": m["subject"], "from": m["from"], "date": m["date"], "id": m["id"], "thread": m["thread"],
+            "env": (env.group(1).strip() if env else ""), "moves": moves, "text": None, "link": None}
+
+
+def parse_qa_mail(m):
+    """A QA test report: env, the build it tested, pass / fail / closed / new, and the cases that failed."""
+    body = m.get("body") or ""
+    head = re.split(r"Test Environment|Test Version|Test Condition", body, maxsplit=1)[0][:800]   # the summary, not a case table
+    def num(rx):
+        x = re.search(rx, head, re.I)
+        return int(x.group(1)) if x else None
+    env = re.search(r"\(ENV:\s*([^)]+)\)", body) or re.search(r"(?:for|on)\s+(?:TVU MediaHub\s+)?(?:on\s+)?([\w-]*(?:cn|aws|qa)[\w-]*)", m["subject"], re.I)
+    build = re.search(r"build\s+(v[\d.]+\s*build\s*\d+)", body, re.I)
+    failing = sorted({f"{x.group(1)}: {' '.join(x.group(2).split())[:140]}" for x in
+                      re.finditer(r"\*?([A-Z][A-Z0-9]{1,9}-\d+)\*?\s+FAIL\b[:\s]*([^\n]*)", body)})
+    return {"subject": m["subject"], "from": m["from"], "date": m["date"], "id": m["id"],
+            "env": env.group(1).strip() if env else None, "build": " ".join(build.group(1).split()) if build else None,
+            "pass": num(r"\*?(\d+)\s*Pass\b"), "fail": num(r"\*?(\d+)\s*Fail\b"), "closed": num(r"Closed\s*\*?(\d+)"),
+            "new": num(r"New\s*\*?(\d+)"), "failing": failing, "mediahub": bool(re.search(r"media\s*hub", m["subject"] + head, re.I)),
+            "results": [" ".join(l.split())[:160] for l in body.splitlines() if re.search(r"\b(PASS|FAIL|Pass|Fail)\b", l)][:10],
+            "tested": [" ".join(l.split()) for l in body.splitlines() if re.match(r"^\s*(Frontend|Backend):\s*v", l)][:6]}
+
+
+# the release bot writes its build-result and release-done messages in Chinese; the markers, escaped
+BUILD_RESULT, RELEASE_DONE, DEPLOYED = "\u6784\u5efa\u7ed3\u679c", "\u53d1\u7248\u5b8c\u6210", "\u90e8\u7f72"
+DONE_RX = re.compile(r"^\s*[•*-]\s*(?P<job>[\w.-]+)\s+v(?P<to>[\d.]+)\s*\(#(?P<number>\d+)\)\s*(?:←\s*(?P<by>.+))?$")
+BUILT_RX = re.compile(r"(?P<job>[\w.-]+)\s+v(?P<to>[\d.]+)\s*·.*?/job/[\w.-]+/(?P<number>\d+)/")
+
+
+def parse_release_thread(texts):
+    """The release thread's bot messages → one row per service: job, version, build number, the tickets and lines it
+    carries. The release-done message lists what each build carries; the build-result one names where they went."""
+    rows, deployed = {}, ""
+    jobs = R.rmap("jobs")
+    for text in texts:
+        d = re.search(DEPLOYED + r"\s*([\w-]+)", text)
+        deployed = d.group(1) if d else deployed
+        cur = None
+        for line in text.splitlines():
+            m = DONE_RX.match(line) or BUILT_RX.search(line)
+            if m:
+                cur = rows.setdefault(m.group("job"), {"service": jobs.get(m.group("job"), m.group("job")), "job": m.group("job"),
+                                                       "branch": "", "from": None, "to": m.group("to"), "number": int(m.group("number")),
+                                                       "env": deployed, "items": []})
+                continue
+            item = re.match(r"^\s+-\s+(.+)$", line)
+            if cur is not None and item:
+                cur["items"].append({"text": item.group(1).strip(), "keys": keys_in(item.group(1))})
+    for r in rows.values():
+        r["env"] = r["env"] or deployed
+    return [r for r in rows.values() if r["service"] in SCOPE]
+
+
+def slack_rows(env, channel, since, errors, threads=True):
+    try:
+        cmd = ["python3", SLACK, *env, "history", channel, "--since", since, "--json"] + (["--threads"] if threads else [])
+        return run_json(cmd, timeout=300)["messages"]
+    except (LaneError, subprocess.TimeoutExpired, ValueError) as e:
+        errors.append({"source": f"slack #{channel}", "error": str(e)[:200]}); return []
+
+
+def ancestor(repo_dir, commit, tip):
+    return subprocess.run(["git", "-C", repo_dir, "merge-base", "--is-ancestor", commit, tip], capture_output=True).returncode == 0
+
+
+def changes_facts(args):
+    site = json.load(open(SITE))
+    now = datetime.datetime.now().astimezone()
+    date = args.date or now.date().isoformat()
+    win = window_of(args.hours, now)
+    env = ["--env-file", args.env_file] if args.env_file else []
+    errors = []
+    y = yesterday_facts(argparse.Namespace(hours=args.hours, env_file=args.env_file, fetch=args.fetch))
+    errors += y["errors"]
+    # code: per repo, per ticket, from yesterday's case join; then what rode along without a ticket
+    scoped = {R.rmap("repos")[s] for s in SCOPE if R.rmap("repos").get(s)}
+    repos = {}
+    for c in y["cases"]:
+        threads = sorted({s["permalink"] for s in c["slack"] if s.get("permalink")})
+        for cm in (x for x in c["commits"] if x["repo"] in scoped):
+            r = repos.setdefault(cm["repo"], {"repo": cm["repo"], "tickets": {}, "untracked": []})
+            t = r["tickets"].setdefault(c["key"], {"key": c["key"], "summary": c["summary"], "status": c["status"],
+                                                   "assignee": c["assignee"], "commits": [], "threads": threads})
+            t["commits"].append({k: cm[k] for k in ("sha", "subject", "author", "ref", "at")})
+    for cm in (x for x in y["untracked_commits"] + y.get("bulk_commits", []) if x["repo"] in scoped):
+        repos.setdefault(cm["repo"], {"repo": cm["repo"], "tickets": {}, "untracked": []})["untracked"].append(
+            dict({k: cm[k] for k in ("sha", "subject", "author", "ref", "at")}, keys=cm.get("keys") or []))
+    code = sorted(({**r, "tickets": list(r["tickets"].values())} for r in repos.values()),
+                  key=lambda r: -(sum(len(t["commits"]) for t in r["tickets"]) + len(r["untracked"])))
+    tickets = [{"key": c["key"], "summary": c["summary"], "status": c["status"], "assignee": c["assignee"], "created": c["created"],
+                "moves": [f"{e['field']} {e['from'] or '—'} → {e['to'] or '—'}" + (f" ({e['by']})" if e.get("by") else "") for e in c["jira"]],
+                "comments": len(c["comments"]), "commits": len(c["commits"]), "threads": len(c["slack"])}
+               for c in y["cases"] if c["jira"] or c["comments"] or c["created"]]
+    # lane versions: today's snapshot against the last one before it
+    runner = os.path.join(site.get("runtime") or os.path.join(site.get("projects", ""), ".ela"), "runner")
+    os.makedirs(runner, exist_ok=True)
+    snaps = sorted(f for f in os.listdir(runner) if re.fullmatch(r"versions-\d{4}-\d{2}-\d{2}\.json", f) and f[9:19] < date)
+    try:
+        prev = json.load(open(os.path.join(runner, snaps[-1]))) if snaps else None
+    except (OSError, ValueError):
+        prev = None
+    rows, read = [], {}
+    for host in ("qa", "prod"):
+        try:
+            rows += [dict(r, host=host) for r in run_json(["python3", RELEASE, *env, "envs", "--host", host, "--json"], timeout=120)["rows"]
+                     if r["service"] in SCOPE]
+            read[host] = True
+        except (LaneError, subprocess.TimeoutExpired, ValueError) as e:
+            errors.append({"source": f"versions {host}", "error": str(e)[:200]})
+            rows += [r for r in (prev or {}).get("rows", []) if r["host"] == host]   # carried, so the next diff has a base
+    json.dump({"date": date, "at": now.isoformat(timespec="seconds"), "read": read, "rows": rows},
+              open(os.path.join(runner, f"versions-{date}.json"), "w"), ensure_ascii=False)
+    versions = [m for m in lane_moves(prev["rows"] if prev else None, rows, win) if read.get(m["host"])]
+    if prev is None:
+        errors.append({"source": "versions", "error": "no earlier snapshot: moves are the builds dated inside the window, `from` unknown"})
+    # Jenkins builds in the window, each with the lanes running it and the window's commits it carries
+    by_build = {}
+    for r in rows:
+        if vkey(r["version"]):
+            by_build.setdefault((r["service"], vkey(r["version"])), []).append(r.get("lane") or r.get("tag"))
+    code_root = site.get("code") or os.path.join(site.get("projects", ""), "code")
+    window_commits = [cm for r in code for t in r["tickets"] for cm in t["commits"]] + [cm for r in code for cm in r["untracked"]]
+    builds = []
+    for job, service in ((j, s) for j, s in R.rmap("jobs").items() if s in SCOPE):
+        try:
+            got = run_json(["python3", RELEASE, *env, "builds", job, "--limit", "20", "--json"], timeout=60)["builds"]
+        except (LaneError, subprocess.TimeoutExpired, ValueError) as e:
+            errors.append({"source": f"jenkins {job}", "error": str(e)[:200]}); continue
+        repo = R.rmap("repos").get(service)
+        repo_dir = os.path.join(code_root, repo) if repo else None
+        for b in got:
+            if not in_window(b["time"], win):
+                continue
+            lanes = sorted(set(by_build.get((service, vkey(f"{b['version']} build{b['build']}")), [])), key=str)
+            carried = []
+            if repo_dir and os.path.isdir(repo_dir) and b.get("sha_full"):
+                carried = [cm["sha"] for r in code if r["repo"] == repo for cm in
+                           [x for t in r["tickets"] for x in t["commits"]] + r["untracked"] if ancestor(repo_dir, cm["sha"], b["sha_full"])]
+            builds.append({"job": job, "service": service, "label": LABEL.get(service, service), "number": b["number"],
+                           "version": b["version"], "build": b["build"], "result": b["result"], "branch": b["branch"],
+                           "sha": b["sha"], "time": b["time"], "url": b["url"], "patch": "patch" in (b["branch"] or "").lower(),
+                           "deployed_to": lanes, "commits": carried})
+    reached = {sha: b["deployed_to"] for b in builds for sha in b["commits"]}
+    for cm in window_commits:
+        cm["lanes"] = reached.get(cm["sha"], [])
+    # bundles created in the window
+    bundles = []
+    for host in ("qa", "prod"):
+        try:
+            for b in run_json(["python3", RELEASE, *env, "bundles", "--host", host, "--limit", "15", "--json"], timeout=120)["bundles"]:
+                if in_window(R.when(b.get("createTime")), win):
+                    bundles.append({"host": host, "name": b.get("bundleName"), "id": b.get("bundleId"), "created": R.when(b.get("createTime"))})
+        except (LaneError, subprocess.TimeoutExpired, ValueError) as e:
+            errors.append({"source": f"bundles {host}", "error": str(e)[:200]})
+    # mail: release notices and QA reports, by subject, inside the window
+    span = f"after:{int(datetime.datetime.fromisoformat(win['start']).timestamp())} before:{int(now.timestamp())}"
+    releases, qa = [], []
+    try:
+        by_thread = {}
+        for m in run_json(["python3", MAIL, *env, "search", f"{span} subject:Release", "--limit", "40", "--body", "--json"], timeout=300)["messages"]:
+            if re.search(r"\[Release", m["subject"], re.I) and not re.search(r"test report", m["subject"], re.I):
+                by_thread.setdefault(m["thread"], []).append(m)
+        for msgs in by_thread.values():                     # a thread is one release: its first message, the replies counted
+            first = next((m for m in msgs if not re.match(r"^\s*Re:", m["subject"], re.I)), msgs[-1])
+            r = parse_release_mail(first)
+            r["replies"] = len(msgs) - 1
+            if IN_SCOPE_MAIL.search(r["subject"]):
+                releases.append(r)
+        for m in run_json(["python3", MAIL, *env, "search", f'{span} subject:("test report")', "--limit", "25", "--body", "--json"], timeout=300)["messages"]:
+            if not re.match(r"^\s*Re:", m["subject"], re.I):
+                q = parse_qa_mail(m)
+                if q["mediahub"]:
+                    qa.append(q)
+    except (LaneError, subprocess.TimeoutExpired, ValueError) as e:
+        errors.append({"source": "mail", "error": str(e)[:200]})
+    # Slack by channel: the day's release thread, the dev channel's threads, the team report
+    since = (now - datetime.timedelta(hours=args.hours + 24)).date().isoformat()
+    for m in slack_rows(env, QA_RELEASE, since, errors):
+        stamps = [m["at"]] + [datetime.datetime.fromtimestamp(float(r["ts"])).astimezone().isoformat() for r in m.get("replies") or []]
+        if re.search(r"\d{4}-\d{2}-\d{2}_Release", m["text"]) and any(in_window(s, win) for s in stamps):
+            done = [r["text"] for r in m.get("replies") or [] if re.search(f"{RELEASE_DONE}|{BUILD_RESULT}", r["text"])]
+            releases.append({"subject": " ".join(m["text"].split())[:120], "from": m["user"], "date": m["at"], "env": "slack",
+                             "moves": parse_release_thread(done), "text": "\n\n".join(done)[:3000],
+                             "link": m["permalink"], "replies": m["reply_count"]})
+    dev_threads = [{"by": m["user"], "at": m["at"], "text": " ".join(m["text"].split())[:200], "replies": m["reply_count"],
+                    "keys": keys_in(m["text"]), "link": m["permalink"]}
+                   for m in slack_rows(env, DEV_CHANNEL, f"{args.hours}h", errors, threads=False)]
+    team_report = None
+    for m in reversed(slack_rows(env, REPORT_CHANNEL, f"{args.hours + 24}h", errors, threads=False)):
+        if TEAM_REPORTS.search(m["text"]):
+            lines = [l for l in m["text"].splitlines() if l.strip()]
+            team_report = {"title": lines[0][:120] if lines else "", "first_lines": lines[1:6], "link": m["permalink"], "at": m["at"]}
+            break
+    # the owner's own day: Jira moves and comments, commits, Slack messages, sent mail
+    you = {"jira": [], "commits": [], "slack": [], "mail": []}
+    names = set()
+    try:
+        me = run_json(["python3", JIRA, *env, "jql", "assignee = currentUser() ORDER BY updated DESC", "--limit", "1", "--json"])["issues"]
+        names |= {me[0]["assignee"]} if me and me[0].get("assignee") else set()
+    except (LaneError, subprocess.TimeoutExpired, ValueError) as e:
+        errors.append({"source": "you: jira name", "error": str(e)[:200]})
+    helm_keys = {h["key"] for h in y["ela"]["helm_autowrites"]}
+    for c in y["cases"]:
+        for e in c["jira"]:
+            if e.get("by") in names and c["key"] in helm_keys and re.search(r"fix\s*(ed)?\s*in|fix version", e["field"] or "", re.I):
+                y["ela"].setdefault("helm_fixed_in", []).append({"key": c["key"], "move": f"{e['field']} → {e['to'] or '—'}", "at": e["at"]})
+            elif e.get("by") in names:
+                you["jira"].append({"key": c["key"], "move": f"{e['field']} {e['from'] or '—'} → {e['to'] or '—'}", "at": e["at"]})
+        for cm in c["comments"]:
+            if cm.get("by") in names:
+                you["jira"].append({"key": c["key"], "move": "comment", "at": cm["at"], "text": cm["text"][:160]})
+        for s in c["slack"]:
+            if s.get("by") in names:
+                you["slack"].append({"key": c["key"], "channel": s["channel"], "text": s["text"], "link": s["permalink"]})
+    you["commits"] = [dict(cm, repo=r["repo"]) for r in code for cm in [x for t in r["tickets"] for x in t["commits"]] + r["untracked"]
+                      if cm["author"] in names]
+    try:
+        you["mail"] = [{"subject": m["subject"], "to": m["to"][:120], "date": m["date"]} for m in
+                       run_json(["python3", MAIL, *env, "search", f"{span} in:sent", "--limit", "25", "--json"], timeout=120)["messages"]]
+    except (LaneError, subprocess.TimeoutExpired, ValueError) as e:
+        errors.append({"source": "you: sent mail", "error": str(e)[:200]})
+    if not names:
+        errors.append({"source": "you", "error": "the owner's Jira name was not read; Jira, commits and Slack by him are not split out"})
+    return {"date": date, "window": win, "releases": releases, "builds": builds, "versions": versions, "bundles": bundles,
+            "qa": qa, "tickets": tickets, "code": {"repos": code, "unticketed_threads": y["unticketed_threads"]},
+            "dev_threads": dev_threads, "you": you, "ela": y["ela"], "team_report": team_report,
+            "stale_checkouts": y["stale_checkouts"], "errors": errors}
+
+
+def cmd_changes(args):
+    today = datetime.date.today().isoformat()
+    if args.date and args.date != today:
+        print(f"changes reads the last {args.hours}h of each source; a past day ({args.date}) cannot be read again", file=sys.stderr)
+        sys.exit(EX_USAGE)
+    out = changes_facts(args)
+    if args.json:                       # every source not read is in `errors`; the rest is still the answer
+        print(json.dumps(out, ensure_ascii=False)); return
+    w = out["window"]
+    print(f"# changes · {out['date']} · {w['start'][:16]} → {w['end'][:16]}\n")
+    print(f"## lanes ({len(out['versions'])} moves)")
+    for v in out["versions"]:
+        print(f"  {str(v['lane']):<12} {v['label']:<34} {v['from'] or '?'} → {v['to']}{'  (patch)' if v['patch'] else ''}")
+    print(f"\n## builds ({len(out['builds'])})")
+    for b in out["builds"]:
+        print(f"  {b['label']:<34} #{b['number']:<5} {str(b['version']):<10} {b['branch'][:20]:<20} {b['time']}  "
+              f"{', '.join(map(str, b['deployed_to'])) or 'built, not deployed'} · {len(b['commits'])} commits")
+    print(f"\n## releases ({len(out['releases'])})")
+    for r in out["releases"]:
+        print(f"  {r['subject'][:90]}" + (f"  {r['link']}" if r.get("link") else ""))
+        for m in r["moves"]:
+            print(f"      {m['service']}: {m['from']} → {m['to']}  {m['env']}")
+    print(f"\n## QA ({len(out['qa'])})")
+    for q in out["qa"]:
+        print(f"  {q['env'] or '?':<16} pass {q['pass']} · fail {q['fail']} · closed {q['closed']} · new {q['new']}  {q['subject'][:70]}")
+    print("\n## code")
+    for r in out["code"]["repos"]:
+        print(f"  {r['repo']}: {len(r['tickets'])} tickets, {len(r['untracked'])} commits without one")
+    tr = out["team_report"]
+    print(f"\n## team report: {tr['title'] + '  ' + tr['link'] if tr else 'none in the window'}")
+    for e in out["errors"]:
+        print(f"not read: {e['source']}: {e['error']}", file=sys.stderr)
 
 
 def front_matter(text):
@@ -598,6 +950,14 @@ def main():
     p.add_argument("--fetch", action="store_true", help="fetch every checkout under the code root first (remote refs only)")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_yesterday)
+    p = sub.add_parser("changes", help="the day's real changes for the Changes page: lane moves, builds and the commits they "
+                                       "carry, release and QA mail, the release thread, commits per repo and ticket, the owner's "
+                                       "own day, the team report; every source not read named in errors")
+    p.add_argument("--date", help="the page's date, today only (default today); names the versions snapshot")
+    p.add_argument("--hours", type=int, default=24, help="window length (default 24; 72 on Mondays)")
+    p.add_argument("--fetch", action="store_true", help="fetch every checkout under the code root first (remote refs only)")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_changes)
     p = sub.add_parser("sprint", help="the active sprint note in the vault: goals and committed items with their keys and "
                                       "'done when', the working day it is on; on a Friday the week's yesterday files")
     p.add_argument("--date", help="read as of YYYY-MM-DD (default today)")

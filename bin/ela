@@ -80,6 +80,9 @@
                                    triage · breakdown · incidents · backlog · yours
   ela yesterday [--hours N]        what changed, joined into cases by ticket key: Jira moves, commits,
                                    Slack; commits and threads with no ticket; what ela did
+  ela changes [--hours N]          the day's real changes for the Changes page: lane moves, builds and the
+                                   commits they carry, release and QA mail, the release thread, commits per
+                                   repo and ticket, what you did, the team report; sources not read named
   ela vault sync [--dry-run]       regenerate the owner's Obsidian vault: day pages, reviews, verifications,
                                    decisions and plans; a note over its reading budget carries a warning;
                                    a note you delete is done and stays deleted (ela vault restore PATH)
@@ -155,7 +158,7 @@ VERBS = {
     "mail": ("mail", None), "login": ("release", "login"), "stream": ("stream", None),
     "sentry": ("sentry", None),
     "promote": ("promote", None), "runtime": ("runtime", None),
-    "brief": ("brief", "lanes"), "yesterday": ("brief", "yesterday"), "vault": ("vault", None), "note": ("vault", "note"), "secret": ("setup", "secret"),
+    "brief": ("brief", "lanes"), "yesterday": ("brief", "yesterday"), "changes": ("brief", "changes"), "vault": ("vault", None), "note": ("vault", "note"), "secret": ("setup", "secret"),
     "mr": ("mr", "create"), "mr-preflight": ("mr", "preflight"),
     "sessions": ("sessions", "find"),
     "route": ("route", "facts"),
