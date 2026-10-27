@@ -84,7 +84,13 @@ That reach, plus the lane's docker pin, is the risk sentence — not the commit 
 1. **The summary for Evan** — in the session's language (English unless he asked for Chinese); the lane table, then the ranked findings (≤12), each with the reach and the evidence
    source; then what could not be read. He decides here; this text is not posted. With `--purpose prod-deploy`
    the summary is already in the four-section order and is read as written; the Slack body and the backfills are
-   unchanged.
+   unchanged. The summary is also written as a review page to `<reports>/ela/<date>-promote-<line>-<from>-to-<to>.md`,
+   with a title heading, an *In short* paragraph and a closing *What waits for your word*, and with outputs 2 to 4
+   quoted beneath it. The vault sync carries it into `to-read/`, where he reviews it on his own machine (elak decision
+   2026-10-23, the owner reads ela in a generated Obsidian vault). Terminal text and runtime files are not readable
+   there. The page stays within the vault's review budget of 2,500 words and holds no machine paths; the raw report
+   is not copied, because its commit lists would fail that gate. A rerun for the same line and lanes on the same
+   day rewrites the page.
 2. **The Slack body** — English, written to `<runtime>/promote/<date>-<line>-<from>-<to>.post.md`, then shown as
    `slack post '#prj_dev_mediahub' --file … ` **dry run**. Title first (`[MH <line>] <from> → <to> promotion — <scope>`),
    body into the thread; two sends, two confirms.
@@ -97,7 +103,7 @@ That reach, plus the lane's docker pin, is the risk sentence — not the commit 
 5. **What is kept** — the facts belong to the promotion thread, which is where they were posted and where
    the decisions follow them; do not write a second copy. Into `<elak>/blueprint/` goes only what the run
    established about **ela** — a parity result, a capability that now holds — with the thread permalink.
-   The report markdown and JSON stay in `<runtime>` and are disposable (elak `blueprint/principles.md` P1); the JSON also carries quoted words, and a tracked file names the
+   The review page in `<reports>` is his reading copy, not a record. The report markdown and JSON stay in `<runtime>` and are disposable (elak `blueprint/principles.md` P1); the JSON also carries quoted words, and a tracked file names the
    origin, never the utterance).
 
 ## 3 — after the thread
