@@ -4,6 +4,9 @@ L1: stdlib only.
 
   report --key MH-2570 --run <dir> [--out <reports>/verify/<KEY>-<date>/index.html] [--single F] [--json]
         --single F  also write one self-contained HTML (screenshots embedded) for the ticket's attachment
+  plan --key MH-2570 --plan plan.json --lane qa-cn3 --version "2.2.121 build 176" [--minutes N] [--json]
+        the plan gate as a note: <reports>/verify/plans/<date>-<KEY>.md (the vault's to-read verify-plan note) and
+        the plan beside it as .json, which the owner's `run` starts; nothing opens a browser here
 
 The run directory is what /ela:verify leaves behind:
   ticket.json   {key, summary, type, status, parent, asked, added: [..], commits: [{sha, subject}], later: [{key, what}]}
@@ -328,13 +331,51 @@ def cmd_report(a):
               + (f"; pdf for the ticket: {a.pdf} ({res['pdf_bytes']} bytes)" if a.pdf else ""))
 
 
+def cmd_plan(a):
+    """Write the plan the owner confirms before a browser opens (SKILL §2) as a page the vault carries into to-read:
+    the goals table, the lane and version it would run on, and how long. Unattended runs stop here instead of at a
+    terminal prompt; his `run` on the note is the confirm."""
+    try:
+        plan = json.load(open(a.plan, encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        print(f"plan: {e}", file=sys.stderr); sys.exit(EX_USAGE)
+    if not isinstance(plan, list) or not plan:
+        print("plan: an empty plan has nothing to run", file=sys.stderr); sys.exit(EX_USAGE)
+    s = site()
+    reports = s.get("reports") or os.path.join(s.get("projects", ""), "reports")
+    date = datetime.date.today().isoformat()
+    d = os.path.join(reports, "verify", "plans")
+    os.makedirs(d, exist_ok=True)
+    stem = os.path.join(d, f"{date}-{a.key}")
+    cell = lambda v: str(v or "").replace("|", "\\|").replace("\n", " ")  # noqa: E731
+    minutes = a.minutes or max(5, 3 * len(plan))
+    L = ["---", 'type: "verify-plan"', f'key: "{a.key}"', f'lane: "{a.lane}"', f'version: "{a.version}"', f"minutes: {minutes}",
+         f'plan: "verify/plans/{date}-{a.key}.json"', "---", f"# {a.key} · verify plan", "",
+         f"*{len(plan)} goal{'s' if len(plan) != 1 else ''} · on {a.lane} at {a.version} · about {minutes} minutes*", "",
+         "| # | goal | kind | source | expected |", "|---|---|---|---|---|"]
+    L += [f"| {cell(g.get('id'))} | {cell(g.get('goal'))} | {cell(g.get('kind') or 'black')} | {cell(g.get('source'))}"
+          + (f" · superseded by {cell(g['superseded_by'])}" if g.get("superseded_by") else "") + f" | {cell(g.get('expected'))} |" for g in plan]
+    L += ["", "Expectations come from the requirement, never from the code. To change a goal, write an `ela:` line under "
+          "this table before choosing run.", "", f"*Plan file: `verify/plans/{date}-{a.key}.json` under the reports root.*", ""]
+    if os.path.realpath(a.plan) != os.path.realpath(stem + ".json"):
+        shutil.copyfile(a.plan, stem + ".json")
+    open(stem + ".md", "w", encoding="utf-8").write("\n".join(L))
+    out = {"note": stem + ".md", "plan": stem + ".json", "goals": len(plan), "minutes": minutes}
+    print(json.dumps(out) if a.json else f"written: {out['note']}")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--env-file", help="accepted for the adapter's sake; this script reads no credential")
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("report", help="render the report page from a run directory"); p.add_argument("--key", required=True); p.add_argument("--run", required=True); p.add_argument("--out"); p.add_argument("--pdf", help="also print the self-contained page to this PDF through the browser sense: the readable part first, the technical record as an appendix"); p.add_argument("--single", help="also write one self-contained HTML for the ticket's attachment"); p.add_argument("--json", action="store_true")
+    p = sub.add_parser("plan", help="write the plan as a note for the owner's word (the unattended gate)")
+    p.add_argument("--key", required=True); p.add_argument("--plan", required=True, help="plan.json: [{id, kind, goal, source, expected}]")
+    p.add_argument("--lane", required=True); p.add_argument("--version", required=True)
+    p.add_argument("--minutes", type=int, help="how long the run would take (default three a goal, at least five)")
+    p.add_argument("--json", action="store_true")
     a = ap.parse_args()
-    {"report": cmd_report}[a.cmd](a)
+    {"report": cmd_report, "plan": cmd_plan}[a.cmd](a)
 
 
 if __name__ == "__main__":

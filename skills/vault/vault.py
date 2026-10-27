@@ -154,7 +154,8 @@ The same three moves are choices of the note's `next` field: `done` (archive), `
 
 Every note to read carries one field for its next move, **next**, at its top. The button beside it lists only
 that note's choices, by kind: a plan *agree*, *park*, *not-now*, *reject*; a review *make-plan*; a verification *draft-comment*; all of
-them *done*, *learn*, *drop*. A ticket page (one ticket read in depth) offers only *nudge*, *go-deep*, *seen* and *drop*. The note's **Next moves** section says what each does. Choose one, and it is done
+them *done*, *learn*, *drop*. A ticket page (one ticket read in depth) offers only *nudge*, *go-deep*, *seen* and *drop*;
+a verification plan (a run waiting for your word on its goals) only *run*, *not-now* and *drop*. The note's **Next moves** section says what each does. Choose one, and it is done
 within a minute; ela empties the field once it has acted, and a value that is not a move for the note runs nothing
 and is pointed out under the title. An agreed note moves to `in-progress/`, ela writes each step under its Progress
 heading, and when it is built the note offers *accept* or *not-done*. A plan lists each ruling it needs with ela's
@@ -650,6 +651,27 @@ def posted_to_jira(reports):
     except OSError:
         pass
     return out
+
+
+def verify_plan_notes(reports, results):
+    """One note per verification plan waiting for the owner's word (`ela verify-plan`, written when no one is at the
+    terminal to confirm the plan): its goals table, the lane and version, how long. A result for the same ticket on or
+    after the plan's date replaces it."""
+    d = os.path.join(reports, "verify", "plans")
+    done = {}
+    for n in results:
+        k = re.search(r"-verify-([a-z][a-z0-9]+-\d+)", n.path)
+        if k:
+            done.setdefault(k.group(1).upper(), []).append(n.props.get("date") or "")
+    notes = []
+    for f in sorted(os.listdir(d)) if os.path.isdir(d) else []:
+        m = re.match(r"^(\d{4}-\d{2}-\d{2})-([A-Z][A-Z0-9]+-\d+)\.md$", f)
+        if not m or any(x >= m.group(1) for x in done.get(m.group(2), [])):
+            continue
+        fl, body = split_front(open(os.path.join(d, f), encoding="utf-8").read())
+        notes.append(Note(f"{TO_READ}/{m.group(1)}-verify-plan-{m.group(2).lower()}.md", f"{m.group(2)} · verify plan", body,
+                          {"type": "verify-plan", "date": m.group(1), "status": "proposed"}, [], src_rel=f"verify/plans/{f}"))
+    return notes
 
 
 def verify_notes(reports, today=None):
@@ -1191,7 +1213,7 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), saw=N
     enotes, titles = elak_notes(s.get("elak"))
     notes = report_notes(reports, today) + enotes + [constraints_note(standing_constraints(s, env), today)]
     vnotes, files = verify_notes(reports, today)
-    notes += vnotes
+    notes += vnotes + verify_plan_notes(reports, vnotes)
     # what the owner deleted is not written, linked or listed; matched by source too, so a new layout keeps it deleted
     notes = [n for n in notes if n.path not in removed and not (n.src_rel and n.src_rel in removed_src)]
     native = native_notes(s["vault"])
@@ -1423,10 +1445,11 @@ MOVE_PROPS = {                   # by kind, beyond done, learn and drop, which e
     "built": ["accept", "not-done"],
     "ticket": ["nudge", "go-deep", "seen", "drop"],   # a ticket's moves only: "done" would read as the ticket's Jira Done
     "parked": ["resume", "drop"],          # a parked note's only moves: it comes back, or it ends
+    "verify-plan": ["run", "not-now", "drop"],   # the plan gate of a run nobody was at the terminal for
 }
 OUT_OF_TO_READ = ("built", "parked")       # kinds whose moves are their own, without done, learn and drop
 ALL_MOVE_PROPS = ("agree", "park", "not-now", "reject", "make-plan", "draft-comment", "confirm", "accept", "not-done", "nudge", "go-deep",
-                  "seen", "resume")
+                  "seen", "resume", "run")
 MOVE_MEANING = {
     "agree": "ela builds it: the note moves to `in-progress/` and each step is written under Progress",
     "park": "parked: it waits on others; comes back when `wake` happens",
@@ -1439,6 +1462,7 @@ MOVE_MEANING = {
     "go-deep": "ela reads the ticket to its root cause in the code (`ela probe`) and writes what it finds under this page",
     "seen": "archived: you have read where it stands",
     "resume": "back to `to-read/` as proposed, for your next decision",
+    "run": "ela runs the verification as planned; its result replaces this note",
     "done": "archived, nothing more", "learn": "distilled into knowledge that evening", "drop": "deleted",
 }
 MOVES = MOVE_PROPS               # a kind with moves gets the section that explains them
@@ -1454,7 +1478,7 @@ MOVE_SET, MOVE_SETS_DIR = "moves", "ela/moves"
 
 def move_props(kind, in_to_read=True):
     """The checkbox properties a note carries for its next moves: its kind's own, then done, learn and drop."""
-    if kind == "ticket":
+    if kind in ("ticket", "verify-plan"):              # their moves only: "done" would read as the ticket's or the run's
         return list(MOVE_PROPS[kind])
     return list(MOVE_PROPS.get(kind) or []) + (list(MARKS) if in_to_read else [])
 

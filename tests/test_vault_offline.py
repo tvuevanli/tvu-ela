@@ -366,6 +366,18 @@ with tempfile.TemporaryDirectory() as t:
           and "waiting" in ms["built"] and "accept" in ms["built"] and "name: next" not in ms["closed"] and "closed" in ms["closed"]
           and "- name: status" in ms["parked"] and "proposed" not in ms["parked"])
 
+with tempfile.TemporaryDirectory() as t:
+    os.makedirs(os.path.join(t, "verify", "plans"))
+    open(os.path.join(t, "verify", "plans", "2026-10-27-MH-5.md"), "w").write('---\ntype: "verify-plan"\nkey: "MH-5"\n---\n# MH-5 · verify plan\n\n| # | goal |\n')
+    open(os.path.join(t, "verify", "plans", "2026-10-26-MH-6.md"), "w").write('---\ntype: "verify-plan"\n---\n# MH-6 · verify plan\n')
+    done6 = V.Note("to-read/2026-10-27-verify-mh-6.md", "MH-6 · PASS", "# x", {"type": "verify", "date": "2026-10-27"})
+    vp = V.verify_plan_notes(t, [done6])
+    check("a verification plan is a to-read note waiting for his word", [n.path for n in vp] == ["to-read/2026-10-27-verify-plan-mh-5.md"]
+          and vp[0].props == {"type": "verify-plan", "date": "2026-10-27", "status": "proposed"})
+    check("a result on or after the plan's date replaces it", all("mh-6" not in n.path for n in vp))
+check("a plan offers run, not-now and drop only", V.move_props("verify-plan") == ["run", "not-now", "drop"] and V.move_set("verify-plan") == "verify-plan"
+      and "result replaces this note" in V.MOVE_MEANING["run"])
+
 day = datetime.date(2026, 10, 26)
 cons = {"exists": True, "error": None, "today": day.isoformat(), "gaps": [{"kind": "host_unreadable", "host": "qa", "detail": "qa login failed"}],
         "counts": {"active": 1, "expired": 1, "over": 1},
