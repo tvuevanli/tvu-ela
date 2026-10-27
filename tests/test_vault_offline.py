@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The vault, offline: names, links, redaction, the reading gate, and a whole sync against throwaway sources,
 including the safety rules (a missing source, a folder that halves, removal only of files the sync wrote)."""
-import datetime, json, os, subprocess, sys, tempfile, types
+import datetime, json, os, re, subprocess, sys, tempfile, types
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "skills", "vault"))
 import vault as V  # noqa: E402
@@ -162,6 +162,10 @@ with tempfile.TemporaryDirectory() as tmp:
     txt = open(r9).read(); open(r9, "w").write(txt.replace('next: ""', 'next: ""\nela: "1A, post it"'))
     check("a word typed in the old ela property stays, as a line in the note", sync() == 0
           and 'ela: "1A, post it"' in open(r9).read().split("\n---", 1)[1] and open(r9).read().count("1A, post it") == 1)
+    txt = open(r9).read(); open(r9, "w").write(re.sub(r'^next: .*$', 'next: "make-plan"', txt, count=1, flags=re.M))
+    check("the move he chose survives a sync before the watcher acts on it", sync() == 0 and 'next: "make-plan"' in open(r9).read())
+    txt = open(r9).read(); open(r9, "w").write(txt.replace('next: "make-plan"', 'next: "agree"'))
+    check("a value the note does not offer is not kept by the rewrite", sync() == 0 and 'next: "agree"' not in open(r9).read().split("\n---", 1)[0])
     bp = f"{vault}/days/{today[:4]}/{today}-brief.md"
     txt = open(bp).read(); open(bp, "w").write(txt.replace("- [ ] probe MH-1", "- [x] probe MH-1"))
     check("a choice he ticks stays ticked through the rewrite", sync() == 0 and "- [x] probe MH-1 from the replay" in open(bp).read()

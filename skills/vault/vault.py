@@ -1531,6 +1531,23 @@ def with_moves(body, rel, kind, stamp=None):
     return body + ("\n\n" + sec + "\n" if sec else "\n")
 
 
+def keep_choice(text, disk_lines, rel):
+    """The planned note with the `next` he chose on disk, and a status he picked from the folder's chooser, when each is
+    one the note offers: a rewrite between his choice and the watcher's poll must not erase it."""
+    fl, _ = split_front(text)
+    planned = {m.group(1): m.group(2).strip().strip('"\'') for m in (re.match(r"^([\w-]+):\s*(.*)$", l) for l in fl) if m}
+    disk = {m.group(1): m.group(2).strip().strip('"\'') for m in (re.match(r"^([\w-]+):\s*(.*)$", l) for l in disk_lines) if m}
+    kind = "built" if planned.get("status") == "built" else planned.get("type")
+    keep = {}
+    chosen = (disk.get(NEXT) or "").lower()
+    if chosen and chosen != (planned.get(NEXT) or "") and chosen in move_props(kind, in_to_read=top(rel) == TO_READ):
+        keep[NEXT] = chosen
+    st = disk.get("status")
+    if st and st != planned.get("status") and st in STATUS_BY_FOLDER.get(top(rel), ()):
+        keep["status"] = st
+    return set_front(text, **keep) if keep else text
+
+
 def set_front(text, **props):
     """Set or remove (None) front-matter keys in a note's text, keeping the rest as written."""
     fl, body = split_front(text)
@@ -1943,6 +1960,7 @@ def cmd_sync(a):
         except OSError:
             continue
         dfl, dbody = split_front(disk)
+        planned[rel] = keep_choice(planned[rel], dfl, rel)   # the move he chose waits for the watcher, not for this rewrite
         for m in TICKED.finditer(dbody):                   # a choice he ticked stays ticked when the page is rewritten
             planned[rel] = re.sub(r"^(\s*[-*]\s+)\[ \](\s+" + re.escape(m.group(1)) + r"\s*)$", r"\1[x]\2", planned[rel], count=1, flags=re.M)
         mine = [m.group(0).strip() for m in GUIDE.finditer(dbody) if m.group(0).strip() not in planned[rel]]
