@@ -1058,13 +1058,27 @@ BOX_RX = re.compile(r"Box images[^:]*:\s*(.+?)(?:\n\s*\n|\n[A-Z][\w ]+:|$)", re.
 
 
 def service_aliases():
-    """Every name a docker service goes by in the map (slug, GM name, process type, MQTT topic), lowercased → slug."""
+    """Every name a docker service goes by in the map (slug, GM name, process type, MQTT topic, and its `aliases`, on the
+    service row or the module when the module has one image), lowercased → slug."""
     out = {}
     try:
         text = open(os.path.join(json.load(open(SITE)).get("map", ""), "services.yaml"), encoding="utf-8").read()
     except (OSError, ValueError):
         return out
+    slugs, names = [], []                                   # a module's slugs, and its module-level aliases
+    def module_aliases():
+        if len(slugs) == 1:                                 # an alias of a module with several images names none of them
+            for a in names:
+                out.setdefault(str(a).strip().lower(), slugs[0])
     for line in text.splitlines():
+        if re.match(r"^  [\w-]+:\s*$", line):               # the next module begins
+            module_aliases(); slugs, names = [], []
+        lst = re.match(r"^    (slugs|aliases):\s*(\[.*\])\s*$", line)
+        if lst:
+            try:
+                (slugs if lst.group(1) == "slugs" else names)[:] = json.loads(lst.group(2))
+            except ValueError:
+                pass
         m = re.match(r"^\s+- (\{.*\})\s*$", line)
         try:
             row = json.loads(m.group(1)) if m else None
@@ -1074,6 +1088,9 @@ def service_aliases():
             for k in ("slug", "gm_name", "process_type", "mqtt_topic"):
                 if row.get(k):
                     out.setdefault(str(row[k]).strip().lower(), row["slug"])
+            for a in row.get("aliases") or []:              # the names people write in Slack and mail
+                out.setdefault(str(a).strip().lower(), row["slug"])
+    module_aliases()
     return out
 
 

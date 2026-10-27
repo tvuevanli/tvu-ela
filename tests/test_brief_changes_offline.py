@@ -176,4 +176,19 @@ check("a version naming a ticket with empty Fixed In drafts the entry for a mapp
       df[0]["options"] == ["ela jira fixed-in MH-3790 --add 'mds-html-decoder@0.0.25'"] and df[0]["evidence"] == ["MH-3790 comment 282857"] and df[0]["rank"] == 5
       and df[1]["options"] == [] and "no slug for output" in df[1]["what"])
 check("a ticket whose Fixed In is set is not a finding", B.docker_findings(rows, set()) == [])
+with tempfile.TemporaryDirectory() as d:
+    open(os.path.join(d, "services.yaml"), "w").write(
+        'modules:\n  live:\n    slugs: ["mds-live-transmit"]\n    aliases: ["tvu_live_transmit", "live transmit"]\n    services:\n'
+        '      - {"slug": "mds-live-transmit", "gm_name": "Docker Live Transmit"}\n'
+        '  copier:\n    slugs: ["mds-a-copier", "mds-b-copier"]\n    aliases: ["copier"]\n    services:\n'
+        '      - {"slug": "mds-a-copier", "gm_name": "Docker A Copier", "aliases": ["a copier"]}\n')
+    site = os.path.join(d, "site.json"); json.dump({"map": d}, open(site, "w"))
+    saved, B.SITE = B.SITE, site
+    try:
+        al = B.service_aliases()
+    finally:
+        B.SITE = saved
+    check("aliases on a service row and on a one-image module map to its slug; a many-image module's alias maps to none",
+          al.get("tvu_live_transmit") == "mds-live-transmit" and al.get("live transmit") == "mds-live-transmit"
+          and al.get("a copier") == "mds-a-copier" and "copier" not in al)
 sys.exit(1 if failures else 0)
