@@ -423,6 +423,10 @@ with tempfile.TemporaryDirectory() as t:
     check("a note kept in its own folder keeps its name", V.free_path(os.path.join(vlt, "archive"), "same.md", own=os.path.join(vlt, "archive", "same.md"))
           == os.path.join(vlt, "archive", "same.md"))
 
+import hashlib  # noqa: E402
+check("an ela: line keeps the id it always had; the same words again get their own", V.guidance_id("n.md", "post it")
+      == hashlib.sha256("n.md\0post it".encode()).hexdigest()[:12] and V.guidance_id("n.md", "post it", 2) != V.guidance_id("n.md", "post it"))
+
 day = datetime.date(2026, 10, 26)
 cons = {"exists": True, "error": None, "today": day.isoformat(), "gaps": [{"kind": "host_unreadable", "host": "qa", "detail": "qa login failed"}],
         "counts": {"active": 1, "expired": 1, "over": 1},

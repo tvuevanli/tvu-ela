@@ -1704,6 +1704,12 @@ def ensure_native_moves(vault, dry_run=False):
             atomic_write(p, "---\n" + "\n".join(fl) + "\n---\n" + body.lstrip("\n"))
 
 
+def guidance_id(name, says, nth=1):
+    """A stable id for one `ela:` line or tick: the note's file name and the words, and for a repeat its count."""
+    import hashlib
+    return hashlib.sha256((f"{name}\0{says}" + (f"\0{nth}" if nth > 1 else "")).encode()).hexdigest()[:12]
+
+
 def cmd_guidance(a):
     """The owner's instructions written into his notes: every line starting `ela:` anywhere in the vault (a generated
     note keeps his lines through its rewrite), with a stable id so a job handles each once (ids already in <reports>/ela/
@@ -1734,8 +1740,12 @@ def cmd_guidance(a):
                 ticks = [x for x in TICKED.finditer(text) if x.group(1) not in source_ticks.get(rel, [])]
                 # kind tells a typed line, which a watcher lets settle before taking it up, from a ticked box, a click
                 found = [(x, "line") for x in GUIDE.finditer(text)] + [(x, "tick") for x in ticks]
+                times = {}
                 for m, kind in ((x, k) for x, k in found if x.group(1).strip('"\' ')):
-                    gid = hashlib.sha256(f"{f}\0{m.group(1)}".encode()).hexdigest()[:12]
+                    # the same words written again in the note are a new instruction: the nth repeat has its own id, the
+                    # first keeps the id it always had, so nothing already handled comes back
+                    times[m.group(1)] = times.get(m.group(1), 0) + 1
+                    gid = guidance_id(f, m.group(1), times[m.group(1)])
                     if a.all or gid not in done:
                         lines.append({"id": gid, "note": rel, "kind": kind, "says": m.group(1).strip().strip('"').strip("'")})
     r = {"guidance": lines, "to_learn": notes,
