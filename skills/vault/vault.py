@@ -50,11 +50,22 @@ LAYOUT = 3                  # the manifest records it; a sync across a change of
 DAYS, TO_READ, LIBRARY, ELA, ARCHIVE, TO_LEARN = "days", "to-read", "library", "ela", "archive", "to-learn"
 IN_PROGRESS = "in-progress"   # a note he agreed to, while ela builds it and until he accepts the result
 PARKED = "parked"             # a live note nobody in ela works on: it waits on others (a draft he sent out, an answer pending)
+# status is ela's field and the folder says the lifecycle, so each lifecycle folder allows only its own values;
+# the owner sets `next`, never status. A note elsewhere (a sprint, a library page) keeps the status its kind defines.
+STATUS_BY_FOLDER = {
+    TO_READ: ("proposed", "blocked"),                       # waits on his word; only he can unblock
+    IN_PROGRESS: ("building", "built", "waiting", "blocked"),   # waiting: an unattended loop that cannot finish
+    PARKED: ("parked",),
+    ARCHIVE: ("closed",),                                   # the outcome is in `next`, not repeated here
+}
+STATUSES = tuple(dict.fromkeys(v for vs in STATUS_BY_FOLDER.values() for v in vs))
+CLOSED_NEXT = {"accepted": "accept", "rejected": "reject", "not now": "not-now", "not-now": "not-now", "parked": "not-now",
+               "confirmed": "confirm"}               # an archived note's old outcome status, as the move that made it
 OWNER_FOLDERS = (TO_LEARN, ARCHIVE)   # where the owner drags a note to say what he wants; ela never rewrites in them
 ATTACH = "ela/attachments"
 DELETABLE = (DAYS, TO_READ)
 KEEP_FOREVER = ("brief", "week", "changes")   # the morning pages are the record of what ela told the owner; the rest expires
-PROPS = ("title", "aliases", "type", "date", "kind", "status", "moves", "next", "ela")   # the whole vocabulary; no tags (ADR 0010)
+PROPS = ("title", "aliases", "type", "date", "kind", "status", "result", "moves", "next", "ela")   # the whole vocabulary; no tags (ADR 0010)
 MARKS = {"done": ARCHIVE, "learn": TO_LEARN, "drop": None}   # a ticked box in a to-read table row: archive, distil, delete
 BUDGET = {"ticket": 700, "topic": 800, "guide": 1200, "board": 1000, "day": 1200, "review": 2500, "decision": 1200, "plan": 2500, "sprint": 800}
 TOLERANCE = 1.1                                  # a page 10% over its budget is not worth a rewrite
@@ -111,8 +122,11 @@ the file explorer is rarely needed.
 - Names are lowercase, words joined by hyphens, taken from the source file's name; a dated note starts with its
   date. The readable title is the note's first heading, and an alias, so the quick switcher (Ctrl+O) finds a
   note by its title.
-- Properties are `title`, `aliases` and `type`, plus `date`, `kind` on a day page, and `status` where the source
-  states one (a verification's verdict, a plan's state); a page ela writes in place also carries `source: "vault"`.
+- Properties are `title`, `aliases` and `type`, plus `date`, `kind` on a day page, `status`, and `result` on a
+  verification (pass or fail); a page ela writes in place also carries `source: "vault"`. status is ela's, never
+  yours to set, and follows the folder: to-read *proposed* (waits on your word) or *blocked* (only you can unblock);
+  in-progress *building*, *built* (waits on your accept), *waiting* (a loop that cannot finish; Progress says why) or
+  *blocked*; parked *parked*; archive *closed*, with the outcome in `next`.
   They feed the tables and show at the top of each note: a status to read, and `next`, the move you choose. A
   hidden `moves` property names the note's set of moves, so the chooser lists only those.
 - No tags: a keyword-guessed tag would be wrong often enough to cost trust. A note about one topic links to its
@@ -211,7 +225,7 @@ properties:
 WAITING = """      or:
         - 'status == "built"'
         - 'status == "proposed"'
-        - 'status == "fail"'
+        - 'result == "fail"'
         - 'status == "blocked"'
         - 'kind == "learned"'
 """
@@ -239,7 +253,7 @@ VIEWS = {
     filters:
       and:
         - file.inFolder("to-read")
-        - 'status != "fail"'
+        - 'result != "fail"'
         - 'status != "blocked"'
         - 'status != "proposed"'
     order: [date, formula.note, type, next, ela]
@@ -295,6 +309,65 @@ def h1(body):
 
 def sentence(title):
     return title if re.match(r"^(ela|elak)\b", title) else title[:1].upper() + title[1:]
+
+
+def verdict_props(verdict):
+    """A verification's verdict is a result, not a lifecycle: a fail waits on his word, a blocked run on him, a pass
+    is read."""
+    v = (verdict or "").lower()
+    return {"result": v if v in ("pass", "fail") else None,
+            "status": "proposed" if v == "fail" else "blocked" if v == "blocked" else None}
+
+
+def settled_status(folder, status, kind=None):
+    """(status, result, next) a note in a lifecycle folder carries, from whatever status it had: the folder's own
+    value, a verdict moved to result, an archived outcome moved to next. Outside those folders, as it was."""
+    s = (status or "").strip().strip("'\"").lower()
+    result = s if kind == "verify" and s in ("pass", "fail") else None
+    if folder not in STATUS_BY_FOLDER:
+        return status, None, None
+    if folder == ARCHIVE:
+        return "closed", result, CLOSED_NEXT.get(s)
+    if folder == PARKED:
+        return "parked", result, None
+    if folder == IN_PROGRESS:
+        return s if s in STATUS_BY_FOLDER[IN_PROGRESS] else "building", result, None
+    if result:
+        return ("proposed" if result == "fail" else None), result, None
+    return (s if s in STATUS_BY_FOLDER[TO_READ] else "proposed") if s else None, None, None
+
+
+def settle_statuses(vault, dry_run=False):
+    """Bring every note in a lifecycle folder to its folder's statuses, front matter only (archive included: the
+    body stays his). Returns one line per fix."""
+    fixes = []
+    for folder in STATUS_BY_FOLDER:
+        d = os.path.join(vault, folder)
+        for f in sorted(os.listdir(d)) if os.path.isdir(d) else []:
+            if not f.endswith(".md"):
+                continue
+            p = os.path.join(d, f)
+            try:
+                text = open(p, encoding="utf-8").read()
+            except OSError:
+                continue
+            fl, body = split_front(text)
+            if not fl:
+                continue
+            props = {m.group(1): m.group(2).strip().strip("'\"") for m in (re.match(r"^([\w-]+):\s*(.*)$", l) for l in fl) if m}
+            st, result, nxt = settled_status(folder, props.get("status"), props.get("type"))
+            want = {"status": st, "result": result or props.get("result") or None}
+            if nxt and not props.get(NEXT):
+                want[NEXT] = nxt
+            if folder in (IN_PROGRESS, ARCHIVE):            # the set its status chooser lists
+                want[MOVE_SET] = "closed" if folder == ARCHIVE else props.get(MOVE_SET) or "built"
+            changed = {k: v for k, v in want.items() if (v or None) != (props.get(k) or None)}
+            if not changed:
+                continue
+            fixes.append(f"{folder}/{f}: " + ", ".join(f"{k} {props.get(k) or '—'} → {v or '—'}" for k, v in changed.items()))
+            if not dry_run:
+                atomic_write(p, set_front(text, **changed))
+    return fixes
 
 
 def short_status(v):
@@ -619,7 +692,7 @@ def verify_notes(reports, today=None):
             if not body.lstrip().startswith("# " + key + " · "):  # an older record's heading: the title takes its place
                 body = re.sub(r"^#[ \t]+.*$", "# " + title, body, count=1, flags=re.M)
             title = " · ".join(title.split(" · ")[:2])     # key and verdict on its lane; the summary is the heading's
-            notes.append(Note(verify_path(key, date, extra), title, body, {"type": "verify", "date": date, "status": (vm.group(1).lower() if vm else None)},
+            notes.append(Note(verify_path(key, date, extra), title, body, {"type": "verify", "date": date, **verdict_props(vm.group(1) if vm else None)},
                               src_rel=f"verify/{name}"))
             continue
         verdict = record_verdict(os.path.join(vd, name) if single else os.path.join(p, os.path.basename(page or "index.html")))
@@ -638,7 +711,7 @@ def verify_notes(reports, today=None):
             if len(imgs) > 8:
                 body += ["", f"{len(imgs) - 8} more in the full record."]
         notes.append(Note(verify_path(key, date, extra), f"{key} · {verdict[0]}", "\n".join(body) + "\n",
-                          {"type": "verify", "date": date, "status": verdict[0].lower()}, src_rel=f"verify/{name}"))
+                          {"type": "verify", "date": date, **verdict_props(verdict[0])}, src_rel=f"verify/{name}"))
     return notes, files
 
 
@@ -913,7 +986,8 @@ def home(today, now, notes):
     # everything that needs his word, from typed state: a failed or blocked verification, a plan proposed to him, the
     # evening draft (a live view, so it leaves when he deletes the note), and proposed closes from the board
     # the same rules as the views, so an empty table is a sentence instead
-    waiting = [n for n in notes if note_status(n) in ("proposed", "fail", "blocked", "built") or n.props.get("kind") == "learned"]
+    waiting = [n for n in notes if note_status(n) in ("proposed", "blocked", "built") or n.props.get("result") == "fail"
+               or n.props.get("kind") == "learned"]
     L += ["## Waiting for your word", ""] + [f"- {w}" for w in wait] + ([""] if wait else [])
     if waiting:
         L += [f"![[{ELA}/all-notes.base#Waiting for your word]]", "",
@@ -960,7 +1034,8 @@ def home(today, now, notes):
         L += ["## In progress", "", f"![[{ELA}/all-notes.base#In progress]]", ""]
     if any(top(n.path) == PARKED for n in notes):        # a base cannot hide an empty view, so the block goes instead
         L += ["## Parked", "", f"![[{ELA}/all-notes.base#Parked]]", ""]
-    reading = [n for n in notes if top(n.path) == TO_READ and note_status(n) not in ("proposed", "fail", "blocked", "built")]
+    reading = [n for n in notes if top(n.path) == TO_READ and note_status(n) not in ("proposed", "blocked", "built")
+               and n.props.get("result") != "fail"]
     L += ["## To read", "", f"![[{ELA}/all-notes.base#To read]]" if reading else "Nothing to read.", ""]
     if reading:                                            # the table shows five; say what is beyond and what is new
         new = sum(1 for n in reading if n.props.get("date") == iso)
@@ -1113,6 +1188,10 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset()):
     linker = Linker({n.src_rel: n for n in enotes}, titles, jira_base, projects, reports, reps)
     planned = {}
     for n in notes:
+        if top(n.path) in STATUS_BY_FOLDER:
+            st, result, _ = settled_status(top(n.path), note_status(n), n.props.get("type"))
+            n.props.update(status=st, result=n.props.get("result") or result)
+            n.front_lines = [l for l in n.front_lines if not l.startswith("status:")]   # the source's own word is settled
         if top(n.path) == TO_READ:
             n.props.update({NEXT: "", MOVE_SET: move_set(n.props.get("type"))}, ela="")
         n.held = reading_gate(n)
@@ -1353,15 +1432,22 @@ def move_set(kind, in_to_read=True):
 
 
 def write_move_sets(vault):
-    """One Metadata Menu field definition per set of moves, so a note's `next` chooser lists its moves and no other."""
+    """One Metadata Menu field definition per set of moves, so a note's `next` chooser lists its moves and no other,
+    and its `status` chooser the statuses of the folder that set lives in (STATUS_BY_FOLDER)."""
     d = os.path.join(vault, MOVE_SETS_DIR)
     os.makedirs(d, exist_ok=True)
     sets = {k: move_props(k, in_to_read=k not in OUT_OF_TO_READ) for k in MOVE_PROPS}
     sets["read"] = list(MARKS)
+    sets["closed"] = []                                    # an archived note: its status only, its next already written
+    folder_of = {"built": IN_PROGRESS, "parked": PARKED, "closed": ARCHIVE}
+
+    def field(name, values):
+        vals = "".join(f'\n        "{i}": {m}' for i, m in enumerate(values, 1))
+        return (f"  - name: {name}\n    id: {name}\n    type: Select\n    path: \"\"\n    options:\n"
+                f"      sourceType: ValuesList\n      valuesList:{vals}\n")
     for name, moves in sets.items():
-        vals = "".join(f'\n        "{i}": {m}' for i, m in enumerate(moves, 1))
-        text = ("---\nfields:\n  - name: next\n    id: next\n    type: Select\n    path: \"\"\n    options:\n"
-                f"      sourceType: ValuesList\n      valuesList:{vals}\n---\n")
+        text = ("---\nfields:\n" + (field("next", moves) if moves else "")
+                + field("status", STATUS_BY_FOLDER[folder_of.get(name, TO_READ)]) + "---\n")
         p = os.path.join(d, f"{name}.md")
         if not os.path.isfile(p) or open(p, encoding="utf-8").read() != text:
             atomic_write(p, text)
@@ -1430,14 +1516,19 @@ def move_note(vault, reports, rel, to, status=None, waits_on=None, wake=None):
     kind = (split_front(text)[0] and next((re.sub(r'^type:\s*', "", l).strip().strip('"\'') for l in split_front(text)[0]
                                             if l.startswith("type:")), None))
     text = clear_warn(PROP_RE.sub("", text))
+    st, result, nxt = settled_status(folder, status, kind)
     if folder == PARKED:
         old = dict(m.groups() for m in (re.match(r"^([\w-]+):\s*['\"]?(.*?)['\"]?\s*$", l) for l in split_front(text)[0]) if m)
-        text = set_front(text, source="vault", status=status or "parked", claimed=None, **{
+        text = set_front(text, source="vault", status=st, claimed=None, **{
             "waits-on": waits_on or old.get("waits-on") or "", "wake": wake or old.get("wake") or "",
             "parked": old.get("parked") if top(rel) == PARKED and old.get("parked") else datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
             MOVE_SET: "parked", NEXT: ""})
     else:
-        text = set_front(text, source="vault", status=status, claimed=None, **{"waits-on": None, "wake": None, "parked": None})
+        text = set_front(text, source="vault", status=st, claimed=None, **{"waits-on": None, "wake": None, "parked": None})
+        if folder == ARCHIVE:                              # the outcome stays in next; status says only that it is closed
+            text = set_front(text, **{MOVE_SET: "closed", NEXT: nxt or ""})
+        elif folder == IN_PROGRESS:
+            text = set_front(text, **{MOVE_SET: "built", NEXT: ""})
     fl, body = split_front(text)
     body = with_moves(body, f"{folder}/{os.path.basename(rel)}", "parked" if folder == PARKED else kind if folder == TO_READ else None)
     text = "---\n" + "\n".join(fl) + "\n---\n" + body.lstrip("\n")
@@ -1588,7 +1679,7 @@ def apply_marks(vault, reports, dry_run=False):
                 continue
             out.append((rel, move))
             if move in tuple(MARKS) + ("seen",) and not dry_run:
-                finish(vault, reports, rel, {"done": "archive", "seen": "archive", "learn": "learn", "drop": "delete"}[move])
+                finish(vault, reports, rel, {"done": "archive", "seen": "archive", "learn": "learn", "drop": "delete"}[move], move)
             elif move == "resume" and not dry_run:      # a script move: the note's next decision is his again
                 move_note(vault, reports, rel, "to-read", "proposed")
     return out
@@ -1623,7 +1714,7 @@ def cmd_marks(a):
         print(f"{p}: {k}")
 
 
-def finish(vault, reports, rel, to):
+def finish(vault, reports, rel, to, move=None):
     p = os.path.realpath(os.path.join(vault, rel))
     try:
         src = (json.load(open(os.path.join(vault, MANIFEST))).get("sources") or {}).get(rel)
@@ -1634,8 +1725,10 @@ def finish(vault, reports, rel, to):
         os.makedirs(os.path.join(vault, folder), exist_ok=True)
         dst = os.path.join(vault, folder, os.path.basename(rel))
         os.replace(p, dst)
-        text = open(dst, encoding="utf-8").read()   # the boxes belong to to-read; the moved copy goes without them
-        open(dst, "w", encoding="utf-8").write(clear_warn(PROP_RE.sub("", text)))
+        text = clear_warn(PROP_RE.sub("", open(dst, encoding="utf-8").read()))   # the boxes belong to to-read
+        if folder == ARCHIVE:                              # closed, and the move that closed it kept in next
+            text = set_front(text, status="closed", **{MOVE_SET: "closed", NEXT: move or "done"})
+        open(dst, "w", encoding="utf-8").write(text)
     else:
         os.remove(p)
     record_removed(os.path.join(reports, "ela", "vault-removed.jsonl"), [rel], {rel: src} if src else {},
@@ -1715,6 +1808,8 @@ def cmd_sync(a):
     # a note the sync wrote that is gone from disk was deleted by the owner: that is feedback, and it stays deleted
     removed_path = os.path.join(s.get("reports") or "", "ela", "vault-removed.jsonl")
     marked = [] if a.dry_run else apply_marks(vault, s.get("reports") or "")   # ticked boxes first: they are his moves
+    for fix in settle_statuses(vault, a.dry_run):
+        print(f"status: {fix}", file=sys.stderr)
     if not a.dry_run:
         write_move_sets(vault)                             # the choosers follow MOVE_PROPS without a setup run
     removed, removed_src = load_removed(removed_path)
@@ -1914,7 +2009,8 @@ def main():
     p.add_argument("path", help="the note's path in the vault, e.g. to-read/2026-10-26-system-plan.md")
     p.add_argument("text", nargs="*", help="progress or built: the line to record")
     p.add_argument("--to", choices=("in-progress", "parked", "archive", "to-read", "delete"))
-    p.add_argument("--status", help="move: the status the note carries after it")
+    p.add_argument("--status", help="move: the status the note carries after it, settled to its folder's own (an archived "
+                                    "outcome such as accepted goes to next)")
     p.add_argument("--waits-on", help="move --to parked: who it waits on, and where")
     p.add_argument("--wake", help="move --to parked: what brings it back (a Slack thread, a ticket key)")
     p.set_defaults(func=cmd_note)

@@ -140,9 +140,10 @@ with tempfile.TemporaryDirectory() as tmp:
     r6 = f"{vault}/to-read/{today[:4]}-09-16-review-6.md"
     check("a to-read note carries an empty next field", 'next: ""' in open(r6).read() and "done:" not in open(r6).read())
     txt = open(r6).read(); open(r6, "w").write(txt.replace('next: ""', 'next: "done"'))
-    check("next: done archives the note at the next sync, without the field", sync() == 0
-          and os.path.exists(f"{vault}/archive/{today[:4]}-09-16-review-6.md") and not os.path.exists(r6)
-          and "next:" not in open(f"{vault}/archive/{today[:4]}-09-16-review-6.md").read())
+    a6 = f"{vault}/archive/{today[:4]}-09-16-review-6.md"
+    check("next: done archives the note at the next sync, closed, the move kept in next", sync() == 0
+          and os.path.exists(a6) and not os.path.exists(r6)
+          and 'next: "done"' in open(a6).read() and 'status: "closed"' in open(a6).read() and 'moves: "closed"' in open(a6).read())
     r9 = f"{vault}/to-read/{today[:4]}-09-19-review-9.md"
     txt = open(r9).read(); open(r9, "w").write(txt.replace('ela: ""', 'ela: "1A, post it"'))
     check("his word typed in the ela cell survives the rewrite", sync() == 0 and 'ela: "1A, post it"' in open(r9).read()
@@ -248,7 +249,7 @@ with tempfile.TemporaryDirectory() as t:
     to = V.move_note(vlt, rep, "to-read/p.md", "in-progress", "in progress")
     moved = open(os.path.join(vlt, to)).read()
     check("an agreed note moves to in-progress as the vault's own page", to == "in-progress/p.md" and 'source: "vault"' in moved
-          and 'status: "in progress"' in moved and "done:" not in moved and V.MOVES_HEAD not in moved)
+          and 'status: "building"' in moved and 'moves: "built"' in moved and "done:" not in moved and V.MOVES_HEAD not in moved)
     check("the move is logged as his", '"fate": "in-progress"' in open(os.path.join(rep, "ela", "vault-removed.jsonl")).read())
 with tempfile.TemporaryDirectory() as t:
     vlt, rep = os.path.join(t, "v"), os.path.join(t, "r")
@@ -307,6 +308,38 @@ with tempfile.TemporaryDirectory() as t:
           and "**agree**" in r
           and not os.path.exists(os.path.join(vlt, "parked", "q.md")))
     check("the parked moves are a set of their own", V.move_props("parked", in_to_read=False) == ["resume", "drop"] and V.move_set("parked") == "parked")
+
+S = V.settled_status
+check("each lifecycle folder settles its status", S("in-progress", "in progress") == ("building", None, None)
+      and S("in-progress", "waiting") == ("waiting", None, None) and S("parked", "proposed") == ("parked", None, None)
+      and S("to-read", "decided") == ("proposed", None, None) and S("to-read", "active") == ("proposed", None, None)
+      and S("to-read", None) == (None, None, None) and S("to-read", "blocked") == ("blocked", None, None))
+check("an archived outcome moves to next", S("archive", "accepted") == ("closed", None, "accept") and S("archive", "planned") == ("closed", None, None)
+      and S("archive", "not now") == ("closed", None, "not-now"))
+check("a verdict is a result: a fail waits on his word, a pass is read", S("to-read", "fail", "verify") == ("proposed", "fail", None)
+      and S("to-read", "pass", "verify") == (None, "pass", None) and S("archive", "pass", "verify") == ("closed", "pass", None))
+check("a sprint or library page keeps its own status", S("sprints", "active") == ("active", None, None) and S("library", "decided") == ("decided", None, None))
+check("the statuses are seven", V.STATUSES == ("proposed", "blocked", "building", "built", "waiting", "parked", "closed"))
+with tempfile.TemporaryDirectory() as t:
+    for d in ("archive", "in-progress", "sprints"):
+        os.makedirs(os.path.join(t, d))
+    open(os.path.join(t, "archive", "a.md"), "w").write('---\ntype: "plan"\nstatus: "accepted"\n---\n# A\n\nhis body\n')
+    open(os.path.join(t, "archive", "v.md"), "w").write('---\ntype: verify\nstatus: pass\n---\n# V\n')
+    open(os.path.join(t, "in-progress", "b.md"), "w").write('---\ntype: "plan"\nstatus: "in-progress"\n---\n# B\n')
+    open(os.path.join(t, "sprints", "s.md"), "w").write('---\ntype: "sprint"\nstatus: "active"\n---\n# S\n')
+    fixes = V.settle_statuses(t)
+    a = open(os.path.join(t, "archive", "a.md")).read()
+    check("sync settles a native note's front matter, one line per fix, its body untouched", len(fixes) == 3
+          and 'status: "closed"' in a and 'next: "accept"' in a and 'moves: "closed"' in a and a.endswith("# A\n\nhis body\n")
+          and 'result: "pass"' in open(os.path.join(t, "archive", "v.md")).read()
+          and 'status: "building"' in open(os.path.join(t, "in-progress", "b.md")).read()
+          and 'status: "active"' in open(os.path.join(t, "sprints", "s.md")).read())
+    check("a second pass has nothing to fix", V.settle_statuses(t) == [])
+    V.write_move_sets(t)
+    ms = {n: open(os.path.join(t, "ela", "moves", n + ".md")).read() for n in ("plan", "built", "parked", "closed")}
+    check("each move set lists only its folder's statuses", "proposed" in ms["plan"] and "building" not in ms["plan"]
+          and "waiting" in ms["built"] and "accept" in ms["built"] and "name: next" not in ms["closed"] and "closed" in ms["closed"]
+          and "- name: status" in ms["parked"] and "proposed" not in ms["parked"])
 
 day = datetime.date(2026, 10, 26)
 cons = {"exists": True, "error": None, "today": day.isoformat(), "gaps": [{"kind": "host_unreadable", "host": "qa", "detail": "qa login failed"}],
