@@ -335,6 +335,45 @@ fails and the runner asks for a rejudge, the judge reads the lines page-check pr
 and either mints the missing action and box or removes the number, then writes the page again. *Why: items carried for days with nothing
 he could tick became the page he stopped reading (from 2026-10-28).*
 
+- **One `## <Name> at HH:MM` section per meeting the owner has that day,** right after *Needs you*, in time order.
+  The meetings are data, not page logic: `<elak>/blueprint/meetings.yaml`, read by `ela day --json` (and in `ela brief --json` as `day.meetings`, each with its `section` heading), gives each meeting's `name`,
+  `weekdays`, `time`, `audience` and `enabled`. A meeting that is not enabled, or has no time yet, renders
+  nothing. Each section is his agenda for that meeting, in his speaking order, at most eight bullets. It adds no
+  new facts: every line restates the page's own items, lanes table or sprint table, with the key or link that
+  holds the evidence, so it costs the judge one more section, not one more read. A part with nothing to say is
+  left out, never filled. Services are named by slug.
+
+  **The PM scrum** (audience: product manager):
+  1. **Sprint**, one line: `day N of M · x on track · y at risk`, then the at-risk item and what it needs, by key.
+  2. **Releases this week**, one or two lines from the lanes table: what prod 3 runs (its bundle), what rides
+     this week's train and when, and what is held and why, with the constraint or decision note linked (e.g.
+     "mediahub-frontend held at 2.2.118: HTML input over MQTT is not finished").
+  3. **What the PM will ask about**, at most two lines: customer tickets and Highest tickets that moved or are
+     due, each with its key and its real status in one clause, never the Jira status alone.
+  4. **What he needs from the PM today**, at most two lines: the D items whose decider is product, each written
+     as the question he will ask (e.g. "Should the box-pool shortage code 0x81004009 show the friendly notice
+     too? MH-2406").
+  5. **What he commits to**, one line: the sprint items he carries himself and the date each lands.
+
+  **The engineering, QA and UX sync** (audience: developers, QA, design):
+  1. **The lanes**: what reached QA-AWS3 since the last sync and what of it no QA report names, as slug and
+     version.
+  2. **QA**: this week's fails by ticket, with the real status; Review tickets waiting on QA, by the version
+     that carries them; the ones QA has held longest, with their age.
+  3. **Engineering**: changes on a lane with no ticket, nightly-fix batches with no ticket, and Fixed In gaps,
+     each as a count and the worst one by name.
+  4. **UX**: tickets in Review with design or product, and open design questions on in-progress tickets.
+  5. **What he needs from each group today**, one line per group with an ask, written as the question he will ask.
+  6. **What he commits to**, one line.
+
+  **After a meeting** the owner writes its rulings and answers as `ela:` lines under its section. The next pass
+  (13:00) reads them as guidance, like any `ela:` line on the page: a ruling closes its D item and is recorded on
+  the ticket or the decision note it names, as a drafted `apply N` for his tick.
+  **On Friday** the day's meeting sections also open the Friday page (`<date>-week.md`), above `## The sprint`.
+  *Why: meetings are where rulings are given and asks are answered. A page that carries the questions in his
+  speaking order turns them into recorded rulings the same day, and a meeting he adds or moves is one line of
+  data, not a change to the brief.*
+
 **One place per day.** An item appears once. A key inside a lanes-table cell or a Changes page callout is evidence,
 not an appearance.
 
