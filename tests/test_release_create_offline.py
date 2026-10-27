@@ -37,7 +37,7 @@ C = lambda n: R.name_class(n, "mh2.1@")  # noqa: E731
 check("daily names", C("mh2.1@daily-wed-s1-d45") == "daily" and C("mh2.1@stage-s4-d19") == "daily")
 check("prod names", C("mh2.1@rc-s2-d8") == "prod" and C("mh2.1@ga-s1-d1") == "prod")
 check("official names", C("MediaHub 2.1.15") == "official" and C("MediaHub 2.1.14 (Build Version Emission)") == "official"
-      and C("MediaHub 2.0 rc11") == "official")
+      and R.name_class("MediaHub 2.0 rc11", "mh2.0@") == "official")
 check("anything else is refused: no temporary form yet", C("mh2.1@tmp-encoder") is None and C("mh2.0@daily-wed-s1-d45") is None
       and C("mh2.1@daily-wed-d45") is None)
 check("the next name follows the base", R.next_name("mh2.1@daily-wed-s1-d45") == "mh2.1@daily-wed-s1-d46"
@@ -76,4 +76,10 @@ check("success is errorCode 0x0 with the new id", R.bundle_created({"errorCode":
 check("a refusal at HTTP 200 is a refusal, with GM's reason",
       R.bundle_created({"errorInfo": "Description length cannot exceed 255", "errorCode": "80952002", "result": None}) == (None, "80952002: Description length cannot exceed 255"))
 check("an unreadable answer is not success", R.bundle_created("<html>")[0] is None)
+O = R.is_official
+check("officials of their line, rc form included", O("MediaHub 2.1.15", "2.1") and O("MediaHub 2.0 rc16", "2.0")
+      and O("MediaHub 2.1.14 (Build Version Emission)", "2.1") and O("MediaHub 1.5.6", "mh1.5@"))
+check("side and partial bundles are never official", not any(O(n, l) for n, l in (("MediaHub 2.1.10 Docker Only", "2.1"),
+      ("MediaHub 2.1.10 Non Docker Services", "2.1"), ("MediaHub 1.5.4 pre", "1.5"), ("MediaHub 1.5.3 SE", "1.5"), ("MediaHub 2.0 rc8 pre", "2.0"))))
+check("another line's official is not this line's", not O("MediaHub 2.1.15", "2.0") and not O("MediaHub 2.10.1", "2.1"))
 sys.exit(1 if failures else 0)

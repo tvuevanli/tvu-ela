@@ -752,18 +752,26 @@ def official_bundle(us, line):
     """Prod's bundle for a line ("2.1"): the owner's pin (ADR 0012), else the newest "MediaHub <line>.N". An rc bundle
     is a special-purpose bundle, not prod's lane (owner's ruling, 2026-10-27), so it is never the answer."""
     pin = read_pins().get(line) or {}
-    rows = [x for x in bundle_list(us, f"MediaHub {line}", 50) if re.match(r"^MediaHub " + re.escape(line) + r"\.\d+", str(x.get("bundleName") or ""))]
+    rows = [x for x in bundle_list(us, f"MediaHub {line}", 50) if is_official(str(x.get("bundleName") or ""), line)]
     return next((x for x in rows if pin and str(x.get("bundleId")) == str(pin.get("id"))), None) or \
         max(rows, key=lambda x: str(x.get("createTime") or ""), default=None)
 
 
 def name_rules(line):
-    """The closed set of bundle names the owner uses for a line (map release.yaml bundle_names; Helm's bundle
-    management note): (class, regex). Temporary and unpublished bundles have no form yet and are refused."""
-    ln = re.escape(line.rstrip("@"))
+    """The closed set of bundle names the owner uses for a line ("mh2.1@" or "2.1"; map release.yaml bundle_names;
+    Helm's bundle management note): (class, regex). Official names end where the form ends, so a side bundle ("MediaHub
+    2.1.10 Docker Only", "MediaHub 1.5.3 SE", "MediaHub 2.0 rc8 pre") is never official. Temporary and unpublished
+    bundles have no form yet and are refused."""
+    ver = re.sub(r"^mh|@$", "", line)
+    ln, mm = re.escape(f"mh{ver}"), re.escape(ver)
     return [("daily", re.compile(rf"^{ln}@daily-[a-z]+-s\d+-d\d+$")), ("daily", re.compile(rf"^{ln}@stage-s\d+-d\d+$")),
             ("prod", re.compile(rf"^{ln}@(?:rc|beta|ga)-s\d+-d\d+$")),
-            ("official", re.compile(r"^MediaHub \d+\.\d+\.\d+(?: \([^()]+\))?$")), ("official", re.compile(r"^MediaHub \d+\.\d+ rc\d+$"))]
+            ("official", re.compile(rf"^MediaHub {mm}\.\d+(?: \([^()]+\))?$")), ("official", re.compile(rf"^MediaHub {mm} rc\d+$"))]
+
+
+def is_official(name, line):
+    """Whether a bundle name is an official release of the line ("2.1"), by the one closed grammar."""
+    return name_class(name, line) == "official"
 
 
 def name_class(name, line):

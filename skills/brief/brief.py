@@ -1130,7 +1130,7 @@ def changes_facts(args):
 def pin_findings(named, pin):
     """The newest release-named bundle on prod against the owner's pin: newer, or no pin at all, is his decision; the
     option is the pin command as he would run it (ela ADR 0012)."""
-    rel = [x for x in named if RELEASE_NAME(LINE).match(str(x.get("bundleName", "")))]
+    rel = [x for x in named if R.is_official(str(x.get("bundleName", "")), LINE)]
     newest = max(rel, key=lambda x: str(x.get("createTime") or ""), default=None)
     if not newest or (pin and str(pin.get("id")) == str(newest.get("bundleId"))):
         return []
@@ -1153,7 +1153,7 @@ def lane_bundles(env, line, role, host, cfg):
     ones; the others follow the lane token."""
     if role == "prod":
         got = run_json(["python3", RELEASE, *env, "bundles", f"MediaHub {line}", "--host", host, "--limit", "50", "--json"], timeout=120)["bundles"]
-        got = sorted((b for b in got if RELEASE_NAME(line).match(str(b.get("bundleName", "")))), key=lambda b: str(b.get("createTime") or ""), reverse=True)
+        got = sorted((b for b in got if R.is_official(str(b.get("bundleName", "")), line)), key=lambda b: str(b.get("createTime") or ""), reverse=True)
         pin = R.read_pins().get(line) or {}
         pinned = next((b for b in got if str(b.get("bundleId")) == str(pin.get("id"))), None)
         return ([pinned] + [b for b in got if b is not pinned and str(b.get("createTime") or "") < str(pinned.get("createTime") or "")]) if pinned else got
@@ -1710,10 +1710,6 @@ def matrix_cell(service, lane, rows, prev, tested, pins):
     return {"text": text, "version": label, "moved": moved, "was": old if moved else None, "qa": mark, "pin": pin}
 
 
-def RELEASE_NAME(line):
-    return re.compile(r"^MediaHub " + re.escape(line) + r"\.\d+\b")
-
-
 def bundle_cell(b, how, newest_build, unconfirmed):
     """The bundle row's cell: name and date, "unconfirmed" for a prod bundle inferred from the list, "list stale" when the
     lane's newest build is younger than the bundle."""
@@ -1785,7 +1781,7 @@ def cmd_matrix(args):
                 b = next((x for x in named if pin and str(x.get("bundleId")) == str(pin.get("id"))), None)
                 how = "official"
                 if b is None:
-                    b = max((x for x in named if RELEASE_NAME(LINE).match(str(x.get("bundleName", "")))), key=lambda x: str(x.get("createTime") or ""), default=None)
+                    b = max((x for x in named if R.is_official(str(x.get("bundleName", "")), LINE)), key=lambda x: str(x.get("createTime") or ""), default=None)
                     how = "by name"
             if b is None and role != "prod":                # prod has no token lane: an rc bundle is special-purpose (2026-10-27)
                 got = run_json(["python3", RELEASE, *env, "bundles", cfg.get("bundle_line") or "", "--host", host, "--limit", "50", "--json"], timeout=120)["bundles"]
