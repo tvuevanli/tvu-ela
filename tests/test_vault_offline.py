@@ -397,6 +397,21 @@ with tempfile.TemporaryDirectory() as t:
     check("ela archiving a ruled decision does not keep it out if it is proposed again; his own deletion and ela's 30-day "
           "archive still do", paths == {"to-read/y.md", "to-read/z.md"})
 
+import fcntl  # noqa: E402
+with tempfile.TemporaryDirectory() as t:
+    site_was = V.SITE
+    V.SITE = os.path.join(t, "site.json"); json.dump({"runtime": t}, open(V.SITE, "w"))
+    held = V.vault_lock()
+    other = open(os.path.join(t, "vault-sync.lock"), "w")
+    try:
+        fcntl.flock(other, fcntl.LOCK_EX | fcntl.LOCK_NB); blocked = False
+    except BlockingIOError:
+        blocked = True
+    held.close()
+    V.SITE = site_was
+    check("every vault writer takes the sync's lock, so a note moved during a sync waits",
+          blocked and {"sync", "marks", "finish", "note", "restore"} <= set(V.WRITERS) and "guidance" not in V.WRITERS)
+
 day = datetime.date(2026, 10, 26)
 cons = {"exists": True, "error": None, "today": day.isoformat(), "gaps": [{"kind": "host_unreadable", "host": "qa", "detail": "qa login failed"}],
         "counts": {"active": 1, "expired": 1, "over": 1},

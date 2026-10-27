@@ -1873,16 +1873,28 @@ def atomic_write(path, text):
     os.replace(tmp, path)
 
 
+WRITERS = ("sync", "marks", "finish", "note", "restore", "setup")   # guidance only reads
+
+
+def vault_lock():
+    """The vault's one lock (<runtime>/vault-sync.lock): a sync, a tick handled, a note moved or a progress line written
+    each read-modify-write notes, and the Slack watcher runs them while a sync may be running. One at a time."""
+    try:
+        runtime = json.load(open(SITE)).get("runtime") or "/tmp"
+    except (OSError, ValueError):
+        runtime = "/tmp"
+    os.makedirs(runtime, exist_ok=True)
+    lock = open(os.path.join(runtime, "vault-sync.lock"), "w")
+    fcntl.flock(lock, fcntl.LOCK_EX)
+    return lock
+
+
 def cmd_sync(a):
     s = json.load(open(SITE))
     vault = s.get("vault")
     if not vault or not os.path.isdir(vault):
         print(f"site.json `vault` is not a folder: {vault}", file=sys.stderr); sys.exit(2)
     env = a.env_file or s.get("env")
-    runtime = s.get("runtime") or "/tmp"
-    os.makedirs(runtime, exist_ok=True)
-    lock = open(os.path.join(runtime, "vault-sync.lock"), "w")
-    fcntl.flock(lock, fcntl.LOCK_EX)                       # one sync at a time
     today, now = datetime.date.today(), datetime.datetime.now()
     mpath = os.path.join(vault, MANIFEST)
     old, old_src, old_layout, old_gen, old_seen, old_home = [], {}, None, {}, {}, {}
@@ -2121,6 +2133,8 @@ def main():
     p.add_argument("path", help="the note's path in the vault, as the deletion log lists it")
     p.set_defaults(func=cmd_restore)
     a = ap.parse_args()
+    if a.cmd in WRITERS:                                   # every writer of the vault takes the same lock as the sync
+        hold = vault_lock()                                # noqa: F841  (held until the process exits)
     a.func(a)
 
 
