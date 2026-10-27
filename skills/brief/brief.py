@@ -26,6 +26,9 @@ Lanes (project MH) and the flags computed per row, UTC now:
   incidents  sub-tasks of the umbrella MH-2342, not Done · umbrella_moved when it returns nothing
   backlog    the current user's, not Done, updated > 30d ago · next_three oldest, the rest as a count
   yours      the cadence rows assigned to the current user, split out of cadence
+  waiting    what the owner waits on, last 10 days: tickets he or ela assigned with no move by the assignee since, his
+             last-word Jira comment, Slack thread or sent mail that asks something · working_days_silent, threshold
+             (2 for a ticket he routed, 3 otherwise), due
 
 Output: --json → {"generated", "lanes": {<lane>: {"rows", "count", …}}, "errors": [{lane, query, exit, stderr}]}.
 A lane that could not be read is in `errors`, never an empty lane. No writes anywhere.
@@ -49,7 +52,7 @@ PROJECT = "project = MH AND "
 UMBRELLA = "MH-2342"
 RED_H, YELLOW_H, OVERDUE_H = 48, 24, 4
 PREFIX = re.compile(r"^\[(Infra|J2N|Media|App|UI|QA|Design|AI)\]")
-LANES = ("intake", "cadence", "triage", "breakdown", "incidents", "backlog", "yours")
+LANES = ("intake", "cadence", "triage", "breakdown", "incidents", "backlog", "yours", "waiting")
 
 # JQL as SKILL.md §1 states it; `project = MH AND ` is prepended to each.
 Q = {
@@ -133,6 +136,95 @@ def lane_cadence(env, limit, now):
                                    for k, v in sorted(owners.items(), key=lambda kv: -kv[1])]}}
 
 
+WAIT_DAYS = 10
+ROUTED_DAYS, OTHER_DAYS = 2, 3   # the 4-hour notify and 24-hour update promises, with room for another time zone
+MACHINES = re.compile(r"Helm Lookout|Automation for Jira|\bela\b", re.I)   # their edits are not the other side answering
+ASKS = re.compile(r"\?|\uff1f|\bplease\b|\bpls\b|\bcan you\b|\bcould you\b|\u8bf7|\u5417", re.I)
+
+
+def to_date(ts):
+    t = parse_ts(ts) if isinstance(ts, str) else ts
+    return t.astimezone().date() if t else None
+
+
+def waiting_row(kind, ref, who, since, what, now, routed=False):
+    # the working days since the ask, the day of the ask not counted; no holiday table yet
+    silent = working_days(to_date(since) + datetime.timedelta(days=1), now.astimezone().date()) if to_date(since) else None
+    threshold = ROUTED_DAYS if routed else OTHER_DAYS
+    return {"kind": kind, "ref": ref, "who": who, "since": since, "what": what[:200], "working_days_silent": silent,
+            "threshold": threshold, "due": silent is not None and silent >= threshold}
+
+
+def ticket_waits(issues, me, ela_assigned, commit_keys, now):
+    """From `jira changes` rows: a ticket assigned by the owner (or ela) and left unmoved by its assignee since, and a
+    ticket whose last human comment is the owner's ask."""
+    rows = []
+    for i in issues:
+        assigned = [e for e in i["events"] if e["field"] == "assignee" and e.get("to") and e["to"] != me and
+                    (e["by"] == me or i["key"] in ela_assigned) and not MACHINES.search(e.get("by") or "")]   # to himself is his own work
+        if assigned:
+            a = max(assigned, key=lambda e: e["at"])
+            moved = [e for e in i["events"] if e["by"] == a["to"] and e["at"] > a["at"]] + \
+                    [c for c in i["comments"] if c["by"] == a["to"] and c["at"] > a["at"]]
+            if not moved and i["key"] not in commit_keys and i["assignee"] == a["to"] and i["status"] not in ("Done", "Closed", "Cancelled"):
+                rows.append(waiting_row("ticket", i["key"], a["to"], a["at"], f"{i['summary']} ({i['status']})", now, routed=True))
+                continue
+        human = [c for c in i["comments"] if not MACHINES.search(c["by"] or "")]
+        if human and human[-1]["by"] == me and ASKS.search(human[-1]["text"]):
+            asked = ", ".join(re.findall(r"@([A-Z][\w.-]+(?: [A-Z][\w-]+)?)", human[-1]["text"])) or (i["assignee"] if i["assignee"] != me else None)
+            if asked:                                       # an ask to nobody but himself waits on nobody
+                rows.append(waiting_row("ticket", i["key"], asked, human[-1]["at"], f"{i['summary']}: {human[-1]['text']}", now))
+    return rows
+
+
+def lane_waiting(env, limit, now):
+    """What the owner waits on (the F lane): his routed tickets and his unanswered asks in Jira, Slack and mail."""
+    e = ["--env-file", env] if env else []
+    me = owner_jira_name(e)
+    ch = run_json(["python3", JIRA, *e, "changes", f"--since=-{WAIT_DAYS}d", "--limit", str(max(limit, 300)), "--json"])
+    site = json.load(open(SITE))
+    reports = site.get("reports") or os.path.join(site.get("projects", ""), "reports")
+    ela_assigned = set()
+    try:
+        for line in open(os.path.join(reports, "ela", "writes.jsonl"), encoding="utf-8"):
+            w = json.loads(line)
+            if w.get("verb") == "assign" and w.get("key") and w.get("ok"):
+                ela_assigned.add(w["key"])
+    except (OSError, ValueError):
+        pass
+    code_root = site.get("code") or os.path.join(site.get("projects", ""), "code")
+    commits, _ = git_window(code_root, WAIT_DAYS * 24)
+    commit_keys = {k for c in commits for k in c["keys"]}
+    rows = ticket_waits(ch["issues"], me, ela_assigned, commit_keys, now)
+    gaps = []
+    try:
+        for th in run_json(["python3", SLACK, *e, "unanswered", "--since", f"{WAIT_DAYS}d", "--json"], timeout=600)["threads"]:
+            if ASKS.search(th["root"]):
+                rows.append(waiting_row("slack", th["permalink"], " ".join(re.findall(r"@[\w.-]+(?: [A-Z][\w-]+)?", th["root"])) or None,
+                                        th["at"], f"#{th['channel']}: {th['root']}", now))
+    except (LaneError, subprocess.TimeoutExpired, ValueError) as x:
+        gaps.append({"source": "slack", "error": str(x)[:200]})
+    try:
+        sent = run_json(["python3", MAIL, *e, "search", f"in:sent newer_than:{WAIT_DAYS}d", "--limit", "20", "--json"], timeout=300)["messages"]
+        for m in {m["thread"]: m for m in reversed(sent)}.values():     # one row per thread
+            msgs = read_thread(e, m["thread"], gaps)
+            if msgs and msgs[-1]["id"] == m["id"] and ASKS.search(said_part(msgs[-1])):
+                rows.append(waiting_row("mail", m["subject"], m["to"][:120], mail_time(m["date"]), m["subject"], now))
+    except (LaneError, subprocess.TimeoutExpired, ValueError) as x:
+        gaps.append({"source": "mail", "error": str(x)[:200]})
+    rows.sort(key=lambda r: -(r["working_days_silent"] or 0))
+    return {"rows": rows, "count": len(rows), "due": sum(r["due"] for r in rows), "owner": me, "gaps": gaps}
+
+
+def owner_jira_name(env):
+    """The owner's Jira display name, read from a ticket assigned to him; None when he has none."""
+    try:
+        me = run_json(["python3", JIRA, *env, "jql", "assignee = currentUser() ORDER BY updated DESC", "--limit", "1", "--json"])["issues"]
+        return me[0].get("assignee") if me else None
+    except (LaneError, subprocess.TimeoutExpired, ValueError):
+        return None
+
+
 def split_yours(env, limit, cadence):
     mine = {r["key"] for r in jql(env, Q["yours"], limit)}
     rows = [r for r in cadence["rows"] + cadence["blocked"] if r["key"] in mine]
@@ -214,6 +306,13 @@ def age_of(r):
 
 def print_table(name, lane):
     print(f"## {name} — {lane['count']}")
+    if name == "waiting":
+        for r in lane["rows"]:
+            print(f"  {r['kind']:<6} {'DUE' if r['due'] else '':<4} {r['working_days_silent']}/{r['threshold']}d  {str(r['who'] or '—')[:18]:<18} "
+                  f"{r['ref'][:60]}  {r['what'][:60]}")
+        for g in lane["gaps"]:
+            print(f"  not read: {g['source']}: {g['error'][:100]}")
+        print(); return
     for r in lane["rows"] + lane.get("blocked", []):
         flag = r.get("flag") or ""
         if name == "triage" and not r.get("prefix_ok"):
@@ -240,7 +339,8 @@ def print_table(name, lane):
 def cmd_lanes(args):
     now = datetime.datetime.now(datetime.timezone.utc)
     want = [args.lane] if args.lane else list(LANES)
-    fns = {"intake": lane_intake, "triage": lane_triage, "breakdown": lane_breakdown, "incidents": lane_incidents, "backlog": lane_backlog}
+    fns = {"intake": lane_intake, "triage": lane_triage, "breakdown": lane_breakdown, "incidents": lane_incidents, "backlog": lane_backlog,
+           "waiting": lane_waiting}
     lanes, errors = {}, []
 
     if "cadence" in want or "yours" in want:
