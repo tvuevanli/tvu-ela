@@ -47,7 +47,7 @@ flowchart LR
 | 今天各条 lane 上跑的是哪个版本：prod / daily / QA 按组件对照，昨天以来变了的标 ▲，QA 是否测过这个确切版本（✓ ◐ ○），standing constraint 的 🔒 / ⛔ | `brief` | `ela matrix` · `ela matrix --json` · `ela matrix --page`（写 vault 的 lanes 页：这张表、每条 lane 比下一条多带了哪些票和 QA 结论、没票的 commit、14 天的变动） |
 | 早报页面写出前的检查：页面上每个 apply N 都要在 actions 文件里有对应动作、在页面上有勾选框；缺一个就判失败并列出编号 | `brief` | `ela page-check <date>-brief.md --actions <date>-actions.json` |
 | 跟踪中的票（有 fix 页、在 sprint 里、我派出去的、有待执行的 apply N）上次之后的每个变化：符合 probe §fix 规则的记为 sure，追加到票的时间线；其余记为 unsure，交给早报作为待我处理的事项 | `ticket` | `ela ticket refresh MH-2406` · `ela ticket refresh --all --json` |
-| 检查 ela 自己写的页面（早报、Changes、lanes、board）：票号都是链接、Do 行都有勾选框且不留给我去做、数字等于当天的 counts、一个票只占一个事项、服务用 slug 命名；每个问题一行，有问题就退出 1 | `review` | `ela review lint <date>-brief.md` |
+| 回放某一天 ela 说过的话与现在来源的对比（sure 读数后来被推翻、页面说升级了但下一次读到的版本不对、给已经回复的人起草催促、执行后一个工作日票没动），写入 review/<date>-replay.json；检查 ela 自己写的页面（早报、Changes、lanes、board）：票号都是链接、Do 行都有勾选框且不留给我去做、数字等于当天的 counts、一个票只占一个事项、服务用 slug 命名；每个问题一行，有问题就退出 1 | `review` | `ela review lint <date>-brief.md` · `ela review replay --date 2026-10-27` |
 | 在 Obsidian 里读 ela 给我的东西：当天的页、review、验收、决定与计划，票号直接链到 Jira；超出阅读预算的笔记顶部带警告，并在 Home 列为 ela 欠的改写 | `vault` | `ela vault sync` · `ela vault sync --dry-run` |
 | 一条待读笔记的生命周期：在笔记顶部的 next 里选一个动作（同意并实施、暂不、拒绝、归档……），同意后移到 `in-progress/`；等别人回复的放进 `parked/`（写明等谁、什么时候唤醒，可 resume 或 drop），ela 把进度写进笔记，做完等我验收再归档；任何 session 都能接手同一条笔记 | `note` | `ela note claim PATH` · `ela note progress PATH 文字` · `ela note built PATH 摘要` · `ela note move PATH --to in-progress\|parked\|archive\|to-read\|delete` · `--to parked --waits-on 谁 --wake 什么` |
 | 输入一个凭据（token）且不经过聊天：在自己的终端里运行，输入不回显，直接写入 ela 的 env 文件 | `setup` | `ela secret SLACK_BOT_TOKEN` |

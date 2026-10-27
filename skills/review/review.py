@@ -2,21 +2,30 @@
 """ela's own output, reviewed: the workflow is judged on the pages ela writes, not on the owner noticing.
 
     review.py lint PAGE [--actions F] [--date D] [--json]
+    review.py replay --date D [--json]
 
 lint checks one page mechanically (a morning page, Changes, the lanes page, the board): every ticket key is a link,
 every Do line is a box and none is a bare verb for him, every `apply N` has its action and its box, a count equals
 the day's counts object, a key is an item once, a service is named by slug, a front-matter status is in the closed
 set, and a bundle name is one the reads held. Exit 1 with one line per failure; `ela page-check` runs it.
 
-Reads files only; nothing is posted or ticked.
+replay compares what ela said on day D with what the sources show now: a `sure` ticket reading later contradicted
+(moved back, reopened, a QA fail after it), a version the morning page called moved that the next lane read did
+not hold, a nudge drafted for someone who had already answered, and an applied action after which the ticket did
+not change for a working day. It writes <reports>/review/<D>-replay.json and prints one summary line for the facts
+page. Exit 3 when Jira could not be read (the rows it could read are still written).
+
+Reads files and Jira only; nothing is posted or ticked.
 """
-import argparse, glob, json, os, re, sys
+import argparse, datetime, glob, json, os, re, subprocess, sys
 
 HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "brief"))
 import brief as B  # noqa: E402  — the apply-N check and front matter, read the page-check way
 sys.path.insert(0, os.path.join(HERE, "..", "vault"))
 import vault as V  # noqa: E402  — the closed status set and the key pattern the vault links
+sys.path.insert(0, os.path.join(HERE, "..", "ticket"))
+import ticket as T  # noqa: E402  — the QA roster and the fail pattern a refresh reads with
 
 SITE = os.path.expanduser("~/.claude/ela/site.json")
 CODE_SPAN = re.compile(r"(```.*?```|`[^`\n]*`)", re.S)
@@ -208,8 +217,244 @@ def cmd_lint(args):
     sys.exit(1 if fails else 0)
 
 
+
+# ── replay: what ela said on a day, against what the sources show now ─────────────────────────────────
+
+EX_REMOTE = 3
+BACK = {"review": 2, "in review": 2, "done": 3, "closed": 3, "resolved": 3}
+EARLY = {"backlog": 0, "to do": 0, "open": 0, "reopened": 0, "in progress": 1}
+NUDGE_RX = re.compile(r"\b(?:ask|nudge|remind|chase|ping)\s+([A-Z][a-z]+)")
+QUIET = ("helm lookout",)                               # Helm's auto-writes show under their own name, never a reply
+
+
+def sure_rows(runtime, reports, date):
+    """The `sure` readings ela gave on D: the refresh findings of a pass on D, and the fix pages' Timeline rows dated
+    D whose reading is sure. (rows, gaps)."""
+    out, gaps = [], []
+    path = os.path.join(runtime, "runner", "ticket-findings.jsonl")
+    seen_d = False
+    try:
+        for line in open(path, encoding="utf-8"):
+            r = json.loads(line)
+            if str(r.get("pass_at") or "")[:10] == date:
+                seen_d = True
+                if r.get("sure") and str(r.get("reading", "")).startswith("sure"):
+                    out.append({"key": r["key"], "reading": r["reading"], "at": r.get("at"), "source": "refresh"})
+    except (OSError, ValueError):
+        pass
+    if not seen_d:
+        gaps.append({"source": "ticket findings", "error": f"the findings file holds no pass of {date}; fix pages only"})
+    md = date[5:]
+    for key, page in T.pages(reports).items():
+        try:
+            text = open(page, encoding="utf-8").read()
+        except OSError:
+            continue
+        for line in text.splitlines():
+            cells = [c.strip() for c in re.split(r"(?<!\\)\|", line.strip())[1:-1]]
+            if len(cells) >= 4 and cells[0] == md and cells[3].startswith("sure"):
+                out.append({"key": key, "reading": cells[3], "at": f"{date}T23:59:59+0000", "source": "page"})
+    return out, gaps
+
+
+def contradicted(sure, issues, qa):
+    """A sure reading that a later change on the ticket undoes: a status moved back or reopened, or a QA fail."""
+    rows = []
+    for s in sure:
+        row, since = issues.get(s["key"]), B.parse_ts(s.get("at") or "")
+        if not row or not since:
+            continue
+        for ev in row.get("events") or []:
+            at = B.parse_ts(ev.get("at"))
+            frm, to = str(ev.get("from") or "").lower(), str(ev.get("to") or "").lower()
+            if at and at > since and ev.get("field") == "status" and (to == "reopened" or (frm in BACK and to in EARLY)):
+                rows.append({"kind": "sure_contradicted", "key": s["key"], "said": s["reading"],
+                             "now": f"status {ev.get('from')} → {ev.get('to')} by {ev.get('by')} ({ev.get('at', '')[:10]})"})
+                break
+        else:
+            for c in row.get("comments") or []:
+                at = B.parse_ts(c.get("at"))
+                if at and at > since and str(c.get("by") or "").lower() in qa and T.FAIL_RX.search(c.get("text") or "") \
+                        and not T.NO_REPRO_RX.search(c.get("text") or ""):
+                    rows.append({"kind": "sure_contradicted", "key": s["key"], "said": s["reading"],
+                                 "now": f"QA fail by {c.get('by')} ({c.get('at', '')[:10]}): {T.first_sentence(c.get('text') or '', 120)}"})
+                    break
+    return rows
+
+
+def called_moves(page):
+    """The morning page's lanes table: [(lane as shown, service, version called)] for each ▲ cell."""
+    out, head = [], None
+    for line in page.splitlines():
+        if not line.startswith("|"):
+            head = None if not line.strip() else head
+            continue
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        if head is None:
+            head = cells
+            continue
+        for lane, cell in zip(head[1:], cells[1:]):
+            m = re.match(r"▲\s*(\S+)", cell)
+            if m and lane:
+                svc = re.search(r"\(([\w-]+)\)\s*$", cells[0])
+                out.append((lane, svc.group(1) if svc else cells[0], m.group(1)))
+    return out
+
+
+def miscalled(page, snap):
+    """A version the page called moved that the next lane read does not hold: that read's version is older, or the
+    lane is not read at all. A newer one is a later move, not a miscall."""
+    shown = {v: k for k, v in B.LANE_SHOWN.items()}
+    rows = []
+    for lane, svc, called in called_moves(page):
+        if not snap:
+            break
+        got = next((r for r in snap.get("rows") or [] if r["lane"] == shown.get(lane, lane) and r["service"] == svc), None)
+        want, have = B.vkey(called), B.vkey((got or {}).get("version"))
+        if want and (not have or have < want):
+            rows.append({"kind": "version_miscalled", "key": None, "said": f"{lane} {svc} moved to {called}",
+                         "now": f"the {snap.get('date')} read holds {B.short_version(got['version']) if got else 'no row'}"})
+    return rows
+
+
+def action_key(a):
+    keys = B.keys_in(f"{a.get('command', '')} {a.get('text', '')}")
+    return keys[0] if keys else None
+
+
+def answered_nudges(actions, issues, me):
+    """A nudge drafted for someone who had already answered: their latest comment on the ticket, before the draft, is
+    later than the owner's latest."""
+    rows = []
+    for a in actions:
+        m = NUDGE_RX.search(a.get("text") or "")
+        key, drafted = action_key(a), B.parse_ts(a.get("drafted"))
+        if not m or not key or key not in issues or not drafted:
+            continue
+        who = m.group(1).lower()
+        last = lambda pred: max((B.parse_ts(c["at"]) for c in issues[key].get("comments") or []  # noqa: E731
+                                 if pred(str(c.get("by") or "").lower()) and B.parse_ts(c["at"]) and B.parse_ts(c["at"]) < drafted), default=None)
+        theirs, mine = last(lambda b: b.split()[:1] == [who]), last(lambda b: b == (me or "").lower())
+        if theirs and (not mine or theirs > mine):
+            rows.append({"kind": "nudge_answered", "key": key, "said": f"apply {a.get('n')}: {a.get('text', '')[:100]}",
+                         "now": f"{m.group(1)} commented {theirs.isoformat(timespec='minutes')}, before the draft"})
+    return rows
+
+
+def next_workday_end(t):
+    d = t.date() + datetime.timedelta(days=1)
+    while d.weekday() >= 5:
+        d += datetime.timedelta(days=1)
+    return datetime.datetime.combine(d, datetime.time(23, 59), t.tzinfo)
+
+
+def applied_no_change(actions, issues, me, now):
+    """An applied action after which nobody but the owner and Helm changed the ticket for a working day."""
+    rows = []
+    for a in actions:
+        key = action_key(a)
+        at = B.parse_ts(a.get("applied"))
+        if not at or not key:
+            continue
+        until = next_workday_end(at)
+        if now < until:
+            continue
+        if key not in issues:
+            continue
+        row = issues[key]
+        moved = [x for x in (row.get("events") or []) + (row.get("comments") or [])
+                 if (t := B.parse_ts(x.get("at"))) and at < t <= until
+                 and str(x.get("by") or "").lower() not in {(me or "").lower(), *QUIET}]
+        if not moved:
+            rows.append({"kind": "applied_no_change", "key": key, "said": f"apply {a.get('n')}: {a.get('text', '')[:100]}",
+                         "now": f"applied {at.isoformat(timespec='minutes')}; no change by anyone else through {until.date()}"})
+    return rows
+
+
+def jira_changes(keys, since, e):
+    """{key: {events, comments}} for the keys, read from Jira since a time; (issues, gaps)."""
+    issues, gaps = {}, []
+    for proj in sorted({k.split("-")[0] for k in keys}):
+        try:
+            got = B.run_json(["python3", B.JIRA, *e, "changes", "--project", proj, "--since", since, "--limit", "400", "--json"])
+            issues.update({r["key"]: r for r in got["issues"] if r["key"] in keys})
+        except (B.LaneError, subprocess.TimeoutExpired, ValueError) as x:
+            gaps.append({"source": f"jira {proj}", "error": str(x)[:200]})
+    return issues, gaps
+
+
+COUNT_NAMES = (("sure_contradicted", "sure reading contradicted", "sure readings contradicted"),
+               ("version_miscalled", "version miscalled", "versions miscalled"),
+               ("nudge_answered", "nudge already answered", "nudges already answered"),
+               ("applied_no_change", "applied action with no change", "applied actions with no change"))
+
+
+def summary(date, counts):
+    """The facts-page line: "replay of 10-27: 0 sure readings contradicted, 1 version miscalled, …"."""
+    return f"replay of {date[5:]}: " + ", ".join(f"{counts[k]} {one if counts[k] == 1 else many}" for k, one, many in COUNT_NAMES)
+
+
+def replay(date, site_, e, me, now=None):
+    now = now or datetime.datetime.now().astimezone()
+    reports, runtime, _ = roots(site_)
+    gaps = []
+    try:
+        page = open(os.path.join(reports, "runner", f"{date}-brief.md"), encoding="utf-8").read()
+    except OSError:
+        page = ""
+        gaps.append({"source": "morning page", "error": f"no {date}-brief.md"})
+    try:
+        actions = json.load(open(os.path.join(reports, "runner", f"{date}-actions.json"), encoding="utf-8"))
+    except (OSError, ValueError):
+        actions = []
+    sure, g = sure_rows(runtime, reports, date)
+    gaps += g
+    keys = {s["key"] for s in sure} | {k for a in actions if (k := action_key(a))}
+    since = (datetime.date.fromisoformat(date) - datetime.timedelta(days=3)).isoformat() + " 00:00"
+    issues, g = jira_changes(keys, since, e) if keys else ({}, [])
+    gaps += g
+    runner = os.path.join(runtime, "runner")
+    nxt = (datetime.date.fromisoformat(date) + datetime.timedelta(days=1)).isoformat()
+    snap = B.snapshot_on_or_after(runner, nxt)
+    if not snap:
+        gaps.append({"source": "lane read", "error": f"no versions snapshot on or after {nxt}"})
+    qa, _ = T.qa_names()
+    rows = contradicted(sure, issues, qa) + miscalled(page, snap) + answered_nudges(actions, issues, me) \
+        + applied_no_change(actions, issues, me, now)
+    counts = {k: sum(r["kind"] == k for r in rows) for k, _, _ in COUNT_NAMES}
+    return {"date": date, "at": now.isoformat(timespec="seconds"), "counts": counts, "rows": rows,
+            "read": {"sure_readings": len(sure), "actions": len(actions), "called_moves": len(called_moves(page)),
+                     "snapshot": (snap or {}).get("date")},
+            "gaps": gaps, "summary": summary(date, counts)}
+
+
+def cmd_replay(args):
+    try:
+        datetime.date.fromisoformat(args.date)
+    except ValueError:
+        print(f"replay: not a date: {args.date}", file=sys.stderr); sys.exit(2)
+    s = site()
+    e = ["--env-file", args.env_file] if args.env_file else []
+    out = replay(args.date, s, e, B.owner_jira_name(e))
+    reports, _, _ = roots(s)
+    path = os.path.join(reports, "review", f"{args.date}-replay.json")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    T.atomic_write(path, json.dumps(out, ensure_ascii=False, indent=1) + "\n")
+    if args.json:
+        print(json.dumps(out, ensure_ascii=False))
+    else:
+        print(out["summary"])
+        for r in out["rows"]:
+            print(f"  {r['kind']}: {r['key'] or ''} {r['said']} — {r['now']}")
+        for g in out["gaps"]:
+            print(f"  not read: {g['source']}: {g['error'][:100]}")
+    if any(g["source"].startswith("jira") for g in out["gaps"]):
+        sys.exit(EX_REMOTE)
+
+
 def main():
-    ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--env-file", help="ela's env file")
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("lint", help="mechanical checks on any page ela writes; exit 1 with one line per failure")
     p.add_argument("page")
@@ -217,6 +462,10 @@ def main():
     p.add_argument("--date", help="the page's day, YYYY-MM-DD (default: from its name or header)")
     p.add_argument("--json", action="store_true")
     p.set_defaults(fn=cmd_lint)
+    p = sub.add_parser("replay", help="what ela said on a day against what the sources show now; <reports>/review/<D>-replay.json")
+    p.add_argument("--date", required=True, help="YYYY-MM-DD")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(fn=cmd_replay)
     args = ap.parse_args()
     args.fn(args)
 

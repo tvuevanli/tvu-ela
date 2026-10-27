@@ -101,6 +101,8 @@
   ela page-check PAGE --actions F  every apply N on a brief page has its drafted action and its box; exit 1 naming any
   ela review lint PAGE              a page ela wrote, checked mechanically: keys are links, Do lines are boxes and
                                    never left for you, counts equal the day's, one item per key, services by slug
+  ela review replay --date D       what ela said on D against the sources now: sure readings undone, versions
+                                   miscalled, nudges already answered, applied actions with no change; one line
   ela ticket refresh KEY|--all     each change on a tracked ticket since the last pass, read as sure (a rule
                                    in probe §fix) or unsure; appended to its fix page; findings for the brief
   ela vault sync [--dry-run]       regenerate the owner's Obsidian vault: day pages, reviews, verifications,
