@@ -3,6 +3,7 @@
 
     review.py lint PAGE [--actions F] [--date D] [--json]
     review.py replay --date D [--json]
+    review.py reader --date D [--check] [--json]
 
 lint checks one page mechanically (a morning page, Changes, the lanes page, the board): every ticket key is a link,
 every Do line is a box and none is a bare verb for him, every `apply N` has its action and its box, a count equals
@@ -14,6 +15,11 @@ replay compares what ela said on day D with what the sources show now: a `sure` 
 not hold, a nudge drafted for someone who had already answered, and an applied action after which the ticket did
 not change for a working day. It writes <reports>/review/<D>-replay.json and prints one summary line for the facts
 page. Exit 3 when Jira could not be read (the rows it could read are still written).
+
+reader serves the evening session that reads the morning page as the owner would (skills/brief/SKILL.md §reader):
+without --check it prints what the session reads (the page, its items, the actions, the replay and the lint) and
+where it writes, <reports>/review/<D>-reader.md; with --check it verifies that file: one verdict per item from the
+closed set and the page's three lines. Exit 1 naming each gap.
 
 Reads files and Jira only; nothing is posted or ticked.
 """
@@ -452,6 +458,109 @@ def cmd_replay(args):
         sys.exit(EX_REMOTE)
 
 
+
+# ── reader: the evening read of the morning page, as the owner would read it ───────────────────────────
+
+VERDICTS = ("wrong", "handed back", "question", "noise", "tickable")   # in precedence order (brief SKILL §reader)
+PAGE_LINES = ("Read first", "Skipped", "Missing")
+
+
+def page_items(text):
+    """The morning page's items: [{n, title, keys}]."""
+    out = []
+    for head, facts, _ in items(text):
+        m = re.match(r"###\s+(\d+)\.\s+(.*)", head)
+        if m:
+            out.append({"n": int(m.group(1)), "title": m.group(2).strip(), "keys": B.keys_in(head + "\n" + facts)})
+    return out
+
+
+def reader_rows(text):
+    """The reader file's item table: [{n, item, verdict, line}] from rows `| N. title | verdict | line |`."""
+    out = []
+    for line in text.splitlines():
+        cells = [c.strip() for c in re.split(r"(?<!\\)\|", line.strip())[1:-1]]
+        m = re.match(r"(\d+)\.\s*(.*)", cells[0]) if len(cells) >= 3 else None
+        if m:
+            out.append({"n": int(m.group(1)), "item": m.group(2), "verdict": cells[1].lower(), "line": cells[2]})
+    return out
+
+
+def reader_check(page, reader):
+    """Gaps in a reader file against its page: an item with no verdict or two, a verdict outside the set, an empty
+    line, a missing page line."""
+    fails = []
+    rows, want = reader_rows(reader), page_items(page)
+    by_n = {}
+    for r in rows:
+        by_n.setdefault(r["n"], []).append(r)
+    for it in want:
+        got = by_n.get(it["n"], [])
+        if not got:
+            fails.append(f"item {it['n']}: no verdict")
+        elif len(got) > 1:
+            fails.append(f"item {it['n']}: {len(got)} verdicts, one only")
+    for r in rows:
+        if r["n"] not in {i["n"] for i in want}:
+            fails.append(f"item {r['n']}: not on the page")
+        if r["verdict"] not in VERDICTS:
+            fails.append(f"item {r['n']}: verdict {r['verdict']!r} is not one of {', '.join(VERDICTS)}")
+        if not r["line"]:
+            fails.append(f"item {r['n']}: a verdict without its line")
+    for name in PAGE_LINES:
+        if not re.search(r"^\s*[-*]\s+\*\*" + name + r":\*\*\s*\S", reader, re.M):
+            fails.append(f"the page line **{name}:** is missing")
+    return fails
+
+
+def repeated_verdicts(reports, date):
+    """Keys that carried the same reader verdict (other than tickable) on the two latest reader files up to D:
+    {key: verdict}. The page fails §reader for each."""
+    files = sorted(f for f in glob.glob(os.path.join(reports, "review", "*-reader.md")) if os.path.basename(f)[:10] <= date)[-2:]
+    if len(files) < 2:
+        return {}
+    seen = []
+    for f in files:
+        try:
+            rows = reader_rows(open(f, encoding="utf-8").read())
+        except OSError:
+            return {}
+        seen.append({k: r["verdict"] for r in rows if r["verdict"] != "tickable" for k in B.keys_in(r["item"])})
+    return {k: v for k, v in seen[1].items() if seen[0].get(k) == v}
+
+
+def cmd_reader(args):
+    reports, runtime, _ = roots(site())
+    page_path = os.path.join(reports, "runner", f"{args.date}-brief.md")
+    out_path = os.path.join(reports, "review", f"{args.date}-reader.md")
+    try:
+        page = open(page_path, encoding="utf-8").read()
+    except OSError:
+        print(f"reader: no morning page {page_path}", file=sys.stderr); sys.exit(2)
+    if args.check:
+        try:
+            fails = reader_check(page, open(out_path, encoding="utf-8").read())
+        except OSError:
+            fails = [f"no reader file {out_path}"]
+        print(json.dumps({"reader": out_path, "failures": fails}, ensure_ascii=False) if args.json else "\n".join(fails))
+        sys.exit(1 if fails else 0)
+    ctx = {"date": args.date, "page": page_path, "write": out_path, "items": page_items(page),
+           "verdicts": list(VERDICTS), "page_lines": list(PAGE_LINES),
+           "actions": os.path.join(reports, "runner", f"{args.date}-actions.json"),
+           "replay": os.path.join(reports, "review", f"{args.date}-replay.json"),
+           "lint": lint(page, *context(page_path, page)[:4]),
+           "rules": [os.path.expanduser("~/.claude/ela/working-with-evan.md"), "skills/brief/SKILL.md §reader"],
+           "repeated": repeated_verdicts(reports, args.date)}
+    if args.json:
+        print(json.dumps(ctx, ensure_ascii=False, indent=1))
+    else:
+        print(f"read {page_path} as the owner; write {out_path}")
+        for it in ctx["items"]:
+            print(f"  {it['n']}. {it['title']}")
+        for f in ctx["lint"]:
+            print(f"  lint: {f}")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--env-file", help="ela's env file")
@@ -466,6 +575,11 @@ def main():
     p.add_argument("--date", required=True, help="YYYY-MM-DD")
     p.add_argument("--json", action="store_true")
     p.set_defaults(fn=cmd_replay)
+    p = sub.add_parser("reader", help="the evening reader session's inputs, or --check its <reports>/review/<D>-reader.md")
+    p.add_argument("--date", required=True, help="YYYY-MM-DD")
+    p.add_argument("--check", action="store_true", help="verify the reader file: one verdict per item, the page's three lines")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(fn=cmd_reader)
     args = ap.parse_args()
     args.fn(args)
 

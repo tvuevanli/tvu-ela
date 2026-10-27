@@ -103,6 +103,8 @@
                                    never left for you, counts equal the day's, one item per key, services by slug
   ela review replay --date D       what ela said on D against the sources now: sure readings undone, versions
                                    miscalled, nudges already answered, applied actions with no change; one line
+  ela review reader --date D [--check]   the evening reader session's inputs (brief SKILL §reader), or a check of
+                                   what it wrote: one verdict per item, the page's three lines
   ela ticket refresh KEY|--all     each change on a tracked ticket since the last pass, read as sure (a rule
                                    in probe §fix) or unsure; appended to its fix page; findings for the brief
   ela vault sync [--dry-run]       regenerate the owner's Obsidian vault: day pages, reviews, verifications,
