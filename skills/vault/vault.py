@@ -60,7 +60,8 @@ STATUS_BY_FOLDER = {
 }
 STATUSES = tuple(dict.fromkeys(v for vs in STATUS_BY_FOLDER.values() for v in vs))
 CLOSED_NEXT = {"accepted": "accept", "rejected": "reject", "not now": "not-now", "not-now": "not-now", "parked": "not-now",
-               "confirmed": "confirm"}               # an archived note's old outcome status, as the move that made it
+               "confirmed": "confirm", "planned": "make-plan", "nudged": "nudge", "drafted": "draft-comment"}
+# an archived note's old outcome status, as the move that made it; the runner names the move itself with --next
 OWNER_FOLDERS = (TO_LEARN, ARCHIVE)   # where the owner drags a note to say what he wants; ela never rewrites in them
 ATTACH = "ela/attachments"
 DELETABLE = (DAYS, TO_READ)
@@ -1505,7 +1506,7 @@ def note_path(vault, path):
     return rel, p
 
 
-def move_note(vault, reports, rel, to, status=None, waits_on=None, wake=None):
+def move_note(vault, reports, rel, to, status=None, waits_on=None, wake=None, next_=None):
     """Move a note on the owner's word. Out of to-read it becomes a page whose source is the vault, so the sync
     never writes it again where it was nor overwrites it where it went; the move is logged as his. Into parked it
     carries who it waits on, since when and what brings it back, and offers only resume and drop; out of parked
@@ -1519,6 +1520,7 @@ def move_note(vault, reports, rel, to, status=None, waits_on=None, wake=None):
                                             if l.startswith("type:")), None))
     text = clear_warn(PROP_RE.sub("", text))
     st, result, nxt = settled_status(folder, status, kind)
+    nxt = next_ or nxt                                     # the move that ended it, as the runner names it
     if folder == PARKED:
         old = dict(m.groups() for m in (re.match(r"^([\w-]+):\s*['\"]?(.*?)['\"]?\s*$", l) for l in split_front(text)[0]) if m)
         text = set_front(text, source="vault", status=st, claimed=None, **{
@@ -1574,7 +1576,7 @@ def cmd_note(a):
         atomic_write(p, "---\n" + "\n".join(fl) + "\n---\n" + with_moves(body, rel, "built", stamp).lstrip("\n"))
         print(f"{rel}: built; waiting for the owner's acceptance")
     elif a.act == "move":
-        print(f"{rel} → {move_note(vault, reports, rel, a.to, a.status, a.waits_on, a.wake) or 'deleted'}")
+        print(f"{rel} → {move_note(vault, reports, rel, a.to, a.status, a.waits_on, a.wake, a.next) or 'deleted'}")
 
 
 def ensure_native_moves(vault, dry_run=False):
@@ -2013,6 +2015,8 @@ def main():
     p.add_argument("--to", choices=("in-progress", "parked", "archive", "to-read", "delete"))
     p.add_argument("--status", help="move: the status the note carries after it, settled to its folder's own (an archived "
                                     "outcome such as accepted goes to next)")
+    p.add_argument("--next", help="move --to archive: the move that ended the note (make-plan, nudge, draft-comment, …), "
+                                  "kept in its next field; without it an outcome --status is read as one")
     p.add_argument("--waits-on", help="move --to parked: who it waits on, and where")
     p.add_argument("--wake", help="move --to parked: what brings it back (a Slack thread, a ticket key)")
     p.set_defaults(func=cmd_note)

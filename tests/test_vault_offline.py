@@ -314,7 +314,7 @@ check("each lifecycle folder settles its status", S("in-progress", "in progress"
       and S("in-progress", "waiting") == ("waiting", None, None) and S("parked", "proposed") == ("parked", None, None)
       and S("to-read", "decided") == ("proposed", None, None) and S("to-read", "active") == ("proposed", None, None)
       and S("to-read", None) == (None, None, None) and S("to-read", "blocked") == ("blocked", None, None))
-check("an archived outcome moves to next", S("archive", "accepted") == ("closed", None, "accept") and S("archive", "planned") == ("closed", None, None)
+check("an archived outcome moves to next", S("archive", "accepted") == ("closed", None, "accept") and S("archive", "planned") == ("closed", None, "make-plan")
       and S("archive", "not now") == ("closed", None, "not-now"))
 check("a verdict is a result: a fail waits on his word, a pass is read", S("to-read", "fail", "verify") == ("proposed", "fail", None)
       and S("to-read", "pass", "verify") == (None, "pass", None) and S("archive", "pass", "verify") == ("closed", "pass", None))
@@ -323,6 +323,13 @@ with tempfile.TemporaryDirectory() as t:
     os.makedirs(os.path.join(t, "library"))
     open(os.path.join(t, "library", "l.md"), "w").write('---\ntype: "design"\nstatus: "decided"\nsource: "vault"\n---\n# L\n')
     check("sync takes status off a library page", len(V.settle_statuses(t)) == 1 and "status:" not in open(os.path.join(t, "library", "l.md")).read())
+with tempfile.TemporaryDirectory() as t:
+    vlt, rep = os.path.join(t, "v"), os.path.join(t, "r")
+    os.makedirs(os.path.join(vlt, "to-read")); os.makedirs(rep)
+    open(os.path.join(vlt, "to-read", "r.md"), "w").write('---\ntype: "review"\n---\n# R\n')
+    to = V.move_note(vlt, rep, "to-read/r.md", "archive", "in a session", next_="make-plan")
+    r = open(os.path.join(vlt, to)).read()
+    check("a move into archive with --next keeps that word as next, status closed", 'next: "make-plan"' in r and 'status: "closed"' in r)
 check("the statuses are seven", V.STATUSES == ("proposed", "blocked", "building", "built", "waiting", "parked", "closed"))
 with tempfile.TemporaryDirectory() as t:
     for d in ("archive", "in-progress", "sprints"):
