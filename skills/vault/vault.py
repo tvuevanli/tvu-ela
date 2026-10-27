@@ -218,8 +218,10 @@ machine.
   right-click it and choose *Open in web viewer* to read it inside Obsidian (Jira works there, Slack does not).
 """
 
+# `loop` orders Home's tables: the tickets loop (a ticket page, a verification) before ela's own changes and reviews
 FORMULAS = """formulas:
   note: 'file.asLink(title)'
+  loop: 'if(type == "ticket" || type == "verify", 1, 2)'
 properties:
   formula.note:
     displayName: Note
@@ -249,6 +251,8 @@ VIEWS = {
     filters:
 """ + WAITING + """    order: [date, formula.note, type, status, next]
     sort:
+      - property: formula.loop
+        direction: ASC
       - property: date
         direction: DESC
   - type: table
@@ -262,6 +266,8 @@ VIEWS = {
     order: [date, formula.note, type, next]
     limit: 5
     sort:
+      - property: formula.loop
+        direction: ASC
       - property: date
         direction: DESC
   - type: table
