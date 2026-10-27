@@ -10,6 +10,7 @@ Fixed In, a Fixed In against the build that carries it, a claim against QA's own
   evidence <line> <from> <to> [--scope] [--since YYYY-MM-DD]   QA verdicts per key from Jira comments, mail and Slack
   bundles  <line> <from> <to>                    the two lanes' newest bundles, docker service by docker service
   report   <line> <from> <to> [--purpose regular|prod-staging|demo] [--scope] [--out DIR]   all of it, ranked and capped
+  close    [--json]                              mark the pending promotion closed (<reports>/promote/pending.json)
   constraints [--json]                           the owner's standing constraints (<elak>/blueprint/constraints.yaml), each
                                                  pin read on its lane now; expired ones listed for seven days; exit 3 when a pin is over
   compare-helm <line> <from> <to> [--scope all] [--helm-json F]   test only: Helm's payload as oracle; every difference classified
@@ -947,6 +948,46 @@ def cmd_constraints(a):
         sys.exit(EX_LANE)
 
 
+# ── the pending promotion: what the morning shows as the next train until it is closed ─────────────
+
+def pending_path():
+    return os.path.join(R.site().get("reports") or "", "promote", "pending.json")
+
+
+def record_pending(res, report_path, path=None):
+    """A report written with --out opens the pending promotion, or refreshes it when the same line and lanes are open.
+    The candidate is the source lane's version per service; a cell the owner still has to choose
+    ({"awaiting": "owner", "options": [...], "why": ...}) is kept as written until he rules."""
+    path = path or pending_path()
+    try:
+        old = json.load(open(path))
+    except (OSError, ValueError):
+        old = {}
+    same = old and not old.get("closed") and (old.get("line"), old.get("from"), old.get("to")) == (res["line"], res["from"], res["to"])
+    kept = {k: v for k, v in ((old.get("candidate") or {}).get("versions") or {}).items() if same and isinstance(v, dict) and v.get("awaiting")}
+    versions = {s["service"]: {"version": short(s["from"])} for s in res["lanes"]["services"] if s.get("from")}
+    versions.update(kept)
+    rec = {"line": res["line"], "from": res["from"], "to": res["to"], "opened": old.get("opened") if same else res["generated_at"],
+           "refreshed": res["generated_at"], "report": report_path, "closed": False,
+           "candidate": {"label": f"next train → {res['to']}", "versions": versions},
+           "counts": res["counts"]["findings"]}
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    json.dump(rec, open(path, "w"), ensure_ascii=False, indent=1)
+    return rec
+
+
+def cmd_close(a):
+    """Mark the pending promotion closed: it has shipped or been dropped, and the morning stops showing it."""
+    path = pending_path()
+    try:
+        rec = json.load(open(path))
+    except (OSError, ValueError):
+        print(f"no pending promotion ({path})", file=sys.stderr); sys.exit(EX_USAGE)
+    rec.update(closed=True, closed_at=now())
+    json.dump(rec, open(path, "w"), ensure_ascii=False, indent=1)
+    print(json.dumps(rec, ensure_ascii=False) if a.json else f"closed: {rec['line']} {rec['from']} → {rec['to']} (opened {rec['opened']})")
+
+
 # ── report ────────────────────────────────────────────────────────────────────
 
 SEV = {"stop": 0, "high": 1, "medium": 2, "low": 3, "note": 4}
@@ -1045,6 +1086,7 @@ def cmd_report(a):
         json.dump(res, open(os.path.join(a.out, stem + ".json"), "w"), ensure_ascii=False, indent=1)
         open(os.path.join(a.out, stem + ".md"), "w").write(md)
         print(f"written: {os.path.join(a.out, stem)}.{{json,md}}", file=sys.stderr)
+        record_pending(res, os.path.join(a.out, stem + ".json"))
     if a.json:
         print(json.dumps(res, ensure_ascii=False)); return
     print(md)
@@ -1451,10 +1493,11 @@ def main():
     common(sub.add_parser("bundles"), scope=False)
     p = sub.add_parser("compare-helm", help="test only: Helm's release payload as the oracle; every difference classified"); common(p); p.add_argument("--helm-json", help="a saved oracle payload instead of running Helm"); p.add_argument("--out")
     p = sub.add_parser("report"); common(p); p.add_argument("--purpose", choices=("regular", "prod-staging", "prod-deploy", "demo"), default="regular"); p.add_argument("--since"); p.add_argument("--bundles", action="store_true", help="include the bundle diff even with --scope app"); p.add_argument("--out", help="directory for <date>-mh<line>-<from>-<to>.{json,md}")
+    p = sub.add_parser("close", help="mark the pending promotion closed; the morning stops showing it as the next train"); p.add_argument("--json", action="store_true")
     p = sub.add_parser("constraints", help="the standing constraints in <elak>/blueprint/constraints.yaml, each pin read now; exit 3 when one is over"); p.add_argument("--json", action="store_true")
     a = ap.parse_args()
     global QUIET; QUIET = a.quiet
-    {"constraints": cmd_constraints, "lanes": cmd_lanes, "commits": cmd_delta, "delta": cmd_delta, "tickets": cmd_tickets, "evidence": cmd_evidence, "bundles": cmd_bundles, "report": cmd_report, "compare-helm": cmd_compare_helm}[a.cmd](a)
+    {"close": cmd_close, "constraints": cmd_constraints, "lanes": cmd_lanes, "commits": cmd_delta, "delta": cmd_delta, "tickets": cmd_tickets, "evidence": cmd_evidence, "bundles": cmd_bundles, "report": cmd_report, "compare-helm": cmd_compare_helm}[a.cmd](a)
 
 
 if __name__ == "__main__":

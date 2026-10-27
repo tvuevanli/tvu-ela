@@ -71,6 +71,8 @@
                                    [--bundles] [--out DIR]; or one part of it:
                                    promote lanes|commits|tickets|evidence|bundles <line> <from> <to>
   ela promote constraints          the owner's standing constraints, each pin read on its lane now
+  ela promote close                the pending promotion is done: the morning stops showing its next train
+                                   (a report written with --out opens or refreshes it)
  earlier work
   ela sessions <word>…             earlier sessions on this machine whose first prompt or final
                                    answer carries every word
@@ -171,7 +173,7 @@ VERBS = {
     "browser": ("browser", None),
     "verify": ("verify", "report"),
 }
-PROMOTE_SUBS = {"lanes", "commits", "delta", "tickets", "evidence", "bundles", "report", "compare-helm", "constraints"}
+PROMOTE_SUBS = {"lanes", "commits", "delta", "tickets", "evidence", "bundles", "report", "compare-helm", "constraints", "close"}
 
 
 def site():

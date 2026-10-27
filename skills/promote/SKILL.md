@@ -14,6 +14,7 @@ $P report 2.1 qa daily --purpose prod-staging --bundles --out <runtime>/promote 
 $P report 2.1 qa prod --purpose prod-deploy --out <runtime>/promote                # the deploy gate: four fixed sections
 $P lanes|commits|tickets|evidence|bundles 2.1 qa daily                            # one step at a time when arguing with a finding
 $P constraints [--json]                                                            # the standing constraints, each pin read now; exit 3 when one is over
+$P close                                                                           # the pending promotion shipped or was dropped
 # Progress goes to stderr one line per step (--quiet to silence); the JSON contract is what the session reads.
 ```
 `<line>` is a key of `<elak>/map/release.yaml lines`; `<from>`/`<to>` are lane roles (qa · daily · prod) or lane
@@ -43,6 +44,11 @@ to type `! ela login tvu` and stop; never read a cache or another system's file 
   never by rewording the finding. An expired constraint is listed for seven days, then dropped. The file is
   written only when the owner confirms the proposing note; this skill never writes it. A missing file is no
   constraints.
+- **A report written with `--out` opens the pending promotion.** `<reports>/promote/pending.json` records the line,
+  the lanes, the report's path and the candidate: the source lane's version per service. The next run for the same
+  line and lanes refreshes it; a cell the owner still has to choose is written there as `{"awaiting": "owner",
+  "options": [...], "why": "..."}` and kept until he rules. The morning shows the candidate as the next train in
+  `ela matrix` and each awaiting cell as a decision for him; `close` ends it when the promotion shipped or was dropped.
 - **Rank and cap.** Evan reads at most twelve findings; the rest are counted. A noisy report is an unread one.
 - **Read-only until his word.** Posting (`slack post --apply`), Jira backfills (`jira label|comment … --apply`)
   and the record in elak each wait for an explicit yes, one per action.
