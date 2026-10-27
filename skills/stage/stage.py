@@ -18,6 +18,10 @@ the assignee, who is the person responsible — that difference is shown, never 
 Actions (the flag is the row's, the dry run is the owner's to confirm). A commit dated before its ticket was created is
 not counted (fixedin: a reused key), so it never makes a fix:
   close-notice  fix on prod for --days or more, no QA refutation, ticket open, no notice yet → jira close
+  page-disagrees  close-notice by the builds, but the ticket's own page (a probe fix page or a refresh) contradicts a
+                close: its real status says it cannot work, a change on it is unsure, or QA failed after the fix → not
+                close-ready; the page's status line and its path are the row (2026-10-27: MH-2406 was offered for a
+                batch close while its page said the shipped fix cannot work on prod-3)
                 (the proposal: Fixed In, the notice, flag:closing, the ticket assigned to the owner; no status moves)
   ask-holder    fix on prod, yet the ticket is In Progress or On Hold → ask whether work remains (not a close)
   check-scope   fix on prod, a feature (Task, Story) still in Backlog → is the scope done? (not a close)
@@ -85,6 +89,40 @@ def fix_age_days(commits, today=None):
         return None
 
 
+PAGE_SAYS_NO = re.compile(r"cannot work|can ?not appear|does not work|doesn't work|still fails|blocked on", re.I)
+
+
+def ticket_page(key, reports=None):
+    """The ticket's newest probe fix page (<reports>/ela/*-deep-<KEY>.md): (path, text), or (None, "")."""
+    if reports is None:
+        try:
+            s = json.load(open(os.path.expanduser("~/.claude/ela/site.json")))
+            reports = s.get("reports") or os.path.join(s.get("projects", ""), "reports")
+        except (OSError, ValueError):
+            return None, ""
+    import glob
+    found = sorted(glob.glob(os.path.join(reports, "ela", f"*-deep-{key}.md")))
+    try:
+        return (found[-1], open(found[-1], encoding="utf-8").read()) if found else (None, "")
+    except OSError:
+        return None, ""
+
+
+def page_disagrees(text):
+    """Why a ticket's page contradicts a close, or None: its real status says it cannot work, a timeline row reads
+    unsure, or a timeline row records a QA fail after the fix."""
+    real = re.search(r"\*\*Real status\.\*\*\s*(.*)", text or "")
+    if real and PAGE_SAYS_NO.search(real.group(1)):
+        said = next(x for x in re.split(r"(?<=[.;:])\s+", real.group(1)) if PAGE_SAYS_NO.search(x))
+        return said.strip().rstrip(":;")[:200]
+    rows = [l for l in (text or "").splitlines() if l.startswith("|")]
+    if any("| unsure:" in l for l in rows):
+        return "a change on the ticket is unsure on its page"
+    if any(re.search(r"sure 2: QA fail", l) for l in rows):
+        return "QA failed after the fix, on its page"
+    return None
+
+
 def row_of(rec, roster, days, today=None):
     """One board row from a fixed-in record, with the action it owes."""
     lanes = rec.get("lanes") or []
@@ -127,6 +165,10 @@ def row_of(rec, roster, days, today=None):
         if CLOSING_FLAG in (rec.get("labels") or []):
             row.update(action="your-review", why=f"closing notice posted and the ticket assigned to you; fix on {prod} for {age} days — the close is yours",
                        dry_run=None); return row
+        page, text = ticket_page(k)
+        no = page_disagrees(text) if page else None
+        if no:                                             # the builds say close; the ticket's own page says not yet
+            row.update(action="page-disagrees", why=f"{no} — {os.path.basename(page)}", dry_run=None); return row
         row.update(action="close-notice", why=f"fix on {prod} for {age if age is not None else '?'} days, QA {qa or 'silent'}; no notice yet",
                    dry_run=f"ela jira close {k} --fixed-in <draft> --from-file <notice naming the rule and the evidence>"); return row
     if stage == "qa" and (not row["fixed_in"] or status in OPEN_BEFORE_REVIEW):
@@ -261,7 +303,7 @@ def roll_up_epics(rows):
     return rows
 
 
-ORDER = ["your-review", "close-notice", "fixed-in-missing", "reached-qa", "awaiting-qa", "declared-only", "no-fix", "non-code", "awaiting-product", "stale-backlog", "epic", "none", "done", "unreadable"]
+ORDER = ["your-review", "page-disagrees", "close-notice", "fixed-in-missing", "reached-qa", "awaiting-qa", "declared-only", "no-fix", "non-code", "awaiting-product", "stale-backlog", "epic", "none", "done", "unreadable"]
 
 
 def print_queue(rows, days):

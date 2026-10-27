@@ -4,6 +4,7 @@ import datetime, os, sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "skills", "stage"))
 import stage as S  # noqa: E402
+S.ticket_page = lambda key, reports=None: (None, "")   # no ticket pages unless a check gives one
 
 failures = []
 def check(name, cond):
@@ -70,5 +71,17 @@ check("an Epic whose children are all closed or proposed owes a notice", rows[0]
 rows.append(S.row_of(rec(key="MH-13", parent="MH-10", status="Backlog"), ROSTER, 30, TODAY)); S.roll_up_epics(rows)
 check("an Epic with an open child is the feature's head, owing nothing itself", rows[0]["action"] == "epic")
 
+check("a page's real status that cannot work is the reason, one sentence",
+      S.page_disagrees("**Real status.** Jira says Review. In fact the notice cannot appear on prod-3: the code is gone.")
+      == "In fact the notice cannot appear on prod-3")
+check("an unsure change on the page disagrees; a sure one does not",
+      S.page_disagrees("**Real status.** Works.\n\n| 10-27 | x | comment | unsure: comment from A, a question |") is not None
+      and S.page_disagrees("**Real status.** Works.\n\n| 10-27 | x | comment | sure 6: progress from A |") is None)
+S.ticket_page = lambda key, reports=None: ("/r/ela/2026-10-26-deep-MH-2406.md", "**Real status.** In fact it cannot work on prod-3.") if key == "MH-2406" else (None, "")
+held = S.row_of(rec(key="MH-2406", status="Review", lanes=[{"lane": "prod-3"}], commits=old, draft=["x@1"]), ROSTER, 30, TODAY)
+same = S.row_of(rec(key="MH-1", status="Review", lanes=[{"lane": "prod-3"}], commits=old, draft=["x@1"]), ROSTER, 30, TODAY)
+check("a ticket the builds would close but whose page says it cannot work is not close-ready, the page's sentence its why",
+      same["action"] == "close-notice" and held["action"] == "page-disagrees" and "cannot work on prod-3" in held["why"]
+      and "2026-10-26-deep-MH-2406.md" in held["why"])
 print("stage: all offline checks passed" if not failures else f"stage: {len(failures)} check(s) failed")
 sys.exit(1 if failures else 0)
