@@ -8,6 +8,9 @@ L1: subcommands, --json, stdlib only. No store, no scheduler: every answer is th
                                           or a prefix (newest match wins, the rule printed); Slack searches suggested
   envs     [service] [--host qa|prod]     versions per lane; tag names mapped to lanes by <elak>/map/release.yaml hosts
   builds   <job|service> [--limit N]      Jenkins builds: number, version, result, branch, sha, time
+  pin      <line> <bundle> [--apply]      the line's official prod bundle in <elak>/blueprint/releases.yaml; dry run
+                                          shows the change, --apply writes the entry and commits that file alone (ADR 0012)
+  pins     [--json]                       the official bundle per line, as pinned
   drift    [line] [--bundles N] [--host]  GM service names shipped in the newest N bundles vs map/services.yaml gm_names
   login    [qa|tvu] [--force]             qa: tvutest account login → SID (2h), printed for the env file.
                                           tvu: a one-time HTTPS page under ela.tvunetworks.com collects the browser's
@@ -555,6 +558,73 @@ def resolve_bundle(us, ref, missing_ok=False):
     return str(hit["bundleId"]), str(hit["bundleName"])
 
 
+# ── the official bundle per line: a ruled fact, pinned in elak (ADR 0012) ─────────────────────────────
+
+PINS_REL = os.path.join("blueprint", "releases.yaml")
+
+
+def pins_path():
+    """elak's file where elak is checked out, else the published copy; the first that exists."""
+    s = site()
+    for root in (s.get("elak"), s.get("published")):
+        if root and os.path.isfile(os.path.join(root, PINS_REL)):
+            return os.path.join(root, PINS_REL)
+    return os.path.join(s.get("elak") or "", PINS_REL)
+
+
+def read_pins(path=None):
+    """{line: {official, id, set, by}}; {} when nothing is pinned."""
+    try:
+        return (_yaml_subset(open(path or pins_path()).read()) or {}).get("lines") or {}
+    except OSError:
+        return {}
+
+
+def render_pins(lines):
+    out = ["# The official prod bundle per release line, set on the owner's word with `ela release pin` (ela ADR 0012).",
+           "# GM records no deployment; this is the ruling. Readers: ela matrix, ela changes, Helm (from the published copy).",
+           "lines:"]
+    for line in sorted(lines):
+        out.append(f"  {json.dumps(line)}: {json.dumps(lines[line], ensure_ascii=False)}")
+    return "\n".join(out) + "\n"
+
+
+def cmd_pin(a):
+    us = US(a.env_file, "prod")
+    bid, name = resolve_bundle(us, a.bundle)
+    elak = site().get("elak")
+    if not elak or not os.path.isdir(os.path.join(elak, ".git")):
+        print("pin writes elak, which is not checked out on this machine", file=sys.stderr); sys.exit(EX_USAGE)
+    path = os.path.join(elak, PINS_REL)
+    lines = read_pins(path) if os.path.isfile(path) else {}
+    was = lines.get(a.line)
+    entry = {"official": name, "id": bid, "set": datetime.date.today().isoformat(), "by": "owner"}
+    if was and was.get("id") == bid:
+        print(f"{a.line}: already pinned to {name}"); return
+    print(f"{a.line}: {(was or {}).get('official') or 'no pin'} → {name} ({bid})")
+    if not a.apply:
+        print("dry run; --apply writes blueprint/releases.yaml and commits it alone"); return
+    lines[a.line] = entry
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    open(path, "w").write(render_pins(lines))
+    msg = f"Pin {a.line}'s official prod bundle to {name}\n\nSet on the owner's apply (ela ADR 0012)."
+    for cmd in (["git", "-C", elak, "add", "--", PINS_REL], ["git", "-C", elak, "commit", "-q", "-m", msg, "--", PINS_REL]):
+        r = subprocess.run(cmd, capture_output=True, text=True)
+        if r.returncode:
+            print(f"elak: {' '.join(cmd[3:5])} failed: {(r.stderr or r.stdout).strip()[-200:]}", file=sys.stderr); sys.exit(EX_REMOTE)
+    print(f"pinned and committed in elak: {PINS_REL}")
+
+
+def cmd_pins(a):
+    lines = read_pins()
+    if a.json:
+        print(json.dumps({"path": pins_path(), "lines": lines}, ensure_ascii=False)); return
+    for line, e in sorted(lines.items()):
+        print(f"{line:<6} {e.get('official')}  (set {e.get('set')} by {e.get('by')})")
+    if not lines:
+        print(f"no line pinned ({pins_path()})")
+
+
 def cmd_bundle(a):
     us = US(a.env_file, a.host)
     bid, name = resolve_bundle(us, a.ref)
@@ -796,12 +866,14 @@ def main():
     for side in ("a", "b"): p.add_argument(f"--host-{side}", choices=("qa", "prod"), default="qa", help=f"host bundle {side.upper()} is read from (default qa)")
     p.add_argument("--json", action="store_true")
     p = sub.add_parser("envs"); p.add_argument("service", nargs="?"); host_arg(p); p.add_argument("--json", action="store_true")
+    p = sub.add_parser("pin", help="pin a line's official prod bundle in elak; dry run unless --apply (ADR 0012)"); p.add_argument("line"); p.add_argument("bundle", help="name (MediaHub 2.1.15), number (2.1.15) or id"); p.add_argument("--apply", action="store_true")
+    p = sub.add_parser("pins", help="the official bundle per line, as pinned"); p.add_argument("--json", action="store_true")
     p = sub.add_parser("builds"); p.add_argument("job"); p.add_argument("--limit", type=int, default=15); p.add_argument("--json", action="store_true")
     p = sub.add_parser("drift"); p.add_argument("line", nargs="?", default="mh2.1@"); p.add_argument("--bundles", type=int, default=5, help="newest N bundles to union (default 5)"); host_arg(p); p.add_argument("--json", action="store_true")
     p = sub.add_parser("login"); p.add_argument("target", nargs="?", choices=("qa", "tvu"), default="qa"); p.add_argument("--force", action="store_true"); p.add_argument("--no-browser", action="store_true"); p.add_argument("--timeout", type=int, default=300); p.add_argument("--json", action="store_true")
     p.add_argument("--keepalive", action="store_true", help="tvu: one validation call that renews the session's idle TTL; never logs in, never retries")
     a = ap.parse_args()
-    {"bundles": cmd_bundles, "bundle": cmd_bundle, "bundle-diff": cmd_bundle_diff, "envs": cmd_envs, "builds": cmd_builds, "drift": cmd_drift, "login": cmd_login}[a.cmd](a)
+    {"bundles": cmd_bundles, "bundle": cmd_bundle, "bundle-diff": cmd_bundle_diff, "envs": cmd_envs, "builds": cmd_builds, "drift": cmd_drift, "login": cmd_login, "pin": cmd_pin, "pins": cmd_pins}[a.cmd](a)
 
 
 if __name__ == "__main__":

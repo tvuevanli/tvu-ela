@@ -66,6 +66,8 @@
   ela versions [service]           versions per env (userservice)
   ela builds <job|service>         Jenkins builds: version, branch, sha
   ela drift                        newest bundle's GM names vs services.yaml
+  ela release pin <line> <bundle>  the line's official prod bundle, pinned in elak; dry run unless --apply,
+                                   which writes it and commits that one file (ADR 0012) · ela release pins
   ela promote <line> <from> <to>   the promotion assessment, ranked
                                    [--purpose regular|prod-staging|demo] [--scope app|all]
                                    [--bundles] [--out DIR]; or one part of it:
