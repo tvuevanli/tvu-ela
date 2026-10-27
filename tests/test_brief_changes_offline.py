@@ -258,4 +258,9 @@ cnt = B.counts_of({"window": {"hours": 24}, "code": {"repos": [{"tickets": [{"co
                     "tickets": [1, 2, 3], "ela": {"jobs": [1], "writes": [1, 2]}, "builds": [1], "versions": [], "findings": [1]})
 check("the day's counts are counted once, with their window", cnt["commits"] == 3 and cnt["commits_without_ticket"] == 1
       and cnt["tickets_moved"] == 3 and cnt["jobs"] == 1 and cnt["window"] == {"hours": 24})
+rows = {k: {"key": k, "action": a} for k, a in (("MH-1", "close-notice"), ("MH-2", "close-notice"), ("MH-3", "close-notice"),
+                                                 ("MH-4", "page-disagrees"), ("MH-5", "close-notice"), ("MH-6", "awaiting-qa"))}
+ready, failing, disagree = B.close_queue(rows, {"MH-1", "MH-2", "MH-3", "MH-4", "MH-6"}, {"MH-2": ("2026-10-26", "FAIL")}, lambda k: k == "MH-3")
+check("close-ready is counted once: open, not verified as not fixed, and not contradicted by its page",
+      ready == ["MH-1"] and failing == ["MH-2"] and disagree == ["MH-3", "MH-4"])
 sys.exit(1 if failures else 0)

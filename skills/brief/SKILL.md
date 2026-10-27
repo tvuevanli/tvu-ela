@@ -494,8 +494,9 @@ The page is read in Obsidian, so its form is fixed:
 
 **Counts come from one file.** Every count on any page comes from the facts pass's counts (`counts` in
 `<runtime>/runner/<date>-changes.json`, from `ela changes --json`), each with the window it covers: commits, commits
-without a ticket, tickets moved, builds, lane moves, jobs, ela's writes; close-ready and verified-not-fixed come from
-the board's own read, and the sprint's on track / at risk / off from the sprint line. That means the brief, Changes,
+without a ticket, tickets moved, builds, lane moves, jobs, ela's writes, close-ready and verified-not-fixed (the
+board's stage rows, the tickets open now, the verifications, each ticket's own page); the sprint's on track / at
+risk / off from the sprint line. That means the brief, Changes,
 the board, the sprint line and Home. A page never counts for itself. A count over another window is labelled with
 that window ("commits, 7 days"). *Why: on 2026-10-27 close-ready read 32 on the board, 31 elsewhere and 35 on the
 sprint; jobs read 16 on the brief and 19 on Changes; commits read 111/173 on one page and 79 on another.*

@@ -1173,7 +1173,71 @@ def changes_facts(args):
                                     "options": c.get("options") or [], "evidence": [pending.get("report") or ""], "at": pending.get("refreshed"),
                                     "rank": RANKS["candidate_awaiting_owner"]})
     out["counts"] = counts_of(out)
+    out["counts"].update(close_counts(site, env, errors))
     return out
+
+
+FULL_STAGE_DAYS = 10                    # a whole-board stage read older than this is not trusted for the close queue
+
+
+def latest_verdicts(reports):
+    """{key: (date, verdict)} from each ticket's newest verification on any lane; two on one day, a failure wins."""
+    out, vd = {}, os.path.join(reports, "verify")
+    for name in sorted(os.listdir(vd)) if os.path.isdir(vd) else []:
+        m = re.match(r"^([A-Z][A-Z0-9]+-\d+)-(\d{4}-\d{2}-\d{2})", name)
+        if not m:
+            continue
+        p = os.path.join(vd, name, "report.md") if os.path.isdir(os.path.join(vd, name)) else os.path.join(vd, name)
+        try:
+            v = re.search(r"\[!\w+\]\s+(PASS|FAIL|BLOCKED)\b|\bVerdict\s+(PASS|FAIL|BLOCKED)\b", open(p, encoding="utf-8").read())
+        except OSError:
+            continue
+        if v and (m.group(1) not in out or m.group(2) >= out[m.group(1)][0]):
+            if m.group(1) in out and m.group(2) == out[m.group(1)][0] and out[m.group(1)][1] != "PASS":
+                continue
+            out[m.group(1)] = (m.group(2), v.group(1) or v.group(2))
+    return out
+
+
+def close_queue(rows, open_keys, verdicts, page_says_no):
+    """(close-ready, verified-not-fixed, page-disagrees) keys from stage rows: a close-notice row of a ticket still
+    open, unless its newest verification failed or its own page contradicts the close."""
+    cn = [r for r in rows.values() if r.get("action") in ("close-notice", "page-disagrees") and (open_keys is None or r["key"] in open_keys)]
+    failing = [r["key"] for r in cn if verdicts.get(r["key"], ("", ""))[1] in ("FAIL", "BLOCKED")]
+    disagree = [r["key"] for r in cn if r["key"] not in failing and (r.get("action") == "page-disagrees" or page_says_no(r["key"]))]
+    ready = [r["key"] for r in cn if r["key"] not in failing and r["key"] not in disagree]
+    return sorted(ready), sorted(failing), sorted(disagree)
+
+
+def close_counts(site, env, errors):
+    """close_ready and verified_not_fixed, counted once for every page: the board's stage rows (the newest whole-board
+    read, today's overlaid), the tickets open in Jira now, the verifications' verdicts, and each ticket's own page."""
+    runtime = site.get("runtime") or os.path.join(site.get("projects", ""), ".ela")
+    reports = site.get("reports") or os.path.join(site.get("projects", ""), "reports")
+    d, rows = os.path.join(runtime, "runner"), {}
+    fulls = sorted(f for f in os.listdir(d) if f.endswith("-stage-full.json")) if os.path.isdir(d) else []
+    read = None
+    if fulls and (datetime.date.today() - datetime.date.fromisoformat(fulls[-1][:10])).days <= FULL_STAGE_DAYS:
+        read = fulls[-1][:10]
+        rows.update({r["key"]: r for r in json.load(open(os.path.join(d, fulls[-1]))).get("rows") or []})
+    today = os.path.join(d, f"{datetime.date.today().isoformat()}-stage.json")
+    if os.path.isfile(today):
+        rows.update({r["key"]: r for r in json.load(open(today)).get("rows") or []})
+    if not rows:
+        errors.append({"source": "stage", "error": "no stage read within the last 10 days; close-ready not counted"})
+        return {"close_ready": None, "verified_not_fixed": None}
+    try:
+        open_keys = {i["key"] for i in run_json(["python3", JIRA, *env, "jql", "project = MH AND statusCategory != Done",
+                                                  "--limit", "3000", "--json"])["issues"]}
+    except (LaneError, subprocess.TimeoutExpired, ValueError) as e:
+        open_keys = None
+        errors.append({"source": "jira open tickets", "error": str(e)[:200]})
+    sys.path.insert(0, os.path.join(HERE, "..", "stage"))
+    import stage as S                                       # noqa: E402  the same reading of a ticket page stage uses
+    says_no = lambda k: (lambda pt: bool(pt[0] and S.page_disagrees(pt[1])))(S.ticket_page(k, reports))  # noqa: E731
+    ready, failing, disagree = close_queue(rows, open_keys, latest_verdicts(reports), says_no)
+    return {"close_ready": len(ready), "verified_not_fixed": len(failing), "page_disagrees": len(disagree),
+            "close_read": {"stage_full": read, "open_tickets_read": open_keys is not None}}
 
 
 def counts_of(out):
