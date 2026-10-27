@@ -960,8 +960,26 @@ def changes_facts(args):
             "qa": qa, "tickets": tickets, "code": {"repos": code, "unticketed_threads": y["unticketed_threads"]},
             "dev_threads": dev_threads, "you": you, "ela": y["ela"], "team_report": team_report,
             "stale_checkouts": y["stale_checkouts"], "errors": errors}
-    out["findings"] = findings_of(out, rows, tested, env, errors)
+    pending = read_pending(site)
+    cand = (pending or {}).get("candidate") or {}
+    out["pending"] = pending
+    out["findings"] = findings_of(out, rows, tested, env, errors, candidate=frozenset(cand.get("versions") or {}))
+    for service, c in (cand.get("versions") or {}).items():
+        if isinstance(c, dict) and c.get("awaiting"):
+            out["findings"].append({"kind": "candidate_awaiting_owner", "lane": pending["to"], "service": service,
+                                    "what": f"{cand.get('label')}: {LABEL.get(service, service)} awaits your choice — {c.get('why') or ''}".rstrip(" —"),
+                                    "options": c.get("options") or [], "evidence": [pending.get("report") or ""], "at": pending.get("refreshed"),
+                                    "rank": RANKS["candidate_awaiting_owner"]})
     return out
+
+
+def read_pending(site):
+    """<reports>/promote/pending.json while it is open (written by `ela promote report --out`), else None."""
+    try:
+        p = json.load(open(os.path.join(site.get("reports") or "", "promote", "pending.json")))
+    except (OSError, ValueError):
+        return None
+    return None if p.get("closed") else p
 
 
 def mail_lane(env):
@@ -1284,6 +1302,9 @@ def cmd_matrix(args):
             cand = json.load(open(args.candidate))
         except (OSError, ValueError) as e:
             errors.append({"source": "candidate", "error": str(e)[:200]})
+        if cand and "candidate" in cand:                    # <reports>/promote/pending.json as it is
+            args.promote_report = args.promote_report or cand.get("report")
+            cand = None if cand.get("closed") else cand["candidate"]
     # the bundle each lane runs. GM records no deployment, so it is inferred: QA and daily bundles follow the lane-token
     # names (mh2.1@qa-q26); prod releases are named "MediaHub <line>.<n>", so prod takes the newest of those, and the
     # rc token only when none exists. Either is unconfirmed, and marked stale when the lane moved after it.
@@ -1313,7 +1334,7 @@ def cmd_matrix(args):
     for s in MATRIX_ROWS:
         cells = [matrix_cell(s, l, rows, prev, tested, pins) for l in lanes]
         if cand:
-            cells.append({"text": str((cand.get("versions") or {}).get(s) or "—")})
+            cells.append(candidate_cell((cand.get("versions") or {}).get(s)))
         if len({c.get("version") for c in cells[:len(lanes)]}) == 1 and not any(c.get("moved") or c.get("pin") for c in cells):
             same.append(f"{LABEL.get(s, s)} {cells[0]['text']}")
             continue
@@ -1323,7 +1344,8 @@ def cmd_matrix(args):
             datetime.datetime.now().timestamp() - os.path.getmtime(args.promote_report) < 86400:
         try:
             c = json.load(open(args.promote_report))["counts"]["findings"]
-            gate = {"stop": c.get("stop", 0), "high": c.get("high", 0), "report": args.promote_report}
+            age = int((datetime.datetime.now().timestamp() - os.path.getmtime(args.promote_report)) // 3600)
+            gate = {"stop": c.get("stop", 0), "high": c.get("high", 0), "report": args.promote_report, "age_hours": age}
         except (OSError, ValueError, KeyError):
             errors.append({"source": "promote report", "error": f"unreadable: {args.promote_report}"})
     out = {"date": date, "lanes": [LANE_SHOWN.get(l, l) for l in lanes] + ([cand.get("label") or "next train"] if cand else []),
@@ -1335,6 +1357,14 @@ def cmd_matrix(args):
         print(f"not read: {e['source']}: {e['error']}", file=sys.stderr)
 
 
+def candidate_cell(c):
+    """A next-train cell: a version (a plain string in an older file), or a choice awaiting the owner."""
+    if isinstance(c, dict) and c.get("awaiting"):
+        return {"text": f"? ({len(c.get('options') or [])} options)", "awaiting": c}
+    v = c.get("version") if isinstance(c, dict) else c
+    return {"text": str(v or "—"), "version": v}
+
+
 def render_matrix(out):
     L = ["| | " + " | ".join(out["lanes"]) + " |", "|---|" + "---|" * len(out["lanes"])]
     for r in out["rows"]:
@@ -1344,7 +1374,8 @@ def render_matrix(out):
     L += ["", "*▲ moved since yesterday · ✓ QA passed this exact version (date) · ◐ partly · ○ no QA report names it · 🔒 a pin held · ⛔ over*"]
     if out["gate"]:
         g = out["gate"]
-        L += ["", f"prod candidate: {g['stop']} stop · {g['high']} high (promote report `{os.path.basename(g['report'])}`)"]
+        L += ["", f"prod candidate: {g['stop']} stop · {g['high']} high (promote report `{os.path.basename(g['report'])}`, "
+                  f"{g.get('age_hours', 0)}h old)"]
     return "\n".join(L)
 
 
