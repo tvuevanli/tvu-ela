@@ -542,6 +542,11 @@ def report_notes(reports, today):
         dm = re.search(r"\*(\d{4}-\d{2}-\d{2})", body)
         notes.append(Note("board.md", "The board's debt", body,
                           {"type": "board", "date": dm.group(1) if dm else None}, fl, src_rel="board/board.md"))
+    lp = os.path.join(reports, "lanes", "lanes.md")
+    if os.path.isfile(lp):                                 # the lanes, their differences and two weeks of moves, rewritten each pass
+        fl, body = split_front(open(lp, encoding="utf-8").read())
+        dm = re.search(r"\*(\d{4}-\d{2}-\d{2})", body)
+        notes.append(Note("lanes.md", "The lanes", body, {"type": "lanes", "date": dm.group(1) if dm else None}, fl, src_rel="lanes/lanes.md"))
     # the library: one page per topic, written by ela from the sources it read, and an index; the source lists are an
     # appendix. Pointers and syntheses only: the originals stay where they live.
     lp = os.path.join(reports, "library", "library.md")
@@ -1015,8 +1020,11 @@ def home(today, now, notes, saw=None):
         L += [head, ""] if head else []
         if re.search(r"^## Needs you[ \t]*$", brief.body, re.M):
             L += [f"![[{brief.path[:-3]}#Needs you]]", ""]
-            # the lanes table is `ela matrix` pasted on the page; embedded, it reads the same here as there
-            if re.search(r"^## The lanes this morning[ \t]*$", brief.body, re.M):
+            # the lanes table: the standing lanes page when there is one (rewritten each pass), else the brief's copy
+            lanes = next((n for n in notes if n.props.get("type") == "lanes"), None)
+            if lanes:
+                L += ["![[lanes#The lanes this morning]]", "[[lanes|→ Differences and two weeks of moves]]", ""]
+            elif re.search(r"^## The lanes this morning[ \t]*$", brief.body, re.M):
                 L += [f"![[{brief.path[:-3]}#The lanes this morning]]", ""]
             L += [f"*The rest of the page (yesterday, new tickets, the Jira lanes, the backlog): {link(brief)}.*", ""]
         else:

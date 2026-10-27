@@ -203,4 +203,19 @@ check("a bundle's version is drafted only for a ticket whose release label is th
       B.docker_findings([dict(dr[0], claims=[{"key": "MH-9", "via": "jira", "ref": "c"}])], {"MH-9": "2.0"}) == []
       and len(B.docker_findings([dict(dr[0], claims=[{"key": "MH-9", "via": "jira", "ref": "c"}])], {"MH-9": "2.1"})) == 1)
 check("a ticket whose Fixed In is set is not a finding", B.docker_findings([img], {}) == [])
+rep_ = {"lanes": {"from": "qa-cn3", "to": "daily-wed"},
+        "delta": {"services": [{"service": "mediahub-frontend", "from": "v2.2.121 build176", "to": "v2.2.118 build170", "relation": "from_ahead",
+                                "commits": [{"sha": "aaaa1111", "subject": "fix(MH-1): a", "kind": "fix", "keys": ["MH-1"], "keys_in_subject": ["MH-1"]},
+                                            {"sha": "bbbb2222", "subject": "fix: b", "kind": "fix", "keys": [], "keys_in_subject": []},
+                                            {"sha": "cccc3333", "subject": "feat(MH-2): c", "kind": "feat", "keys": ["MH-2"], "keys_in_subject": ["MH-2"]}]},
+                               {"service": "mediahub-backend", "from": "v2.1.34", "to": "v2.1.34", "relation": "same", "commits": []}]},
+        "tickets": {"tickets": [{"key": "MH-1", "exists": True, "summary": "One", "status": "Review", "url": "u1"},
+                                {"key": "MH-2", "exists": True, "summary": "Two", "status": "Done", "url": "u2"}]},
+        "evidence": {"keys": {"MH-1": {"verdict": "pass"}}}}
+dl = "\n".join(B.differences(rep_, lambda l: B.LANE_SHOWN.get(l, l)))
+check("a pair opens with one verdict line", "**QA-AWS3 carries 2 tickets daily-wed does not; 1 verified, 1 untested, 1 unfiled fix.**" in dl)
+check("each service lists its tickets with QA's verdict and state, by slug", "**mediahub-frontend** 2.2.118+170 → 2.2.121+176" in dl
+      and "- [MH-1](u1) One — QA pass · Review" in dl and "- [MH-2](u2) Two — no QA verdict · Done" in dl)
+check("commits without a ticket are counted, folded", "> [!note]- 1 commit without a ticket" in dl and "> - `bbbb2222` fix: b" in dl)
+check("a service the same on both lanes is not listed", "mediahub-backend" not in dl)
 sys.exit(1 if failures else 0)
