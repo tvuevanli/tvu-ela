@@ -934,8 +934,8 @@ def findings_of(out, rows, tested, env, errors):
         for cm in r["untracked"]:
             if NOT_A_CHANGE.search(cm["subject"]) or not cm.get("lanes"):
                 continue
-            for lane in cm["lanes"]:
-                groups.setdefault((r["repo"], lane), []).append(cm)
+            furthest = max(cm["lanes"], key=lambda l: (str(l).startswith("prod"), str(l).startswith("daily")))
+            groups.setdefault((r["repo"], furthest), []).append(cm)   # once, at the lane nearest prod it reached
     for (repo, lane), cms in sorted(groups.items()):
         kind = "prod_fix_without_ticket" if str(lane).startswith("prod") else "unticketed_change_on_a_prod_path"
         F.append({"kind": kind, "lane": lane, "service": next((s for s, p in R.rmap("repos").items() if p == repo), repo),
@@ -954,7 +954,7 @@ def findings_of(out, rows, tested, env, errors):
         sender = (email.utils.parseaddr(last["from"])[1] or "").lower()
         if re.search(r"\b(hold|wait|stay|until|confirm|do not|don't|before)\b", said, re.I) and not on_roster(sender, env):
             F.append({"kind": "lane_change_pending_external_word", "lane": lane, "service": None,
-                      "what": f"{r['subject'][:90]}: the last word is a hold or confirm from outside the team, unanswered",
+                      "what": f"{r['subject'][:90]}: the last word, from {sender} (not on the team roster), asks to hold or confirm; no answer follows",
                       "evidence": [f"mail: {last['subject']}"], "at": mail_time(last["date"])})
     try:
         r = subprocess.run(["python3", PROMOTE, *env, "--quiet", "constraints", "--json"], capture_output=True, text=True, timeout=300)
