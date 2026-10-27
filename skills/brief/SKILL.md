@@ -239,7 +239,8 @@ Changes page drafts nothing.
 **One list of what needs his word, merged by key.** The items under *Needs you* come from five sources, read as
 facts and never re-derived: this skill's own lanes (§1, §2); the findings of `ela changes --json`
 (`<runtime>/runner/<date>-changes.json`, `findings[]`, each with its `rank`); the waiting lane (`ela brief --json`,
-`lanes.waiting`, the F items, the vault's parked notes among them); the vault notes waiting for his `next` (Home's waiting table, `ela vault guidance`);
+`lanes.waiting`, the F items, the vault's parked notes among them); the tracked tickets' changes (`lanes.tracked`, from the
+runner's refresh log `<runtime>/runner/ticket-findings.jsonl`); the vault notes waiting for his `next` (Home's waiting table, `ela vault guidance`);
 and the sprint items at risk or off (§0). A key that comes from several sources is **one item**. Its facts line
 takes the most first-hand status: QA's verdict, then the version on the lane, then the Jira status. Its action is
 the single strongest one: a drafted write, then a decision, then a reply, then a nudge. At most eight items; the
@@ -270,6 +271,12 @@ Changes page, never an item. Understood and word needed: one item, A or D. Unsur
 line says what ela could not place; on a prod ticket or a customer ask the runner also DMs him at the pass. Addressed
 to him (his name, an assignment, a question): always a C item, whatever the reading. *Why: an item he cannot act on
 costs his attention, and a change ela cannot place must never pass as a quiet timeline row.*
+
+`lanes.tracked` holds these already grouped, one row per ticket over the brief's window (24 hours, 72 on a Monday):
+`class` C when a change is addressed to him, its `first_line` who said what; D otherwise, its `first_line` "ela could
+not place: <reason>". Each is one item with the moves a ticket page offers (seen, go-deep, nudge), merged by key with
+any item the brief already has for that ticket. Sure rows are not on the page; the runner's *Tracked tickets* section
+stays as their evidence.
 
 **Order.**
 1. Findings by their `rank`, 1 to 9: a hold asked from outside the company on a prod change; a standing pin over;

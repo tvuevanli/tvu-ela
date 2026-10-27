@@ -7,7 +7,7 @@ arithmetic on the timestamps. Judgment — clustering incidents, who spoke last,
 across lanes — stays in the SKILL.md.
 
 Usage:
-    brief.py [--env-file F] lanes [--lane cadence|triage|breakdown|incidents|backlog|yours] [--json] [--limit 300]
+    brief.py [--env-file F] lanes [--lane cadence|triage|breakdown|incidents|backlog|yours|waiting|tracked] [--json] [--limit 300]
     brief.py sprint [--date YYYY-MM-DD] [--json]   the active sprint in <vault>/sprints/: items, keys, day N of M
     brief.py [--env-file F] changes [--hours 24] [--fetch] [--json]   the day's real changes for the Changes page; it
                                      snapshots lane versions to <runtime>/runner/versions-<date>.json and diffs the last one
@@ -52,7 +52,7 @@ PROJECT = "project = MH AND "
 UMBRELLA = "MH-2342"
 RED_H, YELLOW_H, OVERDUE_H = 48, 24, 4
 PREFIX = re.compile(r"^\[(Infra|J2N|Media|App|UI|QA|Design|AI)\]")
-LANES = ("intake", "cadence", "triage", "breakdown", "incidents", "backlog", "yours", "waiting")
+LANES = ("intake", "cadence", "triage", "breakdown", "incidents", "backlog", "yours", "waiting", "tracked")
 
 # JQL as SKILL.md §1 states it; `project = MH AND ` is prepended to each.
 Q = {
@@ -309,6 +309,49 @@ def parked_waits(e, vault, me, now, gaps):
     return [parked_row(n, jira_rows, threads, me, now) for n in notes]
 
 
+TICKET_LOG = "ticket-findings.jsonl"   # <runtime>/runner: every `ela ticket refresh` pass's findings, appended by the runner
+
+
+def tracked_items(rows, since):
+    """One item per tracked ticket from the refresh findings logged since `since`: class C when a change is addressed
+    to the owner (its first line who said what), else D ("ela could not place: …"); sure rows stay off the page."""
+    by_key = {}
+    for f in rows:
+        at = parse_ts(f.get("pass_at") or "") or parse_ts(f.get("at") or "")
+        if not at or at < since or (f.get("sure") and not f.get("addressed_to_owner")):
+            continue
+        by_key.setdefault(f["key"], []).append(f)
+    out = []
+    for key, fs in by_key.items():
+        to_me = [f for f in fs if f.get("addressed_to_owner")]
+        unsure = [f["reading"].split(": ", 1)[-1] for f in fs if not f.get("sure")]
+        first = (f"{to_me[-1].get('by') or '?'}: {to_me[-1]['change'].split(': ', 1)[-1]}" if to_me else
+                 "ela could not place: " + "; ".join(dict.fromkeys(unsure)))
+        out.append({"key": key, "class": "C" if to_me else "D", "first_line": first[:240], "rows": len(fs),
+                    "prod_or_customer": any(f.get("prod_or_customer") for f in fs), "page": next((f.get("page") for f in fs if f.get("page")), None),
+                    "moves": ["seen", "go-deep", "nudge"], "readings": [f["reading"] for f in fs]})
+    return sorted(out, key=lambda i: (i["class"], i["key"]))
+
+
+def lane_tracked(env, limit, now):
+    """Changes on tracked tickets that need his word, from the runner's refresh log over the brief's window (24 hours, 72
+    on a Monday). Read-only; the passes themselves are `ela ticket refresh --all`."""
+    site = json.load(open(SITE))
+    runtime = site.get("runtime") or os.path.join(site.get("projects", ""), ".ela")
+    hours = 72 if now.astimezone().weekday() == 0 else 24
+    rows = []
+    try:
+        for line in open(os.path.join(runtime, "runner", TICKET_LOG), encoding="utf-8"):
+            try:
+                rows.append(json.loads(line))
+            except ValueError:
+                pass
+    except OSError:
+        pass
+    items = tracked_items(rows, now - datetime.timedelta(hours=hours))
+    return {"rows": items, "count": len(items), "hours": hours}
+
+
 def owner_jira_name(env):
     """The owner's Jira display name, read from a ticket assigned to him; None when he has none."""
     try:
@@ -399,6 +442,10 @@ def age_of(r):
 
 def print_table(name, lane):
     print(f"## {name} — {lane['count']}")
+    if name == "tracked":
+        for r in lane["rows"]:
+            print(f"  {r['key']:<10} {r['class']}  {r['first_line'][:110]}")
+        print(); return
     if name == "waiting":
         for r in lane["rows"]:
             flag = "WOKE" if r.get("woke") else "DUE" if r["due"] else ""
@@ -434,7 +481,7 @@ def cmd_lanes(args):
     now = datetime.datetime.now(datetime.timezone.utc)
     want = [args.lane] if args.lane else list(LANES)
     fns = {"intake": lane_intake, "triage": lane_triage, "breakdown": lane_breakdown, "incidents": lane_incidents, "backlog": lane_backlog,
-           "waiting": lane_waiting}
+           "waiting": lane_waiting, "tracked": lane_tracked}
     lanes, errors = {}, []
 
     if "cadence" in want or "yours" in want:

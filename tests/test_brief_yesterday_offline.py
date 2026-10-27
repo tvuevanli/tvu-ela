@@ -74,4 +74,17 @@ th = {link: {"messages": [{"ts": "1761000000.000100", "user": "Owner", "text": "
 r = B.parked_row(n2, [], th, "Owner", now)
 check("a reply in the wake's thread wakes it", r["checked"] == [link] and len(r["woke"]) == 1 and r["woke"][0]["source"] == "slack")
 check("a bare parked date is that day's end", B.parked_since("2026-10-22").day == 23 and B.parked_since("2026-10-22 15:04").hour == 15)
+logged = [{"key": "MH-7", "change": "Dev F: Can you decide the code?", "reading": "unsure: comment from Dev F, a question", "sure": False,
+           "addressed_to_owner": True, "by": "Dev F", "pass_at": "2026-10-28T06:30:00+08:00", "prod_or_customer": True},
+          {"key": "MH-7", "change": "status: Review → In Progress by QA", "reading": "unsure: moved back from Review to In Progress", "sure": False,
+           "addressed_to_owner": False, "pass_at": "2026-10-28T06:30:00+08:00"},
+          {"key": "MH-8", "change": "assignee: a → b → c", "reading": "unsure: reassigned 3 times in a day", "sure": False,
+           "addressed_to_owner": False, "pass_at": "2026-10-28T06:30:00+08:00"},
+          {"key": "MH-9", "change": "x", "reading": "sure 7: to QA in Review", "sure": True, "addressed_to_owner": False, "pass_at": "2026-10-28T06:30:00+08:00"},
+          {"key": "MH-10", "change": "y", "reading": "unsure: z", "sure": False, "addressed_to_owner": False, "pass_at": "2026-10-20T06:30:00+08:00"}]
+ti = {i["key"]: i for i in B.tracked_items(logged, now - datetime.timedelta(hours=24))}
+check("one tracked item per ticket; addressed to him is C with who said what", ti["MH-7"]["class"] == "C" and ti["MH-7"]["first_line"] == "Dev F: Can you decide the code?"
+      and ti["MH-7"]["rows"] == 2 and ti["MH-7"]["prod_or_customer"])
+check("otherwise D, saying what ela could not place", ti["MH-8"]["class"] == "D" and ti["MH-8"]["first_line"] == "ela could not place: reassigned 3 times in a day")
+check("sure rows and rows outside the window are not items", "MH-9" not in ti and "MH-10" not in ti)
 sys.exit(1 if failures else 0)
