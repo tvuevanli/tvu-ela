@@ -324,6 +324,8 @@ def settled_status(folder, status, kind=None):
     value, a verdict moved to result, an archived outcome moved to next. Outside those folders, as it was."""
     s = (status or "").strip().strip("'\"").lower()
     result = s if kind == "verify" and s in ("pass", "fail") else None
+    if folder == LIBRARY:                                  # a topic page is reference, not a step in a life
+        return None, None, None
     if folder not in STATUS_BY_FOLDER:
         return status, None, None
     if folder == ARCHIVE:
@@ -338,10 +340,10 @@ def settled_status(folder, status, kind=None):
 
 
 def settle_statuses(vault, dry_run=False):
-    """Bring every note in a lifecycle folder to its folder's statuses, front matter only (archive included: the
-    body stays his). Returns one line per fix."""
+    """Bring every note in a lifecycle folder to its folder's statuses, and take status off library pages, front
+    matter only (archive included: the body stays his). Returns one line per fix."""
     fixes = []
-    for folder in STATUS_BY_FOLDER:
+    for folder in tuple(STATUS_BY_FOLDER) + (LIBRARY,):
         d = os.path.join(vault, folder)
         for f in sorted(os.listdir(d)) if os.path.isdir(d) else []:
             if not f.endswith(".md"):
@@ -1188,7 +1190,7 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset()):
     linker = Linker({n.src_rel: n for n in enotes}, titles, jira_base, projects, reports, reps)
     planned = {}
     for n in notes:
-        if top(n.path) in STATUS_BY_FOLDER:
+        if top(n.path) in tuple(STATUS_BY_FOLDER) + (LIBRARY,):
             st, result, _ = settled_status(top(n.path), note_status(n), n.props.get("type"))
             n.props.update(status=st, result=n.props.get("result") or result)
             n.front_lines = [l for l in n.front_lines if not l.startswith("status:")]   # the source's own word is settled

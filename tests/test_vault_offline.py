@@ -318,7 +318,11 @@ check("an archived outcome moves to next", S("archive", "accepted") == ("closed"
       and S("archive", "not now") == ("closed", None, "not-now"))
 check("a verdict is a result: a fail waits on his word, a pass is read", S("to-read", "fail", "verify") == ("proposed", "fail", None)
       and S("to-read", "pass", "verify") == (None, "pass", None) and S("archive", "pass", "verify") == ("closed", "pass", None))
-check("a sprint or library page keeps its own status", S("sprints", "active") == ("active", None, None) and S("library", "decided") == ("decided", None, None))
+check("a sprint keeps its own status; a library page carries none", S("sprints", "active") == ("active", None, None) and S("library", "decided") == (None, None, None))
+with tempfile.TemporaryDirectory() as t:
+    os.makedirs(os.path.join(t, "library"))
+    open(os.path.join(t, "library", "l.md"), "w").write('---\ntype: "design"\nstatus: "decided"\nsource: "vault"\n---\n# L\n')
+    check("sync takes status off a library page", len(V.settle_statuses(t)) == 1 and "status:" not in open(os.path.join(t, "library", "l.md")).read())
 check("the statuses are seven", V.STATUSES == ("proposed", "blocked", "building", "built", "waiting", "parked", "closed"))
 with tempfile.TemporaryDirectory() as t:
     for d in ("archive", "in-progress", "sprints"):
