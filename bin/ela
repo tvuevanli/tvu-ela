@@ -89,6 +89,8 @@
                                    repo and ticket, what you did, the team report; sources not read named
   ela matrix                       which version runs on which lane: prod / daily / QA by component, ▲ a move
                                    since yesterday, QA's mark on that exact version, a pin's 🔒 or ⛔
+  ela ticket refresh KEY|--all     each change on a tracked ticket since the last pass, read as sure (a rule
+                                   in probe §fix) or unsure; appended to its fix page; findings for the brief
   ela vault sync [--dry-run]       regenerate the owner's Obsidian vault: day pages, reviews, verifications,
                                    decisions and plans; a note over its reading budget carries a warning;
                                    a note you delete is done and stays deleted (ela vault restore PATH)
@@ -164,7 +166,7 @@ VERBS = {
     "mail": ("mail", None), "login": ("release", "login"), "stream": ("stream", None),
     "sentry": ("sentry", None),
     "promote": ("promote", None), "runtime": ("runtime", None),
-    "brief": ("brief", "lanes"), "yesterday": ("brief", "yesterday"), "changes": ("brief", "changes"), "matrix": ("brief", "matrix"), "vault": ("vault", None), "note": ("vault", "note"), "secret": ("setup", "secret"),
+    "brief": ("brief", "lanes"), "yesterday": ("brief", "yesterday"), "changes": ("brief", "changes"), "matrix": ("brief", "matrix"), "ticket": ("ticket", None), "vault": ("vault", None), "note": ("vault", "note"), "secret": ("setup", "secret"),
     "mr": ("mr", "create"), "mr-preflight": ("mr", "preflight"),
     "sessions": ("sessions", "find"),
     "route": ("route", "facts"),
