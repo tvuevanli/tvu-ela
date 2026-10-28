@@ -2386,6 +2386,9 @@ def cmd_page_check(args):
     rest = review.lint(page, None, counts, bundles, in_vault, handles=review.handles())
     for line in rest:
         print(f"lint: {line}")
+    over = review.budget(args.page, page, args.actions)
+    if over:                                            # advice: the runner's repair shortens it, Home warns if not
+        print(f"budget: {over}")
     # the runner holds back a page that still fails after one repair, and its repair covers apply N only: the other
     # checks fail the page under --strict, once the repair knows them; until then they are printed as advice
     sys.exit(1 if orphan or unboxed or (rest and args.strict) else 0)

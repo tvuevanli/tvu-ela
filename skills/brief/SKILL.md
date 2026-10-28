@@ -540,7 +540,9 @@ The page is read in Obsidian, so its form is fixed:
 - **Ticket lanes in plain words,** as in the table above: never ela's internal names (cadence, zombies, triage, stage,
   runner page) on the page.
 - **Under 900 words in all.** The decisions lane, when it runs, adds one table row per candidate with its
-  permalink; the owner chooses which to keep.
+  permalink; the owner chooses which to keep. Over the vault's day budget, page-check prints a `budget:` line
+  counted the way Home counts; the runner's repair shortens the page, FYI and Yesterday first, dropping nothing he
+  must decide.
 
 ## 3b — when the runner asked (unattended): the page and the numbered actions, written to files
 

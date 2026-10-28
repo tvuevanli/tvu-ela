@@ -218,6 +218,18 @@ def context(path, text, actions_path=None, date=None):
     return actions, counts, bundles or None, in_vault, brief
 
 
+def budget(path, text, actions_path=None):
+    """The reading budget a runner day page overruns, as the vault counts it ("1,489 words, budget 1,200"), so the
+    number matches Home's warning; None within budget or for a page the vault does not gate as a day page."""
+    m = re.search(r"(\d{4}-\d{2}-\d{2})-(brief|learned|week|changes)\.md$", path)
+    if not m:
+        return None
+    body = V.split_front(text)[1]
+    if m.group(2) == "brief":
+        body = V.action_states(body, actions_path or os.path.join(os.path.dirname(path), f"{m.group(1)}-actions.json"))
+    return next((p for p in V.reading_gate(V.Note(path, "", body, {"type": "day"})) if "words, budget" in p), None)
+
+
 def handles():
     """{Jira name: display name} for each roster person whose Jira name is not the display name: a page written for
     the owner names people the roster's way, never by a handle (the 2026-10-28 brief wrote Andyzhao beside

@@ -68,4 +68,9 @@ check("a roster person written by their Jira name fails; the display name and a 
       RV.lint("assign MH-1 to Andyzhao; Andy Zhao drives; `Andyzhao`", handles={"Andyzhao": "Andy Zhao"})
       == ["Andyzhao: a Jira name; the page writes Andy Zhao"]
       and RV.lint("Andy Zhao drives", handles={"Andyzhao": "Andy Zhao"}) == [])
+long = "# Morning brief\n\n" + "word " * 1400
+check("a day page over the vault's reading budget gives the vault's line; within it, or not a day page, nothing",
+      RV.budget("/r/runner/2026-10-28-brief.md", long, "/no/actions.json") == "1,402 words, budget 1,200"
+      and RV.budget("/r/runner/2026-10-28-brief.md", "# B\n\nshort", "/no/actions.json") is None
+      and RV.budget("/r/review/2026-10-28-reader.md", long) is None)
 sys.exit(1 if failures else 0)
