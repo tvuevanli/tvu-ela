@@ -2017,7 +2017,8 @@ def cmd_sync(a):
     # stays put until he comes back
     is_open = home_open(vault)
     opening = is_open and not old_home.get("open")
-    # an older vault.py wrote a count here, not a list: such a value reads as no baseline, and the next write is a list
+    # the shrink guard once reused the name `before` and its count reached the manifest: a value that is not a list
+    # reads as no baseline
     saw = old_home.get("saw") if isinstance(old_home.get("saw"), list) else None
     before = saw if opening else old_home.get("before") if isinstance(old_home.get("before"), list) else None
     baseline = before if is_open else saw
@@ -2049,10 +2050,10 @@ def cmd_sync(a):
         # path); the owner's own finishing and the archive are already out of the count, and single folders shrink by
         # design (to-read empties as he reads)
         native_lower = {p.lower() for p in native_paths}
-        before = sum(1 for r in old if r.endswith(".md") and r not in removed and r.lower() not in native_lower)
+        had = sum(1 for r in old if r.endswith(".md") and r not in removed and r.lower() not in native_lower)
         after = sum(1 for r in planned if r.endswith(".md"))
-        if before >= 10 and after < before / 2:
-            print(f"vault: not synced — the notes would shrink from {before} to {after}; --force if that is intended", file=sys.stderr)
+        if had >= 10 and after < had / 2:
+            print(f"vault: not synced — the notes would shrink from {had} to {after}; --force if that is intended", file=sys.stderr)
             sys.exit(3)
     listing = {}
 
