@@ -23,7 +23,7 @@ good = """# Morning brief · Wed 2026-10-28
 MH-1 · on QA-AWS3 · 1st morning
 - facts
 - **Do:**
-- [ ] Hold the train
+- [ ] Hold the train · decide at the 10:00 scrum
 - [ ] apply 1 — ask the release thread which ticket carries the fixes
 
 ### 2. MH-2: a QA bug
@@ -38,7 +38,7 @@ Counts (24 h): 39 commits · 30 close-ready · 8 commits on feature/x · commits
 acts = [{"n": 1}, {"n": 2}]
 counts = {"commits": 39, "close_ready": 30}
 check("a clean page passes", RV.lint(good, acts, counts, {"mh2.1@qa-q28"}) == [])
-bad = good.replace("- [ ] Hold the train", "- Hold the train\n- [ ] /ela:breakdown MH-1\n- [ ] draft the hand-off") \
+bad = good.replace("- [ ] Hold the train · decide at the 10:00 scrum", "- Hold the train\n- [ ] /ela:breakdown MH-1\n- [ ] draft the hand-off") \
           .replace("MH-2 · Backlog", "MH-1 · MH-2 · Backlog").replace("39 commits", "41 commits") + "\nSee apply 3 and the frontend.\n"
 f = RV.lint(bad, acts, counts, {"mh2.1@qa-q28"})
 check("a Do line without a box fails", any("a Do line without a box" in x for x in f))
@@ -48,6 +48,9 @@ check("apply N with no action and no box fails twice", "apply 3: no such action 
 check("a key that is two items fails", any(x.startswith("MH-1: an item 2 times") for x in f))
 check("a count other than the day's fails; a scoped count does not", f.count("commits: the page says 41, the day's counts say 39") == 1
       and not any("says 8" in x or "says 120" in x for x in f))
+check("a box with no apply number and no place of decision fails; 'your call' passes",
+      any("does not say where it is decided: Promote" in x for x in RV.lint(good.replace("- [ ] apply 1", "- [ ] Promote build 77\n- [ ] apply 1")))
+      and RV.lint(good.replace(" · decide at the 10:00 scrum", " · your call, no write"), acts, counts) == [])
 check("'the frontend' fails", any('"the frontend"' in x for x in f))
 check("a bundle no read holds fails, an official is not checked",
       RV.lint("on mh2.1@qa-q26 and MediaHub 2.1.15", None, None, {"mh2.1@qa-q28"}) == ["mh2.1@qa-q26: a bundle no read of the last 14 days holds"])

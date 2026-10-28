@@ -478,7 +478,10 @@ The page is read in Obsidian, so its form is fixed:
   facts line (key, its Jira title in a few plain words, kind, who holds it, age), at most three bullets, then
   then **Do:** as one to three task lines, each with a box, and every box is finished work by ela:
   `- [ ] apply N — what it writes` for a drafted write, or `- [ ] <option>` for a decision (class D), where the
-  tick is the ruling. A Do line is never a command for him to run or a draft for him to write. A breakdown, a
+  tick is the ruling. Ticking a box without `apply N` runs nothing, so its line ends with where the decision is
+  taken: `· decide at the 10:00 scrum`, or `· your call, no write`; page-check flags a box with neither. *Why: on
+  2026-10-28 items 1 and 7 offered four such boxes, and the page did not say that ticking them wrote nothing.*
+  A Do line is never a command for him to run or a draft for him to write. A breakdown, a
   draft, a lookup or a probe is done before the 08:00 page, and the item carries its result: an `apply N`, or a link to the
   note it produced. When ela cannot do it unattended (it needs a login, a person to ask, or a judgment only he
   holds), the item says why in one line and offers no box. No Do line without a box. A deep pick runs in the same

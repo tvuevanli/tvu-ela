@@ -39,6 +39,7 @@ LINKED = re.compile(r"\[[^\]]*\]\([^)]*\)|https?://\S+|\[\[[^\]]*\]\]")
 ITEM_RX = re.compile(r"^###\s+\d+\.\s", re.M)
 DO_RX = re.compile(r"^\s*[-*]\s+\*\*Do:\*\*\s*(.*)$")
 BOX_RX = re.compile(r"^\s*[-*]\s+\[[ xX]\]\s+(.*)$")
+DECISION_RX = re.compile(r"·\s*(?:decide\b|your call\b)", re.I)   # where a box with no write is decided (brief SKILL)
 # a box he must still act on: a slash command, or a draft, list, lookup or question left for him to make
 BARE_VERB_RX = re.compile(r"/ela:|^(?:draft|list|ask|run|check|look|read|find|write|go deep)\b", re.I)
 VAGUE_SERVICE_RX = re.compile(r"\b(?:the|a)\s+(frontend|backend)\b(?!\s*[(:]?\s*[\w-]*\d)", re.I)
@@ -133,8 +134,12 @@ def lint(text, actions=None, counts=None, bundles=None, in_vault=False, brief=Fa
         for line, box in do_lines(body):
             if box is None:
                 fails.append(f"{title[:50]}: a Do line without a box: {line.strip()[:60]}")
-            elif BARE_VERB_RX.search(box.strip()) and not B.APPLY_RX.search(box):
+            elif B.APPLY_RX.search(box):
+                pass
+            elif BARE_VERB_RX.search(box.strip()):
                 fails.append(f"{title[:50]}: a Do line left for him to do: {box.strip()[:60]}")
+            elif not DECISION_RX.search(box):
+                fails.append(f"{title[:50]}: a box with no apply number that does not say where it is decided: {box.strip()[:60]}")
         for k in set(B.keys_in(head + "\n" + facts)):
             seen.setdefault(k, []).append(title.split(".")[0])
     for k, where in sorted(seen.items()):
