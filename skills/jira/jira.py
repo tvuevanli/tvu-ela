@@ -1496,6 +1496,28 @@ def cmd_attach(creds, args):
 
 # ── describe: the description, rewritten in the Markdown subset ──────────────
 
+def cmd_retitle(creds, args):
+    """Replace one issue's summary. Dry run prints was / now; --apply writes; the same summary is a no-op. A
+    sub-task's title still carries exactly one layer token, the rule create-subtask enforces."""
+    title = args.summary.strip()
+    if not title:
+        sys.exit("retitle: empty summary")
+    key = extract_key(args.target)
+    f = _issue(creds, key, "summary,issuetype")
+    before = f.get("summary") or ""
+    err = validate_summary(title) if (f.get("issuetype") or {}).get("subtask") else None
+    if err:
+        sys.exit(f"retitle: {err}")
+    r = {"key": key, "dry_run": not args.apply, "changed": False, "from": before, "to": title}
+    if before.strip() == title:
+        _emit(args, r, [f"{key}: summary already reads so"]); return
+    if not args.apply:
+        _emit(args, r, [f"DRY RUN — retitle {key}", f"  was  {before}", f"  now  {title}", "pass --apply to write"]); return
+    _request(creds, f"/rest/api/3/issue/{key}", payload={"fields": {"summary": title}}, method="PUT")
+    r["changed"] = True
+    _emit(args, r, [f"{key}: summary replaced"])
+
+
 def cmd_describe(creds, args):
     """Replace one issue's description from a file (the Markdown subset: headings, bullets, numbered lists, bold,
     code, a --- fold). Dry run prints the current text and the new text rendered; --apply writes. Links the
@@ -1733,6 +1755,11 @@ def main():
     p.add_argument("target"); p.add_argument("--from-file", required=True); p.add_argument("--allow-dropped-links", action="store_true")
     p.add_argument("--apply", action="store_true"); p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_describe)
+
+    p = sub.add_parser("retitle", help="replace an issue's summary — dry-run shows was/now; --apply writes; the same summary is a no-op")
+    p.add_argument("target"); p.add_argument("--summary", required=True)
+    p.add_argument("--apply", action="store_true"); p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_retitle)
 
     p = sub.add_parser("close", help="propose a close: Fixed In + labels + comment + flag:closing + the ticket assigned to you; the status is your own click in Jira — dry-run unless --apply")
     p.add_argument("targets", nargs="+", help="issue keys or browse URLs")
