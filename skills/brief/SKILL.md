@@ -553,7 +553,13 @@ The page is read in Obsidian, so its form is fixed:
 **A second morning run on the same date** rewrites the page, never the record of what was done. The actions already
 in `<date>-actions.json` with `applied` or `by_owner` keep their number and text, and their item is not offered
 again; new drafts take numbers after the highest one in the file, so an `apply N` he has seen never names a
-different write. The carried count reads one page per date, so a rerun does not add a morning.
+different write. The carried count reads one page per date, so a rerun does not add a morning. A rerun writes
+`<date>-changes.md` again from the same facts counts as the brief, so the two pages never come from different
+runs. A "rewritten HH:MM" stamp is the clock when the file is written, never a planned time. A "since HH:MM" in the
+opening anchors on the facts page's last line ("last morning page he could have read: <date>, in the vault since
+HH:MM"), or is left out. ela-runner checks all three after the run (537d52e, c1d7113); the check is the backstop,
+not the rule. *Why: the 2026-10-28 rerun left the Changes page at 06:41 and stamped a file written at 08:31 as
+"rewritten 08:40".*
 
 **Counts come from one file.** Every count on any page comes from the facts pass's counts (`counts` in
 `<runtime>/runner/<date>-changes.json`, from `ela changes --json`), each with the window it covers: commits, commits
