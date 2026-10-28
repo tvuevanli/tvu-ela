@@ -131,15 +131,18 @@ def lint(text, actions=None, counts=None, bundles=None, in_vault=False, brief=Fa
     seen = {}
     for head, facts, body in items(text):
         title = head.lstrip("#").strip()
+        numbers = []
         for line, box in do_lines(body):
             if box is None:
                 fails.append(f"{title[:50]}: a Do line without a box: {line.strip()[:60]}")
             elif B.APPLY_RX.search(box):
-                pass
+                numbers.append(int(B.APPLY_RX.search(box).group(1)))
             elif BARE_VERB_RX.search(box.strip()):
                 fails.append(f"{title[:50]}: a Do line left for him to do: {box.strip()[:60]}")
             elif not DECISION_RX.search(box):
                 fails.append(f"{title[:50]}: a box with no apply number that does not say where it is decided: {box.strip()[:60]}")
+        if numbers != sorted(numbers):
+            fails.append(f"{title[:50]}: apply numbers descend: {', '.join(map(str, numbers))}")
         for k in set(B.keys_in(head + "\n" + facts)):
             seen.setdefault(k, []).append(title.split(".")[0])
     for k, where in sorted(seen.items()):

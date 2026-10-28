@@ -490,7 +490,8 @@ The page is read in Obsidian, so its form is fixed:
   2026-10-27 the eight items carried 13 Do lines. He ticked the three apply lines and none of the ten commands or
   drafts left for him.*
 - **An `apply N` is a drafted action on this page.** Number the actions in the order they appear, every one
-  written beside its item; never name an action that is not on the page ("apply 1 is done" from yesterday is
+  written beside its item; within an item the numbers ascend (a rerun that keeps applied numbers may leave gaps,
+  never a descent: list a kept number before the new ones), and page-check flags a descent; never name an action that is not on the page ("apply 1 is done" from yesterday is
   noise). An action already applied is said in words, without its old number.
   A number is minted only when its drafted write is in `<date>-actions.json` and its box is on the page, beside
   its item. A table row, the backlog and an answer to a vault line never name a number without that box, and a

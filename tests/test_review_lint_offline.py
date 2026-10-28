@@ -51,6 +51,10 @@ check("a count other than the day's fails; a scoped count does not", f.count("co
 check("a box with no apply number and no place of decision fails; 'your call' passes",
       any("does not say where it is decided: Promote" in x for x in RV.lint(good.replace("- [ ] apply 1", "- [ ] Promote build 77\n- [ ] apply 1")))
       and RV.lint(good.replace(" · decide at the 10:00 scrum", " · your call, no write"), acts, counts) == [])
+order = good.replace("- [ ] apply 1 — ask", "- [ ] apply 3 — ask").replace("- [ ] Hold the train · decide at the 10:00 scrum", "- [ ] apply 4 — x\n- [ ] apply 1 — y")
+check("apply numbers that descend within an item fail; a gap does not",
+      [x for x in RV.lint(order) if "descend" in x] == ["1. MH-1: the train carries build 77: apply numbers descend: 4, 1, 3"]
+      and not any("descend" in x for x in RV.lint(good.replace("apply 2 —", "apply 9 —"))))
 check("'the frontend' fails", any('"the frontend"' in x for x in f))
 check("a bundle no read holds fails, an official is not checked",
       RV.lint("on mh2.1@qa-q26 and MediaHub 2.1.15", None, None, {"mh2.1@qa-q28"}) == ["mh2.1@qa-q26: a bundle no read of the last 14 days holds"])
