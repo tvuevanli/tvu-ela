@@ -559,8 +559,9 @@ The page is read in Obsidian, so its form is fixed:
   runner page) on the page.
 - **Under 900 words in all.** The decisions lane, when it runs, adds one table row per candidate with its
   permalink; the owner chooses which to keep. Over the vault's day budget, page-check prints a `budget:` line
-  counted the way Home counts; the runner's repair shortens the page, FYI and Yesterday first, dropping nothing he
-  must decide.
+  counted the way Home counts; the runner's repair shortens the page, dropping nothing he must decide: FYI and
+  Yesterday first, then sprint rows that only say "see N", then any meeting-section line that restates an item,
+  which becomes "item N". *Why: the 2026-10-28 reader listed exactly these as what he would skip.*
 
 ## 3b — when the runner asked (unattended): the page and the numbered actions, written to files
 
