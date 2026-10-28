@@ -2017,8 +2017,10 @@ def cmd_sync(a):
     # stays put until he comes back
     is_open = home_open(vault)
     opening = is_open and not old_home.get("open")
-    before = old_home.get("saw") if opening else old_home.get("before")
-    baseline = before if is_open else old_home.get("saw")
+    # an older vault.py wrote a count here, not a list: such a value reads as no baseline, and the next write is a list
+    saw = old_home.get("saw") if isinstance(old_home.get("saw"), list) else None
+    before = saw if opening else old_home.get("before") if isinstance(old_home.get("before"), list) else None
+    baseline = before if is_open else saw
     try:
         planned, files, notes, warnings, native_paths = plan(s, env, today, now, removed | set(newly),
                                                               removed_src | {old_src[r] for r in newly if old_src.get(r)},
@@ -2146,7 +2148,7 @@ def cmd_sync(a):
                                         "generated": {r: digest(t) for r, t in planned.items() if r.endswith(".base")},
                                         "seen": {r: d for r, d in seen.items() if r in planned},
                                         "home": {"open": is_open, "before": before,
-                                                 "saw": sorted(r for r in planned if top(r) == TO_READ) if opening else old_home.get("saw")},
+                                                 "saw": sorted(r for r in planned if top(r) == TO_READ) if opening else saw},
                                         "source_ticks": source_ticks}, indent=0))
         for rel in gone:
             try:
