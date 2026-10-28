@@ -478,6 +478,14 @@ field. A drafted write to a field reads the field's current value first, and a w
 not drafted. *Why: on 2026-10-28 item 7 said MH-3829 and MH-3830 carried MH-3800's Fixed In; Jira held the field
 empty on both, only a copied comment said so, and applies 14 and 15 would have cleared empty fields.*
 
+**What an item owes before it reaches the page.** A train item (a build riding the next promotion) carries the
+`/ela:promote` assessment's verdict for that build (`ela promote report`: the stop and high findings) and the train's
+departure time from the release cadence recorded in elak, or "departure not recorded" when none states it; the
+apply is the hold or the promote post that verdict supports. A customer incident addressed to him takes the first
+deep pick, before any other pick and any Backlog item, and its item carries what the logs and the graph showed
+(`/ela:logs`, `/ela:graph`), not an uninvestigated lead. *Why: on 2026-10-28 item 1 offered hold or promote with no
+assessment and no departure time, and item 8 answered support with a lead nobody had read.*
+
 The page is read in Obsidian, so its form is fixed:
 
 - **An item is a `###` heading in plain words** (what is happening, never a lane tag such as `[cadence RED]`), one
