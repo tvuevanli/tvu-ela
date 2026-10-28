@@ -68,6 +68,28 @@ a = RV.applied_no_change(applied, iss, me, now)
 check("an applied action answered only by the owner and Helm for a working day is flagged; a moved one and an open "
       "window are not", [r["key"] for r in a] == ["MH-6"])
 check("Friday's window runs to Monday", RV.next_workday_end(datetime.datetime(2026, 10, 30, 10, 0)).date() == datetime.date(2026, 11, 2))
-check("the summary line", RV.summary("2026-10-27", {"sure_contradicted": 0, "version_miscalled": 1, "nudge_answered": 0, "applied_no_change": 2})
-      == "replay of 10-27: 0 sure readings contradicted, 1 version miscalled, 0 nudges already answered, 2 applied actions with no change")
+check("the summary line", RV.summary("2026-10-27", {"sure_contradicted": 0, "field_wrong": 1, "version_miscalled": 1, "nudge_answered": 0, "applied_no_change": 2})
+      == "replay of 10-27: 0 sure readings contradicted, 1 field claim wrong, 1 version miscalled, 0 nudges already answered, 2 applied actions with no change")
+fpage = """## Needs you
+
+### 1. MH-20: codes settled
+MH-20 · Insufficient Resources UX · Highest · Review, Dev One · 2nd morning
+
+### 2. Device APIs
+MH-21 · create · MH-22 · list · Dev One / Dev Two
+
+### 3. MH-23: no fix
+MH-23 · Backlog · yours · Fixed In app@1.0
+"""
+cl = RV.field_claims(fpage, {"dev one", "dev two"}, "Owner Name")
+check("field claims are read from facts lines, each after its key; a field naming two people is none",
+      cl == [("MH-20", "status", "Review", "item 1"), ("MH-20", "assignee", "Dev One", "item 1"), ("MH-23", "status", "Backlog", "item 3"),
+             ("MH-23", "assignee", "Owner Name", "item 3"), ("MH-23", "Fixed In", "app@1.0", "item 3")])
+t = datetime.datetime(2026, 10, 28, 8, 30).astimezone(datetime.timezone(datetime.timedelta(hours=8)))
+evs = {"MH-20": {"events": [ev("2026-10-28T15:00:00.000+0800", "Review", "Done")]}}
+check("a value is read back to the page's time", RV.value_at("Done", evs["MH-20"]["events"], "status", t) == "Review")
+fields = {"MH-20": {"status": "Done", "assignee": "Devone", "Fixed In": ""}, "MH-23": {"status": "Backlog", "assignee": "Owner Name", "Fixed In": ""}}
+w = RV.wrong_fields(cl, [{"n": 4, "command": "ela jira fixed-in MH-23 --clear"}], fields, evs, t, {"Devone": "Dev One"})
+check("a status changed after the page is no fault, a Jira name matches its display name; a Fixed In Jira did not hold "
+      "and a clear of an empty field are wrong", [(r["key"], r["said"]) for r in w] == [("MH-23", "item 3: Fixed In app@1.0"), ("MH-23", "apply 4: clear Fixed In")])
 sys.exit(1 if failures else 0)

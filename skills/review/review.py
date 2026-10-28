@@ -11,7 +11,8 @@ the day's counts object, a key is an item once, a service is named by slug, a fr
 set, and a bundle name is one the reads held. Exit 1 with one line per failure; `ela page-check` runs it.
 
 replay compares what ela said on day D with what the sources show now: a `sure` ticket reading later contradicted
-(moved back, reopened, a QA fail after it), a version the morning page called moved that the next lane read did
+(moved back, reopened, a QA fail after it), a status, assignee or Fixed In a facts line stated that Jira did not
+hold when the page was written, a drafted Fixed In clear of an empty field, a version the morning page called moved that the next lane read did
 not hold, a nudge drafted for someone who had already answered, and an applied action after which the ticket did
 not change for a working day. It writes <reports>/review/<D>-replay.json and prints one summary line for the facts
 page. Exit 3 when Jira could not be read (the rows it could read are still written).
@@ -19,7 +20,8 @@ page. Exit 3 when Jira could not be read (the rows it could read are still writt
 reader serves the evening session that reads the morning page as the owner would (skills/brief/SKILL.md §reader):
 without --check it prints what the session reads (the page, its items, the actions, the replay and the lint) and
 where it writes, <reports>/review/<D>-reader.md; with --check it verifies that file: one verdict per item from the
-closed set and the page's three lines. Exit 1 naming each gap.
+closed set and the page's three lines. Exit 1 naming each gap; a passing check writes <D>-reader.json, the
+findings the next morning's judge reads.
 
 Reads files and Jira only; nothing is posted or ticked.
 """
@@ -230,6 +232,16 @@ def budget(path, text, actions_path=None):
     return next((p for p in V.reading_gate(V.Note(path, "", body, {"type": "day"})) if "words, budget" in p), None)
 
 
+def roster_names():
+    """Every roster display name, lowercased; empty when the roster cannot be read."""
+    try:
+        sys.path.insert(0, os.path.join(HERE, "..", "team"))
+        import team
+        return {p["name"].lower() for p in team.read_roster(team.records())[1] if p.get("name")}
+    except (SystemExit, ImportError, OSError, ValueError):
+        return set()
+
+
 def handles():
     """{Jira name: display name} for each roster person whose Jira name is not the display name: a page written for
     the owner names people the roster's way, never by a handle (the 2026-10-28 brief wrote Andyzhao beside
@@ -427,7 +439,87 @@ def jira_changes(keys, since, e):
     return issues, gaps
 
 
+STATUS_NAMES = {"backlog", "to do", "open", "in progress", "review", "in review", "qa", "done", "closed", "reopened",
+                "blocked", "resolved"}
+CLEAR_RX = re.compile(r"\bfixed-in\s+([A-Z][A-Z0-9]+-\d+)\b.*--clear\b")
+
+
+def field_claims(page, people, me):
+    """What the page states a ticket's fields hold: [(key, field, value, where)]. Read from each item's facts line,
+    where a field follows its key until the next key: a status (optionally ", assignee"), a roster name, "yours", or
+    "Fixed In <value>". A field naming two people is not a claim about one ticket."""
+    out = []
+    for head, facts, _ in items(page):
+        n = re.match(r"###\s+(\d+)\.", head)
+        where = f"item {n.group(1)}" if n else head[:30]
+        key = (B.keys_in(head) or [None])[0]
+        for part in (p.strip() for p in facts.split(" · ")):
+            k = re.fullmatch(r"(?:\[)?([A-Z][A-Z0-9]+-\d+)(?:\]\([^)]*\))?", part)
+            if k:
+                key = k.group(1); continue
+            if not key or "/" in part:
+                continue
+            first, _, rest = part.partition(",")
+            if first.strip().lower() in STATUS_NAMES:
+                out.append((key, "status", first.strip(), where))
+                if rest.strip().lower() in people:
+                    out.append((key, "assignee", rest.strip(), where))
+            elif part.lower() in people:
+                out.append((key, "assignee", part, where))
+            elif part.lower() == "yours" and me:
+                out.append((key, "assignee", me, where))
+            elif part.lower().startswith("fixed in "):
+                out.append((key, "Fixed In", part[9:].strip(), where))
+    return out
+
+
+def value_at(current, events, field, t):
+    """A field's value at time t: today's value with every later change of that field undone, newest first."""
+    later = sorted((ev for ev in events if ev.get("field") == field and (B.parse_ts(ev["at"]) or t) > t),
+                   key=lambda ev: B.parse_ts(ev["at"]), reverse=True)
+    for ev in later:
+        current = ev.get("from") or ""
+    return current
+
+
+def wrong_fields(claims, actions, fields, issues, t, aliases):
+    """Field claims and drafted Fixed In clears that Jira contradicts at the page's time. `fields` {key: {status,
+    assignee, Fixed In}} read now, `issues` the changes since, `aliases` {Jira name: display name}."""
+    same = lambda a, b: (aliases.get(a, a) or "").strip().lower() == (aliases.get(b, b) or "").strip().lower()  # noqa: E731
+    rows = []
+    for key, field, said, where in claims:
+        if key not in fields:
+            continue
+        was = value_at(fields[key].get(field) or "", (issues.get(key) or {}).get("events") or [], field, t)
+        ok = bool(was) if field == "Fixed In" else same(said, was)
+        if not ok:
+            rows.append({"kind": "field_wrong", "key": key, "said": f"{where}: {field} {said}", "now": f"Jira held {was or 'nothing'}"})
+    for a in actions:
+        m = CLEAR_RX.search(a.get("command") or "")
+        if m and m.group(1) in fields:
+            was = value_at(fields[m.group(1)].get("Fixed In") or "", (issues.get(m.group(1)) or {}).get("events") or [], "Fixed In", t)
+            if not was:
+                rows.append({"kind": "field_wrong", "key": m.group(1), "said": f"apply {a.get('n')}: clear Fixed In",
+                             "now": "Jira held no Fixed In: a write that changes nothing"})
+    return rows
+
+
+def jira_fields(keys, e):
+    """{key: {status, assignee, Fixed In}} read from Jira now; (fields, gaps)."""
+    out, gaps = {}, []
+    for k in sorted(keys):
+        try:
+            f = B.run_json(["python3", B.JIRA, *e, "read", k, "--no-comments", "--json"])["fields"]
+        except (B.LaneError, subprocess.TimeoutExpired, ValueError, KeyError) as x:
+            gaps.append({"source": f"jira read {k}", "error": str(x)[:200]}); continue
+        raw = f.get(T.J.FIXED_IN_FIELD)
+        out[k] = {"status": (f.get("status") or {}).get("name") or "", "assignee": (f.get("assignee") or {}).get("displayName") or "",
+                  "Fixed In": (raw if isinstance(raw, str) else T.J.body_text(raw) if raw else "").strip()}
+    return out, gaps
+
+
 COUNT_NAMES = (("sure_contradicted", "sure reading contradicted", "sure readings contradicted"),
+               ("field_wrong", "field claim wrong", "field claims wrong"),
                ("version_miscalled", "version miscalled", "versions miscalled"),
                ("nudge_answered", "nudge already answered", "nudges already answered"),
                ("applied_no_change", "applied action with no change", "applied actions with no change"))
@@ -463,11 +555,20 @@ def replay(date, site_, e, me, now=None):
     if not snap:
         gaps.append({"source": "lane read", "error": f"no versions snapshot on or after {nxt}"})
     qa, _ = T.qa_names()
-    rows = contradicted(sure, issues, qa) + miscalled(page, snap) + answered_nudges(actions, issues, me) \
-        + applied_no_change(actions, issues, me, now)
+    aliases = handles()
+    claims = field_claims(page, {n.lower() for n in aliases.values()} | {n.lower() for n in aliases} | roster_names(), me)
+    fkeys = {c[0] for c in claims} | {m.group(1) for a in actions if (m := CLEAR_RX.search(a.get("command") or ""))}
+    fields, g = jira_fields(fkeys, e) if fkeys else ({}, [])
+    gaps += g
+    more, g = jira_changes(fkeys - set(issues), since, e) if fkeys - set(issues) else ({}, [])
+    issues, gaps = {**issues, **more}, gaps + g
+    page_path = os.path.join(reports, "runner", f"{date}-brief.md")
+    at = datetime.datetime.fromtimestamp(os.path.getmtime(page_path)).astimezone() if os.path.isfile(page_path) else now
+    rows = contradicted(sure, issues, qa) + wrong_fields(claims, actions, fields, issues, at, aliases) + miscalled(page, snap) \
+        + answered_nudges(actions, issues, me) + applied_no_change(actions, issues, me, now)
     counts = {k: sum(r["kind"] == k for r in rows) for k, _, _ in COUNT_NAMES}
     return {"date": date, "at": now.isoformat(timespec="seconds"), "counts": counts, "rows": rows,
-            "read": {"sure_readings": len(sure), "actions": len(actions), "called_moves": len(called_moves(page)),
+            "read": {"sure_readings": len(sure), "field_claims": len(claims), "actions": len(actions), "called_moves": len(called_moves(page)),
                      "snapshot": (snap or {}).get("date")},
             "gaps": gaps, "summary": summary(date, counts)}
 
