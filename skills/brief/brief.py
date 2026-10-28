@@ -1983,7 +1983,7 @@ def cmd_matrix(args):
             bundle[lane] = {"text": "not read"}
             errors.append({"source": f"bundles {host}", "error": str(e)[:200]})
     prev = (before or {}).get("rows")
-    table = [{"row": "media bundle", "cells": [bundle.get(l, {"text": "—"}) for l in lanes]}]
+    table = [bundle_row(bundle, lanes, cand)]
     same = []
     for s in MATRIX_ROWS:
         cells = [matrix_cell(s, l, rows, prev, tested, pins) for l in lanes]
@@ -2323,6 +2323,15 @@ def write_lanes_page(out, site, env, runner, tested):
     open(tmp, "w", encoding="utf-8").write("\n".join(L))
     os.replace(tmp, path)
     return path
+
+
+def bundle_row(bundle, lanes, cand):
+    """The media-bundle row: one cell per lane, and one for the next train when there is a candidate (its bundle when
+    it names one, a dash otherwise), so the row has as many cells as the table has columns."""
+    cells = [bundle.get(l, {"text": "—"}) for l in lanes]
+    if cand:
+        cells.append({"text": str(cand.get("bundle") or "—")})
+    return {"row": "media bundle", "cells": cells}
 
 
 def candidate_cell(c):

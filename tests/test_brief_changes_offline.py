@@ -138,6 +138,9 @@ check("findings carry the morning's rank; a QA build outside the candidate is th
       and B.finding_rank({"kind": "untested_build_on_lane", "lane": "qa-cn3", "service": "mediahub-frontend"}, set()) is None
       and B.finding_rank({"kind": "untested_build_on_lane", "lane": "qa-cn3", "service": "mediahub-frontend"}, {"mediahub-frontend"}) == 7
       and B.finding_rank({"kind": "untested_build_on_lane", "lane": "prod-3", "service": "x"}, set()) == 5)
+check("the media-bundle row has a next-train cell when there is a candidate",
+      [c["text"] for c in B.bundle_row({"qa": {"text": "mh2.1@qa-q28"}}, ["prod", "qa"], {"label": "next train"})["cells"]] == ["—", "mh2.1@qa-q28", "—"]
+      and len(B.bundle_row({}, ["prod", "qa"], None)["cells"]) == 2)
 check("a candidate cell awaiting the owner reads as a question with its options",
       B.candidate_cell({"awaiting": "owner", "options": ["2.2.118", "2.2.118 patch"], "why": "x"})["text"] == "? (2 options)"
       and B.candidate_cell({"version": "2.1.34"})["text"] == "2.1.34" and B.candidate_cell("2.1.34")["text"] == "2.1.34")
