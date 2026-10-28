@@ -433,7 +433,7 @@ At most three lines (§2b), then [[2026-10-28-changes|What changed]].
 |---|---|---|---|
 | MH-3809 | two Packs could not push; China cloud capacity, resolved | Robin Wu | nothing; close on customer word |
 
-## Lanes
+## Ticket lanes
 
 | lane | today |
 |---|---|
@@ -534,7 +534,7 @@ The page is read in Obsidian, so its form is fixed:
   orchestration; a team name carries the slug once (UR Caller (unified-streaming)). Never "the frontend" or "the
   backend": unified-media-frontend is a frontend too, and the reader cannot tell which is meant. The same holds on the
   Changes page.
-- **Lanes in plain words,** as in the table above: never ela's internal names (cadence, zombies, triage, stage,
+- **Ticket lanes in plain words,** as in the table above: never ela's internal names (cadence, zombies, triage, stage,
   runner page) on the page.
 - **Under 900 words in all.** The decisions lane, when it runs, adds one table row per candidate with its
   permalink; the owner chooses which to keep.
