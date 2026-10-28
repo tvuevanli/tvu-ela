@@ -353,30 +353,34 @@ def lane_tracked(env, limit, now):
 
 
 def needs_you(page):
-    """The items under a brief page's Needs you: [(key or None, heading words)]."""
+    """The items under a brief page's Needs you: [(ticket keys of the heading and its facts line, heading words)].
+    The facts line is the first non-empty line under the heading."""
     m = re.search(r"^## Needs you[ \t]*$(.*?)(?=^## |\Z)", page, re.M | re.S)
     out = []
-    for h in re.findall(r"^### (?:\d+\.\s*)?(.+)$", m.group(1) if m else "", re.M):
-        keys = keys_in(h)
-        out.append((keys[0] if keys else None, re.sub(r"\s+", " ", h.strip().lower())))
+    for h, facts in re.findall(r"^### (?:\d+\.\s*)?(.+)$\n(?:[ \t]*\n)*(.*)$", m.group(1) if m else "", re.M):
+        if facts.startswith("#"):
+            facts = ""
+        out.append((frozenset(keys_in(h + "\n" + facts)), re.sub(r"\s+", " ", h.strip().lower())))
     return out
 
 
 def carried(pages):
-    """{key or heading: mornings carried} over brief pages oldest first, counting back from the last page while the
-    item stays under Needs you on each earlier page: 1 is a first morning."""
+    """{first key or heading: mornings carried} over brief pages oldest first, counting back from the last page while
+    the item stays under Needs you on each earlier page: 1 is a first morning. An item with ticket keys is the same
+    item when an earlier one shares a key, whatever its heading says; heading words identify only items without one
+    (a retitled item counted as new disagreed with the page's own count, 2026-10-28 brief)."""
     seen = [needs_you(p) for p in pages]
     if not seen:
         return {}
     out = {}
-    for key, head in seen[-1]:
+    for keys, head in seen[-1]:
         n = 1
         for earlier in reversed(seen[:-1]):
-            if any((key and k == key) or (not key and h == head) for k, h in earlier):
+            if any((keys and keys & k) or (not keys and not k and h == head) for k, h in earlier):
                 n += 1
             else:
                 break
-        out[key or head] = n
+        out[min(keys) if keys else head] = n
     return out
 
 

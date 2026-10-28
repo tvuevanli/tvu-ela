@@ -94,4 +94,9 @@ check("an item's mornings count back while it stays under Needs you, by key or b
       cr == {"MH-1": 1, "nobody owns x": 1, "MH-2": 2})
 cr = B.carried([pg("MH-1: a"), pg("MH-1: b"), pg("MH-1: c")])
 check("the third morning is counted", cr == {"MH-1": 3})
+pk = lambda *its: "## Needs you\n\n" + "".join(f"### {i}. {h}\n{f}\n- x\n\n" for i, (h, f) in enumerate(its, 1))  # noqa: E731
+cr = B.carried([pk(("Device APIs, a week without lanes", "MH-4 · MH-5 · High")),
+                pk(("Device APIs: the wrong team", "MH-5 · MH-6 · High"), ("Nobody owns X", "no ticket"))])
+check("a retitled item sharing a key with its facts line is the same item; a keyless one goes by heading",
+      cr == {"MH-5": 2, "nobody owns x": 1})
 sys.exit(1 if failures else 0)
