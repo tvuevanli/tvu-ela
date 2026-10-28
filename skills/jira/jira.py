@@ -396,9 +396,19 @@ def _marked(line):
 
 
 def _md_blocks(lines):
-    blocks, lst = [], None
+    blocks, lst, code = [], None, None
     for line in lines:
         s = line.strip()
+        if code is not None:
+            if s.startswith("```"):
+                blocks.append(code); code = None
+            else:
+                code["content"][0]["text"] += ("\n" if code["content"][0]["text"] else "") + line
+            continue
+        if s.startswith("```"):
+            lst, lang = None, s[3:].strip()
+            code = {"type": "codeBlock", "attrs": {"language": lang} if lang else {}, "content": [{"type": "text", "text": ""}]}
+            continue
         if not s:
             lst = None
             continue
@@ -416,12 +426,14 @@ def _md_blocks(lines):
         else:
             lst = None
             blocks.append({"type": "paragraph", "content": _marked(line)})
+    if code is not None:
+        blocks.append(code)
     return blocks
 
 
 def markdown_to_adf(text):
     """A ticket description in a Markdown subset → ADF: `#`..`###` headings, `- `/`* ` bullets, `1. ` numbered
-    lists, `**bold**`, `` `code` ``. A line of three or more dashes folds everything after it into a collapsed
+    lists, `**bold**`, `` `code` ``, ``` fenced code blocks. A line of three or more dashes folds everything after it into a collapsed
     block titled by the words on that line (default 'Technical detail'), as in a comment. A line with none of
     these is a plain paragraph, exactly as `text_to_adf` renders it, so a plain-text description is unchanged."""
     top, rest, title, inside = [], [], "Technical detail", False
