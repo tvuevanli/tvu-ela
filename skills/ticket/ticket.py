@@ -489,7 +489,26 @@ def refresh(keys, site, e, me, dry_run=False, now=None):
                 state[k] = now.isoformat(timespec="seconds")
         os.makedirs(os.path.dirname(state_path), exist_ok=True)
         atomic_write(state_path, json.dumps(state, indent=1, sort_keys=True))
-    return {"at": now.isoformat(timespec="seconds"), "tickets": tickets, "findings": findings, "gaps": gaps}
+    return {"at": now.isoformat(timespec="seconds"), "tickets": tickets, "findings": one_per_link(findings, keys), "gaps": gaps}
+
+
+def key_order(k):
+    p, _, n = k.partition("-")
+    return (p, int(n) if n.isdigit() else 0)
+
+
+def one_per_link(findings, keys):
+    """One Link finding per pair of tickets. Jira records a link on both sides, and a link added twice from the same
+    side reads twice, so MH-3800's links to MH-3829 and MH-3830 came back as three findings (2026-10-28 brief). The
+    finding stays on the tracked side, the older ticket when both are tracked, with the other key as `linked`."""
+    pairs = {}
+    for i, f in enumerate(findings):
+        other = [k for k in B.keys_in(f["change"]) if k != f["key"]] if f["change"].startswith("Link:") else []
+        if other:
+            pairs.setdefault(frozenset((f["key"], other[0])), []).append((f["key"] not in keys, key_order(f["key"]), i, other[0]))
+    keep = {min(c)[2]: min(c)[3] for c in pairs.values()}
+    drop = {c[2] for cs in pairs.values() for c in cs} - set(keep)
+    return [dict(f, linked=keep[i]) if i in keep else f for i, f in enumerate(findings) if i not in drop]
 
 
 def atomic_write(path, text):

@@ -87,4 +87,11 @@ check("a prod or customer ticket is flagged", T.prod_or_customer("FB-1", {}) and
       and not T.prod_or_customer("MH-1", {"labels": ["release:mh-2.1"], "summary": "UX"}))
 check("routed means he set the assignee to someone else", T.routed_keys([{"key": "MH-1", "events": [ev("assignee", "", "Dev One", "Owner Name")]},
                                                                       {"key": "MH-2", "events": [ev("assignee", "", "Owner Name", "Owner Name")]}], "Owner Name") == {"MH-1"})
+lk = lambda k, to: {"key": k, "change": f"Link: — → This work item relates to {to} by QA One"}  # noqa: E731
+got = T.one_per_link([lk("MH-3800", "MH-3829"), lk("MH-3800", "MH-3830"), lk("MH-3830", "MH-3800"),
+                      {"key": "MH-3830", "change": "status: A → B by Dev"}], ["MH-3800", "MH-3830"])
+check("one Link finding per pair, on the older ticket when both are tracked, the other as linked",
+      [(f["key"], f.get("linked")) for f in got] == [("MH-3800", "MH-3829"), ("MH-3800", "MH-3830"), ("MH-3830", None)])
+check("a link recorded on the newer side only stays there",
+      [f["key"] for f in T.one_per_link([lk("MH-3830", "MH-3800")], ["MH-3800", "MH-3830"])] == ["MH-3830"])
 sys.exit(1 if failures else 0)
