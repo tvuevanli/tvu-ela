@@ -472,6 +472,12 @@ urgent first, written to the deep file (§3b) and run after the page as `/ela:pr
 dated timeline, next) reaches to-read; the item links it (2026-10-26: MH-2406 sat assigned to the owner for eight days with QA's Fail naming the mismatched codes in its
 comments; he traced the J2N–mediahub-frontend gap by hand).
 
+**A field is Jira's value.** A status, assignee, Fixed In or version stated for a ticket is the value the facts page
+read from Jira. A comment that names one is reported as what it is ("Helm Lookout's comment says …"), never as the
+field. A drafted write to a field reads the field's current value first, and a write that would change nothing is
+not drafted. *Why: on 2026-10-28 item 7 said MH-3829 and MH-3830 carried MH-3800's Fixed In; Jira held the field
+empty on both, only a copied comment said so, and applies 14 and 15 would have cleared empty fields.*
+
 The page is read in Obsidian, so its form is fixed:
 
 - **An item is a `###` heading in plain words** (what is happening, never a lane tag such as `[cadence RED]`), one
