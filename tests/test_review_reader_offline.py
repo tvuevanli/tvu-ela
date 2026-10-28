@@ -46,6 +46,10 @@ check("a verdict outside the set, an item not on the page, an empty line and a m
       "item 1: verdict 'fine' is not one of wrong, handed back, question, noise, tickable" in f and "item 3: not on the page" in f
       and "item 3: a verdict without its line" in f and "the page line **Missing:** is missing" in f)
 check("an item with no verdict fails", "item 2: no verdict" in RV.reader_check(page, good.replace("| 2. FloSports device APIs (MH-2) | handed back | the owner lookup is a roster read: `ela team` |\n", "")))
+fs = RV.reader_findings(page, good.replace("| tickable |", "| wrong |"))
+check("wrong, handed back and question rows become findings with the item's first key; Skipped is one more",
+      [(f["kind"], f["item"], f["key"]) for f in fs] == [("wrong", 1, "MH-1"), ("handed-back", 2, "MH-2"), ("skippable", None, None)]
+      and fs[0]["what"] == "Hold the train" and fs[2]["what"] == "the sprint table, restated from items.")
 with tempfile.TemporaryDirectory() as t:
     os.makedirs(os.path.join(t, "review"))
     open(os.path.join(t, "review", "2026-10-27-reader.md"), "w").write(good)

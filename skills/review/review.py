@@ -551,6 +551,25 @@ def reader_check(page, reader):
     return fails
 
 
+KINDS = {"wrong": "wrong", "handed back": "handed-back", "question": "question"}
+
+
+def reader_findings(page, reader):
+    """The reader file as findings the next morning's judge takes as input: one per item read wrong, handed back or
+    left as a question, and one for what he would skip: [{kind, item, key, what}]. Tickable and noise items are not
+    findings; noise is already what Skipped says."""
+    keys = {i["n"]: i["keys"] for i in page_items(page)}
+    out = []
+    for r in reader_rows(reader):
+        if r["verdict"] in KINDS:
+            k = keys.get(r["n"]) or B.keys_in(r["item"])
+            out.append({"kind": KINDS[r["verdict"]], "item": r["n"], "key": k[0] if k else None, "what": r["line"]})
+    m = re.search(r"^\s*[-*]\s+\*\*Skipped:\*\*\s*(.+)$", reader, re.M)
+    if m:
+        out.append({"kind": "skippable", "item": None, "key": None, "what": m.group(1).strip()})
+    return out
+
+
 def repeated_verdicts(reports, date):
     """Keys that carried the same reader verdict (other than tickable) on the two latest reader files up to D:
     {key: verdict}. The page fails §reader for each."""
@@ -577,9 +596,13 @@ def cmd_reader(args):
         print(f"reader: no morning page {page_path}", file=sys.stderr); sys.exit(2)
     if args.check:
         try:
-            fails = reader_check(page, open(out_path, encoding="utf-8").read())
+            reader = open(out_path, encoding="utf-8").read()
+            fails = reader_check(page, reader)
         except OSError:
-            fails = [f"no reader file {out_path}"]
+            reader, fails = None, [f"no reader file {out_path}"]
+        if not fails:                                   # the next morning's judge reads these (brief SKILL §3b)
+            with open(out_path[:-3] + ".json", "w", encoding="utf-8") as f:
+                json.dump(reader_findings(page, reader), f, ensure_ascii=False, indent=1)
         print(json.dumps({"reader": out_path, "failures": fails}, ensure_ascii=False) if args.json else "\n".join(fails))
         sys.exit(1 if fails else 0)
     ctx = {"date": args.date, "page": page_path, "write": out_path, "items": page_items(page),

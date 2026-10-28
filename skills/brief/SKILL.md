@@ -553,7 +553,13 @@ The page is read in Obsidian, so its form is fixed:
 **A second morning run on the same date** rewrites the page, never the record of what was done. The actions already
 in `<date>-actions.json` with `applied` or `by_owner` keep their number and text, and their item is not offered
 again; new drafts take numbers after the highest one in the file, so an `apply N` he has seen never names a
-different write. The carried count reads one page per date, so a rerun does not add a morning. A rerun writes
+different write. The carried count reads one page per date, so a rerun does not add a morning.
+
+**The last reader's findings are input.** When the runner names the previous working day's
+`<reports>/review/<D>-reader.json`, a `wrong` claim is not restated: the page states the fact from its source, or
+leaves it out. A `handed-back` item's work is done first, within the run's deep budget, and the item carries the
+result. *Why: without the findings reaching the morning, the evening reader only describes the page and the next
+page repeats its faults.* A rerun writes
 `<date>-changes.md` again from the same facts counts as the brief, so the two pages never come from different
 runs. A "rewritten HH:MM" stamp is the clock when the file is written, never a planned time. A "since HH:MM" in the
 opening anchors on the facts page's last line ("last morning page he could have read: <date>, in the vault since
@@ -700,7 +706,9 @@ that already carry a repeated verdict. The session writes one table, `| item | v
 item: the item as `N. title`, a verdict from the five above, and its line. Under the table go the three page lines
 as `- **Read first:** …`, `- **Skipped:** …` and `- **Missing:** …`. `ela review reader --date D --check` verifies the
 file before the session ends: one verdict per item, each from the set and with its line, and the three page lines.
-A failed check is fixed before the reader file is final.
+A failed check is fixed before the reader file is final. A passing check writes `<reports>/review/<D>-reader.json`,
+the findings the next morning's judge takes as input: a list of `{kind, item, key, what}`, one per item read
+`wrong`, `handed-back` or `question`, and one `skippable` for the Skipped line.
 
 ## 4 — what this skill does not do
 - Post, comment, transition, assign, create, or write a file. The drafted actions name the skill
