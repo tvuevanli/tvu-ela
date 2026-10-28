@@ -118,9 +118,10 @@ def do_lines(body):
     return out
 
 
-def lint(text, actions=None, counts=None, bundles=None, in_vault=False, brief=False):
+def lint(text, actions=None, counts=None, bundles=None, in_vault=False, brief=False, handles=None):
     """One line per failure, empty when the page passes. `actions` the day's drafted writes (None: not checked),
-    `counts` the day's counts object, `bundles` every bundle name the reads held (None: not checked)."""
+    `counts` the day's counts object, `bundles` every bundle name the reads held (None: not checked), `handles`
+    {Jira name: roster display name} for the people whose two differ (None: not checked)."""
     fails = []
     for k in bare_keys(text, in_vault):
         fails.append(f"{k}: a ticket key that is not a link")
@@ -163,6 +164,9 @@ def lint(text, actions=None, counts=None, bundles=None, in_vault=False, brief=Fa
                 n = int(next(g for g in m.groups() if g))
                 if n != counts[field]:
                     fails.append(f"{field}: the page says {n}, the day's counts say {counts[field]}")
+    for handle, name in sorted((handles or {}).items()):
+        if re.search(r"(?<![\w@])" + re.escape(handle) + r"(?![\w])", plain):
+            fails.append(f"{handle}: a Jira name; the page writes {name}")
     if bundles is not None:
         for name in sorted({m.group(0) for m in BUNDLE_RX.finditer(plain)}):
             if name not in bundles and not name.startswith("MediaHub "):
@@ -214,6 +218,20 @@ def context(path, text, actions_path=None, date=None):
     return actions, counts, bundles or None, in_vault, brief
 
 
+def handles():
+    """{Jira name: display name} for each roster person whose Jira name is not the display name: a page written for
+    the owner names people the roster's way, never by a handle (the 2026-10-28 brief wrote Andyzhao beside
+    Andy Zhao). Empty when the roster cannot be read."""
+    try:
+        sys.path.insert(0, os.path.join(HERE, "..", "team"))
+        import team                                     # the roster, read the team skill's way
+        roster = team.read_roster(team.records())[1]
+    except (SystemExit, ImportError, OSError, ValueError):
+        return {}
+    return {p["jira_name"]: p["name"] for p in roster
+            if p.get("jira_name") and p.get("name") and p["jira_name"].lower() != p["name"].lower()}
+
+
 def cmd_lint(args):
     try:
         text = open(args.page, encoding="utf-8").read()
@@ -223,7 +241,7 @@ def cmd_lint(args):
         actions, counts, bundles, in_vault, brief = context(args.page, text, args.actions, args.date)
     except ValueError as e:
         print(f"lint: {e}", file=sys.stderr); sys.exit(2)
-    fails = lint(text, actions, counts, bundles, in_vault, brief)
+    fails = lint(text, actions, counts, bundles, in_vault, brief, handles())
     if args.json:
         print(json.dumps({"page": args.page, "failures": fails}, ensure_ascii=False, indent=1))
     else:

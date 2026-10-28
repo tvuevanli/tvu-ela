@@ -64,4 +64,8 @@ check("in the vault a bare key fails and a linked one passes",
       RV.lint("MH-5 and [MH-6](https://j/browse/MH-6)", in_vault=True) == ["MH-5: a ticket key that is not a link"])
 check("in a reports source the vault links keys, except in code spans",
       RV.lint("MH-5 and `MH-7`") == ["MH-7: a ticket key that is not a link"])
+check("a roster person written by their Jira name fails; the display name and a code span pass",
+      RV.lint("assign MH-1 to Andyzhao; Andy Zhao drives; `Andyzhao`", handles={"Andyzhao": "Andy Zhao"})
+      == ["Andyzhao: a Jira name; the page writes Andy Zhao"]
+      and RV.lint("Andy Zhao drives", handles={"Andyzhao": "Andy Zhao"}) == [])
 sys.exit(1 if failures else 0)

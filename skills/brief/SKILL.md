@@ -534,6 +534,9 @@ The page is read in Obsidian, so its form is fixed:
   orchestration; a team name carries the slug once (UR Caller (unified-streaming)). Never "the frontend" or "the
   backend": unified-media-frontend is a frontend too, and the reader cannot tell which is meant. The same holds on the
   Changes page.
+- **People by their roster display name** (`$TEAM who`), in prose, apply lines, FYI and tables alike: Andy Zhao,
+  never the Jira or Slack name a read returned (Andyzhao). page-check flags a roster person written by their Jira
+  name. *Why: the 2026-10-28 page wrote Andy Zhao in prose and Andyzhao in three apply lines, FYI and New tickets.*
 - **Ticket lanes in plain words,** as in the table above: never ela's internal names (cadence, zombies, triage, stage,
   runner page) on the page.
 - **Under 900 words in all.** The decisions lane, when it runs, adds one table row per candidate with its

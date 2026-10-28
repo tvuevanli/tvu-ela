@@ -2383,7 +2383,7 @@ def cmd_page_check(args):
     sys.path.insert(0, os.path.join(HERE, "..", "review"))
     import review                                       # the rest of the page's mechanical checks (`ela review lint`)
     _, counts, bundles, in_vault, _ = review.context(args.page, page, args.actions)
-    rest = review.lint(page, None, counts, bundles, in_vault)
+    rest = review.lint(page, None, counts, bundles, in_vault, handles=review.handles())
     for line in rest:
         print(f"lint: {line}")
     # the runner holds back a page that still fails after one repair, and its repair covers apply N only: the other
