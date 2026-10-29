@@ -546,9 +546,12 @@ def collect_lane(lane, shown, mails, reports, s, env, cache, gaps, said=()):
             st["left"][rid] = dict(r, left_at=at.isoformat(timespec="minutes"), why=f"{verdict} on {vv} ({vd}, {vs})")
             del st["rows"][rid]
             continue
-        st["rows"][rid].update(title=title, verdict=verdict, verdict_version=vv, verdict_date=vd)
+        st["rows"][rid].update(title=title, verdict=verdict, verdict_version=vv, verdict_date=vd,
+                               priority=row["priority"], priority_reason=row["priority_reason"])
         rows.append(row)
     rows.sort(key=lambda r: (r["priority"], r["verdict"] != "fail", -(r["age_days"] or 0), r["id"]))
+    for n, r in enumerate(rows, 1):                         # the order Helm renders, on the row and in the state file
+        r["rank"] = st["rows"][r["id"]]["rank"] = n
     st["updated"] = at.isoformat(timespec="minutes")
     save(path, json.dumps(st, ensure_ascii=False, indent=1))
     recent = (at - datetime.timedelta(days=7)).isoformat()
@@ -990,6 +993,8 @@ def collect_dev(line, s, env, shared):
     unticketed = [{"build": r["first_build"], "text": (r.get("log") or [r.get("focus") or ""])[0]}
                   for r in tl_rows.values() if not r.get("ticket")]
     rows.sort(key=lambda r: (not r["gaps"], r["layer"], r["key"]))
+    for n, r in enumerate(rows, 1):
+        r["rank"] = n
     return {"line": str(line), "lane": lane, "generated": now().isoformat(timespec="minutes"), "rows": rows,
             "unticketed": unticketed, "gaps": [f"{g['source']}: {g['error']}" for g in gaps]}
 

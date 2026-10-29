@@ -7,9 +7,11 @@
   pins [--json]             <elak>/blueprint/releases.yaml → <published>/blueprint/releases.yaml, the official bundle
                             per release line (ela ADR 0012), so Helm and the other machines read the owner's pin
   doc <rel> [--reader …]    <elak>/knowledge/<rel> → <published>/knowledge/<rel>, the elak document verbatim through `redact`
-  lanes [--json]            <reports>/lanes/ (lanes.md, test-list-*, dev-list-*) → <published>/lanes/, for Helm: pages
+  lanes [--sync] [--json]   <reports>/lanes/ (lanes.md, test-list-*, dev-list-*) → <published>/lanes/, for Helm: pages
                             ela generates, not elak sources, so no manifest row; through `redact`, and a file the
-                            content guard's rules flag (a credential, a quoted sentence) is refused with its line
+                            content guard's rules flag (a credential, a quoted sentence) is refused with its line;
+                            --sync then carries lanes/ alone to `published_remote` (typing it is the confirm); a sync
+                            that fails is a line, never a failed publication
   list                      every manifest row and whether its source changed since (exit 1 when a republish is due)
 
 The published directory is a subset of elak's own tree — the same paths, elak's names, no per-reader
@@ -623,14 +625,33 @@ def cmd_lanes(a):
         os.makedirs(dst, exist_ok=True)
         tmp = os.path.join(dst, f + ".tmp"); open(tmp, "w", encoding="utf-8").write(text); os.replace(tmp, os.path.join(dst, f))
         done.append(f)
+    synced = None
+    if a.sync:
+        synced = sync_lanes(dst)
     if a.json:
-        print(json.dumps({"destination": dst, "published": done, "refused": refused}, ensure_ascii=False))
+        print(json.dumps({"destination": dst, "published": done, "refused": refused, "synced": synced}, ensure_ascii=False))
     else:
         print(f"published lanes/ ({', '.join(done) or 'nothing'}) → {dst}")
         for r in refused:
             print(f"refused {r['file']}:\n  " + "\n  ".join(r["flags"]))
+        if synced is not None:
+            print(f"remote: {synced}")
     if refused:
         sys.exit(EX_USAGE)
+
+
+def sync_lanes(dst):
+    """rsync <published>/lanes/ to `published_remote`/lanes/; → a one-line outcome, never an exit."""
+    import subprocess
+    target = site().get("published_remote")
+    if not target:
+        return "not synced: site.json has no published_remote"
+    argv = ["rsync", "-az", "--delete", dst.rstrip("/") + "/", target.rstrip("/") + "/lanes/"]
+    try:
+        r = subprocess.run(argv, capture_output=True, text=True, timeout=300)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return f"not synced: {str(e)[:160]}"
+    return "synced lanes/ to <published_remote>" if r.returncode == 0 else f"not synced: rsync {r.returncode}: {(r.stderr or '').strip()[-160:]}"
 
 
 def write_published_manifest(records, published):
@@ -751,6 +772,7 @@ def main():
     p = sub.add_parser("all"); p.add_argument("--json", action="store_true")
     sub.add_parser("list")
     p = sub.add_parser("lanes", help="the lanes page and the test and dev lists → <published>/lanes/, for Helm")
+    p.add_argument("--sync", action="store_true", help="then carry lanes/ alone to published_remote")
     p.add_argument("--json", action="store_true")
     p = sub.add_parser("sync", help="rsync <published> to site.json `published_remote` — dry run unless --apply")
     p.add_argument("--apply", action="store_true")
