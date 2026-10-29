@@ -17,7 +17,7 @@ Usage:
 Layout, by what the owner does with a note (ela ADR 0010). Names are lowercase with hyphens and no spaces, taken
 from the source's file name, never from its heading, so editing a title renames nothing; a dated name starts with
 its date, so a folder sorts by time. Folders carry no numbers: Home and the bookmarks are the way in.
-    home.md, board.md                           the entry point; the board's debt, one living page
+    home.md, board.md                           the entry point, five lines and links; the board's debt, one living page
     constraints.md                              the standing constraints, each pin read on its lane
     lanes.md                                    the lanes, what each carries that the next does not, two weeks of moves
     ela/review/<date>-reader.md                 the evening reader's verdict on each item of that morning's page, 30 days
@@ -30,8 +30,8 @@ its date, so a folder sorts by time. Folders carry no numbers: Home and the book
     in-progress/<name>.md                       a note he agreed to, while ela builds it and until he accepts it
     parked/<name>.md                            a note that waits on others, with who and what brings it back
     archive/                                    where he drags a note to keep it
-    ela/                                        about this vault, how ela works and runs, the table view, the Jira
-                                                vocabulary, and
+    ela/                                        about this vault, the ela page (overview.md: generated, three sections
+                                                the desk's), how ela runs, the table view, the Jira vocabulary, and
     ela/attachments/verify/<year-month>/<record>/   each verification record copied whole, hidden in the explorer
 
 The reading gate. The vault is how ela reports to the owner, so a note over its reading budget, mostly code, or
@@ -113,13 +113,16 @@ board every half hour on working days. An edit to a generated note is overwritte
 ticked boxes, which are kept. To change something, write an `ela:` line in the note or ask in a session. The exceptions are the pages ela writes in place, whose source is the vault itself: how ela works,
 plans for your decision.
 
-Start at [[home]]: what waits for your word, today's page, and what there is to read.
+Start at [[home]]. Five lines: what ela did since you last looked, what leaves at 10:00 unless you tick "don't",
+what only you can do (at most three `apply` boxes), the MediaHub program's next step, and one line from ela. Below
+the line, links: the morning page, lanes, board, changes, the program, the ela page and all notes. A box ticked on
+Home is the same as on the morning page.
 
 ## Layout
 
 | folder | holds | what you do |
 |---|---|---|
-| `home`, `board` | today, and the board's debt | look at them each morning |
+| `home`, `board` | five lines for today, and the board's debt | look at Home each morning |
 | `constraints` | the standing constraints you confirmed: what each holds, whether its lane still keeps it, when it lifts | look when Home says one is over |
 | `days/<year>/` | the morning pages and what changed the day before, kept; the evening learning draft, 14 days | look back |
 | `to-read/` | plans and decisions waiting for your ruling, and verification results, newest first | rule, or read and delete |
@@ -127,7 +130,7 @@ Start at [[home]]: what waits for your word, today's page, and what there is to 
 | `in-progress/` | what you agreed to, while ela builds it, until you accept it | accept or say what is missing |
 | `parked/` | what waits on others, with who it waits on and what brings it back | resume or drop |
 | `lanes` | the lanes, what each carries that the next does not, two weeks of moves | look before a promotion |
-| `ela/` | how ela works and runs, this page, the table view; attachments, hidden | rarely |
+| `ela/` | the ela page (its measures, parts, schedule and week written by the sync; Waiting for your word, What changed for MediaHub this week and Known limits written by the desk), how ela runs, this page, the table view; attachments, hidden | rarely |
 | `archive/` | what was acted on or you chose to keep; ela adds to it and keeps its status current, never its text | look back; ask ela to tidy it |
 
 Folders are named for what you do with a note and carry no numbers: Home and the bookmarks are the way in, and
@@ -1051,94 +1054,228 @@ def link(n):
     return f"[[{n.path[:-3]}|{n.title}]]"
 
 
-def home(today, now, notes, saw=None):
-    """Home, short: what waits for his word, today's "Needs you" (the whole page when it has no such section), a live
-    table of what there is to read (a Bases block, so a deleted note leaves it at once), and what ela owes."""
+def home(today, now, notes, desk=None):
+    """Home, five lines above a divider: what ela did since he last looked (tier 1), what leaves at 10:00 unless he
+    ticks (tier 2), what only he can do (at most three tier-3 boxes), the MediaHub program's next step, and one line
+    on ela. Below the divider, links. `desk`: {actions: today's and the week's, since: when he last looked, program,
+    ela} (vault in-progress/2026-10-29-ela-three-loops-review.md, proposal 1)."""
+    desk = desk or {}
     def newest(kind):
         return sorted((n for n in notes if n.props.get("type") == "day" and n.props.get("kind") == kind),
                       key=lambda n: n.props["date"], reverse=True)
     brief = next(iter(newest("brief")), None)
     changes = next(iter(newest("changes")), None)
     iso = today.isoformat()
+    today_acts = [a for a in desk.get("actions") or [] if a.get("day") == iso]
+    since = desk.get("since")
+    done = [a for a in desk.get("actions") or [] if a.get("tier") == 1 and a.get("applied")
+            and (a["applied"] > since if since else a.get("day") == iso)]
+    soon = [a for a in today_acts if a.get("tier") == 2 and not (a.get("applied") or a.get("vetoed") or a.get("failed"))]
+    mine = [a for a in today_acts if a.get("tier", 3) == 3 and not (a.get("applied") or a.get("by_owner"))]
+    page = f"[[{brief.path[:-3]}|the morning page]]" if brief else "the morning page"
     L = [f"# {today:%a %Y-%m-%d}", ""]
-    board = next((n for n in notes if n.props.get("type") == "board"), None)
-    wait = []
-    waiting = re.search(r"^## (?:Proposed closes assigned to you|Waiting for your close) \((\d+)\)", board.body, re.M) if board else None
-    if waiting and int(waiting.group(1)):
-        wait.append(f"{link(board)}: {waiting.group(1)} proposed closes assigned to you")
-    # everything that needs his word, from typed state: a failed or blocked verification, a plan proposed to him, the
-    # evening draft (a live view, so it leaves when he deletes the note), and proposed closes from the board
-    # the same rules as the views, so an empty table is a sentence instead
+    L += [f"**Done since you last looked:** {len(done)} Jira write{'s' if len(done) != 1 else ''} under a closed rule, "
+          f"each with its evidence on {page}." if done else "**Done since you last looked:** nothing.", ""]
+    L += ["**At 10:00 unless you tick:**" + ("" if soon else " nothing.")]
+    L += [f"- [ ] don't {a['n']} — {a.get('text', '')}" for a in soon] + [""]
+    L += ["**Only you:**" + ("" if mine else " nothing today.")]
+    L += [f"- [ ] apply {a['n']} — {a.get('text', '')}" for a in mine[:3]]
+    L += [f"*+{len(mine) - 3} more on {page}*"] if len(mine) > 3 else []
+    L += [""]
+    L += [f"**MediaHub:** {desk['program']} → [[{PROGRAM[:-3]}|the program]]" if desk.get("program")
+          else f"**MediaHub:** no next step in [[{PROGRAM[:-3]}|the program]].", ""]
+    # labelled "From ela", never "ela:": a line starting `ela:` is his instruction to the watcher
+    L += [f"**From ela:** {desk['ela']} → [[{OVERVIEW[:-3]}|the ela page]]" if desk.get("ela") else f"**From ela:** [[{OVERVIEW[:-3]}|the ela page]].", ""]
+    L += ["---", ""]
     waiting = [n for n in notes if note_status(n) in ("proposed", "blocked", "built") or n.props.get("result") == "fail"]
-    L += ["## Waiting for your word", ""] + [f"- {w}" for w in wait] + ([""] if wait else [])
-    if waiting:
-        L += [f"![[{ELA}/all-notes.base#Waiting for your word]]", "",
-              "*Choose a move in a row's next field and ela takes it up within a minute; to differ on one point, write a "
-              "line `ela: …` in the note, taken up two minutes after you stop typing, with the answer under it.*", ""]
-    elif not wait:
-        L += ["Nothing waits for your word.", ""]
-    if brief and brief.props["date"] == iso:
-        head = re.split(r"^## ", re.sub(r"^#[ \t]+.*$", "", brief.body, count=1, flags=re.M), maxsplit=1, flags=re.M)[0].strip()
-        # the jump to the page is the section's first line, under a plain heading
-        L += ["## Today", "", f"[[{brief.path[:-3]}|→ Open the morning page]]", ""]
-        if changes and changes.props["date"] == iso:     # the day's changes in code, lanes and QA, beside the brief
-            L += [f"[[{changes.path[:-3]}|→ What changed yesterday]]", ""]
-        L += [head, ""] if head else []
-        if re.search(r"^## Needs you[ \t]*$", brief.body, re.M):
-            # the day's meetings first (`## <name> at HH:MM`, from <elak>/blueprint/meetings.yaml), each the meeting's agenda
-            for sec in re.findall(r"^## (.+ at \d{2}:\d{2})[ \t]*$", brief.body, re.M):
-                L += [f"![[{brief.path[:-3]}#{sec.replace(':', ' ')}]]", ""]   # Obsidian links a heading's colon as a space
-            L += [f"![[{brief.path[:-3]}#Needs you]]", ""]
-            # the lanes table: the standing lanes page when there is one (rewritten each pass), else the brief's copy
-            lanes = next((n for n in notes if n.props.get("type") == "lanes"), None)
-            if lanes:
-                L += ["![[lanes#The lanes this morning]]", "[[lanes|→ Differences and two weeks of moves]]", ""]
-            elif re.search(r"^## The lanes this morning[ \t]*$", brief.body, re.M):
-                L += [f"![[{brief.path[:-3]}#The lanes this morning]]", ""]
-            L += [f"*The rest of the page (yesterday, new tickets, the Jira lanes, the backlog): {link(brief)}.*", ""]
-        else:
-            L += [f"![[{brief.path[:-3]}]]", ""]
-    else:
-        L += ["## Today", "", "No morning page yet today" + (f"; the latest is {link(brief)}." if brief else "."), ""]
-        if changes and changes.props["date"] == iso:
-            L += [f"[[{changes.path[:-3]}|→ What changed yesterday]]", ""]
-    sprint = next((n for n in sorted(notes, key=lambda n: n.props.get("date") or "", reverse=True)
-                   if n.props.get("type") == "sprint" and note_status(n) == "active"), None)
+    links = [f"[[{brief.path[:-3]}|brief]]" if brief else None,
+             "[[lanes|lanes]]" if any(n.props.get("type") == "lanes" for n in notes) else None,
+             "[[board|board]]" if any(n.props.get("type") == "board" for n in notes) else None,
+             f"[[{changes.path[:-3]}|changes]]" if changes else None,
+             f"[[{PROGRAM[:-3]}|program]]", f"[[{OVERVIEW[:-3]}|ela]]",
+             f"[[{ELA}/all-notes.base|all notes]]" + (f" ({len(waiting)} wait for your word)" if waiting else "")]
     cons = next((n for n in notes if n.props.get("type") == "constraints"), None)
     held = getattr(cons, "counts", None) or {}
-    cline = (f"[[{cons.path[:-3]}|{held['active']} standing constraint{'s' if held['active'] != 1 else ''}]] · {held['over']} over"
-             + (f" · {held['expired']} expired" if held["expired"] else "")) if held.get("active") or held.get("expired") else ""
-    # today's page states the sprint in one line ("Sprint · day N of M · …"); Home shows that line, linked to the page's
-    # table, and the bare link to the sprint note only when the page has not said it
-    said = re.search(r"^## Sprint[ \t]*\n+(Sprint · [^\n]+)", brief.body, re.M) if brief and brief.props["date"] == iso else None
-    if said:
-        L += ["## Sprint", "", f"[[{brief.path[:-3]}#Sprint|{said.group(1).strip()}]]", ""] + ([cline, ""] if cline else [])
-    elif sprint:                                           # the two-week commitment, one click from Home
-        L += ["## Sprint", "", f"{link(sprint)}", ""] + ([cline, ""] if cline else [])
-    elif cline:                                            # what holds a lane back, under the sprint it constrains
-        L += ["## Sprint", "", "No active sprint.", "", cline, ""]
-    building = [n for n in notes if top(n.path) == IN_PROGRESS]
-    if building:
-        L += ["## In progress", "", f"![[{ELA}/all-notes.base#In progress]]", ""]
-    if any(top(n.path) == PARKED for n in notes):        # a base cannot hide an empty view, so the block goes instead
-        L += ["## Parked", "", f"![[{ELA}/all-notes.base#Parked]]", ""]
-    to_read = [n for n in notes if top(n.path) == TO_READ and note_status(n) not in ("proposed", "blocked", "built")
-               and n.props.get("result") != "fail"]
-    if to_read:                                            # a passed verification, read and deleted
-        L += ["## To read", "", f"![[{ELA}/all-notes.base#To read]]", ""]
-    readings = [n for n in notes if top(n.path) == READINGS]
-    L += ["## Readings", "", f"![[{ELA}/all-notes.base#Readings]]" if readings else "No reading.", ""]
-    if readings:                                           # the table shows five; say what is beyond and what is new
-        # new against the readings when he last opened Home; before Home was ever seen open, against today
-        new = sum(1 for n in readings if (n.path not in saw if saw is not None else n.props.get("date") == iso))
-        said_new = (f"{new} new since you last opened Home" if saw is not None else f"{new} new today") if new else ""
-        more = f"+{len(readings) - 5} more in [[{ELA}/all-notes.base|all notes]]" if len(readings) > 5 else ""
-        L += ["*" + " · ".join(x for x in (said_new, more) if x) + "*", ""] if new or more else []
+    if held.get("active") or held.get("expired"):
+        links.append(f"[[{cons.path[:-3]}|{held['active']} standing constraint{'s' if held['active'] != 1 else ''}]] · {held['over']} over"
+                     + (f" · {held['expired']} expired" if held["expired"] else ""))
+    L += [" · ".join(x for x in links if x), ""]
     owed_since = (today - datetime.timedelta(days=HELD_LISTED_DAYS)).isoformat()
     owed = [n for n in notes if n.held and (n.props.get("date") or iso) >= owed_since]
     if owed:
         L += ["> [!warning]- ela owes a shorter version of " + str(len(owed))] + [f"> - {link(n)}: {'; '.join(n.held)}" for n in owed] + [""]
     return "\n".join(L)
+
+
+def week_actions(reports, today, days=7):
+    """The drafted actions of the last `days` days, each with its `day`: [action]."""
+    out = []
+    for i in range(days):
+        d = (today - datetime.timedelta(days=i)).isoformat()
+        try:
+            acts = json.load(open(os.path.join(reports or "", "runner", f"{d}-actions.json"), encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        out += [dict(a, day=d) for a in acts if isinstance(a, dict) and str(a.get("n", "")).isdigit()]
+    return out
+
+
+def sections(body):
+    """A page's `## ` sections in order: [(heading, text including the heading)]; the part before the first is ""."""
+    parts = re.split(r"(?m)^(?=## )", body)
+    return [((re.match(r"## (.+?)\s*$", p, re.M).group(1) if p.startswith("## ") else ""), p) for p in parts]
+
+
+def first_line(text):
+    """The first item or sentence of a section, as one line: its list item, or its first paragraph's first sentence."""
+    for l in text.splitlines()[1:]:
+        l = l.strip()
+        if re.match(r"^[-*]\s+\[x\]", l, re.I) or not l or l.startswith(("|", ">", "#", "*")) and not re.match(r"^\*\*", l):
+            continue
+        l = re.sub(r"^(?:[-*]\s+(?:\[ \]\s+)?|\d+[.)]\s+)", "", l)
+        return l if len(l) <= 240 else l[:240].rsplit(" ", 1)[0] + " …"
+    return None
+
+
+def program_next(vault):
+    """The first step under "Next" in the MediaHub program note, or None."""
+    try:
+        body = split_front(open(os.path.join(vault, PROGRAM), encoding="utf-8").read())[1]
+    except OSError:
+        return None
+    return next((first_line(t) for h, t in sections(body) if h == "Next"), None)
+
+
+def ela_line(vault):
+    """Home's line on ela: the first decision waiting on the ela page, else what changed for MediaHub this week."""
+    try:
+        body = split_front(open(os.path.join(vault, OVERVIEW), encoding="utf-8").read())[1]
+    except OSError:
+        return None
+    got = dict(sections(body))
+    for h in ("Waiting for your word", "What changed for MediaHub this week"):
+        line = first_line(got.get(h) or "")
+        if line and line != "Nothing yet.":
+            return line
+    return None
+
+
+# ── the ela page: generated where it can be, three sections his ─────────────────────────────────────────
+OVERVIEW, PROGRAM = "ela/overview.md", "mh/engineering-management.md"
+HAND_SECTIONS = ("Waiting for your word", "What changed for MediaHub this week", "Known limits")
+GENERATED_SECTIONS = ("Measures", "The parts", "The schedule", "This week in ela")
+
+
+def run_out(cmd, timeout=10):
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        return r.stdout if r.returncode == 0 else None
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+
+
+def measures(s, vault, today):
+    """One line per track, and the three promises, from local records only (the sync runs every minute)."""
+    since = (today - datetime.timedelta(days=7)).isoformat()
+    L = []
+    starts, ends = set(), set()
+    try:
+        for line in open(os.path.join(s.get("runtime") or "", "sessions.jsonl"), encoding="utf-8"):
+            e = json.loads(line)
+            if str(e.get("at") or "")[:10] >= since:
+                (starts if e.get("event") == "start" else ends).add(e.get("id"))
+    except (OSError, ValueError):
+        pass
+    L.append(f"- **Track 1 · sessions:** {len(starts)} opened in seven days, {len(starts & ends)} closed clean"
+             + (f", {len(starts - ends)} still open." if starts - ends else "."))
+    pages = wrong = 0
+    for f in glob.glob(os.path.join(s.get("reports") or "", "review", "*-reader.json")):
+        if os.path.basename(f)[:10] >= since:
+            try:
+                rows = json.load(open(f, encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            pages += 1
+            wrong += sum(1 for r in rows if isinstance(r, dict) and r.get("kind") == "wrong")
+    L.append(f"- **Track 2 · the system:** {wrong} wrong reading{'s' if wrong != 1 else ''} on {pages} morning page{'s' if pages != 1 else ''} "
+             "the reader read in seven days" + (f" ({wrong / pages:.1f} a page)." if pages else "."))
+    late = total = 0
+    try:
+        body = split_front(open(os.path.join(vault, PROGRAM), encoding="utf-8").read())[1]
+        plan_ = dict(sections(body)).get("Plan") or ""
+        for row in plan_.splitlines():
+            cells = [c.strip() for c in row.strip().strip("|").split("|")]
+            if len(cells) >= 6 and re.fullmatch(r"\d+", cells[0]):
+                total += 1
+                by = re.match(r"(\d{2})-(\d{2})", cells[3])
+                if by and cells[-1].lower() not in ("done", "closed") and f"{today.year}-{by.group(1)}-{by.group(2)}" < today.isoformat():
+                    late += 1
+    except OSError:
+        pass
+    L.append(f"- **Track 3 · MediaHub:** {total - late} of {total} program items on time." if total else "- **Track 3 · MediaHub:** no program plan yet.")
+    briefs = sorted(glob.glob(os.path.join(s.get("runtime") or "", "runner", "*-brief.json")))
+    try:
+        lanes = json.load(open(briefs[-1], encoding="utf-8"))["lanes"]
+        slow = sum(1 for r in lanes["breakdown"]["rows"] if (r.get("age_days") or 0) >= 1)
+        L.append(f"- **The three promises** ({os.path.basename(briefs[-1])[:10]}): {slow} complex ticket{'s' if slow != 1 else ''} "
+                 f"not broken down after a day · {lanes['triage']['overdue']} unassigned past 4 hours · "
+                 f"{lanes['cadence']['count']} In Progress not updated in 24 hours.")
+    except (IndexError, OSError, ValueError, KeyError, TypeError):
+        L.append("- **The three promises:** no morning read yet.")
+    return L
+
+
+def overview_note(s, vault, today):
+    """The ela page: the parts, the schedule, the measures and the week's commits written from ela day, the timers and
+    git; every other section (Waiting for your word, What changed for MediaHub this week, Known limits, and any the
+    desk added) kept verbatim from the page on disk. None when the vault has no ela page yet."""
+    try:
+        fl, body = split_front(open(os.path.join(vault, OVERVIEW), encoding="utf-8").read())
+    except OSError:
+        return None
+    root = os.path.dirname(os.path.dirname(HERE))
+    hand = [(h, t.rstrip() + "\n") for h, t in sections(body) if h and h not in GENERATED_SECTIONS]
+    for h in HAND_SECTIONS:
+        if h not in [x for x, _ in hand]:
+            hand.append((h, f"## {h}\n\nNothing yet.\n"))
+    skills = len(glob.glob(os.path.join(root, "skills", "*", "SKILL.md")))
+    L = ["# ela", "", f"*The parts, the schedule, the measures and the week's commits are written by the sync from `ela day`, the timers "
+         "and git on each sync; the other sections are the desk's, kept as written.*", "",
+         "## Measures", ""] + measures(s, vault, today) + [""]
+    L += ["## The parts", "", "| part | what it is |", "|---|---|",
+          f"| ela | {skills} skills and the `ela` verbs, in every Claude session |",
+          "| ela-runner | the clock, the vault watcher, the Slack front door, the judge sessions |",
+          "| the vault | your desk: Home, the morning page, readings, decisions and plans |",
+          "| elak | facts and knowledge, written on your word |", "| published | the redacted subset Helm and colleagues read |",
+          "| Helm | the builds ledger and the live release views |", ""]
+    L += ["## The schedule", ""]
+    timers = run_out(["systemctl", "--user", "list-timers", "--all", "--no-legend", "--no-pager"])
+    rows = []
+    for line in (timers or "").splitlines():
+        m = re.search(r"(\S+\.timer)\s+(\S+\.service)?\s*$", line)
+        if m and m.group(1).startswith("ela-runner-"):     # the runner's clock; a keepalive would rewrite the page hourly
+            nxt = re.match(r"^\w{3} (\d{4}-\d{2}-\d{2} \d{2}:\d{2})", line.strip())
+            rows.append(f"| {m.group(1)[:-6]} | {nxt.group(1)[5:] if nxt else '—'} |")
+    L += (["| timer | next run |", "|---|---|"] + rows) if rows else ["The timers could not be read."]
+    try:
+        sys.path.insert(0, os.path.join(HERE, "..", "brief"))
+        import brief as B
+        day = B.day_plan(today)
+        L += ["", f"Today: {'a working day' if day['working_day'] else 'not a working day'}"
+              + (f", at your desk {day.get('at_desk')}, DMs {'–'.join(day.get('dm_hours') or [])}" if day.get("at_desk") else "")
+              + "".join(f"; {m['section']}" for m in day["meetings"]) + "."]
+    except Exception as e:                                  # the day file is elak's; a bad one costs this line only
+        L += ["", f"Today: `ela day` could not be read ({type(e).__name__})."]
+    L += ["", "## This week in ela", ""]
+    for name, repo in (("ela", root), ("ela-runner", os.path.join(s.get("projects") or "", "ela-runner"))):
+        log = run_out(["git", "-C", repo, "log", "--since=7.days", "--no-merges", "--format=%h %s"])
+        commits = (log or "").splitlines()
+        L.append(f"- **{name}:** {len(commits)} commit{'s' if len(commits) != 1 else ''} in seven days" if log is not None
+                 else f"- **{name}:** not read")
+        L += [f"  - {c}" for c in commits[:5]]
+    L.append("")
+    text = "\n".join(L) + "\n" + "\n".join(t for _, t in hand)
+    return Note(OVERVIEW, "ela", text, {"type": "guide", "date": today.isoformat()})
 
 
 def home_open(vault):
@@ -1198,6 +1335,8 @@ def native_notes(vault):
                 if m:
                     props[m.group(1)] = m.group(2)
             rel = os.path.relpath(p, vault).replace(os.sep, "/")
+            if rel == OVERVIEW:                            # generated since layout 4, its hand sections kept
+                continue
             out.append(Note(rel, props.pop("title", None) or h1(body) or f[:-3], body, props, fl))
     return out
 
@@ -1242,7 +1381,7 @@ def vocabulary_note(elak):
                 src_rel="elak:map/jira-labels.yaml")
 
 
-def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), saw=None):
+def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since=None):
     reports = s.get("reports")
     enotes, titles = elak_notes(s.get("elak"))
     notes = report_notes(reports, today) + enotes + [constraints_note(standing_constraints(s, env), today)]
@@ -1256,6 +1395,9 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), saw=N
     native_warn = []
     for n in native:                                       # a page ela writes in place is not gated, only checked
         native_warn += [f"{n.path}: {p}" for p in mermaid_problems(n.body)]
+    ov = overview_note(s, s["vault"], today)
+    if ov:
+        notes.append(ov)
     vocab = vocabulary_note(s.get("elak"))
     if vocab:
         notes.append(vocab)
@@ -1285,7 +1427,8 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), saw=N
         if top(n.path) == TO_READ:
             body = with_moves(body, n.path, n.props.get("type"))
         planned[n.path] = redact(front(n.front_lines, dict(n.props, title=n.title)) + (with_warning(body, n.held) if n.held else body))
-    planned["home.md"] = redact(front([], {"type": "home", "date": today.isoformat()}) + linker(home(today, now, notes + native, saw)))
+    planned["home.md"] = redact(front([], {"type": "home", "date": today.isoformat()}) + linker(home(today, now, notes + native, {
+        "actions": week_actions(reports, today), "since": since, "program": program_next(s["vault"]), "ela": ela_line(s["vault"])})))
     planned[f"{ELA}/about-this-vault.md"] = unwrap(README)
     for name, text in VIEWS.items():
         planned[f"{ELA}/{name}.base"] = text
@@ -2013,20 +2156,17 @@ def cmd_sync(a):
         print(f"vault: {len(newly) - len(kept)} notes vanished in one go; not recorded as read, written again (a move or a wipe, "
               "not reading)", file=sys.stderr)
         newly = kept
-    # "new since you last opened Home": the notes to read are remembered at each opening of Home (a sync that finds it
-    # open after one that did not); while it is open, new counts against the opening before, so the count he sees
-    # stays put until he comes back
+    # "done since you last looked": each opening of Home (a sync that finds it open after one that did not) is
+    # remembered; while it is open, Home counts from the opening before, so the count he reads stays put
     is_open = home_open(vault)
     opening = is_open and not old_home.get("open")
-    # the shrink guard once reused the name `before` and its count reached the manifest: a value that is not a list
-    # reads as no baseline
-    saw = old_home.get("saw") if isinstance(old_home.get("saw"), list) else None
-    before = saw if opening else old_home.get("before") if isinstance(old_home.get("before"), list) else None
-    baseline = before if is_open else saw
+    looked = now.astimezone().isoformat(timespec="seconds") if opening else old_home.get("looked")
+    before = old_home.get("looked") if opening else old_home.get("before")
+    since = before if is_open else looked
     try:
         planned, files, notes, warnings, native_paths = plan(s, env, today, now, removed | set(newly),
                                                               removed_src | {old_src[r] for r in newly if old_src.get(r)},
-                                                              set(baseline) if baseline is not None else None)
+                                                              since)
     except SourceError as e:
         print(f"vault: not synced — {e}", file=sys.stderr); sys.exit(3)
     if newly and not a.dry_run:
@@ -2149,8 +2289,7 @@ def cmd_sync(a):
                                         "sources": {n.path: n.src_rel for n in notes if n.src_rel},
                                         "generated": {r: digest(t) for r, t in planned.items() if r.endswith(".base")},
                                         "seen": {r: d for r, d in seen.items() if r in planned},
-                                        "home": {"open": is_open, "before": before,
-                                                 "saw": sorted(r for r in planned if top(r) == READINGS) if opening else saw},
+                                        "home": {"open": is_open, "looked": looked, "before": before},
                                         "source_ticks": source_ticks}, indent=0))
         for rel in gone:
             try:

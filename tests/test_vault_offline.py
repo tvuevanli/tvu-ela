@@ -107,10 +107,13 @@ with tempfile.TemporaryDirectory() as tmp:
     check("a report is a reading: no status, no next, no moves", "\nstatus:" not in r0 and "next:" not in r0 and "moves:" not in r0
           and V.MOVES_HEAD not in r0 and not os.path.exists(f"{vault}/to-read/{today[:4]}-09-10-review-0.md"))
     home = open(f"{vault}/home.md").read()
-    check("Home embeds today's page, the waiting and readings views, and what ela owes", "![[days/" in home and "all-notes.base#Readings" in home
-          and "#Waiting for your word" in home and "ela owes a shorter version" in home)
-    check("the changes page is a day page, linked from Home's Today", os.path.exists(f"{vault}/days/{today[:4]}/{today}-changes.md")
-          and "→ What changed yesterday" in home)
+    above = home.split("\n---\n")[1].split("\n---\n")[0] if home.startswith("---\n") else home
+    check("Home is five lines above a divider, then links and what ela owes",
+          all(x in above for x in ("**Done since you last looked:**", "**At 10:00 unless you tick:**", "**Only you:**", "**MediaHub:**", "**From ela:**"))
+          and f"[[days/{today[:4]}/{today}-brief|brief]]" in home and "ela owes a shorter version" in home
+          and "wait for your word)" in home and not V.GUIDE.search(home))
+    check("the changes page is a day page, linked from Home", os.path.exists(f"{vault}/days/{today[:4]}/{today}-changes.md")
+          and f"[[days/{today[:4]}/{today}-changes|changes]]" in home)
     check("a decision carries its title as an alias and a meta line", 'aliases: ["Decision 0"]' in open(dec0).read() and "*decision · " in open(dec0).read())
     os.remove(dec0)
     check("a note the owner deleted is not written again", sync() == 0 and not os.path.exists(dec0))
@@ -130,14 +133,24 @@ with tempfile.TemporaryDirectory() as tmp:
         json.dump({"main": {"type": "split", "children": [{"type": "leaf", "state": {"type": "markdown", "state": {"file": f}}}]}},
                   open(f"{vault}/.obsidian/workspace.json", "w"))
     tab("home.md"); sync(); tab(f"readings/{today[:4]}-09-12-review-2.md"); sync()
-    fresh = f"{reports}/{today[:4]}-09-30-review-fresh.md"
-    open(fresh, "w").write("# Review fresh\n\nText.\n")
-    check("Home counts what is new since he last opened it", sync() == 0 and "1 new since you last opened Home" in open(f"{vault}/home.md").read())
+    m = json.load(open(f"{vault}/{V.MANIFEST}"))           # he last opened Home an hour ago; ela wrote 30 minutes ago
+    looked = datetime.datetime.fromisoformat(m["home"]["looked"]) - datetime.timedelta(hours=1)
+    m["home"]["looked"] = looked.isoformat(timespec="seconds")
+    json.dump(m, open(f"{vault}/{V.MANIFEST}", "w"))
+    soon = (looked + datetime.timedelta(minutes=30)).isoformat(timespec="seconds")
+    json.dump([{"n": 1, "tier": 1, "rule": "label", "text": "label MH-1", "applied": soon},
+               {"n": 2, "tier": 2, "rule": "thread-reply", "text": "reply in the release thread"},
+               {"n": 3, "tier": 3, "text": "close MH-3"}, {"n": 4, "text": "comment MH-4", "applied": soon}],
+              open(f"{reports}/runner/{today}-actions.json", "w"))
+    hm = (sync(), open(f"{vault}/home.md").read())[1]
+    check("Home counts the tier-1 writes since he last opened it, lists the 10:00 ones and his own, each with its box",
+          "**Done since you last looked:** 1 Jira write" in hm and "- [ ] don't 2 — reply in the release thread" in hm
+          and "- [ ] apply 3 — close MH-3" in hm and "apply 4" not in hm)
     tab("home.md")
-    check("and keeps the count while he has it open", sync() == 0 and "1 new since you last opened Home" in open(f"{vault}/home.md").read())
+    check("and keeps the count while he has it open", sync() == 0 and "**Done since you last looked:** 1 Jira write" in open(f"{vault}/home.md").read())
     tab(f"readings/{today[:4]}-09-12-review-2.md")
-    check("once he has seen it, nothing is new", sync() == 0 and "new since you last opened Home" not in open(f"{vault}/home.md").read())
-    os.remove(fresh); sync()
+    check("once he has seen it, nothing is new", sync() == 0 and "**Done since you last looked:** nothing." in open(f"{vault}/home.md").read())
+    os.remove(f"{reports}/runner/{today}-actions.json"); sync()
     m = json.load(open(f"{vault}/{V.MANIFEST}"))
     m["seen"][f"readings/{today[:4]}-09-13-review-3.md"] = "2000-01-01"
     json.dump(m, open(f"{vault}/{V.MANIFEST}", "w"))
@@ -233,11 +246,29 @@ with tempfile.TemporaryDirectory() as tmp:
     check("a mass disappearance is written again, not recorded as read", sync() == 0
           and os.path.exists(f"{vault}/readings/{today[:4]}-09-25-review-15.md") and len(rows()) == before)
     check("a file the sync never wrote is never removed", os.path.exists(f"{vault}/mine.md"))
-    native = f"{vault}/ela/overview.md"
-    open(native, "w").write('---\ntitle: "ela"\ntype: "guide"\nsource: "vault"\n---\n\n# ela\n\nIt stands well.\n')
+    native = f"{vault}/ela/workflow.md"
+    open(native, "w").write('---\ntitle: "Workflow"\ntype: "guide"\nsource: "vault"\n---\n\n# Workflow\n\nIt stands well.\n')
     check("a sync with a native page succeeds", sync(force=True) == 0)
     check("a native note is never overwritten", "It stands well." in open(native).read())
-    check("a native note stays out of the manifest", "ela/overview.md" not in open(f"{vault}/{V.MANIFEST}").read())
+    check("a native note stays out of the manifest", "ela/workflow.md" not in open(f"{vault}/{V.MANIFEST}").read())
+    ov = f"{vault}/ela/overview.md"
+    open(ov, "w").write('---\ntitle: "ela"\ntype: "guide"\nsource: "vault"\n---\n\n# ela\n\nIntro by hand.\n\n## The parts\n\nstale table\n\n'
+                        '## Waiting for your word\n\n- [ ] **Rule on the cadence** note\n\n## Known limits\n\n- One machine.\n\n## Extra\n\nKept.\n')
+    os.makedirs(f"{vault}/mh", exist_ok=True)
+    open(f"{vault}/mh/engineering-management.md", "w").write("# P\n\n## Plan\n\n| # | change | owner | by | done | state |\n|---|---|---|---|---|---|\n"
+                                                            "| 1 | a | me | 01-01 | x | open |\n| 2 | b | me | 12-31 | y | open |\n\n## Next\n\n1. Plan 4: ask for the fallback.\n")
+    o = (sync(force=True), open(ov).read())[1]
+    check("the ela page is generated: measures, parts, schedule, the week's commits; the stale parts replaced",
+          all(f"## {h}" in o for h in V.GENERATED_SECTIONS) and "stale table" not in o and "Intro by hand" not in o
+          and "1 of 2 program items on time" in o and "## This week in ela" in o)
+    check("its hand sections are kept as written, a missing one added, the desk's own kept",
+          "- [ ] **Rule on the cadence** note" in o and "- One machine." in o and "## What changed for MediaHub this week\n\nNothing yet." in o
+          and "## Extra\n\nKept." in o and "source:" not in o)
+    hm = open(f"{vault}/home.md").read()
+    check("Home's fourth line is the program's next step, its fifth the first decision on the ela page",
+          "**MediaHub:** Plan 4: ask for the fallback. → [[mh/engineering-management|the program]]" in hm
+          and "**From ela:** **Rule on the cadence** note → [[ela/overview|the ela page]]" in hm)
+    check("and a sync after that writes the ela page no more", (lambda m: sync() == 0 and os.path.getmtime(ov) == m)(os.path.getmtime(ov)))
     os.makedirs(f"{vault}/library", exist_ok=True)
     topic = f"{vault}/library/topic-a.md"
     open(topic, "w").write('---\ntitle: "Topic A"\ntype: "topic"\nstatus: "decided"\nsource: "vault"\n---\n\n# Topic A\n')
@@ -333,9 +364,6 @@ with tempfile.TemporaryDirectory() as t:
           and 'parked: "' in q and 'moves: "parked"' in q and "**resume**" in q and "**drop**" in q and "**agree**" not in q
           and "**done**" not in q)
     check("the move to parked is logged as his", '"fate": "parked"' in open(os.path.join(rep, "ela", "vault-removed.jsonl")).read())
-    hm = V.home(datetime.date(2026, 10, 27), datetime.datetime(2026, 10, 27, 9), [V.Note("parked/q.md", "Q", "# Q", {"type": "plan", "date": "2026-10-27"})])
-    check("Home shows the Parked view when a note is parked", "## Parked" in hm and "all-notes.base#Parked]]" in hm)
-    check("and no Parked block without one", "## Parked" not in V.home(datetime.date(2026, 10, 27), datetime.datetime(2026, 10, 27, 9), []))
     open(os.path.join(vlt, "parked", "h.md"), "w").write('---\ntype: "plan"\nstatus: "parked"\nwake: "FB-2"\n---\n# H\n\nhis body\n')
     V.ensure_native_moves(vlt)
     h = open(os.path.join(vlt, "parked", "h.md")).read()
@@ -482,22 +510,9 @@ hm = V.home(day, datetime.datetime(2026, 10, 26, 9), [cn])
 check("Home says how many there are and how many are over, linking the page", "[[constraints|1 standing constraint]] · 1 over · 1 expired" in hm)
 check("an unreadable read says so", "could not be read" in V.constraints_note(None, day).body)
 day = datetime.date(2026, 10, 28)
-bp = V.Note("days/2026/2026-10-28-brief.md", "Morning brief", "# B\n\n## Needs you\n\n### 1. x\n\n## The lanes this morning\n\n| | prod-3 |\n|---|---|\n\n"
-            "## Sprint\n\nSprint · day 3 of 10 · 8 on track · 1 at risk · 0 off\n\n| item |\n", {"type": "day", "kind": "brief", "date": "2026-10-28"})
-sp = V.Note("sprints/s.md", "Sprint 1", "# S", {"type": "sprint", "status": "active", "date": "2026-10-26"})
-hm = V.home(day, datetime.datetime(2026, 10, 28, 9), [bp, sp])
-check("Home embeds the page's lanes table beside Needs you", "#The lanes this morning]]" in hm and hm.index("#Needs you]]") < hm.index("#The lanes this morning]]"))
-ln = V.Note("lanes.md", "The lanes", "# The lanes\n\n## The lanes this morning\n\n| |\n", {"type": "lanes", "date": "2026-10-28"})
-hl = V.home(day, datetime.datetime(2026, 10, 28, 9), [bp, sp, ln])
-check("with the lanes page, Home embeds its table and links its differences", "![[lanes#The lanes this morning]]" in hl
-      and "[[lanes|→ Differences and two weeks of moves]]" in hl and "2026-10-28-brief#The lanes this morning" not in hl)
-check("Home shows the page's sprint line, linked to its table, instead of the bare sprint link",
-      "[[days/2026/2026-10-28-brief#Sprint|Sprint · day 3 of 10 · 8 on track · 1 at risk · 0 off]]" in hm and "[[sprints/s|Sprint 1]]" not in hm)
-mb = V.Note("days/2026/2026-10-28-brief.md", "Morning brief", "# B\n\n## Needs you\n\n### 1. x\n\n## Scrum with the PM at 10:00\n\n- Sprint: day 3\n",
-            {"type": "day", "kind": "brief", "date": "2026-10-28"})
-hm = V.home(day, datetime.datetime(2026, 10, 28, 9), [mb])
-check("Home embeds the day's meeting section above Needs you", "![[days/2026/2026-10-28-brief#Scrum with the PM at 10 00]]" in hm
-      and hm.index("#Scrum with the PM") < hm.index("#Needs you]]"))
+acts = [{"n": i, "tier": 3, "text": f"t{i}", "day": "2026-10-28"} for i in range(1, 6)]
+hm = V.home(day, datetime.datetime(2026, 10, 28, 9), [], {"actions": acts})
+check("Home shows at most three of his own, and says how many more", hm.count("- [ ] apply") == 3 and "+2 more on the morning page" in hm)
 disk = "# B\n\n## Needs you\n\n- x\n\n## Scrum with the PM at 10:00\n\n- Sprint\nela: PM rules 0x81004009 shows the notice too\n\n## FYI\n\n- y\nela: drop the FYI\n"
 check("a line's section is the heading above it", V.section_at(disk, disk.index("ela: PM")) == "Scrum with the PM at 10:00")
 new_page = "# B\n\n## Needs you\n\n- x2\n\n## Scrum with the PM at 10:00\n\n- Sprint 2\n\n## Lanes\n\n- z\n"
