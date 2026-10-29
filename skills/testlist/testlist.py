@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""The test list: what QA should verify on a lane, ranked, one row per behaviour.
+"""The test list: what QA should verify on a lane, ranked, one row per behaviour; and the dev list beside it.
 
     testlist.py list --lane qa-cn3 [--days N] [--json] [--page] [--new-rows [--date YYYY-MM-DD]]
     testlist.py list --lane qa-cn3 --saw KEY "ela saw … on V at HH:MM"
+    testlist.py dev --line 2.1 [--json] [--page]
 
 list  The lane's release mails (Test Focus and Change Log) give the rows: one per owner ticket a build names, and one
       "no ticket" row per change-log item that names no key (flagged). Two keys in one Test Focus item are one
@@ -21,6 +22,13 @@ list  The lane's release mails (Test Focus and Change Log) give the rows: one pe
       --new-rows: the rows each build released on --date (default today) added, Slack-formatted, with the day's
       release thread in #mediahub-qa-release, for the runner's tier-2 post (rule test-list).
       --saw: writes the night run's line on the row (a local write; no --apply), stamped with the lane build.
+
+dev   One row per owner ticket in development on the line (labelled for it, not Done, and In Progress, Review, Blocked,
+      On Hold or Reopened, or named by a commit, or on the lane's test list): layer, assignee and the commits' authors,
+      branch state (on a lane build · merged to the release branch · on a branch · no commit), the lane build, QA's
+      verdict, train readiness (ticket ✓, Fixed In ✓/–, verdict ✓/–) and the gaps: QA assigned on a secondary ticket
+      (one the test list rides under another owner), Fixed In without a verdict; the build changes with no ticket
+      are listed under the table. --page writes <reports>/lanes/dev-list-<line>.md.
 
 Reads only Jira, mail, Slack, the release ledger and disk; writes only its own files under <reports>/lanes/.
 Exit codes: 0 ok · 2 usage · 3 --saw names no row · 5 the release mails could not be read.
@@ -563,6 +571,133 @@ def cmd_list(a):
 
 
 
+# ── the dev list ─────────────────────────────────────────────────────────────────────────────────────
+
+# a checkout under <code> → the layer that builds it, for a ticket whose summary carries no [Layer] prefix
+REPO_LAYERS = (("web/media-hub-front", "UI"), ("web/mx-service-front", "UI"), ("web/tvu-media-hub", "App"),
+               ("web/mx-service", "UR"), ("web/ur-streaming", "UR"), ("mx/", "J2N"), ("media/", "Media"))
+DEV_STATUSES = ("In Progress", "Review", "Blocked", "On Hold", "Reopened")
+COMMIT_DAYS = 60
+
+
+def branch_state(commits, led_lanes):
+    """on <lanes> · merged to release · on a branch · no commit."""
+    if led_lanes:
+        return "on " + ", ".join(sorted(led_lanes))
+    if any(re.match(r"release", c["ref"]) for c in commits):
+        return "merged to release"
+    return "on a branch" if commits else "no commit"
+
+
+def collect_dev(a, s, env):
+    import release as R  # noqa: E402 — on the path through brief
+    cfg = (R.rmap("lines") or {}).get(str(a.line))
+    if not cfg:
+        print(f"unknown release line {a.line!r}; known: {', '.join(R.rmap('lines') or {})}", file=sys.stderr)
+        sys.exit(EX_USAGE)
+    lane = (cfg.get("lanes") or {}).get("qa")
+    gaps, cache = [], {}
+    tl = load_state(state_path(s, lane), lane) if lane else {"rows": {}, "left": {}, "builds": {}}
+    try:
+        found = B.run_json(["python3", B.JIRA, *env, "jql", f'project = MH AND labels = "{cfg["label"]}" AND statusCategory != Done ORDER BY key',
+                            "--limit", "300", "--json"], timeout=180)["issues"]
+    except (B.LaneError, subprocess.TimeoutExpired, ValueError) as x:
+        print(f"jira not read: {str(x)[:200]}", file=sys.stderr)
+        sys.exit(EX_REMOTE)
+    code_root = s.get("code") or os.path.join(s.get("projects", ""), "code")
+    commits = B.git_window(code_root, COMMIT_DAYS * 24)[0]
+    by_key = {}
+    for c in commits:
+        for k in c["keys"]:
+            by_key.setdefault(k, []).append(c)
+    tl_rows = {**{k: dict(v, open=False) for k, v in tl.get("left", {}).items()}, **{k: dict(v, open=True) for k, v in tl["rows"].items()}}
+    secondary = {k: r["ticket"] for r in tl_rows.values() if r.get("ticket") for k in r.get("also") or []}
+    qa, _ = T.qa_names()
+    fid = (R.rmap("fixed_in") or {}).get("field") or "customfield_11252"
+    runtime = s.get("runtime") or os.path.join(s.get("projects", ""), ".ela")
+    rows = []
+    for i in found:
+        k = i["key"]
+        on_list = k in tl_rows or k in secondary
+        if i["status"] not in DEV_STATUSES and k not in by_key and not on_list:
+            continue                                        # not started: the board's queue, not development
+        issue = jira_read(env, k, cache, gaps)
+        f = (issue or {}).get("fields") or {}
+        led = T.ledger(runtime, k)
+        cs = by_key.get(k, [])
+        fixed_in = J.body_text(f.get(fid)).strip() if f.get(fid) else ""
+        t = tl_rows.get(k) or tl_rows.get(secondary.get(k)) or {}
+        found_v = comment_verdicts(issue, qa, None)
+        verdict = t.get("verdict") or (sorted(found_v)[-1][1] if found_v else "untested")
+        if not t.get("open", True) and t:
+            verdict = (t.get("why") or "pass").split(" ")[0].rstrip(":")
+        pre = PREFIX_RX.match(i["summary"] or "")
+        repo_layers = {next((l for r, l in REPO_LAYERS if c["repo"].startswith(r)), None) for c in cs} - {None}
+        layer = pre.group(1) if pre else ("+".join(t.get("layers") or sorted(repo_layers)) or "—")
+        assignee = i.get("assignee") or ""
+        flags = []
+        if k in secondary and assignee.lower() in qa:
+            flags.append(f"QA assigned on a secondary ticket; the owner is {secondary[k]}")
+        if fixed_in and verdict in ("untested", None):
+            flags.append("Fixed In without a verdict")
+        rows.append({"key": k, "url": JIRA_URL + k, "title": i["summary"], "layer": layer, "status": i["status"],
+                     "assignee": assignee or None, "implementers": sorted({c["author"] for c in cs}),
+                     "branch": branch_state(cs, led["lanes"]), "refs": sorted({c["ref"] for c in cs})[:4],
+                     "lane_build": (t.get("builds") or [None])[-1], "owner_of": secondary.get(k),
+                     "verdict": verdict, "fixed_in": fixed_in or None,
+                     "ready": {"ticket": True, "fixed_in": bool(fixed_in), "verdict": verdict in ("pass", "n-a")}, "gaps": flags})
+    unticketed = [{"build": r["first_build"], "text": (r.get("log") or [r.get("focus") or ""])[0]}
+                  for r in tl_rows.values() if not r.get("ticket")]
+    rows.sort(key=lambda r: (not r["gaps"], r["layer"], r["key"]))
+    return {"line": str(a.line), "lane": lane, "generated": now().isoformat(timespec="minutes"), "rows": rows,
+            "unticketed": unticketed, "gaps": [f"{g['source']}: {g['error']}" for g in gaps]}
+
+
+def render_dev(out):
+    at = datetime.datetime.fromisoformat(out["generated"])
+    tick = lambda b: "✓" if b else "–"  # noqa: E731
+    L = [f"# Dev list · {out['line']}", "", f"*{at:%Y-%m-%d %H:%M} · line {out['line']} · QA lane {out['lane']}*", "",
+         f"Every owner ticket in development on {out['line']}: where its commits are, what QA said, and what the next train "
+         "still needs from it (ticket, Fixed In, verdict). Rows with a gap come first.", "",
+         f"{len(out['rows'])} ticket(s) · {sum(bool(r['gaps']) for r in out['rows'])} with a gap · "
+         f"{len(out['unticketed'])} build change(s) with no ticket", "",
+         "| ticket | what | layer | assignee | branch | build | QA | train: ticket · Fixed In · verdict | gaps |",
+         "|---|---|---|---|---|---|---|---|---|"]
+    for r in out["rows"]:
+        who = r["assignee"] or "—"
+        if r["implementers"] and r["assignee"] not in r["implementers"]:
+            who += f" (commits: {', '.join(r['implementers'][:2])})"
+        L.append(f"| [{r['key']}]({r['url']}) | {cell(r['title'], 80)} | {r['layer']} | {cell(who, 60)} | {r['branch']} | "
+                 f"{r['lane_build'] or '–'} | {MARK.get(r['verdict'], '·')} {r['verdict']} | ✓ · {tick(r['ready']['fixed_in'])} · "
+                 f"{tick(r['ready']['verdict'])} | {cell('; '.join(r['gaps']), 120)} |")
+    if out["unticketed"]:
+        L += ["", "## Build changes with no ticket", ""] + [f"- build {u['build']}: {cell(u['text'], 160)}" for u in out["unticketed"]]
+    if out["gaps"]:
+        L += ["", "## Not read", ""] + [f"- {g[:200]}" for g in out["gaps"]]
+    L += ["", f"*Generated by `ela devlist --line {out['line']} --page`.*"]
+    return "\n".join(L) + "\n"
+
+
+def cmd_dev(a):
+    s = site()
+    env = ["--env-file", a.env_file] if a.env_file else []
+    out = collect_dev(a, s, env)
+    if a.page:
+        page = os.path.join(reports_root(s), "lanes", f"dev-list-{out['line']}.md")
+        save(page, render_dev(out))
+        out["page"] = page
+    if a.json:
+        print(json.dumps(out, ensure_ascii=False))
+        return
+    print(f"# dev list · {out['line']} · {len(out['rows'])} ticket(s)")
+    for r in out["rows"]:
+        print(f"  {r['key']:<9} {r['layer']:<6} {str(r['assignee'] or '—')[:14]:<14} {r['branch'][:22]:<22} {r['verdict']:<8} "
+              f"FI {'✓' if r['fixed_in'] else '–'}  {cell(r['title'], 50)}" + (f"\n            ! {'; '.join(r['gaps'])}" if r["gaps"] else ""))
+    for u in out["unticketed"]:
+        print(f"  no ticket (build {u['build']}): {cell(u['text'], 100)}")
+    if a.page:
+        print(f"page: {out['page']}")
+
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -577,6 +712,11 @@ def main():
     p.add_argument("--date", help="YYYY-MM-DD for --new-rows (default today)")
     p.add_argument("--saw", nargs=2, metavar=("KEY", "LINE"), help="write the night run's line on the row; a local write")
     p.set_defaults(func=cmd_list)
+    p = sub.add_parser("dev", help="the line's dev list: one row per owner ticket in development, with its gaps")
+    p.add_argument("--line", required=True, help="the release line (2.1)")
+    p.add_argument("--json", action="store_true")
+    p.add_argument("--page", action="store_true", help="also write <reports>/lanes/dev-list-<line>.md")
+    p.set_defaults(func=cmd_dev)
     a = ap.parse_args()
     a.func(a)
 

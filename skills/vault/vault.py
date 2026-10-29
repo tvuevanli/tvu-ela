@@ -21,6 +21,7 @@ its date, so a folder sorts by time. Folders carry no numbers: Home and the book
     constraints.md                              the standing constraints, each pin read on its lane
     lanes.md                                    the lanes, what each carries that the next does not, two weeks of moves
     lanes/test-list-<lane>.md                   what QA should verify on the lane, ranked (ela testlist --page)
+    lanes/dev-list-<line>.md                    the line's tickets in development and their gaps (ela devlist --page)
     ela/review/<date>-reader.md                 the evening reader's verdict on each item of that morning's page, 30 days
     days/<year>/<date>-brief.md                 the morning page, kept, with -changes (what changed); -learned for 14 days
     to-read/<date>-<slug>.md                    a decision or plan from elak while it waits for his ruling
