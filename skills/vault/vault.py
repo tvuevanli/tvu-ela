@@ -1251,12 +1251,16 @@ def overview_note(s, vault, today):
     for h in HAND_SECTIONS:
         if h not in [x for x, _ in hand]:
             hand.append((h, f"## {h}\n\nNothing yet.\n"))
-    skills = len(glob.glob(os.path.join(root, "skills", "*", "SKILL.md")))
+    # a skill is a directory under skills/ with a SKILL.md or its script, the count the manual check uses
+    dirs = [d for d in glob.glob(os.path.join(root, "skills", "*")) if os.path.isfile(os.path.join(d, "SKILL.md"))
+            or os.path.isfile(os.path.join(d, os.path.basename(d) + ".py"))]
+    guided = sum(1 for d in dirs if os.path.isfile(os.path.join(d, "SKILL.md")))
+    skills = f"{len(dirs)} skills ({guided} with a SKILL.md, {len(dirs) - guided} scripts only)"
     L = ["# ela", "", f"*The parts, the schedule, the measures and the week's commits are written by the sync from `ela day`, the timers "
          "and git on each sync; the other sections are the desk's, kept as written.*", "",
          "## Measures", ""] + measures(s, vault, today) + [""]
     L += ["## The parts", "", "| part | what it is |", "|---|---|",
-          f"| ela | {skills} skills and the `ela` verbs, in every Claude session |",
+          f"| ela | {skills} and the `ela` verbs, in every Claude session |",
           "| ela-runner | the clock, the vault watcher, the Slack front door, the judge sessions |",
           "| the vault | your desk: Home, the morning page, readings, decisions and plans |",
           "| elak | facts and knowledge, written on your word |", "| published | the redacted subset Helm and colleagues read |",
