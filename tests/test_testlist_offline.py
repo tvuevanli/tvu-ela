@@ -107,4 +107,23 @@ plan = [row("MH-1"), row("MH-2"), row("MH-3")]
 left = TL.apply_guidance(plan, ["ela: drop MH-2", "ela: MH-3 first", "ela: something else"], {"rows": []})
 check("his lines drop and reorder; an unknown line is returned", [p["id"] for p in plan] == ["MH-3", "MH-1"] and left == ["something else"])
 check("a bot or helm is never an ask", all(TL.BOT_RX.search(n) for n in ("andyBot", "helm", "Summer Slack Bot")) and not TL.BOT_RX.search("Robin Wu"))
+
+rep = {"at": "2026-10-28T19:01", "text": "Test Environment\nTVU MediaHub (ENV: x)\nTest Result\n*MH-3752* FAIL output not reachable\n"
+       "CN DNS resolution failed for the gateway\nall pass\n"}
+check("a QA report line naming the environment is an env line; a ticket's line is not", TL.env_report_lines(rep) == ["CN DNS resolution failed for the gateway"])
+import datetime as _dt  # noqa: E402
+_found = {"diff-mediahub-backend": {"source": "lane", "ticket": None, "since": "2026-10-28", "title": "mediahub-backend 2.1.26 here, 2.1.32 on prod-3"}}
+TL.env_found = lambda *a: (dict(_found), {"lane", "label", "qa"})
+TL.env_owner = lambda lane, roster=None: "unowned"
+st, at = {}, _dt.datetime(2026, 10, 29, 9, 0).astimezone()
+got = TL.env_rows("prod-2-china", st, {}, [], [], {}, [], set(), at)
+check("an env row: kind env, open, since, owner, no Fixed In", [(r["kind"], r["state"], r["since"], r["owner"], r["verdict"]) for r in got]
+      == [("env", "open", "2026-10-28", "unowned", "open")])
+_found.clear()
+got = TL.env_rows("prod-2-china", st, {}, [], [], {}, [], set(), at + _dt.timedelta(days=1))
+check("gone from its source, it resolves on the lane that day", [r["verdict"] for r in got] == ["resolved on prod-2-china 2026-10-30"])
+TL.env_found = lambda *a: ({}, set())
+st["env"]["diff-x"] = dict(st["env"]["diff-mediahub-backend"], id="diff-x", state="open", resolved=None)
+check("a source not read resolves nothing", [r["state"] for r in TL.env_rows("prod-2-china", st, {}, [], [], {}, [], set(), at) if r["id"] == "diff-x"] == ["open"])
+check("the page shows env rows in their own section", "## Environment, not code" in "\n".join(TL.env_section(got)))
 sys.exit(1 if failures else 0)

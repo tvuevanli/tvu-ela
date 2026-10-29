@@ -27,6 +27,12 @@ list  Without --lane, every lane with release mails ("[Release MediaHub <env>]")
       State: <reports>/lanes/test-list-<lane>.json keeps each row's first build and verdict across builds; a new build
       adds rows and re-stamps lane_build; a row leaves only on a pass (or N/A) or when its ticket is withdrawn (closed
       won't do). --page writes <reports>/lanes/test-list-<lane>.md; the vault sync places it at lanes/.
+      Rows carry a kind: version (the rows above, keyed by build) or env, an environment's own problem that no build
+      carries, from three sources: a China lane's services that differ from the lane it aligns with (the lanes page's
+      region reading), tickets labelled env:<lane>, and the newest QA report's lines naming the environment rather than
+      a behaviour. An env row has its lane, since, owner (the roster responsibility owning env:<lane>, else
+      "unowned"), state open or resolved, and the verdict "resolved on <lane> <date>"; it is kept under "env" in the
+      state file and shown in its own section, "Environment, not code".
       --new-rows: the rows each build released on --date (default today) added, Slack-formatted, with the day's
       release thread in #mediahub-qa-release, for the runner's tier-2 post (rule test-list).
       --saw: writes the night run's line on the row (a local write; no --apply), stamped with the lane build.
@@ -45,7 +51,8 @@ dev   One row per owner ticket in development on the line (labelled for it, not 
       branch state (on a lane build · merged to the release branch · on a branch · no commit), the lane build, QA's
       verdict, train readiness (ticket ✓, Fixed In ✓/–, verdict ✓/–) and the gaps: QA assigned on a secondary ticket
       (one the test list rides under another owner), Fixed In without a verdict; the build changes with no ticket
-      are listed under the table. --page writes <reports>/lanes/dev-list-<line>.md and .json. Without --line,
+      are listed under the table, and the line's open env rows under "Environment, not code" (a ticket labelled
+      env:<lane> is never a dev row). --page writes <reports>/lanes/dev-list-<line>.md and .json. Without --line,
       every line release.yaml names with a Jira label that has a ticket in development; --json is then {"lists"}.
       --today: Dev today, by developer, at most 12 rows: moved since the last evening run, due today or overdue,
       blocked or on hold, the gaps and the build changes with no ticket, and asks to a developer from anyone else in
@@ -543,7 +550,7 @@ def collect_lane(lane, shown, mails, reports, s, env, cache, gaps, said=()):
         found.sort()
         verdict, vv, vd, vs = ("untested", None, None, None) if not found else (found[-1][1], found[-1][2], found[-1][0][:10], found[-1][3])
         after = [b for b in builds if int(b) > int(r["first_build"])]
-        row = {"id": rid, "ticket": t, "url": JIRA_URL + t if t else None, "also": r.get("also", []), "title": title,
+        row = {"kind": "version", "id": rid, "ticket": t, "url": JIRA_URL + t if t else None, "also": r.get("also", []), "title": title,
                "layer": layer, "first_build": r["first_build"], "lane_build": st["lane_build"], "how_to_verify": how,
                "auto": auto_of(f"{title} {how}", bool(t)), "verdict": verdict, "verdict_version": vv, "verdict_date": vd,
                "verdict_source": vs, "age_days": (at - datetime.datetime.fromisoformat(r["first_at"])).days if r.get("first_at") else None,
@@ -560,15 +567,116 @@ def collect_lane(lane, shown, mails, reports, s, env, cache, gaps, said=()):
     rows.sort(key=lambda r: (r["priority"], r["verdict"] != "fail", -(r["age_days"] or 0), r["id"]))
     for n, r in enumerate(rows, 1):                         # the order Helm renders, on the row and in the state file
         r["rank"] = st["rows"][r["id"]]["rank"] = n
+    envs = env_rows(lane, st, s, env, reports, cache, gaps, sprint, at)
     st["updated"] = at.isoformat(timespec="minutes")
     save(path, json.dumps(st, ensure_ascii=False, indent=1))
     recent = (at - datetime.timedelta(days=7)).isoformat()
     left = [dict(v, id=k) for k, v in st["left"].items() if (v.get("left_at") or "") >= recent]
     return {"lane": lane, "shown": shown, "kind": "qa" if is_qa(lane) else "release check", "lane_build": st["lane_build"],
             "lane_label": (st["builds"].get(st["lane_build"]) or {}).get("label") or st["lane_build"],
-            "generated": at.isoformat(timespec="minutes"), "builds": {b: st["builds"][b] for b in builds}, "rows": rows,
+            "generated": at.isoformat(timespec="minutes"), "builds": {b: st["builds"][b] for b in builds}, "rows": rows, "env": envs,
             "left": left, "gaps": [f"{g['source']}: {g['error']}" for g in gaps], "departs_soon": soon, "path": path,
             "drafts": drafts}
+
+
+# ── environment rows: a problem on a lane that no build carries ──────────────────────────────────────
+
+ENV_LABEL = "env:"
+# a QA report line about the environment rather than a behaviour: a fault word, a problem word, and no ticket key
+ENV_FAULT_RX = re.compile(r"\b(dns|domain|certificate|cert|config(?:uration)?|propert(?:y|ies)|network|firewall|proxy|nginx|etcd|"
+                          r"powerjob|vendor|permission|quota|deploy(?:ment|ed)?)\b|\u57df\u540d|\u8bc1\u4e66|\u73af\u5883\u914d\u7f6e|"
+                          r"\u914d\u7f6e\u4e2d\u5fc3|\u7f51\u7edc|\u9632\u706b\u5899|\u90e8\u7f72|\u6743\u9650|\u4e91\u5382\u5546", re.I)
+# 域名 证书 环境配置 配置中心 网络 防火墙 部署 权限 云厂商; never a bare 配置, which in MediaHub is mostly an encoding profile (编码配置)
+PROBLEM_RX = re.compile(r"\b(fail\w*|error|cannot|can't|missing|wrong|mismatch|unreachable|timeout|down)\b|\u5931\u8d25|\u4e0d\u901a|"
+                        r"\u5f02\u5e38|\u9519\u8bef|\u65e0\u6cd5|\u62c9\u4e0d\u5230|\u672a\u751f\u6548", re.I)   # 失败 不通 异常 错误 无法 拉不到 未生效
+ENV_RECENT_DAYS = 7
+
+
+def env_owner(lane, roster=None):
+    """The environment's owner: the roster responsibility that owns env:<lane>, else "unowned"."""
+    try:
+        if roster is None:
+            import team as TM  # noqa: E402
+            roster = TM.read_roster(TM.records())[1]
+    except (SystemExit, ImportError, OSError, ValueError):
+        roster = []
+    return next((p["name"] for p in roster for r in p.get("responsibilities") or [] if ENV_LABEL + lane in (r.get("owns") or [])),
+                "unowned")
+
+
+def env_report_lines(report):
+    """A report's Test Result lines that name the environment, not a behaviour: [text]."""
+    body = report["text"].split("Test Result", 1)[-1] if "Test Result" in report["text"] else ""
+    return [" ".join(l.split())[:200] for l in body.splitlines()
+            if not l.lstrip().startswith(">") and ENV_FAULT_RX.search(l) and PROBLEM_RX.search(l) and not B.keys_in(l)]
+
+
+def env_found(lane, s, env, reports, cache, gaps):
+    """This run's environment problems on a lane, by source: ({id: {source, title, ticket, since}}, {sources read}).
+    lane: a China lane's services that differ from the lane it aligns with (region_reading, the lanes page's own);
+    label: tickets labelled env:<lane>, open or resolved in the last week; qa: the newest QA report's lines naming the
+    environment. A source not read resolves nothing."""
+    found, read = {}, set()
+    if B.R.lane_region(lane):
+        runner = os.path.join(s.get("runtime") or os.path.join(s.get("projects", ""), ".ela"), "runner")
+        try:
+            tested = json.load(open(os.path.join(runner, "qa-tested.json")))
+            snaps = B.lane_reads(runner)
+            g = B.region_reading(lane, tested, snaps[-1][2] if snaps else [])
+            if snaps:
+                read.add("lane")
+            for d in g["differences"]:
+                found[f"diff-{d['service']}"] = {"source": "lane", "ticket": None, "since": (g["at"] or "")[:10] or None,
+                                                 "title": f"{d['service']} {d['version']} here, {d['reference']} on {g['aligns_with']}"
+                                                          + (f" ({d['behind']} builds behind)" if d["behind"] else "")}
+        except (OSError, ValueError) as x:
+            gaps.append({"source": "lane differences", "error": str(x)[:200]})
+    try:
+        got = B.run_json(["python3", B.JIRA, *env, "jql", f'project = MH AND labels = "{ENV_LABEL}{lane}" AND '
+                          f'(statusCategory != Done OR resolved >= -{ENV_RECENT_DAYS}d) ORDER BY key', "--limit", "50", "--json"], timeout=120)["issues"]
+        read.add("label")
+        for i in got:
+            found[i["key"]] = {"source": "label", "ticket": i["key"], "title": i["summary"], "since": (i.get("created") or "")[:10] or None}
+    except (B.LaneError, subprocess.TimeoutExpired, ValueError) as x:
+        gaps.append({"source": f"jira {ENV_LABEL}{lane}", "error": str(x)[:200]})
+    newest = max(reports, key=lambda r: r["at"] or "", default=None)
+    if newest:
+        read.add("qa")
+        for line in env_report_lines(newest):
+            found["qa-" + hashlib.sha1(line.encode()).hexdigest()[:8]] = {"source": "qa", "ticket": None, "title": line,
+                                                                         "since": (newest["at"] or "")[:10] or None}
+    return found, read
+
+
+def env_rows(lane, st, s, env, reports, cache, gaps, sprint, at):
+    """The lane's environment rows (kind env), kept in its state file under "env": open while a source still names
+    it, resolved on the day it stops (a ticket: its resolution date). Open rows, and those resolved this week."""
+    found, read = env_found(lane, s, env, reports, cache, gaps)
+    kept, today = st.setdefault("env", {}), at.date().isoformat()
+    for k, f in found.items():
+        issue = jira_read(env, f["ticket"], cache, gaps) if f["ticket"] else None
+        fields = (issue or {}).get("fields") or {}
+        done = ((fields.get("status") or {}).get("statusCategory") or {}).get("key") == "done"
+        was = kept.get(k) or {}
+        kept[k] = dict(was, id=k, source=f["source"], ticket=f["ticket"], title=fields.get("summary") or f["title"],
+                       since=was.get("since") or f["since"] or today, state="resolved" if done else "open",
+                       resolved=(fields.get("resolutiondate") or today)[:10] if done else None)
+    for k, r in kept.items():
+        if k not in found and r["state"] == "open" and r["source"] in read:
+            r.update(state="resolved", resolved=today)
+    owner, recent = env_owner(lane), (at - datetime.timedelta(days=ENV_RECENT_DAYS)).date().isoformat()
+    rows = []
+    for r in kept.values():
+        if r["state"] == "resolved" and (r["resolved"] or "") < recent:
+            continue
+        issue = cache.get(r["ticket"]) if r["ticket"] else None
+        row = {"kind": "env", "id": r["id"], "lane": lane, "ticket": r["ticket"], "url": JIRA_URL + r["ticket"] if r["ticket"] else None,
+               "also": [], "title": r["title"], "source": r["source"], "since": r["since"], "owner": owner, "state": r["state"],
+               "resolved": r["resolved"], "verdict": f"resolved on {lane} {r['resolved']}" if r["state"] == "resolved" else "open"}
+        row["priority"], row["priority_reason"] = priority(dict(row, verdict="untested"), (issue or {}).get("fields") or {}, sprint, 0)
+        rows.append(row)
+    rows.sort(key=lambda r: (r["state"] != "open", r["priority"], r["since"] or "", r["id"]))
+    return rows
 
 
 def collect(a, s, env):
@@ -644,6 +752,7 @@ def render_page(out):
         L.append(f"| **{r['priority']}** {cell(r['priority_reason'], 60)} | {link(r)} | {cell(r['title'], 90)} | {r['layer']} | "
                  f"{cell(r['how_to_verify'])} | {'yes' if r['auto'] else '–'} | {v} | {r['first_build']} → {r['lane_build']} | "
                  f"{r['age_days'] if r['age_days'] is not None else '?'}d | {cell((r['ela_saw'] or {}).get('line') if r['ela_saw'] else '', 120)} |")
+    L += env_section(out.get("env") or [])
     if out["left"]:
         L += ["", "## Left the list this week", ""]
         for r in sorted(out["left"], key=lambda r: r.get("left_at") or ""):
@@ -658,6 +767,23 @@ def render_page(out):
           "leaves within a working day. Generated by `ela testlist --lane "
           f"{out['lane']} --page`.*"]
     return "\n".join(L) + "\n"
+
+
+ENV_SOURCE = {"lane": "differs from the aligned lane", "label": "ticket labelled env:", "qa": "QA report"}
+
+
+def env_section(rows):
+    """Environment, not code: the problems on a lane that no build carries; nobody is asked to fix one in code."""
+    if not rows:
+        return []
+    L = ["", "## Environment, not code", "", "Problems of the environment itself — a version that differs from the lane it "
+         "aligns with, a config, DNS or region difference, an infra fault. No build carries them; the environment's owner "
+         "resolves them.", "", "| | what | source | since | owner | state |", "|---|---|---|---|---|---|"]
+    for r in rows:
+        what = (f"[{r['ticket']}]({r['url']}) " if r["ticket"] else "") + cell(r["title"], 120)
+        L.append(f"| **{r['priority']}** {cell(r['priority_reason'], 40)} | {what} | {ENV_SOURCE.get(r['source'], r['source'])} | "
+                 f"{r['since'] or '?'} | {r['owner']} | {r['verdict']} |")
+    return L
 
 
 def release_thread(env, date, gaps):
@@ -872,6 +998,8 @@ def print_list(out, page):
     for r in out["rows"]:
         print(f"  {r['priority']} {(r['ticket'] or 'no ticket'):<10} {r['layer']:<7} {'auto' if r['auto'] else '    '} "
               f"{r['verdict']:<8} {r['first_build']}→{r['lane_build']} {str(r['age_days']) + 'd':>4}  {cell(r['title'], 60)}  · {r['priority_reason']}")
+    for r in out.get("env") or []:
+        print(f"  env {r['priority']} {(r['ticket'] or r['source']):<10} {r['verdict']:<28} since {r['since']}  {cell(r['title'], 60)}  · {r['owner']}")
     for r in out["left"]:
         print(f"  left: {r.get('ticket') or r['id']} — {r.get('why')}")
     for g in out["gaps"]:
@@ -981,7 +1109,9 @@ def collect_dev(line, s, env, shared):
     fid = (R.rmap("fixed_in") or {}).get("field") or "customfield_11252"
     runtime = s.get("runtime") or os.path.join(s.get("projects", ""), ".ela")
     rows, errs = [], []
-    found = [i for i in found if i["status"] in DEV_STATUSES or i["key"] in by_key or i["key"] in tl_rows or i["key"] in secondary]
+    env_tickets = {i["key"]: i for i in found if any(str(l).startswith(ENV_LABEL) for l in i.get("labels") or [])}
+    found = [i for i in found if i["key"] not in env_tickets and                # an environment's problem asks no developer
+             (i["status"] in DEV_STATUSES or i["key"] in by_key or i["key"] in tl_rows or i["key"] in secondary)]
     prefetch(env, [i["key"] for i in found], cache, errs)
     gaps += [{"source": g.split(": ", 1)[0], "error": g.split(": ", 1)[-1]} for g in errs]
     for i in found:
@@ -1021,7 +1151,29 @@ def collect_dev(line, s, env, shared):
     for n, r in enumerate(rows, 1):
         r["rank"] = n
     return {"line": str(line), "lane": lane, "generated": now().isoformat(timespec="minutes"), "rows": rows,
-            "unticketed": unticketed, "gaps": [f"{g['source']}: {g['error']}" for g in gaps]}
+            "unticketed": unticketed, "env": dev_env(cfg, s, env_tickets), "gaps": [f"{g['source']}: {g['error']}" for g in gaps]}
+
+
+def dev_env(cfg, s, env_tickets):
+    """The line's open environment rows: those its lanes' test lists keep (the China lanes aligned with its prod lane
+    among them), and its tickets labelled env:<lane>; one row per ticket or difference."""
+    lanes = list((cfg.get("lanes") or {}).values())
+    lanes += B.region_lanes((cfg.get("lanes") or {}).get("prod"))
+    out, seen = [], set()
+    for lane in lanes:
+        owner = None
+        for r in (load_state(state_path(s, lane), lane).get("env") or {}).values():
+            if r.get("state") == "open" and (r.get("ticket") or r["id"]) not in seen:
+                seen.add(r.get("ticket") or r["id"])
+                owner = owner or env_owner(lane)
+                out.append({"lane": lane, "id": r["id"], "ticket": r.get("ticket"), "title": r["title"], "since": r.get("since"),
+                            "owner": owner, "source": r["source"]})
+    for k, i in env_tickets.items():
+        if k not in seen:
+            lane = next(l[len(ENV_LABEL):] for l in i["labels"] if str(l).startswith(ENV_LABEL))
+            out.append({"lane": lane, "id": k, "ticket": k, "title": i["summary"], "since": (i.get("created") or "")[:10] or None,
+                        "owner": env_owner(lane), "source": "label"})
+    return out
 
 
 def render_dev(out):
@@ -1043,6 +1195,11 @@ def render_dev(out):
                  f"{tick(r['ready']['verdict'])} | {cell('; '.join(r['gaps']), 120)} |")
     if out["unticketed"]:
         L += ["", "## Build changes with no ticket", ""] + [f"- build {u['build']}: {cell(u['text'], 160)}" for u in out["unticketed"]]
+    if out.get("env"):
+        L += ["", "## Environment, not code", "", "Open problems of an environment, not of a build: no developer is asked to "
+              "fix them; the environment's owner resolves them on the lane.", ""]
+        L += [f"- {r['lane']}: " + (f"[{r['ticket']}]({JIRA_URL}{r['ticket']}) " if r["ticket"] else "") + f"{cell(r['title'], 140)} — "
+              f"{ENV_SOURCE.get(r['source'], r['source'])}, since {r['since'] or '?'}, owner {r['owner']}" for r in out["env"]]
     if out["gaps"]:
         L += ["", "## Not read", ""] + [f"- {g[:200]}" for g in out["gaps"]]
     L += ["", f"*Generated by `ela devlist --line {out['line']} --page`.*"]
@@ -1056,6 +1213,8 @@ def print_dev(out, page):
               f"FI {'✓' if r['fixed_in'] else '–'}  {cell(r['title'], 50)}" + (f"\n            ! {'; '.join(r['gaps'])}" if r["gaps"] else ""))
     for u in out["unticketed"]:
         print(f"  no ticket (build {u['build']}): {cell(u['text'], 100)}")
+    for r in out.get("env") or []:
+        print(f"  environment, not code ({r['lane']}): {r['ticket'] or r['source']} {cell(r['title'], 80)} · {r['owner']}")
     if page and out.get("page"):
         print(f"page: {out['page']}")
 
@@ -1150,7 +1309,7 @@ def dev_text(line, plan, at):
 
 def cmd_dev(a):
     """One line, or every line release.yaml names with a Jira label; a line with no ticket in development writes nothing.
-    --page also writes <reports>/lanes/dev-list-<line>.json ({line, generated, rows, unticketed, gaps}) for the board."""
+    --page also writes <reports>/lanes/dev-list-<line>.json ({line, generated, rows, unticketed, env, gaps}) for the board."""
     import release as R  # noqa: E402 — on the path through brief
     s = site()
     env = ["--env-file", a.env_file] if a.env_file else []
@@ -1167,7 +1326,7 @@ def cmd_dev(a):
         if a.page:
             base = os.path.join(reports_root(s), "lanes", f"dev-list-{out['line']}")
             save(base + ".md", render_dev(out))
-            save(base + ".json", json.dumps({k: out[k] for k in ("line", "lane", "generated", "rows", "unticketed", "gaps")},
+            save(base + ".json", json.dumps({k: out[k] for k in ("line", "lane", "generated", "rows", "unticketed", "env", "gaps")},
                                             ensure_ascii=False, indent=1))
             out["page"] = base + ".md"
         outs.append(out)
