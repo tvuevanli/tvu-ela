@@ -412,7 +412,8 @@ def settle_statuses(vault, dry_run=False):
             if nxt and not props.get(NEXT):
                 want[NEXT] = nxt
             if folder in (IN_PROGRESS, ARCHIVE):            # the set its status chooser lists
-                want[MOVE_SET] = "closed" if folder == ARCHIVE else props.get(MOVE_SET) or "built"
+                want[MOVE_SET] = (props.get(MOVE_SET) if props.get(MOVE_SET) == "reopen" else "closed") if folder == ARCHIVE \
+                    else props.get(MOVE_SET) or "built"
             changed = {k: v for k, v in want.items() if (v or None) != (props.get(k) or None)}
             if not changed:
                 continue
@@ -1188,7 +1189,7 @@ def ela_line(vault):
 # ── the ela page: generated where it can be, three sections his ─────────────────────────────────────────
 OVERVIEW, PROGRAM = "ela/overview.md", "mh/engineering-management.md"
 HAND_SECTIONS = ("Waiting for your word", "What changed for MediaHub this week", "Known limits")
-GENERATED_SECTIONS = ("Measures", "The parts", "The schedule", "This week in ela")
+GENERATED_SECTIONS = ("Measures", "The parts", "The schedule", "This week in ela", "Closed by ela this week")
 
 
 def run_out(cmd, timeout=10):
@@ -1317,8 +1318,29 @@ def overview_note(s, vault, today):
                  else f"- **{name}:** not read")
         L += [f"  - {c}" for c in commits[:5]]
     L.append("")
+    L += ["## Closed by ela this week", ""] + closed_by_ela(s, today) + [""]
     text = "\n".join(L) + "\n" + "\n".join(t for _, t in hand)
     return Note(OVERVIEW, "ela", text, {"type": "guide", "date": today.isoformat()})
+
+
+def closed_by_ela(s, today, days=7):
+    """The built notes the runner archived after three working days with no ruling (<reports>/ela/closed-by-ela.jsonl),
+    the last week's, each a link to its archived note, which offers `reopen`."""
+    path = os.path.join(s.get("reports") or "", "ela", "closed-by-ela.jsonl")
+    since = (today - datetime.timedelta(days=days)).isoformat()
+    rows = []
+    try:
+        for line in open(path, encoding="utf-8"):
+            try:
+                r = json.loads(line)
+            except ValueError:
+                continue
+            if (r.get("at") or "")[:10] >= since and r.get("note"):
+                rows.append(f"- [[{r['note'][:-3] if r['note'].endswith('.md') else r['note']}|{r.get('title') or r['note']}]] — "
+                            f"closed by ela {(r.get('at') or '')[:10]}, built {r.get('built') or '?'}; reopen if wrong")
+    except OSError:
+        pass
+    return rows or ["Nothing: every built note had your ruling."]
 
 
 def home_open(vault):
@@ -1706,10 +1728,11 @@ MOVE_PROPS = {                   # by kind, beyond done and drop, which every no
     "built": ["accept", "not-done"],
     "ticket": ["nudge", "go-deep", "seen", "drop"],   # a ticket's moves only: "done" would read as the ticket's Jira Done
     "parked": ["resume", "drop"],          # a parked note's only moves: it comes back, or it ends
+    "reopen": ["reopen"],                  # a built note ela archived after three working days unruled: one click back
 }
-OUT_OF_TO_READ = ("built", "parked")       # kinds whose moves are their own, without done and drop
+OUT_OF_TO_READ = ("built", "parked", "reopen")       # kinds whose moves are their own, without done and drop
 ALL_MOVE_PROPS = ("agree", "park", "not-now", "reject", "make-plan", "draft-comment", "confirm", "accept", "not-done", "nudge", "go-deep",
-                  "seen", "resume", "run")   # run: the retired verify-plan gate's box, still stripped from old notes
+                  "seen", "resume", "run", "reopen")   # run: the retired verify-plan gate's box, still stripped from old notes
 MOVE_MEANING = {
     "agree": "ela builds it: the note moves to `in-progress/` and each step is written under Progress",
     "park": "parked: it waits on others; comes back when `wake` happens",
@@ -1722,6 +1745,7 @@ MOVE_MEANING = {
     "go-deep": "ela reads the ticket to its root cause in the code (`ela probe`) and writes what it finds under this page",
     "seen": "archived: you have read where it stands",
     "resume": "back to `to-read/` as proposed, for your next decision",
+    "reopen": "back to `in-progress/` as built, for your accept or not-done: ela closed it, and that was wrong",
     "done": "archived, nothing more", "drop": "deleted",
 }
 MOVES = MOVE_PROPS               # a kind with moves gets the section that explains them
@@ -1757,7 +1781,7 @@ def write_move_sets(vault):
     sets = {k: move_props(k, in_to_read=k not in OUT_OF_TO_READ) for k in MOVE_PROPS}
     sets["read"] = list(MARKS)
     sets["closed"] = []                                    # an archived note: its status only, its next already written
-    folder_of = {"built": IN_PROGRESS, "parked": PARKED, "closed": ARCHIVE}
+    folder_of = {"built": IN_PROGRESS, "parked": PARKED, "closed": ARCHIVE, "reopen": ARCHIVE}
 
     def field(name, values):
         vals = "".join(f'\n        "{i}": {m}' for i, m in enumerate(values, 1))
@@ -1875,10 +1899,12 @@ def move_note(vault, reports, rel, to, status=None, waits_on=None, wake=None, ne
             MOVE_SET: "parked", NEXT: ""})
     else:
         text = set_front(text, source="vault", status=st, claimed=None, **{"waits-on": None, "wake": None, "parked": None})
-        if folder == ARCHIVE:                              # the outcome stays in next; status says only that it is closed
+        if folder == ARCHIVE and next_ == "reopen":         # closed by ela, unruled: his one move is to reopen it
+            text = set_front(text, **{MOVE_SET: "reopen", NEXT: "", "closed-by": "ela"})
+        elif folder == ARCHIVE:                            # the outcome stays in next; status says only that it is closed
             text = set_front(text, **{MOVE_SET: "closed", NEXT: nxt or ""})
         elif folder == IN_PROGRESS:
-            text = set_front(text, **{MOVE_SET: "built", NEXT: ""})
+            text = set_front(text, **{MOVE_SET: "built", NEXT: "", "closed-by": None})
         elif folder == READINGS:                           # a reading has no life: no status, no moves
             text = set_front(text, **{MOVE_SET: None, NEXT: None})
     dst = free_path(os.path.join(vault, folder), os.path.basename(rel), own=p)
@@ -2015,7 +2041,7 @@ def apply_marks(vault, reports, dry_run=False):
     deleted it; every other move is reported for the runner, which acts and empties the field. A value that is not a
     move for that note runs nothing, and the note says so. Returns [(path, move)]."""
     out = []
-    found = [(folder, f"{folder}/{f}") for folder in (TO_READ, IN_PROGRESS, PARKED)
+    found = [(folder, f"{folder}/{f}") for folder in (TO_READ, IN_PROGRESS, PARKED, ARCHIVE)
              for f in (sorted(os.listdir(os.path.join(vault, folder))) if os.path.isdir(os.path.join(vault, folder)) else [])]
     for folder, rel in found:
         f = os.path.basename(rel)
@@ -2027,7 +2053,9 @@ def apply_marks(vault, reports, dry_run=False):
         except OSError:
             continue
         props = props_of(fl)
-        kind = "parked" if folder == PARKED else "built" if props.get("status") == "built" else props.get("type")
+        if folder == ARCHIVE and props.get(MOVE_SET) != "reopen":
+            continue                                        # the owner's archive: only a note ela closed offers a move
+        kind = "reopen" if folder == ARCHIVE else "parked" if folder == PARKED else "built" if props.get("status") == "built" else props.get("type")
         allowed = move_props(kind, in_to_read=folder == TO_READ)
         # the earlier checkbox form, while a note still carries it
         boxes = [k for k in tuple(MARKS) + ALL_MOVE_PROPS if props.get(k, "").lower() == "true"]
@@ -2043,6 +2071,8 @@ def apply_marks(vault, reports, dry_run=False):
             finish(vault, reports, rel, {"done": "archive", "seen": "archive", "drop": "delete"}[move], move)
         elif move == "resume" and not dry_run:      # a script move: the note's next decision is his again
             move_note(vault, reports, rel, "to-read", "proposed")
+        elif move == "reopen" and not dry_run:      # ela closed it wrongly: back to building's end, his to accept
+            move_note(vault, reports, rel, "in-progress", "built")
     return out
 
 

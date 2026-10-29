@@ -539,4 +539,26 @@ check("a plan over 800 words above its fold is held",
       any("above the fold" in x for x in V.reading_gate(V.Note("in-progress/p.md", "p", "# A plan\n\n" + "word " * 1000, {"type": "plan"}))))
 rd = "# The reader\n\n## Learned\n\n" + "".join(f"- a lesson {i} — origin\n" for i in range(7))
 check("a reader page with more than five Learned lines is held", "7 Learned lines" in " ".join(V.reading_gate(V.Note("ela/review/r.md", "r", rd, {"type": "reader"}))))
+with tempfile.TemporaryDirectory() as t:
+    vault, reports = os.path.join(t, "v"), os.path.join(t, "r")
+    os.makedirs(os.path.join(vault, "in-progress")); os.makedirs(os.path.join(reports, "ela"))
+    open(os.path.join(vault, "in-progress", "p.md"), "w").write('---\ntype: "plan"\nstatus: "built"\nmoves: "built"\n---\n# P\n')
+    got = V.move_note(vault, reports, "in-progress/p.md", "archive", next_="reopen")
+    fm = V.props_of(V.split_front(open(os.path.join(vault, got)).read())[0])
+    check("archived by ela after three working days: closed, offering reopen", got == "archive/p.md" and fm.get("status") == "closed"
+          and fm.get("moves") == "reopen" and fm.get("closed-by") == "ela")
+    check("the status pass leaves its reopen set alone", not any("moves" in x for x in V.settle_statuses(vault)))
+    txt = open(os.path.join(vault, got)).read()
+    open(os.path.join(vault, got), "w").write(txt.replace('next: ""', 'next: "reopen"'))
+    check("his reopen is a move", V.apply_marks(vault, reports) == [("archive/p.md", "reopen")])
+    fm = V.props_of(V.split_front(open(os.path.join(vault, "in-progress", "p.md")).read())[0])
+    check("reopen brings it back to in-progress as built", fm.get("status") == "built" and fm.get("moves") == "built" and not fm.get("closed-by"))
+with tempfile.TemporaryDirectory() as t:
+    os.makedirs(os.path.join(t, "ela"))
+    with open(os.path.join(t, "ela", "closed-by-ela.jsonl"), "w") as fh:
+        fh.write('{"at": "2026-10-29T08:00:00+08:00", "note": "archive/p.md", "title": "A plan", "built": "10-24 18:00"}\n')
+        fh.write('{"at": "2026-10-10T08:00:00+08:00", "note": "archive/old.md", "title": "Old"}\n')
+    rows = V.closed_by_ela({"reports": t}, datetime.date(2026, 10, 29))
+    check("the ela page lists the week's notes ela closed, each reopenable", rows == ["- [[archive/p|A plan]] — closed by ela 2026-10-29, built 10-24 18:00; reopen if wrong"])
+check("nothing closed says so", V.closed_by_ela({"reports": "/nonexistent"}, datetime.date(2026, 10, 29))[0].startswith("Nothing"))
 sys.exit(1 if failures else 0)
