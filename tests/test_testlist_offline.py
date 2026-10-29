@@ -62,13 +62,17 @@ check("a stream is never auto", not TL.auto_of("the sender outputUrl in the list
 check("a no-ticket row is never auto", not TL.auto_of("a page shows a list", False))
 
 row = {"ticket": "MH-1", "verdict": "untested"}
-check("a customer label is P1", TL.priority(row, {"labels": ["customer-issue"]}, set(), set(), 0)[0] == "P1")
-check("a failed row is a P1 re-test", TL.priority(dict(row, verdict="fail", verdict_version="2.1.36"), {}, set(), set(), 0)
+check("a customer label is P1", TL.priority(row, {"labels": ["customer-issue"]}, set(), 0)[0] == "P1")
+check("a failed row is a P1 re-test", TL.priority(dict(row, verdict="fail", verdict_version="2.1.36"), {}, set(), 0)
       == ("P1", "re-test: failed on 2.1.36"))
-check("the next train is P1", TL.priority(row, {}, {"MH-1"}, set(), 0)[0] == "P1")
-check("the sprint is P2", TL.priority(row, {}, set(), {"MH-1"}, 0)[0] == "P2")
-check("High is P2", TL.priority(row, {"priority": {"name": "High"}}, set(), set(), 0)[0] == "P2")
-check("two builds old moves up one", TL.priority(row, {}, set(), set(), 2) == ("P2", "the rest, 2 builds old"))
+check("riding the next train ranks nothing", TL.priority(row, {}, set(), 0)[0] == "P3")
+check("a customer's bracket is P1", TL.priority(row, {"summary": "[NDTV] audio-only HLS"}, set(), 0) == ("P1", "customer incident (NDTV)"))
+check("a layer prefix is not a customer", TL.priority(row, {"summary": "[App] a field"}, set(), 0)[0] == "P3")
+check("a hotfix label is P1", TL.priority(row, {"labels": ["hotfix-2.1"]}, set(), 0) == ("P1", "hotfix"))
+check("a train within a working day lifts an untested row", TL.priority(row, {}, set(), 0, True)[0] == "P2")
+check("the sprint is P2", TL.priority(row, {}, {"MH-1"}, 0)[0] == "P2")
+check("High is P2", TL.priority(row, {"priority": {"name": "High"}}, set(), 0)[0] == "P2")
+check("two builds old moves up one", TL.priority(row, {}, set(), 2) == ("P2", "the rest, 2 builds old"))
 
 v = lambda t: TL.QA_VERSION_RX.search(t)  # noqa: E731
 check("an address is not a version", v("on 10.12.64.45 it fails") is None)

@@ -13,9 +13,11 @@ list  The lane's release mails (Test Focus and Change Log) give the rows: one pe
       (visible in the browser UI: a page, a list, a dialog, a field; never media quality, streams, audio or timing),
       the priority with its reason, QA's verdict (a QA person's ticket comment naming a version and a verdict, or the
       key's line in a QA report mail, after the row's first build), its age and what the night run saw.
-      Priority, first rule that holds: P1 a customer incident (label or component), a fix on the next train (the
-      pending promotion from this lane), a re-test after a fail; P2 in the sprint, or Highest/High; P3 the rest. A
-      row two or more builds older than the lane's moves up one.
+      Priority, first rule that holds: P1 a customer incident (a customer's bracket on the summary, a label or a
+      component), a re-test after a fail, a hotfix; P2 in the sprint, or Highest/High; P3 the rest. A row two or more
+      builds older than the lane's moves up one; so does a row without a verdict when the train leaves within a
+      working day (the pending promotion's `departs`, once the cadence records it). Riding the next train ranks
+      nothing: everything on QA rides it.
       State: <reports>/lanes/test-list-<lane>.json keeps each row's first build and verdict across builds; a new build
       adds rows and re-stamps lane_build; a row leaves only on a pass (or N/A) or when its ticket is withdrawn (closed
       won't do). --page writes <reports>/lanes/test-list-<lane>.md; the vault sync places it at lanes/.
@@ -66,6 +68,7 @@ MEDIA_RX = re.compile(r"\b(stream|streams|audio|volume level|video quality|bitra
                       r"outputurl|output format|multiprogram|copier|transcod\w*|graph)\b|POST\s+/|/api/|\u97f3\u9891|\u89c6\u9891|\u7801\u7387|\u5ef6\u8fdf", re.I)
 CHORE_RX = re.compile(r"^\s*(CI|unit tests?|tests?|docs?)\b.*\bfix", re.I)
 WITHDRAWN_RX = re.compile(r"won'?t|cancel|duplicate|reject|invalid|not a bug", re.I)
+HOTFIX_RX = re.compile(r"hot-?fix|prod[-_ ]?patch", re.I)
 CUSTOMER_RX = re.compile(r"customer|incident|prod[-_ ]?issue|escalat", re.I)
 # a version a QA comment names: 2.2.123, v2.1.36 build267, build 75; never an address (10.12.64.45)
 QA_VERSION_RX = re.compile(r"(?<![\d.])v?(\d+\.\d+\.\d+)(?!\d|\.\d)(?:\s*build\s*(\d+))?|\bbuild\s*(\d+)\b", re.I)
@@ -303,16 +306,18 @@ def report_verdicts(reports, key, since, build):
 
 # ── the list ─────────────────────────────────────────────────────────────────────────────────────────
 
-def train_keys(s, lane):
-    """Keys on the next train: the pending promotion from this lane, while it is open."""
-    pending = B.read_pending(s)
-    if not pending or pending.get("from") != lane:
-        return set()
+def departs_soon(s, at):
+    """Whether the next train leaves within one working day: the pending promotion's `departs` date, once the cadence
+    records one; unknown (False) until then."""
+    d = (B.read_pending(s) or {}).get("departs")
     try:
-        rep = json.load(open(pending.get("report") or ""))
-    except (OSError, ValueError, TypeError):
-        return set()
-    return {t["key"] for t in (rep.get("tickets") or {}).get("tickets") or [] if t.get("exists", True)}
+        day = datetime.date.fromisoformat(str(d)[:10])
+    except ValueError:
+        return False
+    nxt = at.date() + datetime.timedelta(days=1)
+    while nxt.weekday() >= 5:
+        nxt += datetime.timedelta(days=1)
+    return at.date() <= day <= nxt
 
 
 def sprint_keys(s):
@@ -323,17 +328,22 @@ def sprint_keys(s):
     return {k for it in sp.get("items") or [] for k in it.get("keys") or []}
 
 
-def priority(row, fields, train, sprint, builds_after):
+def priority(row, fields, sprint, builds_after, soon=False):
+    """P1 a customer incident (a customer's bracket on the summary, a label or component), a re-test after a fail, a
+    hotfix; P2 the sprint, Highest/High; P3 the rest. Two builds old lifts one level; so does a train leaving within a
+    working day, for a row without a verdict. Everything on QA rides the next train, so riding it ranks nothing."""
     labels = " ".join([*(fields.get("labels") or []), *[c.get("name", "") for c in fields.get("components") or []]])
     prio = ((fields.get("priority") or {}).get("name") or "")
     parent = (fields.get("parent") or {}).get("key")
-    t = row["ticket"]
-    if t and (CUSTOMER_RX.search(labels) or t.startswith("FB-") or parent == B.UMBRELLA):
-        p, why = 1, "customer incident"
+    t, summary = row["ticket"], fields.get("summary") or ""
+    bracket = re.match(r"^\[([^\]]+)\]", summary)
+    customer = bracket and not PREFIX_RX.match(summary)
+    if t and (CUSTOMER_RX.search(labels) or customer or t.startswith("FB-") or parent == B.UMBRELLA):
+        p, why = 1, f"customer incident ({bracket.group(1)})" if customer else "customer incident"
     elif row["verdict"] == "fail":
         p, why = 1, f"re-test: failed on {row.get('verdict_version') or '?'}"
-    elif t and t in train:
-        p, why = 1, "on the next train"
+    elif t and HOTFIX_RX.search(labels + " " + summary):
+        p, why = 1, "hotfix"
     elif t and t in sprint:
         p, why = 2, "in the sprint"
     elif prio in ("Highest", "High"):
@@ -342,6 +352,8 @@ def priority(row, fields, train, sprint, builds_after):
         p, why = 3, "the rest"
     if builds_after >= 2 and p > 1:
         p, why = p - 1, f"{why}, {builds_after} builds old"
+    if soon and p > 1 and row["verdict"] == "untested":
+        p, why = p - 1, f"{why}, the train leaves within a working day"
     return f"P{p}", why
 
 
@@ -392,7 +404,7 @@ def collect(a, s, env):
     builds = sorted(st["builds"], key=int)
     st["lane_build"] = builds[-1] if builds else None
     qa, _ = T.qa_names()
-    train, sprint = train_keys(s, lane), sprint_keys(s)
+    sprint, soon = sprint_keys(s), departs_soon(s, now())
     rows, at = [], now()
     for rid, r in list(st["rows"].items()):
         t = r["ticket"]
@@ -425,7 +437,7 @@ def collect(a, s, env):
                "verdict_source": vs, "age_days": (at - datetime.datetime.fromisoformat(r["first_at"])).days if r.get("first_at") else None,
                "ela_saw": r.get("ela_saw"), "flag": None if t else "no ticket", "status": (f.get("status") or {}).get("name"),
                "assignee": J.name_of(f.get("assignee")) if f.get("assignee") else None}
-        row["priority"], row["priority_reason"] = priority(row, f, train, sprint, len(after))
+        row["priority"], row["priority_reason"] = priority(row, f, sprint, len(after), soon)
         if verdict in ("pass", "n-a"):
             st["left"][rid] = dict(r, left_at=at.isoformat(timespec="minutes"), why=f"{verdict} on {vv} ({vd}, {vs})")
             del st["rows"][rid]
@@ -439,7 +451,7 @@ def collect(a, s, env):
     left = [dict(v, id=k) for k, v in st["left"].items() if (v.get("left_at") or "") >= recent]
     return {"lane": lane, "shown": shown, "lane_build": st["lane_build"], "generated": at.isoformat(timespec="minutes"),
             "builds": {b: st["builds"][b] for b in builds}, "rows": rows, "left": left, "gaps": [f"{g['source']}: {g['error']}" for g in gaps],
-            "train": bool(train), "path": path}
+            "departs_soon": soon, "path": path}
 
 
 # ── output ───────────────────────────────────────────────────────────────────────────────────────────
@@ -479,8 +491,9 @@ def render_page(out):
                                   sorted(out["builds"].items(), key=lambda kv: -int(kv[0]))[:6]]
     if out["gaps"]:
         L += ["", "## Not read", ""] + [f"- {g[:200]}" for g in out["gaps"]]
-    L += ["", "*Priority: P1 a customer incident, a fix on the next train, a re-test after a fail · P2 the sprint, Jira "
-          "Highest/High · P3 the rest · a row two builds older than the lane moves up one. Generated by `ela testlist --lane "
+    L += ["", "*Priority: P1 a customer incident, a re-test after a fail, a hotfix · P2 the sprint, Jira Highest/High · "
+          "P3 the rest · a row two builds older than the lane moves up one, and so does an untested row when the train "
+          "leaves within a working day. Generated by `ela testlist --lane "
           f"{out['lane']} --page`.*"]
     return "\n".join(L) + "\n"
 
