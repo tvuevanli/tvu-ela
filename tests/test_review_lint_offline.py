@@ -82,6 +82,10 @@ with tempfile.TemporaryDirectory() as t:
     check("an action file no drafted command names is stray",
           RV.stray_action_files(ap, [{"command": f"ela jira comment MH-1 --from-file {t}/actions/2026-10-29/MH-1-a.txt"}]) == ["MH-2-assign.txt"]
           and RV.stray_action_files(os.path.join(t, "2026-10-30-actions.json"), []) == [])
+ut = {"build": "78", "due": "2026-10-29T17:00+08:00"}
+check("the build under test called untested or unreported fails; the verdict build and a due time pass",
+      [x[:52] for x in RV.lint("Build 78 is untested. Build 77 has no QA report. Build 78's verdict is due 17:00.", testing=ut)]
+      == ["build 78 is under test until 10-29 17:00, never unte"])
 long = "# Morning brief\n\n" + "word " * 1400
 check("a day page over the vault's reading budget gives the vault's line; within it, or not a day page, nothing",
       RV.budget("/r/runner/2026-10-28-brief.md", long, "/no/actions.json") == "1,402 words, budget 1,200"

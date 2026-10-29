@@ -142,10 +142,31 @@ def summary_mornings(text):
     return out
 
 
-def lint(text, actions=None, counts=None, bundles=None, in_vault=False, brief=False, handles=None):
+UNTESTED_RX = re.compile(r"\buntested\b|\bno (?:QA )?report\b|\bnot (?:yet )?tested\b|\bwithout (?:a )?QA report\b", re.I)
+
+
+def under_test_claims(text, build):
+    """Sentences that call the build still under QA's test cycle untested or unreported: [sentence]."""
+    if not build:
+        return []
+    rx = re.compile(r"\bbuild\s+" + re.escape(str(build)) + r"\b", re.I)
+    return [x.strip()[:80] for x in re.split(r"(?<=[.;!?])\s+|\n", outside_code(text)) if rx.search(x) and UNTESTED_RX.search(x)]
+
+
+def under_test(date):
+    """The build under QA's test cycle on the morning of `date` ({build, due}), or None."""
+    try:
+        b = B.qa_cycle(datetime.date.fromisoformat(date))["under_test_build"]
+    except (OSError, ValueError, KeyError):
+        return None
+    return {"build": b["build"], "due": b["due"]} if b else None
+
+
+def lint(text, actions=None, counts=None, bundles=None, in_vault=False, brief=False, handles=None, testing=None):
     """One line per failure, empty when the page passes. `actions` the day's drafted writes (None: not checked),
     `counts` the day's counts object, `bundles` every bundle name the reads held (None: not checked), `handles`
-    {Jira name: roster display name} for the people whose two differ (None: not checked)."""
+    {Jira name: roster display name} for the people whose two differ (None: not checked), `testing` the build under
+    QA's test cycle ({build, due}; None: not checked)."""
     fails = []
     for k in bare_keys(text, in_vault):
         fails.append(f"{k}: a ticket key that is not a link")
@@ -173,6 +194,8 @@ def lint(text, actions=None, counts=None, bundles=None, in_vault=False, brief=Fa
     for k, where in sorted(seen.items()):
         if len(where) > 1:
             fails.append(f"{k}: an item {len(where)} times (items {', '.join(where)})")
+    for x in under_test_claims(text, (testing or {}).get("build")):
+        fails.append(f"build {testing['build']} is under test until {testing['due'][5:16].replace('T', ' ')}, never untested: {x}")
     for said, real in summary_mornings(text):
         fails.append(f"summary: \"{said}\", but {real} item{'s' if real != 1 else ''} say so")
     plain = outside_code(text)
@@ -300,7 +323,8 @@ def cmd_lint(args):
         actions, counts, bundles, in_vault, brief = context(args.page, text, args.actions, args.date)
     except ValueError as e:
         print(f"lint: {e}", file=sys.stderr); sys.exit(2)
-    fails = lint(text, actions, counts, bundles, in_vault, brief, handles())
+    date = args.date or page_date(args.page, text)
+    fails = lint(text, actions, counts, bundles, in_vault, brief, handles(), under_test(date) if brief and date else None)
     if args.json:
         print(json.dumps({"page": args.page, "failures": fails}, ensure_ascii=False, indent=1))
     else:

@@ -2383,7 +2383,9 @@ def cmd_page_check(args):
     sys.path.insert(0, os.path.join(HERE, "..", "review"))
     import review                                       # the rest of the page's mechanical checks (`ela review lint`)
     _, counts, bundles, in_vault, _ = review.context(args.page, page, args.actions)
-    rest = review.lint(page, None, counts, bundles, in_vault, handles=review.handles())
+    date = review.page_date(args.page, page)
+    rest = review.lint(page, None, counts, bundles, in_vault, handles=review.handles(),
+                       testing=review.under_test(date) if date and args.page.endswith("-brief.md") else None)
     for line in rest:
         print(f"lint: {line}")
     for f in review.stray_action_files(args.actions, actions):

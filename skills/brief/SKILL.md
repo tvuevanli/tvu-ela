@@ -571,6 +571,16 @@ The page is read in Obsidian, so its form is fixed:
 (replay, the reader, the carried verdicts) · 01:00. The hours of the owner's day, his DM window and holidays are
 `ela day --json`, never constants.
 
+**QA's cycle.** QA-AWS3 receives a build around 17:00 and QA tests it until the same hour the next working day; the
+report comes that evening. On the morning of D, `ela day --json --date D` names two builds: `verdict_build`, the
+newest one QA reported on (sent D-2, reported D-1), and `under_test_build`, sent D-1, with its verdict `due`. The
+lanes page lists the last three days' builds under its table. A train item and every lane judgment use the verdict
+build; a Wednesday promotion is on Monday's 17:00 build. The build under test is named with its due time, and is
+never "untested", "no QA report yet" or a reason to hold a train: a hold is drafted only when the verdict build has
+a fail or a ticket gap. page-check flags a sentence that calls the build under test untested or unreported. *Why:
+the 2026-10-29 page held the train because build 78 had no report, while QA was testing it until 17:00 that day and
+had passed build 77 the evening before.*
+
 **A second morning run on the same date** rewrites the page, never the record of what was done. The actions already
 in `<date>-actions.json` with `applied` or `by_owner` keep their number and text, and their item is not offered
 again; new drafts take numbers after the highest one in the file, so an `apply N` he has seen never names a
