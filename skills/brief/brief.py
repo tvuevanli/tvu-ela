@@ -2413,10 +2413,11 @@ TIER_RULES = {
     "thread-reply": (2, TEAM_POST),
     "train-hold": (2, TEAM_POST),
     "train-promote": (2, TEAM_POST),
+    "test-list": (2, TEAM_POST),          # a build's new test-list rows in its release thread, sent at 19:00 (`ela testlist --new-rows`)
 }
 TRAIN_RULES = ("train-hold", "train-promote")
 DONE_LINE_RX = re.compile(r"^\s*[-*]\s+done\s+(\d+)\s+—\s+(.*)$", re.M)                    # tier 1, no box: ela did it
-DONT_BOX_RX = re.compile(r"^\s*[-*]\s+\[[ xX]\]\s+don't\s+(\d+)\s+—\s+at 10:00 unless you tick\b", re.I | re.M)   # tier 2
+DONT_BOX_RX = re.compile(r"^\s*[-*]\s+\[[ xX]\]\s+don't\s+(\d+)\s+—\s+at (\d{2}:\d{2}) unless you tick\b", re.I | re.M)   # tier 2, at its send_at
 
 
 def demoted_rules(reports):
@@ -2433,7 +2434,8 @@ def tier_check(page, actions, demoted=None, verdict_build=None):
     why}; `verdict_build` the build QA's latest report covers ({build, report}), which a train action's evidence names."""
     fails = []
     done = {int(n) for n, _ in DONE_LINE_RX.findall(page)}
-    dont = {int(n) for n in DONT_BOX_RX.findall(page)}
+    dont_at = {int(n): t for n, t in DONT_BOX_RX.findall(page)}
+    dont = set(dont_at)
     boxed = {int(n) for n in APPLY_BOX_RX.findall(page)}
     have = {}
     for a in actions:
@@ -2459,11 +2461,16 @@ def tier_check(page, actions, demoted=None, verdict_build=None):
                 named = re.findall(r"\bbuild\s+(\d+)", ev, re.I)
                 if b not in named or not re.search(r"\breport\b", ev, re.I) or any(x != b for x in named):
                     fails.append(f"action {n}: a train action's evidence names the verdict build {b} and its report: {ev[:70]}")
+            if rule == "test-list" and not (re.search(r"\bbuild\s+\d+", a.get("evidence") or "", re.I)
+                                            and re.search(r"\b(release )?mail\b", a.get("evidence") or "", re.I)):
+                fails.append(f"action {n}: a test-list post's evidence names the build and its release mail: {(a.get('evidence') or '')[:70]}")
+        if tier == 2 and n in dont_at and dont_at[n] != (a.get("send_at") or "10:00"):
+            fails.append(f"action {n}: the page says it goes at {dont_at[n]}, the action at {a.get('send_at') or '10:00'}")
         want = {1: done, 2: dont, 3: boxed}[tier]
         settled = a.get("applied") or a.get("by_owner") or a.get("vetoed")   # said in words on a rerun (§3b)
         if n not in want and not settled:
             fails.append(f"action {n}: a tier-{tier} action is written " + {1: "\"- done N — text · evidence\"",
-                         2: "\"- [ ] don't N — at 10:00 unless you tick: text\"", 3: "\"- [ ] apply N — text\""}[tier])
+                         2: "\"- [ ] don't N — at HH:MM unless you tick: text\" (10:00 unless its send_at says otherwise)", 3: "\"- [ ] apply N — text\""}[tier])
         for t, seen in ((1, done), (2, dont), (3, boxed)):
             if t != tier and n in seen:
                 fails.append(f"action {n}: tier {tier}, but the page writes it as tier {t}")

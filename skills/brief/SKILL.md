@@ -503,8 +503,8 @@ The page is read in Obsidian, so its form is fixed:
 - **An item is a `###` heading in plain words** (what is happening, never a lane tag such as `[cadence RED]`), one
   facts line (key, its Jira title in a few plain words, kind, who holds it, age), at most three bullets, then
   then **Do:** as one to three task lines, each finished work by ela, written by the action's tier (below):
-  `- done N — what ela wrote · evidence: …` for a tier-1 action (a line, no box), `- [ ] don't N — at 10:00 unless
-  you tick: what it posts` for a tier-2 one, `- [ ] apply N — what it writes` for a tier-3 one, or `- [ ] <option>`
+  `- done N — what ela wrote · evidence: …` for a tier-1 action (a line, no box), `- [ ] don't N — at HH:MM unless
+  you tick: what it posts` for a tier-2 one (its `send_at`, 10:00 when it has none), `- [ ] apply N — what it writes` for a tier-3 one, or `- [ ] <option>`
   for a decision (class D), where the tick is the ruling. Ticking a box without `apply N` runs nothing, so its line ends with where the decision is
   taken: `· decide at the 10:00 scrum`, or `· your call, no write`; page-check flags a box with neither. *Why: on
   2026-10-28 items 1 and 7 offered four such boxes, and the page did not say that ticking them wrote nothing.*
@@ -535,8 +535,9 @@ The page is read in Obsidian, so its form is fixed:
   Fixed In the builds ledger confirms; never a clear) and `assign-by-rule` (an assignment a closed routing rule
   gives); never a terminal status, a close, a transition or a customer-facing field. Tier 2, the runner sends it at
   10:00 unless he ticks "don't": `thread-reply` (a reply in a team channel's thread ela has read), `train-hold`,
-  `train-promote`, each an `ela slack post <thread permalink> … --team-thread`, which slack.py refuses outside the
-  team channels. Tier 3 is everything else, on his word only (`apply N`): customers, prod approvals, people,
+  `train-promote`, and at 19:00 `test-list` (a build's new test-list rows in its release thread, from `ela testlist
+  --new-rows`; its evidence names the build and its release mail), each an `ela slack post <thread permalink> …
+  --team-thread`, which slack.py refuses outside the team channels. Tier 3 is everything else, on his word only (`apply N`): customers, prod approvals, people,
   anything addressed to him, anything no closed rule admits. A tier-1 or tier-2 action carries `evidence`, one
   line he can check; a train action's evidence names the verdict build and its QA report (`ela day --json`
   `verdict_build`). Read `<reports>/review/tiers.json` first: a rule marked `demoted` (three corrections in seven

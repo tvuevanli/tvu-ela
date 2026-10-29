@@ -115,7 +115,7 @@ board every half hour on working days. An edit to a generated note is overwritte
 ticked boxes, which are kept. To change something, write an `ela:` line in the note or ask in a session. The exceptions are the pages ela writes in place, whose source is the vault itself: how ela works,
 plans for your decision.
 
-Start at [[home]]. Five lines: what ela did since you last looked, what leaves at 10:00 unless you tick "don't",
+Start at [[home]]. Five lines: what ela did since you last looked, what leaves at 10:00 (or its own send time) unless you tick "don't",
 what only you can do (at most three `apply` boxes), the MediaHub program's next step, and one line from ela. Below
 the line, links: the morning page, lanes, board, changes, the program, the ela page and all notes. A box ticked on
 Home is the same as on the morning page.
@@ -1086,8 +1086,10 @@ def home(today, now, notes, desk=None):
     L = [f"# {today:%a %Y-%m-%d}", ""]
     L += [f"**Done since you last looked:** {len(done)} Jira write{'s' if len(done) != 1 else ''} under a closed rule, "
           f"each with its evidence on {page}." if done else "**Done since you last looked:** nothing.", ""]
-    L += ["**At 10:00 unless you tick:**" + ("" if soon else " nothing.")]
-    L += [f"- [ ] don't {a['n']} — {a.get('text', '')}" for a in soon] + [""]
+    for at in sorted({"10:00"} | {a.get("send_at") or "10:00" for a in soon}):   # one heading per send time; 10:00 always
+        due = [a for a in soon if (a.get("send_at") or "10:00") == at]
+        L += [f"**At {at} unless you tick:**" + ("" if due else " nothing.")]
+        L += [f"- [ ] don't {a['n']} — {a.get('text', '')}" for a in due] + [""]
     L += ["**Only you:**" + ("" if mine else " nothing today.")]
     L += [f"- [ ] apply {a['n']} — {a.get('text', '')}" for a in mine[:3]]
     L += [f"*+{len(mine) - 3} more on {page}*"] if len(mine) > 3 else []

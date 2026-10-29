@@ -515,6 +515,10 @@ day = datetime.date(2026, 10, 28)
 acts = [{"n": i, "tier": 3, "text": f"t{i}", "day": "2026-10-28"} for i in range(1, 6)]
 hm = V.home(day, datetime.datetime(2026, 10, 28, 9), [], {"actions": acts})
 check("Home shows at most three of his own, and says how many more", hm.count("- [ ] apply") == 3 and "+2 more on the morning page" in hm)
+t2 = [{"n": 7, "tier": 2, "text": "reply", "day": "2026-10-28"}, {"n": 8, "tier": 2, "text": "test list", "day": "2026-10-28", "send_at": "19:00"}]
+hm = V.home(day, datetime.datetime(2026, 10, 28, 9), [], {"actions": t2})
+check("Home groups the don't boxes by send time, 10:00 first, an action without one at 10:00",
+      hm.index("**At 10:00 unless you tick:**") < hm.index("don't 7") < hm.index("**At 19:00 unless you tick:**") < hm.index("don't 8"))
 disk = "# B\n\n## Needs you\n\n- x\n\n## Scrum with the PM at 10:00\n\n- Sprint\nela: PM rules 0x81004009 shows the notice too\n\n## FYI\n\n- y\nela: drop the FYI\n"
 check("a line's section is the heading above it", V.section_at(disk, disk.index("ela: PM")) == "Scrum with the PM at 10:00")
 new_page = "# B\n\n## Needs you\n\n- x2\n\n## Scrum with the PM at 10:00\n\n- Sprint 2\n\n## Lanes\n\n- z\n"

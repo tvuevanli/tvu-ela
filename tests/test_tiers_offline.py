@@ -83,4 +83,12 @@ with tempfile.TemporaryDirectory() as t:
     check("the vault shows what the runner did: done, held by his tick, sent, not done",
           out == "- done 1 — a · done 08:31\n- [x] don't 2 — at 10:00 unless you tick: b · held, you ticked 09:12\n"
                  "- [ ] don't 3 — at 10:00 unless you tick: c · sent 10:00\n- done 4 — d · not done: jira 403")
+tl = [{"n": 5, "tier": 2, "rule": "test-list", "send_at": "19:00", "evidence": "build 78, its release mail 10-28",
+       "command": f"ela slack post {THREAD} --text-file f --team-thread"}]
+p19 = "- [ ] don't 5 — at 19:00 unless you tick: the build 78 test list\n"
+check("a test-list post at its send time passes", B.tier_check(p19, tl) == [])
+check("a page time that disagrees with the action's send_at fails",
+      any("goes at 10:00" in f for f in B.tier_check(p19.replace("19:00", "10:00"), tl)))
+check("a test-list post's evidence names the build and its release mail",
+      any("release mail" in f for f in B.tier_check(p19, [dict(tl[0], evidence="the list")])))
 sys.exit(1 if failures else 0)
