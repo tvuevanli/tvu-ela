@@ -648,13 +648,21 @@ def log_write(where, link, chars):
         pass
 
 
+# the team's own channels: the only place a reply goes out without the owner's word on it (a tier-2 action, which
+# leaves at 10:00 unless he ticks "don't"); a customer channel or a DM is never one of them
+TEAM_CHANNELS = ("mediahub-qa-release", "prj_dev_mediahub")
+
+
 def cmd_post(tok, a):
-    """The one write. Target by shape: a thread permalink (reply there), #name / Cxxx (top level), or --dm."""
+    """The one write. Target by shape: a thread permalink (reply there), #name / Cxxx (top level), or --dm.
+    --team-thread: refused unless the target is a thread in one of TEAM_CHANNELS."""
     text = open(a.file).read() if a.file and a.file != "-" else (sys.stdin.read() if a.file == "-" else a.text)
     if not text or not text.strip():
         print("nothing to post: pass --text or --file", file=sys.stderr); sys.exit(EX_USAGE)
     text = text.rstrip("\n")
     thread_ts, where = None, ""
+    if a.team_thread and (a.dm or not a.target or "/archives/" not in a.target):
+        print(f"refused: --team-thread takes a thread permalink in {', '.join(TEAM_CHANNELS)}", file=sys.stderr); sys.exit(EX_USAGE)
     if a.dm:
         if a.target:
             print("--dm takes no target; the person is the target", file=sys.stderr); sys.exit(EX_USAGE)
@@ -665,6 +673,11 @@ def cmd_post(tok, a):
         print("post needs a target: #channel, a channel id, a thread permalink, or --dm", file=sys.stderr); sys.exit(EX_USAGE)
     elif "/archives/" in a.target:
         ch, ts = parse_permalink(a.target)
+        if a.team_thread:
+            name = call("conversations.info", tok, channel=ch)["channel"].get("name")
+            if name not in TEAM_CHANNELS:
+                print(f"refused: --team-thread: #{name or ch} is not a team channel ({', '.join(TEAM_CHANNELS)})", file=sys.stderr)
+                sys.exit(EX_USAGE)
         root = call("conversations.replies", tok, channel=ch, ts=ts, limit=1)["messages"][0]
         thread_ts = root.get("thread_ts") or root["ts"]
         where = f"reply in thread {permalink_of(ch, thread_ts)}  (root: {Names(tok).render(root.get('text', ''))[:80]!r})"
@@ -770,6 +783,8 @@ def main():
     p.add_argument("--text"); p.add_argument("--file", help="markdown/text file, or - for stdin")
     p.add_argument("--dm", help="me · an email · a user id — a direct message instead of a channel")
     p.add_argument("--apply", action="store_true", help="actually send; without it nothing leaves the machine")
+    p.add_argument("--team-thread", action="store_true", help="refuse unless the target is a thread in a team channel "
+                   "(" + ", ".join(TEAM_CHANNELS) + "): the gate of a tier-2 action")
     p.add_argument("--json", action="store_true")
     a = ap.parse_args()
     # An unattended session (ela-runner's headless job, ELA_NO_APPLY=1) may read and dry-run, never write:
