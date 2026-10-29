@@ -1285,7 +1285,7 @@ def overview_note(s, vault, today):
     except Exception as e:                                  # the day file is elak's; a bad one costs this line only
         L += ["", f"Today: `ela day` could not be read ({type(e).__name__})."]
     L += ["", "## This week in ela", ""]
-    for name, repo in (("ela", root), ("ela-runner", os.path.join(s.get("projects") or "", "ela-runner"))):
+    for name, repo in (("the ela repo", root), ("ela-runner", os.path.join(s.get("projects") or "", "ela-runner"))):
         log = run_out(["git", "-C", repo, "log", "--since=7.days", "--no-merges", "--format=%h %s"])
         commits = (log or "").splitlines()
         L.append(f"- **{name}:** {len(commits)} commit{'s' if len(commits) != 1 else ''} in seven days" if log is not None
@@ -1592,8 +1592,9 @@ def cmd_setup(a):
 
 
 TICKED = re.compile(r"^[ \t]*[-*][ \t]+\[[xX]\][ \t]+(\S.*?)[ \t]*$", re.M)   # a choice he ticked in a note: a click, not typing
-# horizontal whitespace only: an empty `ela:` property must not reach across the line break to the next line
-GUIDE = re.compile(r"^[ \t]*(?:[-*>][ \t]*)*ela[ \t]*[:：][ \t]*(\S.*?)[ \t]*$", re.I | re.M)
+# horizontal whitespace only: an empty `ela:` property must not reach across the line break to the next line; before
+# `ela:` only list or quote markers, a list marker with its space, so a bold `**ela:**` is never his line
+GUIDE = re.compile(r"^[ \t]*(?:[-*+][ \t]+|>[ \t]*)*ela[ \t]*[:：][ \t]*(\S.*?)[ \t]*$", re.I | re.M)
 SECTION = re.compile(r"^##[ \t]+(.+?)[ \t]*$", re.M)
 
 
