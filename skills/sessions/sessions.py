@@ -248,7 +248,24 @@ def cmd_open(a):
         print(f"session open: zellij failed: {p.stderr.strip() or p.returncode}", file=sys.stderr)
         return 5
     print(f"opened {name} in a {'pane' if a.pane else 'tab'} at {shown_path(cwd, *roots())}  (layout {path})")
+    if not trusted(cwd):
+        print("the folder is new to Claude Code: the session waits in its tab for your trust answer, and is recorded after it")
     return 0
+
+
+def trusted(cwd):
+    """Whether Claude Code's trust prompt was accepted for cwd or a folder above it (~/.claude.json); True when unreadable,
+    so the hint is never a guess."""
+    try:
+        projects = json.load(open(os.path.expanduser("~/.claude.json"))).get("projects") or {}
+    except (OSError, ValueError):
+        return True
+    d = cwd.rstrip("/")
+    while d:
+        if (projects.get(d) or {}).get("hasTrustDialogAccepted"):
+            return True
+        d = os.path.dirname(d) if d != "/" else ""
+    return False
 
 
 # ── the registry ───────────────────────────────────────────────────────────────────────────────
