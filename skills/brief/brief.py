@@ -447,8 +447,31 @@ def lane_intake(env, limit, now):
             flags.append("NOPREFIX")
         if (r.get("type") or "") == "Epic" and not r.get("subtasks") and not r.get("parent"):
             flags.append("EPIC-NO-CHILDREN")
-        rows.append({**r, "hours_since_created": hours_since(r.get("created"), now), "flag": " ".join(flags)})
+        lane, draft = env_only(r), None
+        if lane:                                            # tier 3 until the env: family is in the vocabulary and Jira
+            flags.append("ENV-ONLY")
+            draft = {"tier": 3, "rule": "env-label", "command": f"ela jira label {r['key']} --add env:{lane}",
+                     "what": f"label {r['key']} env:{lane}: its evidence is a difference of {LANE_SHOWN.get(lane, lane)}, not a build"}
+        rows.append({**r, "hours_since_created": hours_since(r.get("created"), now), "flag": " ".join(flags),
+                     **({"env_lane": lane, "draft": draft} if lane else {})})
     return {"rows": rows, "count": len(rows), "flagged": sum(1 for r in rows if r["flag"])}
+
+
+# a summary whose evidence is a lane difference: it names a lane and says that lane differs (仅在 只在 不一致 环境差异)
+ENV_ONLY_RX = re.compile(r"\bonly (?:on|in)\b|\bdiffers? from\b|\bmismatch|\bnot the same as\b|\u4ec5\u5728|\u53ea\u5728|"
+                         r"\u4e0d\u4e00\u81f4|\u73af\u5883\u5dee\u5f02", re.I)
+
+
+def env_only(r):
+    """The lane an env-only ticket is about — its summary names a lane and says that lane differs — else None; a ticket
+    already labelled env: needs nothing."""
+    if any(str(l).startswith("env:") for l in r.get("labels") or []):
+        return None
+    text = r.get("summary") or ""
+    if not ENV_ONLY_RX.search(text):
+        return None
+    left = re.split(r"\bdiffers? from\b|\bvs\.?\s|\bthan\b|\u5bf9\u6bd4", text, flags=re.I)[0]    # the lane before the comparison
+    return mail_lane(left) or mail_lane(text)
 
 
 def lane_due(name):

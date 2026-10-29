@@ -303,4 +303,8 @@ check("a China lane is read against the lane it aligns with: one difference, sev
 check("its line says so", "aligned with prod-3 (behind by 7 builds)" in B.region_line(g))
 check("a China verdict never marks a .com cell", B.matrix_cell("mediahub-backend", "prod-3",
       [{"lane": "prod-3", "service": "mediahub-backend", "version": "v2.1.26 build256", "host": "prod"}], None, kept, {})["qa"] == "○")
+check("an intake ticket whose evidence is a lane difference is env-only, by the lane it names first",
+      [B.env_only({"summary": t, "labels": []}) for t in ("Transcode output unreachable only on CN Prod2", "QA-AWS3 config differs from Daily WED",
+                                                          "Prod3 crash on login")] == ["prod-2-china", "qa-cn3", None])
+check("one already labelled env: needs nothing", B.env_only({"summary": "only on CN Prod2", "labels": ["env:prod-2-china"]}) is None)
 sys.exit(1 if failures else 0)
