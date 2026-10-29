@@ -68,6 +68,11 @@ check("a roster person written by their Jira name fails; the display name and a 
       RV.lint("assign MH-1 to Andyzhao; Andy Zhao drives; `Andyzhao`", handles={"Andyzhao": "Andy Zhao"})
       == ["Andyzhao: a Jira name; the page writes Andy Zhao"]
       and RV.lint("Andy Zhao drives", handles={"Andyzhao": "Andy Zhao"}) == [])
+sm = "# B\n\nFour drafts are on their fifth morning.\n\n## Needs you\n\n" + "".join(
+    f"### {i}. x\nMH-{i} · y · {o} morning\n\n" for i, o in enumerate(["5th", "5th", "4th", "5th", "1st"], 1))
+check("a summary's carried count that the items do not bear out fails; one that matches passes",
+      [x for x in RV.lint(sm) if x.startswith("summary")] == ['summary: "Four drafts are on their fifth morning", but 3 items say so']
+      and not any(x.startswith("summary") for x in RV.lint(sm.replace("Four drafts", "Three drafts"))))
 long = "# Morning brief\n\n" + "word " * 1400
 check("a day page over the vault's reading budget gives the vault's line; within it, or not a day page, nothing",
       RV.budget("/r/runner/2026-10-28-brief.md", long, "/no/actions.json") == "1,402 words, budget 1,200"

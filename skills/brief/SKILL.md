@@ -325,7 +325,9 @@ different baseline.*
 
 **The morning count.** Each item's facts line ends with the number of mornings it has been carried ("3rd morning"),
 read from `lanes.carried` (`ela brief --lane carried`): the earlier brief pages, by key, or by heading for an item with
-no key. An item on its third morning means the brief failed to make it tickable: that evening's run rewrites it as an
+no key. A sentence elsewhere on the page that counts carried items ("three drafts are on their fifth morning") reads
+the same count, and page-check flags one the facts lines do not bear out (2026-10-29: the summary said four on the
+fifth morning; the items had three, and one on its fourth). An item on its third morning means the brief failed to make it tickable: that evening's run rewrites it as an
 `apply N`, or drops it with one line on the next page saying why. The evening writes its verdicts to
 `<reports>/runner/<next workday>-carried.json` (`[{item, verdict: rewrite|drop, command, why}]`), and the facts page
 shows them under *Carried three mornings, rewritten last evening*. The morning mints each `rewrite` as an `apply N`:

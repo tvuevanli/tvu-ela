@@ -120,6 +120,28 @@ def do_lines(body):
     return out
 
 
+NUMBER_WORDS = {w: i for i, w in enumerate("zero one two three four five six seven eight nine ten".split())}
+ORDINALS = {w: i for i, w in enumerate("zeroth first second third fourth fifth sixth seventh eighth ninth tenth".split())}
+MORNING_RX = re.compile(r"\b(\d+)(?:st|nd|rd|th) morning\b")
+SUMMARY_MORNING_RX = re.compile(r"\b(\d+|" + "|".join(NUMBER_WORDS) + r")\s+(?:\w+\s+){0,2}(?:is|are)\s+on\s+(?:their|its)\s+"
+                                r"(\d+(?:st|nd|rd|th)|" + "|".join(ORDINALS) + r")\s+morning", re.I)
+
+
+def summary_mornings(text):
+    """Each "N items are on their Mth morning" in the summary above Needs you that the items' facts lines do not bear
+    out: [(said, items on that morning)]. The summary and the items count from the same carried lane."""
+    head = text.split("## Needs you", 1)[0] if "## Needs you" in text else ""
+    have = [int(m.group(1)) for _, facts, _ in items(text) for m in [MORNING_RX.search(facts)] if m]
+    out = []
+    for m in SUMMARY_MORNING_RX.finditer(head):
+        n = NUMBER_WORDS.get(m.group(1).lower(), None) if not m.group(1).isdigit() else int(m.group(1))
+        o = m.group(2).lower()
+        nth = int(re.match(r"\d+", o).group(0)) if o[0].isdigit() else ORDINALS[o]
+        if n != have.count(nth):
+            out.append((m.group(0), have.count(nth)))
+    return out
+
+
 def lint(text, actions=None, counts=None, bundles=None, in_vault=False, brief=False, handles=None):
     """One line per failure, empty when the page passes. `actions` the day's drafted writes (None: not checked),
     `counts` the day's counts object, `bundles` every bundle name the reads held (None: not checked), `handles`
@@ -151,6 +173,8 @@ def lint(text, actions=None, counts=None, bundles=None, in_vault=False, brief=Fa
     for k, where in sorted(seen.items()):
         if len(where) > 1:
             fails.append(f"{k}: an item {len(where)} times (items {', '.join(where)})")
+    for said, real in summary_mornings(text):
+        fails.append(f"summary: \"{said}\", but {real} item{'s' if real != 1 else ''} say so")
     plain = outside_code(text)
     for m in VAGUE_SERVICE_RX.finditer(plain):
         line = plain[:m.start()].count("\n") + 1
