@@ -106,7 +106,7 @@ parent ticket — a subtask carries exactly one token. **A ticket the owner asks
 sub-tasks and is assigned to him**: he routes it himself; a sub-task is created only when he names
 the lane and the person (2026-10-20, MH-3797; 2026-10-21).
 
-## comment · transition · label · link · fixed-in · retitle · close — the field atoms, gated twice
+## comment · transition · label · link · fixed-in · retitle · close · priority · due · version — the field atoms, gated twice
 
 Each takes one or more keys (fan-out is one dry-run, one confirm), prints exactly what would change,
 and does nothing without `--apply`. Each is idempotent, so a re-run after a partial failure is safe:
@@ -122,6 +122,9 @@ and does nothing without `--apply`. Each is idempotent, so a re-run after a part
 | `describe` | the description already reads so | replaces one issue's description from a file, in the Markdown subset; the dry run shows was / now and names every link the current description carries that the new text drops, and `--apply` refuses while any is dropped (the reporter's links are theirs). The caller writes the new text in the ticket's established shape (Problem / Steps / Cause / Change / QA verification) and keeps the reporter's paragraphs where they stand |
 | `retitle` | the summary already reads so | replaces one issue's summary; the dry run shows was / now. A sub-task's new title must still pass the layer-token gate of `create-subtask` |
 | `close` | each step's own no-op | **a proposal, never a status change**: `--fixed-in`, `--label`, the comment (`--text` / `--from-file`), `flag:closing` and the ticket assigned to the owner, shown together as one dry run and applied in that order; the status is then his own click in Jira. Refused without a comment (`--allow-no-comment` overrides): the assignee and the reporter must see why. On a partial failure the dry run says which steps are done; a re-run skips them |
+| `priority` | the issue already has `--to` | raises freely; lowering is refused when the changelog shows a person ever set the priority (a rule never overrides that word); `--why` posts the rule as a comment. Drafted under `priority-by-rule` (tier 3 until the owner promotes it) |
+| `due` | the due date already reads `--date` | sets a missing due date only; a date already there is never moved; `--why` posts the rule as a comment. Drafted under `due-by-rule` (tier 3 until promoted) |
+| `version` | create: the name exists · release: already released · set: the issue's Fix Version already has it | `create <name> [--release-date D]`, `release <name>`, `set KEY… --name <name>` (additive; a Fix Version is never removed) |
 
 A refusal from this script is the answer, not an obstacle: never reach the Jira API another way to get past it.
 When the rule itself is wrong, change it here in ela's repository, under ela's rules, and say so (2026-10-22,

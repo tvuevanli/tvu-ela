@@ -18,6 +18,8 @@ With --all, two rules read the lanes' test lists (<reports>/lanes/test-list-<lan
                       its developer with a comment naming the owner ticket.
   no ticket in a build  a build's change-log line that names no key, from a build of the last three days → unsure on
                       the build ("QA-AWS3 build 78"), tier 3 draft: ask in the release thread for its ticket.
+  high and untouched  a Highest or High ticket not Done and not updated for 14 to 60 days → unsure: its priority
+                      promises a response its silence breaks (the Jira plan's rule 6), once a day while it holds.
 
 Jira reads only; nothing is posted. Exit 3 when Jira could not be read.
 """
@@ -556,6 +558,33 @@ def build_rules(site, e, now, state, gaps):
     return out
 
 
+# 14 to 60 days: older silence is the backlog rule's (the 180-day notice), not a response time still being missed
+STALE_HIGH_JQL = ("project = MH AND priority in (Highest, High) AND statusCategory != Done AND updated <= -14d "
+                  "AND updated >= -60d ORDER BY updated ASC")
+
+
+def stale_high(e, now, state, gaps):
+    """A Highest or High ticket untouched for 14 days, once a day each: an unsure finding."""
+    seen, today = state.setdefault("build-rules", {}), now.date().isoformat()
+    try:
+        rows = B.run_json(["python3", B.JIRA, *e, "jql", STALE_HIGH_JQL, "--limit", "200", "--json"])["issues"]
+    except (B.LaneError, subprocess.TimeoutExpired, ValueError) as x:
+        gaps.append({"source": "jira stale high", "error": str(x)[:200]}); return []
+    out = []
+    for r in rows:
+        fid = f"stale-high|{r['key']}"
+        if seen.get(fid) == today:
+            continue
+        seen[fid] = today
+        at = B.parse_ts(r.get("updated") or "")
+        days = (now - at).days if at else None
+        out.append({"key": r["key"], "change": f"priority {r.get('priority')}, {r.get('status')}, untouched {days} days",
+                    "reading": f"unsure: {r.get('priority')} and untouched {days} days", "sure": False, "addressed_to_owner": False,
+                    "prod_or_customer": prod_or_customer(r["key"], {"labels": r.get("labels"), "summary": r.get("summary")}),
+                    "at": now.isoformat(timespec="seconds"), "by": None, "page": None, "rule": "high-untouched"})
+    return out
+
+
 def key_order(k):
     p, _, n = k.partition("-")
     return (p, int(n) if n.isdigit() else 0)
@@ -604,7 +633,8 @@ def cmd_refresh(a):
             state = json.load(open(state_path, encoding="utf-8"))
         except (OSError, ValueError):
             state = {}
-        out["findings"] += build_rules(site, e, datetime.datetime.now().astimezone(), state, out["gaps"])
+        at = datetime.datetime.now().astimezone()
+        out["findings"] += build_rules(site, e, at, state, out["gaps"]) + stale_high(e, at, state, out["gaps"])
         if not a.dry_run:
             os.makedirs(os.path.dirname(state_path), exist_ok=True)
             atomic_write(state_path, json.dumps(state, indent=1, sort_keys=True))

@@ -52,7 +52,7 @@ PROJECT = "project = MH AND "
 UMBRELLA = "MH-2342"
 RED_H, YELLOW_H, OVERDUE_H = 48, 24, 4
 PREFIX = re.compile(r"^\[(Infra|J2N|Media|App|UI|QA|Design|AI)\]")
-LANES = ("intake", "cadence", "triage", "breakdown", "incidents", "backlog", "yours", "waiting", "tracked", "carried")
+LANES = ("overdue", "due_week", "intake", "cadence", "triage", "breakdown", "incidents", "backlog", "yours", "waiting", "tracked", "carried")
 
 # JQL as SKILL.md §1 states it; `project = MH AND ` is prepended to each.
 Q = {
@@ -68,6 +68,8 @@ Q = {
                   "AND status not in (Review, Done, Cancelled) AND created >= -30d"),
     "incidents": f"parent = {UMBRELLA} AND statusCategory != Done ORDER BY updated ASC",
     "backlog": "assignee = currentUser() AND statusCategory != Done AND updated <= -30d ORDER BY updated ASC",
+    "overdue": "duedate < startOfDay() AND statusCategory != Done ORDER BY duedate ASC",
+    "due_week": "duedate >= startOfDay() AND duedate <= endOfWeek() AND statusCategory != Done ORDER BY duedate ASC",
 }
 
 
@@ -442,6 +444,16 @@ def lane_intake(env, limit, now):
     return {"rows": rows, "count": len(rows), "flagged": sum(1 for r in rows if r["flag"])}
 
 
+def lane_due(name):
+    """overdue / due_week: the Ticket lanes' first two rows, from the due dates the rules keep (Jira plan rule 2)."""
+    def lane(env, limit, now):
+        today = now.astimezone().date()
+        rows = [{**r, "days": (today - datetime.date.fromisoformat(r["due"])).days if r.get("due") else None,
+                 "flag": "OVERDUE" if name == "overdue" else ""} for r in jql(env, Q[name], limit)]
+        return {"rows": rows, "count": len(rows)}
+    return lane
+
+
 def lane_triage(env, limit, now):
     rows = []
     for r in jql(env, Q["triage"], limit):
@@ -538,7 +550,8 @@ def cmd_lanes(args):
     now = datetime.datetime.now(datetime.timezone.utc)
     want = [args.lane] if args.lane else list(LANES)
     fns = {"intake": lane_intake, "triage": lane_triage, "breakdown": lane_breakdown, "incidents": lane_incidents, "backlog": lane_backlog,
-           "waiting": lane_waiting, "tracked": lane_tracked, "carried": lane_carried}
+           "waiting": lane_waiting, "tracked": lane_tracked, "carried": lane_carried,
+           "overdue": lane_due("overdue"), "due_week": lane_due("due_week")}
     lanes, errors = {}, []
 
     if "cadence" in want or "yours" in want:
@@ -2420,6 +2433,12 @@ TIER_RULES = {
     "dev-today": (2, f"(?:{TEAM_POST})|(?:{DAY_POST})"),          # Dev today in the day's scrum thread, sent at 10:00 (`ela devlist --today`)
 }
 TRAIN_RULES = ("train-hold", "train-promote")
+# closed rules not yet promoted: their actions draft at tier 3 until the owner promotes the rule (Jira plan rules 1, 2);
+# promoting one moves it into TIER_RULES at tier 1
+PENDING_RULES = {
+    "priority-by-rule": r"^ela jira priority " + KEY_ARG + r"\s(?=.*--to\s)",
+    "due-by-rule": r"^ela jira due " + KEY_ARG + r"\s(?=.*--date\s)",
+}
 DONE_LINE_RX = re.compile(r"^\s*[-*]\s+done\s+(\d+)\s+—\s+(.*)$", re.M)                    # tier 1, no box: ela did it
 DONT_BOX_RX = re.compile(r"^\s*[-*]\s+\[[ xX]\]\s+don't\s+(\d+)\s+—\s+at (\d{2}:\d{2}) unless you tick\b", re.I | re.M)   # tier 2, at its send_at
 
@@ -2450,6 +2469,8 @@ def tier_check(page, actions, demoted=None, verdict_build=None):
         have[n] = tier
         if tier not in (1, 2, 3):
             fails.append(f"action {n}: tier {tier!r}, one of 1, 2, 3"); continue
+        if tier < 3 and rule in PENDING_RULES:
+            fails.append(f"action {n}: rule {rule} is tier 3 until the owner promotes it"); continue
         if tier < 3:
             if rule not in TIER_RULES or TIER_RULES[rule][0] != tier:
                 fails.append(f"action {n}: tier {tier} needs a tier-{tier} rule ("

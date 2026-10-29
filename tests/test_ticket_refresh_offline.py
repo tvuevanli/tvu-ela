@@ -119,4 +119,10 @@ check("once a day: a second pass finds nothing", T.build_rules({"reports": tmp, 
 T.B.run_json = lambda cmd, timeout=600: {"fields": {"assignee": {"displayName": "Dev One"}}}
 check("a secondary its developer holds is no finding",
       T.build_rules({"reports": tmp, "code": tmp}, [], now + datetime.timedelta(days=1), {}, [])[0]["rule"] == "no-ticket-in-build")
+T.B.run_json = lambda cmd, timeout=600: {"issues": [{"key": "MH-7", "priority": "High", "status": "In Progress", "labels": [],
+                                                       "summary": "s", "updated": "2026-10-10T10:00:00.000+0800"}]}
+st = {}
+got = T.stale_high([], datetime.datetime(2026, 10, 29, 12, 0, tzinfo=datetime.timezone.utc), st, [])
+check("a High ticket untouched since 10-10 is an unsure finding", [(f["key"], f["rule"], f["sure"]) for f in got] == [("MH-7", "high-untouched", False)])
+check("once a day", T.stale_high([], datetime.datetime(2026, 10, 29, 13, 0, tzinfo=datetime.timezone.utc), st, []) == [])
 sys.exit(1 if failures else 0)

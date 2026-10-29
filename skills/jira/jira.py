@@ -17,6 +17,10 @@ Usage:
     jira.py label MH-1 [MH-2 …] --add a,b --remove c           [--apply]   # only the delta is written
     jira.py link MH-1 MH-2 --type Blocks|"is blocked by"|Relates [--apply]  # existing link of that type is a no-op
     jira.py fixed-in MH-1 [MH-2 …] --add 'slug@1.2.3; slug2@4.5.6' [--apply]  # append-only; present entries skipped
+    jira.py priority MH-1 [MH-2 …] --to High [--why "rule"] [--apply]   # raises; never lowers one a person set
+    jira.py due MH-1 [MH-2 …] --date 2026-11-04 [--why "rule"] [--apply]  # sets a missing date; never moves one
+    jira.py version create|release <name> [--release-date D] [--project MH] [--apply]
+    jira.py version set MH-1 [MH-2 …] --name <name> [--apply]   # Fix Version, additive
 
 Writes are dry-run by default; --apply performs the create. Safety gates
 (title token vocabulary, duplicate detection) live here and cannot be
@@ -783,7 +787,7 @@ def cmd_jql(creds, args):
         params = {
             "jql": args.jql,
             "maxResults": min(100, args.limit - len(issues)),
-            "fields": "summary,status,assignee,reporter,issuetype,priority,labels,parent,subtasks,created,updated",
+            "fields": "summary,status,assignee,reporter,issuetype,priority,labels,parent,subtasks,created,updated,duedate",
         }
         if token:
             params["nextPageToken"] = token
@@ -806,6 +810,7 @@ def cmd_jql(creds, args):
             "subtasks": len((i.get("fields") or {}).get("subtasks") or []),
             "created": (i.get("fields") or {}).get("created"),
             "updated": (i.get("fields") or {}).get("updated"),
+            "due": (i.get("fields") or {}).get("duedate"),
         } for i in issues]
         print(json.dumps({"jql": args.jql, "count": len(rows), "issues": rows},
                          ensure_ascii=False))
@@ -1332,6 +1337,146 @@ def _label_one(creds, key, add, rem, apply):
     return r, [f"{key}: labels " + " ".join((["+" + x for x in to_add] + ["-" + x for x in to_rem]))]
 
 
+# ── priority, due date and Fix Version: the fields the engineering rules keep true ──────────────────────
+
+PRIORITIES = ("Highest", "High", "Medium", "Low", "Lowest")
+
+
+def _human_set(creds, key, field):
+    """Whether a person (not an app or an automation) ever changed `field` on the issue: its changelog, newest first."""
+    start, out = 0, False
+    while True:
+        page = api_get(creds, f"/rest/api/3/issue/{key}/changelog", {"startAt": start, "maxResults": 100})
+        for h in page.get("values") or []:
+            if (h.get("author") or {}).get("accountType") == "app":
+                continue
+            if any((i.get("field") or "").lower() == field for i in h.get("items") or []):
+                out = True
+        start += len(page.get("values") or [])
+        if page.get("isLast", True) or not page.get("values"):
+            return out
+
+
+def _rule_comment(creds, key, text, apply):
+    if text:
+        _comment_one(creds, key, text, apply, mention=False)
+
+
+def cmd_priority(creds, args):
+    """Set the priority by rule. Raising is always allowed; lowering is refused when a person ever set the priority
+    by hand (the changelog says so), since a rule never overrides that word. --why posts the rule as a comment."""
+    want = next((p for p in PRIORITIES if p.lower() == args.to.lower()), None)
+    if not want:
+        sys.exit(f"priority: one of {', '.join(PRIORITIES)}")
+    results, lines = [], []
+    for key in _keys(args.targets):
+        f = _issue(creds, key, "summary,priority")
+        cur = (f.get("priority") or {}).get("name")
+        r = {"key": key, "from": cur, "to": want, "dry_run": not args.apply, "changed": False}
+        if cur == want:
+            lines.append(f"{key}: priority already {want}"); results.append(r); continue
+        lower = cur in PRIORITIES and PRIORITIES.index(want) > PRIORITIES.index(cur)
+        if lower and _human_set(creds, key, "priority"):
+            r["refused"] = "a person set this priority; a rule never lowers it"
+            lines.append(f"{key}: refused — {cur} was set by a person; a rule only raises"); results.append(r); continue
+        if not args.apply:
+            lines.append(f"DRY RUN — {key}  {f.get('summary', '')}\n  priority {cur} → {want}" + (f"\n  comment: {args.why}" if args.why else ""))
+            results.append(r); continue
+        _request(creds, f"/rest/api/3/issue/{key}", payload={"fields": {"priority": {"name": want}}}, method="PUT")
+        _rule_comment(creds, key, args.why, True)
+        r["changed"] = True; results.append(r); lines.append(f"{key}: priority {cur} → {want}")
+    if not args.apply and any(not r["changed"] and not r.get("refused") and r["from"] != r["to"] for r in results):
+        lines.append("pass --apply to change the priority")
+    _emit(args, {"results": results} if len(results) > 1 else results[0], lines)
+
+
+def cmd_due(creds, args):
+    """Set a missing due date by rule. A date already there is a person's commitment (or an earlier rule's, which a
+    person may have kept): it is never moved; the same date is a no-op. --why posts the rule as a comment."""
+    try:
+        datetime.date.fromisoformat(args.date)
+    except ValueError:
+        sys.exit("due: --date YYYY-MM-DD")
+    results, lines = [], []
+    for key in _keys(args.targets):
+        f = _issue(creds, key, "summary,duedate")
+        cur = f.get("duedate")
+        r = {"key": key, "from": cur, "to": args.date, "dry_run": not args.apply, "changed": False}
+        if cur == args.date:
+            lines.append(f"{key}: due already {cur}")
+        elif cur:
+            r["refused"] = "a due date is set; a rule never moves it"
+            lines.append(f"{key}: refused — due {cur} is set; a rule never moves a date")
+        elif not args.apply:
+            lines.append(f"DRY RUN — {key}  {f.get('summary', '')}\n  due — → {args.date}" + (f"\n  comment: {args.why}" if args.why else ""))
+        else:
+            _request(creds, f"/rest/api/3/issue/{key}", payload={"fields": {"duedate": args.date}}, method="PUT")
+            _rule_comment(creds, key, args.why, True)
+            r["changed"] = True; lines.append(f"{key}: due → {args.date}")
+        results.append(r)
+    if not args.apply and any(not r["from"] for r in results):
+        lines.append("pass --apply to set the due date")
+    _emit(args, {"results": results} if len(results) > 1 else results[0], lines)
+
+
+def _versions(creds, project):
+    return api_get(creds, f"/rest/api/3/project/{project}/versions") or []
+
+
+def cmd_version(creds, args):
+    """Fix Versions, one atom: create (a no-op when the name exists), release (a no-op when released), set (adds the
+    version to each issue's Fix Version; never removes one)."""
+    vs = {v.get("name"): v for v in _versions(creds, args.project)}
+    if args.act in ("create", "release"):
+        if len(args.names) != 1:
+            sys.exit(f"version {args.act}: one name")
+        name = args.names[0]
+        v = vs.get(name)
+        if args.act == "create":
+            r = {"name": name, "exists": bool(v), "dry_run": not args.apply, "created": False}
+            if v:
+                _emit(args, r, [f"version {name}: already exists"]); return
+            if not args.apply:
+                _emit(args, r, [f"DRY RUN — create version {name} in {args.project}" + (f", release date {args.release_date}" if args.release_date else ""),
+                                "pass --apply to create"]); return
+            pid = api_get(creds, f"/rest/api/3/project/{args.project}").get("id")
+            body = {"name": name, "projectId": int(pid)}
+            if args.release_date:
+                body["releaseDate"] = args.release_date
+            api_post(creds, "/rest/api/3/version", body)
+            r["created"] = True
+            _emit(args, r, [f"version {name}: created"]); return
+        if not v:
+            sys.exit(f"version release: no version {name!r} in {args.project}")
+        r = {"name": name, "released": bool(v.get("released")), "dry_run": not args.apply, "changed": False}
+        if v.get("released"):
+            _emit(args, r, [f"version {name}: already released"]); return
+        date = args.release_date or v.get("releaseDate") or datetime.date.today().isoformat()
+        if not args.apply:
+            _emit(args, r, [f"DRY RUN — release version {name}, date {date}", "pass --apply to release"]); return
+        _request(creds, f"/rest/api/3/version/{v['id']}", payload={"released": True, "releaseDate": date}, method="PUT")
+        r["changed"] = True
+        _emit(args, r, [f"version {name}: released {date}"]); return
+    if not args.name or args.name not in vs:
+        sys.exit(f"version set: --name must be an existing version of {args.project} (create it first)")
+    results, lines = [], []
+    for key in _keys(args.names):
+        f = _issue(creds, key, "summary,fixVersions")
+        cur = [x.get("name") for x in f.get("fixVersions") or []]
+        r = {"key": key, "fix_versions": cur, "add": args.name, "dry_run": not args.apply, "changed": False}
+        if args.name in cur:
+            lines.append(f"{key}: Fix Version already has {args.name}")
+        elif not args.apply:
+            lines.append(f"DRY RUN — {key}  {f.get('summary', '')}\n  Fix Version {', '.join(cur) or '(none)'} + {args.name}")
+        else:
+            _request(creds, f"/rest/api/3/issue/{key}", payload={"update": {"fixVersions": [{"add": {"name": args.name}}]}}, method="PUT")
+            r["changed"] = True; lines.append(f"{key}: Fix Version + {args.name}")
+        results.append(r)
+    if not args.apply and any(args.name not in r["fix_versions"] for r in results):
+        lines.append("pass --apply to add the Fix Version")
+    _emit(args, {"results": results} if len(results) > 1 else results[0], lines)
+
+
 def _split_csv(s):
     return [x.strip() for x in (s or "").split(",") if x.strip()]
 
@@ -1743,6 +1888,26 @@ def main():
     p.add_argument("--apply", action="store_true"); p.add_argument("--json", action="store_true")
     p.add_argument("--nonstandard", metavar="REASON", help="write a label outside the vocabulary, once, saying why")
     p.set_defaults(func=cmd_label)
+
+    p = sub.add_parser("priority", help="set the priority by rule — dry-run unless --apply; raises always, never lowers one a person set")
+    p.add_argument("targets", nargs="+"); p.add_argument("--to", required=True, help="Highest · High · Medium · Low · Lowest")
+    p.add_argument("--why", help="the rule, posted as a comment with the change")
+    p.add_argument("--apply", action="store_true"); p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_priority)
+
+    p = sub.add_parser("due", help="set a missing due date by rule — dry-run unless --apply; never moves a date already set")
+    p.add_argument("targets", nargs="+"); p.add_argument("--date", required=True, help="YYYY-MM-DD")
+    p.add_argument("--why", help="the rule, posted as a comment with the change")
+    p.add_argument("--apply", action="store_true"); p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_due)
+
+    p = sub.add_parser("version", help="Fix Versions: create · release · set (additive) — dry-run unless --apply")
+    p.add_argument("act", choices=("create", "release", "set"))
+    p.add_argument("names", nargs="+", help="create/release: the version name · set: issue keys")
+    p.add_argument("--name", help="set: the version to add"); p.add_argument("--release-date", help="YYYY-MM-DD")
+    p.add_argument("--project", default="MH")
+    p.add_argument("--apply", action="store_true"); p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_version)
 
     p = sub.add_parser("link", help="link two issues — dry-run unless --apply; an existing link of that type is a no-op")
     p.add_argument("target"); p.add_argument("other")

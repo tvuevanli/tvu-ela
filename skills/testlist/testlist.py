@@ -993,6 +993,7 @@ def collect_dev(line, s, env, shared):
         led = T.ledger(runtime, k)
         cs = by_key.get(k, [])
         fixed_in = J.body_text(f.get(fid)).strip() if f.get(fid) else ""
+        fix_version = ", ".join(v.get("name") for v in f.get("fixVersions") or [] if v.get("name"))
         t = tl_rows.get(k) or tl_rows.get(secondary.get(k)) or {}
         found_v = comment_verdicts(issue, qa, None)
         verdict = t.get("verdict") or (sorted(found_v)[-1][1] if found_v else "untested")
@@ -1005,14 +1006,14 @@ def collect_dev(line, s, env, shared):
         flags = []
         if k in secondary and assignee.lower() in qa:
             flags.append(f"QA assigned on a secondary ticket; the owner is {secondary[k]}")
-        if fixed_in and verdict in ("untested", None):
+        if (fixed_in or fix_version) and verdict in ("untested", None):
             flags.append("Fixed In without a verdict")
         rows.append({"key": k, "url": JIRA_URL + k, "title": i["summary"], "layer": layer, "status": i["status"],
                      "assignee": assignee or None, "implementers": sorted({c["author"] for c in cs}),
                      "branch": branch_state(cs, led["lanes"]), "refs": sorted({c["ref"] for c in cs})[:4],
                      "lane_build": (t.get("builds") or [None])[-1], "owner_of": secondary.get(k),
-                     "verdict": verdict, "fixed_in": fixed_in or None,
-                     "ready": {"ticket": True, "fixed_in": bool(fixed_in), "verdict": verdict in ("pass", "n-a")}, "gaps": flags})
+                     "verdict": verdict, "fixed_in": fixed_in or None, "fix_version": fix_version or None,
+                     "ready": {"ticket": True, "fixed_in": bool(fixed_in or fix_version), "verdict": verdict in ("pass", "n-a")}, "gaps": flags})
     unticketed = [{"build": r["first_build"], "text": (r.get("log") or [r.get("focus") or ""])[0]}
                   for r in tl_rows.values() if not r.get("ticket")]
     rows.sort(key=lambda r: (not r["gaps"], r["layer"], r["key"]))
@@ -1030,7 +1031,7 @@ def render_dev(out):
          "still needs from it (ticket, Fixed In, verdict). Rows with a gap come first.", "",
          f"{len(out['rows'])} ticket(s) · {sum(bool(r['gaps']) for r in out['rows'])} with a gap · "
          f"{len(out['unticketed'])} build change(s) with no ticket", "",
-         "| ticket | what | layer | assignee | branch | build | QA | train: ticket · Fixed In · verdict | gaps |",
+         "| ticket | what | layer | assignee | branch | build | QA | train: ticket · Fixed In or Fix Version · verdict | gaps |",
          "|---|---|---|---|---|---|---|---|---|"]
     for r in out["rows"]:
         who = r["assignee"] or "—"

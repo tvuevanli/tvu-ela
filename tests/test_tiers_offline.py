@@ -95,4 +95,7 @@ dp = [{"n": 6, "tier": 2, "rule": "dev-today", "evidence": "the 2.1 dev list", "
 check("dev-today may make the day post", B.tier_check("- [ ] don't 6 — at 10:00 unless you tick: Dev today\n", dp) == [])
 check("thread-reply may not make a top-level post",
       any("not what rule" in f for f in B.tier_check("- [ ] don't 6 — at 10:00 unless you tick: x\n", [dict(dp[0], rule="thread-reply")])))
+pr = [{"n": 7, "tier": 1, "rule": "priority-by-rule", "evidence": "customer bracket", "command": "ela jira priority MH-1 --to High --why x"}]
+check("priority-by-rule stays tier 3 until promoted", any("until the owner promotes it" in f for f in B.tier_check("- done 7 — x\n", pr)))
+check("as tier 3 it passes", B.tier_check("- [ ] apply 7 — raise MH-1 to High\n", [dict(pr[0], tier=3)]) == [])
 sys.exit(1 if failures else 0)

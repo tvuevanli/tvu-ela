@@ -409,6 +409,16 @@ invisible to the people the list is for; a standing thread goes stale (the desk'
 after a week of posts: if nobody replies under them, a standing thread instead).* His `ela:` lines apply as under QA today. A developer never reads QA rows, and QA never
 reads a developer's (Resolution B3).
 
+**Priority and due dates by rule** (the Jira plan of 2026-10-29, rules 1 and 2). Highest: a prod incident or a customer
+blocked, due today. High: needed on the next train, due the train's departure. Medium: this sprint or month. Low and
+Lowest: backlog, no date. An In Progress ticket with no due date is due at the sprint's end (a sprint ticket) or the
+next train's departure (a train fix); a Review ticket the next evening (QA's report). The intake rates priority and
+component from the evidence it already reads (a customer's bracket, an incident, a prod lane, the next train). A
+change is drafted as `ela jira priority KEY --to P --why "<rule>"` (rule `priority-by-rule`; it only raises, never
+lowers what a person set) or `ela jira due KEY --date D --why "<rule>"` (rule `due-by-rule`; never moves a date),
+tier 3 until he promotes the rule. The Ticket lanes open with two rows, `lanes.overdue` and `lanes.due_week`; a
+Highest or High ticket untouched 14 to 60 days arrives as a tracked change (`rule` high-untouched).
+
 **Every section written for him ends with what he does.** An item, QA today, Dev today, a meeting section and the
 program's Next each end with a Do line: an `apply N`, a `don't N`, or "your call: <recommended> over <alternative>
 because …". `ela review lint` names a section or an item without one. *Why: a description is not a deliverable; every
