@@ -396,6 +396,16 @@ asks placed above", naming a channel the bot cannot read as not read; an overnig
 above, one addressed to him is a Needs-you item. *Why: QA was handed builds, not a ranked day; the plan is cut from
 the list QA already keeps verdicts against (the 2026-10-29 test-list plan, Resolution A2).*
 
+**Dev today** sits beside QA today: `ela devlist --today --json` gives the developers' cut, by developer, at most
+twelve rows (asks to a developer since the last evening run, one per thread, from anyone but him or a bot; due today
+or overdue; blocked or on hold; moved since then; QA assigned on a secondary ticket; a build change with no ticket;
+Fixed In without a verdict). A ticket QA holds is placed under its commit's author. The section heads "goes 10:00
+unless you tick don't" (on a scrum day "opens the scrum at 10:00", its rows the first lines of the scrum section)
+and ends with its Do line, the tier-2 `don't N` (rule `dev-today`, `send_at` 10:00, the json's `thread`: the day's
+scrum thread in the dev channel). With no thread the json says so in `gaps` and the Do line is a tier-3 `apply N`
+naming where it would go. His `ela:` lines apply as under QA today. A developer never reads QA rows, and QA never
+reads a developer's (Resolution B3).
+
 **One place per day.** An item appears once. A key inside a lanes-table cell or a Changes page callout is evidence,
 not an appearance.
 
@@ -548,7 +558,7 @@ The page is read in Obsidian, so its form is fixed:
   gives); never a terminal status, a close, a transition or a customer-facing field. Tier 2, the runner sends it at
   10:00 unless he ticks "don't": `thread-reply` (a reply in a team channel's thread ela has read), `train-hold`,
   `train-promote`, and at 19:00 `test-list` (a build's new test-list rows in its release thread, from `ela testlist
-  --new-rows`; its evidence names the build and its release mail), at 09:30 `qa-today` (QA today, below), each an `ela slack post <thread permalink> …
+  --new-rows`; its evidence names the build and its release mail), at 09:30 `qa-today` and at 10:00 `dev-today` (QA today and Dev today, below), each an `ela slack post <thread permalink> …
   --team-thread`, which slack.py refuses outside the team channels. Tier 3 is everything else, on his word only (`apply N`): customers, prod approvals, people,
   anything addressed to him, anything no closed rule admits. A tier-1 or tier-2 action carries `evidence`, one
   line he can check; a train action's evidence names the verdict build and its QA report (`ela day --json`

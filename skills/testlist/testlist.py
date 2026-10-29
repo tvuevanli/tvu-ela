@@ -5,6 +5,7 @@
     testlist.py list --lane qa-cn3 --saw KEY "ela saw … on V at HH:MM"
     testlist.py list [--lane qa-cn3] --today [--budget N] [--guidance FILE] [--json]
     testlist.py dev [--line 2.1] [--json] [--page]
+    testlist.py dev [--line 2.1] --today [--budget N] [--guidance FILE] [--json]
 
 list  Without --lane, every lane with release mails ("[Release MediaHub <env>]") in the window or a list on disk;
       --json is then {"lists": [<one lane's shape>], "gaps"}. A QA lane lists what QA verifies on its builds; a prod
@@ -45,6 +46,10 @@ dev   One row per owner ticket in development on the line (labelled for it, not 
       (one the test list rides under another owner), Fixed In without a verdict; the build changes with no ticket
       are listed under the table. --page writes <reports>/lanes/dev-list-<line>.md and .json. Without --line,
       every line release.yaml names with a Jira label that has a ticket in development; --json is then {"lists"}.
+      --today: Dev today, by developer, at most 12 rows: moved since the last evening run, due today or overdue,
+      blocked or on hold, the gaps and the build changes with no ticket, and asks to a developer from anyone else in
+      the team channels since then; his `ela:` lines applied first. The json carries the text for the 10:00 tier-2
+      post (rule dev-today) in the day's scrum thread in #prj_dev_mediahub, or no thread (a gap) when there is none.
 
 Reads only Jira, mail, Slack, the release ledger and disk; writes only its own files under <reports>/lanes/.
 Exit codes: 0 ok · 2 usage · 3 --saw names no row · 5 the release mails could not be read.
@@ -720,6 +725,20 @@ def last_evening(at):
     return datetime.datetime.combine(d, datetime.time(19, 0)).astimezone()
 
 
+BOT_RX = re.compile(r"bot$|^helm$|^slackbot$", re.I)
+
+
+def owner_names():
+    """The owner's names as Slack shows them (roster entry of site.json emails.me), lower."""
+    try:
+        import team as TM  # noqa: E402
+        me = (site().get("emails") or {}).get("me")
+        return {n.lower() for p in TM.read_roster(TM.records())[1] if p.get("email") == me
+                for n in (p.get("name"), p["email"].split("@")[0]) if n}
+    except (SystemExit, ImportError, OSError, ValueError):
+        return set()
+
+
 def overnight(env, since, who):
     """Posts in the team channels since `since` and the ones addressed to `who` ({name lower or slack id: name}):
     {posts, channels, not_read, asks: [{to, by, channel, text, link}]}. A channel the bot cannot read is not_read."""
@@ -740,8 +759,10 @@ def overnight(env, since, who):
                 posts += 1
                 text = x.get("text") or ""
                 to = sorted({name for k, name in who.items() if f"<@{k}>" in text or re.search(r"@" + re.escape(k) + r"\b", text, re.I)})
-                if to and (x.get("user") or "").lower() not in who:
-                    asks.append({"to": to, "by": x.get("user"), "channel": ch, "text": " ".join(text.split())[:200], "link": link_})
+                by = (x.get("user") or "")
+                if to and by.lower() not in who and not BOT_RX.search(by) and by.lower() not in owner_names():
+                    asks.append({"to": to, "by": by, "channel": ch, "text": " ".join(text.split())[:200], "link": link_,
+                                 "thread": m.get("permalink")})
     return {"posts": posts, "channels": read, "not_read": not_read, "asks": asks}
 
 
@@ -1035,6 +1056,105 @@ def print_dev(out, page):
         print(f"page: {out['page']}")
 
 
+# ── Dev today: the developers' cut ───────────────────────────────────────────────────────────────────
+
+DEV_BUDGET = 12
+SCRUM_RX = re.compile(r"^\s*\*?scrum\b", re.I)
+
+
+def developers():
+    """{name lower or slack id: name} of the roster's builders (app, ui, ur, media), and their names lower."""
+    try:
+        import team as TM  # noqa: E402
+        roster = TM.read_roster(TM.records())[1]
+    except (SystemExit, ImportError, OSError, ValueError):
+        return {}
+    devs = [p for p in roster if (p.get("area") or "") in ("app", "ui", "ur", "media", "j2n", "infra")]
+    return {**{p["name"].lower(): p["name"] for p in devs if p.get("name")}, **{p["slack"]: p["name"] for p in devs if p.get("slack")}}
+
+
+def dev_today(outs, env, at, budget, guidance, cache, gaps):
+    """By developer, at most `budget` rows: what moved since the last evening run (status, a build), what is due today
+    or overdue, what is blocked or on hold, the gaps, and asks to a developer from anyone else since then."""
+    since = last_evening(at)
+    rows, today = [], at.date().isoformat()
+    by_key = {r["key"]: r for out in outs for r in out["rows"]}
+    qa_names_ = set(qa_people()[0])
+    def dev_of(r):                                          # a ticket QA holds belongs, in the developers' cut, to its author
+        if r.get("assignee") and r["assignee"].lower() not in qa_names_:
+            return r["assignee"]
+        return (r.get("implementers") or ["—"])[0]
+    try:
+        moved = B.run_json(["python3", B.JIRA, *env, "changes", "--since", since.strftime("%Y-%m-%d %H:%M"), "--json"], timeout=300)["issues"]
+    except (B.LaneError, subprocess.TimeoutExpired, ValueError) as x:
+        moved = []
+        gaps.append(f"jira changes: {str(x)[:160]}")
+    def add(key, who, reason, title=None):
+        rows.append({"id": key, "ticket": key if re.match(r"^[A-Z][A-Z0-9]+-\d+$", key or "") else None,
+                     "url": JIRA_URL + key if re.match(r"^[A-Z][A-Z0-9]+-\d+$", key or "") else key, "who": who or "—",
+                     "title": title or (by_key.get(key) or {}).get("title") or "", "reason": reason})
+    for i in moved:
+        r = by_key.get(i["key"])
+        st = [e for e in i.get("events") or [] if e.get("field") == "status"]
+        if r and st and st[0].get("from") != st[-1].get("to"):
+            add(i["key"], dev_of(r), f"moved {st[0].get('from')} → {st[-1].get('to')}")
+    for r in by_key.values():
+        f = ((cache.get(r["key"]) or {}).get("fields") or {})
+        due = f.get("duedate")
+        if due and due <= today:
+            add(r["key"], dev_of(r), "overdue since " + due if due < today else "due today")
+        if r["status"] in ("Blocked", "On Hold"):
+            add(r["key"], dev_of(r), r["status"].lower())
+        for g in r["gaps"]:
+            add(r["key"], dev_of(r), g)
+    for out in outs:
+        for u in out["unticketed"]:
+            add(nt_id(u["text"]), "—", f"build {u['build']} change with no ticket", u["text"])
+    night = overnight(env, since, developers())
+    threads = set()
+    for ask in night["asks"]:                               # one row per thread: its first ask since the evening run
+        if ask["thread"] in threads:
+            continue
+        threads.add(ask["thread"])
+        keys = B.keys_in(ask["text"])
+        add(keys[0] if keys else ask["link"], ", ".join(ask["to"]), f"ask from {ask['by']} in #{ask['channel']}", ask["text"][:120])
+    order = ("ask from", "overdue", "due today", "blocked", "on hold", "moved", "QA assigned", "build", "Fixed In")
+    rows.sort(key=lambda r: next((n for n, w in enumerate(order) if r["reason"].startswith(w)), len(order)))
+    unread = apply_guidance(rows, guidance, {"rows": []})
+    seen, cut = set(), []
+    for r in rows:
+        if r["id"] not in seen:
+            seen.add(r["id"]); cut.append(r)
+    night["placed"] = sum(1 for r in cut[:budget] if r["reason"].startswith("ask from"))
+    return {"rows": cut[:budget], "more": max(0, len(cut) - budget), "overnight": night,
+            "since": since.isoformat(timespec="minutes"), "guidance_unread": unread}
+
+
+def dev_text(line, plan, at):
+    L = [f"*Dev today · {line} · {at:%a %m-%d}* — by developer; reply here when a row is done or wrong."]
+    who = {}
+    for r in plan["rows"]:
+        who.setdefault(r["who"], []).append(r)
+    for name, rs in who.items():
+        L.append(f"*{name}*")
+        for r in rs:
+            ref = f"<{r['url']}|{r['ticket']}>" if r["ticket"] else (f"<{r['url']}|thread>" if str(r["url"]).startswith("http") else f"`{r['id']}`")
+            L.append(f"• {ref} {cell(r['title'], 70)} — {r['reason']}")
+    if plan["more"]:
+        L.append(f"+{plan['more']} more on the dev list.")
+    return "\n".join(L)
+
+
+def scrum_thread(env, at, gaps):
+    """The day's scrum thread in the dev channel, the one thread a dev post can reply in; None when there is none."""
+    errs = []
+    for m in B.slack_rows(env, B.DEV_CHANNEL, at.date().isoformat(), errs, threads=False):
+        if SCRUM_RX.match(m.get("text") or ""):
+            return m.get("permalink")
+    gaps += [f"{g['source']}: {g['error']}" for g in errs]
+    return None
+
+
 def cmd_dev(a):
     """One line, or every line release.yaml names with a Jira label; a line with no ticket in development writes nothing.
     --page also writes <reports>/lanes/dev-list-<line>.json ({line, generated, rows, unticketed, gaps}) for the board."""
@@ -1058,6 +1178,26 @@ def cmd_dev(a):
                                             ensure_ascii=False, indent=1))
             out["page"] = base + ".md"
         outs.append(out)
+    if a.today:
+        at, gaps = now(), []
+        guidance = open(a.guidance, encoding="utf-8").read().splitlines() if a.guidance else []
+        plan = dev_today(outs, env, at, a.budget, guidance, shared.get("cache", {}), gaps)
+        thread = scrum_thread(env, at, gaps)
+        if not thread:
+            gaps.append("no thread for the dev post today (no scrum thread in #prj_dev_mediahub); tier 2 replies only")
+        line = ", ".join(o["line"] for o in outs) or "no line"
+        res = {"date": at.date().isoformat(), "line": line, "thread": thread, "channel": B.DEV_CHANNEL,
+               "text": dev_text(line, plan, at), **plan, "gaps": gaps}
+        if a.json:
+            print(json.dumps(res, ensure_ascii=False))
+        else:
+            print(f"# dev today → {thread or 'no thread'}\n{res['text']}\n")
+            o = plan["overnight"]
+            print(f"Overnight: {o['posts']} posts read in {', '.join('#' + c for c in o['channels']) or 'no channel'}, "
+                  f"{o['placed']} asks placed above" + (f"; not read: {', '.join('#' + c for c in o['not_read'])}" if o["not_read"] else ""))
+            for g in gaps:
+                print(f"not read: {g[:160]}")
+        return
     if a.json:
         print(json.dumps(outs[0] if a.line else {"lists": outs, "gaps": []}, ensure_ascii=False))
         return
@@ -1083,6 +1223,9 @@ def main():
     p.set_defaults(func=cmd_list)
     p = sub.add_parser("dev", help="the line's dev list: one row per owner ticket in development, with its gaps")
     p.add_argument("--line", help="one release line (2.1); default every line release.yaml names with a Jira label")
+    p.add_argument("--today", action="store_true", help="Dev today: by developer, the day's rows, Slack-formatted")
+    p.add_argument("--budget", type=int, default=DEV_BUDGET, help=f"rows in the day's cut (default {DEV_BUDGET})")
+    p.add_argument("--guidance", help="a file of his `ela:` lines from the morning page's Dev today section")
     p.add_argument("--json", action="store_true")
     p.add_argument("--page", action="store_true", help="also write <reports>/lanes/dev-list-<line>.md")
     p.set_defaults(func=cmd_dev)
