@@ -244,6 +244,17 @@ def context(path, text, actions_path=None, date=None):
     return actions, counts, bundles or None, in_vault, brief
 
 
+def stray_action_files(actions_path, actions):
+    """Files in the day's action folder (<reports>/runner/actions/<date>/, beside the actions file) that no drafted
+    action's command names: a draft the run abandoned but wrote. []: none, or no folder."""
+    m = re.search(r"(\d{4}-\d{2}-\d{2})-actions\.json$", actions_path or "")
+    folder = os.path.join(os.path.dirname(actions_path), "actions", m.group(1)) if m else None
+    if not folder or not os.path.isdir(folder):
+        return []
+    named = " ".join(a.get("command") or "" for a in actions or [])
+    return sorted(f for f in os.listdir(folder) if f not in named)
+
+
 def budget(path, text, actions_path=None):
     """The reading budget a runner day page overruns, as the vault counts it ("1,489 words, budget 1,200"), so the
     number matches Home's warning; None within budget or for a page the vault does not gate as a day page."""

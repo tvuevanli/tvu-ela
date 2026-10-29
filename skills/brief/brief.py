@@ -2386,6 +2386,8 @@ def cmd_page_check(args):
     rest = review.lint(page, None, counts, bundles, in_vault, handles=review.handles())
     for line in rest:
         print(f"lint: {line}")
+    for f in review.stray_action_files(args.actions, actions):
+        print(f"lint: actions/{os.path.basename(args.actions)[:10]}/{f}: no drafted action names this file")
     over = review.budget(args.page, page, args.actions)
     if over:                                            # advice: the runner's repair shortens it, Home warns if not
         print(f"budget: {over}")

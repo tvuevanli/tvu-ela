@@ -610,7 +610,9 @@ ela-runner starts this skill headless every weekday morning after it wrote the f
   A command is one of ela's own write verbs — `ela jira comment|assign|label|fixed-in|close …`, `ela slack
   post …` — complete with its key and text (a `--from-file` under `<reports>/runner/actions/<date>/`), and
   runnable as it stands; the runner appends `--apply` to it when the owner answers `apply <n>` in Slack or on
-  the page. Nothing else goes in the list: a reading, a question for the owner, a hand-off to another skill is
+  the page. A file under `actions/<date>/` exists only for an action in the list: a draft the session abandons is
+  not written, or is deleted before the run ends, and page-check names a file no action points to. Nothing else
+  goes in the list: a reading, a question for the owner, a hand-off to another skill is
   text on the page, not an action. The session itself applies nothing (the write scripts refuse `--apply` under
   `ELA_NO_APPLY`).
 - `<reports>/runner/<date>-deep.json` — the day's deep picks, at most two:

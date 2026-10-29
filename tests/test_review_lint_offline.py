@@ -73,6 +73,15 @@ sm = "# B\n\nFour drafts are on their fifth morning.\n\n## Needs you\n\n" + "".j
 check("a summary's carried count that the items do not bear out fails; one that matches passes",
       [x for x in RV.lint(sm) if x.startswith("summary")] == ['summary: "Four drafts are on their fifth morning", but 3 items say so']
       and not any(x.startswith("summary") for x in RV.lint(sm.replace("Four drafts", "Three drafts"))))
+import tempfile  # noqa: E402
+with tempfile.TemporaryDirectory() as t:
+    os.makedirs(os.path.join(t, "actions", "2026-10-29"))
+    for f in ("MH-1-a.txt", "MH-2-assign.txt"):
+        open(os.path.join(t, "actions", "2026-10-29", f), "w").write("x")
+    ap = os.path.join(t, "2026-10-29-actions.json")
+    check("an action file no drafted command names is stray",
+          RV.stray_action_files(ap, [{"command": f"ela jira comment MH-1 --from-file {t}/actions/2026-10-29/MH-1-a.txt"}]) == ["MH-2-assign.txt"]
+          and RV.stray_action_files(os.path.join(t, "2026-10-30-actions.json"), []) == [])
 long = "# Morning brief\n\n" + "word " * 1400
 check("a day page over the vault's reading budget gives the vault's line; within it, or not a day page, nothing",
       RV.budget("/r/runner/2026-10-28-brief.md", long, "/no/actions.json") == "1,402 words, budget 1,200"
