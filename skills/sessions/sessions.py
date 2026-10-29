@@ -1,16 +1,22 @@
 #!/usr/bin/env python3
 """ela sessions — open a worker session, list the sessions on this machine, find an earlier one by what it was about.
 
-  sessions open <alias|path> [--name N] [--pane] [--permission-mode M] [--dry-run] ["brief"]
+  sessions open <alias|path> [--name N] [--tab | --pane] [--brief FILE] [--permission-mode M] [--dry-run] ["brief"]
+  sessions close <name> [--dry-run]
   sessions list [--limit 30] [--json]
   sessions find <word> [<word>…] [--since YYYY-MM-DD] [--limit 20] [--json]
   sessions hook-start | hook-end      the plugin's SessionStart / SessionEnd hooks; hook JSON on stdin
 
-open: a Claude session where the target's rules live, in its own zellij tab (a pane with --pane, for
-watching a short worker beside the desk). The target is a site root by alias (ela, runner, elak, helm,
-reports, published), `code/<ref>` resolved by map.py where, or a directory. The layout is written under
-<runtime>/sessions/ and run with `zellij action new-tab --layout`; a pane goes through `zellij run`. The
-default name is the alias. Outside zellij it refuses. --dry-run prints the layout and the command.
+open: a Claude session where the target's rules live, by default a stacked pane in the tab named `workers` (made
+when missing; one pane expanded, the others title bars), the pane titled with the session's name; --tab opens a tab
+of its own, --pane a pane beside the current one (a topic session beside the desk). The target is a site root by
+alias (ela, runner, elak, helm, reports, published), `code/<ref>` resolved by map.py where, or a directory.
+--brief FILE makes the first message a pointer to that file. The default name is the alias. It refuses a name a
+live session holds (started, not ended, its process alive). Outside zellij it refuses. --dry-run prints the layout
+and the commands. Focus returns to the tab named `desk` when there is one.
+
+close: ends a live session by name: TERM to its Claude process, then its pane (`zellij action close-pane
+--pane-id`), and an end line "closed by desk" in the registry. The desk runs it after the worker's closing line.
 
 list: the registry <runtime>/sessions.jsonl, newest first: name · cwd · started · ended · purpose. The
 hooks append to it (a start line on startup or resume, an end line at SessionEnd); nothing else writes it,
@@ -201,33 +207,72 @@ def one_line80(text):
     return one_line(text or "", 80)
 
 
+WORKERS, DESK = "workers", "desk"
+
+
+def zellij_out(*args):
+    p = subprocess.run(["zellij", *args], capture_output=True, text=True)
+    return p.stdout if p.returncode == 0 else None
+
+
+def alive(pid):
+    try:
+        os.kill(int(pid), 0)
+        return True
+    except (OSError, ValueError, TypeError):
+        return False
+
+
+def live(name):
+    """The live session holding a name: started, not ended, its process alive; None when there is none."""
+    return next((r for r in sessions() if r["name"] == name and not r["ended"] and r.get("pid") and alive(r["pid"])), None)
+
+
 def cmd_open(a):
     cwd, name = target_dir(a.target)
     if not cwd:
         print(f"session open: {name}", file=sys.stderr)
         return 3
     name = a.name or name
-    argv = ["env", f"ELA_SESSION_NAME={name}", f"ELA_SESSION_PURPOSE={one_line80(a.brief)}",
+    held = live(name)
+    if held and not a.dry_run:
+        print(f"session open: {name} is still open (pane {held.get('pane') or '?'}); close it with `ela session close {name}` "
+              "or pick another name", file=sys.stderr)
+        return 2
+    first = " ".join(x for x in ((f"Read {os.path.abspath(a.brief_file)} and follow it." if a.brief_file else ""), a.brief) if x)
+    argv = ["env", f"ELA_SESSION_NAME={name}", f"ELA_SESSION_PURPOSE={one_line80(a.brief or (a.brief_file and os.path.basename(a.brief_file)) or '')}",
             "claude", "--name", name]
     if a.permission_mode:
         argv += ["--permission-mode", a.permission_mode]
-    if a.brief:
-        argv.append(a.brief)
+    if first:
+        argv.append(first)
     pane = (f"pane command={kdl(argv[0])} cwd={kdl(cwd)} name={kdl(name)} focus=true {{\n"
             f"        args {' '.join(kdl(x) for x in argv[1:])}\n    }}")
-    if a.pane:
+    tabs = (zellij_out("action", "query-tab-names") or "").split() if os.environ.get("ZELLIJ_SESSION_NAME") else []
+    mode = "pane" if a.pane else "tab" if a.tab else "workers"
+    chrome = lambda inner: ("layout {\n"   # noqa: E731 — zellij's default tab: tab bar, the panes, status bar
+                            '    pane size=1 borderless=true { plugin location="zellij:tab-bar"; }\n'
+                            f"    {inner}\n"
+                            '    pane size=2 borderless=true { plugin location="zellij:status-bar"; }\n'
+                            "}\n")
+    if mode == "pane":
         layout = f"layout {{\n    {pane}\n}}\n"
-    else:   # zellij's default tab: tab bar, the pane, status bar
-        layout = ("layout {\n"
-                  '    pane size=1 borderless=true { plugin location="zellij:tab-bar"; }\n'
-                  f"    {pane}\n"
-                  '    pane size=2 borderless=true { plugin location="zellij:status-bar"; }\n'
-                  "}\n")
-    run = (["zellij", "run", "--name", name, "--cwd", cwd, "--", *argv] if a.pane
-           else ["zellij", "action", "new-tab", "--name", name, "--cwd", cwd, "--layout", "<layout>"])
+        runs = [["zellij", "run", "--name", name, "--cwd", cwd, "--", *argv]]
+    elif mode == "tab":
+        layout = chrome(pane)
+        runs = [["zellij", "action", "new-tab", "--name", name, "--cwd", cwd, "--layout", "<layout>"]]
+    elif WORKERS in tabs:
+        layout = ""
+        runs = [["zellij", "action", "go-to-tab-name", WORKERS], ["zellij", "run", "--stacked", "--name", name, "--cwd", cwd, "--", *argv]]
+    else:
+        layout = chrome(f"pane stacked=true {{\n        {pane}\n    }}")
+        runs = [["zellij", "action", "new-tab", "--name", WORKERS, "--cwd", cwd, "--layout", "<layout>"]]
+    if mode == "workers" and DESK in tabs:
+        runs.append(["zellij", "action", "go-to-tab-name", DESK])
     if a.dry_run:
-        print(layout)
-        print(" ".join(shlex.quote(x) for x in run))
+        print(layout or "(the workers tab exists: no layout)")
+        for run in runs:
+            print(" ".join(shlex.quote(x) for x in run))
         return 0
     if not os.environ.get("ZELLIJ_SESSION_NAME"):
         print("session open: not inside zellij — start zellij first (`zellij attach -c ela`), then run this from a pane", file=sys.stderr)
@@ -242,14 +287,50 @@ def cmd_open(a):
     path = os.path.join(d, f"{stamp}-{re.sub(r'[^A-Za-z0-9_.-]+', '-', name)}.kdl")
     with open(path, "w") as f:
         f.write(layout)
-    run = [path if x == "<layout>" else x for x in run]
-    p = subprocess.run(run, capture_output=True, text=True)
-    if p.returncode != 0:
-        print(f"session open: zellij failed: {p.stderr.strip() or p.returncode}", file=sys.stderr)
-        return 5
-    print(f"opened {name} in a {'pane' if a.pane else 'tab'} at {shown_path(cwd, *roots())}  (layout {path})")
+    for run in runs:
+        p = subprocess.run([path if x == "<layout>" else x for x in run], capture_output=True, text=True)
+        if p.returncode != 0:
+            print(f"session open: zellij failed: {p.stderr.strip() or p.returncode}", file=sys.stderr)
+            return 5
+    where = {"pane": "a pane beside this one", "tab": "its own tab", "workers": f"a stacked pane in the {WORKERS} tab"}[mode]
+    print(f"opened {name} in {where} at {shown_path(cwd, *roots())}  (layout {path})")
     if not trusted(cwd):
         print("the folder is new to Claude Code: the session waits in its tab for your trust answer, and is recorded after it")
+    return 0
+
+
+def claude_pid():
+    """The Claude process this hook runs under: the nearest ancestor whose command is claude (or its node), else the
+    hook's parent."""
+    pid = os.getppid()
+    for _ in range(6):
+        try:
+            cmd = open(f"/proc/{pid}/cmdline", "rb").read().replace(b"\0", b" ").decode(errors="replace")
+            if re.search(r"(^|/)claude(\s|$)|claude-code|@anthropic-ai/claude", cmd):
+                return pid
+            pid = int(open(f"/proc/{pid}/stat").read().rsplit(")", 1)[1].split()[1])
+        except (OSError, ValueError, IndexError):
+            break
+    return os.getppid()
+
+
+def cmd_close(a):
+    r = live(a.name)
+    if not r:
+        print(f"session close: no live session named {a.name}", file=sys.stderr)
+        return 3
+    steps = [f"TERM {r['pid']}"] + ([f"zellij action close-pane --pane-id {r['pane']}"] if r.get("pane") else [])
+    if a.dry_run:
+        print("\n".join(steps))
+        return 0
+    try:
+        os.kill(int(r["pid"]), 15)
+    except (OSError, ValueError) as e:
+        print(f"session close: {e}", file=sys.stderr)
+    if r.get("pane") and os.environ.get("ZELLIJ_SESSION_NAME"):
+        subprocess.run(["zellij", "action", "close-pane", "--pane-id", str(r["pane"])], capture_output=True, text=True)
+    append({"event": "end", "id": r["id"], "at": now(), "reason": "closed by desk"})
+    print(f"closed {a.name}: " + "; ".join(steps))
     return 0
 
 
@@ -314,7 +395,8 @@ def cmd_hook_start(a):
     append({"event": "start", "id": d["session_id"], "at": now(),
             "name": os.environ.get("ELA_SESSION_NAME") or None,
             "cwd": d.get("cwd") or os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd(),
-            "purpose": os.environ.get("ELA_SESSION_PURPOSE") or None})
+            "purpose": os.environ.get("ELA_SESSION_PURPOSE") or None,
+            "pid": claude_pid(), "pane": os.environ.get("ZELLIJ_PANE_ID") or None})
     return 0
 
 
@@ -341,10 +423,12 @@ def sessions():
             e = json.loads(line)
         except ValueError:
             continue
-        r = rows.setdefault(e.get("id"), {"id": e.get("id"), "name": None, "cwd": None, "started": None, "ended": None, "purpose": None})
+        r = rows.setdefault(e.get("id"), {"id": e.get("id"), "name": None, "cwd": None, "started": None, "ended": None, "purpose": None,
+                                          "pid": None, "pane": None})
         if e.get("event") == "start":
             r["started"] = r["started"] or e.get("at")
             r["ended"] = None
+            r["pid"], r["pane"] = e.get("pid") or r["pid"], e.get("pane") or r["pane"]   # a resume is a new process
             r["name"] = r["name"] or e.get("name")
             r["cwd"] = r["cwd"] or e.get("cwd")
         elif e.get("event") == "end":
@@ -376,9 +460,14 @@ def main():
     o.add_argument("target", help="ela|runner|elak|helm|reports|published, code/<ref>, or a directory")
     o.add_argument("brief", nargs="?", default="")
     o.add_argument("--name")
-    o.add_argument("--pane", action="store_true", help="a pane beside this one instead of a tab")
+    o.add_argument("--pane", action="store_true", help="a pane beside this one (a topic session beside the desk)")
+    o.add_argument("--tab", action="store_true", help="a tab of its own instead of a stacked pane in the workers tab")
+    o.add_argument("--brief", dest="brief_file", metavar="FILE", help="a brief file: the first message points to it")
     o.add_argument("--permission-mode")
     o.add_argument("--dry-run", action="store_true", help="print the layout and the command; open nothing")
+    c = sub.add_parser("close", help="end a live session by name: its Claude process, then its pane")
+    c.add_argument("name")
+    c.add_argument("--dry-run", action="store_true")
     l = sub.add_parser("list", help="the sessions the hooks recorded, newest first")
     l.add_argument("--limit", type=int, default=30)
     l.add_argument("--json", action="store_true")
@@ -396,7 +485,7 @@ def main():
         ap.error("unrecognized arguments: " + " ".join(extra))
     if a.cmd == "find" and a.since and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", a.since):
         ap.error("--since takes YYYY-MM-DD")
-    sys.exit({"find": cmd_find, "open": cmd_open, "list": cmd_list,
+    sys.exit({"find": cmd_find, "open": cmd_open, "close": cmd_close, "list": cmd_list,
               "hook-start": cmd_hook_start, "hook-end": cmd_hook_end}[a.cmd](a))
 
 

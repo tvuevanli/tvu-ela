@@ -83,10 +83,12 @@
   ela promote close                the pending promotion is done: the morning stops showing its next train
                                    (a report written with --out opens or refreshes it)
  sessions
-  ela session open <alias|path> [--name N] [--pane] [--permission-mode M] "brief"
-                                   a worker session where the target's rules live, in its own zellij tab
-                                   (a pane with --pane); alias: ela|runner|elak|helm|reports|published,
-                                   code/<ref>; the layout goes to <runtime>/sessions/; refuses outside zellij
+  ela session open <alias|path> [--name N] [--tab|--pane] [--brief FILE] [--permission-mode M] "brief"
+                                   a worker session where the target's rules live: a stacked pane in the workers tab
+                                   (made when missing), titled with its name; --tab its own tab; --pane beside this
+                                   pane (a topic session); --brief FILE points the first message at a brief; a name a
+                                   live session holds is refused; the layout goes to <runtime>/sessions/; needs zellij
+  ela session close <name>         end a live session: its Claude process, then its pane; the registry says closed by desk
   ela session list                 the sessions on this machine, newest first: name, cwd, started, ended, purpose
   ela sessions <word>…             earlier sessions on this machine whose first prompt or final
                                    answer carries every word

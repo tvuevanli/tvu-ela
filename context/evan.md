@@ -32,8 +32,14 @@ Roots are named in `~/.claude/ela/site.json`; write them by name, never as machi
 - Start each session where the target's rules live; ela is already there.
 
 ## Sessions
-A desk session named `ela` holds Evan's conversation and opens workers with `ela session open <alias|path>
---name N "brief"`, each in its own zellij tab. A worker runs where its target's rules live, and sends `ela`
-one line (SendMessage) when it starts, when it is blocked on Evan, and before it closes. Permissions are per
-session: no session approves for another. The plugin's hooks record every session in
-`<runtime>/sessions.jsonl`; `ela session list` reads it.
+A desk session named `ela` (its zellij tab is named `desk`) holds Evan's conversation and opens workers with
+`ela session open <alias|path> --name N "brief"`: each a stacked pane in the `workers` tab, titled with its name
+(`--tab` for a tab of its own). A worker runs where its target's rules live, and sends `ela` one line
+(SendMessage) when it starts, when it is blocked on Evan, and before it closes. A collapsed pane shows no
+permission prompt, so a blocked worker messages `ela` and the desk names the pane to expand. The desk closes a
+finished worker with `ela session close N` after its closing line; a session Evan started by hand closes only on
+his word; a name a live session holds is refused. A session named `topic-*` (`--pane --brief FILE`, beside the
+desk) holds one topic: it closes when done, sends its conclusion to `ela` as one line before closing (only `ela`
+writes the vault and elak and routes work), and briefs a worker directly only when its brief names that worker,
+copying `ela` one line. Permissions are per session: no session approves for another. The plugin's hooks record
+every session, its pane and its process in `<runtime>/sessions.jsonl`; `ela session list` reads it.

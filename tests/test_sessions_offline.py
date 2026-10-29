@@ -42,9 +42,20 @@ with tempfile.TemporaryDirectory() as tmp:
     rows = {r["id"]: r for r in json.loads(run(["list", "--json"]).stdout)}
     check(rows["b"]["ended"] is None, "a resume reopens it")
 
-    p = run(["open", "runner", "--dry-run", "--name", "runner-dev", 'read "the brief"'])
+    p = run(["open", "runner", "--dry-run", "--tab", "--name", "runner-dev", 'read "the brief"'])
     check(p.returncode == 0 and 'cwd="' + os.path.join(tmp, "projects", "ela-runner") + '"' in p.stdout
-          and '"read \\"the brief\\""' in p.stdout and "new-tab --name runner-dev" in p.stdout, "open --dry-run: the layout at the alias, the brief quoted")
+          and '"read \\"the brief\\""' in p.stdout and "new-tab --name runner-dev" in p.stdout, "open --tab --dry-run: the layout at the alias, the brief quoted")
+    p = run(["open", "runner", "--dry-run", "--name", "runner-dev", "x"])
+    check("new-tab --name workers" in p.stdout and "pane stacked=true" in p.stdout and 'name="runner-dev"' in p.stdout,
+          "by default a stacked pane in a new workers tab, titled with the session's name")
+    p = run(["open", "runner", "--pane", "--dry-run", "--brief", "/b/brief.md", "--name", "topic-x"])
+    check("Read /b/brief.md and follow it." in p.stdout, "--brief FILE: the first message points to the file")
+    run(["hook-start"], json.dumps({"session_id": "c", "source": "startup", "cwd": "/z"}), ELA_SESSION_NAME="busy", ZELLIJ_PANE_ID="7")
+    p = run(["open", "runner", "--name", "busy", "x"])
+    check(p.returncode == 2 and "busy is still open (pane 7)" in p.stderr, "a name a live session holds is refused")
+    p = run(["close", "busy", "--dry-run"])
+    check(p.returncode == 0 and "close-pane --pane-id 7" in p.stdout, "close names the process and the pane it ends")
+    check(run(["close", "nobody"]).returncode == 3, "closing a name no live session holds exits 3")
     p = run(["open", "runner", "--pane", "--dry-run", "x"])
     check("zellij run --name runner" in p.stdout, "--pane goes through zellij run")
     p = run(["open", "runner", "x"])
