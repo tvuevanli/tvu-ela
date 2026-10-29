@@ -87,6 +87,11 @@ check("one tracked item per ticket; addressed to him is C with who said what", t
       and ti["MH-7"]["rows"] == 2 and ti["MH-7"]["prod_or_customer"])
 check("otherwise D, saying what ela could not place", ti["MH-8"]["class"] == "D" and ti["MH-8"]["first_line"] == "ela could not place: reassigned 3 times in a day")
 check("sure rows and rows outside the window are not items", "MH-9" not in ti and "MH-10" not in ti)
+hu = [{"key": "MH-11", "rule": "high-untouched", "change": "priority High, Backlog, untouched 20 days", "reading": "unsure: High and untouched 20 days",
+       "sure": False, "addressed_to_owner": False, "pass_at": "2026-10-28T06:30:00+08:00"},
+      dict({"key": "MH-12", "rule": "high-untouched", "change": "c", "reading": "unsure: x", "sure": False, "pass_at": "2026-10-28T06:30:00+08:00"}, prod_or_customer=True)]
+check("a high-untouched finding is a lane row, an item only on a customer ticket",
+      [i["key"] for i in B.tracked_items(hu, now - datetime.timedelta(hours=24))] == ["MH-12"])
 pg = lambda *hs: "# B\n\n## Needs you\n\n" + "".join(f"### {i}. {h}\n\nfacts\n\n" for i, h in enumerate(hs, 1)) + "## FYI\n\n### not an item\n"  # noqa: E731
 cr = B.carried([pg("MH-1: a", "Nobody owns X"), pg("MH-1: a, again", "Nobody owns X", "MH-9: b"), pg("MH-2: c"),
                 pg("MH-1: a", "Nobody owns X", "MH-2: c, still")])

@@ -322,6 +322,8 @@ def tracked_items(rows, since):
         at = parse_ts(f.get("pass_at") or "") or parse_ts(f.get("at") or "")
         if not at or at < since or (f.get("sure") and not f.get("addressed_to_owner")):
             continue
+        if f.get("rule") == "high-untouched" and not (f.get("addressed_to_owner") or f.get("prod_or_customer")):
+            continue                                        # a lane row (high_untouched), never an item of its own
         by_key.setdefault(f["key"], []).append(f)
     out = []
     for key, fs in by_key.items():
@@ -351,7 +353,12 @@ def lane_tracked(env, limit, now):
     except OSError:
         pass
     items = tracked_items(rows, now - datetime.timedelta(hours=hours))
-    return {"rows": items, "count": len(items), "hours": hours}
+    since = now - datetime.timedelta(hours=hours)
+    high = sorted({f["key"]: f for f in rows if f.get("rule") == "high-untouched"
+                   and (parse_ts(f.get("pass_at") or "") or parse_ts(f.get("at") or "") or since) >= since}.values(),
+                  key=lambda f: -int(re.search(r"untouched (\d+)", f.get("change") or "0").group(1) if re.search(r"untouched (\d+)", f.get("change") or "") else 0))
+    return {"rows": items, "count": len(items), "hours": hours,
+            "high_untouched": {"count": len(high), "oldest": [f["key"] for f in high[:3]]}}
 
 
 def needs_you(page):
@@ -445,12 +452,13 @@ def lane_intake(env, limit, now):
 
 
 def lane_due(name):
-    """overdue / due_week: the Ticket lanes' first two rows, from the due dates the rules keep (Jira plan rule 2)."""
+    """overdue / due_week: the Ticket lanes' first two rows, from the due dates the rules keep (Jira plan rule 2). A lane
+    row with its count and three keys (the oldest first), never items of their own."""
     def lane(env, limit, now):
         today = now.astimezone().date()
         rows = [{**r, "days": (today - datetime.date.fromisoformat(r["due"])).days if r.get("due") else None,
                  "flag": "OVERDUE" if name == "overdue" else ""} for r in jql(env, Q[name], limit)]
-        return {"rows": rows, "count": len(rows)}
+        return {"rows": rows, "count": len(rows), "first": [r["key"] for r in rows[:3]]}
     return lane
 
 
