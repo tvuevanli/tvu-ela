@@ -40,15 +40,14 @@ listed on the vault's Home for 30 days as a rewrite this skill owes. Budgets, in
 numbers in a short table, file paths and code only where he must act on them, the full record linked, not
 pasted.
 
-Two front-matter lines carry a review or a plan to the right place in the vault (ADR 0010): `area: <topic>`, the
-file name of the library topic it is about (`media-pipeline`, `mediahub-app`, `ur-j2n-orchestration`, …), which
-the note's meta line links and the topic's backlinks then list; and, on a plan or proposal that waits for his
-ruling, `status: proposed`, which puts it in Home's *To read* until the status changes. A mermaid timeline's
+A report in the reports root is a reading: the sync puts it in the vault's `readings/`, with no status and no
+moves, and the morning item or the ticket it serves links it. A plan or proposal that waits for his ruling is an
+elak decision or plan with `reader: owner` and `status: proposed`, which the sync carries into `to-read/` until
+the status changes. A mermaid timeline's
 periods carry no colon (`6.30 am`, not `06:30`): the colon separates a period from its event.
 
-Where the owner drags a note states his intent: `to-learn/` (distil it), `archive/` (keep it) or the
-bin. A `to-learn/` entry he keeps from the evening draft is written where the draft said (a library page for what he
-reads, elak for ela's own knowledge), and the note is then moved into `archive/` in the same pass.
+Where the owner drags a note states his intent: `archive/` (keep it) or the bin. What is worth keeping as
+knowledge goes to elak, proposed as a decision note in `to-read/` and written on his word.
 
 ## What a report is now
 

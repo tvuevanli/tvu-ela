@@ -471,7 +471,7 @@ open question after the fix is the item. What the owner already did is stated ("
 never drafted again. A ticket whose QA observation contradicts what another layer's code expects (a code, a field,
 a status), on a Highest or High ticket or one assigned to the owner, is a **deep pick**: at most two a day, most
 urgent first, written to the deep file (§3b) and run after the page as `/ela:probe fix`, whose page (real status,
-dated timeline, next) reaches to-read; the item links it (2026-10-26: MH-2406 sat assigned to the owner for eight days with QA's Fail naming the mismatched codes in its
+dated timeline, next) reaches readings; the item links it (2026-10-26: MH-2406 sat assigned to the owner for eight days with QA's Fail naming the mismatched codes in its
 comments; he traced the J2N–mediahub-frontend gap by hand).
 
 **A field is Jira's value.** A status, assignee, Fixed In or version stated for a ticket is the value the facts page

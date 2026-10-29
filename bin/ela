@@ -114,14 +114,14 @@
                                    what it wrote: one verdict per item, the page's three lines
   ela ticket refresh KEY|--all     each change on a tracked ticket since the last pass, read as sure (a rule
                                    in probe §fix) or unsure; appended to its fix page; findings for the brief
-  ela vault sync [--dry-run]       regenerate the owner's Obsidian vault: day pages, reviews, verifications,
+  ela vault sync [--dry-run]       regenerate the owner's Obsidian vault: day pages, readings, verifications,
                                    decisions and plans; a note over its reading budget carries a warning;
                                    a note you delete is done and stays deleted (ela vault restore PATH)
   ela vault setup                  apply the vault's Obsidian settings from ela's versioned copy, then restart Obsidian
   ela vault guidance [--json]      the owner's `ela:` lines and ticked boxes anywhere in the vault, each handled once
-  ela vault finish PATH [--to delete|archive|learn]   on your word: finish with a note as you would in Obsidian
+  ela vault finish PATH [--to delete|archive]   on your word: finish with a note as you would in Obsidian
   ela note claim|release|progress|built|move PATH   a note's life from any session: claim it, record progress, mark it built, move it
-  ela vault marks [--dry-run]      finish the to-read notes whose done, learn or drop box you ticked
+  ela vault marks [--dry-run]      finish the to-read notes whose done or drop box you ticked
   ela secret NAME                  in your terminal: a credential typed at a prompt that does not echo, written to
                                    the site env file; never paste a token into a chat
   ela route <KEY>                  the routing facts: [Layer] token, ids, signal words per layer,

@@ -141,7 +141,7 @@ still one confirm each.
 Adopted 2026-10-23 for new tickets (the morning intake) and for any existing ticket ela processes for another
 reason (a breakdown, a route, a revisit, a close); no batch pass over the board. The vocabulary is elak
 `map/jira-labels.yaml`, read through the published map and rendered for the owner as the vault page
-`library/jira-vocabulary`; the design and its rulings are `library/jira-labels-and-components`.
+`ela/jira-vocabulary`; the design and its rulings are ela's knowledge in elak.
 
 - **Feature:** the ticket's component, one primary, from the vocabulary's components, set only once that component
   exists in Jira (the owner creates them); until then the value is named in the draft, not written.

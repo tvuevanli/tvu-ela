@@ -86,7 +86,7 @@ That reach, plus the lane's docker pin, is the risk sentence — not the commit 
    the summary is already in the four-section order and is read as written; the Slack body and the backfills are
    unchanged. The summary is also written as a review page to `<reports>/ela/<date>-promote-<line>-<from>-to-<to>.md`,
    with a title heading, an *In short* paragraph and a closing *What waits for your word*, and with outputs 2 to 4
-   quoted beneath it. The vault sync carries it into `to-read/`, where he reviews it on his own machine (elak decision
+   quoted beneath it. The vault sync carries it into `readings/`, where he reviews it on his own machine (elak decision
    2026-10-23, the owner reads ela in a generated Obsidian vault). Terminal text and runtime files are not readable
    there. The page stays within the vault's review budget of 2,500 words and holds no machine paths; the raw report
    is not copied, because its commit lists would fail that gate. A rerun for the same line and lanes on the same

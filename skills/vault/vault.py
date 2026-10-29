@@ -11,7 +11,7 @@ Usage:
     vault.py [--env-file F] sync [--dry-run] [--force] [--json]
     vault.py restore <path>          bring back a note the owner deleted
     vault.py guidance [--all] [--json]   his `ela:` lines anywhere in the vault, each handled once
-    vault.py finish <path> [--to delete|archive|learn]   on his word: finish with a note as he would in Obsidian
+    vault.py finish <path> [--to delete|archive]   on his word: finish with a note as he would in Obsidian
     vault.py setup                   apply the Obsidian settings kept in obsidian/ (after a reset or on a new machine)
 
 Layout, by what the owner does with a note (ela ADR 0010). Names are lowercase with hyphens and no spaces, taken
@@ -22,14 +22,16 @@ its date, so a folder sorts by time. Folders carry no numbers: Home and the book
     lanes.md                                    the lanes, what each carries that the next does not, two weeks of moves
     ela/review/<date>-reader.md                 the evening reader's verdict on each item of that morning's page, 30 days
     days/<year>/<date>-brief.md                 the morning page, kept, with -changes (what changed); -learned for 14 days
-    to-read/<date>-<slug>.md                    reviews and verifications to read; deleted when read; a verification
-    to-read/<date>-verify-<key>.md              leaves once its record is on the Jira ticket, or a pass after 14 days
-    to-read/<date>-<slug>.md                    also a decision or plan from elak while it waits for his ruling
+    to-read/<date>-<slug>.md                    a decision or plan from elak while it waits for his ruling
+    to-read/<date>-verify-<key>.md              a verification; leaves once its record is on the Jira ticket, or a pass
+                                                after 14 days
+    readings/<date>-<slug>.md                   deep reads, release and docker-service reviews, promote checks, ticket
+                                                pages: no status and no moves; deleted when read, else kept
     in-progress/<name>.md                       a note he agreed to, while ela builds it and until he accepts it
     parked/<name>.md                            a note that waits on others, with who and what brings it back
-    to-learn/, archive/                         where he drags a note: to distil it, or to keep it
-    library/                                    topic pages (the vault is their source), the index, the sources
-    ela/                                        about this vault, how ela works and runs, the table view, and
+    archive/                                    where he drags a note to keep it
+    ela/                                        about this vault, how ela works and runs, the table view, the Jira
+                                                vocabulary, and
     ela/attachments/verify/<year-month>/<record>/   each verification record copied whole, hidden in the explorer
 
 The reading gate. The vault is how ela reports to the owner, so a note over its reading budget, mostly code, or
@@ -39,8 +41,9 @@ as a rewrite ela owes. Nothing readable is withheld; nothing unreadable passes u
 Safety. A missing or unreadable source, or the notes as a whole shrinking by more than half since the last sync
 (counted from ten notes up), stops the sync before anything is written (--force overrides after a deliberate removal).
 The count is the vault's total, not each folder's as ADR 0008 first described: to-read empties by design as he reads.
-In archive/ and to-learn/ ela never rewrites a note's text; it keeps their front matter's status current. Removal is limited to files
-this script recorded in its manifest. Writes are atomic and a lock serialises concurrent syncs.
+In archive/ ela never rewrites a note's text; it keeps its front matter's status current. Removal is limited to files
+this script recorded in its manifest, and never reaches library/ or to-learn/, retired in layout 4: the pages left there
+are the owner's to move into elak. Writes are atomic and a lock serialises concurrent syncs.
 
 Exit codes: 0 ok · 2 usage or site · 3 a source could not be read or shrank (nothing written).
 """
@@ -51,15 +54,17 @@ JIRA = os.path.join(HERE, "..", "jira", "jira.py")
 PROMOTE = os.path.join(HERE, "..", "promote", "promote.py")
 SITE = os.path.expanduser("~/.claude/ela/site.json")
 MANIFEST = ".ela-sync.json"
-DAYS_KEPT, HELD_LISTED_DAYS, NEW_DAYS, MASS_DELETE, UNREAD_DAYS = 14, 30, 7, 8, 30
+DAYS_KEPT, HELD_LISTED_DAYS, NEW_DAYS, MASS_DELETE = 14, 30, 7, 8
 READER_DAYS = 30                                    # a reader page is evidence for the review of ela itself, then expires
 CONSTRAINTS_FRESH = 1800    # seconds a read of the pins stands; each read asks the lane hosts, and the sync runs every minute
-LAYOUT = 3                  # the manifest records it; a sync across a change of layout guards the total, not each folder
-DAYS, TO_READ, LIBRARY, ELA, ARCHIVE, TO_LEARN = "days", "to-read", "library", "ela", "archive", "to-learn"
+LAYOUT = 4                  # the manifest records it; a sync across a change of layout guards the total, not each folder
+DAYS, TO_READ, READINGS, ELA, ARCHIVE = "days", "to-read", "readings", "ela", "archive"
+# folders of earlier layouts: the sync reads nothing there and removes nothing there; what is left is the owner's
+RETIRED = ("library", "to-learn")
 IN_PROGRESS = "in-progress"   # a note he agreed to, while ela builds it and until he accepts the result
 PARKED = "parked"             # a live note nobody in ela works on: it waits on others (a draft he sent out, an answer pending)
 # status is ela's field and the folder says the lifecycle, so each lifecycle folder allows only its own values;
-# the owner sets `next`, never status. A note elsewhere (a sprint, a library page) keeps the status its kind defines.
+# the owner sets `next`, never status. A note elsewhere (a sprint) keeps the status its kind defines; a reading has none.
 STATUS_BY_FOLDER = {
     TO_READ: ("proposed", "blocked"),                       # waits on his word; only he can unblock
     IN_PROGRESS: ("building", "built", "waiting", "blocked"),   # waiting: an unattended loop that cannot finish
@@ -70,12 +75,12 @@ STATUSES = tuple(dict.fromkeys(v for vs in STATUS_BY_FOLDER.values() for v in vs
 CLOSED_NEXT = {"accepted": "accept", "rejected": "reject", "not now": "not-now", "not-now": "not-now", "parked": "not-now",
                "confirmed": "confirm", "planned": "make-plan", "nudged": "nudge", "drafted": "draft-comment"}
 # an archived note's old outcome status, as the move that made it; the runner names the move itself with --next
-OWNER_FOLDERS = (TO_LEARN, ARCHIVE)   # where the owner drags a note to say what he wants; ela never rewrites their text
+OWNER_FOLDERS = (ARCHIVE,)   # where the owner drags a note to keep it; ela never rewrites its text
 ATTACH = "ela/attachments"
-DELETABLE = (DAYS, TO_READ)
+DELETABLE = (DAYS, TO_READ, READINGS)
 KEEP_FOREVER = ("brief", "week", "changes")   # the morning pages are the record of what ela told the owner; the rest expires
 PROPS = ("title", "aliases", "type", "date", "kind", "status", "result", "moves", "next")   # the whole vocabulary; no tags (ADR 0010)
-MARKS = {"done": ARCHIVE, "learn": TO_LEARN, "drop": None}   # a ticked box in a to-read table row: archive, distil, delete
+MARKS = {"done": ARCHIVE, "drop": None}   # a ticked box in a to-read table row: archive, delete
 BUDGET = {"ticket": 700, "topic": 800, "guide": 1200, "board": 1000, "day": 1200, "review": 2500, "decision": 1200, "plan": 2500, "sprint": 800}
 TOLERANCE = 1.1                                  # a page 10% over its budget is not worth a rewrite
 KEY_RX = re.compile(r"(?<![\w/#=.-])([A-Z][A-Z0-9]{1,9}-\d{1,6})(?![\w-])")
@@ -106,7 +111,7 @@ ela writes this vault for Evan to read and to act from. Every generated note com
 rewritten on each sync: after the morning and evening runs, within a minute of a tick or an answer, and with the
 board every half hour on working days. An edit to a generated note is overwritten, except your `ela:` lines and
 ticked boxes, which are kept. To change something, write an `ela:` line in the note or ask in a session. The exceptions are the pages ela writes in place, whose source is the vault itself: how ela works,
-the library's topics, plans for your decision.
+plans for your decision.
 
 Start at [[home]]: what waits for your word, today's page, and what there is to read.
 
@@ -117,13 +122,12 @@ Start at [[home]]: what waits for your word, today's page, and what there is to 
 | `home`, `board` | today, and the board's debt | look at them each morning |
 | `constraints` | the standing constraints you confirmed: what each holds, whether its lane still keeps it, when it lifts | look when Home says one is over |
 | `days/<year>/` | the morning pages and what changed the day before, kept; the evening learning draft, 14 days | look back |
-| `to-read/` | reviews, verification results, and plans or decisions waiting for your ruling, newest first | read, then delete |
+| `to-read/` | plans and decisions waiting for your ruling, and verification results, newest first | rule, or read and delete |
+| `readings/` | deep reads, reviews of a release or the docker services, promote checks, ticket pages; no status, no moves | read when an item links one; delete when done |
 | `in-progress/` | what you agreed to, while ela builds it, until you accept it | accept or say what is missing |
 | `parked/` | what waits on others, with who it waits on and what brings it back | resume or drop |
 | `lanes` | the lanes, what each carries that the next does not, two weeks of moves | look before a promotion |
-| `library/` | one summary page per topic, with links to the originals | look up |
 | `ela/` | how ela works and runs, this page, the table view; attachments, hidden | rarely |
-| `to-learn/` | what you want distilled into knowledge | drag a note in |
 | `archive/` | what was acted on or you chose to keep; ela adds to it and keeps its status current, never its text | look back; ask ela to tidy it |
 
 Folders are named for what you do with a note and carry no numbers: Home and the bookmarks are the way in, and
@@ -144,8 +148,7 @@ the file explorer is rarely needed.
   *To read*.
   They feed the tables and show at the top of each note: a status to read, and `next`, the move you choose. A
   hidden `moves` property names the note's set of moves, so the chooser lists only those.
-- No tags: a keyword-guessed tag would be wrong often enough to cost trust. A note about one topic links to its
-  library page, and that page's backlinks are the cross-cut.
+- No tags: a keyword-guessed tag would be wrong often enough to cost trust.
 - A ticket key is a link to Jira, one click in reading mode.
 
 ## Reading budgets
@@ -158,24 +161,24 @@ a warning, and Home lists it for 30 days as a rewrite ela owes.
 
 | you want | do | ela does |
 |---|---|---|
-| what it says kept as knowledge | drag it into `to-learn/` | that evening's draft proposes the conclusion and where it goes (a library page, or ela's own knowledge); on your keep it is written and the note moves to `archive/` |
+| what it says kept as knowledge | write `ela: keep this` in it | ela proposes the conclusion and where it goes in its own knowledge (elak), as a decision note in `to-read/` |
 | to keep it, nothing more | drag it into `archive/` | nothing: it is never written again, and the copy, with its screenshots, is yours |
 | it gone | delete it | nothing: its source stays in the reports and the backup |
 | nothing yet | leave it | it stays, or ela moves it on (below) |
 
-The same three moves are choices of the note's `next` field: `done` (archive), `learn` (to-learn) or `drop`
-(delete), and within a minute the note goes there; no session.
+In `to-read/` the same moves are choices of the note's `next` field: `done` (archive) or `drop` (delete), and
+within a minute the note goes there; no session. A reading has no `next`: delete it when you are done, or answer it
+with `ela:` lines.
 
 Every note to read carries one field for its next move, **next**, at its top. The button beside it lists only
-that note's choices, by kind: a plan *agree*, *park*, *not-now*, *reject*; a review *make-plan*; a verification *draft-comment*; all of
-them *done*, *learn*, *drop*. A ticket page (one ticket read in depth) offers only *nudge*, *go-deep*, *seen* and *drop*;
-a verification plan (a run waiting for your word on its goals) only *run*, *not-now* and *drop*; the evening's page of
-what the day taught only *learn* (distilled that night) and *drop*. The note's **Next moves** section says what each does. Choose one, and it is done
+that note's choices, by kind: a plan *agree*, *park*, *not-now*, *reject*; a decision *confirm*, *park*; a verification
+*draft-comment*; all of them *done*, *drop*. A verification plan (a run waiting for your word on its goals) offers only
+*run*, *not-now* and *drop*. The note's **Next moves** section says what each does. Choose one, and it is done
 within a minute; ela empties the field once it has acted, and a value that is not a move for the note runs nothing
 and is pointed out under the title. An agreed note moves to `in-progress/`, ela writes each step under its Progress
 heading, and when it is built the note offers *accept* or *not-done*. A plan lists each ruling it needs with ela's
 proposed answer and no boxes: *agree* accepts them as proposed, and to differ on one you write an `ela:` line under
-it. Beside that life (to-read → in-progress → archive) sits `parked/`: a plan, decision or review you *park* waits
+it. Beside that life (to-read → in-progress → archive) sits `parked/`: a plan or decision you *park* waits
 on others, with who (`waits-on`) and what brings it back (`wake`); ela watches the wake each morning, and the note
 offers *resume* or *drop*. You can also answer a note with `ela:` lines,
 or continue it in any Claude session by naming its path; a session that claims a note keeps it, and records its
@@ -185,12 +188,11 @@ To tell ela what you want of a note, or to answer what it waits for, write a lin
 below its properties (the end is easiest: Ctrl+E, Ctrl+End, write, Ctrl+E), in your own words. Any note: a
 rewrite keeps your lines. Two minutes after you stop typing, a session takes the lines up, and its answer appears
 folded under the last of them. A place can be named ("write this to the KB", "into elak"); without one, ela
-chooses between a library page here, its own knowledge in elak and the team's knowledge base (drafted, published
-on your word).
+chooses between its own knowledge in elak and the team's knowledge base (drafted, published on your word).
 
 Ask ela now and then to tidy the archive.
 
-Do it on the desktop; the laptop only receives. A living page (Home, the board, the library, how ela runs) is
+Do it on the desktop; the laptop only receives. A living page (Home, the board, the lanes, how ela runs) is
 written again whatever happens to it. Finishing is never a verdict: deleting a decision does not revoke it; to
 change one, tell ela. `ela vault restore <path>` brings back a generated note; a page ela writes in place comes
 back from the nightly backup.
@@ -198,10 +200,11 @@ back from the nightly backup.
 ## What ela moves on by itself
 
 What ela knows was acted on, it archives: a verification once its record is on the Jira ticket, a decision or plan
-once you have ruled on it (what it settled is written into a living page, `ela/` or `library/`). What merely
-expired, it removes: a passed verification nobody posted, after 14 days. A review you leave untouched for 30 days it
-archives, so `to-read/` does not pile up. What waits for your word (a failed verification, a plan to rule on) stays
-until you give it, and the morning page reminds you; only the evening draft expires, after 14 days.
+once you have ruled on it (what it settled is written into elak or a living page in `ela/`). What merely expired, it
+removes: a passed verification nobody posted, after 14 days. A reading stays until you delete it: it is linked from
+the item or ticket it serves, not a pile to work down. What waits for your word (a failed verification, a plan to
+rule on) stays until you give it, and the morning page reminds you; the evening's draft of what the day taught
+expires after 14 days.
 
 ## Standing constraints
 
@@ -224,7 +227,7 @@ machine.
 
 - Notes open in reading view, without the file-name title, with their properties at the top, at a readable width; the
   `ela` style sheet tidies tables and callouts and hides the attachments folder.
-- Bookmarks: Home, the board, the library, all notes as tables, how ela runs, this page.
+- Bookmarks: Home, the board, all notes as tables, how ela runs, this page.
 - Core plugins on: search, quick switcher, file explorer, backlinks, outgoing links, page preview, outline,
   bookmarks, properties, Bases, Web viewer (on request only). Off: everything made for writing, tags and the
   graph.
@@ -248,7 +251,6 @@ WAITING = """      or:
         - 'status == "proposed"'
         - 'result == "fail"'
         - 'status == "blocked"'
-        - 'kind == "learned"'
 """
 
 VIEWS = {
@@ -257,6 +259,7 @@ VIEWS = {
     - 'file.ext == "md"'
     - not:
         - file.inFolder("archive")
+        - file.inFolder("library")
         - file.inFolder("to-learn")
         - file.inFolder("ela/moves")
     - 'type != "home"'
@@ -280,6 +283,18 @@ VIEWS = {
         - 'status != "blocked"'
         - 'status != "proposed"'
     order: [date, formula.note, type, next]
+    limit: 5
+    sort:
+      - property: formula.loop
+        direction: ASC
+      - property: date
+        direction: DESC
+  - type: table
+    name: Readings
+    filters:
+      and:
+        - file.inFolder("readings")
+    order: [date, formula.note, type]
     limit: 5
     sort:
       - property: formula.loop
@@ -349,7 +364,7 @@ def settled_status(folder, status, kind=None):
     value, a verdict moved to result, an archived outcome moved to next. Outside those folders, as it was."""
     s = (status or "").strip().strip("'\"").lower()
     result = s if kind == "verify" and s in ("pass", "fail") else None
-    if folder == LIBRARY:                                  # a topic page is reference, not a step in a life
+    if folder == READINGS:                                 # a reading is reference, not a step in a life
         return None, None, None
     if folder not in STATUS_BY_FOLDER:
         return status, None, None
@@ -365,10 +380,10 @@ def settled_status(folder, status, kind=None):
 
 
 def settle_statuses(vault, dry_run=False):
-    """Bring every note in a lifecycle folder to its folder's statuses, and take status off library pages, front
-    matter only (archive included: the body stays his). Returns one line per fix."""
+    """Bring every note in a lifecycle folder to its folder's statuses, and take status off readings, front matter
+    only (archive included: the body stays his). Returns one line per fix."""
     fixes = []
-    for folder in tuple(STATUS_BY_FOLDER) + (LIBRARY,):
+    for folder in tuple(STATUS_BY_FOLDER) + (READINGS,):
         d = os.path.join(vault, folder)
         for f in sorted(os.listdir(d)) if os.path.isdir(d) else []:
             if not f.endswith(".md"):
@@ -505,7 +520,7 @@ def elak_notes(elak):
         kind = {"decisions": "decision", "plans": "plan", "sprints": "sprint"}[rel.split("/")[1]]
         titles[rel] = sentence(h1(body) or base.replace("-", " "))
         # a decision or plan is in the vault only while it waits for the owner's ruling (`reader: owner` and
-        # `status: proposed`); once decided, what it settled is written into a living page (ela/, library/) and the
+        # `status: proposed`); once decided, what it settled is written into elak or a living page (ela/) and the
         # record stays in elak, for ela (ADR 0010)
         if kind != "sprint" and not (any(re.match(r"^reader:\s*owner\b", l) for l in fl)
                                      and any(re.match(r"^status:\s*['\"]?proposed\b", l) for l in fl)):
@@ -571,13 +586,6 @@ def report_notes(reports, today):
         fl, body = split_front(open(os.path.join(rv, f), encoding="utf-8").read())
         notes.append(Note(f"{ELA}/review/{f}", f"The reader · {m.group(1)}", body, {"type": "reader", "date": m.group(1)}, fl,
                           src_rel=f"review/{f}"))
-    # the library: one page per topic, written by ela from the sources it read, and an index; the source lists are an
-    # appendix. Pointers and syntheses only: the originals stay where they live.
-    lp = os.path.join(reports, "library", "library.md")
-    if os.path.isfile(lp):
-        fl, body = split_front(open(lp, encoding="utf-8").read())
-        body = re.sub(r"^# Library\b", "# Library sources", body, count=1, flags=re.M)
-        notes.append(Note(f"{LIBRARY}/sources.md", "Library sources", body, {"type": "library"}, fl, src_rel="library/library.md"))
     sp = os.path.join(reports, "system", "how-ela-runs.md")
     if os.path.isfile(sp):                                 # what is scheduled where, read from the machines
         fl, body = split_front(open(sp, encoding="utf-8").read())
@@ -594,11 +602,12 @@ def report_notes(reports, today):
             m = re.search(r"(\d{4}-\d{2}-\d{2})", base)
             rest = slug(re.sub(r"[-_]?\d{4}-\d{2}-\d{2}[-_]?", "-", base)) if m else slug(base)
             title = sentence(h1(body) or base.replace("-", " "))
+            # a report is a reading: a deep read, a review of a release or the docker services, a promote check
             if m:
                 title = re.sub(r"\s*[—–,-]?\s*[（(]?" + m.group(1) + r"[)）]?(\s*[（(][^)）]{1,6}[)）])?", "", title).strip() or title
-                path = f"{TO_READ}/{m.group(1)}-{rest}.md"
+                path = f"{READINGS}/{m.group(1)}-{rest}.md"
             else:
-                path = f"{TO_READ}/{rest}.md"
+                path = f"{READINGS}/{rest}.md"
             # a deep reading of one ticket (`ela-runner deep`) is a ticket page: real status, timeline, next
             kind = "ticket" if re.match(r"^\d{4}-\d{2}-\d{2}-deep-", base) else "review"
             notes.append(Note(path, title, body, {"type": kind, "date": m.group(1) if m else None}, fl,
@@ -1047,8 +1056,7 @@ def home(today, now, notes, saw=None):
     # everything that needs his word, from typed state: a failed or blocked verification, a plan proposed to him, the
     # evening draft (a live view, so it leaves when he deletes the note), and proposed closes from the board
     # the same rules as the views, so an empty table is a sentence instead
-    waiting = [n for n in notes if note_status(n) in ("proposed", "blocked", "built") or n.props.get("result") == "fail"
-               or n.props.get("kind") == "learned"]
+    waiting = [n for n in notes if note_status(n) in ("proposed", "blocked", "built") or n.props.get("result") == "fail"]
     L += ["## Waiting for your word", ""] + [f"- {w}" for w in wait] + ([""] if wait else [])
     if waiting:
         L += [f"![[{ELA}/all-notes.base#Waiting for your word]]", "",
@@ -1101,14 +1109,17 @@ def home(today, now, notes, saw=None):
         L += ["## In progress", "", f"![[{ELA}/all-notes.base#In progress]]", ""]
     if any(top(n.path) == PARKED for n in notes):        # a base cannot hide an empty view, so the block goes instead
         L += ["## Parked", "", f"![[{ELA}/all-notes.base#Parked]]", ""]
-    reading = [n for n in notes if top(n.path) == TO_READ and note_status(n) not in ("proposed", "blocked", "built")
+    to_read = [n for n in notes if top(n.path) == TO_READ and note_status(n) not in ("proposed", "blocked", "built")
                and n.props.get("result") != "fail"]
-    L += ["## To read", "", f"![[{ELA}/all-notes.base#To read]]" if reading else "Nothing to read.", ""]
-    if reading:                                            # the table shows five; say what is beyond and what is new
-        # new against the notes to read when he last opened Home; before Home was ever seen open, against today
-        new = sum(1 for n in reading if (n.path not in saw if saw is not None else n.props.get("date") == iso))
+    if to_read:                                            # a passed verification, read and deleted
+        L += ["## To read", "", f"![[{ELA}/all-notes.base#To read]]", ""]
+    readings = [n for n in notes if top(n.path) == READINGS]
+    L += ["## Readings", "", f"![[{ELA}/all-notes.base#Readings]]" if readings else "No reading.", ""]
+    if readings:                                           # the table shows five; say what is beyond and what is new
+        # new against the readings when he last opened Home; before Home was ever seen open, against today
+        new = sum(1 for n in readings if (n.path not in saw if saw is not None else n.props.get("date") == iso))
         said_new = (f"{new} new since you last opened Home" if saw is not None else f"{new} new today") if new else ""
-        more = f"+{len(reading) - 5} more in [[{ELA}/all-notes.base|all notes]]" if len(reading) > 5 else ""
+        more = f"+{len(readings) - 5} more in [[{ELA}/all-notes.base|all notes]]" if len(readings) > 5 else ""
         L += ["*" + " · ".join(x for x in (said_new, more) if x) + "*", ""] if new or more else []
     owed_since = (today - datetime.timedelta(days=HELD_LISTED_DAYS)).isoformat()
     owed = [n for n in notes if n.held and (n.props.get("date") or iso) >= owed_since]
@@ -1136,15 +1147,13 @@ def note_status(n):
                                            if l.startswith("status:")), None)
 
 
-def meta_line(n, topics):
-    """One muted line under a record's or a review's title: what it is, when, its status, and the library topic it
-    is about when its source names one (`area:` in its front matter). Properties are hidden while reading."""
+def meta_line(n):
+    """One muted line under a record's or a review's title: what it is, when, its status. Properties are hidden while
+    reading."""
     if n.props.get("type") not in ("review", "decision", "plan", "sprint"):
         return n.body
-    area = next((re.match(r"^area:\s*['\"]?([\w-]+)", l).group(1) for l in n.front_lines if re.match(r"^area:\s*['\"]?[\w-]+", l)), None)
-    t = topics.get(area)
     st = note_status(n)
-    bits = [n.props["type"], n.props.get("date"), st, f"about {link(t)}" if t else None]
+    bits = [n.props["type"], n.props.get("date"), st]
     line = "*" + " · ".join(b for b in bits if b) + "*"
     m = re.search(r"^#[ \t]+.*$", n.body, re.M)
     return n.body[:m.end()] + "\n\n" + line + n.body[m.end():] if m else n.body
@@ -1154,10 +1163,11 @@ def meta_line(n, topics):
 
 def native_notes(vault):
     """Notes whose source is the vault itself (front matter `source: "vault"`): the owner's documents ela writes in
-    place (the overview, the workflow, plans for his decision, the library's topic pages). Read, never written."""
+    place (the overview, the workflow, plans for his decision). Read, never written."""
     out = []
     for top_, dirs, fs in os.walk(vault):
-        dirs[:] = [d for d in dirs if not d.startswith(".") and os.path.relpath(os.path.join(top_, d), vault).replace(os.sep, "/") not in (ATTACH,) + OWNER_FOLDERS]
+        dirs[:] = [d for d in dirs if not d.startswith(".") and os.path.relpath(os.path.join(top_, d), vault).replace(os.sep, "/")
+                   not in (ATTACH,) + OWNER_FOLDERS + RETIRED]
         for f in fs:
             if not f.endswith(".md"):
                 continue
@@ -1181,7 +1191,7 @@ def native_notes(vault):
 
 def vocabulary_note(elak):
     """The Jira vocabulary ela enforces (<elak>/map/jira-labels.yaml), rendered for the owner: one section per
-    namespace, headed by its prefix so a design page can embed one (`![[library/jira-vocabulary#proto]]`). The data
+    namespace, headed by its prefix so a design page can embed one (`![[ela/jira-vocabulary#proto]]`). The data
     stays in elak, where ela reads it; this page is its view, never a copy to edit."""
     p = os.path.join(elak or "", "map", "jira-labels.yaml")
     if not os.path.isfile(p):
@@ -1193,7 +1203,7 @@ def vocabulary_note(elak):
         return str(x if x is not None else "").replace("|", "/").replace("\n", " ")
     L = ["# Jira vocabulary for MH", "",
          f"*Every component and label value ela writes, read from Jira on {d.get('read', '?')} ({d.get('tickets', '?')} tickets, "
-         f"{d.get('open', '?')} open); {d.get('status') or 'in force'}. The rules: [[{LIBRARY}/jira-labels-and-components|Labels and components]].*", ""]
+         f"{d.get('open', '?')} open); {d.get('status') or 'in force'}. The rules are ela's knowledge in elak.*", ""]
     for n in d.get("namespaces") or []:
         vals = n.get("values") or []
         L += [f"## {n.get('prefix')}", "", f"*{cell(n.get('meaning'))}* · {len(vals)} values", ""]
@@ -1215,22 +1225,8 @@ def vocabulary_note(elak):
                 L.append(f"| `{cell(v.get('value'))}` | {cell(v.get('meaning'))} |" + (f" {cell(ex)} |" if extra else "") + nums
                          + f" {cell(v.get('to') or v.get('action'))} |")
         L.append("")
-    return Note(f"{LIBRARY}/jira-vocabulary.md", "Jira vocabulary for MH", "\n".join(L), {"type": "vocabulary", "date": d.get("read")},
+    return Note(f"{ELA}/jira-vocabulary.md", "Jira vocabulary for MH", "\n".join(L), {"type": "vocabulary", "date": d.get("read")},
                 src_rel="elak:map/jira-labels.yaml")
-
-
-def library_index(topics):
-    """The library's index: one row per topic page (native to the vault), its first sentence, as of when."""
-    L = ["# Library", "", f"*What ela knows, by topic: each page is a summary with links to the originals. "
-         f"The [[{LIBRARY}/sources|full list of sources]] is the appendix.*", "", "| topic | where it stands |", "|---|---|"]
-    for n in sorted(topics, key=lambda n: n.title):
-        para = next((p for p in re.split(r"\n\s*\n", re.sub(r"^#.*$", "", n.body, count=1, flags=re.M))
-                     if p.strip() and not p.strip().startswith(("*", "|", "#", "-"))), "")
-        first = re.split(r"(?<=[.!?])\s", " ".join(para.split()), maxsplit=1)[0]
-        if len(first) > 200:
-            first = first[:200].rsplit(" ", 1)[0].rstrip(",;:") + " …"
-        L.append(f"| [[{n.path[:-3]}|{n.title}]] | {first.replace('|', '/')} |")
-    return Note(f"{LIBRARY}/library.md", "Library", "\n".join(L) + "\n", {"type": "library"})
 
 
 def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), saw=None):
@@ -1247,10 +1243,6 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), saw=N
     native_warn = []
     for n in native:                                       # a page ela writes in place is not gated, only checked
         native_warn += [f"{n.path}: {p}" for p in mermaid_problems(n.body)]
-    topics = [n for n in native if n.props.get("type") == "topic"]
-    by_topic = {os.path.basename(n.path)[:-3]: n for n in topics}
-    if topics:
-        notes.append(library_index(topics))
     vocab = vocabulary_note(s.get("elak"))
     if vocab:
         notes.append(vocab)
@@ -1269,17 +1261,16 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), saw=N
     linker = Linker({n.src_rel: n for n in enotes}, titles, jira_base, projects, reports, reps)
     planned = {}
     for n in notes:
-        if top(n.path) in tuple(STATUS_BY_FOLDER) + (LIBRARY,):
+        if top(n.path) in tuple(STATUS_BY_FOLDER) + (READINGS,):
             st, result, _ = settled_status(top(n.path), note_status(n), n.props.get("type"))
             n.props.update(status=st, result=n.props.get("result") or result)
             n.front_lines = [l for l in n.front_lines if not l.startswith("status:")]   # the source's own word is settled
-        learned = n.props.get("kind") == "learned"         # a day page that waits for his word, like a note to read
-        if top(n.path) == TO_READ or learned:
-            n.props.update({NEXT: "", MOVE_SET: move_set("learned" if learned else n.props.get("type"))})
+        if top(n.path) == TO_READ:
+            n.props.update({NEXT: "", MOVE_SET: move_set(n.props.get("type"))})
         n.held = reading_gate(n)
-        body = linker(unwrap(callouts(meta_line(Note(n.path, n.title, tidy_title(n.body), n.props, n.front_lines), by_topic))))
-        if top(n.path) == TO_READ or learned:
-            body = with_moves(body, n.path, "learned" if learned else n.props.get("type"))
+        body = linker(unwrap(callouts(meta_line(Note(n.path, n.title, tidy_title(n.body), n.props, n.front_lines)))))
+        if top(n.path) == TO_READ:
+            body = with_moves(body, n.path, n.props.get("type"))
         planned[n.path] = redact(front(n.front_lines, dict(n.props, title=n.title)) + (with_warning(body, n.held) if n.held else body))
     planned["home.md"] = redact(front([], {"type": "home", "date": today.isoformat()}) + linker(home(today, now, notes + native, saw)))
     planned[f"{ELA}/about-this-vault.md"] = unwrap(README)
@@ -1324,7 +1315,7 @@ def load_removed(path):
 
 
 def archive_names(vault):
-    """{file name, lowercased: folder} under to-learn/ and archive/: a generated note that left its folder and
+    """{file name, lowercased: folder} under archive/: a generated note that left its folder and
     appears there was moved by the owner, and the folder says what he meant."""
     out = {}
     for folder in OWNER_FOLDERS:
@@ -1350,8 +1341,7 @@ def archive_refs(vault):
 
 
 def record_removed(path, rels, sources, now, archived=None, by="owner"):
-    """Log each note the owner finished with: dragged into to-learn/ (distil it), into archive/ (keep it, nothing to
-    do) or deleted (drop it). Each way he has read it, so it stays out of the generated folders. None is criticism or
+    """Log each note the owner finished with: dragged into archive/ (keep it, nothing to do) or deleted (drop it). Each way he has read it, so it stays out of the generated folders. None is criticism or
     a verdict on a decision; feedback comes as a message (Slack `feedback`, a session)."""
     archived = archived or {}
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -1359,7 +1349,7 @@ def record_removed(path, rels, sources, now, archived=None, by="owner"):
         for r in rels:
             title = sentence(re.sub(r"^\d{4}-\d{2}-\d{2}-", "", os.path.basename(r)[:-3]).replace("-", " "))
             row = {"at": now.isoformat(timespec="seconds"), "path": r, "title": title,
-                   "fate": {TO_LEARN: "to-learn", ARCHIVE: "archived", IN_PROGRESS: "in-progress", PARKED: "parked",
+                   "fate": {ARCHIVE: "archived", IN_PROGRESS: "in-progress", PARKED: "parked",
                             TO_READ: "to-read"}.get(archived.get(os.path.basename(r).lower()), "deleted"), "by": by}
             if sources.get(r):
                 row["src"] = sources[r]
@@ -1507,7 +1497,7 @@ def answer_native(vault, answers, dry_run=False):
 # ── a note's life: to-read → in-progress → archive, and parked beside them ──────────────────────────────
 # Each note to read ends in its next moves, by kind. A tick is the owner's word for that move and nothing wider; the
 # runner does a move by script (a note moved, its status set) and starts a session only to build, plan or draft.
-MOVE_PROPS = {                   # by kind, beyond done, learn and drop, which every note to read carries
+MOVE_PROPS = {                   # by kind, beyond done and drop, which every note to read carries
     "plan": ["agree", "park", "not-now", "reject"],
     "sprint": ["agree", "not-now"],
     "review": ["make-plan", "park"],
@@ -1517,9 +1507,8 @@ MOVE_PROPS = {                   # by kind, beyond done, learn and drop, which e
     "ticket": ["nudge", "go-deep", "seen", "drop"],   # a ticket's moves only: "done" would read as the ticket's Jira Done
     "parked": ["resume", "drop"],          # a parked note's only moves: it comes back, or it ends
     "verify-plan": ["run", "not-now", "drop"],   # the plan gate of a run nobody was at the terminal for
-    "learned": ["learn", "drop"],          # the evening's draft of what the day taught: distil it, or let it go
 }
-OUT_OF_TO_READ = ("built", "parked")       # kinds whose moves are their own, without done, learn and drop
+OUT_OF_TO_READ = ("built", "parked")       # kinds whose moves are their own, without done and drop
 ALL_MOVE_PROPS = ("agree", "park", "not-now", "reject", "make-plan", "draft-comment", "confirm", "accept", "not-done", "nudge", "go-deep",
                   "seen", "resume", "run")
 MOVE_MEANING = {
@@ -1535,7 +1524,7 @@ MOVE_MEANING = {
     "seen": "archived: you have read where it stands",
     "resume": "back to `to-read/` as proposed, for your next decision",
     "run": "ela runs the verification as planned; its result replaces this note",
-    "done": "archived, nothing more", "learn": "distilled into knowledge that evening", "drop": "deleted",
+    "done": "archived, nothing more", "drop": "deleted",
 }
 MOVES = MOVE_PROPS               # a kind with moves gets the section that explains them
 AGREEABLE = ("plan", "sprint")
@@ -1549,14 +1538,14 @@ MOVE_SET, MOVE_SETS_DIR = "moves", "ela/moves"
 
 
 def move_props(kind, in_to_read=True):
-    """The checkbox properties a note carries for its next moves: its kind's own, then done, learn and drop."""
-    if kind in ("ticket", "verify-plan", "learned"):   # their moves only: "done" would read as the ticket's or the run's
+    """The checkbox properties a note carries for its next moves: its kind's own, then done and drop."""
+    if kind in ("ticket", "verify-plan"):   # their moves only: "done" would read as the ticket's or the run's
         return list(MOVE_PROPS[kind])
     return list(MOVE_PROPS.get(kind) or []) + (list(MARKS) if in_to_read else [])
 
 
 def move_set(kind, in_to_read=True):
-    """The name of the moves a note offers: its kind's when it has its own, else the plain to-read three."""
+    """The name of the moves a note offers: its kind's when it has its own, else the plain to-read two."""
     if kind in OUT_OF_TO_READ or (kind in MOVE_PROPS and in_to_read):
         return kind
     return "read" if in_to_read else None
@@ -1674,7 +1663,7 @@ def move_note(vault, reports, rel, to, status=None, waits_on=None, wake=None, ne
     p = os.path.join(vault, rel)
     if to == "delete":
         return finish(vault, reports, rel, "delete") or None
-    folder = {"in-progress": IN_PROGRESS, "archive": ARCHIVE, "to-read": TO_READ, "parked": PARKED}[to]
+    folder = {"in-progress": IN_PROGRESS, "archive": ARCHIVE, "to-read": TO_READ, "parked": PARKED, "readings": READINGS}[to]
     text = open(p, encoding="utf-8").read()
     kind = props_of(split_front(text)[0]).get("type")
     text = clear_warn(PROP_RE.sub("", text))
@@ -1692,6 +1681,8 @@ def move_note(vault, reports, rel, to, status=None, waits_on=None, wake=None, ne
             text = set_front(text, **{MOVE_SET: "closed", NEXT: nxt or ""})
         elif folder == IN_PROGRESS:
             text = set_front(text, **{MOVE_SET: "built", NEXT: ""})
+        elif folder == READINGS:                           # a reading has no life: no status, no moves
+            text = set_front(text, **{MOVE_SET: None, NEXT: None})
     dst = free_path(os.path.join(vault, folder), os.path.basename(rel), own=p)
     fl, body = split_front(text)
     body = with_moves(body, f"{folder}/{os.path.basename(dst)}", "parked" if folder == PARKED else kind if folder == TO_READ else None)
@@ -1778,7 +1769,7 @@ def guidance_id(name, says, nth=1):
 def cmd_guidance(a):
     """The owner's instructions written into his notes: every line starting `ela:` anywhere in the vault (a generated
     note keeps his lines through its rewrite), with a stable id so a job handles each once (ids already in <reports>/ela/
-    guidance-handled.jsonl are left out unless --all), and every to-learn note, guided or not."""
+    guidance-handled.jsonl are left out unless --all)."""
     import hashlib
     s = json.load(open(SITE))
     vault, reports = s["vault"], s.get("reports") or ""
@@ -1786,7 +1777,7 @@ def cmd_guidance(a):
         done = {json.loads(l).get("id") for l in open(os.path.join(reports, "ela", "guidance-handled.jsonl"), encoding="utf-8")}
     except (OSError, ValueError):
         done = set()
-    lines, notes = [], []
+    lines = []
     try:
         source_ticks = json.load(open(os.path.join(vault, MANIFEST))).get("source_ticks") or {}
     except (OSError, ValueError):
@@ -1800,8 +1791,6 @@ def cmd_guidance(a):
                 p = os.path.join(top_, f)
                 rel = os.path.relpath(p, vault).replace(os.sep, "/")
                 text = open(p, encoding="utf-8").read()
-                if top(rel) == TO_LEARN:
-                    notes.append({"note": rel, "title": h1(split_front(text)[1]) or f[:-3]})
                 ticks = [x for x in TICKED.finditer(text) if x.group(1) not in source_ticks.get(rel, [])]
                 # kind tells a typed line, which a watcher lets settle before taking it up, from a ticked box, a click
                 found = [(x, "line") for x in GUIDE.finditer(text)] + [(x, "tick") for x in ticks]
@@ -1814,23 +1803,22 @@ def cmd_guidance(a):
                     if a.all or gid not in done:
                         lines.append({"id": gid, "note": rel, "kind": kind, "says": m.group(1).strip().strip('"').strip("'"),
                                       "section": section_at(text, m.start())})
-    r = {"guidance": lines, "to_learn": notes,
+    r = {"guidance": lines,
          "handled_log": os.path.join(reports, "ela", "guidance-handled.jsonl")}
     if a.json:
         print(json.dumps(r, ensure_ascii=False)); return
     for g in lines:
         print(f"{g['id']}  {g['note']}: {g['says']}")
-    print(f"{len(lines)} instructions; {len(notes)} notes in to-learn")
+    print(f"{len(lines)} instructions")
 
 
 def apply_marks(vault, reports, dry_run=False):
-    """The move he chose in a note's `next` field. done, learn and drop finish the note here, as if he had dragged or
+    """The move he chose in a note's `next` field. done and drop finish the note here, as if he had dragged or
     deleted it; every other move is reported for the runner, which acts and empties the field. A value that is not a
     move for that note runs nothing, and the note says so. Returns [(path, move)]."""
     out = []
     found = [(folder, f"{folder}/{f}") for folder in (TO_READ, IN_PROGRESS, PARKED)
              for f in (sorted(os.listdir(os.path.join(vault, folder))) if os.path.isdir(os.path.join(vault, folder)) else [])]
-    found += [(DAYS, os.path.relpath(x, vault).replace(os.sep, "/")) for x in sorted(glob.glob(os.path.join(vault, DAYS, "*", "*-learned.md")))]
     for folder, rel in found:
         f = os.path.basename(rel)
         if not f.endswith(".md"):
@@ -1841,7 +1829,7 @@ def apply_marks(vault, reports, dry_run=False):
         except OSError:
             continue
         props = props_of(fl)
-        kind = "parked" if folder == PARKED else "learned" if folder == DAYS else "built" if props.get("status") == "built" else props.get("type")
+        kind = "parked" if folder == PARKED else "built" if props.get("status") == "built" else props.get("type")
         allowed = move_props(kind, in_to_read=folder == TO_READ)
         # the earlier checkbox form, while a note still carries it
         boxes = [k for k in tuple(MARKS) + ALL_MOVE_PROPS if props.get(k, "").lower() == "true"]
@@ -1854,7 +1842,7 @@ def apply_marks(vault, reports, dry_run=False):
             continue
         out.append((rel, move))
         if move in tuple(MARKS) + ("seen",) and not dry_run:
-            finish(vault, reports, rel, {"done": "archive", "seen": "archive", "learn": "learn", "drop": "delete"}[move], move)
+            finish(vault, reports, rel, {"done": "archive", "seen": "archive", "drop": "delete"}[move], move)
         elif move == "resume" and not dry_run:      # a script move: the note's next decision is his again
             move_note(vault, reports, rel, "to-read", "proposed")
     return out
@@ -1895,7 +1883,7 @@ def finish(vault, reports, rel, to, move=None):
         src = (json.load(open(os.path.join(vault, MANIFEST))).get("sources") or {}).get(rel)
     except (OSError, ValueError):
         src = None
-    folder = {"archive": ARCHIVE, "learn": TO_LEARN}.get(to)
+    folder = {"archive": ARCHIVE}.get(to)
     if folder:
         os.makedirs(os.path.join(vault, folder), exist_ok=True)
         dst = free_path(os.path.join(vault, folder), os.path.basename(rel))
@@ -1912,15 +1900,15 @@ def finish(vault, reports, rel, to, move=None):
 
 
 def cmd_finish(a):
-    """Finish with a note on the owner's word (an `ela:` line asking it): delete it, or move it into archive/ or
-    to-learn/, and log it as his, exactly as if he had done it in Obsidian. Only a note in days/ or to-read/; a living
+    """Finish with a note on the owner's word (an `ela:` line asking it): delete it, or move it into archive/, and log
+    it as his, exactly as if he had done it in Obsidian. Only a note in days/, to-read/ or readings/; a living
     page is not his to finish, and his own folders are already his."""
     s = json.load(open(SITE))
     vault = s["vault"]
     rel = a.path.replace("\\", "/").lstrip("/")
     p = os.path.realpath(os.path.join(vault, rel))
     if not p.startswith(os.path.realpath(vault) + os.sep) or top(rel) not in DELETABLE or not rel.endswith(".md") or not os.path.isfile(p):
-        print(f"not a note in days/ or to-read/: {a.path}", file=sys.stderr); sys.exit(2)
+        print(f"not a note in days/, to-read/ or readings/: {a.path}", file=sys.stderr); sys.exit(2)
     folder = finish(vault, s.get("reports") or "", rel, a.to)
     print(f"{rel}: {'moved to ' + folder + '/' if folder else 'deleted'}; logged as the owner's")
 
@@ -2031,19 +2019,17 @@ def cmd_sync(a):
     if newly and not a.dry_run:
         record_removed(removed_path, newly, old_src, now, archived)
     removed |= set(newly)
-    # a review left untouched in to-read for 30 days is archived by ela: kept, out of the way, never a decision taken
-    # for him (what waits for his word stays until he gives it)
+    # a note the layout moved (a review from to-read/ to readings/) is moved on disk before it is rewritten, so his
+    # `ela:` lines and ticks go with it; a note already at its new place is left as it is
+    old_at = {src: r for r, src in old_src.items() if r in old and r not in removed and top(r) not in RETIRED}
+    moved = sorted((old_at[n.src_rel], n.path) for n in notes if n.src_rel in old_at and old_at[n.src_rel] != n.path
+                   and os.path.exists(os.path.join(vault, old_at[n.src_rel])) and not os.path.exists(os.path.join(vault, n.path)))
+    if not a.dry_run:
+        for r, dst in moved:
+            os.makedirs(os.path.dirname(os.path.join(vault, dst)), exist_ok=True)
+            os.replace(os.path.join(vault, r), os.path.join(vault, dst))
     # counted from the day the note entered the vault (the manifest's `seen`), not from the day its source was written
     seen = {r: old_seen.get(r) or today.isoformat() for r in planned if r.endswith(".md")}
-    unread = [n for n in notes if top(n.path) == TO_READ and n.props.get("type") == "review" and n.path in seen
-              and (today - datetime.date.fromisoformat(seen[n.path])).days >= UNREAD_DAYS and os.path.exists(os.path.join(vault, n.path))]
-    if unread and not a.dry_run:
-        os.makedirs(os.path.join(vault, ARCHIVE), exist_ok=True)
-        for n in unread:
-            os.replace(os.path.join(vault, n.path), free_path(os.path.join(vault, ARCHIVE), os.path.basename(n.path)))
-            planned.pop(n.path, None)
-        record_removed(removed_path, [n.path for n in unread], {n.path: n.src_rel for n in unread}, now,
-                       {os.path.basename(n.path).lower(): ARCHIVE for n in unread}, by="ela")
     now_files = set(planned) | {dst for src, dst in files}
     if not a.force:
         # the notes as a whole halving is a failure until shown to be a removal (a source that read empty, a broken
@@ -2140,7 +2126,9 @@ def cmd_sync(a):
         record_removed(removed_path, to_archive, old_src, now, {os.path.basename(r).lower(): ARCHIVE for r in to_archive}, by="ela")
     keep_dirs = archive_refs(vault)
     gone = sorted(r for r in set(old) - now_files if not r.startswith(".obsidian") and r.lower() not in lower
-                  and r.lower() not in native_lower and not any(r.lower().startswith(d + "/") for d in keep_dirs))
+                  and r.lower() not in native_lower and not any(r.lower().startswith(d + "/") for d in keep_dirs)
+                  and top(r) not in RETIRED and r not in {f for f, _ in moved})
+    left = sorted(r for r in set(old) - now_files if top(r) in RETIRED)   # the owner's now; never removed by the sync
     if not a.dry_run:
         # the manifest first: a crash before the removals leaves files it no longer lists, never removals it would
         # later read as the owner's deletions
@@ -2149,7 +2137,7 @@ def cmd_sync(a):
                                         "generated": {r: digest(t) for r, t in planned.items() if r.endswith(".base")},
                                         "seen": {r: d for r, d in seen.items() if r in planned},
                                         "home": {"open": is_open, "before": before,
-                                                 "saw": sorted(r for r in planned if top(r) == TO_READ) if opening else saw},
+                                                 "saw": sorted(r for r in planned if top(r) == READINGS) if opening else saw},
                                         "source_ticks": source_ticks}, indent=0))
         for rel in gone:
             try:
@@ -2164,12 +2152,17 @@ def cmd_sync(a):
                 except OSError:
                     break
     held = [{"note": n.path, "problems": n.held} for n in notes if n.held]
-    r = {"dry_run": a.dry_run, "deleted_by_owner": newly, "archived_by_ela": to_archive + [n.path for n in unread], "notes": len(planned), "written": len(wrote), "unchanged": same, "files_copied": copied,
+    r = {"dry_run": a.dry_run, "deleted_by_owner": newly, "archived_by_ela": to_archive, "moved": [{"from": f, "to": t} for f, t in moved],
+         "left_in_retired": left, "notes": len(planned), "written": len(wrote), "unchanged": same, "files_copied": copied,
          "removed": gone, "held": held, "warnings": warnings}
     if a.json:
         print(json.dumps(r, ensure_ascii=False)); return
     print(f"{'DRY RUN — ' if a.dry_run else ''}vault: {len(planned)} notes ({len(wrote)} written, {same} unchanged), "
-          f"{copied} files copied, {len(gone)} removed, {len(held)} under a warning")
+          f"{copied} files copied, {len(moved)} moved, {len(gone)} removed, {len(held)} under a warning")
+    for f, t in moved:
+        print(f"  moved {f} → {t}")
+    for r in left:
+        print(f"  left for the owner (retired folder, no longer synced): {r}")
     for g in gone[:20]:
         print(f"  removed {g}")
     if len(gone) > 20:
@@ -2195,23 +2188,23 @@ def main():
     p.set_defaults(func=cmd_sync)
     p = sub.add_parser("setup", help="apply the vault's Obsidian settings from ela's versioned copy, then restart Obsidian")
     p.set_defaults(func=cmd_setup)
-    p = sub.add_parser("guidance", help="the owner's `ela:` lines anywhere in the vault, and the notes in to-learn")
+    p = sub.add_parser("guidance", help="the owner's `ela:` lines anywhere in the vault")
     p.add_argument("--all", action="store_true", help="include instructions already handled")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_guidance)
-    p = sub.add_parser("marks", help="finish the to-read notes whose done, learn or drop box is ticked (no session)")
+    p = sub.add_parser("marks", help="finish the to-read notes whose done or drop box is ticked (no session)")
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_marks)
-    p = sub.add_parser("finish", help="on the owner's word: delete a note, or move it into archive/ or to-learn/")
+    p = sub.add_parser("finish", help="on the owner's word: delete a note, or move it into archive/")
     p.add_argument("path", help="the note's path in the vault, e.g. to-read/2026-09-07-mh-review.md")
-    p.add_argument("--to", choices=("delete", "archive", "learn"), default="delete")
+    p.add_argument("--to", choices=("delete", "archive"), default="delete")
     p.set_defaults(func=cmd_finish)
-    p = sub.add_parser("note", help="a note's life: claim, release, progress TEXT, built TEXT, move --to in-progress|parked|archive|to-read|delete")
+    p = sub.add_parser("note", help="a note's life: claim, release, progress TEXT, built TEXT, move --to in-progress|parked|archive|to-read|readings|delete")
     p.add_argument("act", choices=("claim", "release", "progress", "built", "move"))
     p.add_argument("path", help="the note's path in the vault, e.g. to-read/2026-10-26-system-plan.md")
     p.add_argument("text", nargs="*", help="progress or built: the line to record")
-    p.add_argument("--to", choices=("in-progress", "parked", "archive", "to-read", "delete"))
+    p.add_argument("--to", choices=("in-progress", "parked", "archive", "to-read", "readings", "delete"))
     p.add_argument("--status", help="move: the status the note carries after it, settled to its folder's own (an archived "
                                     "outcome such as accepted goes to next)")
     p.add_argument("--next", help="move --to archive: the move that ended the note (make-plan, nudge, draft-comment, …), "

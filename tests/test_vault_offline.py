@@ -102,9 +102,12 @@ with tempfile.TemporaryDirectory() as tmp:
     check("a decision waiting for his ruling is in to-read", os.path.exists(dec0))
     check("one not written for him stays out", not os.path.exists(f"{vault}/to-read/{today[:4]}-01-02-internal.md"))
     check("one already ruled on stays out", not os.path.exists(f"{vault}/to-read/{today[:4]}-01-03-ruled.md"))
-    check("a long review is written, under a warning", "[!warning]" in open(f"{vault}/to-read/{today}-long.md").read())
+    check("a long review is written, under a warning", "[!warning]" in open(f"{vault}/readings/{today}-long.md").read())
+    r0 = open(f"{vault}/readings/{today[:4]}-09-10-review-0.md").read()
+    check("a report is a reading: no status, no next, no moves", "\nstatus:" not in r0 and "next:" not in r0 and "moves:" not in r0
+          and V.MOVES_HEAD not in r0 and not os.path.exists(f"{vault}/to-read/{today[:4]}-09-10-review-0.md"))
     home = open(f"{vault}/home.md").read()
-    check("Home embeds today's page, the waiting and to-read views, and what ela owes", "![[days/" in home and "all-notes.base#To read" in home
+    check("Home embeds today's page, the waiting and readings views, and what ela owes", "![[days/" in home and "all-notes.base#Readings" in home
           and "#Waiting for your word" in home and "ela owes a shorter version" in home)
     check("the changes page is a day page, linked from Home's Today", os.path.exists(f"{vault}/days/{today[:4]}/{today}-changes.md")
           and "→ What changed yesterday" in home)
@@ -113,11 +116,11 @@ with tempfile.TemporaryDirectory() as tmp:
     check("a note the owner deleted is not written again", sync() == 0 and not os.path.exists(dec0))
     check("and it is recorded as deleted by him", any(r.get("fate") == "deleted" and r.get("by") == "owner" and r["path"].endswith("decision-0.md") for r in rows()))
     os.makedirs(f"{vault}/archive", exist_ok=True)
-    os.rename(f"{vault}/to-read/{today[:4]}-09-10-review-0.md", f"{vault}/archive/{today[:4]}-09-10-review-0.md")
-    check("a note he dragged into the archive is not written again", sync() == 0 and not os.path.exists(f"{vault}/to-read/{today[:4]}-09-10-review-0.md"))
+    os.rename(f"{vault}/readings/{today[:4]}-09-10-review-0.md", f"{vault}/archive/{today[:4]}-09-10-review-0.md")
+    check("a note he dragged into the archive is not written again", sync() == 0 and not os.path.exists(f"{vault}/readings/{today[:4]}-09-10-review-0.md"))
     check("and stays in the archive, recorded as archived", os.path.exists(f"{vault}/archive/{today[:4]}-09-10-review-0.md")
           and any(r.get("fate") == "archived" and r["path"].endswith("review-0.md") for r in rows()))
-    rv = f"{vault}/to-read/{today[:4]}-09-12-review-2.md"
+    rv = f"{vault}/readings/{today[:4]}-09-12-review-2.md"
     with open(rv, "a") as fh:
         fh.write("\nela: post this to Jira\n")
     check("his ela: line in a generated note survives its rewrite", sync() == 0 and "ela: post this to Jira" in open(rv).read())
@@ -126,68 +129,81 @@ with tempfile.TemporaryDirectory() as tmp:
     def tab(f):                                            # Obsidian's workspace file, one tab open on f
         json.dump({"main": {"type": "split", "children": [{"type": "leaf", "state": {"type": "markdown", "state": {"file": f}}}]}},
                   open(f"{vault}/.obsidian/workspace.json", "w"))
-    tab("home.md"); sync(); tab(f"to-read/{today[:4]}-09-12-review-2.md"); sync()
+    tab("home.md"); sync(); tab(f"readings/{today[:4]}-09-12-review-2.md"); sync()
     fresh = f"{reports}/{today[:4]}-09-30-review-fresh.md"
     open(fresh, "w").write("# Review fresh\n\nText.\n")
     check("Home counts what is new since he last opened it", sync() == 0 and "1 new since you last opened Home" in open(f"{vault}/home.md").read())
     tab("home.md")
     check("and keeps the count while he has it open", sync() == 0 and "1 new since you last opened Home" in open(f"{vault}/home.md").read())
-    tab(f"to-read/{today[:4]}-09-12-review-2.md")
+    tab(f"readings/{today[:4]}-09-12-review-2.md")
     check("once he has seen it, nothing is new", sync() == 0 and "new since you last opened Home" not in open(f"{vault}/home.md").read())
     os.remove(fresh); sync()
     m = json.load(open(f"{vault}/{V.MANIFEST}"))
-    m["seen"][f"to-read/{today[:4]}-09-13-review-3.md"] = "2000-01-01"
+    m["seen"][f"readings/{today[:4]}-09-13-review-3.md"] = "2000-01-01"
     json.dump(m, open(f"{vault}/{V.MANIFEST}", "w"))
-    check("a review untouched for 30 days in the vault is archived by ela", sync() == 0
-          and os.path.exists(f"{vault}/archive/{today[:4]}-09-13-review-3.md") and not os.path.exists(f"{vault}/to-read/{today[:4]}-09-13-review-3.md"))
-    check("but one whose source is old and that just arrived stays", os.path.exists(f"{vault}/to-read/{today[:4]}-09-14-review-4.md"))
-    V.cmd_finish(types.SimpleNamespace(path=f"to-read/{today[:4]}-09-14-review-4.md", to="archive"))
+    check("a reading untouched for months stays where it is", sync() == 0
+          and os.path.exists(f"{vault}/readings/{today[:4]}-09-13-review-3.md") and not os.path.exists(f"{vault}/archive/{today[:4]}-09-13-review-3.md"))
+    # a note of layout 3 (a review in to-read) moves to readings with his lines
+    r3 = f"{today[:4]}-09-13-review-3.md"
+    os.rename(f"{vault}/readings/{r3}", f"{vault}/to-read/{r3}")
+    with open(f"{vault}/to-read/{r3}", "a") as fh:
+        fh.write("\nela: keep an eye on this\n")
+    m = json.load(open(f"{vault}/{V.MANIFEST}"))
+    m["files"] = [f"to-read/{r3}" if f == f"readings/{r3}" else f for f in m["files"]]
+    m["sources"][f"to-read/{r3}"] = m["sources"].pop(f"readings/{r3}")
+    json.dump(m, open(f"{vault}/{V.MANIFEST}", "w"))
+    dry = types.SimpleNamespace(env_file=os.path.join(tmp, "none.env"), dry_run=True, force=False, json=True)
+    buf0 = __import__("io").StringIO()
+    with __import__("contextlib").redirect_stdout(buf0):
+        V.cmd_sync(dry)
+    check("a dry run shows the move and makes none", {"from": f"to-read/{r3}", "to": f"readings/{r3}"} in json.loads(buf0.getvalue())["moved"]
+          and os.path.exists(f"{vault}/to-read/{r3}"))
+    check("a sync moves a to-read review of the old layout to readings, his line with it", sync() == 0
+          and not os.path.exists(f"{vault}/to-read/{r3}") and "ela: keep an eye on this" in open(f"{vault}/readings/{r3}").read()
+          and not any(r["path"] == f"to-read/{r3}" for r in rows()))
+    V.cmd_finish(types.SimpleNamespace(path=f"readings/{today[:4]}-09-14-review-4.md", to="archive"))
     check("finish moves a note into the archive on his word, logged as his", os.path.exists(f"{vault}/archive/{today[:4]}-09-14-review-4.md")
-          and sync() == 0 and not os.path.exists(f"{vault}/to-read/{today[:4]}-09-14-review-4.md")
+          and sync() == 0 and not os.path.exists(f"{vault}/readings/{today[:4]}-09-14-review-4.md")
           and any(r.get("by") == "owner" and r.get("fate") == "archived" and r["path"].endswith("review-4.md") for r in rows()))
     try:
         V.cmd_finish(types.SimpleNamespace(path="home.md", to="delete")); refused = False
     except SystemExit:
         refused = True
     check("finish refuses a living page", refused and os.path.exists(f"{vault}/home.md"))
-    r6 = f"{vault}/to-read/{today[:4]}-09-16-review-6.md"
+    r6 = f"{vault}/to-read/{today[:4]}-03-01-decision-2.md"
     check("a to-read note carries an empty next field", 'next: ""' in open(r6).read() and "done:" not in open(r6).read())
     txt = open(r6).read(); open(r6, "w").write(txt.replace('next: ""', 'next: "done"'))
-    a6 = f"{vault}/archive/{today[:4]}-09-16-review-6.md"
+    a6 = f"{vault}/archive/{today[:4]}-03-01-decision-2.md"
     check("next: done archives the note at the next sync, closed, the move kept in next", sync() == 0
           and os.path.exists(a6) and not os.path.exists(r6)
           and 'next: "done"' in open(a6).read() and 'status: "closed"' in open(a6).read() and 'moves: "closed"' in open(a6).read())
-    r9 = f"{vault}/to-read/{today[:4]}-09-19-review-9.md"
+    r9 = f"{vault}/to-read/{today[:4]}-04-01-decision-3.md"
     check("a note to read carries no ela property for the tables", "\nela:" not in open(r9).read().split("\n---", 1)[0])
     txt = open(r9).read(); open(r9, "w").write(txt.replace('next: ""', 'next: ""\nela: "1A, post it"'))
     check("a word typed in the old ela property stays, as a line in the note", sync() == 0
           and 'ela: "1A, post it"' in open(r9).read().split("\n---", 1)[1] and open(r9).read().count("1A, post it") == 1)
-    txt = open(r9).read(); open(r9, "w").write(re.sub(r'^next: .*$', 'next: "make-plan"', txt, count=1, flags=re.M))
-    check("the move he chose survives a sync before the watcher acts on it", sync() == 0 and 'next: "make-plan"' in open(r9).read())
-    txt = open(r9).read(); open(r9, "w").write(txt.replace('next: "make-plan"', 'next: "agree"'))
+    txt = open(r9).read(); open(r9, "w").write(re.sub(r'^next: .*$', 'next: "confirm"', txt, count=1, flags=re.M))
+    check("the move he chose survives a sync before the watcher acts on it", sync() == 0 and 'next: "confirm"' in open(r9).read())
+    txt = open(r9).read(); open(r9, "w").write(txt.replace('next: "confirm"', 'next: "agree"'))
     check("a value the note does not offer is not kept by the rewrite", sync() == 0 and 'next: "agree"' not in open(r9).read().split("\n---", 1)[0])
     bp = f"{vault}/days/{today[:4]}/{today}-brief.md"
     txt = open(bp).read(); open(bp, "w").write(txt.replace("- [ ] probe MH-1", "- [x] probe MH-1"))
     check("a choice he ticks stays ticked through the rewrite", sync() == 0 and "- [x] probe MH-1 from the replay" in open(bp).read()
           and "- [ ] apply 2" in open(bp).read())
-    r7 = f"{vault}/to-read/{today[:4]}-09-17-review-7.md"
+    r7 = f"{vault}/to-read/{today[:4]}-05-01-decision-4.md"
     txt = open(r7).read(); open(r7, "w").write(txt.replace('next: ""', "next: drop"))
     check("next: drop deletes it, logged as his", [x[1] for x in V.apply_marks(vault, reports)] == ["drop"] and not os.path.exists(r7)
-          and any(r.get("fate") == "deleted" and r["path"].endswith("review-7.md") for r in rows()))
-    os.makedirs(f"{vault}/to-learn", exist_ok=True)
-    os.rename(f"{vault}/to-read/{today[:4]}-09-11-review-1.md", f"{vault}/to-learn/{today[:4]}-09-11-review-1.md")
-    with open(f"{vault}/to-learn/{today[:4]}-09-11-review-1.md", "a") as fh:
+          and any(r.get("fate") == "deleted" and r["path"].endswith("decision-4.md") for r in rows()))
+    with open(f"{vault}/readings/{today[:4]}-09-11-review-1.md", "a") as fh:
         fh.write("\n- ela: write this to the KB\n")
     import io, contextlib
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
         V.cmd_guidance(types.SimpleNamespace(all=False, json=True))
     g = json.loads(buf.getvalue())
-    check("ela: lines anywhere in the vault are read as his guidance", sorted(x["says"] for x in g["guidance"]) == ["1A, post it", "post this to Jira", "probe MH-1 from the replay", "write this to the KB"]
-          and len(g["to_learn"]) == 1)
-    check("a note he dragged into to-learn is recorded so and left there", sync() == 0
-          and os.path.exists(f"{vault}/to-learn/{today[:4]}-09-11-review-1.md") and not os.path.exists(f"{vault}/to-read/{today[:4]}-09-11-review-1.md")
-          and any(r.get("fate") == "to-learn" and r["path"].endswith("review-1.md") for r in rows()))
+    check("ela: lines anywhere in the vault are read as his guidance", sorted(x["says"] for x in g["guidance"])
+          == ["1A, post it", "keep an eye on this", "post this to Jira", "probe MH-1 from the replay", "write this to the KB"]
+          and "to_learn" not in g)
     p1 = f"{ELAK}/blueprint/decisions/{today[:4]}-02-01-decision-1.md"
     open(p1, "w").write(open(p1).read().replace("status: proposed", "status: decided"))
     git("add", "-A"); git(SAVE, "-qm", "ruled")
@@ -205,7 +221,7 @@ with tempfile.TemporaryDirectory() as tmp:
     for i in range(10, 20):
         os.remove(f"{reports}/{today[:4]}-09-{i + 10}-review-{i}.md")
     check("the notes halving at once stops the sync", sync() == 3)
-    check("--force applies a deliberate removal", sync(force=True) == 0 and not os.path.exists(f"{vault}/to-read/{today[:4]}-09-28-review-18.md"))
+    check("--force applies a deliberate removal", sync(force=True) == 0 and not os.path.exists(f"{vault}/readings/{today[:4]}-09-28-review-18.md"))
     for i in range(10, 20):
         open(f"{reports}/{today[:4]}-09-{i + 10}-review-{i}.md", "w").write(f"# Review {i}\n\nText.\n")
     for f in BATCH:
@@ -213,17 +229,25 @@ with tempfile.TemporaryDirectory() as tmp:
     sync(force=True)
     before = len(rows())
     for i in range(10, 20):
-        os.remove(f"{vault}/to-read/{today[:4]}-09-{i + 10}-review-{i}.md")
+        os.remove(f"{vault}/readings/{today[:4]}-09-{i + 10}-review-{i}.md")
     check("a mass disappearance is written again, not recorded as read", sync() == 0
-          and os.path.exists(f"{vault}/to-read/{today[:4]}-09-25-review-15.md") and len(rows()) == before)
+          and os.path.exists(f"{vault}/readings/{today[:4]}-09-25-review-15.md") and len(rows()) == before)
     check("a file the sync never wrote is never removed", os.path.exists(f"{vault}/mine.md"))
-    os.makedirs(f"{vault}/library", exist_ok=True)
-    native = f"{vault}/library/topic-a.md"
-    open(native, "w").write('---\ntitle: "Topic A"\ntype: "topic"\nsource: "vault"\n---\n\n# Topic A\n\nIt stands well.\n')
-    check("a sync with a native topic succeeds", sync(force=True) == 0)
+    native = f"{vault}/ela/overview.md"
+    open(native, "w").write('---\ntitle: "ela"\ntype: "guide"\nsource: "vault"\n---\n\n# ela\n\nIt stands well.\n')
+    check("a sync with a native page succeeds", sync(force=True) == 0)
     check("a native note is never overwritten", "It stands well." in open(native).read())
-    check("the library index lists it", "Topic A" in open(f"{vault}/library/library.md").read())
-    check("a native note stays out of the manifest", "library/topic-a.md" not in open(f"{vault}/{V.MANIFEST}").read())
+    check("a native note stays out of the manifest", "ela/overview.md" not in open(f"{vault}/{V.MANIFEST}").read())
+    os.makedirs(f"{vault}/library", exist_ok=True)
+    topic = f"{vault}/library/topic-a.md"
+    open(topic, "w").write('---\ntitle: "Topic A"\ntype: "topic"\nstatus: "decided"\nsource: "vault"\n---\n\n# Topic A\n')
+    open(f"{vault}/library/library.md", "w").write("# Library\n")
+    m = json.load(open(f"{vault}/{V.MANIFEST}"))
+    m["files"].append("library/library.md")
+    json.dump(m, open(f"{vault}/{V.MANIFEST}", "w"))
+    check("a retired folder is neither written nor emptied: its pages are left for the owner", sync() == 0
+          and open(f"{vault}/library/library.md").read() == "# Library\n" and 'status: "decided"' in open(topic).read()
+          and "library/" not in open(f"{vault}/{V.MANIFEST}").read())
     open(f"{vault}/{V.MANIFEST}", "w").write("{broken")
     check("an unreadable manifest stops the sync", sync() == 3)
 old = ("10-days", "20-reviews", "25-board", "30-verify", "40-decisions", "50-plans", "70-library", "80-views", "85-assistant", "90-attachments")
@@ -336,11 +360,11 @@ check("an archived outcome moves to next", S("archive", "accepted") == ("closed"
       and S("archive", "not now") == ("closed", None, "not-now"))
 check("a verdict is a result: a fail waits on his word, a pass is read", S("to-read", "fail", "verify") == ("proposed", "fail", None)
       and S("to-read", "pass", "verify") == (None, "pass", None) and S("archive", "pass", "verify") == ("closed", "pass", None))
-check("a sprint keeps its own status; a library page carries none", S("sprints", "active") == ("active", None, None) and S("library", "decided") == (None, None, None))
+check("a sprint keeps its own status; a reading carries none", S("sprints", "active") == ("active", None, None) and S("readings", "decided") == (None, None, None))
 with tempfile.TemporaryDirectory() as t:
-    os.makedirs(os.path.join(t, "library"))
-    open(os.path.join(t, "library", "l.md"), "w").write('---\ntype: "design"\nstatus: "decided"\nsource: "vault"\n---\n# L\n')
-    check("sync takes status off a library page", len(V.settle_statuses(t)) == 1 and "status:" not in open(os.path.join(t, "library", "l.md")).read())
+    os.makedirs(os.path.join(t, "readings"))
+    open(os.path.join(t, "readings", "l.md"), "w").write('---\ntype: "review"\nstatus: "decided"\nsource: "vault"\n---\n# L\n')
+    check("sync takes status off a reading", len(V.settle_statuses(t)) == 1 and "status:" not in open(os.path.join(t, "readings", "l.md")).read())
 with tempfile.TemporaryDirectory() as t:
     vlt, rep = os.path.join(t, "v"), os.path.join(t, "r")
     os.makedirs(os.path.join(vlt, "to-read")); os.makedirs(rep)
@@ -432,10 +456,14 @@ with tempfile.TemporaryDirectory() as t:
     os.makedirs(os.path.join(vlt, "days", "2026")); os.makedirs(rep)
     lp = os.path.join(vlt, "days", "2026", "2026-10-27-learned.md")
     open(lp, "w").write('---\ntype: "day"\nkind: "learned"\nmoves: "learned"\nnext: "learn"\n---\n# What the day taught\n')
-    got = V.apply_marks(vlt, rep)
-    check("the evening's learned page offers learn and drop, and learn sends it to be distilled",
-          V.move_props("learned", in_to_read=False) == ["learn", "drop"] and got == [("days/2026/2026-10-27-learned.md", "learn")]
-          and os.path.exists(os.path.join(vlt, "to-learn", "2026-10-27-learned.md")) and not os.path.exists(lp))
+    check("the evening's learned page is a day page: no moves, nothing taken from it",
+          "learned" not in V.MOVE_PROPS and V.apply_marks(vlt, rep) == [] and os.path.exists(lp) and not os.path.exists(os.path.join(vlt, "to-learn")))
+    os.makedirs(os.path.join(vlt, "to-read"))
+    open(os.path.join(vlt, "to-read", "r.md"), "w").write('---\ntype: "review"\nsource: "vault"\nstatus: "proposed"\nmoves: "review"\nnext: ""\n---\n# R\n')
+    to = V.move_note(vlt, rep, "to-read/r.md", "readings")
+    r = open(os.path.join(vlt, to)).read()
+    check("a review written in place moves to readings on his word, without status or moves", to == "readings/r.md"
+          and "status:" not in r and "moves:" not in r and "next:" not in r and 'source: "vault"' in r)
 
 day = datetime.date(2026, 10, 26)
 cons = {"exists": True, "error": None, "today": day.isoformat(), "gaps": [{"kind": "host_unreadable", "host": "qa", "detail": "qa login failed"}],
