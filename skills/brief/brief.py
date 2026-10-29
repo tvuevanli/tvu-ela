@@ -2471,20 +2471,19 @@ QA_CYCLE_DAYS = 7
 
 
 def report_due(sent, doc=None):
-    """When QA's verdict on a build sent at `sent` is due: the day's qa_test_hours later, at the deploy hour, moved on
-    over days that are not working days (a Friday build is tested until Monday 17:00)."""
+    """The evening QA's report on a build sent at `sent` is due: the day qa_test_hours later, moved on over days that
+    are not working days (a Friday build is tested until Monday). A day, not an hour: the report comes after the
+    test ends at the deploy hour, often well after it."""
     doc = doc or owner_day()
-    hours = int(str(doc["day"].get("qa_test_hours") or 24))
-    hh, mm = (str(doc["day"].get("qa_deploy") or "17:00").split(":") + ["0"])[:2]
-    d = (sent + datetime.timedelta(hours=hours)).date()
+    d = (sent + datetime.timedelta(hours=int(str(doc["day"].get("qa_test_hours") or 24)))).date()
     while not is_working_day(d, doc):
         d += datetime.timedelta(days=1)
-    return datetime.datetime.combine(d, datetime.time(int(hh), int(mm)), sent.tzinfo)
+    return d
 
 
 def qa_builds(changes_docs, doc=None):
     """Every build sent to QA-AWS3 in the given changes files, oldest first, each with the QA report on it when one
-    came: [{build, sent, due, versions, report}]. A build is its release mail ("…QA-AWS3] For 2.1 Release build 78");
+    came: [{build, sent, due (the evening's date), versions, report}]. A build is its release mail ("…QA-AWS3] For 2.1 Release build 78");
     a report is matched by the versions it says it ran on, never by its subject, which QA copies from day to day."""
     sent, reports = {}, {}
     for d in changes_docs:
@@ -2503,7 +2502,7 @@ def qa_builds(changes_docs, doc=None):
         q = max(mine, key=lambda q: (len(set(b["versions"]) & {version_text(t["version"]) for t in q["tested"]}), q["at"]), default=None)
         keys = sorted(set((q or {}).get("new_keys") or []) | set((q or {}).get("reopened_keys") or []) |
                       {k for f in (q or {}).get("failing") or [] for k in keys_in(f)})
-        out.append({**b, "due": report_due(datetime.datetime.fromisoformat(b["sent"]), doc).isoformat(timespec="minutes"),
+        out.append({**b, "due": report_due(datetime.datetime.fromisoformat(b["sent"]), doc).isoformat(),
                     "report": {"at": q["at"], "subject": q.get("subject"), "pass": q.get("pass"), "fail": q.get("fail"),
                                "verdict": q.get("verdict"), "keys": keys} if q else None})
     return out
@@ -2531,16 +2530,19 @@ def qa_cycle(date, now=None, runtime=None, doc=None):
     for b in builds:
         if b["report"] and b["report"]["at"] > now.isoformat():
             b["report"] = None
+    for b in builds:                                    # due this evening or later: under test; an evening passed: missing
+        b["state"] = "reported" if b["report"] else "under test" if b["due"] >= now.date().isoformat() else "report not received"
     verdict = max((b for b in builds if b["report"]), key=lambda b: b["sent"], default=None)
-    under = [b for b in builds if not b["report"] and (not verdict or b["sent"] > verdict["sent"])]
+    after = [b for b in builds if not b["report"] and (not verdict or b["sent"] > verdict["sent"])]
+    pick = lambda st: next((b for b in reversed(after) if b["state"] == st), None)  # noqa: E731
     return {"lane": "QA-AWS3", "test_hours": (doc or owner_day())["day"].get("qa_test_hours"), "builds": builds,
-            "verdict_build": verdict, "under_test_build": under[-1] if under else None}
+            "verdict_build": verdict, "under_test_build": pick("under test"), "report_missing_build": pick("report not received")}
 
 
 def qa_cycle_block(now, runtime):
     """The QA-cycle lines under the lanes table, with their heading; none when no build was sent in the window."""
     lines = qa_cycle_lines(qa_cycle(now.date(), now, runtime), now.date())
-    return ["", "**QA cycle** (QA-AWS3: a build is tested until the same hour the next working day; the report follows that evening)", ""] + lines if lines else []
+    return ["", "**QA cycle** (QA-AWS3: a build is tested until the deploy hour the next working day; QA reports that evening, often late)", ""] + lines if lines else []
 
 
 def qa_cycle_lines(cycle, today, days=3):
@@ -2556,9 +2558,9 @@ def qa_cycle_lines(cycle, today, days=3):
             tail = f"QA report {t(q['at'])}: {q.get('pass') or 0} pass, {q.get('fail') or 0} fail" + \
                    (f" ({', '.join(q['keys'])})" if q["keys"] else "") + f" · verdict {q.get('verdict') or '—'}"
         else:
-            due = datetime.datetime.fromisoformat(b["due"])
-            when = "today" if due.date() == today else due.strftime("%m-%d")
-            tail = f"under test, verdict due {when} ~{due:%H:%M}" if due.date() >= today else f"no report, due {due:%m-%d %H:%M}"
+            due = datetime.date.fromisoformat(b["due"])
+            when = "this evening" if due == today else f"{due:%m-%d} evening"
+            tail = f"under test · report due {when}" if due >= today else f"report not received (due {due:%m-%d} evening)"
         out.append(f"- sent {t(b['sent'])} · build {b['build']} · {tail}")
     return out
 
@@ -2567,7 +2569,8 @@ def cmd_day(args):
     d = datetime.date.fromisoformat(args.date) if args.date else datetime.date.today()
     plan = day_plan(d)
     cycle = qa_cycle(d)
-    plan.update(qa_test_hours=cycle["test_hours"], verdict_build=cycle["verdict_build"], under_test_build=cycle["under_test_build"])
+    plan.update(qa_test_hours=cycle["test_hours"], verdict_build=cycle["verdict_build"], under_test_build=cycle["under_test_build"],
+                report_missing_build=cycle["report_missing_build"])
     if args.json:
         print(json.dumps(plan, ensure_ascii=False)); return
     print(f"{plan['date']} {plan['weekday']} · {'working day' if plan['working_day'] else 'not a working day'}"
@@ -2575,10 +2578,11 @@ def cmd_day(args):
              if plan.get("at_desk") else ""))
     for m in plan["meetings"]:
         print(f"  {m['section']} ({', '.join(m['audience'])})")
-    for b, what in ((plan["verdict_build"], "QA's verdict"), (plan["under_test_build"], "under test")):
+    for b in (plan["verdict_build"], plan["report_missing_build"], plan["under_test_build"]):
         if b:
-            print(f"  build {b['build']} (sent {b['sent'][5:16].replace('T', ' ')}): {what}"
-                  + (f", {b['report']['verdict']} {b['report']['at'][5:16].replace('T', ' ')}" if b["report"] else f", due {b['due'][5:16].replace('T', ' ')}"))
+            print(f"  build {b['build']} (sent {b['sent'][5:16].replace('T', ' ')}): "
+                  + (f"QA's verdict {b['report']['verdict']}, {b['report']['at'][5:16].replace('T', ' ')}" if b["report"]
+                     else f"{b['state']}, report due {b['due'][5:]} evening"))
 
 
 def working_days(a, b):

@@ -195,7 +195,7 @@ def lint(text, actions=None, counts=None, bundles=None, in_vault=False, brief=Fa
         if len(where) > 1:
             fails.append(f"{k}: an item {len(where)} times (items {', '.join(where)})")
     for x in under_test_claims(text, (testing or {}).get("build")):
-        fails.append(f"build {testing['build']} is under test until {testing['due'][5:16].replace('T', ' ')}, never untested: {x}")
+        fails.append(f"build {testing['build']} is under test, its report due {testing['due'][5:]} evening; never untested: {x}")
     for said, real in summary_mornings(text):
         fails.append(f"summary: \"{said}\", but {real} item{'s' if real != 1 else ''} say so")
     plain = outside_code(text)
