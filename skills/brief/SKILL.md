@@ -578,7 +578,9 @@ newest build QA reported on (sent D-2, reported D-1 evening), and `under_test_bu
 report is `due` (an evening, never an hour). The lanes page lists the last three days' builds under its table. A
 train item and every lane judgment use the verdict build; a Wednesday promotion is on Monday's 17:00 build. The build
 under test is named as "under test · report due this evening", and is never "untested", "no QA report yet" or a
-reason to hold a train: a hold is drafted only when the verdict build has a fail or a ticket gap. A build whose due
+reason to hold a train: a hold is drafted only when the verdict build has a fail or a ticket gap. A report that
+says the build's own focus went untested (`report.untested`, verdict partial) is such a gap, and the item names the
+untested tickets. A build whose due
 evening passed with no report (`report_missing_build`, "report not received" on the lanes page) is a gap to ask QA
 about, not a fail. page-check flags a sentence that calls the build under test untested or unreported. *Why:
 the 2026-10-29 page held the train because build 78 had no report, while QA was testing it that day.*
