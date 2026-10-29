@@ -82,7 +82,12 @@
   ela promote constraints          the owner's standing constraints, each pin read on its lane now
   ela promote close                the pending promotion is done: the morning stops showing its next train
                                    (a report written with --out opens or refreshes it)
- earlier work
+ sessions
+  ela session open <alias|path> [--name N] [--pane] [--permission-mode M] "brief"
+                                   a worker session where the target's rules live, in its own zellij tab
+                                   (a pane with --pane); alias: ela|runner|elak|helm|reports|published,
+                                   code/<ref>; the layout goes to <runtime>/sessions/; refuses outside zellij
+  ela session list                 the sessions on this machine, newest first: name, cwd, started, ended, purpose
   ela sessions <word>…             earlier sessions on this machine whose first prompt or final
                                    answer carries every word
 
@@ -186,7 +191,7 @@ VERBS = {
     "promote": ("promote", None), "runtime": ("runtime", None),
     "brief": ("brief", "lanes"), "yesterday": ("brief", "yesterday"), "changes": ("brief", "changes"), "matrix": ("brief", "matrix"), "page-check": ("brief", "page-check"), "day": ("brief", "day"), "ticket": ("ticket", None), "review": ("review", None), "vault": ("vault", None), "note": ("vault", "note"), "secret": ("setup", "secret"),
     "mr": ("mr", "create"), "mr-preflight": ("mr", "preflight"),
-    "sessions": ("sessions", "find"),
+    "sessions": ("sessions", "find"), "session": ("sessions", None),
     "route": ("route", "facts"),
     "fixed-in": ("fixedin", "draft"),
     "stage": ("stage", "queue"),

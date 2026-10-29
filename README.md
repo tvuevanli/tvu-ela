@@ -75,6 +75,7 @@ This is how ela knows Evan in any directory without an agent or a global CLAUDE.
 | `/ela:team` | 1 | the MediaHub roster, first-hand — `ela who <name|email|Uxxx|accountId>` (exit 3 when unknown), `ela team list · emails · check` (check re-reads Slack); the only identity source, never a guess |
 | `/ela:reports` | 1 | Evan's standing reports (ela status, Helm vs ela, comparisons) — markdown in `<projects>/reports`, rendered and published as private artifacts with stable URLs; `ela reports list · build` |
 | `/ela:map` | 1 | the code layout (`code/<alias>/<remote path>`, `work/<KEY>/<repo>`) and the script that keeps it: `survey` (cache) · `find` · `services` · `where` · `probe` · `clone` · `sync` · `worktree` |
+| `ela session` | 1 | `open <alias\|path> [--name N] [--pane] "brief"`: a worker session where the target's rules live, in its own zellij tab (a pane with `--pane`); `list`: the sessions the plugin's hooks recorded in `<runtime>/sessions.jsonl`, newest first |
 | `ela sessions` | 1 | an earlier Claude Code session on this machine, found by the words in its first prompt or final answer; local transcripts, read-only |
 | `ela runtime` | 1 | the disposable working directory: `status` (entries, sizes, open worktrees) · `clean` (everything but work/; `--work` also drops clean worktrees) |
 
