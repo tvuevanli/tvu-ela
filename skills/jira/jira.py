@@ -502,11 +502,12 @@ def _standard_gate(args, issuetype, result):
     return lines
 
 def cmd_projects(creds, args):
-    """Every project key the account can see — the allow-list for recognising a ticket key in free text."""
+    """Every project key the account can see — the allow-list for recognising a ticket key in free text — and its lead."""
     keys, start = [], 0
     while True:
-        d = api_get(creds, "/rest/api/3/project/search", {"startAt": start, "maxResults": 100})
-        keys += [{"key": p.get("key"), "name": p.get("name")} for p in d.get("values") or []]
+        d = api_get(creds, "/rest/api/3/project/search", {"startAt": start, "maxResults": 100, "expand": "lead"})
+        keys += [{"key": p.get("key"), "name": p.get("name"), "lead": name_of(p.get("lead")) if p.get("lead") else None}
+                 for p in d.get("values") or []]
         if d.get("isLast", True) or not d.get("values"):
             break
         start += len(d["values"])

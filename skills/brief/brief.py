@@ -458,8 +458,27 @@ def lane_due(name):
         today = now.astimezone().date()
         rows = [{**r, "days": (today - datetime.date.fromisoformat(r["due"])).days if r.get("due") else None,
                  "flag": "OVERDUE" if name == "overdue" else ""} for r in jql(env, Q[name], limit)]
-        return {"rows": rows, "count": len(rows), "first": [r["key"] for r in rows[:3]]}
+        lead = project_lead(env)
+        books = [r for r in rows if is_release_bookkeeping(r, lead)]
+        rows = [r for r in rows if r not in books]
+        return {"rows": rows, "count": len(rows), "first": [r["key"] for r in rows[:3]], "release_tickets": len(books)}
     return lane
+
+
+def project_lead(env, project="MH"):
+    """The project's lead as Jira names them, or None when the projects read fails."""
+    try:
+        argv = ["python3", JIRA] + (["--env-file", env] if env else []) + ["projects", "--json"]
+        return next((p.get("lead") for p in run_json(argv, timeout=120)["projects"] if p.get("key") == project), None)
+    except (LaneError, subprocess.TimeoutExpired, ValueError, KeyError):
+        return None
+
+
+def is_release_bookkeeping(r, lead):
+    """A ticket the project lead reported that carries a release: label or is an Epic or Project: release tracking, not an
+    overdue commitment (the owner's word, 2026-10-29); it leaves the overdue row as "+N release tickets"."""
+    return bool(lead) and r.get("reporter") == lead and (any(str(l).startswith("release") for l in r.get("labels") or [])
+                                                          or (r.get("type") or "") in ("Epic", "Project"))
 
 
 def lane_triage(env, limit, now):

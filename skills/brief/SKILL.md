@@ -423,7 +423,9 @@ component from the evidence it already reads (a customer's bracket, an incident,
 change is drafted as `ela jira priority KEY --to P --why "<rule>"` (rule `priority-by-rule`; it only raises, never
 lowers what a person set) or `ela jira due KEY --date D --why "<rule>"` (rule `due-by-rule`; never moves a date),
 tier 3 until he promotes the rule. The Ticket lanes open with two rows, each a count and three keys, never items:
-"overdue: N · oldest MH-a, MH-b, MH-c" (`lanes.overdue`, `first`) and "due this week: N · …" (`lanes.due_week`), then
+"overdue: N · oldest MH-a, MH-b, MH-c · +M release tickets" (`lanes.overdue`, `first`, `release_tickets`: the
+project lead's release-tracking tickets, a `release:` label or an Epic or Project, which are bookkeeping, not a
+commitment) and "due this week: N · …" (`lanes.due_week`), then
 "Highest/High untouched 14+ days: N · MH-x, MH-y, MH-z" (`lanes.tracked.high_untouched`). One becomes an item only
 when the ticket is addressed to him or is a customer incident; the eight-item cap and Home's three stand. The
 findings file keeps every one for the ticket pages and the replay.
