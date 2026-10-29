@@ -1174,6 +1174,19 @@ def run_out(cmd, timeout=10):
         return None
 
 
+def timer_next(timer):
+    """The next run of an active timer that list-timers shows none for: while its service runs (the tickets job writes
+    this page at its own end) systemd computes no next elapse. Read from systemd's own calendar, every OnCalendar line,
+    the earliest; None for a failed or inactive timer."""
+    show = run_out(["systemctl", "--user", "show", timer, "-p", "ActiveState", "-p", "TimersCalendar"]) or ""
+    if "ActiveState=active" not in show:
+        return None
+    exprs = re.findall(r"OnCalendar=(.+?) ;", show)
+    out = run_out(["systemd-analyze", "calendar", "--iterations=1"] + exprs) if exprs else None
+    runs = re.findall(r"Next elapse: \w{3} (\d{4}-\d{2}-\d{2} \d{2}:\d{2})", out or "")
+    return min(runs) if runs else None
+
+
 def measures(s, vault, today):
     """One line per track, and the three promises, from local records only (the sync runs every minute)."""
     since = (today - datetime.timedelta(days=7)).isoformat()
@@ -1255,7 +1268,8 @@ def overview_note(s, vault, today):
         m = re.search(r"(\S+\.timer)\s+(\S+\.service)?\s*$", line)
         if m and m.group(1).startswith("ela-runner-"):     # the runner's clock; a keepalive would rewrite the page hourly
             nxt = re.match(r"^\w{3} (\d{4}-\d{2}-\d{2} \d{2}:\d{2})", line.strip())
-            rows.append(f"| {m.group(1)[:-6]} | {nxt.group(1)[5:] if nxt else '—'} |")
+            nxt = nxt.group(1) if nxt else timer_next(m.group(1))
+            rows.append(f"| {m.group(1)[:-6]} | {nxt[5:] if nxt else '—'} |")
     L += (["| timer | next run |", "|---|---|"] + rows) if rows else ["The timers could not be read."]
     try:
         sys.path.insert(0, os.path.join(HERE, "..", "brief"))
