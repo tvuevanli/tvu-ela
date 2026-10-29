@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 # ela SessionStart hook. Prints context for the session: context/evan.md · the working preferences · the knowledge root ·
-# which mapped repo/area the cwd is in. It writes nothing: no repo, no live system.
+# which mapped repo/area the cwd is in. Its one write is a start line in the session registry
+# (<runtime>/sessions.jsonl, sessions.py hook-start); no repo, no live system, never a commit.
 set -u
 ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 SITE="$HOME/.claude/ela/site.json"
 CWD="${CLAUDE_PROJECT_DIR:-$PWD}"
+
+[ -t 0 ] || printf '%s' "$(cat)" | python3 "$ROOT/skills/sessions/sessions.py" hook-start >/dev/null 2>&1 || true
 
 cat "$ROOT/context/evan.md" 2>/dev/null
 # working preferences live in the site dir (never committed), beside site.json and .env
