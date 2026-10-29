@@ -2305,7 +2305,7 @@ def write_lanes_page(out, site, env, runner, tested):
             ["", "*Every lane in order: QA ≥ daily ≥ prod*" + (f" *({und} pair{'s' if und != 1 else ''} in two series, not compared)*" if und else "")]
     note = deploy_note(now, day_plan(now.date()))
     L = ["# The lanes", "", f"*{now:%Y-%m-%d %H:%M} · line {LINE}*", "", "## The lanes this morning", "", render_matrix(out)] + order + \
-        (["", note] if note else []) + ["", "## Differences", ""]
+        (["", note] if note else []) + qa_cycle_block(now, runtime) + ["", "## Differences", ""]
     import concurrent.futures
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(PAIRS)) as ex:
         futs = [(a, b, ex.submit(pair_report, env, a, b)) for a, b in PAIRS]
@@ -2464,9 +2464,108 @@ def day_plan(date, doc=None):
             "meetings": meetings if is_working_day(date, doc) else [], "source": doc["path"]}
 
 
+QA_SENT_RX = re.compile(r"\[Release Mediahub QA-AWS3\].*?\bbuild\s+(\d+)", re.I)   # the lane's release mail names its build
+QA_CYCLE_DAYS = 7
+
+
+def report_due(sent, doc=None):
+    """When QA's verdict on a build sent at `sent` is due: the day's qa_test_hours later, at the deploy hour, moved on
+    over days that are not working days (a Friday build is tested until Monday 17:00)."""
+    doc = doc or owner_day()
+    hours = int(str(doc["day"].get("qa_test_hours") or 24))
+    hh, mm = (str(doc["day"].get("qa_deploy") or "17:00").split(":") + ["0"])[:2]
+    d = (sent + datetime.timedelta(hours=hours)).date()
+    while not is_working_day(d, doc):
+        d += datetime.timedelta(days=1)
+    return datetime.datetime.combine(d, datetime.time(int(hh), int(mm)), sent.tzinfo)
+
+
+def qa_builds(changes_docs, doc=None):
+    """Every build sent to QA-AWS3 in the given changes files, oldest first, each with the QA report on it when one
+    came: [{build, sent, due, versions, report}]. A build is its release mail ("…QA-AWS3] For 2.1 Release build 78");
+    a report is matched by the versions it says it ran on, never by its subject, which QA copies from day to day."""
+    sent, reports = {}, {}
+    for d in changes_docs:
+        for r in d.get("releases") or []:
+            m = QA_SENT_RX.search(r.get("subject") or "")
+            at = mail_time(r.get("date"))
+            if m and at and m.group(1) not in sent:
+                sent[m.group(1)] = {"build": m.group(1), "sent": at,
+                                    "versions": sorted({v for x in r.get("moves") or [] if (v := version_text(x.get("to")))})}
+        for q in d.get("qa") or []:
+            if q.get("tested") and q.get("at"):
+                reports[(q.get("subject"), q["at"])] = q
+    out = []
+    for b in sorted(sent.values(), key=lambda b: b["sent"]):
+        mine = [q for q in reports.values() if q["at"] > b["sent"] and set(b["versions"]) & {version_text(t["version"]) for t in q["tested"]}]
+        q = max(mine, key=lambda q: (len(set(b["versions"]) & {version_text(t["version"]) for t in q["tested"]}), q["at"]), default=None)
+        keys = sorted(set((q or {}).get("new_keys") or []) | set((q or {}).get("reopened_keys") or []) |
+                      {k for f in (q or {}).get("failing") or [] for k in keys_in(f)})
+        out.append({**b, "due": report_due(datetime.datetime.fromisoformat(b["sent"]), doc).isoformat(timespec="minutes"),
+                    "report": {"at": q["at"], "subject": q.get("subject"), "pass": q.get("pass"), "fail": q.get("fail"),
+                               "verdict": q.get("verdict"), "keys": keys} if q else None})
+    return out
+
+
+def qa_cycle(date, now=None, runtime=None, doc=None):
+    """QA-AWS3's cycle as seen on the morning of `date` (or at `now`): the build with QA's verdict (the newest one
+    reported) and the build still under test (sent after it, its verdict due qa_test_hours later), read from the
+    changes files of the last QA_CYCLE_DAYS days up to that date."""
+    if runtime is None:
+        site = json.load(open(SITE))
+        runtime = site.get("runtime") or os.path.join(site.get("projects", ""), ".ela")
+    runner = os.path.join(runtime, "runner")
+    first = (date - datetime.timedelta(days=QA_CYCLE_DAYS)).isoformat()
+    docs = []
+    for f in sorted(os.listdir(runner)) if os.path.isdir(runner) else []:
+        m = re.fullmatch(r"(\d{4}-\d{2}-\d{2})-changes\.json", f)
+        if m and first <= m.group(1) <= date.isoformat():
+            try:
+                docs.append(json.load(open(os.path.join(runner, f), encoding="utf-8")))
+            except (OSError, ValueError):
+                pass
+    now = now or datetime.datetime.combine(date, datetime.time(8, 0)).astimezone()
+    builds = [b for b in qa_builds(docs, doc) if b["sent"] <= now.isoformat()]
+    for b in builds:
+        if b["report"] and b["report"]["at"] > now.isoformat():
+            b["report"] = None
+    verdict = max((b for b in builds if b["report"]), key=lambda b: b["sent"], default=None)
+    under = [b for b in builds if not b["report"] and (not verdict or b["sent"] > verdict["sent"])]
+    return {"lane": "QA-AWS3", "test_hours": (doc or owner_day())["day"].get("qa_test_hours"), "builds": builds,
+            "verdict_build": verdict, "under_test_build": under[-1] if under else None}
+
+
+def qa_cycle_block(now, runtime):
+    """The QA-cycle lines under the lanes table, with their heading; none when no build was sent in the window."""
+    lines = qa_cycle_lines(qa_cycle(now.date(), now, runtime), now.date())
+    return ["", "**QA cycle** (QA-AWS3: a build is tested until the same hour the next working day; the report follows that evening)", ""] + lines if lines else []
+
+
+def qa_cycle_lines(cycle, today, days=3):
+    """The lanes page's QA-cycle block: one line per build sent in the last `days` days, newest last."""
+    first = (today - datetime.timedelta(days=days - 1)).isoformat()
+    t = lambda iso: datetime.datetime.fromisoformat(iso).strftime("%m-%d %H:%M")  # noqa: E731
+    out = []
+    for b in cycle["builds"]:
+        if b["sent"][:10] < first:
+            continue
+        q = b["report"]
+        if q:
+            tail = f"QA report {t(q['at'])}: {q.get('pass') or 0} pass, {q.get('fail') or 0} fail" + \
+                   (f" ({', '.join(q['keys'])})" if q["keys"] else "") + f" · verdict {q.get('verdict') or '—'}"
+        else:
+            due = datetime.datetime.fromisoformat(b["due"])
+            when = "today" if due.date() == today else due.strftime("%m-%d")
+            tail = f"under test, verdict due {when} ~{due:%H:%M}" if due.date() >= today else f"no report, due {due:%m-%d %H:%M}"
+        out.append(f"- sent {t(b['sent'])} · build {b['build']} · {tail}")
+    return out
+
+
 def cmd_day(args):
     d = datetime.date.fromisoformat(args.date) if args.date else datetime.date.today()
     plan = day_plan(d)
+    cycle = qa_cycle(d)
+    plan.update(qa_test_hours=cycle["test_hours"], verdict_build=cycle["verdict_build"], under_test_build=cycle["under_test_build"])
     if args.json:
         print(json.dumps(plan, ensure_ascii=False)); return
     print(f"{plan['date']} {plan['weekday']} · {'working day' if plan['working_day'] else 'not a working day'}"
@@ -2474,6 +2573,10 @@ def cmd_day(args):
              if plan.get("at_desk") else ""))
     for m in plan["meetings"]:
         print(f"  {m['section']} ({', '.join(m['audience'])})")
+    for b, what in ((plan["verdict_build"], "QA's verdict"), (plan["under_test_build"], "under test")):
+        if b:
+            print(f"  build {b['build']} (sent {b['sent'][5:16].replace('T', ' ')}): {what}"
+                  + (f", {b['report']['verdict']} {b['report']['at'][5:16].replace('T', ' ')}" if b["report"] else f", due {b['due'][5:16].replace('T', ' ')}"))
 
 
 def working_days(a, b):

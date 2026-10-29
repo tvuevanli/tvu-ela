@@ -19,6 +19,7 @@ YAML = """day:
   at_desk: "09:00"
   dm_hours: ["08:30", "19:00"]
   qa_deploy: "17:00"
+  qa_test_hours: 24
 holidays: ["2026-10-30"]
 
 meetings:
@@ -64,4 +65,31 @@ check("the lanes page says whether it was read before or after the QA deploy",
       B.deploy_note(at(13, 0), wed) == "*Read at 13:00, before today's QA-AWS3 deploy (~17:00)*"
       and B.deploy_note(at(17, 30), wed) == "*Read at 17:30, after today's QA-AWS3 deploy (~17:00)*")
 check("no line on a day off", B.deploy_note(at(13, 0), fri) is None)
+tz = datetime.timezone(datetime.timedelta(hours=8))
+check("a build's verdict is due the next working day at the deploy hour; Thursday's skips the Friday holiday and the weekend",
+      B.report_due(datetime.datetime(2026, 10, 27, 17, 58, tzinfo=tz), doc).isoformat() == "2026-10-28T17:00:00+08:00"
+      and B.report_due(datetime.datetime(2026, 10, 29, 17, 30, tzinfo=tz), doc).date() == datetime.date(2026, 11, 2))
+rel = lambda n, at, *vs: {"subject": f"[Release Mediahub QA-AWS3] For 2.1 Release build {n}", "date": at,  # noqa: E731
+                          "moves": [{"to": v} for v in vs]}
+rep = lambda at, subj, *vs: {"subject": subj, "at": at, "pass": 60, "fail": 2, "verdict": "partial", "new_keys": ["MH-9"],  # noqa: E731
+                             "tested": [{"version": f"v{v} build1"} for v in vs]}
+docs = [{"releases": [rel(77, "Tue, 27 Oct 2026 02:58:31 -0700", "2.1.35", "2.2.122")], "qa": []},
+        {"releases": [rel(78, "Wed, 28 Oct 2026 03:23:26 -0700", "2.1.36", "2.2.123")],
+         "qa": [rep("2026-10-28T18:43:47+08:00", "Daily Test Report … build 75 on 10-28", "2.1.35", "2.2.122")]}]
+bs = B.qa_builds(docs, doc)
+check("a report goes to the build whose versions it ran on, whatever its subject says",
+      [(b["build"], bool(b["report"])) for b in bs] == [("77", True), ("78", False)] and bs[0]["report"]["keys"] == ["MH-9"])
+with tempfile.TemporaryDirectory() as t:
+    import json
+    os.makedirs(os.path.join(t, "runner"))
+    for d, x in zip(("2026-10-28", "2026-10-29"), docs):
+        json.dump(x, open(os.path.join(t, "runner", f"{d}-changes.json"), "w"))
+    c = B.qa_cycle(datetime.date(2026, 10, 29), runtime=t, doc=doc)
+    check("on the morning of D the verdict build is the one reported, the build sent the evening before is under test",
+          c["verdict_build"]["build"] == "77" and c["under_test_build"]["build"] == "78" and c["under_test_build"]["due"] == "2026-10-29T17:00+08:00")
+    check("the lanes page's QA-cycle lines", B.qa_cycle_lines(c, datetime.date(2026, 10, 29)) == [
+        "- sent 10-27 17:58 · build 77 · QA report 10-28 18:43: 60 pass, 2 fail (MH-9) · verdict partial",
+        "- sent 10-28 18:23 · build 78 · under test, verdict due today ~17:00"])
+    c = B.qa_cycle(datetime.date(2026, 10, 28), runtime=t, doc=doc)
+    check("a report after the morning is not yet known", c["verdict_build"] is None and c["under_test_build"]["build"] == "77")
 sys.exit(1 if failures else 0)

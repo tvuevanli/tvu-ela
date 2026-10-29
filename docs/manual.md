@@ -45,7 +45,7 @@ flowchart LR
 | 昨天发生了什么：按 case 把 Jira 变化、commit、Slack 串起来，没有 ticket 的代码和讨论单列，ela 自己做了什么 | `brief` | `ela yesterday` · `ela yesterday --hours 72` |
 | 昨天真正变了什么：哪条 lane 上了哪个版本、哪次 build 带了哪些 commit、发版和 QA 邮件、发版 thread、按 repo 和票分组的 commit（没有票的单列）、我自己做了什么、团队日报；读不到的来源逐一列出 | `brief` | `ela changes` · `ela changes --hours 72 --json` |
 | 今天各条 lane 上跑的是哪个版本：prod / daily / QA 按组件对照，昨天以来变了的标 ▲，QA 是否测过这个确切版本（✓ ◐ ○），standing constraint 的 🔒 / ⛔ | `brief` | `ela matrix` · `ela matrix --json` · `ela matrix --page`（写 vault 的 lanes 页：这张表、每条 lane 比下一条多带了哪些票和 QA 结论、没票的 commit、14 天的变动） |
-| 我的一天（elak blueprint/meetings.yaml）：是否工作日（扣除假期）、上下班时间、DM 时段、QA 部署时间，以及当天启用的会议和它在早报里的小节标题 | `brief` | `ela day` · `ela day --date 2026-10-30 --json` |
+| 我的一天（elak blueprint/meetings.yaml）：是否工作日（扣除假期）、上下班时间、DM 时段、QA 部署时间，当天启用的会议和它在早报里的小节标题，以及 QA-AWS3 的两个 build：已有 QA 结论的（verdict_build）和仍在测试、结论到期时间的（under_test_build） | `brief` | `ela day` · `ela day --date 2026-10-30 --json` |
 | 早报页面写出前的检查：页面上每个 apply N 都要在 actions 文件里有对应动作、在页面上有勾选框；缺一个就判失败并列出编号 | `brief` | `ela page-check <date>-brief.md --actions <date>-actions.json` |
 | 跟踪中的票（有 fix 页、在 sprint 里、我派出去的、有待执行的 apply N）上次之后的每个变化：符合 probe §fix 规则的记为 sure，追加到票的时间线；其余记为 unsure，交给早报作为待我处理的事项 | `ticket` | `ela ticket refresh MH-2406` · `ela ticket refresh --all --json` |
 | 晚间读者会话以我的眼光读当天早报，每个事项给一个判定（可勾选、会追问、退回给我、错误、噪音），写入 review/<date>-reader.md，reader --check 检查格式；回放某一天 ela 说过的话与现在来源的对比（sure 读数后来被推翻、页面说升级了但下一次读到的版本不对、给已经回复的人起草催促、执行后一个工作日票没动），写入 review/<date>-replay.json；检查 ela 自己写的页面（早报、Changes、lanes、board）：票号都是链接、Do 行都有勾选框且不留给我去做、数字等于当天的 counts、一个票只占一个事项、服务用 slug 命名；每个问题一行，有问题就退出 1 | `review` | `ela review lint <date>-brief.md` · `ela review replay --date 2026-10-27` · `ela review reader --date 2026-10-27 --check` |
