@@ -9,7 +9,7 @@
 
 list  Without --lane, every lane with release mails ("[Release MediaHub <env>]") in the window or a list on disk;
       --json is then {"lists": [<one lane's shape>], "gaps"}. A QA lane lists what QA verifies on its builds; a prod
-      lane (prod-3, prod-2 for CN Prod2) is a release check: the tickets the last train or hotfix carried there, keyed
+      lane (prod-3, prod-2-china for CN Prod2) is a release check: the tickets the last train or hotfix carried there, keyed
       by the release's day. A mail with no Test Focus and no Change Log is one row per key its subject names.
       The lane's release mails (Test Focus and Change Log) give the rows: one per owner ticket a build names, and one
       "no ticket" row per change-log item that names no key (flagged). Two keys in one Test Focus item are one
@@ -110,7 +110,7 @@ def reports_root(s):
 
 
 def lane_name(raw):
-    """qa-cn3 · qa-aws3 · QA-AWS3 → qa-cn3; Prod3 · prod-3 → prod-3; CN Prod2 → prod-2 (ela's names); the mails' name."""
+    """qa-cn3 · qa-aws3 · QA-AWS3 → qa-cn3; Prod3 · prod-3 → prod-3; CN Prod2 → prod-2-china (ela's names); the mails' name."""
     lane = env_lane(raw) or raw.strip().lower()
     return lane, B.LANE_SHOWN.get(lane, raw.strip() if env_lane(raw) and raw.strip() != lane else lane)
 
@@ -508,7 +508,8 @@ def collect_lane(lane, shown, mails, reports, s, env, cache, gaps, said=()):
     builds = sorted(st["builds"], key=int)
     st["lane_build"] = builds[-1] if builds else None
     qa, _ = T.qa_names()
-    sprint, soon = sprint_keys(s), departs_soon(s, now())
+    sprint = sprint_keys(s)
+    soon = departs_soon(s, now()) and not B.R.lane_region(lane)    # China has no train of its own; the .com one ranks nothing there
     rows, at, drafts = [], now(), []
     for rid, r in list(st["rows"].items()):
         t = r["ticket"]
@@ -1199,7 +1200,7 @@ def main():
     ap.add_argument("--env-file", help="ela's env file")
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("list", help="the lane's test list: one row per behaviour, ranked, with QA's verdict")
-    p.add_argument("--lane", help="one lane: qa-cn3 (QA-AWS3), prod-3, prod-2 (CN Prod2); default every lane with release mails or a list")
+    p.add_argument("--lane", help="one lane: qa-cn3 (QA-AWS3), prod-3, prod-2-china (CN Prod2), prod-2 (.com Prod2); default every lane with release mails or a list")
     p.add_argument("--days", type=int, help="how far back to read the release mails (default 21)")
     p.add_argument("--json", action="store_true")
     p.add_argument("--page", action="store_true", help="also write <reports>/lanes/test-list-<lane>.md")

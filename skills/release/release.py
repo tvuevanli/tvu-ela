@@ -168,6 +168,31 @@ def lane_of(host_kind, tagname):
     return (h.get("tag_to_lane") or {}).get(t)
 
 
+# A prod lane carries its region: the .com lanes are prod-N, the China region's are prod-N-china (never "-cn": qa-cn3 is
+# the .com QA-AWS3). Two environments share the ProdN tag (the .com Prod2 and CN Prod2, MH-3752); the .com userservice
+# publishes only its own, so the region is read from the words that already say CN: a release mail's environment
+# ("CN Prod2") or a bundle's qualifier ("(CN Prod2)").
+PROD_WORDS_RX = re.compile(r"(cn|china)?-?prod-?(\d+)(-china\b)?")
+
+
+def prod_lane(words):
+    """Environment words → a prod lane with its region: Prod3 → prod-3, CN Prod2 · prod-2-china → prod-2-china; None
+    otherwise."""
+    m = PROD_WORDS_RX.search(re.sub(r"\s+", "", str(words or "")).lower())
+    return f"prod-{m.group(2)}{'-china' if m.group(1) or m.group(3) else ''}" if m else None
+
+
+def lane_region(lane):
+    """'china' for a China-region lane (prod-2-china), '' for a .com one."""
+    return "china" if str(lane or "").endswith("-china") else ""
+
+
+def bundle_lane(name):
+    """The lane an official bundle's qualifier names: MediaHub 2.1.13 (CN Prod2) → prod-2-china; None when it names none."""
+    m = re.search(r"\(([^()]+)\)\s*$", str(name or ""))
+    return prod_lane(m.group(1)) if m else None
+
+
 def env_value(key, env_file=None):
     v = os.environ.get(key)
     if v:
@@ -795,9 +820,10 @@ def name_rules(line):
             ("official", re.compile(rf"^MediaHub {mm}\.\d+(?: \([^()]+\))?$")), ("official", re.compile(rf"^MediaHub {mm} rc\d+$"))]
 
 
-def is_official(name, line):
-    """Whether a bundle name is an official release of the line ("2.1"), by the one closed grammar."""
-    return name_class(name, line) == "official"
+def is_official(name, line, region=""):
+    """Whether a bundle name is an official release of the line ("2.1") for a region's prod lane, by the one closed
+    grammar. MediaHub 2.1.13 (CN Prod2) is the China region's: never the .com prod lane's official, nor its pin."""
+    return name_class(name, line) == "official" and lane_region(bundle_lane(name)) == region
 
 
 def name_class(name, line):

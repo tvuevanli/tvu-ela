@@ -79,8 +79,9 @@ check("an address is not a version", v("on 10.12.64.45 it fails") is None)
 check("a version with its build", v("Frontend: v2.2.117 build172 pass").groups()[:2] == ("2.2.117", "172"))
 check("a bare build", v("passed on build 75").group(3) == "75")
 
-check("every lane name the release mails use", [TL.env_lane(x) for x in ("QA-AWS3", "QA-AWS2", "Stage", "Prod3", "CN Prod2", "Daily WED")]
-      == ["qa-cn3", "qa-cn2", "daily-stage", "prod-3", "prod-2", "daily-wed"])
+check("every lane name the release mails use", [TL.env_lane(x) for x in ("QA-AWS3", "QA-AWS2", "Stage", "Prod3", "CN Prod2", "Prod2", "Daily WED")]
+      == ["qa-cn3", "qa-cn2", "daily-stage", "prod-3", "prod-2-china", "prod-2", "daily-wed"])
+check("a lane id round-trips with its region", [TL.lane_name(x) for x in ("prod-2-china", "prod-2")] == [("prod-2-china", "CN Prod2"), ("prod-2", "prod-2")])
 check("a prod release is keyed by its day, labelled by its version",
       TL.build_key("[Release MediaHub Prod3] MH 2.1 Release build 2.1.74 (Daily WED → Prod 3)", "2026-10-26T11:07:10+08:00", False) == ("20261026", "2.1.74"))
 check("a QA build named only by a version falls back to its day", TL.build_key("[Release Mediahub QA-AWS2] build 2.0.10", "2026-10-15T10:00", True) == ("20261015", "2.0.10"))

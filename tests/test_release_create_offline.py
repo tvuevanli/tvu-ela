@@ -40,6 +40,11 @@ check("official names", C("MediaHub 2.1.15") == "official" and C("MediaHub 2.1.1
       and R.name_class("MediaHub 2.0 rc11", "mh2.0@") == "official")
 check("anything else is refused: no temporary form yet", C("mh2.1@tmp-encoder") is None and C("mh2.0@daily-wed-s1-d45") is None
       and C("mh2.1@daily-wed-d45") is None)
+check("a prod lane carries its region", [R.prod_lane(x) for x in ("Prod3", "CN Prod2", "prod-2-china", "CN Prod1", "Prod 2", "Daily WED")]
+      == ["prod-3", "prod-2-china", "prod-2-china", "prod-1-china", "prod-2", None])
+check("a CN bundle is the CN lane's official, never the .com lane's", R.bundle_lane("MediaHub 2.1.13 (CN Prod2)") == "prod-2-china"
+      and not R.is_official("MediaHub 2.1.13 (CN Prod2)", "2.1") and R.is_official("MediaHub 2.1.13 (CN Prod2)", "2.1", "china")
+      and R.is_official("MediaHub 2.1.14 (Build Version Emission)", "2.1"))
 check("the next name follows the base", R.next_name("mh2.1@daily-wed-s1-d45") == "mh2.1@daily-wed-s1-d46"
       and R.next_name("MediaHub 2.1.15") == "MediaHub 2.1.16" and R.next_name("MediaHub 2.1.14 (Build Version Emission)") == "MediaHub 2.1.15"
       and R.next_name("MediaHub 2.0 rc11") == "MediaHub 2.0 rc12")

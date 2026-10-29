@@ -150,8 +150,8 @@ def parse_panel(text, host="prod"):
         if host == "qa":
             return suffixes.get(env) or next((lane for tag, lane in suffixes.items() if env.lower() == tag.lower()), None)
         for suf, lane in sorted(suffixes.items(), key=lambda kv: -len(kv[0])):
-            if env.lower().endswith(suf.lower()):
-                return lane
+            if env.lower().endswith(suf.lower()):            # CN Prod2 shares Prod2's suffix; its CN prefix names the region
+                return lane + "-china" if lane.startswith("prod-") and re.match(r"cn|china", env, re.I) else lane
         return None
     sections, cur = [], None
     for raw in (text or "").splitlines():

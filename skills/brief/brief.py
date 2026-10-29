@@ -1627,11 +1627,11 @@ def read_pending(site):
 
 
 def mail_lane(env):
-    """A release mail's environment words → ela's lane name: Prod3 → prod-3, Daily WED → daily-wed, QA-AWS3 → qa-cn3."""
+    """A release mail's environment words → ela's lane name: Prod3 → prod-3, CN Prod2 → prod-2-china, Daily WED → daily-wed,
+    QA-AWS3 → qa-cn3."""
     e = re.sub(r"\s+", "", env or "").lower()
-    m = re.search(r"prod-?(\d+)", e)
-    if m:
-        return f"prod-{m.group(1)}"
+    if R.prod_lane(e):
+        return R.prod_lane(e)
     return next((lane for k, lane in (("dailywed", "daily-wed"), ("qa-aws3", "qa-cn3"), ("qaaws3", "qa-cn3")) if k in e), None)
 
 
@@ -1866,7 +1866,7 @@ def cmd_changes(args):
 
 MATRIX_ROWS = ("mediahub-backend", "mediahub-frontend", "unified-streaming", "unified-media-frontend", "unified-media-backend",
                "orchestration")
-LANE_SHOWN = {"qa-cn3": "QA-AWS3"}   # the name the release mails and the team use for the lane
+LANE_SHOWN = {"qa-cn3": "QA-AWS3", "prod-2-china": "CN Prod2", "prod-1-china": "CN Prod1"}   # the name the release mails and the team use for the lane
 
 
 def snapshots(runner, date):

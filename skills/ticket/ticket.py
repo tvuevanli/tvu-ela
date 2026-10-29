@@ -153,7 +153,7 @@ def drafted_builds(e, key, gaps):
     return out
 
 
-LANE_RX = re.compile(r"\b(qa-[a-z0-9]+|prod-\d+|daily-[a-z0-9-]+|stage)\b", re.I)
+LANE_RX = re.compile(r"\b(qa-[a-z0-9]+|prod-\d+(?:-china)?|daily-[a-z0-9-]+|stage)\b", re.I)
 
 
 def lanes_named(text):
