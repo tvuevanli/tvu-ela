@@ -112,6 +112,10 @@
                                    miscalled, nudges already answered, applied actions with no change; one line
   ela review reader --date D [--check]   the evening reader session's inputs (brief SKILL §reader), or a check of
                                    what it wrote: one verdict per item, the page's three lines
+  ela testlist --lane L [--page]   what QA should verify on a lane, ranked P1–P3 with the reason, one row per behaviour
+                                   (owner ticket, or "no ticket" flagged), first build → lane build, how to verify, auto,
+                                   QA's verdict (version + date), ela saw; --new-rows: a build's new rows for its thread;
+                                   --saw KEY "line": the night run's result on the row (a local write)
   ela ticket refresh KEY|--all     each change on a tracked ticket since the last pass, read as sure (a rule
                                    in probe §fix) or unsure; appended to its fix page; findings for the brief
   ela vault sync [--dry-run]       regenerate the owner's Obsidian vault: day pages, readings, verifications,
@@ -198,6 +202,7 @@ VERBS = {
     "logs": ("logs", None),
     "configserver": ("configserver", None),
     "browser": ("browser", None),
+    "testlist": ("testlist", "list"),
     "verify": ("verify", "report"), "verify-plan": ("verify", "plan"),
 }
 PROMOTE_SUBS = {"lanes", "commits", "delta", "tickets", "evidence", "bundles", "report", "compare-helm", "constraints", "close"}

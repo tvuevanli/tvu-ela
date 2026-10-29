@@ -20,6 +20,7 @@ its date, so a folder sorts by time. Folders carry no numbers: Home and the book
     home.md, board.md                           the entry point, five lines and links; the board's debt, one living page
     constraints.md                              the standing constraints, each pin read on its lane
     lanes.md                                    the lanes, what each carries that the next does not, two weeks of moves
+    lanes/test-list-<lane>.md                   what QA should verify on the lane, ranked (ela testlist --page)
     ela/review/<date>-reader.md                 the evening reader's verdict on each item of that morning's page, 30 days
     days/<year>/<date>-brief.md                 the morning page, kept, with -changes (what changed); -learned for 14 days
     to-read/<date>-<slug>.md                    a decision or plan from elak while it waits for his ruling
@@ -581,6 +582,14 @@ def report_notes(reports, today):
         fl, body = split_front(open(lp, encoding="utf-8").read())
         dm = re.search(r"\*(\d{4}-\d{2}-\d{2})", body)
         notes.append(Note("lanes.md", "The lanes", body, {"type": "lanes", "date": dm.group(1) if dm else None}, fl, src_rel="lanes/lanes.md"))
+    ld = os.path.join(reports, "lanes")
+    for f in sorted(os.listdir(ld)) if os.path.isdir(ld) else []:   # what QA verifies per lane, what is in development per line
+        m = re.match(r"^(test-list|dev-list)-(.+)\.md$", f)
+        if m:
+            fl, body = split_front(open(os.path.join(ld, f), encoding="utf-8").read())
+            dm = re.search(r"\*(\d{4}-\d{2}-\d{2})", body)
+            title = ("Test list · " if m.group(1) == "test-list" else "Dev list · ") + m.group(2)
+            notes.append(Note(f"lanes/{f}", title, body, {"type": m.group(1), "date": dm.group(1) if dm else None}, fl, src_rel=f"lanes/{f}"))
     rv = os.path.join(reports, "review")
     for f in sorted(os.listdir(rv)) if os.path.isdir(rv) else []:   # the evening reader's verdicts on a morning page
         m = re.match(r"^(\d{4}-\d{2}-\d{2})-reader\.md$", f)

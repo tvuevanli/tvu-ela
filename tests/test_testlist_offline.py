@@ -1,0 +1,78 @@
+#!/usr/bin/env python3
+"""The test list offline: a release mail's Test Focus and Change Log into behaviours, the owner of a two-ticket fix,
+auto, priority, and the version a QA comment names."""
+import os, sys
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(ROOT, "skills", "testlist"))
+import testlist as TL  # noqa: E402
+
+failures = []
+def check(name, cond):
+    print(("ok   " if cond else "FAIL ") + name)
+    if not cond:
+        failures.append(name)
+
+BODY = """Hi All:
+
+Test Focus
+
+   1. *MH-3833 / MH-3834* Change the Stream URL of an active YouTube source
+   from Quick Edit; it switches without stopping the task.
+   2. *MH-3831* Volume slider for YouTube sources in Quick Edit; it is
+   disabled until the source task is running.
+   3. Admin group setting changes push a permissionChange that the frontend
+   now applies.
+
+Change Log
+
+   1. UR Caller: switch the URL of a running YouTube source — MH-3833
+   <https://www.google.com/url?q=https://tvunetworks.atlassian.net/browse/MH-3833&source=gmail>
+   2. UR Caller: setAudioDelay rejects an empty offset
+   3. MediaHub Backend: permissionChange push payload includes groupId again
+   4. MediaHub Frontend: YouTube source volume slider — MH-3831; edit Stream
+   URL of an active YouTube source — MH-3834; CI and unit test fixes
+
+Other Service Dependencies
+
+   - none
+"""
+b = TL.parse_build_mail({"subject": "[Release Mediahub QA-AWS3] For 2.1 Release build 78", "body": BODY, "id": "x",
+                         "date": "Wed, 28 Oct 2026 03:23:26 -0700"})
+check("the build number comes from the subject", b["build"] == "78")
+check("three Test Focus items", len(b["focus"]) == 3)
+check("a Google redirect link is not a key", b["log"][0]["keys"] == ["MH-3833"])
+check("a change-log line splits on ';' and a CI chore is dropped", [l["keys"] for l in b["log"]][3:] == [["MH-3831"], ["MH-3834"]])
+check("the layer comes from the component", [l["layer"] for l in b["log"]][:3] == ["UR", "UR", "App"])
+beh = TL.behaviours(b)
+keys = [x["keys"] for x in beh]
+check("two keys in one focus item are one behaviour", ["MH-3833", "MH-3834"] in keys)
+check("a keyless focus item joins the keyless change-log line it shares a word with",
+      any(not x["keys"] and x["focus"] and "permissionChange" in x["log"][0]["text"] for x in beh))
+check("a keyless change-log line with no focus item is its own no-ticket behaviour",
+      any(not x["keys"] and not x["focus"] and "setAudioDelay" in x["log"][0]["text"] for x in beh))
+check("MH-3834's change-log line joins the MH-3833 behaviour", len(beh) == 4)
+
+issues = {"MH-3833": {"fields": {"issuelinks": []}},
+          "MH-3834": {"fields": {"parent": {"key": "MH-3833"}}}}
+check("the parent owns a two-ticket fix", TL.owner_of(["MH-3834", "MH-3833"], issues) == "MH-3833")
+check("with no relation the first named owns it", TL.owner_of(["MH-1", "MH-2"], {}) == "MH-1")
+
+check("a field in a dialog is auto", TL.auto_of("Volume slider in the Quick Edit dialog is disabled", True))
+check("a stream is never auto", not TL.auto_of("the sender outputUrl in the list shows issp", True))
+check("a no-ticket row is never auto", not TL.auto_of("a page shows a list", False))
+
+row = {"ticket": "MH-1", "verdict": "untested"}
+check("a customer label is P1", TL.priority(row, {"labels": ["customer-issue"]}, set(), set(), 0)[0] == "P1")
+check("a failed row is a P1 re-test", TL.priority(dict(row, verdict="fail", verdict_version="2.1.36"), {}, set(), set(), 0)
+      == ("P1", "re-test: failed on 2.1.36"))
+check("the next train is P1", TL.priority(row, {}, {"MH-1"}, set(), 0)[0] == "P1")
+check("the sprint is P2", TL.priority(row, {}, set(), {"MH-1"}, 0)[0] == "P2")
+check("High is P2", TL.priority(row, {"priority": {"name": "High"}}, set(), set(), 0)[0] == "P2")
+check("two builds old moves up one", TL.priority(row, {}, set(), set(), 2) == ("P2", "the rest, 2 builds old"))
+
+v = lambda t: TL.QA_VERSION_RX.search(t)  # noqa: E731
+check("an address is not a version", v("on 10.12.64.45 it fails") is None)
+check("a version with its build", v("Frontend: v2.2.117 build172 pass").groups()[:2] == ("2.2.117", "172"))
+check("a bare build", v("passed on build 75").group(3) == "75")
+
+sys.exit(1 if failures else 0)
