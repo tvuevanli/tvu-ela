@@ -47,7 +47,7 @@
                                    for a scheduled behaviour; shot <url> --out F
   ela verify --key K --run DIR     render the verification report page from a run directory (<reports>/verify/)
   ela verify-plan --key K --plan F --lane L --version V
-                                   the plan gate as a vault note (to-read): run, not-now or drop; for unattended runs
+                                   an unattended run's plan, kept beside its results (a reading); nothing waits on it
  code & map
   ela find <name>                  repos, images, services matching: J2N type · slug · GM name, tied
   ela where <ref>                  the checkout path(s) of an alias/path, repo, slug or image

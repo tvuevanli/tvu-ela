@@ -92,7 +92,7 @@ flowchart LR
 | 开一个 worker session：在目标规则所在的位置、自己的 zellij tab 里、带上 brief；看这台机器上有哪些 session | `session` | `ela session open runner --name runner-dev "brief"` · `ela session open code/web/mediahub-agent --pane "…"` · `ela session list` |
 | 看板上哪些票的 fix 早就在 prod 了、哪些到了 QA 还没填 Fixed In、哪些等 QA 说话——按动作分组，一批一批确认；ela 提议的关票（评论 + flag:closing + 转给你）由你在 Jira 里点；你亲口点名的关票，ela 用 `ela jira close KEY --terminal` 一次确认执行 | `stage` | `ela stage --jql 'project = MH AND statusCategory != Done'` · `ela stage MH-2601`（Epic 展开子票） |
 | 一张票要在真实环境的浏览器里按票验一遍，结果要带环境和版本的证明；先看 Fixed In 在哪条 lane，再开浏览器 | `verify` · `browser` | `/ela:verify MH-xxxx --lane prod-3` · `ela browser env --key MH-xxxx --lane prod-3` |
-| 夜里没人在终端确认验证计划时，计划写成 vault 里的待读笔记：目标表、lane、版本、预计时间；我选 run 就按计划跑，结果替换这条笔记 | `verify` | `ela verify-plan --key MH-xxxx --plan plan.json --lane qa-cn3 --version "2.2.121 build 176"` |
+| 夜里没人在终端时，验证照计划只读地跑，计划和结果放在一起（vault 里是一篇阅读，不再等我确认），结果写回测试清单那一行（`ela testlist --saw`）；QA 的结论优先 | `verify` | `ela verify-plan --key MH-xxxx --plan plan.json --lane qa-cn3 --version "2.2.121 build 176"` |
 
 ---
 

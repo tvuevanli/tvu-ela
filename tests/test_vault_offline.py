@@ -430,11 +430,10 @@ with tempfile.TemporaryDirectory() as t:
     open(os.path.join(t, "verify", "plans", "2026-10-26-MH-6.md"), "w").write('---\ntype: "verify-plan"\n---\n# MH-6 · verify plan\n')
     done6 = V.Note("to-read/2026-10-27-verify-mh-6.md", "MH-6 · PASS", "# x", {"type": "verify", "date": "2026-10-27"})
     vp = V.verify_plan_notes(t, [done6])
-    check("a verification plan is a to-read note waiting for his word", [n.path for n in vp] == ["to-read/2026-10-27-verify-plan-mh-5.md"]
-          and vp[0].props == {"type": "verify-plan", "date": "2026-10-27", "status": "proposed"})
+    check("a verification plan is a reading now, no status: nothing waits on it", [n.path for n in vp] == ["readings/2026-10-27-verify-plan-mh-5.md"]
+          and vp[0].props == {"type": "verify-plan", "date": "2026-10-27"})
     check("a result on or after the plan's date replaces it", all("mh-6" not in n.path for n in vp))
-check("a plan offers run, not-now and drop only", V.move_props("verify-plan") == ["run", "not-now", "drop"] and V.move_set("verify-plan") == "verify-plan"
-      and "result replaces this note" in V.MOVE_MEANING["run"])
+check("a plan offers no moves of its own any more", "verify-plan" not in V.MOVE_PROPS and "run" not in V.MOVE_MEANING)
 
 with tempfile.TemporaryDirectory() as t:
     os.makedirs(os.path.join(t, "blueprint", "decisions"))

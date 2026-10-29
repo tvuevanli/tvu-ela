@@ -717,9 +717,9 @@ def posted_to_jira(reports):
 
 
 def verify_plan_notes(reports, results):
-    """One note per verification plan waiting for the owner's word (`ela verify-plan`, written when no one is at the
-    terminal to confirm the plan): its goals table, the lane and version, how long. A result for the same ticket on or
-    after the plan's date replaces it."""
+    """The verification plans written before the gate was retired (the night run now verifies the test list's auto
+    rows directly, read-only, and the rows carry the result): readings, no status, no moves. A result for the same
+    ticket on or after the plan's date replaces one."""
     d = os.path.join(reports, "verify", "plans")
     done = {}
     for n in results:
@@ -732,8 +732,8 @@ def verify_plan_notes(reports, results):
         if not m or any(x >= m.group(1) for x in done.get(m.group(2), [])):
             continue
         fl, body = split_front(open(os.path.join(d, f), encoding="utf-8").read())
-        notes.append(Note(f"{TO_READ}/{m.group(1)}-verify-plan-{m.group(2).lower()}.md", f"{m.group(2)} · verify plan", body,
-                          {"type": "verify-plan", "date": m.group(1), "status": "proposed"}, [], src_rel=f"verify/plans/{f}"))
+        notes.append(Note(f"{READINGS}/{m.group(1)}-verify-plan-{m.group(2).lower()}.md", f"{m.group(2)} · verify plan", body,
+                          {"type": "verify-plan", "date": m.group(1)}, [], src_rel=f"verify/plans/{f}"))
     return notes
 
 
@@ -1706,11 +1706,10 @@ MOVE_PROPS = {                   # by kind, beyond done and drop, which every no
     "built": ["accept", "not-done"],
     "ticket": ["nudge", "go-deep", "seen", "drop"],   # a ticket's moves only: "done" would read as the ticket's Jira Done
     "parked": ["resume", "drop"],          # a parked note's only moves: it comes back, or it ends
-    "verify-plan": ["run", "not-now", "drop"],   # the plan gate of a run nobody was at the terminal for
 }
 OUT_OF_TO_READ = ("built", "parked")       # kinds whose moves are their own, without done and drop
 ALL_MOVE_PROPS = ("agree", "park", "not-now", "reject", "make-plan", "draft-comment", "confirm", "accept", "not-done", "nudge", "go-deep",
-                  "seen", "resume", "run")
+                  "seen", "resume", "run")   # run: the retired verify-plan gate's box, still stripped from old notes
 MOVE_MEANING = {
     "agree": "ela builds it: the note moves to `in-progress/` and each step is written under Progress",
     "park": "parked: it waits on others; comes back when `wake` happens",
@@ -1723,7 +1722,6 @@ MOVE_MEANING = {
     "go-deep": "ela reads the ticket to its root cause in the code (`ela probe`) and writes what it finds under this page",
     "seen": "archived: you have read where it stands",
     "resume": "back to `to-read/` as proposed, for your next decision",
-    "run": "ela runs the verification as planned; its result replaces this note",
     "done": "archived, nothing more", "drop": "deleted",
 }
 MOVES = MOVE_PROPS               # a kind with moves gets the section that explains them
@@ -1739,7 +1737,7 @@ MOVE_SET, MOVE_SETS_DIR = "moves", "ela/moves"
 
 def move_props(kind, in_to_read=True):
     """The checkbox properties a note carries for its next moves: its kind's own, then done and drop."""
-    if kind in ("ticket", "verify-plan"):   # their moves only: "done" would read as the ticket's or the run's
+    if kind == "ticket":                    # its moves only: "done" would read as the ticket's Jira Done
         return list(MOVE_PROPS[kind])
     return list(MOVE_PROPS.get(kind) or []) + (list(MARKS) if in_to_read else [])
 

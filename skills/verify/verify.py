@@ -332,9 +332,9 @@ def cmd_report(a):
 
 
 def cmd_plan(a):
-    """Write the plan the owner confirms before a browser opens (SKILL §2) as a page the vault carries into to-read:
-    the goals table, the lane and version it would run on, and how long. Unattended runs stop here instead of at a
-    terminal prompt; his `run` on the note is the confirm."""
+    """Record the plan of an unattended run (SKILL §2) beside its results: the goals table, the lane and version, how
+    long. It no longer waits for the owner's word: the night run verifies the test list's auto rows directly, read-only,
+    and writes what it saw on the row (`ela testlist --saw`); the vault carries a plan as a reading, never a to-read."""
     try:
         plan = json.load(open(a.plan, encoding="utf-8"))
     except (OSError, ValueError) as e:

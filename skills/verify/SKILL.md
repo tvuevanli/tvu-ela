@@ -96,10 +96,11 @@ check, `timed` for one the clock decides, `provenance` / `precondition` for a ch
 
 The plan is then shown to the owner as a dry run — a table of goals with kind, source, expected result and
 the later ticket whose rule now governs, when there is one — and he confirms or edits it before a browser
-opens. When nobody is at the terminal (the night run), the plan becomes a note instead of a prompt:
-`ela verify-plan --key <KEY> --plan plan.json --lane <lane> --version "<version>"` writes it to his vault's to-read
-as a `verify-plan`, with the moves *run* (the run starts on this plan), *not-now* and *drop*; an `ela:` line under its
-table changes a goal. The result's own note replaces it. A goal whose rule a later ticket rewrote is judged by that ticket's rule (§3); a goal whose control is
+opens. When nobody is at the terminal (the night run on the test list's auto rows), the run goes ahead on its plan, read-only,
+and records it: `ela verify-plan --key <KEY> --plan plan.json --lane <lane> --version "<version>"` keeps the plan
+beside the results (the vault shows it as a reading), and the run ends with `ela testlist --lane <lane> --saw <KEY>
+"ela saw … on <version> at HH:MM"` (or "not verifiable: <reason>"). Nothing waits for his word: a read-only check
+with the version panel as proof needs none, and QA's verdict overrules what ela saw. A goal whose rule a later ticket rewrote is judged by that ticket's rule (§3); a goal whose control is
 gone is kept in the table as `n/a` with the ticket that removed it.
 
 When the ticket has no QA-verification section, the skill offers, after the run, to draft one from the
