@@ -2438,7 +2438,8 @@ TIER_RULES = {
     "train-promote": (2, TEAM_POST),
     "test-list": (2, TEAM_POST),          # a build's new test-list rows in its release thread, sent at 19:00 (`ela testlist --new-rows`)
     "qa-today": (2, f"(?:{TEAM_POST})|(?:{DAY_POST})"),           # QA today in the lane build's release thread, sent at 09:30 (`ela testlist --today`)
-    "dev-today": (2, f"(?:{TEAM_POST})|(?:{DAY_POST})"),          # Dev today in the day's scrum thread, sent at 10:00 (`ela devlist --today`)
+    "dev-today": (2, f"(?:{TEAM_POST})|(?:{DAY_POST})"),
+    "meeting": (2, TEAM_POST),            # a meeting's list, sent at the meeting's time under the day post (`ela meeting --slack`)          # Dev today in the day's scrum thread, sent at 10:00 (`ela devlist --today`)
 }
 TRAIN_RULES = ("train-hold", "train-promote")
 # closed rules not yet promoted: their actions draft at tier 3 until the owner promotes the rule (Jira plan rules 1, 2);
@@ -2616,7 +2617,8 @@ def day_plan(date, doc=None):
     doc = doc or owner_day()
     wd = WEEKDAY_NAMES[date.weekday()]
     meetings = sorted(({"name": m.get("name"), "key": m.get("key"), "time": str(m.get("time")), "audience": flow_list(m.get("audience")),
-                        "section": f"{m.get('name')} at {m.get('time')}"}
+                        "section": f"{m.get('name')} at {m.get('time')}", "channel": str(m.get("channel") or "") or None,
+                        "post": m.get("post") is True and bool(str(m.get("channel") or "").strip())}
                        for m in doc["meetings"] if isinstance(m, dict) and m.get("enabled") is True and str(m.get("time") or "").strip()
                        and wd in flow_list(m.get("weekdays"))), key=lambda m: m["time"])
     return {"date": date.isoformat(), "weekday": wd, "working_day": is_working_day(date, doc),
@@ -2722,6 +2724,97 @@ def qa_cycle_lines(cycle, today, days=3):
             tail = f"under test · report due {when}" if due >= today else f"report not received (due {due:%m-%d} evening)"
         out.append(f"- sent {t(b['sent'])} · build {b['build']} · {tail}")
     return out
+
+
+# ── a meeting's section, as the list he brings to it ──────────────────────────────────────────────────
+
+MEETING_GUIDE_RX = re.compile(r"^[ \t]*(?:[-*+][ \t]+|>[ \t]*)*ela[ \t]*[:：][ \t]*(\S.*?)[ \t]*$", re.I | re.M)
+
+
+def meeting_section(page, heading):
+    """The body of `## <heading>` on a morning page, or None."""
+    m = re.search(r"^##[ \t]+" + re.escape(heading) + r"[ \t]*$", page or "", re.M)
+    if not m:
+        return None
+    nxt = re.search(r"^##[ \t]", page[m.end():], re.M)
+    return page[m.end(): m.end() + nxt.start()] if nxt else page[m.end():]
+
+
+def apply_meeting_guidance(body, lines):
+    """His `ela:` lines on a meeting's bullets: `drop <word or key>` removes the bullets naming it, `<word or key> first`
+    moves them to the top; the `ela:` lines themselves never go out. → (body, lines not understood)."""
+    bullets, rest, unread = [], [], []
+    for l in body.splitlines():
+        if MEETING_GUIDE_RX.match(l):
+            continue
+        (bullets if re.match(r"^\s*(?:[-*]|\d+\.)\s+\S", l) else rest).append(l)
+    for raw in lines:
+        g = MEETING_GUIDE_RX.match(raw)
+        text = (g.group(1) if g else raw).strip()
+        m = re.match(r"^(?:drop|skip|remove)\s+(.+)$", text, re.I) or re.match(r"^(.+?)\s+(?:first|on top)$", text, re.I)
+        if not m:
+            unread.append(text); continue
+        word = m.group(1).strip().strip("`")
+        hit = [b for b in bullets if word.lower() in b.lower()]
+        if not hit:
+            unread.append(text); continue
+        bullets = [b for b in bullets if b not in hit] if text.lower().startswith(("drop", "skip", "remove")) else hit + [b for b in bullets if b not in hit]
+    head = [l for l in rest if l.strip() and not l.lstrip().startswith(">")]
+    return "\n".join(head + bullets).strip(), unread
+
+
+def slack_form(md):
+    """Markdown as Slack writes it: bold, links, wiki links, headings."""
+    t = re.sub(r"\[\[([^\]|]+)\|([^\]]+)\]\]", r"\2", md)
+    t = re.sub(r"\[\[([^\]]+)\]\]", r"\1", t)
+    t = re.sub(r"\[([^\]]+)\]\((https?://[^)]+)\)", r"<\2|\1>", t)
+    t = re.sub(r"\*\*([^*]+)\*\*", r"*\1*", t)
+    t = re.sub(r"^#{1,6}[ \t]+(.+)$", r"*\1*", t, flags=re.M)
+    return t
+
+
+def cmd_meeting(args):
+    """`ela meeting --key K`: that meeting's section on the day's morning page, his `ela:` lines applied (those under the
+    section, and --guidance FILE), as the page holds it or (--slack) as Slack writes it. --json carries what the
+    runner's tier-2 post needs: the channel from meetings.yaml, and the thread: the day post in that channel when ela
+    made one (<runtime>/runner/<date>-day-posts.json), else null."""
+    d = datetime.date.fromisoformat(args.date) if args.date else datetime.date.today()
+    plan = day_plan(d)
+    m = next((x for x in plan["meetings"] if x["key"] == args.key), None)
+    if not m:
+        print(f"meeting: no enabled meeting {args.key!r} on {d} ({', '.join(x['key'] for x in plan['meetings']) or 'none that day'})", file=sys.stderr)
+        sys.exit(3)
+    site = json.load(open(SITE))
+    runner = os.path.join(site.get("runtime") or os.path.join(site.get("projects", ""), ".ela"), "runner")
+    reports = site.get("reports") or os.path.join(site.get("projects", ""), "reports")
+    try:
+        page = open(os.path.join(reports, "runner", f"{d.isoformat()}-brief.md"), encoding="utf-8").read()
+    except OSError:
+        page = ""
+    body = meeting_section(page, m["section"])
+    if body is None:
+        print(f"meeting: the {d} morning page has no section ## {m['section']}", file=sys.stderr)
+        sys.exit(3)
+    lines = [g.group(0) for g in MEETING_GUIDE_RX.finditer(body)]
+    if args.guidance:
+        lines += open(args.guidance, encoding="utf-8").read().splitlines()
+    out, unread = apply_meeting_guidance(body, lines)
+    text = f"## {m['section']}\n\n{out}" if not args.slack else f"*{m['name']} · {d:%a %m-%d} {m['time']}*\n{slack_form(out)}"
+    thread = None
+    try:
+        posts = json.load(open(os.path.join(runner, f"{d.isoformat()}-day-posts.json"), encoding="utf-8"))
+        ch = (m.get("channel") or "").lstrip("#")
+        thread = next((v for k, v in (posts.items() if isinstance(posts, dict) else []) if k.lstrip("#") == ch and isinstance(v, str)), None) \
+            or next((p.get("permalink") for p in (posts if isinstance(posts, list) else []) if (p.get("channel") or "").lstrip("#") == ch), None)
+    except (OSError, ValueError, AttributeError):
+        pass
+    if args.json:
+        print(json.dumps({"key": m["key"], "date": d.isoformat(), "time": m["time"], "channel": m.get("channel"), "post": m.get("post"),
+                          "thread": thread, "text": text, "guidance_unread": unread}, ensure_ascii=False))
+        return
+    print(text)
+    for u in unread:
+        print(f"\n(not applied: {u})", file=sys.stderr)
 
 
 def cmd_day(args):
@@ -2865,6 +2958,13 @@ def main():
     p.add_argument("--date", help="YYYY-MM-DD (default today)")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_day)
+    p = sub.add_parser("meeting", help="a meeting's section on the day's morning page, his ela: lines applied; --slack as Slack writes it")
+    p.add_argument("--key", required=True, help="the meeting's key in meetings.yaml (scrum-pm)")
+    p.add_argument("--date", help="YYYY-MM-DD (default today)")
+    p.add_argument("--slack", action="store_true", help="the Slack form: bold, links and wiki links as Slack writes them")
+    p.add_argument("--guidance", help="a file of his ela: lines (drop <word> · <word> first), applied after the section's own")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_meeting)
     p = sub.add_parser("sprint", help="the active sprint note in the vault: goals and committed items with their keys and "
                                       "'done when', the working day it is on; on a Friday the week's yesterday files")
     p.add_argument("--date", help="read as of YYYY-MM-DD (default today)")

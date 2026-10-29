@@ -107,6 +107,8 @@
                                    does not (tickets, QA verdicts, commits without a ticket), 14 days of moves
   ela day [--date D]               the owner's day as data (<elak>/blueprint/meetings.yaml): working day, hours, DM
                                    window, QA deploy hour, the meetings that day and their brief section headings
+  ela meeting --key K [--slack]    a meeting's section on the day's morning page, his ela: lines applied (drop · first);
+                                   --slack as Slack writes it; --json with the channel and the day post's thread
   ela page-check PAGE --actions F  every apply N on a brief page has its drafted action and its box; exit 1 naming any
   ela review lint PAGE              a page ela wrote, checked mechanically: keys are links, Do lines are boxes and
                                    never left for you, counts equal the day's, one item per key, services by slug
@@ -198,7 +200,7 @@ VERBS = {
     "mail": ("mail", None), "login": ("release", "login"), "stream": ("stream", None),
     "sentry": ("sentry", None),
     "promote": ("promote", None), "runtime": ("runtime", None),
-    "brief": ("brief", "lanes"), "yesterday": ("brief", "yesterday"), "changes": ("brief", "changes"), "matrix": ("brief", "matrix"), "page-check": ("brief", "page-check"), "day": ("brief", "day"), "ticket": ("ticket", None), "review": ("review", None), "vault": ("vault", None), "note": ("vault", "note"), "secret": ("setup", "secret"),
+    "brief": ("brief", "lanes"), "yesterday": ("brief", "yesterday"), "changes": ("brief", "changes"), "matrix": ("brief", "matrix"), "page-check": ("brief", "page-check"), "day": ("brief", "day"), "meeting": ("brief", "meeting"), "ticket": ("ticket", None), "review": ("review", None), "vault": ("vault", None), "note": ("vault", "note"), "secret": ("setup", "secret"),
     "mr": ("mr", "create"), "mr-preflight": ("mr", "preflight"),
     "sessions": ("sessions", "find"), "session": ("sessions", None),
     "route": ("route", "facts"),

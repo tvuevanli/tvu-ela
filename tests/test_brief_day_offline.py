@@ -98,4 +98,12 @@ with tempfile.TemporaryDirectory() as t:
     check("a build whose evening passed with no report is not received; the lanes line says so",
           c["report_missing_build"]["build"] == "78" and c["under_test_build"] is None
           and B.qa_cycle_lines(c, datetime.date(2026, 11, 2), days=7)[0].endswith("report not received (due 10-28 evening)"))
+body = "\n- Sprint: day 3 of 10\n- Releases: prod-3 runs 2.1.15\n- Ask: MH-3829 the URL?\nela: drop Sprint\nela: MH-3829 first\n\n> [!note]- copy\n"
+out, unread = B.apply_meeting_guidance(body, [g.group(0) for g in B.MEETING_GUIDE_RX.finditer(body)] + ["ela: celebrate"])
+check("his ela: lines drop and reorder a meeting's bullets and never go out themselves",
+      out == "- Ask: MH-3829 the URL?\n- Releases: prod-3 runs 2.1.15" and unread == ["celebrate"])
+check("the Slack form: bold, links and wiki links as Slack writes them",
+      B.slack_form("**Ask** [thread](https://x.y/p1) [[lanes|the lanes]]") == "*Ask* <https://x.y/p1|thread> the lanes")
+page = "# B\n\n## Scrum with the PM at 10:00\n\n- a\n\n## FYI\n\n- b\n"
+check("a meeting's section is read from its heading to the next", B.meeting_section(page, "Scrum with the PM at 10:00").strip() == "- a")
 sys.exit(1 if failures else 0)

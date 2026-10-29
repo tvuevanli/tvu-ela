@@ -376,6 +376,12 @@ he could tick became the page he stopped reading (from 2026-10-28).*
   5. **What he needs from each group today**, one line per group with an ask, written as the question he will ask.
   6. **What he commits to**, one line.
 
+  **Copy to Slack.** Under each meeting section a folded callout `> [!note]- copy to Slack` holds the output of
+  `ela meeting --key K --slack`. When meetings.yaml sets `post: true` and a `channel`, the section also ends with a
+  tier-2 Do line, `- [ ] don't N — at <the meeting's time> unless you tick: the list in #<channel>` (rule `meeting`,
+  `send_at` the meeting's time, the thread: that day's post in the channel); his `ela:` lines under the section are
+  applied before the send. With `post: false` the Do line is "your call: paste it at the meeting".
+
   **After a meeting** the owner writes its rulings and answers as `ela:` lines under its section. The next pass
   (13:00) reads them as guidance, like any `ela:` line on the page: a ruling closes its D item and is recorded on
   the ticket or the decision note it names, as a drafted `apply N` for his tick.
