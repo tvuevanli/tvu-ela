@@ -808,10 +808,17 @@ def to_judge(reports, date):
     return out
 
 
+def without_learned(reader):
+    """The reader file without its trailing ## Learned section, which a later session appends and nothing here judges."""
+    m = re.search(r"^## Learned[ \t]*$", reader or "", re.M)
+    return reader[:m.start()] if m else reader
+
+
 def reader_check(page, reader, judge=None):
     """Gaps in a reader file against its page: an item with no verdict or two, a verdict outside the set, an empty
     line, a missing page line; and each reply the replay found after a tier-1 or tier-2 action without its judgment."""
     fails = []
+    reader = without_learned(reader)
     got = judged_rows(reader)
     for n in sorted(judge or {}):
         j = got.get(n)
@@ -851,6 +858,7 @@ def reader_findings(page, reader, judge=None):
     findings; noise is already what Skipped says. A reply judged to contradict a tier-1 or tier-2 action is a
     correction on that action's rule: {kind: correction, how: reply, rule, key, what}."""
     keys = {i["n"]: i["keys"] for i in page_items(page)}
+    reader = without_learned(reader)
     out = []
     for n, (j, line) in sorted(judged_rows(reader).items()):
         rows = (judge or {}).get(n)

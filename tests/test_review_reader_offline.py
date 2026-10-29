@@ -39,6 +39,7 @@ good = """| item | verdict | line |
 - **Missing:** nothing.
 """
 check("a full reader file passes", RV.reader_check(page, good) == [])
+check("a trailing ## Learned section is not judged", RV.reader_check(page, good + "\n## Learned\n\n- Nothing new today.\n| 9. x | odd | y |\n") == [])
 bad = good.replace("| tickable |", "| fine |").replace("- **Missing:** nothing.\n", "") \
           .replace("| 2. FloSports", "| 3. Other | noise |  |\n| 2. FloSports")
 f = RV.reader_check(page, bad)

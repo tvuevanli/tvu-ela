@@ -23,7 +23,8 @@ its date, so a folder sorts by time. Folders carry no numbers: Home and the book
     lanes/test-list-<lane>.md                   what QA should verify on the lane, ranked (ela testlist --page)
     lanes/dev-list-<line>.md                    the line's tickets in development and their gaps (ela devlist --page)
     ela/review/<date>-reader.md                 the evening reader's verdict on each item of that morning's page, 30 days
-    days/<year>/<date>-brief.md                 the morning page, kept, with -changes (what changed); -learned for 14 days
+    days/<year>/<date>-brief.md                 the morning page, kept, with -changes (what changed); what the day taught
+                                                is the reader page's ## Learned (ela/review/), five lines at most
     to-read/<date>-<slug>.md                    a decision or plan from elak while it waits for his ruling
     to-read/<date>-verify-<key>.md              a verification; leaves once its record is on the Jira ticket, or a pass
                                                 after 14 days
@@ -83,7 +84,10 @@ DELETABLE = (DAYS, TO_READ, READINGS)
 KEEP_FOREVER = ("brief", "week", "changes")   # the morning pages are the record of what ela told the owner; the rest expires
 PROPS = ("title", "aliases", "type", "date", "kind", "status", "result", "moves", "next")   # the whole vocabulary; no tags (ADR 0010)
 MARKS = {"done": ARCHIVE, "drop": None}   # a ticked box in a to-read table row: archive, delete
-BUDGET = {"ticket": 700, "topic": 800, "guide": 1200, "board": 1000, "day": 1200, "review": 2500, "decision": 1200, "plan": 2500, "sprint": 800}
+BUDGET = {"ticket": 700, "topic": 800, "guide": 1200, "board": 1000, "day": 1200, "review": 2500, "decision": 800, "plan": 800, "sprint": 800}
+FOLDED = ("decision", "plan")                    # their budget counts the words above the first folded callout only
+FOLD_RX = re.compile(r"^>\s*\[![\w-]+\]-", re.M)
+LEARNED_MAX = 5                                  # the reader page's Learned section: more goes to a decision note
 TOLERANCE = 1.1                                  # a page 10% over its budget is not worth a rewrite
 KEY_RX = re.compile(r"(?<![\w/#=.-])([A-Z][A-Z0-9]{1,9}-\d{1,6})(?![\w-])")
 # media and standards names that look like keys; a second guard behind the project allow-list
@@ -159,7 +163,8 @@ the file explorer is rarely needed.
 ## Reading budgets
 
 A note is written for a person: a title heading, within its budget (day page 1,200 words, review 2,500,
-decision 1,200, plan 2,500, sprint 800), mostly prose, no machine paths. A note that misses is still here, under
+sprint 800; a decision or a plan 800 above its first folded callout, `> [!note]-`, the fold not counted; the
+reader page's Learned five lines), mostly prose, no machine paths. A note that misses is still here, under
 a warning, and Home lists it for 30 days as a rewrite ela owes.
 
 ## Finishing with a note
@@ -562,14 +567,14 @@ def report_notes(reports, today):
     notes = []
     rd = os.path.join(reports, "runner")
     for f in sorted(os.listdir(rd)) if os.path.isdir(rd) else []:
-        m = re.match(r"^(\d{4}-\d{2}-\d{2})-(brief|learned|week|changes)\.md$", f)
+        m = re.match(r"^(\d{4}-\d{2}-\d{2})-(brief|week|changes)\.md$", f)   # the day's learning is the reader page's ## Learned
         if not m or (m.group(2) not in KEEP_FOREVER and (today - datetime.date.fromisoformat(m.group(1))).days >= DAYS_KEPT):
             continue
         d = datetime.date.fromisoformat(m.group(1))
         fl, body = split_front(open(os.path.join(rd, f), encoding="utf-8").read())
         if m.group(2) == "brief":
             body = action_states(body, os.path.join(rd, f"{m.group(1)}-actions.json"))
-        label = {"brief": "Morning brief", "learned": "What the day taught", "week": "The week", "changes": "What changed"}[m.group(2)]
+        label = {"brief": "Morning brief", "week": "The week", "changes": "What changed"}[m.group(2)]
         notes.append(Note(f"{DAYS}/{m.group(1)[:4]}/{m.group(1)}-{m.group(2)}.md", f"{label} · {d:%a} {m.group(1)}", body,
                           {"type": "day", "date": m.group(1), "kind": m.group(2)}, fl, src_rel=f"runner/{f}"))
     bp = os.path.join(reports, "board", "board.md")
@@ -929,16 +934,24 @@ def mermaid_problems(body):
     return out
 
 
+def learned_lines(body):
+    m = re.search(r"^## Learned[ \t]*\n(.*?)(?=^## |\Z)", body or "", re.M | re.S)
+    return [l for l in (m.group(1) if m else "").splitlines() if re.match(r"^\s*[-*]\s+\S", l)]
+
+
 def reading_gate(n):
     kind = n.props.get("type")
+    if kind == "reader" and len(learned_lines(n.body)) > LEARNED_MAX:
+        return [f"{len(learned_lines(n.body))} Learned lines, at most {LEARNED_MAX}; the rest belongs in a decision note"]
     if kind not in BUDGET:
         return []
     problems = []
     if not h1(n.body):
         problems.append("no title heading")
-    units = reading_units(n.body)
+    fold = FOLD_RX.search(n.body) if kind in FOLDED else None
+    units = reading_units(n.body[:fold.start()] if fold else n.body)
     if units > BUDGET[kind] * TOLERANCE:
-        problems.append(f"{units:,} words, budget {BUDGET[kind]:,}")
+        problems.append(f"{units:,} words" + (" above the fold" if kind in FOLDED else "") + f", budget {BUDGET[kind]:,}")
     lines = len(n.body.splitlines()) or 1
     code = code_lines(n.body)
     if code > max(12, lines // 4):

@@ -534,4 +534,10 @@ with tempfile.TemporaryDirectory() as t:
     rn = [n for n in V.report_notes(t, datetime.date(2026, 10, 28)) if n.props.get("type") == "reader"]
     check("a reader page is carried to ela/review/, typed reader, no status, and leaves after 30 days",
           [n.path for n in rn] == ["ela/review/2026-10-28-reader.md"] and "status" not in rn[0].props and rn[0].src_rel == "review/2026-10-28-reader.md")
+big = "# A plan\n\n" + "word " * 700 + "\n\n> [!note]- Drafts\n> " + "more " * 3000 + "\n"
+check("a plan's budget counts only above its fold", V.reading_gate(V.Note("in-progress/p.md", "p", big, {"type": "plan"})) == [])
+check("a plan over 800 words above its fold is held",
+      any("above the fold" in x for x in V.reading_gate(V.Note("in-progress/p.md", "p", "# A plan\n\n" + "word " * 1000, {"type": "plan"}))))
+rd = "# The reader\n\n## Learned\n\n" + "".join(f"- a lesson {i} — origin\n" for i in range(7))
+check("a reader page with more than five Learned lines is held", "7 Learned lines" in " ".join(V.reading_gate(V.Note("ela/review/r.md", "r", rd, {"type": "reader"}))))
 sys.exit(1 if failures else 0)
