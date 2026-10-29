@@ -8,7 +8,8 @@ fail = 0
 
 def run(args, stdin="", **env):
     e = dict(os.environ, HOME=home)
-    e.pop("ZELLIJ_SESSION_NAME", None)
+    for k in ("ZELLIJ_SESSION_NAME", "ELA_SESSION_NAME", "ELA_SESSION_PURPOSE"):   # a worker session carries its own
+        e.pop(k, None)
     e.update(env)
     return subprocess.run(["python3", SCRIPT, *args], input=stdin, capture_output=True, text=True, env=e)
 
