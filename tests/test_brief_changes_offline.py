@@ -30,6 +30,15 @@ QA = {"id": "3", "from": "qa", "date": "d", "subject": "Daily Test Report for TV
 q = B.parse_qa_mail(QA)
 check("a QA report: env, build, counts from its summary, not a case table",
       (q["env"], q["build"], q["pass"], q["fail"], q["closed"], q["new"]) == ("aws-cn3-env", "v2.1.33 build264", 4, None, 3, 2))
+q3 = B.parse_qa_mail({"id": "5", "from": "qa", "date": "d", "subject": "Daily Test Report for [Release Mediahub QA-AWS3] … build 75",
+                      "body": "Please review the test report (build v2.1.35 build266).\n*1 Pass* · Closed *0* · *New 1* · TC 24/24\n"
+                              "Test Environment\nScope: MH-3800 cases only; Test Focus MH-3820 " + "\u672a\u6d4b" + "\n"
+                              "Test Result\n*MH-3800* PASS\n*\u5171 24 \u9879*: 24 Pass / 0 Fail / 0 N/A\n"})
+check("case counts from a block's total, a bare Pass count as tickets, and an untested focus makes the verdict partial",
+      (q3["pass"], q3["fail"], q3["tickets_pass"], q3["untested_keys"], q3["verdict"]) == (24, 0, 1, ["MH-3820"], "partial"))
+q4 = B.parse_qa_mail({"id": "6", "from": "qa", "date": "d", "subject": "s",
+                      "body": "*1 Pass* · Closed *0* · TC 60 Pass / 2 Fail / 10 N/A\nTest Environment\n"})
+check("the summary's TC counts", q4["cases"] == {"pass": 60, "fail": 2, "na": 10, "run": 72} and q4["verdict"] == "partial")
 check("and the failing cases", q["failing"] == ["MH-3750: port still occupied"] and q["mediahub"])
 
 THREAD = [f"{B.BUILD_RESULT} {B.DEPLOYED} QA-AWS3\n:white_check_mark: ur-caller v2.1.76 · 102s · <https://j/job/ur-caller/366/>",

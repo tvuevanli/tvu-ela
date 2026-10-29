@@ -901,14 +901,33 @@ def parse_qa_mail(m):
     def count(rx, key):
         n = num(rx)
         return n if n is not None or key not in listed else len(listed[key])
+    cases = qa_cases(head, body)
+    untested = [" ".join(x.split())[:160] for x in re.findall(r"[^\n；;。]*(?:未测|not tested|untested)[^\n；;。]*", body, re.I)]
+    tickets = num(r"(?<!TC )(?<!TC)\*(\d+)\s*Pass\b") if cases else None
+    fail = cases["fail"] if cases else num(r"\*?(\d+)\s*Fail\b")
     return {"subject": m["subject"], "from": m["from"], "date": m["date"], "id": m["id"],
             "env": env.group(1).strip() if env else None, "build": " ".join(build.group(1).split()) if build else None,
-            "pass": num(r"\*?(\d+)\s*Pass\b"), "fail": num(r"\*?(\d+)\s*Fail\b"), "closed": count(r"Closed\s*\*?(\d+)", "close"),
+            "pass": cases["pass"] if cases else num(r"\*?(\d+)\s*Pass\b"), "fail": fail, "cases": cases, "tickets_pass": tickets,
+            "untested": untested, "untested_keys": sorted({k for x in untested for k in keys_in(x)}), "closed": count(r"Closed\s*\*?(\d+)", "close"),
             "new": count(r"New\s*\*?(\d+)", "new"), "reopened": len(listed["reopened"]) if "reopened" in listed else None,
             "new_keys": listed.get("new", []), "reopened_keys": listed.get("reopened", []), "closed_keys": listed.get("close", []), "failing": failing, "mediahub": bool(re.search(r"media\s*hub", m["subject"] + head, re.I)),
             "results": [" ".join(l.split())[:160] for l in body.splitlines() if re.search(r"\b(PASS|FAIL|Pass|Fail)\b", l)][:10],
             "tested": tested_versions(body), "at": mail_time(m["date"]),
-            "verdict": "partial" if failing or num(r"\*?(\d+)\s*Fail\b") or listed.get("reopened") else "pass"}
+            "verdict": "partial" if failing or fail or listed.get("reopened") or untested else "pass"}
+
+
+def qa_cases(head, body):
+    """A report's test-case counts, {pass, fail, na, run}, or None: the summary's "TC a Pass / b Fail / c N/A", else a
+    block's "共 N 项：a Pass / b Fail / c N/A", else "TC a/b" (a passed of b run). A bare "*N Pass*" counts tickets,
+    not cases (the 2026-10-28 report's "*1 Pass* · … · TC 24/24")."""
+    for text, rx in ((head, r"\bTC\s+(\d+)\s*Pass\s*/\s*(\d+)\s*Fail(?:\s*/\s*(\d+)\s*N/?A)?"),
+                     (body, r"共\s*(?:\d+)\s*项\*?\s*[:：]\s*(\d+)\s*Pass\s*/\s*(\d+)\s*Fail(?:\s*/\s*(\d+)\s*N/?A)?")):
+        x = re.search(rx, text, re.I)
+        if x:
+            p, f, na = int(x.group(1)), int(x.group(2)), int(x.group(3) or 0)
+            return {"pass": p, "fail": f, "na": na, "run": p + f + na}
+    x = re.search(r"\bTC\s+(\d+)\s*/\s*(\d+)\b", head)
+    return {"pass": int(x.group(1)), "fail": None, "na": None, "run": int(x.group(2))} if x else None
 
 
 # a QA report's product header (`TVU MediaHub (ENV: aws-cn3-env)`) → its (frontend, backend) services
@@ -2504,7 +2523,7 @@ def qa_builds(changes_docs, doc=None):
                       {k for f in (q or {}).get("failing") or [] for k in keys_in(f)})
         out.append({**b, "due": report_due(datetime.datetime.fromisoformat(b["sent"]), doc).isoformat(),
                     "report": {"at": q["at"], "subject": q.get("subject"), "pass": q.get("pass"), "fail": q.get("fail"),
-                               "verdict": q.get("verdict"), "keys": keys} if q else None})
+                               "verdict": q.get("verdict"), "keys": keys, "untested": q.get("untested_keys") or []} if q else None})
     return out
 
 
@@ -2556,7 +2575,8 @@ def qa_cycle_lines(cycle, today, days=3):
         q = b["report"]
         if q:
             tail = f"QA report {t(q['at'])}: {q.get('pass') or 0} pass, {q.get('fail') or 0} fail" + \
-                   (f" ({', '.join(q['keys'])})" if q["keys"] else "") + f" · verdict {q.get('verdict') or '—'}"
+                   (f" ({', '.join(q['keys'])})" if q["keys"] else "") + \
+                   (f", not tested: {', '.join(q['untested'])}" if q.get("untested") else "") + f" · verdict {q.get('verdict') or '—'}"
         else:
             due = datetime.date.fromisoformat(b["due"])
             when = "this evening" if due == today else f"{due:%m-%d} evening"
