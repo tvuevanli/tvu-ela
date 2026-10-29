@@ -616,6 +616,8 @@ def report_notes(reports, today):
 
 
 APPLY_BOX = re.compile(r"^([ \t]*[-*][ \t]+)\[[ xX]\]([ \t]+apply[ \t]+(\d+)\b.*?)[ \t]*$", re.M)
+DONT_BOX = re.compile(r"^([ \t]*[-*][ \t]+\[[ xX]\][ \t]+don't[ \t]+(\d+)\b.*?)[ \t]*$", re.M)   # tier 2: his box vetoes it
+DONE_LINE = re.compile(r"^([ \t]*[-*][ \t]+done[ \t]+(\d+)\b.*?)[ \t]*$", re.M)          # tier 1: ela did it
 
 
 def action_states(body, actions_path):
@@ -640,7 +642,18 @@ def action_states(body, actions_path):
             return f"{lead}[ ]{rest}\n{lead}[ ] I handled it myself — not apply {n}"
         how = f"you commented in Jira {o['at'][11:16]}" if o.get("comment") else f"marked {o['at'][11:16]}"
         return f"{lead}[ ]{rest}\n{lead}[x] I handled it myself — not apply {n} · {how}"
-    return APPLY_BOX.sub(one, body)
+    def outcome(m):                                       # what the runner did with a tier-1 or tier-2 action
+        a = acts.get(m.group(2))
+        if not a:
+            return m.group(0)
+        if a.get("failed"):
+            return f"{m.group(1)} · not done: {str((a['failed'] or {}).get('error') or 'failed')[:80]}"
+        if a.get("vetoed"):
+            return f"{m.group(1)} · held, you ticked {a['vetoed'][11:16]}"
+        if a.get("applied"):
+            return f"{m.group(1)} · {'sent' if m.re is DONT_BOX else 'done'} {a['applied'][11:16]}"
+        return m.group(0)
+    return DONE_LINE.sub(outcome, DONT_BOX.sub(outcome, APPLY_BOX.sub(one, body)))
 
 
 def record_verdict(html_path):

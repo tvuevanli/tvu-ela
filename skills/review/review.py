@@ -174,21 +174,26 @@ def lint(text, actions=None, counts=None, bundles=None, in_vault=False, brief=Fa
         orphan, unboxed = B.page_check(text, actions)
         fails += [f"apply {n}: no such action in the actions file" for n in orphan]
         fails += [f"apply {n}: named without its box on the page" for n in unboxed]
+        fails += B.tier_check(text, actions)
     seen = {}
     for head, facts, body in items(text):
         title = head.lstrip("#").strip()
         numbers = []
         for line, box in do_lines(body):
-            if box is None:
+            if box is None and B.DONE_LINE_RX.match(line):       # a tier-1 action ela took: a line, no box
+                numbers.append(int(B.DONE_LINE_RX.match(line).group(1)))
+            elif box is None:
                 fails.append(f"{title[:50]}: a Do line without a box: {line.strip()[:60]}")
             elif B.APPLY_RX.search(box):
                 numbers.append(int(B.APPLY_RX.search(box).group(1)))
+            elif B.DONT_BOX_RX.match(line):                 # a tier-2 action: goes at 10:00 unless he ticks it
+                numbers.append(int(B.DONT_BOX_RX.match(line).group(1)))
             elif BARE_VERB_RX.search(box.strip()):
                 fails.append(f"{title[:50]}: a Do line left for him to do: {box.strip()[:60]}")
             elif not DECISION_RX.search(box):
                 fails.append(f"{title[:50]}: a box with no apply number that does not say where it is decided: {box.strip()[:60]}")
         if numbers != sorted(numbers):
-            fails.append(f"{title[:50]}: apply numbers descend: {', '.join(map(str, numbers))}")
+            fails.append(f"{title[:50]}: action numbers descend: {', '.join(map(str, numbers))}")
         for k in set(B.keys_in(head + "\n" + facts)):
             seen.setdefault(k, []).append(title.split(".")[0])
     for k, where in sorted(seen.items()):
@@ -486,6 +491,95 @@ def applied_no_change(actions, issues, me, now):
     return rows
 
 
+# ── corrections: a tier-1 or tier-2 action the team undid or answered against ──────────────────────────
+TIER_WINDOW, DEMOTE_AT = 7, 3        # three corrections on one rule in seven days demote it to tier 3
+REVERT_FIELD = {"label": "labels", "fixed-in-ledger": "Fixed In", "assign-by-rule": "assignee"}
+
+
+def tiered(actions):
+    """The applied tier-1 and tier-2 actions: [(action, applied time)]."""
+    return [(a, at) for a in actions if a.get("tier") in (1, 2) and (at := B.parse_ts(a.get("applied")))]
+
+
+def reverts(actions, issues, me, now):
+    """A field ela set at tier 1 that someone else set otherwise afterwards: a label taken off, a Fixed In changed, an
+    assignment moved within a working day. Sure, so counted."""
+    rows = []
+    for a, at in tiered(actions):
+        field, key = REVERT_FIELD.get(a.get("rule")), action_key(a)
+        if not field or key not in issues:
+            continue
+        added = re.search(r"--add\s+(\S+)", a.get("command") or "")
+        until = next_workday_end(at) if field == "assignee" else now
+        for ev in issues[key].get("events") or []:
+            t = B.parse_ts(ev.get("at"))
+            if not t or not at < t <= until or ev.get("field") != field or str(ev.get("by") or "").lower() in {(me or "").lower(), *QUIET}:
+                continue
+            if field == "labels" and added and not any(x in (ev.get("from") or "") and x not in (ev.get("to") or "")
+                                                       for x in added.group(1).split(",")):
+                continue                                    # another label moved, not the one ela set
+            rows.append({"kind": "correction", "how": "revert", "rule": a.get("rule"), "key": key,
+                         "said": f"action {a.get('n')}: {a.get('text', '')[:100]}",
+                         "now": f"{field}: {ev.get('from') or '—'} → {ev.get('to') or '—'} by {ev.get('by')} {t.isoformat(timespec='minutes')}"})
+            break
+    return rows
+
+
+def replies(actions, issues, me, e, gaps):
+    """What others wrote after a tier-1 comment or a tier-2 post: for the evening reader to judge (contradicts,
+    agrees, unrelated); not counted until judged. A comment's later edit by a colleague is not in Jira's change list,
+    so it is not seen."""
+    rows = []
+    for a, at in tiered(actions):
+        who = lambda b: str(b or "").lower() not in {(me or "").lower(), *QUIET, "?"}   # noqa: E731
+        if a.get("rule") == "fact-comment" and action_key(a) in issues:
+            later = [c for c in issues[action_key(a)].get("comments") or [] if (t := B.parse_ts(c.get("at"))) and t > at and who(c.get("by"))]
+        elif a.get("tier") == 2:
+            link = next((w for w in (a.get("command") or "").split() if "/archives/" in w), None)
+            try:
+                msgs = B.run_json(["python3", os.path.join(HERE, "..", "slack", "slack.py"), *e, "read", link, "--json"])["messages"] if link else []
+            except (B.LaneError, subprocess.TimeoutExpired, ValueError, KeyError) as x:
+                gaps.append({"source": f"slack {link}", "error": str(x)[:200]}); continue
+            later = [{"by": m.get("user"), "at": datetime.datetime.fromtimestamp(float(m["ts"])).astimezone().isoformat(), "text": m.get("text", "")[:300]}
+                     for m in msgs if float(m.get("ts") or 0) > at.timestamp() and who(m.get("user")) and m.get("user") != "ela"]
+        else:
+            continue
+        for c in later[:3]:
+            rows.append({"kind": "reply", "rule": a.get("rule"), "key": action_key(a), "action": a.get("n"),
+                         "said": f"action {a.get('n')}: {a.get('text', '')[:100]}",
+                         "now": f"{c.get('by')} {str(c.get('at'))[:16]}: {' '.join(str(c.get('text') or '').split())[:200]}"})
+    return rows
+
+
+def update_tiers(reports, date):
+    """<reports>/review/tiers.json from the last seven days' corrections: the reverts in each replay and the replies
+    the reader judged contradicting. A rule with three is demoted until its corrections age out."""
+    end = datetime.date.fromisoformat(date)
+    days = [(end - datetime.timedelta(days=i)).isoformat() for i in range(TIER_WINDOW)]
+    found = []
+    for d in days:
+        for name, pick in ((f"{d}-replay.json", lambda j: j.get("rows") or []), (f"{d}-reader.json", lambda j: j if isinstance(j, list) else [])):
+            try:
+                rows = pick(json.load(open(os.path.join(reports, "review", name), encoding="utf-8")))
+            except (OSError, ValueError):
+                continue
+            found += [dict(r, day=d) for r in rows if isinstance(r, dict) and r.get("kind") == "correction" and r.get("rule")]
+    rules = {}
+    for r in found:
+        x = rules.setdefault(r["rule"], {"corrections": 0, "keys": [], "demoted": False})
+        x["corrections"] += 1
+        x["keys"] = sorted(set(x["keys"]) | ({r["key"]} if r.get("key") else set()))
+    for rule, x in rules.items():
+        if x["corrections"] >= DEMOTE_AT:
+            x["demoted"] = True
+            x["why"] = f"{x['corrections']} corrections in {TIER_WINDOW} days to {date}"
+    out = {"as_of": date, "window_days": TIER_WINDOW, "demote_at": DEMOTE_AT, "rules": rules}
+    path = os.path.join(reports, "review", "tiers.json")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    T.atomic_write(path, json.dumps(out, ensure_ascii=False, indent=1) + "\n")
+    return out
+
+
 def jira_changes(keys, since, e):
     """{key: {events, comments}} for the keys, read from Jira since a time; (issues, gaps)."""
     issues, gaps = {}, []
@@ -581,12 +675,13 @@ COUNT_NAMES = (("sure_contradicted", "sure reading contradicted", "sure readings
                ("field_wrong", "field claim wrong", "field claims wrong"),
                ("version_miscalled", "version miscalled", "versions miscalled"),
                ("nudge_answered", "nudge already answered", "nudges already answered"),
-               ("applied_no_change", "applied action with no change", "applied actions with no change"))
+               ("applied_no_change", "applied action with no change", "applied actions with no change"),
+               ("correction", "tier-1/2 action reverted", "tier-1/2 actions reverted"))
 
 
 def summary(date, counts):
     """The facts-page line: "replay of 10-27: 0 sure readings contradicted, 1 version miscalled, …"."""
-    return f"replay of {date[5:]}: " + ", ".join(f"{counts[k]} {one if counts[k] == 1 else many}" for k, one, many in COUNT_NAMES)
+    return f"replay of {date[5:]}: " + ", ".join(f"{counts.get(k, 0)} {one if counts.get(k, 0) == 1 else many}" for k, one, many in COUNT_NAMES)
 
 
 def replay(date, site_, e, me, now=None):
@@ -624,7 +719,8 @@ def replay(date, site_, e, me, now=None):
     page_path = os.path.join(reports, "runner", f"{date}-brief.md")
     at = datetime.datetime.fromtimestamp(os.path.getmtime(page_path)).astimezone() if os.path.isfile(page_path) else now
     rows = contradicted(sure, issues, qa) + wrong_fields(claims, actions, fields, issues, at, aliases) + miscalled(page, snap) \
-        + answered_nudges(actions, issues, me) + applied_no_change(actions, issues, me, now)
+        + answered_nudges(actions, issues, me) + applied_no_change(actions, issues, me, now) + reverts(actions, issues, me, now) \
+        + replies(actions, issues, me, e, gaps)
     counts = {k: sum(r["kind"] == k for r in rows) for k, _, _ in COUNT_NAMES}
     return {"date": date, "at": now.isoformat(timespec="seconds"), "counts": counts, "rows": rows,
             "read": {"sure_readings": len(sure), "field_claims": len(claims), "actions": len(actions), "called_moves": len(called_moves(page)),
@@ -644,6 +740,7 @@ def cmd_replay(args):
     path = os.path.join(reports, "review", f"{args.date}-replay.json")
     os.makedirs(os.path.dirname(path), exist_ok=True)
     T.atomic_write(path, json.dumps(out, ensure_ascii=False, indent=1) + "\n")
+    update_tiers(reports, args.date)
     if args.json:
         print(json.dumps(out, ensure_ascii=False))
     else:
@@ -684,10 +781,44 @@ def reader_rows(text):
     return out
 
 
-def reader_check(page, reader):
+JUDGMENTS = ("contradicts", "agrees", "unrelated")   # a reply after a tier-1 or tier-2 action, read by the reader
+
+
+def judged_rows(text):
+    """The reader file's corrections table: {action n: (judgment, line)} from rows `| action N | judgment | line |`."""
+    out = {}
+    for line in text.splitlines():
+        cells = [c.strip() for c in re.split(r"(?<!\\)\|", line.strip())[1:-1]]
+        m = re.match(r"action\s+(\d+)$", cells[0], re.I) if len(cells) >= 3 else None
+        if m:
+            out[int(m.group(1))] = (cells[1].lower(), cells[2])
+    return out
+
+
+def to_judge(reports, date):
+    """The replies the replay found after the day's tier-1 and tier-2 actions: {action n: [row]}."""
+    try:
+        rows = json.load(open(os.path.join(reports, "review", f"{date}-replay.json"), encoding="utf-8")).get("rows") or []
+    except (OSError, ValueError, AttributeError):
+        return {}
+    out = {}
+    for r in rows:
+        if r.get("kind") == "reply" and str(r.get("action", "")).isdigit():
+            out.setdefault(int(r["action"]), []).append(r)
+    return out
+
+
+def reader_check(page, reader, judge=None):
     """Gaps in a reader file against its page: an item with no verdict or two, a verdict outside the set, an empty
-    line, a missing page line."""
+    line, a missing page line; and each reply the replay found after a tier-1 or tier-2 action without its judgment."""
     fails = []
+    got = judged_rows(reader)
+    for n in sorted(judge or {}):
+        j = got.get(n)
+        if not j:
+            fails.append(f"action {n}: a reply after it is not judged (| action {n} | {' or '.join(JUDGMENTS)} | line |)")
+        elif j[0] not in JUDGMENTS:
+            fails.append(f"action {n}: judgment {j[0]!r} is not one of {', '.join(JUDGMENTS)}")
     rows, want = reader_rows(reader), page_items(page)
     by_n = {}
     for r in rows:
@@ -714,12 +845,18 @@ def reader_check(page, reader):
 KINDS = {"wrong": "wrong", "handed back": "handed-back", "question": "question"}
 
 
-def reader_findings(page, reader):
+def reader_findings(page, reader, judge=None):
     """The reader file as findings the next morning's judge takes as input: one per item read wrong, handed back or
     left as a question, and one for what he would skip: [{kind, item, key, what}]. Tickable and noise items are not
-    findings; noise is already what Skipped says."""
+    findings; noise is already what Skipped says. A reply judged to contradict a tier-1 or tier-2 action is a
+    correction on that action's rule: {kind: correction, how: reply, rule, key, what}."""
     keys = {i["n"]: i["keys"] for i in page_items(page)}
     out = []
+    for n, (j, line) in sorted(judged_rows(reader).items()):
+        rows = (judge or {}).get(n)
+        if j == "contradicts" and rows:
+            out.append({"kind": "correction", "how": "reply", "rule": rows[0].get("rule"), "key": rows[0].get("key"),
+                        "item": None, "what": line or rows[0].get("now")})
     for r in reader_rows(reader):
         if r["verdict"] in KINDS:
             k = keys.get(r["n"]) or B.keys_in(r["item"])
@@ -754,15 +891,17 @@ def cmd_reader(args):
         page = open(page_path, encoding="utf-8").read()
     except OSError:
         print(f"reader: no morning page {page_path}", file=sys.stderr); sys.exit(2)
+    judge = to_judge(reports, args.date)
     if args.check:
         try:
             reader = open(out_path, encoding="utf-8").read()
-            fails = reader_check(page, reader)
+            fails = reader_check(page, reader, judge)
         except OSError:
             reader, fails = None, [f"no reader file {out_path}"]
         if not fails:                                   # the next morning's judge reads these (brief SKILL §3b)
             with open(out_path[:-3] + ".json", "w", encoding="utf-8") as f:
-                json.dump(reader_findings(page, reader), f, ensure_ascii=False, indent=1)
+                json.dump(reader_findings(page, reader, judge), f, ensure_ascii=False, indent=1)
+            update_tiers(reports, args.date)            # a contradicting reply counts toward its rule's demotion
         print(json.dumps({"reader": out_path, "failures": fails}, ensure_ascii=False) if args.json else "\n".join(fails))
         sys.exit(1 if fails else 0)
     ctx = {"date": args.date, "page": page_path, "write": out_path, "items": page_items(page),
@@ -771,7 +910,8 @@ def cmd_reader(args):
            "replay": os.path.join(reports, "review", f"{args.date}-replay.json"),
            "lint": lint(page, *context(page_path, page)[:4]),
            "rules": [os.path.expanduser("~/.claude/ela/working-with-evan.md"), "skills/brief/SKILL.md §reader"],
-           "repeated": repeated_verdicts(reports, args.date)}
+           "repeated": repeated_verdicts(reports, args.date),
+           "judge": {str(n): [r["now"] for r in rows] for n, rows in judge.items()}, "judgments": list(JUDGMENTS)}
     if args.json:
         print(json.dumps(ctx, ensure_ascii=False, indent=1))
     else:
@@ -780,6 +920,8 @@ def cmd_reader(args):
             print(f"  {it['n']}. {it['title']}")
         for f in ctx["lint"]:
             print(f"  lint: {f}")
+        for n, says in ctx["judge"].items():
+            print(f"  judge action {n}: " + " | ".join(says))
 
 
 def main():

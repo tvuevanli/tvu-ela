@@ -2388,6 +2388,80 @@ def page_check(page, actions):
     return sorted(named - have), sorted(named - boxed)
 
 
+# ── tiers: what ela does alone, what leaves at 10:00 unless he ticks "don't", what waits for his word ───────
+# A tier-1 or tier-2 action needs a closed rule that admits it; anything no rule admits is tier 3 (`apply N`).
+# Tier 1 is Jira only and never a terminal status; tier 2 is a reply in a team channel's thread, through slack.py's
+# --team-thread gate. A rule the evening found corrected three times in seven days is demoted
+# (<reports>/review/tiers.json): its actions are tier 3 until the record clears.
+KEY_ARG = r"[A-Z][A-Z0-9]+-\d+"
+TEAM_POST = r"^ela slack post https://\S+/archives/[CG][A-Z0-9]+/p\d{16}\S*\s(?=.*--team-thread\b)"
+TIER_RULES = {
+    "fact-comment": (1, r"^ela jira comment " + KEY_ARG + r"\s"),
+    "label": (1, r"^ela jira label " + KEY_ARG + r"\s"),
+    "fixed-in-ledger": (1, r"^ela jira fixed-in " + KEY_ARG + r"\s(?!.*--clear\b)"),
+    "assign-by-rule": (1, r"^ela jira assign " + KEY_ARG + r"\s"),
+    "thread-reply": (2, TEAM_POST),
+    "train-hold": (2, TEAM_POST),
+    "train-promote": (2, TEAM_POST),
+}
+TRAIN_RULES = ("train-hold", "train-promote")
+DONE_LINE_RX = re.compile(r"^\s*[-*]\s+done\s+(\d+)\s+—\s+(.*)$", re.M)                    # tier 1, no box: ela did it
+DONT_BOX_RX = re.compile(r"^\s*[-*]\s+\[[ xX]\]\s+don't\s+(\d+)\s+—\s+at 10:00 unless you tick\b", re.I | re.M)   # tier 2
+
+
+def demoted_rules(reports):
+    """The rules the evening demoted ({rule: why}), from <reports>/review/tiers.json; {} when there is none."""
+    try:
+        rules = json.load(open(os.path.join(reports or "", "review", "tiers.json"), encoding="utf-8")).get("rules") or {}
+    except (OSError, ValueError, AttributeError):
+        return {}
+    return {r: v.get("why") or "demoted" for r, v in rules.items() if isinstance(v, dict) and v.get("demoted")}
+
+
+def tier_check(page, actions, demoted=None, verdict_build=None):
+    """Each action's tier against the closed rules and its form on the page: one line per failure. `demoted` {rule:
+    why}; `verdict_build` the build QA's latest report covers ({build, report}), which a train action's evidence names."""
+    fails = []
+    done = {int(n) for n, _ in DONE_LINE_RX.findall(page)}
+    dont = {int(n) for n in DONT_BOX_RX.findall(page)}
+    boxed = {int(n) for n in APPLY_BOX_RX.findall(page)}
+    have = {}
+    for a in actions:
+        if not str(a.get("n", "")).isdigit():
+            continue
+        # no tier is tier 3: the owner's word, as every action was before tiers
+        n, tier, rule, cmd = int(a["n"]), a.get("tier", 3), a.get("rule"), (a.get("command") or "").strip()
+        have[n] = tier
+        if tier not in (1, 2, 3):
+            fails.append(f"action {n}: tier {tier!r}, one of 1, 2, 3"); continue
+        if tier < 3:
+            if rule not in TIER_RULES or TIER_RULES[rule][0] != tier:
+                fails.append(f"action {n}: tier {tier} needs a tier-{tier} rule ("
+                             + ", ".join(r for r, (t, _) in TIER_RULES.items() if t == tier) + f"), not {rule!r}")
+            elif not re.search(TIER_RULES[rule][1], cmd + " "):
+                fails.append(f"action {n}: its command is not what rule {rule} admits: {cmd[:70]}")
+            if rule in (demoted or {}):
+                fails.append(f"action {n}: rule {rule} is demoted ({demoted[rule]}); its actions are tier 3")
+            if not (a.get("evidence") or "").strip():
+                fails.append(f"action {n}: a tier-{tier} action carries its evidence")
+            if rule in TRAIN_RULES and verdict_build:
+                ev, b = a.get("evidence") or "", str(verdict_build.get("build"))
+                named = re.findall(r"\bbuild\s+(\d+)", ev, re.I)
+                if b not in named or not re.search(r"\breport\b", ev, re.I) or any(x != b for x in named):
+                    fails.append(f"action {n}: a train action's evidence names the verdict build {b} and its report: {ev[:70]}")
+        want = {1: done, 2: dont, 3: boxed}[tier]
+        settled = a.get("applied") or a.get("by_owner") or a.get("vetoed")   # said in words on a rerun (§3b)
+        if n not in want and not settled:
+            fails.append(f"action {n}: a tier-{tier} action is written " + {1: "\"- done N — text · evidence\"",
+                         2: "\"- [ ] don't N — at 10:00 unless you tick: text\"", 3: "\"- [ ] apply N — text\""}[tier])
+        for t, seen in ((1, done), (2, dont), (3, boxed)):
+            if t != tier and n in seen:
+                fails.append(f"action {n}: tier {tier}, but the page writes it as tier {t}")
+    for n in sorted((done | dont) - set(have)):
+        fails.append(f"action {n}: on the page, not in the actions file")
+    return fails
+
+
 def cmd_page_check(args):
     try:
         page = open(args.page, encoding="utf-8").read()
@@ -2399,6 +2473,21 @@ def cmd_page_check(args):
         print(f"apply {n}: no such action in {os.path.basename(args.actions or '(none)')}")
     for n in unboxed:
         print(f"apply {n}: named without its box on the page")
+    date = None
+    m = re.match(r"(\d{4}-\d{2}-\d{2})-", os.path.basename(args.page))
+    if m:
+        date = m.group(1)
+    try:
+        verdict = qa_cycle(datetime.date.fromisoformat(date))["verdict_build"] if date else None
+    except (OSError, ValueError, KeyError):
+        verdict = None
+    try:
+        reports = json.load(open(SITE)).get("reports")
+    except (OSError, ValueError):
+        reports = None
+    tiers = tier_check(page, actions, demoted_rules(reports), verdict) if args.actions else []
+    for line in tiers:
+        print(f"tier: {line}")
     sys.path.insert(0, os.path.join(HERE, "..", "review"))
     import review                                       # the rest of the page's mechanical checks (`ela review lint`)
     _, counts, bundles, in_vault, _ = review.context(args.page, page, args.actions)
@@ -2414,7 +2503,7 @@ def cmd_page_check(args):
         print(f"budget: {over}")
     # the runner holds back a page that still fails after one repair, and its repair covers apply N only: the other
     # checks fail the page under --strict, once the repair knows them; until then they are printed as advice
-    sys.exit(1 if orphan or unboxed or (rest and args.strict) else 0)
+    sys.exit(1 if orphan or unboxed or tiers or (rest and args.strict) else 0)
 
 
 def front_matter(text):

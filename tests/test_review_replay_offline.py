@@ -69,7 +69,7 @@ check("an applied action answered only by the owner and Helm for a working day i
       "window are not", [r["key"] for r in a] == ["MH-6"])
 check("Friday's window runs to Monday", RV.next_workday_end(datetime.datetime(2026, 10, 30, 10, 0)).date() == datetime.date(2026, 11, 2))
 check("the summary line", RV.summary("2026-10-27", {"sure_contradicted": 0, "field_wrong": 1, "version_miscalled": 1, "nudge_answered": 0, "applied_no_change": 2})
-      == "replay of 10-27: 0 sure readings contradicted, 1 field claim wrong, 1 version miscalled, 0 nudges already answered, 2 applied actions with no change")
+      == "replay of 10-27: 0 sure readings contradicted, 1 field claim wrong, 1 version miscalled, 0 nudges already answered, 2 applied actions with no change, 0 tier-1/2 actions reverted")
 fpage = """## Needs you
 
 ### 1. MH-20: codes settled

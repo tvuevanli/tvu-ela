@@ -492,9 +492,10 @@ The page is read in Obsidian, so its form is fixed:
 
 - **An item is a `###` heading in plain words** (what is happening, never a lane tag such as `[cadence RED]`), one
   facts line (key, its Jira title in a few plain words, kind, who holds it, age), at most three bullets, then
-  then **Do:** as one to three task lines, each with a box, and every box is finished work by ela:
-  `- [ ] apply N — what it writes` for a drafted write, or `- [ ] <option>` for a decision (class D), where the
-  tick is the ruling. Ticking a box without `apply N` runs nothing, so its line ends with where the decision is
+  then **Do:** as one to three task lines, each finished work by ela, written by the action's tier (below):
+  `- done N — what ela wrote · evidence: …` for a tier-1 action (a line, no box), `- [ ] don't N — at 10:00 unless
+  you tick: what it posts` for a tier-2 one, `- [ ] apply N — what it writes` for a tier-3 one, or `- [ ] <option>`
+  for a decision (class D), where the tick is the ruling. Ticking a box without `apply N` runs nothing, so its line ends with where the decision is
   taken: `· decide at the 10:00 scrum`, or `· your call, no write`; page-check flags a box with neither. *Why: on
   2026-10-28 items 1 and 7 offered four such boxes, and the page did not say that ticking them wrote nothing.*
   An item never ends in a question to him. An open point is written as ela's recommendation and the alternative,
@@ -519,6 +520,19 @@ The page is read in Obsidian, so its form is fixed:
   <date>-actions.json` checks every `apply N` in it; a number with no action, or named without its box, fails the
   page. *Why: the 10-27 Backlog named apply 4, 5 and 6 with no boxes, and the 10-26 answers cited apply 9 and
   11–16, which never existed.*
+- **Every drafted action has a tier.** Tier 1, ela acts at the pass that drafted it and says so: Jira only, under one
+  of the closed rules `fact-comment` (a comment stating a fact, carrying its evidence), `label`, `fixed-in-ledger` (a
+  Fixed In the builds ledger confirms; never a clear) and `assign-by-rule` (an assignment a closed routing rule
+  gives); never a terminal status, a close, a transition or a customer-facing field. Tier 2, the runner sends it at
+  10:00 unless he ticks "don't": `thread-reply` (a reply in a team channel's thread ela has read), `train-hold`,
+  `train-promote`, each an `ela slack post <thread permalink> … --team-thread`, which slack.py refuses outside the
+  team channels. Tier 3 is everything else, on his word only (`apply N`): customers, prod approvals, people,
+  anything addressed to him, anything no closed rule admits. A tier-1 or tier-2 action carries `evidence`, one
+  line he can check; a train action's evidence names the verdict build and its QA report (`ela day --json`
+  `verdict_build`). Read `<reports>/review/tiers.json` first: a rule marked `demoted` (three corrections in seven
+  days) drafts tier 3 until it clears. `ela page-check` checks each tier against its rule and its form on the page.
+  *Why: 62 drafts in the week of 2026-10-26 and one applied; most were writes a closed rule could have taken
+  (vault in-progress/2026-10-29-ela-three-loops-review.md, proposal 2).*
 - **Instructions written in the vault.** Run `ela vault guidance --json` first: each line in a note starting
   `ela:` (in any note, unhandled) is something he asked; the Slack service normally acts on it within minutes, so
   one still listed here means it was not, and it becomes an item, or its drafted write an `apply N`. Append each id
@@ -620,7 +634,9 @@ ela-runner starts this skill headless every weekday morning after it wrote the f
   The page follows §3's form exactly and fits **900 words** (the vault marks a day page over 1,200 with a
   warning).
 - `<reports>/runner/<date>-actions.json` — the drafted actions as a list, in the page's order:
-  `[{"n": 1, "text": "<the one line the page shows>", "command": "<the exact ela command, dry run as written>", "kind": "comment|assign|label|transition|close|slack|fixed-in"}]`.
+  `[{"n": 1, "text": "<the one line the page shows>", "command": "<the exact ela command, dry run as written>", "kind": "comment|assign|label|transition|close|slack|fixed-in",
+  "tier": 1|2|3, "rule": "<a closed rule, or null at tier 3>", "evidence": "<one line; tier 1 and 2>", "channel": "<tier 2: the team channel's name>"}]`.
+  The runner adds what it did: `applied` (a time), `vetoed` (the time he ticked "don't"), `failed` (`{at, error}`).
   A command is one of ela's own write verbs — `ela jira comment|assign|label|fixed-in|close …`, `ela slack
   post …` — complete with its key and text (a `--from-file` under `<reports>/runner/actions/<date>/`), and
   runnable as it stands; the runner appends `--apply` to it when the owner answers `apply <n>` in Slack or on
@@ -746,6 +762,14 @@ file before the session ends: one verdict per item, each from the set and with i
 A failed check is fixed before the reader file is final. A passing check writes `<reports>/review/<D>-reader.json`,
 the findings the next morning's judge takes as input: a list of `{kind, item, key, what}`, one per item read
 `wrong`, `handed-back` or `question`, and one `skippable` for the Skipped line.
+
+**Corrections.** `ela review replay` reads what happened after each tier-1 and tier-2 action the runner applied. A
+field ela set and a colleague set otherwise (a label taken off, a Fixed In changed, an assignment moved within a
+working day) is a correction, counted. A reply after a tier-1 comment or a tier-2 post is printed by `ela review
+reader` as `judge action N`, and the reader judges it under a `## Corrections` heading, one row per action, `|
+action N | contradicts / agrees / unrelated | line |`; the check fails an unjudged one. A reply that contradicts
+is a correction on that action's rule. Replay and the passing check write `<reports>/review/tiers.json`: each rule's
+corrections in the last seven days, and `demoted` once there are three, which the morning reads (§3).
 
 ## 4 — what this skill does not do
 - Post, comment, transition, assign, create, or write a file. The drafted actions name the skill
