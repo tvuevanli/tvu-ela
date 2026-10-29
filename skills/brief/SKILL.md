@@ -409,6 +409,11 @@ invisible to the people the list is for; a standing thread goes stale (the desk'
 after a week of posts: if nobody replies under them, a standing thread instead).* His `ela:` lines apply as under QA today. A developer never reads QA rows, and QA never
 reads a developer's (Resolution B3).
 
+**Every section written for him ends with what he does.** An item, QA today, Dev today, a meeting section and the
+program's Next each end with a Do line: an `apply N`, a `don't N`, or "your call: <recommended> over <alternative>
+because …". `ela review lint` names a section or an item without one. *Why: a description is not a deliverable; every
+answer ends with what he should do, what he can do, and how (working-with-evan.md, 2026-10-29).*
+
 **One place per day.** An item appears once. A key inside a lanes-table cell or a Changes page callout is evidence,
 not an appearance.
 

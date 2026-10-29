@@ -91,4 +91,11 @@ check("a day page over the vault's reading budget gives the vault's line; within
       RV.budget("/r/runner/2026-10-28-brief.md", long, "/no/actions.json") == "1,402 words, budget 1,200"
       and RV.budget("/r/runner/2026-10-28-brief.md", "# B\n\nshort", "/no/actions.json") is None
       and RV.budget("/r/review/2026-10-28-reader.md", long) is None)
+pg = ("# B\n\n## Needs you\n\n### 1. A thing\nfacts\n- one\n\n### 2. Another\nfacts\n- **Do:**\n- [ ] apply 1 — post it\n\n"
+      "## QA today\n\n1. MH-1 x\n\n## Scrum with the PM at 10:00\n\n- your call: hold over promote because the fail is open\n\n"
+      "## Dev today\n\n- [ ] don't 2 — at 10:00 unless you tick: Dev today\n")
+got = [f for f in RV.lint(pg, brief=True) if "Do line" in f]
+check("an item and a section written for him each end with a Do line; lint names the ones that do not",
+      got == ["QA today: a section with no Do line (apply N, don't N, or your call: … over … because …)", "1. A thing: an item with no Do line"])
+check("a page not linted as a brief is not held to it", not [f for f in RV.lint(pg) if "Do line" in f])
 sys.exit(1 if failures else 0)

@@ -102,6 +102,24 @@ def items(text):
     return out
 
 
+# the sections the page writes for him besides its items: each ends with what he should do (working-with-evan.md,
+# 2026-10-29: a description is not a deliverable)
+DO_SECTION_RX = re.compile(r"^##[ \t]+(QA today|Dev today|.+ at \d{1,2}:\d{2}|.*\bNext\b.*)[ \t]*$", re.M | re.I)
+DO_ANY_RX = re.compile(r"\*\*Do:\*\*|^\s*[-*]\s+\[[ xX]\]\s+(?:apply|don't)\s+\d+|^\s*[-*]\s+done\s+\d+\s+—|your call:", re.M | re.I)
+
+
+def sections_without_do(text):
+    """The headings of the sections written for him (QA today, Dev today, a meeting at HH:MM, a Next) with no Do line:
+    an apply N, a don't N, or "your call: <recommended> over <alternative> because …"."""
+    out, marks = [], list(DO_SECTION_RX.finditer(text))
+    for m in marks:
+        nxt = re.search(r"^##[ \t]", text[m.end():], re.M)
+        body = text[m.end(): m.end() + nxt.start()] if nxt else text[m.end():]
+        if not DO_ANY_RX.search(body):
+            out.append(m.group(1).strip())
+    return out
+
+
 def do_lines(body):
     """The lines under an item's **Do:**: (line, text of a box or None)."""
     out, on = [], False
@@ -176,9 +194,13 @@ def lint(text, actions=None, counts=None, bundles=None, in_vault=False, brief=Fa
         fails += [f"apply {n}: named without its box on the page" for n in unboxed]
         fails += B.tier_check(text, actions)
     seen = {}
+    if brief:
+        fails += [f"{h[:50]}: a section with no Do line (apply N, don't N, or your call: … over … because …)" for h in sections_without_do(text)]
     for head, facts, body in items(text):
         title = head.lstrip("#").strip()
         numbers = []
+        if brief and not do_lines(body) and not DO_ANY_RX.search(body):
+            fails.append(f"{title[:50]}: an item with no Do line")
         for line, box in do_lines(body):
             if box is None and B.DONE_LINE_RX.match(line):       # a tier-1 action ela took: a line, no box
                 numbers.append(int(B.DONE_LINE_RX.match(line).group(1)))
