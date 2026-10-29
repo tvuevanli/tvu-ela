@@ -3,6 +3,7 @@
 
     testlist.py list [--lane qa-cn3] [--days N] [--json] [--page] [--new-rows [--date YYYY-MM-DD]]
     testlist.py list --lane qa-cn3 --saw KEY "ela saw … on V at HH:MM"
+    testlist.py list [--lane qa-cn3] --today [--budget N] [--guidance FILE] [--json]
     testlist.py dev [--line 2.1] [--json] [--page]
 
 list  Without --lane, every lane with release mails ("[Release MediaHub <env>]") in the window or a list on disk;
@@ -28,6 +29,14 @@ list  Without --lane, every lane with release mails ("[Release MediaHub <env>]")
       --new-rows: the rows each build released on --date (default today) added, Slack-formatted, with the day's
       release thread in #mediahub-qa-release, for the runner's tier-2 post (rule test-list).
       --saw: writes the night run's line on the row (a local write; no --apply), stamped with the lane build.
+      A QA member's reply in the release thread, "<KEY or nt- id> pass|fail on <version>", is a verdict for the row;
+      on a row with a ticket it also drafts the tier-1 fact comment (`drafts`, rule fact-comment) once per reply.
+      --today: QA today, the day's plan for each QA lane: carried rows without a verdict (P1 first, oldest first), the
+      newest build's new rows, then interruptions (tickets assigned to QA in no build; asks to QA in #mediahub-qa-
+      release and #prj_dev_mediahub since the last evening run, 19:00 the previous working day), cut at --budget
+      (10), each row with the reason it is in; --guidance applies his `ela:` lines (drop · first · add) first. The
+      json carries the text for the 09:30 tier-2 post (rule qa-today) in the lane build's release thread, and the
+      overnight count (posts read, channels not read, asks placed).
 
 dev   One row per owner ticket in development on the line (labelled for it, not Done, and In Progress, Review, Blocked,
       On Hold or Reopened, or named by a commit, or on the lane's test list): layer, assignee and the commits' authors,
@@ -360,6 +369,46 @@ def report_verdicts(reports, key, since, build):
     return out
 
 
+# a QA member's reply in the list's thread: "MH-3833 pass on 2.1.78", "nt-1a2b3c4d fail on build 78"
+THREAD_VERDICT_RX = re.compile(r"\b([A-Z][A-Z0-9]+-\d+|nt-[0-9a-f]{8})\b\s*[:：]?\s*(pass|fail)(?:ed)?\s+on\s+"
+                               r"(v?\d+(?:\.\d+){1,3}(?:\s*build\s*\d+)?|build\s*\d+)", re.I)
+
+
+def qa_people():
+    """{name lower: name} and {slack id: name} of the roster's QA people."""
+    try:
+        import team as TM  # noqa: E402 — on the path through ticket
+        roster = TM.read_roster(TM.records())[1]
+    except (SystemExit, ImportError, OSError, ValueError):
+        return {}, {}
+    qa = [p for p in roster if (p.get("area") or "") == "qa"]
+    return {p["name"].lower(): p["name"] for p in qa if p.get("name")}, {p["slack"]: p["name"] for p in qa if p.get("slack")}
+
+
+def reply_link(thread, ts):
+    """A reply's permalink from its thread's permalink and its ts."""
+    m = re.match(r"^(https://\S+/archives/([CG][A-Z0-9]+))/p(\d+)", thread or "")
+    if not m:
+        return thread
+    parent = m.group(3)[:10] + "." + m.group(3)[10:]
+    return f"{m.group(1)}/p{ts.replace('.', '')}?thread_ts={parent}&cid={m.group(2)}"
+
+
+def thread_verdicts(messages, qa_names):
+    """[(at, key or row id, verdict, version, who, link)] from QA people's replies in the release threads."""
+    out = []
+    for m in messages:
+        for r in m.get("replies") or []:
+            who = r.get("user") or ""
+            if who.lower() not in qa_names:
+                continue
+            for x in THREAD_VERDICT_RX.finditer(r.get("text") or ""):
+                at = datetime.datetime.fromtimestamp(float(r["ts"])).astimezone().isoformat(timespec="minutes")
+                out.append((at, x.group(1), x.group(2).lower(), " ".join(x.group(3).split()), qa_names[who.lower()],
+                            reply_link(m.get("permalink"), r["ts"])))
+    return out
+
+
 # ── the list ─────────────────────────────────────────────────────────────────────────────────────────
 
 def departs_soon(s, at):
@@ -413,7 +462,7 @@ def priority(row, fields, sprint, builds_after, soon=False):
     return f"P{p}", why
 
 
-def collect_lane(lane, shown, mails, reports, s, env, cache, gaps):
+def collect_lane(lane, shown, mails, reports, s, env, cache, gaps, said=()):
     """One lane's list: the state brought up to the mails, every open row re-read, the state saved."""
     path = state_path(s, lane)
     st = load_state(path, lane)
@@ -453,7 +502,7 @@ def collect_lane(lane, shown, mails, reports, s, env, cache, gaps):
     st["lane_build"] = builds[-1] if builds else None
     qa, _ = T.qa_names()
     sprint, soon = sprint_keys(s), departs_soon(s, now())
-    rows, at = [], now()
+    rows, at, drafts = [], now(), []
     for rid, r in list(st["rows"].items()):
         t = r["ticket"]
         issue = jira_read(env, t, cache, gaps) if t else None
@@ -472,6 +521,13 @@ def collect_lane(lane, shown, mails, reports, s, env, cache, gaps):
         for k in [t, *r.get("also", [])] if t else []:
             found += comment_verdicts(cache.get(k) or (jira_read(env, k, cache, gaps) if k != t else issue), qa, r.get("last_at") or r["first_at"])
             found += report_verdicts(reports, k, r.get("last_at") or r["first_at"], r.get("last_build") or r["first_build"])
+        for at_, k, v, ver, who, url in said:              # a QA member's reply in the list's thread, first-hand
+            if k in ([t, *r.get("also", [])] if t else [rid]) and at_ >= (r.get("last_at") or r["first_at"])[:16]:
+                found.append((at_, v, ver, f"release thread by {who}"))
+                if t and (t, url) not in {tuple(d) for d in st.setdefault("drafted", [])}:
+                    st["drafted"].append([t, url])
+                    drafts.append({"tier": 1, "rule": "fact-comment", "key": t, "evidence": url,
+                                   "command": f'ela jira comment {t} --text "QA reported {v} on {ver} in the release thread {url}"'})
         if not t:                                           # a change with no ticket has no verdict of its own; QA's
             summ = [x for x in reports if x["summary"] and x["build"] and int(x["build"]) >= int(r.get("last_build") or r["first_build"])]
             if summ:                                        # summary report on its build closes the round it rode in
@@ -500,7 +556,8 @@ def collect_lane(lane, shown, mails, reports, s, env, cache, gaps):
     return {"lane": lane, "shown": shown, "kind": "qa" if is_qa(lane) else "release check", "lane_build": st["lane_build"],
             "lane_label": (st["builds"].get(st["lane_build"]) or {}).get("label") or st["lane_build"],
             "generated": at.isoformat(timespec="minutes"), "builds": {b: st["builds"][b] for b in builds}, "rows": rows,
-            "left": left, "gaps": [f"{g['source']}: {g['error']}" for g in gaps], "departs_soon": soon, "path": path}
+            "left": left, "gaps": [f"{g['source']}: {g['error']}" for g in gaps], "departs_soon": soon, "path": path,
+            "drafts": drafts}
 
 
 def collect(a, s, env):
@@ -530,11 +587,17 @@ def collect(a, s, env):
         st = load_state(state_path(s, lane), lane)
         keys |= {k for r in st["rows"].values() for k in [r.get("ticket"), *r.get("also", [])] if k}
     prefetch(env, sorted(keys), cache, gaps)
+    said = []
+    if any(is_qa(l) for l in lanes):                       # QA's replies in the release threads the lists are posted to
+        errs = []
+        msgs = B.slack_rows(env, B.QA_RELEASE, (now() - datetime.timedelta(days=7)).date().isoformat(), errs)
+        gaps += [f"{g['source']}: {g['error']}" for g in errs]
+        said = thread_verdicts(msgs, qa_people()[0])
     for lane in lanes:
         got = by_lane.get(lane) or {}
         lgaps = []
         out = collect_lane(lane, got.get("shown") or (lane_name(a.lane)[1] if want else None), got.get("mails") or [],
-                           reports.get(lane) or [], s, env, cache, lgaps)
+                           reports.get(lane) or [], s, env, cache, lgaps, said if is_qa(lane) else ())
         outs.append(out)
     return outs, gaps
 
@@ -598,10 +661,10 @@ def release_thread(env, date, gaps):
 
 
 def slack_text(out, build, rows):
-    head = f"*Test list · {out['shown']} {'build' if out['kind'] == 'qa' else 'release'} {build}* — {len(rows)} new row(s), highest priority first. Verdicts go in the ticket comment (version + pass/fail); the lane's open list carries the rest."
+    head = f"*Test list · {out['shown']} {'build' if out['kind'] == 'qa' else 'release'} {build}* — {len(rows)} new row(s), highest priority first. Verdicts go in the ticket comment (version + pass/fail), or as a reply here: `MH-1234 pass on 2.1.78` (a no-ticket row by its `nt-` id)."
     lines = [head]
     for r in rows:
-        name = f"<{r['url']}|{r['ticket']}>" + "".join(f" / <{JIRA_URL}{k}|{k}>" for k in r["also"]) if r["ticket"] else "*no ticket* ⚠"
+        name = f"<{r['url']}|{r['ticket']}>" + "".join(f" / <{JIRA_URL}{k}|{k}>" for k in r["also"]) if r["ticket"] else f"*no ticket* ⚠ `{r['id']}`"
         lines.append(f"• *{r['priority']}* ({r['priority_reason']}) {name} {cell(r['title'], 80)}\n    how: {cell(r['how_to_verify'], 260)}"
                      + ("  · ela checks it in the browser overnight" if r["auto"] else ""))
     return "\n".join(lines)
@@ -639,6 +702,144 @@ def cmd_saw(a, s):
     print(f"{row['id']}: ela_saw written on build {st.get('lane_build')}")
 
 
+# ── QA today: the day's plan cut from the list ───────────────────────────────────────────────────────
+
+TODAY_BUDGET = 10
+OVERNIGHT_CHANNELS = (B.QA_RELEASE, B.DEV_CHANNEL)
+GUIDE_RX = re.compile(r"^\s*ela:\s*(.+)$", re.I)
+
+
+def last_evening(at):
+    """The last evening run before `at`: 19:00 on the previous working day."""
+    d = at.date() - datetime.timedelta(days=1)
+    while not B.is_working_day(d):
+        d -= datetime.timedelta(days=1)
+    return datetime.datetime.combine(d, datetime.time(19, 0)).astimezone()
+
+
+def overnight(env, since, who):
+    """Posts in the team channels since `since` and the ones addressed to `who` ({name lower or slack id: name}):
+    {posts, channels, not_read, asks: [{to, by, channel, text, link}]}. A channel the bot cannot read is not_read."""
+    posts, read, not_read, asks = 0, [], [], []
+    for ch in OVERNIGHT_CHANNELS:
+        errs = []
+        msgs = B.slack_rows(env, ch, since.date().isoformat(), errs)
+        if errs:
+            not_read.append(ch)
+            continue
+        read.append(ch)
+        for m in msgs:
+            items = [(m, m.get("permalink"))] + [(r, reply_link(m.get("permalink"), r["ts"])) for r in m.get("replies") or []]
+            for x, link_ in items:
+                ts = x.get("ts")
+                if not ts or datetime.datetime.fromtimestamp(float(ts)).astimezone() < since:
+                    continue
+                posts += 1
+                text = x.get("text") or ""
+                to = sorted({name for k, name in who.items() if f"<@{k}>" in text or re.search(r"@" + re.escape(k) + r"\b", text, re.I)})
+                if to and (x.get("user") or "").lower() not in who:
+                    asks.append({"to": to, "by": x.get("user"), "channel": ch, "text": " ".join(text.split())[:200], "link": link_})
+    return {"posts": posts, "channels": read, "not_read": not_read, "asks": asks}
+
+
+def apply_guidance(plan, lines, out):
+    """His `ela:` lines under QA today: `drop KEY`, `KEY first`, `add KEY [why]`; anything else is returned unread."""
+    unread = []
+    for raw in lines:
+        g = GUIDE_RX.match(raw)
+        text = (g.group(1) if g else raw).strip()
+        if not text:
+            continue
+        keys = B.keys_in(text) or re.findall(r"\bnt-[0-9a-f]{8}\b", text)
+        if not keys:
+            unread.append(text); continue
+        if re.search(r"\b(drop|skip|remove|not today)\b", text, re.I):
+            plan[:] = [p for p in plan if p["id"] not in keys and p.get("ticket") not in keys]
+        elif re.search(r"\b(first|top|up)\b", text, re.I):
+            hit = [p for p in plan if p["id"] in keys or p.get("ticket") in keys]
+            plan[:] = hit + [p for p in plan if p not in hit]
+            for p in hit:
+                p["reason"] = "first, on your word; " + p["reason"]
+        elif re.search(r"\badd\b", text, re.I):
+            for k in keys:
+                if not any(p.get("ticket") == k or p["id"] == k for p in plan):
+                    row = next((r for r in out["rows"] if r["ticket"] == k or r["id"] == k), None)
+                    plan.insert(0, dict(plan_row(row, "added on your word") if row else {"id": k, "ticket": k, "url": JIRA_URL + k,
+                                        "title": "", "priority": "—", "how_to_verify": "", "auto": False, "reason": "added on your word"}))
+        else:
+            unread.append(text)
+    return unread
+
+
+def plan_row(r, reason):
+    return {"id": r["id"], "ticket": r["ticket"], "url": r["url"], "also": r.get("also", []), "title": r["title"],
+            "priority": r["priority"], "how_to_verify": r["how_to_verify"], "auto": r["auto"], "ela_saw": r.get("ela_saw"),
+            "reason": reason}
+
+
+def qa_today(out, env, at, budget, guidance, gaps):
+    """The day's plan: carried rows without a verdict (P1 first, oldest first), then the newest build's new rows, then
+    interruptions (tickets assigned to QA in no build, asks to QA in the team channels since the last evening run),
+    his `ela:` lines applied, cut at the budget."""
+    newest = out["lane_build"]
+    rank = lambda r: (r["priority"], -(r["age_days"] or 0), r["id"])  # noqa: E731
+    carried = sorted((r for r in out["rows"] if r["first_build"] != newest), key=rank)
+    new = sorted((r for r in out["rows"] if r["first_build"] == newest), key=rank)
+    plan = [plan_row(r, f"carried {r['age_days']}d: {r['verdict'] if r['verdict'] == 'fail' else r['priority_reason']}") for r in carried]
+    plan += [plan_row(r, f"new in {out['lane_label']}: {r['priority_reason']}") for r in new]
+    names, ids = qa_people()
+    on_list = {k for r in out["rows"] for k in [r["ticket"], *r.get("also", [])] if k}
+    try:
+        accounts = qa_accounts()
+        if accounts:
+            got = B.run_json(["python3", B.JIRA, *env, "jql", f"assignee in ({', '.join(accounts)}) AND statusCategory != Done "
+                              "ORDER BY priority DESC, updated DESC", "--limit", "50", "--json"], timeout=120)["issues"]
+            plan += [{"id": i["key"], "ticket": i["key"], "url": JIRA_URL + i["key"], "also": [], "title": i["summary"],
+                      "priority": "—", "how_to_verify": "", "auto": False, "ela_saw": None,
+                      "reason": f"assigned to {i.get('assignee')} ({i['status']}), in no build"}
+                     for i in got if i["key"] not in on_list]
+    except (B.LaneError, subprocess.TimeoutExpired, ValueError) as x:
+        gaps.append(f"jira QA assignments: {str(x)[:160]}")
+    since = last_evening(at)
+    night = overnight(env, since, {**names, **ids})
+    for ask in night["asks"]:
+        keys = B.keys_in(ask["text"])
+        plan.append({"id": keys[0] if keys else ask["link"], "ticket": keys[0] if keys else None,
+                     "url": JIRA_URL + keys[0] if keys else ask["link"], "also": [], "title": ask["text"][:120], "priority": "—",
+                     "how_to_verify": "", "auto": False, "ela_saw": None,
+                     "reason": f"ask from {ask['by']} to {', '.join(ask['to'])} in #{ask['channel']}"})
+    unread = apply_guidance(plan, guidance, out)
+    seen, cut = set(), []
+    for p in plan:                                          # one row per ticket, the first reason kept
+        if p["id"] not in seen:
+            seen.add(p["id"]); cut.append(p)
+    night["placed"] = sum(1 for p in cut[:budget] if p["reason"].startswith("ask from"))
+    return {"rows": cut[:budget], "more": max(0, len(cut) - budget), "overnight": night, "since": since.isoformat(timespec="minutes"),
+            "guidance_unread": unread}
+
+
+def qa_accounts():
+    try:
+        import team as TM  # noqa: E402
+        roster = TM.read_roster(TM.records())[1]
+    except (SystemExit, ImportError, OSError, ValueError):
+        return []
+    return [f'"{p["jira"]}"' for p in roster if (p.get("area") or "") == "qa" and p.get("jira")]
+
+
+def today_text(out, plan, at):
+    L = [f"*QA today · {out['shown']} · {at:%a %m-%d}* — {out['lane_label']} on the lane. In this order; a verdict goes in the "
+         "ticket comment (version + pass/fail) or as a reply here: `MH-1234 pass on 2.1.78`."]
+    for n, p in enumerate(plan["rows"], 1):
+        name = (f"<{p['url']}|{p['ticket']}>" if p["ticket"] else f"*no ticket* `{p['id']}`") + "".join(f" / <{JIRA_URL}{k}|{k}>" for k in p.get("also") or [])
+        saw = f"\n    ela saw: {(p['ela_saw'] or {}).get('line')}" if p.get("ela_saw") else ""
+        how = f"\n    how: {cell(p['how_to_verify'], 200)}" if p.get("how_to_verify") else ""
+        L.append(f"{n}. *{p['priority']}* {name} {cell(p['title'], 80)} — {p['reason']}{how}{saw}")
+    if plan["more"]:
+        L.append(f"+{plan['more']} more on the lane's list.")
+    return "\n".join(L)
+
+
 def print_list(out, page):
     print(f"# test list · {out['shown']} ({out['lane']}) · {out['lane_label']} · {len(out['rows'])} open")
     for r in out["rows"]:
@@ -661,6 +862,27 @@ def cmd_list(a):
         return cmd_saw(a, s)
     env = ["--env-file", a.env_file] if a.env_file else []
     outs, gaps = collect(a, s, env)
+    if a.today:
+        at = now()
+        guidance = open(a.guidance, encoding="utf-8").read().splitlines() if a.guidance else []
+        plans = []
+        for out in (o for o in outs if o["kind"] == "qa"):
+            plan = qa_today(out, env, at, a.budget, guidance, gaps)
+            b = out["builds"].get(out["lane_build"]) or {}
+            errs = []
+            thread = release_thread(env, (b.get("at") or "")[:10], errs) if b.get("at") else None
+            plans.append({"date": at.date().isoformat(), "lane": out["lane"], "lane_build": out["lane_build"], "thread": thread,
+                          "channel": B.QA_RELEASE, "text": today_text(out, plan, at), **plan,
+                          "gaps": out["gaps"] + [f"{g['source']}: {g['error']}" for g in errs]})
+        if a.json:
+            print(json.dumps(plans[0] if a.lane and plans else {"lists": plans, "gaps": gaps}, ensure_ascii=False))
+        else:
+            for p in plans:
+                print(f"# {p['lane']} → {p['thread'] or 'no release thread'}\n{p['text']}\n")
+                o = p["overnight"]
+                print(f"Overnight: {o['posts']} posts read in {', '.join('#' + c for c in o['channels']) or 'no channel'}, "
+                      f"{o['placed']} asks placed above" + (f"; not read: {', '.join('#' + c for c in o['not_read'])}" if o["not_read"] else ""))
+        return
     for out in outs:
         if a.page:
             out["page"] = os.path.join(reports_root(s), "lanes", f"test-list-{out['lane']}.md")
@@ -850,6 +1072,9 @@ def main():
     p.add_argument("--new-rows", action="store_true", help="only the rows the builds released on --date added, Slack-formatted")
     p.add_argument("--date", help="YYYY-MM-DD for --new-rows (default today)")
     p.add_argument("--saw", nargs=2, metavar=("KEY", "LINE"), help="write the night run's line on the row; a local write")
+    p.add_argument("--today", action="store_true", help="QA today: the day's plan from the list, cut at --budget, Slack-formatted")
+    p.add_argument("--budget", type=int, default=TODAY_BUDGET, help=f"rows in the day's plan (default {TODAY_BUDGET})")
+    p.add_argument("--guidance", help="a file of his `ela:` lines from the morning page's QA today section: drop KEY · KEY first · add KEY")
     p.set_defaults(func=cmd_list)
     p = sub.add_parser("dev", help="the line's dev list: one row per owner ticket in development, with its gaps")
     p.add_argument("--line", help="one release line (2.1); default every line release.yaml names with a Jira label")

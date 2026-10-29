@@ -89,4 +89,20 @@ up = TL.parse_build_mail({"subject": "[Release MediaHub CN Prod2] CN2 upgrade to
 check("a mail with no Test Focus and no Change Log is one row per key in its subject", [l["keys"] for l in up["log"]] == [["MH-3752"]])
 pr = TL.sections("*Change Log* (Prod 3 v2.1.68 → v2.1.74)\n\n*Fixes*\n\n   1. DR auto-recovery honours the cooldown MH-3721\n")
 check("a bold section heading with a note in brackets is a section", "MH-3721" in pr.get("Change Log", ""))
+import datetime  # noqa: E402
+th = "https://x.slack.com/archives/C0C16LK4KT9/p1793180233748809"
+check("a reply's permalink names its thread", TL.reply_link(th, "1793190000.123456")
+      == "https://x.slack.com/archives/C0C16LK4KT9/p1793190000123456?thread_ts=1793180233.748809&cid=C0C16LK4KT9")
+msgs = [{"permalink": th, "replies": [{"ts": "1793190000.1", "user": "QA Person", "text": "MH-3833 pass on 2.1.78\nnt-1a2b3c4d fail on build 78"},
+                                      {"ts": "1793190001.1", "user": "Dev One", "text": "MH-3831 pass on 2.2.123"}]}]
+got = TL.thread_verdicts(msgs, {"qa person": "QA Person"})
+check("a QA member's thread reply is a verdict, a developer's is not",
+      [(k, v, ver) for _, k, v, ver, _, _ in got] == [("MH-3833", "pass", "2.1.78"), ("nt-1a2b3c4d", "fail", "build 78")])
+fri = datetime.datetime(2026, 10, 26, 9, 0).astimezone()   # a Monday
+TL.B.is_working_day = lambda d, doc=None: d.weekday() < 5
+check("the last evening run before a Monday is Friday 19:00", TL.last_evening(fri).strftime("%a %H:%M") == "Fri 19:00")
+row = lambda k: {"id": k, "ticket": k, "url": "u", "also": [], "title": k, "priority": "P3", "how_to_verify": "", "auto": False, "reason": "r"}  # noqa: E731
+plan = [row("MH-1"), row("MH-2"), row("MH-3")]
+left = TL.apply_guidance(plan, ["ela: drop MH-2", "ela: MH-3 first", "ela: something else"], {"rows": []})
+check("his lines drop and reorder; an unknown line is returned", [p["id"] for p in plan] == ["MH-3", "MH-1"] and left == ["something else"])
 sys.exit(1 if failures else 0)
