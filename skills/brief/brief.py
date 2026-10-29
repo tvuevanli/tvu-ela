@@ -2405,6 +2405,8 @@ def page_check(page, actions):
 # (<reports>/review/tiers.json): its actions are tier 3 until the record clears.
 KEY_ARG = r"[A-Z][A-Z0-9]+-\d+"
 TEAM_POST = r"^ela slack post https://\S+/archives/[CG][A-Z0-9]+/p\d{16}\S*\s(?=.*--team-thread\b)"
+# the one top-level post a day the two day-plan rules may make in a team channel; the day's thread for what follows
+DAY_POST = r"^ela slack post #?(?:prj_dev_mediahub|mediahub-qa-release)\s(?=.*--team-day-post\b)"
 TIER_RULES = {
     "fact-comment": (1, r"^ela jira comment " + KEY_ARG + r"\s"),
     "label": (1, r"^ela jira label " + KEY_ARG + r"\s"),
@@ -2414,8 +2416,8 @@ TIER_RULES = {
     "train-hold": (2, TEAM_POST),
     "train-promote": (2, TEAM_POST),
     "test-list": (2, TEAM_POST),          # a build's new test-list rows in its release thread, sent at 19:00 (`ela testlist --new-rows`)
-    "qa-today": (2, TEAM_POST),           # QA today in the lane build's release thread, sent at 09:30 (`ela testlist --today`)
-    "dev-today": (2, TEAM_POST),          # Dev today in the day's scrum thread, sent at 10:00 (`ela devlist --today`)
+    "qa-today": (2, f"(?:{TEAM_POST})|(?:{DAY_POST})"),           # QA today in the lane build's release thread, sent at 09:30 (`ela testlist --today`)
+    "dev-today": (2, f"(?:{TEAM_POST})|(?:{DAY_POST})"),          # Dev today in the day's scrum thread, sent at 10:00 (`ela devlist --today`)
 }
 TRAIN_RULES = ("train-hold", "train-promote")
 DONE_LINE_RX = re.compile(r"^\s*[-*]\s+done\s+(\d+)\s+—\s+(.*)$", re.M)                    # tier 1, no box: ela did it

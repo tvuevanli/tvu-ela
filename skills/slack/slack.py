@@ -655,7 +655,9 @@ TEAM_CHANNELS = ("mediahub-qa-release", "prj_dev_mediahub")
 
 def cmd_post(tok, a):
     """The one write. Target by shape: a thread permalink (reply there), #name / Cxxx (top level), or --dm.
-    --team-thread: refused unless the target is a thread in one of TEAM_CHANNELS."""
+    --team-thread: refused unless the target is a thread in one of TEAM_CHANNELS.
+    --team-day-post: refused unless the target is one of TEAM_CHANNELS by name, top level, and the bot has posted no
+    other top-level message there today: the one day post the qa-today and dev-today rules may make."""
     text = open(a.file).read() if a.file and a.file != "-" else (sys.stdin.read() if a.file == "-" else a.text)
     if not text or not text.strip():
         print("nothing to post: pass --text or --file", file=sys.stderr); sys.exit(EX_USAGE)
@@ -663,6 +665,9 @@ def cmd_post(tok, a):
     thread_ts, where = None, ""
     if a.team_thread and (a.dm or not a.target or "/archives/" not in a.target):
         print(f"refused: --team-thread takes a thread permalink in {', '.join(TEAM_CHANNELS)}", file=sys.stderr); sys.exit(EX_USAGE)
+    if a.team_day_post and (a.dm or a.team_thread or not a.target or "/archives/" in a.target
+                            or a.target.lstrip("#") not in TEAM_CHANNELS):
+        print(f"refused: --team-day-post takes one of {', '.join('#' + c for c in TEAM_CHANNELS)}, top level", file=sys.stderr); sys.exit(EX_USAGE)
     if a.dm:
         if a.target:
             print("--dm takes no target; the person is the target", file=sys.stderr); sys.exit(EX_USAGE)
@@ -691,6 +696,14 @@ def cmd_post(tok, a):
     dup = next((m for m in recent if m.get("bot_id") == me.get("bot_id") and (m.get("text") or "").strip() == text.strip()), None)
     if dup:
         print(f"refused: this exact message is already there — {permalink_of(ch, dup['ts'])}", file=sys.stderr); sys.exit(EX_AUTH)
+    if a.team_day_post:
+        import datetime
+        midnight = datetime.datetime.combine(datetime.date.today(), datetime.time()).astimezone().timestamp()
+        today = call("conversations.history", tok, channel=ch, oldest=f"{midnight:.6f}", limit=200)["messages"]
+        mine = next((m for m in today if m.get("bot_id") == me.get("bot_id") and m.get("thread_ts", m["ts"]) == m["ts"]), None)
+        if mine:
+            print(f"refused: --team-day-post: ela already posted top level in this channel today — {permalink_of(ch, mine['ts'])}; "
+                  "reply in that thread", file=sys.stderr); sys.exit(EX_AUTH)
     if not a.apply:
         out = {"dry_run": True, "as": me.get("user"), "where": where, "channel": ch, "thread_ts": thread_ts, "chars": len(text), "text": text}
         if a.json:
@@ -785,6 +798,8 @@ def main():
     p.add_argument("--apply", action="store_true", help="actually send; without it nothing leaves the machine")
     p.add_argument("--team-thread", action="store_true", help="refuse unless the target is a thread in a team channel "
                    "(" + ", ".join(TEAM_CHANNELS) + "): the gate of a tier-2 action")
+    p.add_argument("--team-day-post", action="store_true", help="refuse unless the target is a team channel by name, top "
+                   "level, with no other top-level post by ela there today: the day post of the qa-today and dev-today rules")
     p.add_argument("--json", action="store_true")
     a = ap.parse_args()
     # An unattended session (ela-runner's headless job, ELA_NO_APPLY=1) may read and dry-run, never write:

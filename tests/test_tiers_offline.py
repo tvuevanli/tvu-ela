@@ -91,4 +91,8 @@ check("a page time that disagrees with the action's send_at fails",
       any("goes at 10:00" in f for f in B.tier_check(p19.replace("19:00", "10:00"), tl)))
 check("a test-list post's evidence names the build and its release mail",
       any("release mail" in f for f in B.tier_check(p19, [dict(tl[0], evidence="the list")])))
+dp = [{"n": 6, "tier": 2, "rule": "dev-today", "evidence": "the 2.1 dev list", "command": "ela slack post #prj_dev_mediahub --file f --team-day-post"}]
+check("dev-today may make the day post", B.tier_check("- [ ] don't 6 — at 10:00 unless you tick: Dev today\n", dp) == [])
+check("thread-reply may not make a top-level post",
+      any("not what rule" in f for f in B.tier_check("- [ ] don't 6 — at 10:00 unless you tick: x\n", [dict(dp[0], rule="thread-reply")])))
 sys.exit(1 if failures else 0)

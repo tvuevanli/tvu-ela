@@ -106,5 +106,4 @@ plan = [row("MH-1"), row("MH-2"), row("MH-3")]
 left = TL.apply_guidance(plan, ["ela: drop MH-2", "ela: MH-3 first", "ela: something else"], {"rows": []})
 check("his lines drop and reorder; an unknown line is returned", [p["id"] for p in plan] == ["MH-3", "MH-1"] and left == ["something else"])
 check("a bot or helm is never an ask", all(TL.BOT_RX.search(n) for n in ("andyBot", "helm", "Summer Slack Bot")) and not TL.BOT_RX.search("Robin Wu"))
-check("the scrum thread is found by its first word", bool(TL.SCRUM_RX.match("scrum")) and not TL.SCRUM_RX.match("a scrumptious"))
 sys.exit(1 if failures else 0)

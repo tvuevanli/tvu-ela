@@ -401,9 +401,12 @@ twelve rows (asks to a developer since the last evening run, one per thread, fro
 or overdue; blocked or on hold; moved since then; QA assigned on a secondary ticket; a build change with no ticket;
 Fixed In without a verdict). A ticket QA holds is placed under its commit's author. The section heads "goes 10:00
 unless you tick don't" (on a scrum day "opens the scrum at 10:00", its rows the first lines of the scrum section)
-and ends with its Do line, the tier-2 `don't N` (rule `dev-today`, `send_at` 10:00, the json's `thread`: the day's
-scrum thread in the dev channel). With no thread the json says so in `gaps` and the Do line is a tier-3 `apply N`
-naming where it would go. His `ela:` lines apply as under QA today. A developer never reads QA rows, and QA never
+and ends with its Do line, the tier-2 `don't N` (rule `dev-today`, `send_at` 10:00): the day post in the dev
+channel, `ela slack post #prj_dev_mediahub --file F --team-day-post`, the one top-level message ela makes there that
+day, which becomes the day's thread. QA today goes the same way in the QA release channel only when the day's build
+has no release thread (the json's `post`: "thread" or "day post"). *Why: a reply under someone else's message is
+invisible to the people the list is for; a standing thread goes stale (the desk's ruling of 2026-10-29, reviewed
+after a week of posts: if nobody replies under them, a standing thread instead).* His `ela:` lines apply as under QA today. A developer never reads QA rows, and QA never
 reads a developer's (Resolution B3).
 
 **One place per day.** An item appears once. A key inside a lanes-table cell or a Changes page callout is evidence,
@@ -559,7 +562,9 @@ The page is read in Obsidian, so its form is fixed:
   10:00 unless he ticks "don't": `thread-reply` (a reply in a team channel's thread ela has read), `train-hold`,
   `train-promote`, and at 19:00 `test-list` (a build's new test-list rows in its release thread, from `ela testlist
   --new-rows`; its evidence names the build and its release mail), at 09:30 `qa-today` and at 10:00 `dev-today` (QA today and Dev today, below), each an `ela slack post <thread permalink> …
-  --team-thread`, which slack.py refuses outside the team channels. Tier 3 is everything else, on his word only (`apply N`): customers, prod approvals, people,
+  --team-thread`, which slack.py refuses outside the team channels; `qa-today` and `dev-today` may instead make the
+  day post, `ela slack post #<team channel> … --team-day-post`, which slack.py refuses when ela already posted top
+  level in that channel that day. Tier 3 is everything else, on his word only (`apply N`): customers, prod approvals, people,
   anything addressed to him, anything no closed rule admits. A tier-1 or tier-2 action carries `evidence`, one
   line he can check; a train action's evidence names the verdict build and its QA report (`ela day --json`
   `verdict_build`). Read `<reports>/review/tiers.json` first: a rule marked `demoted` (three corrections in seven

@@ -36,7 +36,8 @@ list  Without --lane, every lane with release mails ("[Release MediaHub <env>]")
       newest build's new rows, then interruptions (tickets assigned to QA in no build; asks to QA in #mediahub-qa-
       release and #prj_dev_mediahub since the last evening run, 19:00 the previous working day), cut at --budget
       (10), each row with the reason it is in; --guidance applies his `ela:` lines (drop · first · add) first. The
-      json carries the text for the 09:30 tier-2 post (rule qa-today) in the lane build's release thread, and the
+      json carries the text for the 09:30 tier-2 post (rule qa-today) in the lane build's release thread, or, when the
+      build has none, as the day post (`post`: "day post", `ela slack post #<channel> … --team-day-post`), and the
       overnight count (posts read, channels not read, asks placed).
 
 dev   One row per owner ticket in development on the line (labelled for it, not Done, and In Progress, Review, Blocked,
@@ -49,7 +50,8 @@ dev   One row per owner ticket in development on the line (labelled for it, not 
       --today: Dev today, by developer, at most 12 rows: moved since the last evening run, due today or overdue,
       blocked or on hold, the gaps and the build changes with no ticket, and asks to a developer from anyone else in
       the team channels since then; his `ela:` lines applied first. The json carries the text for the 10:00 tier-2
-      post (rule dev-today) in the day's scrum thread in #prj_dev_mediahub, or no thread (a gap) when there is none.
+      post (rule dev-today), the day post in #prj_dev_mediahub (`post`: "day post", thread null): one top-level
+      message a day, which becomes the day's thread.
 
 Reads only Jira, mail, Slack, the release ledger and disk; writes only its own files under <reports>/lanes/.
 Exit codes: 0 ok · 2 usage · 3 --saw names no row · 5 the release mails could not be read.
@@ -896,13 +898,13 @@ def cmd_list(a):
             errs = []
             thread = release_thread(env, (b.get("at") or "")[:10], errs) if b.get("at") else None
             plans.append({"date": at.date().isoformat(), "lane": out["lane"], "lane_build": out["lane_build"], "thread": thread,
-                          "channel": B.QA_RELEASE, "text": today_text(out, plan, at), **plan,
+                          "channel": B.QA_RELEASE, "post": "thread" if thread else "day post", "text": today_text(out, plan, at), **plan,
                           "gaps": out["gaps"] + [f"{g['source']}: {g['error']}" for g in errs]})
         if a.json:
             print(json.dumps(plans[0] if a.lane and plans else {"lists": plans, "gaps": gaps}, ensure_ascii=False))
         else:
             for p in plans:
-                print(f"# {p['lane']} → {p['thread'] or 'no release thread'}\n{p['text']}\n")
+                print(f"# {p['lane']} → {p['thread'] or 'the day post in #' + p['channel']}\n{p['text']}\n")
                 o = p["overnight"]
                 print(f"Overnight: {o['posts']} posts read in {', '.join('#' + c for c in o['channels']) or 'no channel'}, "
                       f"{o['placed']} asks placed above" + (f"; not read: {', '.join('#' + c for c in o['not_read'])}" if o["not_read"] else ""))
@@ -1059,7 +1061,6 @@ def print_dev(out, page):
 # ── Dev today: the developers' cut ───────────────────────────────────────────────────────────────────
 
 DEV_BUDGET = 12
-SCRUM_RX = re.compile(r"^\s*\*?scrum\b", re.I)
 
 
 def developers():
@@ -1145,16 +1146,6 @@ def dev_text(line, plan, at):
     return "\n".join(L)
 
 
-def scrum_thread(env, at, gaps):
-    """The day's scrum thread in the dev channel, the one thread a dev post can reply in; None when there is none."""
-    errs = []
-    for m in B.slack_rows(env, B.DEV_CHANNEL, at.date().isoformat(), errs, threads=False):
-        if SCRUM_RX.match(m.get("text") or ""):
-            return m.get("permalink")
-    gaps += [f"{g['source']}: {g['error']}" for g in errs]
-    return None
-
-
 def cmd_dev(a):
     """One line, or every line release.yaml names with a Jira label; a line with no ticket in development writes nothing.
     --page also writes <reports>/lanes/dev-list-<line>.json ({line, generated, rows, unticketed, gaps}) for the board."""
@@ -1182,16 +1173,13 @@ def cmd_dev(a):
         at, gaps = now(), []
         guidance = open(a.guidance, encoding="utf-8").read().splitlines() if a.guidance else []
         plan = dev_today(outs, env, at, a.budget, guidance, shared.get("cache", {}), gaps)
-        thread = scrum_thread(env, at, gaps)
-        if not thread:
-            gaps.append("no thread for the dev post today (no scrum thread in #prj_dev_mediahub); tier 2 replies only")
         line = ", ".join(o["line"] for o in outs) or "no line"
-        res = {"date": at.date().isoformat(), "line": line, "thread": thread, "channel": B.DEV_CHANNEL,
+        res = {"date": at.date().isoformat(), "line": line, "thread": None, "channel": B.DEV_CHANNEL, "post": "day post",
                "text": dev_text(line, plan, at), **plan, "gaps": gaps}
         if a.json:
             print(json.dumps(res, ensure_ascii=False))
         else:
-            print(f"# dev today → {thread or 'no thread'}\n{res['text']}\n")
+            print(f"# dev today → the day post in #{B.DEV_CHANNEL}\n{res['text']}\n")
             o = plan["overnight"]
             print(f"Overnight: {o['posts']} posts read in {', '.join('#' + c for c in o['channels']) or 'no channel'}, "
                   f"{o['placed']} asks placed above" + (f"; not read: {', '.join('#' + c for c in o['not_read'])}" if o["not_read"] else ""))
