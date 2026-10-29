@@ -2414,6 +2414,7 @@ TIER_RULES = {
     "train-hold": (2, TEAM_POST),
     "train-promote": (2, TEAM_POST),
     "test-list": (2, TEAM_POST),          # a build's new test-list rows in its release thread, sent at 19:00 (`ela testlist --new-rows`)
+    "qa-today": (2, TEAM_POST),           # QA today in the lane build's release thread, sent at 09:30 (`ela testlist --today`)
 }
 TRAIN_RULES = ("train-hold", "train-promote")
 DONE_LINE_RX = re.compile(r"^\s*[-*]\s+done\s+(\d+)\s+—\s+(.*)$", re.M)                    # tier 1, no box: ela did it

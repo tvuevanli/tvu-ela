@@ -384,6 +384,18 @@ he could tick became the page he stopped reading (from 2026-10-28).*
   speaking order turns them into recorded rulings the same day, and a meeting he adds or moves is one line of
   data, not a change to the brief.*
 
+**QA today** follows Needs you on a working day: `ela testlist --lane qa-cn3 --today --json` gives the day's plan
+(carried rows without a verdict, P1 first and oldest first; the newest build's new rows; interruptions: tickets
+assigned to QA in no build, asks to QA posted since the last evening run, 19:00 the previous working day), cut at
+ten, each row with the reason it is in. The section heads "goes 09:30 unless you tick don't", lists the rows as the
+post will, and ends with its Do line, the tier-2 `- [ ] don't N — at 09:30 unless you tick: QA today in the build N
+release thread` (rule `qa-today`, `send_at` 09:30, the json's `thread`, evidence: the lane's test list and its build).
+His `ela:` lines under it (`drop KEY`, `KEY first`, `add KEY`) are passed back as `--guidance FILE` before the send
+and the text that returns replaces the draft. Under the section one line: "Overnight: N posts read in <channels>, M
+asks placed above", naming a channel the bot cannot read as not read; an overnight post addressed to QA is a row
+above, one addressed to him is a Needs-you item. *Why: QA was handed builds, not a ranked day; the plan is cut from
+the list QA already keeps verdicts against (the 2026-10-29 test-list plan, Resolution A2).*
+
 **One place per day.** An item appears once. A key inside a lanes-table cell or a Changes page callout is evidence,
 not an appearance.
 
@@ -536,7 +548,7 @@ The page is read in Obsidian, so its form is fixed:
   gives); never a terminal status, a close, a transition or a customer-facing field. Tier 2, the runner sends it at
   10:00 unless he ticks "don't": `thread-reply` (a reply in a team channel's thread ela has read), `train-hold`,
   `train-promote`, and at 19:00 `test-list` (a build's new test-list rows in its release thread, from `ela testlist
-  --new-rows`; its evidence names the build and its release mail), each an `ela slack post <thread permalink> …
+  --new-rows`; its evidence names the build and its release mail), at 09:30 `qa-today` (QA today, below), each an `ela slack post <thread permalink> …
   --team-thread`, which slack.py refuses outside the team channels. Tier 3 is everything else, on his word only (`apply N`): customers, prod approvals, people,
   anything addressed to him, anything no closed rule admits. A tier-1 or tier-2 action carries `evidence`, one
   line he can check; a train action's evidence names the verdict build and its QA report (`ela day --json`
