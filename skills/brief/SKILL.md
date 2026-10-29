@@ -491,7 +491,9 @@ empty on both, only a copied comment said so, and applies 14 and 15 would have c
 **What an item owes before it reaches the page.** A train item (a build riding the next promotion) carries the
 `/ela:promote` assessment's verdict for that build (`ela promote report`: the stop and high findings) and the train's
 departure time from the release cadence recorded in elak, or "departure not recorded" when none states it; the
-apply is the hold or the promote post that verdict supports. A customer incident addressed to him takes the first
+apply is the hold or the promote post that verdict supports. Its QA facts cite the lane's test list (`ela testlist
+--lane <lane> --json`): the P1 rows without a verdict, each by key and the reason it ranks P1, or "no P1 row open";
+never "no QA report yet", which names a mail instead of what is untested. A customer incident addressed to him takes the first
 deep pick, before any other pick and any Backlog item, and its item carries what the logs and the graph showed
 (`/ela:logs`, `/ela:graph`), not an uninvestigated lead. *Why: on 2026-10-28 item 1 offered hold or promote with no
 assessment and no departure time, and item 8 answered support with a lead nobody had read.*

@@ -2311,6 +2311,16 @@ def deploy_note(now, plan):
     return f"*Read at {now:%H:%M}, {'before' if f'{now:%H:%M}' < qa else 'after'} today's {LANE_SHOWN.get('qa-cn3', 'QA')} deploy (~{qa})*"
 
 
+def list_links(reports):
+    """Links to the lanes' test lists and the lines' dev lists (`ela testlist|devlist --page`), under the QA cycle."""
+    d = os.path.join(reports, "lanes")
+    names = sorted((f[:-3] for f in os.listdir(d) if re.match(r"^(test|dev)-list-.+\.md$", f)),
+                   key=lambda n: (n.startswith("dev"), n)) if os.path.isdir(d) else []
+    links = [f"[[lanes/{n}|{'Test list' if n.startswith('test') else 'Dev list'} · "
+             f"{LANE_SHOWN.get(n.split('-list-', 1)[1], n.split('-list-', 1)[1])}]]" for n in names]
+    return ["", "What QA verifies, ranked, and what is in development: " + " · ".join(links)] if links else []
+
+
 def write_lanes_page(out, site, env, runner, tested):
     """<reports>/lanes/lanes.md, rewritten whole: the lanes table and any version out of order (QA ≥ daily ≥ prod),
     what each lane carries that the next does not, and the moves of the last two weeks. The vault carries it as
@@ -2324,7 +2334,7 @@ def write_lanes_page(out, site, env, runner, tested):
             ["", "*Every lane in order: QA ≥ daily ≥ prod*" + (f" *({und} pair{'s' if und != 1 else ''} in two series, not compared)*" if und else "")]
     note = deploy_note(now, day_plan(now.date()))
     L = ["# The lanes", "", f"*{now:%Y-%m-%d %H:%M} · line {LINE}*", "", "## The lanes this morning", "", render_matrix(out)] + order + \
-        (["", note] if note else []) + qa_cycle_block(now, runtime) + ["", "## Differences", ""]
+        (["", note] if note else []) + qa_cycle_block(now, runtime) + list_links(reports) + ["", "## Differences", ""]
     import concurrent.futures
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(PAIRS)) as ex:
         futs = [(a, b, ex.submit(pair_report, env, a, b)) for a, b in PAIRS]
