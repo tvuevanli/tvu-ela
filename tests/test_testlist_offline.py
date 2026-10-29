@@ -79,4 +79,14 @@ check("an address is not a version", v("on 10.12.64.45 it fails") is None)
 check("a version with its build", v("Frontend: v2.2.117 build172 pass").groups()[:2] == ("2.2.117", "172"))
 check("a bare build", v("passed on build 75").group(3) == "75")
 
+check("every lane name the release mails use", [TL.env_lane(x) for x in ("QA-AWS3", "QA-AWS2", "Stage", "Prod3", "CN Prod2", "Daily WED")]
+      == ["qa-cn3", "qa-cn2", "daily-stage", "prod-3", "prod-2", "daily-wed"])
+check("a prod release is keyed by its day, labelled by its version",
+      TL.build_key("[Release MediaHub Prod3] MH 2.1 Release build 2.1.74 (Daily WED → Prod 3)", "2026-10-26T11:07:10+08:00", False) == ("20261026", "2.1.74"))
+check("a QA build named only by a version falls back to its day", TL.build_key("[Release Mediahub QA-AWS2] build 2.0.10", "2026-10-15T10:00", True) == ("20261015", "2.0.10"))
+up = TL.parse_build_mail({"subject": "[Release MediaHub CN Prod2] CN2 upgrade to the Global Prod3 version (MH 2.1, MH-3752)", "body": "Hi\n",
+                          "id": "y", "date": "Wed, 21 Oct 2026 13:23:42 +0800"}, qa=False)
+check("a mail with no Test Focus and no Change Log is one row per key in its subject", [l["keys"] for l in up["log"]] == [["MH-3752"]])
+pr = TL.sections("*Change Log* (Prod 3 v2.1.68 → v2.1.74)\n\n*Fixes*\n\n   1. DR auto-recovery honours the cooldown MH-3721\n")
+check("a bold section heading with a note in brackets is a section", "MH-3721" in pr.get("Change Log", ""))
 sys.exit(1 if failures else 0)

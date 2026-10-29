@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
 """The test list: what QA should verify on a lane, ranked, one row per behaviour; and the dev list beside it.
 
-    testlist.py list --lane qa-cn3 [--days N] [--json] [--page] [--new-rows [--date YYYY-MM-DD]]
+    testlist.py list [--lane qa-cn3] [--days N] [--json] [--page] [--new-rows [--date YYYY-MM-DD]]
     testlist.py list --lane qa-cn3 --saw KEY "ela saw … on V at HH:MM"
-    testlist.py dev --line 2.1 [--json] [--page]
+    testlist.py dev [--line 2.1] [--json] [--page]
 
-list  The lane's release mails (Test Focus and Change Log) give the rows: one per owner ticket a build names, and one
+list  Without --lane, every lane with release mails ("[Release MediaHub <env>]") in the window or a list on disk;
+      --json is then {"lists": [<one lane's shape>], "gaps"}. A QA lane lists what QA verifies on its builds; a prod
+      lane (prod-3, prod-2 for CN Prod2) is a release check: the tickets the last train or hotfix carried there, keyed
+      by the release's day. A mail with no Test Focus and no Change Log is one row per key its subject names.
+      The lane's release mails (Test Focus and Change Log) give the rows: one per owner ticket a build names, and one
       "no ticket" row per change-log item that names no key (flagged). Two keys in one Test Focus item are one
       behaviour: the owner is the parent, or the one the other implements, else the first named; the rest ride as
       `also`. A row carries the ticket, its title and layer, the build it first arrived in and the build on the lane
@@ -30,7 +34,8 @@ dev   One row per owner ticket in development on the line (labelled for it, not 
       branch state (on a lane build · merged to the release branch · on a branch · no commit), the lane build, QA's
       verdict, train readiness (ticket ✓, Fixed In ✓/–, verdict ✓/–) and the gaps: QA assigned on a secondary ticket
       (one the test list rides under another owner), Fixed In without a verdict; the build changes with no ticket
-      are listed under the table. --page writes <reports>/lanes/dev-list-<line>.md.
+      are listed under the table. --page writes <reports>/lanes/dev-list-<line>.md and .json. Without --line,
+      every line release.yaml names with a Jira label that has a ticket in development; --json is then {"lists"}.
 
 Reads only Jira, mail, Slack, the release ledger and disk; writes only its own files under <reports>/lanes/.
 Exit codes: 0 ok · 2 usage · 3 --saw names no row · 5 the release mails could not be read.
@@ -49,11 +54,12 @@ sys.path.insert(0, os.path.join(SKILLS, "jira"))
 import jira as J  # noqa: E402  — rich text as plain text
 
 EX_USAGE, EX_NOROW, EX_REMOTE = 2, 3, 5
-SEED_DAYS = 10                                         # a lane with no state starts from the builds of this window
 JIRA_URL = "https://tvunetworks.atlassian.net/browse/"
 SECTIONS = ("Service add", "Database Change", "Properties Change", "Test Focus", "Change Log", "Other Service Dependencies",
             "Rollback Plan", "Note")
-SECTION_RX = re.compile(r"^\s*(" + "|".join(SECTIONS) + r")\s*$", re.M)
+SECTION_RX = re.compile(r"^\s*\*?(" + "|".join(SECTIONS) + r")\*?(?:\s*\([^)\n]*\))?\s*$", re.M)
+RELEASE_RX = re.compile(r"^\s*\[Release\s+MediaHub\s+([^\]]+)\]", re.I)        # a lane's release mail: [Release Mediahub QA-AWS3]
+REPORT_RX = re.compile(r"test report.*\[Release\s+MediaHub\s+([^\]]+)\]", re.I)
 GOOGLE_LINK_RX = re.compile(r"<https?://www\.google\.com/url\?[^>]*>;?")
 # the change log's component prefix → the layer that builds it
 LAYERS = (("ur caller", "UR"), ("unified resources", "UR"), ("mediahub admin frontend", "UI"), ("mediahub frontend", "UI"),
@@ -88,9 +94,22 @@ def reports_root(s):
 
 
 def lane_name(raw):
-    """qa-cn3 · qa-aws3 · QA-AWS3 → qa-cn3 (ela's name); the mails' name for it."""
-    lane = B.mail_lane(raw) or raw.strip().lower()
-    return lane, B.LANE_SHOWN.get(lane, lane.upper())
+    """qa-cn3 · qa-aws3 · QA-AWS3 → qa-cn3; Prod3 · prod-3 → prod-3; CN Prod2 → prod-2 (ela's names); the mails' name."""
+    lane = env_lane(raw) or raw.strip().lower()
+    return lane, B.LANE_SHOWN.get(lane, raw.strip() if env_lane(raw) and raw.strip() != lane else lane)
+
+
+EXTRA_LANES = (("qaaws2", "qa-cn2"), ("qaaws1", "qa-cn1"), ("stage", "daily-stage"))   # by the tags aws-cn2-env, aws-cn1-env
+
+
+def env_lane(env):
+    """A release mail's environment words → ela's lane: the brief's names, and the QA-AWS lanes and Stage it does not."""
+    e = re.sub(r"[\s-]+", "", env or "").lower()
+    return B.mail_lane(env) or next((lane for k, lane in EXTRA_LANES if e == k), None)
+
+
+def is_qa(lane):
+    return lane.startswith("qa-")
 
 
 def state_path(s, lane):
@@ -144,9 +163,21 @@ def layer_of(text):
     return next((layer for k, layer in LAYERS if t.startswith(k)), None)
 
 
-def parse_build_mail(m):
-    """One release mail → {build, at, id, subject, focus: [{text, keys}], log: [{text, keys, layer}]}."""
-    b = re.search(r"build\s*(\d+)", m["subject"], re.I)
+def build_key(subject, at, qa):
+    """(key, label): a QA build is numbered (`Release build 78`); a prod release, or a QA build named only by its version
+    (`build 2.0.10`), is keyed by its day and labelled by the version it names, else by the day."""
+    b = re.search(r"build\s*(\d+)\b(?!\.)", subject, re.I) if qa else None
+    if b:
+        return b.group(1), b.group(1)
+    v = re.search(r"build\s*(\d+\.\d+\.\d+)", subject, re.I)
+    return (at[:10].replace("-", ""), v.group(1) if v else at[5:10]) if at else (None, None)
+
+
+def parse_build_mail(m, qa=True):
+    """One release mail → {build, label, at, id, subject, focus: [{text, keys}], log: [{text, keys, layer}]}. A mail with
+    neither section (a prod upgrade under one ticket) is one behaviour per key its subject names."""
+    at = B.mail_time(m["date"])
+    key, label = build_key(m["subject"], at or "", qa)
     sec = sections(m.get("body") or "")
     focus = [{"text": t, "keys": B.keys_in(t)} for t in numbered(sec.get("Test Focus", ""))]
     log = []
@@ -157,33 +188,49 @@ def parse_build_mail(m):
             seg = seg.strip(" .;")
             if seg and not CHORE_RX.match(seg):
                 log.append({"text": f"{comp.strip()}: {seg}" if rest else seg, "keys": B.keys_in(seg), "layer": layer})
-    return {"build": b.group(1) if b else None, "at": B.mail_time(m["date"]), "id": m["id"], "subject": m["subject"],
-            "focus": focus, "log": log}
+    if not focus and not log:
+        subject = RELEASE_RX.sub("", m["subject"]).strip()
+        log = [{"text": subject, "keys": [k], "layer": None} for k in B.keys_in(subject)]
+    return {"build": key, "label": label, "at": at, "id": m["id"], "subject": m["subject"], "focus": focus, "log": log}
 
 
 def mail_search(env, query, limit=40):
     return B.run_json(["python3", B.MAIL, *env, "search", query, "--limit", str(limit), "--body", "--json"], timeout=300)["messages"]
 
 
-def build_mails(env, shown, days):
-    """The lane's release mails, oldest first; replies and test reports left out."""
-    out = []
-    for m in mail_search(env, f'newer_than:{days}d subject:("Release Mediahub {shown}")'):
-        if re.match(r"^\s*\[Release\s+Mediahub\s+" + re.escape(shown) + r"\]", m["subject"], re.I):
-            b = parse_build_mail(m)
-            if b["build"]:
-                out.append(b)
-    return sorted(out, key=lambda b: int(b["build"]))
+def release_mails(env, days):
+    """Every lane's release mails, oldest first, grouped by lane: {lane: {"shown", "mails"}}; replies and reports left
+    out. An environment no lane name maps is returned under None with its names."""
+    out = {}
+    for m in mail_search(env, f'newer_than:{days}d subject:("Release Mediahub")', limit=80):
+        r = RELEASE_RX.match(m["subject"])
+        if not r or re.search(r"test report", m["subject"], re.I):
+            continue
+        shown = " ".join(r.group(1).split())
+        lane = env_lane(shown)
+        if not lane:
+            out.setdefault(None, {"shown": set(), "mails": []})["shown"].add(shown)
+            continue
+        b = parse_build_mail(m, is_qa(lane))
+        if b["build"]:
+            out.setdefault(lane, {"shown": shown, "mails": []})["mails"].append(b)
+    for v in out.values():
+        v["mails"].sort(key=lambda b: int(b["build"]))
+    return out
 
 
-def report_mails(env, shown, days):
-    """QA's test reports for the lane: [{at, build, text, subject}]."""
-    out = []
-    for m in mail_search(env, f'newer_than:{days}d subject:("Test Report" "{shown}")'):
-        if re.search(r"test report", m["subject"], re.I):
-            b = re.search(r"build\s*(\d+)", m["subject"], re.I)
-            out.append({"at": B.mail_time(m["date"]), "build": b.group(1) if b else None, "summary": bool(re.match(r"^\s*summary", m["subject"], re.I)),
-                        "text": m["subject"] + "\n" + (m.get("body") or ""), "subject": m["subject"]})
+def report_mails(env, days):
+    """QA's test reports per lane: {lane: [{at, build, summary, text, subject}]}; a prod report carries no build."""
+    out = {}
+    for m in mail_search(env, f'newer_than:{days}d subject:("Test Report" "Release Mediahub")', limit=60):
+        r = REPORT_RX.search(m["subject"])
+        lane = env_lane(r.group(1)) if r else None
+        if not lane:
+            continue
+        b = re.search(r"build\s*(\d+)\b(?!\.)", m["subject"], re.I) if is_qa(lane) else None
+        out.setdefault(lane, []).append({"at": B.mail_time(m["date"]), "build": b.group(1) if b else None,
+                                         "summary": bool(re.match(r"^\s*summary", m["subject"], re.I)),
+                                         "text": m["subject"] + "\n" + (m.get("body") or ""), "subject": m["subject"]})
     return out
 
 
@@ -269,6 +316,15 @@ def jira_read(env, key, cache, gaps):
             cache[key] = None
             gaps.append({"source": f"jira read {key}", "error": str(x)[:200]})
     return cache[key]
+
+
+def prefetch(env, keys, cache, gaps, workers=8):
+    """Read every ticket the lists will need, eight at a time: one Jira read is a second, a list holds dozens."""
+    import concurrent.futures
+    errs = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
+        list(ex.map(lambda k: jira_read(env, k, cache, errs), [k for k in keys if k not in cache]))
+    gaps += [f"{g['source']}: {g['error']}" for g in errs]
 
 
 # ── verdicts ─────────────────────────────────────────────────────────────────────────────────────────
@@ -357,31 +413,23 @@ def priority(row, fields, sprint, builds_after, soon=False):
     return f"P{p}", why
 
 
-def collect(a, s, env):
-    lane, shown = lane_name(a.lane)
+def collect_lane(lane, shown, mails, reports, s, env, cache, gaps):
+    """One lane's list: the state brought up to the mails, every open row re-read, the state saved."""
     path = state_path(s, lane)
     st = load_state(path, lane)
-    gaps, cache = [], {}
-    days = a.days or (SEED_DAYS if not st["builds"] else 45)
-    try:
-        mails = build_mails(env, shown, days)
-    except (B.LaneError, subprocess.TimeoutExpired, ValueError) as x:
-        print(f"release mails not read: {str(x)[:200]}", file=sys.stderr)
-        sys.exit(EX_REMOTE)
-    try:
-        reports = report_mails(env, shown, days)
-    except (B.LaneError, subprocess.TimeoutExpired, ValueError) as x:
-        reports = []
-        gaps.append({"source": "QA report mails", "error": str(x)[:200]})
-    if not st["builds"]:                                   # a new list starts after the newest build QA summarised
-        closed = [int(r["build"]) for r in reports if r["summary"] and r["build"]]
-        st["seed_after"] = str(max(closed)) if closed else None
+    st["shown"] = shown = shown or st.get("shown") or lane
+    if not st["builds"]:                                   # a new QA list starts after the newest build QA summarised;
+        if is_qa(lane):                                    # a prod list, with the last release that reached it
+            closed = [int(r["build"]) for r in reports if r["summary"] and r["build"]]
+            st["seed_after"] = str(max(closed)) if closed else None
+        elif len(mails) > 1:
+            st["seed_after"] = mails[-2]["build"]
     floor = int(st.get("seed_after") or 0)
     first_seen = min((int(b) for b in st["builds"]), default=None)
     for b in mails:
         if b["build"] in st["builds"] or int(b["build"]) <= floor or (first_seen and int(b["build"]) < first_seen):
             continue
-        st["builds"][b["build"]] = {"at": b["at"], "mail": b["id"], "subject": b["subject"]}
+        st["builds"][b["build"]] = {"at": b["at"], "mail": b["id"], "subject": b["subject"], "label": b["label"]}
         for beh in behaviours(b):
             for k in beh["keys"]:
                 jira_read(env, k, cache, gaps)
@@ -449,9 +497,46 @@ def collect(a, s, env):
     save(path, json.dumps(st, ensure_ascii=False, indent=1))
     recent = (at - datetime.timedelta(days=7)).isoformat()
     left = [dict(v, id=k) for k, v in st["left"].items() if (v.get("left_at") or "") >= recent]
-    return {"lane": lane, "shown": shown, "lane_build": st["lane_build"], "generated": at.isoformat(timespec="minutes"),
-            "builds": {b: st["builds"][b] for b in builds}, "rows": rows, "left": left, "gaps": [f"{g['source']}: {g['error']}" for g in gaps],
-            "departs_soon": soon, "path": path}
+    return {"lane": lane, "shown": shown, "kind": "qa" if is_qa(lane) else "release check", "lane_build": st["lane_build"],
+            "lane_label": (st["builds"].get(st["lane_build"]) or {}).get("label") or st["lane_build"],
+            "generated": at.isoformat(timespec="minutes"), "builds": {b: st["builds"][b] for b in builds}, "rows": rows,
+            "left": left, "gaps": [f"{g['source']}: {g['error']}" for g in gaps], "departs_soon": soon, "path": path}
+
+
+def collect(a, s, env):
+    """Every lane's list, or the one --lane names: [out], and the gaps that belong to no lane."""
+    want = lane_name(a.lane)[0] if a.lane else None
+    days = a.days or 21
+    try:
+        by_lane = release_mails(env, days)
+    except (B.LaneError, subprocess.TimeoutExpired, ValueError) as x:
+        print(f"release mails not read: {str(x)[:200]}", file=sys.stderr)
+        sys.exit(EX_REMOTE)
+    gaps = []
+    try:
+        reports = report_mails(env, days)
+    except (B.LaneError, subprocess.TimeoutExpired, ValueError) as x:
+        reports = {}
+        gaps.append(f"QA report mails: {str(x)[:200]}")
+    unmapped = by_lane.pop(None, None)
+    if unmapped:
+        gaps.append("release mails for an environment no lane name maps: " + ", ".join(sorted(unmapped["shown"])))
+    kept = {re.match(r"^test-list-(.+)\.json$", f).group(1) for f in os.listdir(os.path.join(reports_root(s), "lanes"))
+            if re.match(r"^test-list-(.+)\.json$", f)} if os.path.isdir(os.path.join(reports_root(s), "lanes")) else set()
+    lanes = [want] if want else sorted(set(by_lane) | kept)
+    cache, outs = {}, []
+    keys = {k for lane in lanes for b in (by_lane.get(lane) or {}).get("mails", []) for l in b["log"] + b["focus"] for k in l["keys"]}
+    for lane in lanes:
+        st = load_state(state_path(s, lane), lane)
+        keys |= {k for r in st["rows"].values() for k in [r.get("ticket"), *r.get("also", [])] if k}
+    prefetch(env, sorted(keys), cache, gaps)
+    for lane in lanes:
+        got = by_lane.get(lane) or {}
+        lgaps = []
+        out = collect_lane(lane, got.get("shown") or (lane_name(a.lane)[1] if want else None), got.get("mails") or [],
+                           reports.get(lane) or [], s, env, cache, lgaps)
+        outs.append(out)
+    return outs, gaps
 
 
 # ── output ───────────────────────────────────────────────────────────────────────────────────────────
@@ -470,7 +555,10 @@ def cell(text, n=220):
 
 def render_page(out):
     at = datetime.datetime.fromisoformat(out["generated"])
-    L = ["# Test list · " + out["shown"], "", f"*{at:%Y-%m-%d %H:%M} · lane {out['lane']} · build {out['lane_build'] or '?'} now*", "",
+    unit = "build" if out["kind"] == "qa" else "release"
+    L = ["# Test list · " + out["shown"], "", f"*{at:%Y-%m-%d %H:%M} · lane {out['lane']} · {unit} {out['lane_label'] or '?'} now*", "",
+         ("" if out["kind"] == "qa" else "A release check: the tickets the last train or hotfix carried to this prod lane, "
+          "verified on the lane (QA's smoke comment, or ela's read-only browser check). ") +
          f"What QA should verify on {out['shown']}, highest priority first. One row per behaviour; a row stays until it has a "
          "verdict (QA's ticket comment with version and pass/fail, or the report mail) or its ticket is withdrawn. "
          "*ela saw* is a read-only browser check overnight; QA's verdict overrules it.", "",
@@ -487,8 +575,8 @@ def render_page(out):
         for r in sorted(out["left"], key=lambda r: r.get("left_at") or ""):
             name = f"[{r['ticket']}]({JIRA_URL}{r['ticket']})" if r.get("ticket") else "no ticket"
             L.append(f"- {name} {cell(r.get('title') or (r.get('log') or [''])[0], 90)} — {r.get('why')}, {(r.get('left_at') or '')[:10]}")
-    L += ["", "## Builds", ""] + [f"- build {b} · {(v.get('at') or '')[:16].replace('T', ' ')} · {v.get('subject')}" for b, v in
-                                  sorted(out["builds"].items(), key=lambda kv: -int(kv[0]))[:6]]
+    L += ["", f"## {unit.capitalize()}s", ""] + [f"- {unit} {v.get('label') or b} · {(v.get('at') or '')[:16].replace('T', ' ')} · "
+                                                 f"{v.get('subject')}" for b, v in sorted(out["builds"].items(), key=lambda kv: -int(kv[0]))[:6]]
     if out["gaps"]:
         L += ["", "## Not read", ""] + [f"- {g[:200]}" for g in out["gaps"]]
     L += ["", "*Priority: P1 a customer incident, a re-test after a fail, a hotfix · P2 the sprint, Jira Highest/High · "
@@ -510,7 +598,7 @@ def release_thread(env, date, gaps):
 
 
 def slack_text(out, build, rows):
-    head = f"*Test list · {out['shown']} build {build}* — {len(rows)} new row(s), highest priority first. Verdicts go in the ticket comment (version + pass/fail); the lane's open list carries the rest."
+    head = f"*Test list · {out['shown']} {'build' if out['kind'] == 'qa' else 'release'} {build}* — {len(rows)} new row(s), highest priority first. Verdicts go in the ticket comment (version + pass/fail); the lane's open list carries the rest."
     lines = [head]
     for r in rows:
         name = f"<{r['url']}|{r['ticket']}>" + "".join(f" / <{JIRA_URL}{k}|{k}>" for k in r["also"]) if r["ticket"] else "*no ticket* ⚠"
@@ -528,9 +616,11 @@ def new_rows(out, env, date):
         rows = [r for r in out["rows"] if r["first_build"] == b]
         if not rows:
             continue
-        thread = thread or release_thread(env, date, gaps)
-        builds.append({"build": b, "mail_at": v.get("at"), "thread": thread, "channel": B.QA_RELEASE,
-                       "text": slack_text(out, b, rows), "rows": [r["id"] for r in rows]})
+        if out["kind"] == "qa":                             # QA builds have the day's thread in the QA release channel
+            thread = thread or release_thread(env, date, gaps)
+        builds.append({"lane": out["lane"], "build": v.get("label") or b, "mail_at": v.get("at"),
+                       "thread": thread if out["kind"] == "qa" else None, "channel": B.QA_RELEASE if out["kind"] == "qa" else None,
+                       "text": slack_text(out, v.get("label") or b, rows), "rows": [r["id"] for r in rows]})
     out["gaps"] += [f"{g['source']}: {g['error']}" for g in gaps]
     return builds
 
@@ -549,40 +639,54 @@ def cmd_saw(a, s):
     print(f"{row['id']}: ela_saw written on build {st.get('lane_build')}")
 
 
-def cmd_list(a):
-    s = site()
-    if a.saw:
-        return cmd_saw(a, s)
-    env = ["--env-file", a.env_file] if a.env_file else []
-    out = collect(a, s, env)
-    if a.page:
-        page = os.path.join(reports_root(s), "lanes", f"test-list-{out['lane']}.md")
-        save(page, render_page(out))
-        out["page"] = page
-    if a.new_rows:
-        builds = new_rows(out, env, a.date or now().date().isoformat())
-        if a.json:
-            print(json.dumps({"lane": out["lane"], "builds": builds, "gaps": out["gaps"]}, ensure_ascii=False))
-        else:
-            for b in builds:
-                print(f"# build {b['build']} → {b['thread'] or 'no release thread found'}\n{b['text']}\n")
-            print(f"{len(builds)} build(s) with new rows")
-        return
-    if a.json:
-        print(json.dumps(out, ensure_ascii=False))
-        return
-    print(f"# test list · {out['shown']} ({out['lane']}) · build {out['lane_build']} · {len(out['rows'])} open")
+def print_list(out, page):
+    print(f"# test list · {out['shown']} ({out['lane']}) · {out['lane_label']} · {len(out['rows'])} open")
     for r in out["rows"]:
         print(f"  {r['priority']} {(r['ticket'] or 'no ticket'):<10} {r['layer']:<7} {'auto' if r['auto'] else '    '} "
-              f"{r['verdict']:<8} b{r['first_build']}→{r['lane_build']} {str(r['age_days']) + 'd':>4}  {cell(r['title'], 60)}  · {r['priority_reason']}")
+              f"{r['verdict']:<8} {r['first_build']}→{r['lane_build']} {str(r['age_days']) + 'd':>4}  {cell(r['title'], 60)}  · {r['priority_reason']}")
     for r in out["left"]:
         print(f"  left: {r.get('ticket') or r['id']} — {r.get('why')}")
     for g in out["gaps"]:
         print(f"  not read: {g[:120]}")
-    if a.page:
+    if page:
         print(f"page: {out['page']}")
 
 
+def cmd_list(a):
+    s = site()
+    if a.saw:
+        if not a.lane:
+            print("--saw needs --lane", file=sys.stderr)
+            sys.exit(EX_USAGE)
+        return cmd_saw(a, s)
+    env = ["--env-file", a.env_file] if a.env_file else []
+    outs, gaps = collect(a, s, env)
+    for out in outs:
+        if a.page:
+            out["page"] = os.path.join(reports_root(s), "lanes", f"test-list-{out['lane']}.md")
+            save(out["page"], render_page(out))
+    if a.new_rows:
+        builds = [b for out in outs for b in new_rows(out, env, a.date or now().date().isoformat())]
+        gaps += [g for out in outs for g in out["gaps"]]
+        if a.json:
+            print(json.dumps({"lane": outs[0]["lane"], "builds": builds, "gaps": gaps} if a.lane else {"builds": builds, "gaps": gaps},
+                             ensure_ascii=False))
+        else:
+            for b in builds:
+                print(f"# {b['lane']} {b['build']} → {b['thread'] or 'no release thread'}\n{b['text']}\n")
+            print(f"{len(builds)} build(s) with new rows")
+        return
+    if a.json:
+        if a.lane:
+            outs[0]["gaps"] += gaps
+            print(json.dumps(outs[0], ensure_ascii=False))
+        else:
+            print(json.dumps({"lists": outs, "gaps": gaps}, ensure_ascii=False))
+        return
+    for out in outs:
+        print_list(out, a.page)
+    for g in gaps:
+        print(f"not read: {g[:160]}")
 
 # ── the dev list ─────────────────────────────────────────────────────────────────────────────────────
 
@@ -602,14 +706,12 @@ def branch_state(commits, led_lanes):
     return "on a branch" if commits else "no commit"
 
 
-def collect_dev(a, s, env):
+def collect_dev(line, s, env, shared):
+    """One line's dev list. `shared` carries what every line reads once: the commits by key, the Jira cache."""
     import release as R  # noqa: E402 — on the path through brief
-    cfg = (R.rmap("lines") or {}).get(str(a.line))
-    if not cfg:
-        print(f"unknown release line {a.line!r}; known: {', '.join(R.rmap('lines') or {})}", file=sys.stderr)
-        sys.exit(EX_USAGE)
+    cfg = (R.rmap("lines") or {}).get(str(line))
     lane = (cfg.get("lanes") or {}).get("qa")
-    gaps, cache = [], {}
+    gaps, cache = [], shared.setdefault("cache", {})
     tl = load_state(state_path(s, lane), lane) if lane else {"rows": {}, "left": {}, "builds": {}}
     try:
         found = B.run_json(["python3", B.JIRA, *env, "jql", f'project = MH AND labels = "{cfg["label"]}" AND statusCategory != Done ORDER BY key',
@@ -617,18 +719,22 @@ def collect_dev(a, s, env):
     except (B.LaneError, subprocess.TimeoutExpired, ValueError) as x:
         print(f"jira not read: {str(x)[:200]}", file=sys.stderr)
         sys.exit(EX_REMOTE)
-    code_root = s.get("code") or os.path.join(s.get("projects", ""), "code")
-    commits = B.git_window(code_root, COMMIT_DAYS * 24)[0]
-    by_key = {}
-    for c in commits:
-        for k in c["keys"]:
-            by_key.setdefault(k, []).append(c)
+    if "by_key" not in shared:
+        code_root = s.get("code") or os.path.join(s.get("projects", ""), "code")
+        shared["by_key"] = {}
+        for c in B.git_window(code_root, COMMIT_DAYS * 24)[0]:
+            for k in c["keys"]:
+                shared["by_key"].setdefault(k, []).append(c)
+    by_key = shared["by_key"]
     tl_rows = {**{k: dict(v, open=False) for k, v in tl.get("left", {}).items()}, **{k: dict(v, open=True) for k, v in tl["rows"].items()}}
     secondary = {k: r["ticket"] for r in tl_rows.values() if r.get("ticket") for k in r.get("also") or []}
     qa, _ = T.qa_names()
     fid = (R.rmap("fixed_in") or {}).get("field") or "customfield_11252"
     runtime = s.get("runtime") or os.path.join(s.get("projects", ""), ".ela")
-    rows = []
+    rows, errs = [], []
+    found = [i for i in found if i["status"] in DEV_STATUSES or i["key"] in by_key or i["key"] in tl_rows or i["key"] in secondary]
+    prefetch(env, [i["key"] for i in found], cache, errs)
+    gaps += [{"source": g.split(": ", 1)[0], "error": g.split(": ", 1)[-1]} for g in errs]
     for i in found:
         k = i["key"]
         on_list = k in tl_rows or k in secondary
@@ -662,7 +768,7 @@ def collect_dev(a, s, env):
     unticketed = [{"build": r["first_build"], "text": (r.get("log") or [r.get("focus") or ""])[0]}
                   for r in tl_rows.values() if not r.get("ticket")]
     rows.sort(key=lambda r: (not r["gaps"], r["layer"], r["key"]))
-    return {"line": str(a.line), "lane": lane, "generated": now().isoformat(timespec="minutes"), "rows": rows,
+    return {"line": str(line), "lane": lane, "generated": now().isoformat(timespec="minutes"), "rows": rows,
             "unticketed": unticketed, "gaps": [f"{g['source']}: {g['error']}" for g in gaps]}
 
 
@@ -691,25 +797,45 @@ def render_dev(out):
     return "\n".join(L) + "\n"
 
 
-def cmd_dev(a):
-    s = site()
-    env = ["--env-file", a.env_file] if a.env_file else []
-    out = collect_dev(a, s, env)
-    if a.page:
-        page = os.path.join(reports_root(s), "lanes", f"dev-list-{out['line']}.md")
-        save(page, render_dev(out))
-        out["page"] = page
-    if a.json:
-        print(json.dumps(out, ensure_ascii=False))
-        return
+def print_dev(out, page):
     print(f"# dev list · {out['line']} · {len(out['rows'])} ticket(s)")
     for r in out["rows"]:
         print(f"  {r['key']:<9} {r['layer']:<6} {str(r['assignee'] or '—')[:14]:<14} {r['branch'][:22]:<22} {r['verdict']:<8} "
               f"FI {'✓' if r['fixed_in'] else '–'}  {cell(r['title'], 50)}" + (f"\n            ! {'; '.join(r['gaps'])}" if r["gaps"] else ""))
     for u in out["unticketed"]:
         print(f"  no ticket (build {u['build']}): {cell(u['text'], 100)}")
-    if a.page:
+    if page and out.get("page"):
         print(f"page: {out['page']}")
+
+
+def cmd_dev(a):
+    """One line, or every line release.yaml names with a Jira label; a line with no ticket in development writes nothing.
+    --page also writes <reports>/lanes/dev-list-<line>.json ({line, generated, rows, unticketed, gaps}) for the board."""
+    import release as R  # noqa: E402 — on the path through brief
+    s = site()
+    env = ["--env-file", a.env_file] if a.env_file else []
+    lines = R.rmap("lines") or {}
+    if a.line and str(a.line) not in lines:
+        print(f"unknown release line {a.line!r}; known: {', '.join(lines)}", file=sys.stderr)
+        sys.exit(EX_USAGE)
+    want = [str(a.line)] if a.line else [k for k, v in lines.items() if v.get("label")]
+    shared, outs = {}, []
+    for line in want:
+        out = collect_dev(line, s, env, shared)
+        if not out["rows"] and not a.line:
+            continue
+        if a.page:
+            base = os.path.join(reports_root(s), "lanes", f"dev-list-{out['line']}")
+            save(base + ".md", render_dev(out))
+            save(base + ".json", json.dumps({k: out[k] for k in ("line", "lane", "generated", "rows", "unticketed", "gaps")},
+                                            ensure_ascii=False, indent=1))
+            out["page"] = base + ".md"
+        outs.append(out)
+    if a.json:
+        print(json.dumps(outs[0] if a.line else {"lists": outs, "gaps": []}, ensure_ascii=False))
+        return
+    for out in outs:
+        print_dev(out, a.page)
 
 
 def main():
@@ -717,8 +843,8 @@ def main():
     ap.add_argument("--env-file", help="ela's env file")
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("list", help="the lane's test list: one row per behaviour, ranked, with QA's verdict")
-    p.add_argument("--lane", required=True, help="qa-cn3 (QA-AWS3)")
-    p.add_argument("--days", type=int, help="how far back to read the release mails (default: 10 on a new lane, 45 after)")
+    p.add_argument("--lane", help="one lane: qa-cn3 (QA-AWS3), prod-3, prod-2 (CN Prod2); default every lane with release mails or a list")
+    p.add_argument("--days", type=int, help="how far back to read the release mails (default 21)")
     p.add_argument("--json", action="store_true")
     p.add_argument("--page", action="store_true", help="also write <reports>/lanes/test-list-<lane>.md")
     p.add_argument("--new-rows", action="store_true", help="only the rows the builds released on --date added, Slack-formatted")
@@ -726,7 +852,7 @@ def main():
     p.add_argument("--saw", nargs=2, metavar=("KEY", "LINE"), help="write the night run's line on the row; a local write")
     p.set_defaults(func=cmd_list)
     p = sub.add_parser("dev", help="the line's dev list: one row per owner ticket in development, with its gaps")
-    p.add_argument("--line", required=True, help="the release line (2.1)")
+    p.add_argument("--line", help="one release line (2.1); default every line release.yaml names with a Jira label")
     p.add_argument("--json", action="store_true")
     p.add_argument("--page", action="store_true", help="also write <reports>/lanes/dev-list-<line>.md")
     p.set_defaults(func=cmd_dev)
