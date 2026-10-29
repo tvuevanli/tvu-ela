@@ -94,4 +94,29 @@ check("one Link finding per pair, on the older ticket when both are tracked, the
       [(f["key"], f.get("linked")) for f in got] == [("MH-3800", "MH-3829"), ("MH-3800", "MH-3830"), ("MH-3830", None)])
 check("a link recorded on the newer side only stays there",
       [f["key"] for f in T.one_per_link([lk("MH-3830", "MH-3800")], ["MH-3800", "MH-3830"])] == ["MH-3830"])
+# the two build rules, over a test list on disk
+import json, tempfile  # noqa: E402
+tmp = tempfile.mkdtemp()
+os.makedirs(os.path.join(tmp, "lanes"))
+now = datetime.datetime(2026, 10, 29, 12, 0, tzinfo=datetime.timezone.utc)
+json.dump({"lane": "qa-cn3", "rows": {
+    "MH-3833": {"id": "MH-3833", "ticket": "MH-3833", "also": ["MH-3834"], "last_build": "78", "last_at": "2026-10-28T18:23:00+08:00"},
+    "nt-1": {"id": "nt-1", "ticket": None, "also": [], "log": ["UR Caller: setAudioDelay rejects an empty offset"],
+             "last_build": "78", "last_at": "2026-10-28T18:23:00+08:00"},
+    "nt-2": {"id": "nt-2", "ticket": None, "also": [], "log": ["an old change"], "last_build": "70", "last_at": "2026-10-10T18:00:00+08:00"}}},
+    open(os.path.join(tmp, "lanes", "test-list-qa-cn3.json"), "w"))
+T.qa_names = lambda: ({"qa person"}, {"dev one"})
+T.B.run_json = lambda cmd, timeout=600: {"fields": {"assignee": {"displayName": "QA Person"}}}
+T.B.git_window = lambda root, hours: ([{"keys": ["MH-3834"], "author": "devone"}], [])
+state = {}
+got = T.build_rules({"reports": tmp, "code": tmp}, [], now, state, [])
+check("QA on a secondary: one unsure finding naming the owner and a tier 3 draft",
+      [(f["key"], f["rule"], f["linked"], f["draft"]["tier"]) for f in got if f["rule"] == "qa-on-secondary"] == [("MH-3834", "qa-on-secondary", "MH-3833", 3)])
+check("the draft reassigns to the commit's author", "reassign MH-3834 to devone" in got[0]["draft"]["what"])
+check("a recent keyless change is a finding on the build; an old one is not",
+      [(f["key"], f["rule"]) for f in got if f["rule"] == "no-ticket-in-build"] == [("QA-AWS3 build 78", "no-ticket-in-build")])
+check("once a day: a second pass finds nothing", T.build_rules({"reports": tmp, "code": tmp}, [], now, state, []) == [])
+T.B.run_json = lambda cmd, timeout=600: {"fields": {"assignee": {"displayName": "Dev One"}}}
+check("a secondary its developer holds is no finding",
+      T.build_rules({"reports": tmp, "code": tmp}, [], now + datetime.timedelta(days=1), {}, [])[0]["rule"] == "no-ticket-in-build")
 sys.exit(1 if failures else 0)

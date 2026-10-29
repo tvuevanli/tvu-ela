@@ -278,6 +278,14 @@ not place: <reason>". Each is one item with the moves a ticket page offers (seen
 any item the brief already has for that ticket. Sure rows are not on the page; the runner's *Tracked tickets* section
 stays as their evidence.
 
+**Two build rules** come through the same log (`rule` on the finding), read from the lanes' test lists once a day:
+`qa-on-secondary`, a ticket assigned to QA that rides under another owner ticket in a build (its `linked`), drafted as
+the tier-3 write the finding's `draft` names (reassign to its developer, the comment naming the owner ticket); and
+`no-ticket-in-build`, a build's change-log line with no key, keyed by the build ("QA-AWS3 build 78"), drafted as a
+tier-3 ask in that build's release thread for the ticket. This replaces the ad-hoc nudge for a build change with no
+ticket. *Why: one fix, one owner ticket, assigned to QA when the whole fix is on the lane; a fix with no ticket gets
+one before its build is announced (the 2026-10-29 test-list plan, Resolution C).*
+
 **Order.**
 1. Findings by their `rank`, 1 to 9: a hold asked from outside the company on a prod change; a standing pin over;
    a cell of the pending promotion awaiting his choice; a customer ask unanswered; a prod fix without a ticket or a

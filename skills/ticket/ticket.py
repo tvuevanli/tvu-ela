@@ -12,6 +12,13 @@ is the reading), its Real status facts refreshed and `seen-until` in its front m
 written. A ticket without a page keeps its watermark in <runtime>/ticket/seen.json. The findings list is the brief's
 input: an unsure change, or one addressed to the owner, is an item; a sure one is a row only.
 
+With --all, two rules read the lanes' test lists (<reports>/lanes/test-list-<lane>.json, `ela testlist`) once a day:
+  QA on a secondary   a ticket assigned to QA that rides under another owner ticket in a build (named with it in one
+                      Test Focus item, its parent, or the one it implements) → unsure, tier 3 draft: reassign it to
+                      its developer with a comment naming the owner ticket.
+  no ticket in a build  a build's change-log line that names no key, from a build of the last three days → unsure on
+                      the build ("QA-AWS3 build 78"), tier 3 draft: ask in the release thread for its ticket.
+
 Jira reads only; nothing is posted. Exit 3 when Jira could not be read.
 """
 import argparse, datetime, glob, json, os, re, subprocess, sys
@@ -492,6 +499,63 @@ def refresh(keys, site, e, me, dry_run=False, now=None):
     return {"at": now.isoformat(timespec="seconds"), "tickets": tickets, "findings": one_per_link(findings, keys), "gaps": gaps}
 
 
+BUILD_RULE_DAYS = 3
+
+
+def build_rules(site, e, now, state, gaps):
+    """The two build rules over every lane's test list, each finding once a day while its condition holds."""
+    reports = site.get("reports") or os.path.join(site.get("projects", ""), "reports")
+    seen, today, out = state.setdefault("build-rules", {}), now.date().isoformat(), []
+    qa, _ = qa_names()
+    authors = None
+    for path in sorted(glob.glob(os.path.join(reports, "lanes", "test-list-*.json"))):
+        try:
+            st = json.load(open(path, encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        shown = B.LANE_SHOWN.get(st.get("lane"), st.get("lane"))
+        recent = (now - datetime.timedelta(days=BUILD_RULE_DAYS)).isoformat()
+        for r in st.get("rows", {}).values():
+            for k in r.get("also") or []:
+                fid = f"secondary|{k}"
+                if seen.get(fid) == today:
+                    continue
+                try:
+                    f = (B.run_json(["python3", B.JIRA, *e, "read", k, "--json"]).get("fields") or {})
+                except (B.LaneError, subprocess.TimeoutExpired, ValueError) as x:
+                    gaps.append({"source": f"jira read {k}", "error": str(x)[:200]}); continue
+                who = J.name_of(f.get("assignee")) if f.get("assignee") else ""
+                if who.lower() not in qa:
+                    continue
+                if authors is None:
+                    code_root = site.get("code") or os.path.join(site.get("projects", ""), "code")
+                    authors = {}
+                    for c in B.git_window(code_root, COMMIT_DAYS * 24)[0]:
+                        for x in c["keys"]:
+                            authors.setdefault(x, c["author"])
+                dev = authors.get(k)
+                seen[fid] = today
+                out.append({"key": k, "change": f"assignee: {who} (QA) on a secondary of {r['ticket']} in {shown} build "
+                            f"{r.get('last_build') or r.get('first_build')}", "reading": f"unsure: QA assigned on a secondary ticket; the owner is {r['ticket']}",
+                            "sure": False, "addressed_to_owner": False, "prod_or_customer": False, "at": now.isoformat(timespec="seconds"),
+                            "by": None, "page": None, "rule": "qa-on-secondary", "linked": r["ticket"],
+                            "draft": {"tier": 3, "what": f"reassign {k} to {dev or 'its developer'} with a comment: QA verifies "
+                                      f"this fix on {r['ticket']}, the owner ticket; this one goes to Done by its developer when merged"}})
+            if r.get("ticket") or (r.get("last_at") or r.get("first_at") or "") < recent:
+                continue
+            b = r.get("last_build") or r.get("first_build")
+            fid = f"noticket|{st.get('lane')}|{r['id']}"
+            if seen.get(fid):
+                continue
+            seen[fid] = today
+            text = (r.get("log") or [r.get("focus") or ""])[0]
+            out.append({"key": f"{shown} build {b}", "change": f"change log: {text}", "reading": "unsure: a build change with no ticket",
+                        "sure": False, "addressed_to_owner": False, "prod_or_customer": False, "at": now.isoformat(timespec="seconds"),
+                        "by": None, "page": None, "rule": "no-ticket-in-build",
+                        "draft": {"tier": 3, "what": f"ask in the {shown} build {b} release thread who made \"{text[:120]}\" and for its ticket"}})
+    return out
+
+
 def key_order(k):
     p, _, n = k.partition("-")
     return (p, int(n) if n.isdigit() else 0)
@@ -533,6 +597,17 @@ def cmd_refresh(a):
         keys, why = a.keys, {k: "asked" for k in a.keys}
     out = refresh(keys, site, e, me, a.dry_run)
     out["gaps"] = gaps + out["gaps"]
+    if a.all:
+        runtime = site.get("runtime") or os.path.join(site.get("projects", ""), ".ela")
+        state_path = os.path.join(runtime, "ticket", "seen.json")
+        try:
+            state = json.load(open(state_path, encoding="utf-8"))
+        except (OSError, ValueError):
+            state = {}
+        out["findings"] += build_rules(site, e, datetime.datetime.now().astimezone(), state, out["gaps"])
+        if not a.dry_run:
+            os.makedirs(os.path.dirname(state_path), exist_ok=True)
+            atomic_write(state_path, json.dumps(state, indent=1, sort_keys=True))
     for t in out["tickets"]:
         t["tracked"] = why.get(t["key"])
     if a.json:
