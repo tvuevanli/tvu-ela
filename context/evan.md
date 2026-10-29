@@ -30,3 +30,10 @@ Roots are named in `~/.claude/ela/site.json`; write them by name, never as machi
 - **Code**: `<code>/<alias>/<remote path>`, read-only; changes happen in `<work>/<KEY>/<repo>`
   worktrees (`map.py find|sync|worktree`).
 - Start each session where the target's rules live; ela is already there.
+
+## Sessions
+A desk session named `ela` holds Evan's conversation and opens workers with `ela session open <alias|path>
+--name N "brief"`, each in its own zellij tab. A worker runs where its target's rules live, and sends `ela`
+one line (SendMessage) when it starts, when it is blocked on Evan, and before it closes. Permissions are per
+session: no session approves for another. The plugin's hooks record every session in
+`<runtime>/sessions.jsonl`; `ela session list` reads it.
