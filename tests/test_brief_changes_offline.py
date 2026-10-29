@@ -287,4 +287,20 @@ rows = {k: {"key": k, "action": a} for k, a in (("MH-1", "close-notice"), ("MH-2
 ready, failing, disagree = B.close_queue(rows, {"MH-1", "MH-2", "MH-3", "MH-4", "MH-6"}, {"MH-2": ("2026-10-26", "FAIL")}, lambda k: k == "MH-3")
 check("close-ready is counted once: open, not verified as not fixed, and not contradicted by its page",
       ready == ["MH-1"] and failing == ["MH-2"] and disagree == ["MH-3", "MH-4"])
+
+CN = ("Test Environment\nTVU MediaHub (ENV: MediahubProd2)\nFrontend: v2.2.111 build162 2026-09-22 10:06:35\n"
+      "Backend: v2.1.26 build256 2026-09-22 10:06:15\nUR Media Service (ENV: URMediaProd2)\nBackend: v1.0.278 build82 2026-08-24 03:08:02\n")
+qc = B.parse_qa_mail({"id": "7", "from": "qa", "date": "Wed, 28 Oct 2026 19:01:58 +0800", "subject":
+                      "Daily Test Report for [Release MediaHub CN Prod2] CN2 upgrade (MH 2.1, MH-3752) on 10-28", "body": CN})
+check("a China report's block is filed under the lane its subject names, not the .com tag's",
+      {r["lane"] for r in qc["tested"]} == {"prod-2-china"} and len(qc["tested"]) == 3)
+kept = {f"{r['lane']}|{r['service']}|{r['version']}": dict(r, at=qc["at"], verdict="partial") for r in qc["tested"]}
+B.R._MAP = dict(B.R._MAP or B.R._release_map(), regions={"china": {"aligns_with": "prod-3", "lanes": {"prod-2-china": {"shown": "CN Prod2"}}}})
+g = B.region_reading("prod-2-china", kept, [{"lane": "prod-3", "service": "mediahub-backend", "version": "v2.1.32 build263", "host": "prod"},
+                                            {"lane": "prod-3", "service": "unified-media-backend", "version": "v1.0.278 build82", "host": "prod"}])
+check("a China lane is read against the lane it aligns with: one difference, seven builds behind",
+      [(d["service"], d["behind"]) for d in g["differences"]] == [("mediahub-backend", 7)] and g["behind"] == 7)
+check("its line says so", "aligned with prod-3 (behind by 7 builds)" in B.region_line(g))
+check("a China verdict never marks a .com cell", B.matrix_cell("mediahub-backend", "prod-3",
+      [{"lane": "prod-3", "service": "mediahub-backend", "version": "v2.1.26 build256", "host": "prod"}], None, kept, {})["qa"] == "○")
 sys.exit(1 if failures else 0)

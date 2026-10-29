@@ -952,7 +952,7 @@ def parse_qa_mail(m):
             "new": count(r"New\s*\*?(\d+)", "new"), "reopened": len(listed["reopened"]) if "reopened" in listed else None,
             "new_keys": listed.get("new", []), "reopened_keys": listed.get("reopened", []), "closed_keys": listed.get("close", []), "failing": failing, "mediahub": bool(re.search(r"media\s*hub", m["subject"] + head, re.I)),
             "results": [" ".join(l.split())[:160] for l in body.splitlines() if re.search(r"\b(PASS|FAIL|Pass|Fail)\b", l)][:10],
-            "tested": tested_versions(body), "at": mail_time(m["date"]),
+            "tested": tested_versions(body, region_lane(m["subject"])), "at": mail_time(m["date"]),
             "verdict": "partial" if failing or fail or listed.get("reopened") or untested else "pass"}
 
 
@@ -973,18 +973,20 @@ def qa_cases(head, body):
 # a QA report's product header (`TVU MediaHub (ENV: aws-cn3-env)`) → its (frontend, backend) services
 QA_PRODUCTS = {"TVU MediaHub": ("mediahub-frontend", "mediahub-backend"),
                "Unified Media Service": ("unified-media-frontend", "unified-media-backend"),
+               "UR Media Service": ("unified-media-frontend", "unified-media-backend"),
                "Unified Resources Caller": (None, "unified-streaming")}
 
 
-def tested_versions(body):
-    """The versions a QA report's environment block says it ran on: [{lane, service, version}]."""
+def tested_versions(body, region_lane=None):
+    """The versions a QA report's environment block says it ran on: [{lane, service, version}]. A China lane's ENV
+    names are the .com tags' (MediahubProd2), so its report's block is filed under the lane its subject names."""
     rows, cur = [], None
     for line in body.splitlines():
         h = re.match(r"^\s*(.+?)\s*\(ENV:\s*([^)]+)\)", line)
         v = re.match(r"^\s*(Frontend|Backend):\s*(v\S.*)$", line)
         if h:
             prod = next((s for k, s in QA_PRODUCTS.items() if h.group(1).strip().startswith(k)), None)
-            cur = (prod, R.lane_of("qa", h.group(2).strip())) if prod else None
+            cur = (prod, region_lane or R.lane_of("qa", h.group(2).strip())) if prod else None
         elif v and cur and cur[1]:
             svc = cur[0][0 if v.group(1) == "Frontend" else 1]
             if svc:
@@ -992,6 +994,46 @@ def tested_versions(body):
         elif line.strip() and not v:
             cur = None                                      # another product's block (Billing, Home) begins
     return rows
+
+
+def region_lane(subject):
+    """The region lane a mail's [Release MediaHub <env>] names (CN Prod2 → prod-2-china), else None."""
+    x = re.search(r"\[Release\s+MediaHub\s+([^\]]+)\]", subject or "", re.I)
+    lane = R.prod_lane(x.group(1)) if x else None
+    return lane if R.lane_region(lane) else None
+
+
+def region_reading(lane, tested, rows):
+    """A region lane read against the .com lane it aligns with (release.yaml regions): its versions as its newest QA
+    report states them, and every service whose version differs from the aligned lane's — by definition an environment
+    difference, since China runs no train of its own. {lane, shown, aligns_with, at, versions, differences, behind}."""
+    reg = (R.rmap("regions") or {}).get(R.lane_region(lane)) or {}
+    meta = (reg.get("lanes") or {}).get(lane) or {}
+    ref = reg.get("aligns_with")
+    mine = {}
+    for x in tested.values():                               # the newest report's version per service
+        if x.get("lane") == lane and (x["service"] not in mine or (x.get("at") or "") > (mine[x["service"]].get("at") or "")):
+            mine[x["service"]] = x
+    out = {"lane": lane, "shown": meta.get("shown") or LANE_SHOWN.get(lane, lane), "aligns_with": ref,
+           "retiring": bool(meta.get("retiring")), "at": max((x.get("at") or "" for x in mine.values()), default="") or None,
+           "versions": {k: short_version(v["version"]) for k, v in mine.items()}, "differences": [], "behind": None}
+    for svc, x in sorted(mine.items()):
+        theirs = next((r["version"] for r in rows if r.get("lane") == ref and r["service"] == svc and r.get("host") != "mail"), None)
+        if theirs is None or vkey(theirs) == vkey(x["version"]):
+            continue
+        a, b = R.parse_version(x["version"]), R.parse_version(theirs)
+        behind = b[4] - a[4] if a and b and a[:2] == b[:2] and b[4] >= a[4] else None   # builds count only inside one series
+        out["differences"].append({"service": svc, "version": short_version(x["version"]), "reference": short_version(theirs),
+                                   "behind": behind})
+        if svc == "mediahub-backend":
+            out["behind"] = behind
+    return out
+
+
+def region_lanes(aligned=None):
+    """The region lanes release.yaml names, those aligned with `aligned` when given: [lane]."""
+    return [l for reg in (R.rmap("regions") or {}).values() if not aligned or reg.get("aligns_with") == aligned
+            for l in (reg.get("lanes") or {})]
 
 
 def mail_time(date):
@@ -1943,7 +1985,7 @@ def matrix_cell(service, lane, rows, prev, tested, pins):
     label = R.vlabel(pv) if pv else str(v)
     old = next((r["version"] for r in prev or [] if r["service"] == service and r.get("lane") == lane), None)
     moved = old is not None and vkey(old) != vkey(v)
-    qa = [x for x in tested.values() if x["service"] == service and vkey(x["version"]) == vkey(v)]
+    qa = [x for x in tested.values() if x["service"] == service and vkey(x["version"]) == vkey(v) and not R.lane_region(x.get("lane"))]
     best = max(qa, key=lambda x: x["at"] or "", default=None)
     mark = ("✓ " if best["verdict"] == "pass" else "◐ ") + (best["at"] or "")[5:10] if best else "○"
     pin = pins.get((service, lane))
@@ -2061,8 +2103,10 @@ def cmd_matrix(args):
             gate = {"stop": c.get("stop", 0), "high": c.get("high", 0), "report": args.promote_report, "age_hours": age}
         except (OSError, ValueError, KeyError):
             errors.append({"source": "promote report", "error": f"unreadable: {args.promote_report}"})
+    regions = [region_reading(l, tested, rows) for l in region_lanes((cfg.get("lanes") or {}).get("prod"))]
     out = {"date": date, "lanes": [LANE_SHOWN.get(l, l) for l in lanes] + ([cand.get("label") or "next train"] if cand else []),
-           "rows": table, "same": same, "gate": gate, "errors": errors, "held": held, "lane_ids": lanes}
+           "rows": table, "same": same, "gate": gate, "errors": errors, "held": held, "lane_ids": lanes,
+           "regions": [r for r in regions if r["versions"] or not r["retiring"]]}   # a retiring lane no report names is gone
     if args.page:
         path = write_lanes_page(out, site, env, runner, tested)
         print(f"written: {path}")
@@ -2208,7 +2252,8 @@ def movements(runtime, reports, tested, today, shown, bundles_now=None):
         r["qa"] = r["qa"] or qa
 
     def qa_mark(service, to):
-        qa = [x for x in tested.values() if x["service"] == service and version_text(x["version"]) == version_text(to)]
+        qa = [x for x in tested.values() if x["service"] == service and version_text(x["version"]) == version_text(to)
+              and not R.lane_region(x.get("lane"))]                # a China report says nothing of a .com move
         best = max(qa, key=lambda x: x["at"] or "", default=None)
         return ("✓" if best["verdict"] == "pass" else "◐") if best else "○"
 
@@ -2394,6 +2439,18 @@ def write_lanes_page(out, site, env, runner, tested):
     return path
 
 
+def region_line(g):
+    """A China lane under the table, never a column: it runs no train, so it is read against the .com lane it aligns with."""
+    head = f"**{g['lane']}** ({g['shown']})"
+    if not g["versions"]:
+        return f"{head}: no QA report names its versions yet; aligned with {g['aligns_with']}"
+    v = g["versions"].get("mediahub-backend") or next(iter(g["versions"].values()))
+    lag = "" if not g["differences"] else f" (behind by {g['behind']} builds)" if g["behind"] else " (differs)"
+    diff = "; ".join(f"{d['service']} {d['version']} vs {d['reference']}" for d in g["differences"])
+    return (f"{head}: {v}, aligned with {g['aligns_with']}{lag} · QA report {(g['at'] or '')[:10]}"
+            + (f" · differs: {diff}" if diff else " · the same versions"))
+
+
 def bundle_row(bundle, lanes, cand):
     """The media-bundle row: one cell per lane, and one for the next train when there is a candidate (its bundle when
     it names one, a dash otherwise), so the row has as many cells as the table has columns."""
@@ -2417,6 +2474,8 @@ def render_matrix(out):
         L.append(f"| {r['row']} | " + " | ".join(c["text"] for c in r["cells"]) + " |")
     if out["same"]:
         L += ["", f"*{len(out['same'])} more the same on every lane: " + "; ".join(out["same"]) + "*"]
+    for g in out.get("regions") or []:
+        L += ["", region_line(g)]
     L += ["", "*▲ moved since yesterday · ✓ QA passed this exact version (date) · ◐ partly · ○ no QA report names it · 🔒 a pin held · ⛔ over*"]
     if out["gate"]:
         g = out["gate"]
