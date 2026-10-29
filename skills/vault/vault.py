@@ -85,6 +85,15 @@ KEEP_FOREVER = ("brief", "week", "changes")   # the morning pages are the record
 PROPS = ("title", "aliases", "type", "date", "kind", "status", "result", "moves", "next")   # the whole vocabulary; no tags (ADR 0010)
 MARKS = {"done": ARCHIVE, "drop": None}   # a ticked box in a to-read table row: archive, delete
 BUDGET = {"ticket": 700, "topic": 800, "guide": 1200, "board": 1000, "day": 1200, "review": 2500, "decision": 800, "plan": 800, "sprint": 800}
+# the closed set of note types, by family (the readme's Types): for his word, readings, living pages, day pages.
+# A type outside it, or a family outside its folders, is a lint line on the sync, never a failure.
+TYPE_FAMILY = {"decision": "decision", "plan": "plan", "sprint": "plan",
+               "ticket": "reading", "review": "reading", "verify": "reading", "verify-plan": "reading",
+               "home": "page", "board": "page", "lanes": "page", "test-list": "page", "dev-list": "page", "program": "page",
+               "guide": "page", "vocabulary": "page", "system": "page", "constraints": "page", "readme": "page", "meeting": "page",
+               "day": "day", "reader": "day"}
+FAMILY_FOLDERS = {"decision": ("to-read", "in-progress", "parked", "archive"), "plan": ("to-read", "in-progress", "parked", "archive", "sprints"),
+                  "reading": ("readings", "to-read", "archive")}   # a verification waits in to-read until its record is on Jira
 FOLDED = ("decision", "plan")                    # their budget counts the words above the first folded callout only
 FOLD_RX = re.compile(r"^>\s*\[![\w-]+\]-", re.M)
 LEARNED_MAX = 5                                  # the reader page's Learned section: more goes to a decision note
@@ -158,6 +167,12 @@ the file explorer is rarely needed.
   They feed the tables and show at the top of each note: a status to read, and `next`, the move you choose. A
   hidden `moves` property names the note's set of moves, so the chooser lists only those.
 - No tags: a keyword-guessed tag would be wrong often enough to cost trust.
+- Types are a closed set, in four families. For your word: `decision`, `plan` (a sprint is a plan), in to-read,
+  in-progress, parked or archive. Readings: `ticket`, `review`, `verify` and `verify-plan` (checks), in readings,
+  or in to-read while a verification waits for its record on Jira. Pages that live: home, board, lanes, test-list,
+  dev-list, program, the ela page (`guide`), vocabulary, system, constraints, readme, meeting. Day pages: `day`
+  (brief, changes, week) and `reader`. A note outside the set, or a family outside its folders, is a lint line on
+  the sync, never a failure.
 - A ticket key is a link to Jira, one click in reading mode.
 
 ## Reading budgets
@@ -415,9 +430,13 @@ def settle_statuses(vault, dry_run=False):
                 want[MOVE_SET] = (props.get(MOVE_SET) if props.get(MOVE_SET) == "reopen" else "closed") if folder == ARCHIVE \
                     else props.get(MOVE_SET) or "built"
             changed = {k: v for k, v in want.items() if (v or None) != (props.get(k) or None)}
+            raw = next((l for l in fl if re.match(r"^type:\s*\S", l)), None)
+            if raw and not re.match(r"^type:\s*[\"']", raw):   # one spelling of type everywhere: quoted
+                changed["type"] = props.get("type")
             if not changed:
                 continue
-            fixes.append(f"{folder}/{f}: " + ", ".join(f"{k} {props.get(k) or '—'} → {v or '—'}" for k, v in changed.items()))
+            fixes.append(f"{folder}/{f}: " + ", ".join(f"type quoted" if k == "type" and v == props.get(k) else f"{k} {props.get(k) or '—'} → {v or '—'}"
+                                                   for k, v in changed.items()))
             if not dry_run:
                 atomic_write(p, set_front(text, **changed))
     return fixes
@@ -933,6 +952,17 @@ def mermaid_problems(body):
         if kind == "timeline" and re.match(r"^[^:]*\d:\d[^:]*:", t):
             out.append(f"a mermaid timeline period carries a colon ({t[:20]}…)")
     return out
+
+
+def type_lint(path, kind):
+    """One lint line when a note's type is outside the closed set, or its family outside its folders; else None."""
+    fam = TYPE_FAMILY.get((kind or "").strip().strip("'\""))
+    if not fam:
+        return f"{path}: type {kind!r} is not in the closed set ({', '.join(sorted(set(TYPE_FAMILY.values())))})"
+    folder = path.split("/", 1)[0] if "/" in path else ""
+    if fam in FAMILY_FOLDERS and folder not in FAMILY_FOLDERS[fam]:
+        return f"{path}: a {fam} belongs in {', '.join(FAMILY_FOLDERS[fam])}"
+    return None
 
 
 def learned_lines(body):
@@ -1460,6 +1490,7 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since
     native_warn = []
     for n in native:                                       # a page ela writes in place is not gated, only checked
         native_warn += [f"{n.path}: {p}" for p in mermaid_problems(n.body)]
+    native_warn += [f"type: {x}" for x in (type_lint(n.path, n.props.get("type")) for n in notes + native) if x]
     ov = overview_note(s, s["vault"], today)
     if ov:
         notes.append(ov)

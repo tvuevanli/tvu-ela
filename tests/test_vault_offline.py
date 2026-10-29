@@ -561,4 +561,13 @@ with tempfile.TemporaryDirectory() as t:
     rows = V.closed_by_ela({"reports": t}, datetime.date(2026, 10, 29))
     check("the ela page lists the week's notes ela closed, each reopenable", rows == ["- [[archive/p|A plan]] — closed by ela 2026-10-29, built 10-24 18:00; reopen if wrong"])
 check("nothing closed says so", V.closed_by_ela({"reports": "/nonexistent"}, datetime.date(2026, 10, 29))[0].startswith("Nothing"))
+check("a type outside the closed set is a lint line", "not in the closed set" in V.type_lint("to-read/x.md", "memo"))
+check("a decision outside its folders is a lint line", "belongs in" in V.type_lint("readings/x.md", "decision"))
+check("a verification waiting in to-read is in place", V.type_lint("to-read/2026-10-29-verify-mh-1.md", "verify") is None)
+with tempfile.TemporaryDirectory() as t:
+    os.makedirs(os.path.join(t, "archive"))
+    open(os.path.join(t, "archive", "a.md"), "w").write("---\ntype: verify\nstatus: \"closed\"\nmoves: \"closed\"\n---\n# A\n")
+    fixes = V.settle_statuses(t)
+    check("an unquoted type in archive is quoted, the body untouched", fixes == ["archive/a.md: type quoted"]
+          and 'type: "verify"' in open(os.path.join(t, "archive", "a.md")).read())
 sys.exit(1 if failures else 0)
