@@ -1,0 +1,12 @@
+{"line": "2.1", "lane": "qa-cn3", "generated": "2026-10-30T09:30", "unticketed": [], "env": [], "gaps": [],
+ "rows": [
+  {"key": "MH-2001", "url": "https://tvunetworks.atlassian.net/browse/MH-2001", "title": "[App] Business integration: take a free resourceId, pass it to J2N, retry on a conflict and tell the user why",
+   "layer": "App", "status": "Review", "assignee": "Dev One", "implementers": ["Dev Three"], "branch": "on qa-cn3", "refs": ["release/2.1"],
+   "lane_build": "80", "owner_of": null, "verdict": "untested", "fixed_in": "mediahub-backend@1.0.418", "fix_version": "MH 2.1",
+   "ready": {"ticket": true, "fixed_in": true, "verdict": false}, "gaps": ["Fixed In without a verdict"], "rank": 1,
+   "due": "2026-10-28", "blocked": null, "priority": "P2", "priority_reason": "in the sprint"},
+  {"key": "MH-2002", "url": "https://tvunetworks.atlassian.net/browse/MH-2002", "title": "[UR] graph restart keeps its encoding profile",
+   "layer": "UR", "status": "Blocked", "assignee": null, "implementers": [], "branch": "no commit", "refs": [], "lane_build": null,
+   "owner_of": null, "verdict": "untested", "fixed_in": null, "fix_version": null, "ready": {"ticket": true, "fixed_in": false, "verdict": false},
+   "gaps": [], "rank": 2, "due": "2026-11-03", "blocked": "by MH-2003", "priority": "P3", "priority_reason": "the rest"}
+ ]}

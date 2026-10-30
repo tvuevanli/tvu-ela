@@ -1120,6 +1120,16 @@ def branch_state(commits, led_lanes):
     return "on a branch" if commits else "no commit"
 
 
+def held_by(status, fields):
+    """The reason word a ticket is held: an open ticket it is blocked by, else its status Blocked or On Hold."""
+    for l in fields.get("issuelinks") or []:
+        o = l.get("inwardIssue") or {}
+        done = ((((o.get("fields") or {}).get("status") or {}).get("statusCategory") or {}).get("key")) == "done"
+        if o.get("key") and "blocked by" in ((l.get("type") or {}).get("inward") or "").lower() and not done:
+            return "by " + o["key"]
+    return {"Blocked": "blocked", "On Hold": "on hold"}.get(status)
+
+
 def collect_dev(line, s, env, shared):
     """One line's dev list. `shared` carries what every line reads once: the commits by key, the Jira cache."""
     import release as R  # noqa: E402 — on the path through brief
@@ -1143,6 +1153,7 @@ def collect_dev(line, s, env, shared):
     tl_rows = {**{k: dict(v, open=False) for k, v in tl.get("left", {}).items()}, **{k: dict(v, open=True) for k, v in tl["rows"].items()}}
     secondary = {k: r["ticket"] for r in tl_rows.values() if r.get("ticket") for k in r.get("also") or []}
     qa, _ = T.qa_names()
+    sprint = shared["sprint"] = shared["sprint"] if "sprint" in shared else sprint_keys(s)
     fid = (R.rmap("fixed_in") or {}).get("field") or "customfield_11252"
     runtime = s.get("runtime") or os.path.join(s.get("projects", ""), ".ela")
     rows, errs = [], []
@@ -1181,7 +1192,9 @@ def collect_dev(line, s, env, shared):
                      "branch": branch_state(cs, led["lanes"]), "refs": sorted({c["ref"] for c in cs})[:4],
                      "lane_build": (t.get("builds") or [None])[-1], "owner_of": secondary.get(k),
                      "verdict": verdict, "fixed_in": fixed_in or None, "fix_version": fix_version or None,
-                     "ready": {"ticket": True, "fixed_in": bool(fixed_in or fix_version), "verdict": verdict in ("pass", "n-a")}, "gaps": flags})
+                     "ready": {"ticket": True, "fixed_in": bool(fixed_in or fix_version), "verdict": verdict in ("pass", "n-a")}, "gaps": flags,
+                     "due": f.get("duedate"), "blocked": held_by(i["status"], f)})
+        rows[-1]["priority"], rows[-1]["priority_reason"] = priority({"ticket": k, "verdict": verdict}, f, sprint, 0)
     unticketed = [{"build": r["first_build"], "text": (r.get("log") or [r.get("focus") or ""])[0]}
                   for r in tl_rows.values() if not r.get("ticket")]
     rows.sort(key=lambda r: (not r["gaps"], r["layer"], r["key"]))
@@ -1215,21 +1228,34 @@ def dev_env(cfg, s, env_tickets):
 
 def render_dev(out):
     at = datetime.datetime.fromisoformat(out["generated"])
-    tick = lambda b: "✓" if b else "–"  # noqa: E731
+    today = at.date().isoformat()
     L = [f"# Dev list · {out['line']}", "", f"*{at:%Y-%m-%d %H:%M} · line {out['line']} · QA lane {out['lane']}*", "",
          f"Every owner ticket in development on {out['line']}: where its commits are, what QA said, and what the next train "
          "still needs from it (ticket, Fixed In, verdict). Rows with a gap come first.", "",
          f"{len(out['rows'])} ticket(s) · {sum(bool(r['gaps']) for r in out['rows'])} with a gap · "
          f"{len(out['unticketed'])} build change(s) with no ticket", "",
-         "| ticket | what | layer | assignee | branch | build | QA | train: ticket · Fixed In or Fix Version · verdict | gaps |",
-         "|---|---|---|---|---|---|---|---|---|"]
+         "| P | ticket | title | status | developer | due | train | blocked |", "|---|---|---|---|---|---|---|---|"]
+    notes = []
     for r in out["rows"]:
-        who = r["assignee"] or "—"
-        if r["implementers"] and r["assignee"] not in r["implementers"]:
-            who += f" (commits: {', '.join(r['implementers'][:2])})"
-        L.append(f"| [{r['key']}]({r['url']}) | {cell(r['title'], 80)} | {r['layer']} | {cell(who, 60)} | {r['branch']} | "
-                 f"{r['lane_build'] or '–'} | {MARK.get(r['verdict'], '·')} {r['verdict']} | ✓ · {tick(r['ready']['fixed_in'])} · "
-                 f"{tick(r['ready']['verdict'])} | {cell('; '.join(r['gaps']), 120)} |")
+        due = r.get("due")
+        due = "—" if not due else f"overdue since {due}" if due < today else due
+        L.append(f"| {r.get('priority') or '—'} | [{r['key']}]({r['url']}) | {short(r['title'])} | {r.get('status') or '—'} | "
+                 f"{page_name(r.get('assignee')) or '—'} | {due} | {short(r.get('fix_version'), 30) if r.get('fix_version') else '—'} | "
+                 f"{r.get('blocked') or '—'} |")
+        said = []
+        if r["implementers"] and r.get("assignee") not in r["implementers"]:
+            said.append("commits by " + ", ".join(page_name(n) for n in r["implementers"][:3]))
+        if r["branch"] != "no commit" or r.get("lane_build"):
+            said.append(f"{r['branch']}" + (f" · build {r['lane_build']}" if r.get("lane_build") else ""))
+        if r["verdict"] not in ("untested", None):
+            said.append(f"QA {MARK.get(r['verdict'], '·')} {r['verdict']}")
+        if r.get("fixed_in"):
+            said.append(f"Fixed In {' '.join(r['fixed_in'].split())}")
+        said += [f"gap: {g}" for g in r["gaps"]]
+        if said:
+            notes += callout(r["key"], "where it is", [f"**{r.get('priority') or '—'}** {r.get('priority_reason') or ''} · layer {r['layer']}".replace("  ", " "), ""]
+                             + [f"- {x}" for x in said])
+    L += notes
     if out["unticketed"]:
         L += ["", "## Build changes with no ticket", ""] + [f"- build {u['build']}: {cell(u['text'], 160)}" for u in out["unticketed"]]
     if out.get("env"):
