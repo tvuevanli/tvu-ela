@@ -159,7 +159,7 @@ list and writing your `ela:` priority lines; the 09:30 or 10:00 pass then sends 
 | `lanes/` | the test list per lane and the dev list per release line | look before testing or a promotion |
 | `mh/` | the MediaHub program and its evidence | look when Home names the program's next step |
 | `sprints/` | the sprints, each a plan | look at a sprint's start and end |
-| `meetings/` | the review list (what you raise, by meeting) and each meeting's dated note | look before the meeting |
+| `meetings/` | one note per meeting: what you raise there, its send box, and what it ruled (30 days; older months in `archive/`) | look before the meeting; tick send, or answer an item with an `ela:` line after it |
 | `ela/` | the ela page (its measures, parts, schedule and week written by the sync; Waiting for your word, What changed for MediaHub this week and Known limits written by the desk), how ela runs, this page, the table view; attachments, hidden | rarely |
 | `ela/bot/` | the product side of ela: its design and the evidence reports | read when a report asks for your ruling |
 | `ela/review/` | the evening reader pages | read in the evening |
@@ -1623,6 +1623,230 @@ def meta_line(n):
     return n.body[:m.end()] + "\n\n" + line + n.body[m.end():] if m else n.body
 
 
+# ── a meeting's note: what he raises there and what it ruled ──────────────────────────────────────────
+# One note per meeting, meetings/<key>.md, written in place by `ela meeting`: a send box, To raise (one line an item,
+# its detail folded under it) and Ruled by date, newest first. The sync rolls a Ruled date older than 30 days into
+# archive/meetings-<key>-<yyyy-mm>.md and lints an item over 140 characters (vault
+# in-progress/2026-10-30-review-list-redesign.md).
+MEETINGS = "meetings"
+MEETING_ITEM_MAX = 140
+MEETING_RULED_DAYS = 30
+MEETING_RAISE, MEETING_RULED = "To raise", "Ruled"
+MEETING_SEND = re.compile(r"^[-*][ \t]+\[([ xX])\][ \t]+send\b")
+MEETING_ITEM = re.compile(r"^[-*][ \t]+\[([ xX])\][ \t]+(\S.*?)[ \t]*$")
+MEETING_DAY = re.compile(r"^###[ \t]+(\d{4}-\d{2}-\d{2})\b")
+MEETING_KEY = re.compile(r"\b[A-Z][A-Z0-9]+-\d+\b")
+MEETING_DROP = re.compile(r"^(?:drop|dropped|skip|remove)\b", re.I)       # under an item: take it off, whoever added it
+MEETING_ORDER = re.compile(r"^(?:first|on top)$", re.I)                  # under an item: say it first; not a ruling
+
+
+def visible(line):
+    """A line as reading mode shows it: each link by its text."""
+    t = re.sub(r"\[\[[^\]|]*\|([^\]]+)\]\]", r"\1", line)
+    t = re.sub(r"\[\[([^\]]+)\]\]", r"\1", t)
+    return re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", t)
+
+
+def meeting_parse(text):
+    """A meeting note as data: {front, title, send: {ticked, text} or None, head, items: [{text, ticked, under}], ruled_head,
+    ruled: [(date, lines)], others: [(heading, lines)]}. Every line lands somewhere, so a rewrite keeps his words."""
+    fl, body = split_front(text or "")
+    n = {"front": fl, "title": None, "send": None, "intro": [], "head": [], "items": [], "ruled_head": [], "ruled": [], "others": []}
+    sec = None
+    for line in body.splitlines():
+        h = re.match(r"^##[ \t]+(.+?)[ \t]*$", line)
+        if h:
+            sec = h.group(1)
+            if sec not in (MEETING_RAISE, MEETING_RULED):
+                n["others"].append((sec, []))
+            continue
+        if sec is None:
+            t, s = re.match(r"^#[ \t]+(.+?)[ \t]*$", line), MEETING_SEND.match(line)
+            if t and not n["title"]:
+                n["title"] = t.group(1)
+            elif s and not n["send"]:
+                n["send"] = {"ticked": s.group(1) != " ", "text": line}
+            else:
+                n["intro"].append(line)
+        elif sec == MEETING_RAISE:
+            m = MEETING_ITEM.match(line)
+            if m:
+                n["items"].append({"text": m.group(2), "ticked": m.group(1) != " ", "under": []})
+            elif n["items"] and line.strip():
+                n["items"][-1]["under"].append(line)
+            elif not n["items"]:
+                n["head"].append(line)
+        elif sec == MEETING_RULED:
+            d = MEETING_DAY.match(line)
+            if d:
+                n["ruled"].append((d.group(1), []))
+            elif n["ruled"]:
+                n["ruled"][-1][1].append(line)
+            else:
+                n["ruled_head"].append(line)
+        else:
+            n["others"][-1][1].append(line)
+    return n
+
+
+def meeting_render(n, title, send_text, today):
+    """The note written back: its properties, the title, the send box, To raise, Ruled by date (newest first), then
+    any section he added, kept unchanged."""
+    keep = [l for l in n["front"] if not re.match(r"^(title|aliases|type|date|source):", l)]
+    props = front([], {"title": title, "type": "meeting", "date": today.isoformat(), "source": "vault"})
+    if keep:
+        props = props[:-len("---\n\n")] + "\n".join(keep) + "\n---\n\n"
+    box = "x" if n["send"] and n["send"]["ticked"] else " "
+    intro = "\n".join(n["intro"]).strip("\n")
+    out = [f"# {title}", ""] + ([intro, ""] if intro else [])
+    out += [f"- [{box}] send — {send_text}", "", f"## {MEETING_RAISE}", ""]
+    head = "\n".join(n["head"]).strip("\n")
+    out += ([head, ""] if head else [])
+    for it in n["items"]:
+        out += [f"- [{'x' if it['ticked'] else ' '}] {it['text']}"] + it["under"]
+    out += ([""] if n["items"] else []) + [f"## {MEETING_RULED}", ""]
+    rh = "\n".join(n["ruled_head"]).strip("\n")
+    out += ([rh, ""] if rh else [])
+    for d, lines in sorted(n["ruled"], key=lambda x: x[0], reverse=True):
+        body = "\n".join(lines).strip("\n")
+        out += [f"### {d}", ""] + ([body, ""] if body else [])
+    for h, lines in n["others"]:
+        body = "\n".join(lines).strip("\n")
+        out += [f"## {h}", ""] + ([body, ""] if body else [])
+    return props + "\n".join(out).rstrip("\n") + "\n"
+
+
+def meeting_item(subject, question, since, decides=None, proposed=False, jira=""):
+    """One item's line: the ticket as a link (or the topic), the question, who decides, since when, and whether ela
+    added it."""
+    subject = (subject or "").strip()
+    if jira and re.fullmatch(r"[A-Z][A-Z0-9]+-\d+", subject):
+        subject = f"[{subject}]({jira.rstrip('/')}/browse/{subject})"
+    parts = [f"{subject} — {question.strip()}" if subject else question.strip()]
+    parts += [decides.strip()] if (decides or "").strip() else []
+    parts += [f"since {since:%m-%d}"] + (["ela proposes"] if proposed else [])
+    return " · ".join(parts)
+
+
+def meeting_fields(text):
+    """What an item's line says: {key, since (MM-DD), proposed, gist}; gist is the visible subject and question, the
+    item's identity when the same ask is raised twice."""
+    v = visible(text)
+    since = re.search(r"·[ \t]*since[ \t]+(\d{2}-\d{2})\b", v)
+    k = MEETING_KEY.search(v)
+    gist = v.split(" · ")[0]
+    return {"key": k.group(0) if k else None, "since": since.group(1) if since else None,
+            "proposed": bool(re.search(r"·[ \t]*ela proposes\b", v)), "gist": re.sub(r"\s+", " ", gist).strip().lower()}
+
+
+def meeting_add(n, line, detail=None):
+    """Adds an item unless one with the same gist is still to raise; → whether it was added."""
+    g = meeting_fields(line)["gist"]
+    if any(meeting_fields(it["text"])["gist"] == g for it in n["items"]):
+        return False
+    n["items"].append({"text": line, "ticked": False, "under": [f"  - {d}" for d in detail or [] if d.strip()]})
+    return True
+
+
+def meeting_since(mmdd, today):
+    """The date an item's `since MM-DD` names: the latest one on or before today."""
+    try:
+        d = datetime.date(today.year, int(mmdd[:2]), int(mmdd[3:]))
+    except (TypeError, ValueError):
+        return None
+    return d if d <= today else d.replace(year=today.year - 1)
+
+
+def meeting_rule(n, today, last_meeting):
+    """His ticks and `ela:` lines applied. An item that was on the list at a meeting held (since on or before
+    `last_meeting`, a date or None) is ruled by an `ela:` line under it (its words) or a tick with none; one ticked
+    before any meeting saw it is dropped, and `ela: drop` drops either. Each leaves To raise for `### <today>` under
+    Ruled, its plain detail folded under it. → [{key, text, outcome: ruled|dropped, words}]."""
+    out, stay, lines = [], [], []
+    for it in n["items"]:
+        f = meeting_fields(it["text"])
+        guides = [g.group(1).strip() for g in (GUIDE.match(l) for l in it["under"]) if g]
+        words = [g for g in guides if not MEETING_DROP.match(g) and not MEETING_ORDER.match(g)]
+        since = meeting_since(f["since"], today) if f["since"] else None
+        seen = last_meeting is not None and (since is None or since <= last_meeting)
+        if any(MEETING_DROP.match(g) for g in guides) or (it["ticked"] and not seen):
+            outcome = "dropped"
+        elif seen and (words or it["ticked"]):
+            outcome = "ruled"
+        else:
+            stay.append(it); continue
+        said = "; ".join(re.sub(r"^ruled[ \t]*[—:-]*[ \t]*", "", w, flags=re.I) for w in words)
+        bare = re.sub(r"[ \t]*·[ \t]*(?:since[ \t]+\d{2}-\d{2}|ela proposes)\b", "", it["text"])
+        tail = "dropped" if outcome == "dropped" else (f"ruled: {said}" if said else "ruled by your tick")
+        detail = [l for l in it["under"] if not GUIDE.match(l) and not l.lstrip().startswith(">")]
+        lines += [f"- {bare} · {tail}"] + detail
+        out.append({"key": f["key"], "text": bare, "outcome": outcome, "words": said or None})
+    if out:
+        n["items"] = stay
+        day = next((x for x in n["ruled"] if x[0] == today.isoformat()), None)
+        if day is None:
+            day = (today.isoformat(), [])
+            n["ruled"].append(day)
+        while day[1] and not day[1][-1].strip():
+            day[1].pop()
+        day[1].extend(lines)
+    return out
+
+
+def meeting_lint(path, text):
+    """Lint lines for a meeting note: an item over 140 characters as reading mode shows it, a missing send box or
+    section."""
+    n, out = meeting_parse(text), []
+    if not n["send"]:
+        out.append(f"{path}: no `- [ ] send` box above {MEETING_RAISE}")
+    for want in (MEETING_RAISE, MEETING_RULED):
+        if not re.search(r"^##[ \t]+" + re.escape(want) + r"[ \t]*$", split_front(text)[1], re.M):
+            out.append(f"{path}: no ## {want} section")
+    for i, it in enumerate(n["items"], 1):
+        k = len(visible(it["text"]))
+        if k > MEETING_ITEM_MAX:
+            out.append(f"{path}: item {i} is {k} characters, over {MEETING_ITEM_MAX}; fold the detail under it")
+    return out
+
+
+def meeting_roll(vault, today, dry_run=False):
+    """Ruled dates older than 30 days leave each meetings/<key>.md for archive/meetings-<key>-<yyyy-mm>.md, appended
+    in date order; the archive is written first, so a crash between the two leaves a date in both, never in neither.
+    → [(note, date, archive)]."""
+    moved, d = [], os.path.join(vault, MEETINGS)
+    cut = (today - datetime.timedelta(days=MEETING_RULED_DAYS)).isoformat()
+    for f in sorted(os.listdir(d)) if os.path.isdir(d) else []:
+        p = os.path.join(d, f)
+        if not f.endswith(".md"):
+            continue
+        text = open(p, encoding="utf-8").read()
+        fl, _ = split_front(text)
+        if not any(re.match(r"^type:\s*['\"]?meeting['\"]?\s*$", l) for l in fl):
+            continue
+        n = meeting_parse(text)
+        old = sorted((x for x in n["ruled"] if x[0] < cut), key=lambda x: x[0])
+        if not old:
+            continue
+        key, title = f[:-3], n["title"] or f[:-3]
+        for day, lines in old:
+            rel = f"{ARCHIVE}/meetings-{key}-{day[:7]}.md"
+            moved.append((f"{MEETINGS}/{f}", day, rel))
+            if dry_run:
+                continue
+            ap = os.path.join(vault, rel)
+            have = open(ap, encoding="utf-8").read() if os.path.exists(ap) else \
+                front([], {"title": f"{title.split(' · ')[0]} · ruled in {day[:7]}", "type": "meeting", "date": day[:7] + "-01"}) \
+                + f"# {title.split(' · ')[0]} · ruled in {day[:7]}\n"
+            if not re.search(r"^###[ \t]+" + day + r"\b", have, re.M):
+                os.makedirs(os.path.dirname(ap), exist_ok=True)
+                atomic_write(ap, have.rstrip("\n") + f"\n\n### {day}\n\n" + "\n".join(lines).strip("\n") + "\n")
+        if not dry_run:
+            n["ruled"] = [x for x in n["ruled"] if x[0] >= cut]
+            send = re.sub(r"^[-*][ \t]+\[[ xX]\][ \t]+send[ \t]*—?[ \t]*", "", n["send"]["text"]) if n["send"] else "copy the list from below"
+            atomic_write(p, meeting_render(n, title, send, today))
+    return moved
+
+
 # ── the sync ──────────────────────────────────────────────────────────────────────────────────────────
 
 def native_notes(vault):
@@ -1711,6 +1935,8 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since
         native_warn += [f"{n.path}: {p}" for p in mermaid_problems(n.body)]
         if n.props.get("type") == "report":              # a report is his document; its budget is advice, never a hold
             native_warn += report_lint(n)
+        if n.props.get("type") == "meeting" and top(n.path) == MEETINGS:
+            native_warn += [f"meeting: {x}" for x in meeting_lint(n.path, n.body)]
     native_warn += [f"type: {x}" for x in (type_lint(n.path, n.props.get("type")) for n in notes + native) if x]
     native_warn += [f"asks: {x}" for x in (asks_lint(n) for n in notes + native) if x]
     native_warn += [f"layout: {x}" for x in folder_lint(s["vault"])]
@@ -2531,6 +2757,7 @@ def cmd_sync(a):
     removed_path = os.path.join(s.get("reports") or "", "ela", "vault-removed.jsonl")
     marked = [] if a.dry_run else apply_marks(vault, s.get("reports") or "")   # ticked boxes first: they are his moves
     answered = answered_readings(vault, s.get("reports") or "", a.dry_run)
+    rolled = meeting_roll(vault, today, a.dry_run)
     for fix in settle_statuses(vault, a.dry_run):
         print(f"status: {fix}", file=sys.stderr)
     if not a.dry_run:
@@ -2699,6 +2926,7 @@ def cmd_sync(a):
     counts = {"generated": len(planned), "in_place": len(native_paths), "archived": in_archive}
     r = {**counts, "dry_run": a.dry_run, "deleted_by_owner": newly, "archived_by_ela": to_archive, "moved": [{"from": f, "to": t} for f, t in moved],
          "answered": [{"from": f, "to": t} for f, t in answered],
+         "rolled": [{"note": f, "date": d, "to": t} for f, d, t in rolled],
          "left_in_retired": left, "notes": len(planned), "written": len(wrote), "unchanged": same, "files_copied": copied,
          "removed": gone, "held": held, "warnings": warnings}
     if a.json:
@@ -2718,6 +2946,8 @@ def cmd_sync(a):
         print(f"  every ask answered, moved to readings: {f}" + (f" → {t}" if t else ""))
     for d in to_archive:
         print(f"  acted on, archived by ela: {d}")
+    for f, d, t in rolled:
+        print(f"  ruled {d}, over {MEETING_RULED_DAYS} days: {f} → {t}")
     for d in newly:
         print(f"  deleted by the owner, recorded as read: {d}")
     for h in held:
