@@ -547,6 +547,31 @@ check("under a tier-2 hold Home's block has no boxes and says until when",
 check("and a dry run shows its own line, in the Done line too, never as sent",
       "**At 09:30, held until 2026-11-05 (dry run):**\n- 8 — dry run: would have posted at 09:30" in hm
       and "**Done since you last looked:**\n- 8 — dry run:" in hm and "sent" not in hm)
+sb = {"tier": 3, "send_box": True, "rule": "qa-today", "scope": ["--lane", "qa-cn3"], "kind": "slack",
+      "command": "ela slack post x", "text": "QA today on qa-cn3", "day": "2026-10-28"}
+box = [dict(sb, n=4), dict(sb, n=5, scope=["--lane", "qa-us1"], send_ticked={"at": "2026-10-28T09:12:00+0800"}),
+       dict(sb, n=6, scope=["--lane", "qa-eu1"], vetoed="2026-10-28T09:20:00+0800"), {"n": 7, "tier": 2, "text": "reply", "day": "2026-10-28"}]
+hm = V.home(day, datetime.datetime(2026, 10, 28, 9), [], {"actions": box, "hold": {"until": "2026-11-05"}})
+check("Home lists a send box between the tier-2 block and his own, in the form the runner reads, a ticked one with its time",
+      hm.index("unless you tick" if "unless you tick" in hm else "held until") < hm.index("**Send when you tick:**") < hm.index("**Only you:**")
+      and "- [ ] send 4 — QA today on qa-cn3 (your ela: lines applied first)" in hm
+      and "- [x] send 5 — QA today on qa-us1 (your ela: lines applied first) · ticked 09:12" in hm
+      and "send 6" not in hm and "apply 4" not in hm and "**Only you:** nothing today." in hm)
+check("a send box ticked on Home is what the runner reads", re.findall(r"(?m)^[ \t]*[-*][ \t]+\[[xX]\][ \t]+send[ \t]+(\d+)\b", hm) == ["5"])
+hm = V.home(day, datetime.datetime(2026, 10, 28, 11), [], {"actions": [dict(sb, n=4, applied="2026-10-28T09:30:20+0800", permalink="https://x/p4")]})
+check("after the send the Done line lists it, the block is gone",
+      "- 4 — QA today on qa-cn3 sent 09:30 · [link](https://x/p4)" in hm and "Send when you tick" not in hm)
+check("no send box today, no block", "Send when you tick" not in V.home(day, datetime.datetime(2026, 10, 28, 9), [], {"actions": acts}))
+with tempfile.TemporaryDirectory() as t:
+    ap = os.path.join(t, "a.json")
+    json.dump([dict(sb, n=4), dict(sb, n=5, send_ticked="2026-10-28T09:12:00+0800"),
+               dict(sb, n=6, applied="2026-10-28T09:30:20+0800", permalink="https://x/p6"), dict(sb, n=7, failed={"error": "slack 500"})], open(ap, "w"))
+    pg = "## QA today\n\n- [ ] send 4 — QA today on qa-cn3 (your ela: lines applied first) · unticked: stays as apply 4\n" \
+         "- [ ] send 5 — b\n- [x] send 6 — c\n- [x] send 7 — d\n- [x] send 6 — c · sent 09:30 · [link](https://x/p6)"
+    check("the morning page keeps the send box under QA today: open, ticked, sent with its link, not sent",
+          V.action_states(pg, ap) == "## QA today\n\n- [ ] send 4 — QA today on qa-cn3 (your ela: lines applied first) · unticked: stays as apply 4\n"
+          "- [x] send 5 — b · ticked 09:12\n- [x] send 6 — c · sent 09:30 · [link](https://x/p6)\n- [x] send 7 — d · not sent: slack 500\n"
+          "- [x] send 6 — c · sent 09:30 · [link](https://x/p6)")
 with tempfile.TemporaryDirectory() as t:
     os.makedirs(f"{t}/runner")
     check("no hold file, no hold", V.tier2_hold(t, "2026-10-30") is None)

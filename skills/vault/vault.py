@@ -137,7 +137,9 @@ Start at [[home]]. Five lines: what ela did since you last looked, what leaves a
 what only you can do (at most three `apply` boxes), the MediaHub program's next step, and one line from ela. Below
 the line, links: the morning page, lanes, board, changes, the program, the ela page and all notes. A box ticked on
 Home is the same as on the morning page. While you hold tier 2 (`ela-runner hold`), nothing leaves on its own: the
-block reads "held until DATE (dry run)", without boxes, and each action says what it would have posted.
+block reads "held until DATE (dry run)", without boxes, and each action says what it would have posted. The QA day
+post never leaves on a timer: under "Send when you tick:" it waits as `send N` until you tick it, after reviewing the
+list and writing your `ela:` priority lines; the 09:30 or 10:00 pass then sends it, and the Done line lists it.
 
 ## Layout
 
@@ -672,6 +674,7 @@ def report_notes(reports, today):
 
 APPLY_BOX = re.compile(r"^([ \t]*[-*][ \t]+)\[[ xX]\]([ \t]+apply[ \t]+(\d+)\b.*?)[ \t]*$", re.M)
 DONT_BOX = re.compile(r"^([ \t]*[-*][ \t]+\[[ xX]\][ \t]+don't[ \t]+(\d+)\b.*?)[ \t]*$", re.M)   # tier 2: his box vetoes it
+SEND_BOX = re.compile(r"^([ \t]*[-*][ \t]+)\[[ xX]\]([ \t]+send[ \t]+(\d+)\b.*?)[ \t]*$", re.M)   # tier 3: leaves on his tick
 DONE_LINE = re.compile(r"^([ \t]*[-*][ \t]+done[ \t]+(\d+)\b.*?)[ \t]*$", re.M)          # tier 1: ela did it
 
 
@@ -710,7 +713,19 @@ def action_states(body, actions_path):
         if a.get("applied"):
             return f"{m.group(1)} · {'sent' if m.re is DONT_BOX else 'done'} {a['applied'][11:16]}"
         return m.group(0)
-    return DONE_LINE.sub(outcome, DONT_BOX.sub(outcome, APPLY_BOX.sub(one, body)))
+    def sent(m):                                          # a send box: ticked, sent or not, as the runner recorded it
+        a = acts.get(m.group(3))
+        lead, rest = m.group(1), m.group(2)
+        if not a or re.search(r" · (sent|not sent|ticked) ", rest + " "):
+            return m.group(0)                             # unknown, or the runner's own line already says it
+        if a.get("applied"):
+            return f"{lead}[x]{rest} · sent {a['applied'][11:16]}" + (f" · [link]({a['permalink']})" if a.get("permalink") else "")
+        if a.get("failed"):
+            return f"{lead}[x]{rest} · not sent: {str((a['failed'] or {}).get('error') or 'failed')[:80]}"
+        if ticked_at(a):
+            return f"{lead}[x]{rest} · ticked {ticked_at(a)[11:16]}"
+        return m.group(0)
+    return SEND_BOX.sub(sent, DONE_LINE.sub(outcome, DONT_BOX.sub(outcome, APPLY_BOX.sub(one, body))))
 
 
 def record_verdict(html_path):
@@ -1175,11 +1190,13 @@ def home(today, now, notes, desk=None):
     since = desk.get("since")
     def new(at):
         return bool(at) and (at > since if since else at[:10] == iso)
-    done = sorted((a for a in desk.get("actions") or [] if a.get("tier") in (1, 2)
+    done = sorted((a for a in desk.get("actions") or [] if (a.get("tier") in (1, 2) or a.get("send_box"))
                    and (new(a.get("applied")) or new((a.get("dry_run") or {}).get("at")))),
                   key=lambda a: a.get("applied") or a["dry_run"]["at"])
     soon = [a for a in today_acts if a.get("tier") == 2 and not (a.get("applied") or a.get("vetoed") or a.get("failed"))]
-    mine = [a for a in today_acts if a.get("tier", 3) == 3 and not (a.get("applied") or a.get("by_owner"))]
+    # tier 3 with a send box (the QA day post): it leaves only on his tick, read by the runner's 09:30 and 10:00 passes
+    send = [a for a in today_acts if a.get("send_box") and not (a.get("applied") or a.get("vetoed"))]
+    mine = [a for a in today_acts if a.get("tier", 3) == 3 and not (a.get("send_box") or a.get("applied") or a.get("by_owner"))]
     hold = desk.get("hold")
     page = f"[[{brief.path[:-3]}|the morning page]]" if brief else "the morning page"
     L = [f"# {today:%a %Y-%m-%d}", ""]
@@ -1190,6 +1207,8 @@ def home(today, now, notes, desk=None):
         L += [(f"**At {at}, held until {hold['until']} (dry run):**" if hold else f"**At {at} unless you tick:**") + ("" if due else " nothing.")]
         L += [f"- {a['dry_run']['line']}" if (a.get("dry_run") or {}).get("line")
               else f"- {a['n']} — {a.get('text', '')}" if hold else f"- [ ] don't {a['n']} — {a.get('text', '')}" for a in due] + [""]
+    if send:
+        L += ["**Send when you tick:**"] + [f"- {send_line(a)}" for a in send] + [""]
     L += ["**Only you:**" + ("" if mine else " nothing today.")]
     L += [f"- [ ] apply {a['n']} — {a.get('text', '')}" for a in mine[:3]]
     L += [f"*+{len(mine) - 3} more on {page}*"] if len(mine) > 3 else []
@@ -1219,15 +1238,37 @@ def home(today, now, notes, desk=None):
     return "\n".join(L)
 
 
+def action_what(a):
+    """What an action does, in a few words: its rule's name and lane for a day post, else its own line."""
+    scope = a.get("scope") or []
+    where = f" on {scope[1]}" if len(scope) > 1 and scope[0] in ("--lane", "--line") else ""
+    return {"qa-today": f"QA today{where}", "dev-today": f"Dev today{where}"}.get(a.get("rule")) \
+        or re.sub(r"^at \d\d:\d\d:\s*", "", str(a.get("text") or ""))
+
+
+def ticked_at(a):
+    """When the runner found his send box ticked: `send_ticked` is {at}, or a bare time as `vetoed` is."""
+    t = a.get("send_ticked")
+    return str((t.get("at") if isinstance(t, dict) else t) or "")
+
+
+def send_line(a):
+    """A send-box action as Home lists it, in the box form the runner reads (`send N`): open, ticked with the time the
+    runner saw it, or not sent with the error, without a box."""
+    what = f"{a['n']} — {action_what(a)} (your ela: lines applied first)"
+    if a.get("failed"):
+        return f"send {what} · not sent: {str((a['failed'] or {}).get('error') or 'failed')[:80]}"
+    if ticked_at(a):
+        return f"[x] send {what} · ticked {ticked_at(a)[11:16]}"
+    return f"[ ] send {what}"
+
+
 def done_line(a):
     """One sent or dry-run tier-1/2 action as Home's Done line reads it: what, when, and the post as evidence. A dry run
     keeps the runner's own words, never "sent"."""
     if (a.get("dry_run") or {}).get("line") and not a.get("applied"):
         return a["dry_run"]["line"]
-    scope = a.get("scope") or []
-    where = f" on {scope[1]}" if len(scope) > 1 and scope[0] in ("--lane", "--line") else ""
-    what = {"qa-today": f"QA today{where}", "dev-today": f"Dev today{where}"}.get(a.get("rule")) \
-        or re.sub(r"^at \d\d:\d\d:\s*", "", str(a.get("text") or ""))
+    what = action_what(a)
     slack = a.get("kind") == "slack" or str(a.get("command") or "").startswith("ela slack")
     link = f" · [link]({a['permalink']})" if a.get("permalink") else ""
     return f"{a['n']} — {what} {'sent' if slack else 'done'} {a['applied'][11:16]}{link}"
