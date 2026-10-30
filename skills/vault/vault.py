@@ -82,7 +82,8 @@ OWNER_FOLDERS = (ARCHIVE,)   # where the owner drags a note to keep it; ela neve
 ATTACH = "ela/attachments"
 DELETABLE = (DAYS, TO_READ, READINGS)
 KEEP_FOREVER = ("brief", "week", "changes")   # the morning pages are the record of what ela told the owner; the rest expires
-PROPS = ("title", "aliases", "type", "date", "kind", "status", "result", "moves", "next")   # the whole vocabulary; no tags (ADR 0010)
+PROPS = ("title", "aliases", "type", "date", "kind", "status", "result", "target", "progress", "source", "moves", "next", "ela")
+# the whole vocabulary; no tags (ADR 0010)
 MARKS = {"done": ARCHIVE, "drop": None}   # a ticked box in a to-read table row: archive, delete
 BUDGET = {"ticket": 700, "topic": 800, "guide": 1200, "board": 1000, "day": 1200, "review": 2500, "decision": 800, "plan": 800, "sprint": 800, "report": 1200}
 # the closed set of note types, by family (the readme's Types): for his word, readings, living pages, day pages.
@@ -162,7 +163,9 @@ the file explorer is rarely needed.
   date. The readable title is the note's first heading, and an alias, so the quick switcher (Ctrl+O) finds a
   note by its title.
 - Properties are `title`, `aliases` and `type`, plus `date`, `kind` on a day page, `status`, and `result` on a
-  verification (pass or fail); a page ela writes in place also carries `source: "vault"`. status is ela's, never
+  verification (pass or fail). A page ela writes in place also carries `source` ("vault": ela writes the note in
+  place), `target` (what the note changes), `progress` (the desk's last state line) and `ela` (the generated or
+  hand line the desk leaves for you). status is ela's, never
   yours to set, and follows the folder: to-read *proposed* (waits on your word) or *blocked* (only you can unblock);
   in-progress *building*, *built* (waits on your accept), *waiting* (a loop that cannot finish; Progress says why) or
   *blocked*; parked *parked*; archive *closed*, with the outcome in `next`. Home's *Waiting for your word* holds only
