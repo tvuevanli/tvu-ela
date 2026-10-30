@@ -18,6 +18,7 @@ python3 tests/test_fixedin_declared_offline.py || fail=1
 python3 tests/test_browser_offline.py || fail=1
 python3 tests/test_stage_offline.py || fail=1
 python3 tests/test_testlist_offline.py || fail=1
+python3 tests/test_testlist_slack_offline.py || fail=1
 python3 tests/test_lists_sheet_offline.py || fail=1
 python3 tests/test_verify_report_offline.py || fail=1
 python3 tests/test_jira_fixedin_offline.py || fail=1

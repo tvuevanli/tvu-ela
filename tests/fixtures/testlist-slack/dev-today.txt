@@ -1,0 +1,14 @@
+*Dev today · 2.1 · Fri 10-30*
+Reply here when a row is done or wrong.
+*Overdue*
+• Wilson Wang: <https://tvunetworks.atlassian.net/browse/MH-3569|MH-3569> Fox YouTube source not following live · 52d
+• Wilson Wang: <https://tvunetworks.atlassian.net/browse/MH-3510|MH-3510> Call HTML module API instead of UR docker · 44d
+*Blocked*
+• Andy Zhao: <https://tvunetworks.atlassian.net/browse/MH-3166|MH-3166> Operation log default range 30 days
+*On hold*
+• Andy Zhao: <https://tvunetworks.atlassian.net/browse/MH-3650|MH-3650> Rule 2 (stop unused inputs) takeover
+*Needs a ticket*
+• build 79: 2 changes with no ticket (Mediahub Backend: bindDestination takes @RequestBody; UR Caller: null guard on the task)
+*Also*
+• Etan Yang: <https://tvunetworks.atlassian.net/browse/MH-3779|MH-3779> TVU → Jira callback on schedule changes · moved In Progress → Review
+28 more on the dev list.

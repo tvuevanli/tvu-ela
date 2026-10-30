@@ -1,0 +1,25 @@
+*QA today · QA-AWS3 · Fri 10-30*
+On the lane (build 79):
+```
+service                  version
+mediahub-backend         2.1.37
+mediahub-frontend        2.2.124
+UR Caller                2.1.79
+unified-media-frontend   3.0.39
+unified-media-backend    1.0.286
+media bundle             mh2.1@qa-q28
+```
+*P1: today, in this order*
+1. <https://tvunetworks.atlassian.net/browse/MH-3756|MH-3756> NDTV audio-only profile in multi-profile HLS · customer · 7d · ⚠ no steps
+2. <https://tvunetworks.atlassian.net/browse/MH-3771|MH-3771> + <https://tvunetworks.atlassian.net/browse/MH-3772|MH-3772> HTML source input via MQTT proxy · re-test after fail · 7d
+3. <https://tvunetworks.atlassian.net/browse/WF-476|WF-476> Multiviewer category in MM Observe · High · 7d
+4. <https://tvunetworks.atlassian.net/browse/MH-3808|MH-3808> Auth gaps on groupAttr (login + group owner) · High · 3d
+5. <https://tvunetworks.atlassian.net/browse/MH-3820|MH-3820> Preview Quality admin switch · High · 2d
+*P2: if time allows*
+6. <https://tvunetworks.atlassian.net/browse/MH-3802|MH-3802> ISSP as MPEG-TS on SRT/UDP source · 3d
+7. No ticket · Scheduler extension updates the destination end time · 7d
+8. No ticket · Backend nightly fixes (orderItem, bindDestinations) · 7d · ⚠ no steps
+9. No ticket · Drive signed requests use POST · 3d
+10. No ticket · webemulator wp response envelope · 3d · ⚠ no steps
+61 more on the lane's list.
+Verdict: in the ticket comment (version + pass/fail), or reply here, e.g. `MH-3756 pass on 79`.

@@ -45,9 +45,14 @@ list  Without --lane, every lane with release mails ("[Release MediaHub <env>]")
       newest build's new rows, then interruptions (tickets assigned to QA in no build; asks to QA in #mediahub-qa-
       release and #prj_dev_mediahub since the last evening run, 19:00 the previous working day), cut at --budget
       (10), each row with the reason it is in; --guidance applies his `ela:` lines (drop · first · add · KEY P1) first. The
-      json carries the text for the 09:30 tier-2 post (rule qa-today) in the lane build's release thread, or, when the
-      build has none, as the day post (`post`: "day post", `ela slack post #<channel> … --team-day-post`), and the
-      overnight count (posts read, channels not read, asks placed).
+      json carries `text`, the post as it goes on his tick (rule qa-today, tier 3, a send box) in the lane build's release
+      thread, or, when the build has none, as the day post (`post`: "day post", `ela slack post #<channel> …
+      --team-day-post`); `table`, the same plan as Markdown tables for the vault page; and the overnight count (posts
+      read, channels not read, asks placed). `text` is the reference form of 2026-10-30 (<reports>/runner/actions/
+      2026-10-30/slack-v2.md): the lane's current versions in a code block (the last lane read, then the newest bundle on
+      the line's QA token), one line a row under *P1: today, in this order* and *P2: if time allows* (link, short title,
+      reason, age as 7d, "No ticket" for a row without one, "⚠ no steps"), the rest counted, the verdict line. An ask
+      with no ticket is no row in Slack: its words are chat, never a task.
 
 dev   One row per owner ticket in development on the line (labelled for it, not Done, and In Progress, Review, Blocked,
       On Hold or Reopened, or named by a commit, or on the lane's test list): layer, assignee and the commits' authors,
@@ -59,9 +64,11 @@ dev   One row per owner ticket in development on the line (labelled for it, not 
       every line release.yaml names with a Jira label that has a ticket in development; --json is then {"lists"}.
       --today: Dev today, by developer, at most 12 rows: moved since the last evening run, due today or overdue,
       blocked or on hold, the gaps and the build changes with no ticket, and asks to a developer from anyone else in
-      the team channels since then; his `ela:` lines applied first. The json carries the text for the 10:00 tier-2
-      post (rule dev-today), the day post in #prj_dev_mediahub (`post`: "day post", thread null): one top-level
-      message a day, which becomes the day's thread.
+      the team channels since then; his `ela:` lines applied first. The json carries `text`, the post as it goes on his
+      tick (rule dev-today, tier 3, a send box), the day post in #prj_dev_mediahub (`post`: "day post", thread null):
+      one top-level message a day, which becomes the day's thread; and `table`, the plan as one Markdown table. `text`
+      groups the rows, one line each, under *Overdue* (age as 52d), *Due today*, *Blocked*, *On hold*, *Needs a ticket*
+      (one line per build), *Asks* and *Also*; never an nt- id or a chat's words.
 
 Reads only Jira, mail, Slack, the release ledger and disk; writes only its own files under <reports>/lanes/.
 Exit codes: 0 ok · 2 usage · 3 --saw names no row · 5 the release mails could not be read.
@@ -864,13 +871,10 @@ def release_thread(env, date, lane, build, gaps):
 
 
 def slack_text(out, build, rows):
-    head = f"*Test list · {out['shown']} {'build' if out['kind'] == 'qa' else 'release'} {build}* — {len(rows)} new row(s), highest priority first. Verdicts go in the ticket comment (version + pass/fail), or as a reply here: `MH-1234 pass on 2.1.78` (a no-ticket row by its `nt-` id)."
-    lines = [head]
-    for r in rows:
-        name = f"<{r['url']}|{r['ticket']}>" + "".join(f" / <{JIRA_URL}{k}|{k}>" for k in r["also"]) if r["ticket"] else f"*no ticket* ⚠ `{r['id']}`"
-        lines.append(f"• *{r['priority']}* ({r['priority_reason']}) {name} {cell(r['title'], 80)}\n    how: {cell(r['how_to_verify'], 260)}"
-                     + ("  · ela checks it in the browser overnight" if r["auto"] else ""))
-    return "\n".join(lines)
+    """A build's new rows in Slack, in QA today's row form (qa_line), grouped under P1/P2."""
+    L = [f"*Test list · {out['shown']} · {'build' if out['kind'] == 'qa' else 'release'} {build}*"]
+    L += qa_groups([plan_row(r, r["priority_reason"]) for r in rows])
+    return "\n".join(L + [verdict_line([plan_row(r, "") for r in rows], build)])
 
 
 def new_rows(out, env, date):
@@ -1001,7 +1005,7 @@ def apply_guidance(plan, lines, out):
 def plan_row(r, reason):
     return {"id": r["id"], "ticket": r["ticket"], "url": r["url"], "also": r.get("also", []), "title": r["title"],
             "priority": r["priority"], "how_to_verify": r["how_to_verify"], "auto": r["auto"], "ela_saw": r.get("ela_saw"),
-            "reason": reason}
+            "reason": reason, "why": r.get("priority_reason"), "age": r.get("age_days")}
 
 
 def qa_today(out, env, at, budget, guidance, gaps):
@@ -1029,11 +1033,12 @@ def qa_today(out, env, at, budget, guidance, gaps):
         gaps.append(f"jira QA assignments: {str(x)[:160]}")
     since = last_evening(at)
     night = overnight(env, since, {**names, **ids})
-    for ask in night["asks"]:
+    titles = {k: r["title"] for r in out["rows"] for k in [r["ticket"], *r.get("also", [])] if k}
+    for ask in night["asks"]:                               # a row names the ask's ticket, never the chat's words
         keys = B.keys_in(ask["text"])
         plan.append({"id": keys[0] if keys else ask["link"], "ticket": keys[0] if keys else None,
-                     "url": JIRA_URL + keys[0] if keys else ask["link"], "also": [], "title": ask["text"][:120], "priority": "—",
-                     "how_to_verify": "", "auto": False, "ela_saw": None,
+                     "url": JIRA_URL + keys[0] if keys else ask["link"], "also": [], "title": titles.get(keys[0], "") if keys else "",
+                     "priority": "—", "how_to_verify": "", "auto": False, "ela_saw": None, "chat": not keys,
                      "reason": f"ask from {ask['by']} to {', '.join(ask['to'])} in #{ask['channel']}"})
     unread = apply_guidance(plan, guidance, out)
     seen, cut = set(), []
@@ -1054,16 +1059,124 @@ def qa_accounts():
     return [f'"{p["jira"]}"' for p in roster if (p.get("area") or "") == "qa" and p.get("jira")]
 
 
+# the lane's services in the order QA reads them, as the release mails name them (reference: slack-v2.md, 2026-10-30)
+SLACK_SERVICES = (("mediahub-backend", "mediahub-backend"), ("mediahub-frontend", "mediahub-frontend"),
+                  ("unified-streaming", "UR Caller"), ("unified-media-frontend", "unified-media-frontend"),
+                  ("unified-media-backend", "unified-media-backend"))
+WHY_WORD = (("customer", "customer"), ("re-test", "re-test after fail"), ("hotfix", "hotfix"), ("Jira Highest", "Highest"),
+            ("Jira High", "High"), ("in the sprint", "sprint"))
+
+
+def lane_versions(lane, s, env, gaps):
+    """[(service, version)] on the lane now: the last lane read (`ela changes`, `ela matrix --page`) for each service, the
+    current version only, then the newest bundle on the line's QA token. Empty when nothing was read."""
+    import release as R  # noqa: E402 — on the path through brief
+    runner = os.path.join(s.get("runtime") or os.path.join(s.get("projects", ""), ".ela"), "runner")
+    have = {}
+    for _, _, rows in B.lane_reads(runner):
+        for r in rows:
+            if r.get("lane") == lane and r.get("host") != "mail" and r.get("version"):
+                have[r["service"]] = r["version"]
+    out = []
+    for slug, name in SLACK_SERVICES:
+        pv = R.parse_version(have.get(slug))
+        if pv:
+            out.append((name, f"{pv[0]}.{pv[1]}.{pv[2]}" + (f".{pv[3]}" if pv[3] else "")))
+    cfg = next((c for c in (R.rmap("lines") or {}).values() if (c.get("lanes") or {}).get("qa") == lane and c.get("bundle_line")), None)
+    if cfg and out:
+        pre = cfg["bundle_line"] + (cfg.get("bundle_lanes") or {}).get("qa", "qa")
+        try:
+            got = B.run_json(["python3", B.RELEASE, *env, "bundles", cfg["bundle_line"], "--host", "qa", "--limit", "50", "--json"],
+                             timeout=120)["bundles"]
+            b = max((x for x in got if str(x.get("bundleName", "")) == pre or str(x.get("bundleName", "")).startswith(pre + "-")),
+                    key=lambda x: str(x.get("createTime") or ""), default=None)
+            if b:
+                out.append(("media bundle", b["bundleName"]))
+        except (B.LaneError, subprocess.TimeoutExpired, ValueError, KeyError) as x:
+            gaps.append(f"bundles qa: {str(x)[:160]}")
+    return out
+
+
+def title_of(text, n=60):
+    """A ticket's title for one Slack line: its [Layer] or [customer] brackets dropped, cut at a word."""
+    t = re.sub(r"^(?:\s*\[[^\]]*\])+\s*", "", " ".join(str(text or "").split()))
+    return t if len(t) <= n else (t[:n].rsplit(" ", 1)[0] if " " in t[:n] else t[:n - 1]) + "…"
+
+
+def why_word(p):
+    """The row's reason in a word or two: customer · re-test after fail · hotfix · High · sprint · an ask's or an
+    assignment's asker; the rest says nothing."""
+    why = p.get("why") or ""
+    hit = next((w for k, w in WHY_WORD if why.startswith(k)), None)
+    if hit:
+        return hit
+    m = re.match(r"(ask from \S+(?: \S+)?) to|assigned to ([^(]+?) \(", p.get("reason") or "")
+    return (m.group(1) or "assigned to " + m.group(2)) if m else None
+
+
+def steps_known(p):
+    return bool(p.get("how_to_verify")) and p["how_to_verify"] != "steps unknown"
+
+
+def qa_line(n, p):
+    """`n. <link> + <link> short title · why · 7d · ⚠ no steps`; a row with no ticket is "No ticket · title"."""
+    if p["ticket"]:
+        name = " + ".join(f"<{u}|{k}>" for k, u in [(p["ticket"], p["url"]), *[(k, JIRA_URL + k) for k in p.get("also") or []]])
+        head = f"{name} {title_of(p['title'])}".rstrip()
+    else:
+        head = f"No ticket · {title_of(p['title'])}"
+    tail = [x for x in (why_word(p), f"{p['age']}d" if p.get("age") is not None else None,
+                        "⚠ no steps" if not steps_known(p) else None) if x]
+    return f"{n}. " + " · ".join([head, *tail])
+
+
+def qa_groups(rows):
+    """The rows under *P1: today, in this order* and *P2: if time allows* (P2, P3 and the interruptions), numbered
+    straight through; an ask with no ticket is no row (its words are chat, not a task)."""
+    rows = [p for p in rows if not p.get("chat")]
+    one = [p for p in rows if p["priority"] == "P1"]
+    rest = [p for p in rows if p["priority"] != "P1"]
+    L = (["*P1: today, in this order*"] + [qa_line(n, p) for n, p in enumerate(one, 1)]) if one else []
+    if rest:
+        L += ["*P2: if time allows*"] + [qa_line(n, p) for n, p in enumerate(rest, len(one) + 1)]
+    return L
+
+
+def verdict_line(rows, build):
+    key = next((p["ticket"] for p in rows if p.get("ticket")), "MH-1234")
+    return f"Verdict: in the ticket comment (version + pass/fail), or reply here, e.g. `{key} pass on {build}`."
+
+
+def versions_block(versions):
+    if not versions:
+        return ["versions not read"]
+    w = max(len(n) for n, _ in versions + [("service", "")]) + 3
+    return ["```", "service".ljust(w) + "version"] + [n.ljust(w) + v for n, v in versions] + ["```"]
+
+
 def today_text(out, plan, at):
-    L = [f"*QA today · {out['shown']} · {at:%a %m-%d}* — {out['lane_label']} on the lane. In this order; a verdict goes in the "
-         "ticket comment (version + pass/fail) or as a reply here: `MH-1234 pass on 2.1.78`."]
-    for n, p in enumerate(plan["rows"], 1):
-        name = (f"<{p['url']}|{p['ticket']}>" if p["ticket"] else f"*no ticket* `{p['id']}`") + "".join(f" / <{JIRA_URL}{k}|{k}>" for k in p.get("also") or [])
-        saw = f"\n    ela saw: {(p['ela_saw'] or {}).get('line')}" if p.get("ela_saw") else ""
-        how = f"\n    how: {cell(p['how_to_verify'], 200)}" if p.get("how_to_verify") else ""
-        L.append(f"{n}. *{p['priority']}* {name} {cell(p['title'], 80)} — {p['reason']}{how}{saw}")
+    """QA today as it is posted (the reference text of 2026-10-30, `<reports>/runner/actions/2026-10-30/slack-v2.md`):
+    the lane's versions in a code block, the rows one line each under P1/P2, the rest counted, the verdict line."""
+    build = out["lane_label"]
+    L = [f"*QA today · {out['shown']} · {at:%a %m-%d}*", f"On the lane (build {build}):"] + versions_block(plan.get("versions") or [])
+    L += qa_groups(plan["rows"])
     if plan["more"]:
-        L.append(f"+{plan['more']} more on the lane's list.")
+        L.append(f"{plan['more']} more on the lane's list.")
+    return "\n".join(L + [verdict_line(plan["rows"], build)])
+
+
+def today_table(out, plan):
+    """QA today for the vault page: the versions and the rows as Markdown tables, a chat ask by its thread."""
+    L = ["| service | version |", "|---|---|"] + [f"| {n} | {v} |" for n, v in plan.get("versions") or []] + [""] \
+        if plan.get("versions") else []
+    L += ["| # | P | ticket | title | why | age | steps |", "|---|---|---|---|---|---|---|"]
+    for n, p in enumerate(plan["rows"], 1):
+        name = (" + ".join(f"[{k}]({JIRA_URL}{k})" for k in [p["ticket"], *(p.get("also") or [])]) if p["ticket"]
+                else f"[chat ask]({p['url']})" if p.get("chat") else "no ticket")
+        L.append(f"| {n} | {p['priority']} | {name} | {short(title_of(p['title'], 80))} | {why_word(p) or '—'} | "
+                 f"{str(p['age']) + 'd' if p.get('age') is not None else '—'} | {'yes' if steps_known(p) else '⚠ none'} |")
+    if plan["more"]:
+        L += ["", f"{plan['more']} more on the lane's list."]
     return "\n".join(L)
 
 
@@ -1097,11 +1210,13 @@ def cmd_list(a):
         plans = []
         for out in (o for o in outs if o["kind"] == "qa"):
             plan = qa_today(out, env, at, a.budget, guidance, gaps)
+            plan["versions"] = lane_versions(out["lane"], s, env, out["gaps"])
             b = out["builds"].get(out["lane_build"]) or {}
             errs = []
             thread = release_thread(env, b["at"][:10], out["lane"], b.get("label") or out["lane_build"], errs) if b.get("at") else None
             plans.append({"date": at.date().isoformat(), "lane": out["lane"], "shown": out["shown"], "lane_build": out["lane_build"], "thread": thread,
-                          "channel": B.QA_RELEASE, "post": "thread" if thread else "day post", "text": today_text(out, plan, at), **plan,
+                          "channel": B.QA_RELEASE, "post": "thread" if thread else "day post", "text": today_text(out, plan, at),
+                          "table": today_table(out, plan), **plan,
                           "gaps": out["gaps"] + [f"{g['source']}: {g['error']}" for g in errs]})
         if a.json:
             print(json.dumps(plans[0] if a.lane and plans else {"lists": plans, "gaps": gaps}, ensure_ascii=False))
@@ -1351,10 +1466,10 @@ def dev_today(outs, env, at, budget, guidance, cache, gaps):
     except (B.LaneError, subprocess.TimeoutExpired, ValueError) as x:
         moved = []
         gaps.append(f"jira changes: {str(x)[:160]}")
-    def add(key, who, reason, title=None):
+    def add(key, who, reason, title=None, **more):
         rows.append({"id": key, "ticket": key if re.match(r"^[A-Z][A-Z0-9]+-\d+$", key or "") else None,
                      "url": JIRA_URL + key if re.match(r"^[A-Z][A-Z0-9]+-\d+$", key or "") else key, "who": who or "—",
-                     "title": title or (by_key.get(key) or {}).get("title") or "", "reason": reason})
+                     "title": title or (by_key.get(key) or {}).get("title") or "", "reason": reason, **more})
     for i in moved:
         r = by_key.get(i["key"])
         st = [e for e in i.get("events") or [] if e.get("field") == "status"]
@@ -1364,14 +1479,15 @@ def dev_today(outs, env, at, budget, guidance, cache, gaps):
         f = ((cache.get(r["key"]) or {}).get("fields") or {})
         due = f.get("duedate")
         if due and due <= today:
-            add(r["key"], dev_of(r), "overdue since " + due if due < today else "due today")
+            add(r["key"], dev_of(r), "overdue since " + due if due < today else "due today",
+                age=(at.date() - datetime.date.fromisoformat(due)).days)
         if r["status"] in ("Blocked", "On Hold"):
             add(r["key"], dev_of(r), r["status"].lower())
         for g in r["gaps"]:
             add(r["key"], dev_of(r), g)
     for out in outs:
         for u in out["unticketed"]:
-            add(nt_id(u["text"]), "—", f"build {u['build']} change with no ticket", u["text"])
+            add(nt_id(u["text"]), "—", f"build {u['build']} change with no ticket", u["text"], build=u["build"])
     night = overnight(env, since, developers())
     threads = set()
     for ask in night["asks"]:                               # one row per thread: its first ask since the evening run
@@ -1379,7 +1495,7 @@ def dev_today(outs, env, at, budget, guidance, cache, gaps):
             continue
         threads.add(ask["thread"])
         keys = B.keys_in(ask["text"])
-        add(keys[0] if keys else ask["link"], ", ".join(ask["to"]), f"ask from {ask['by']} in #{ask['channel']}", ask["text"][:120])
+        add(keys[0] if keys else ask["link"], ", ".join(ask["to"]), f"ask from {ask['by']} in #{ask['channel']}", chat=not keys)
     order = ("ask from", "overdue", "due today", "blocked", "on hold", "moved", "QA assigned", "build", "Fixed In")
     rows.sort(key=lambda r: next((n for n, w in enumerate(order) if r["reason"].startswith(w)), len(order)))
     unread = apply_guidance(rows, guidance, {"rows": []})
@@ -1392,18 +1508,62 @@ def dev_today(outs, env, at, budget, guidance, cache, gaps):
             "since": since.isoformat(timespec="minutes"), "guidance_unread": unread}
 
 
-def dev_text(line, plan, at):
-    L = [f"*Dev today · {line} · {at:%a %m-%d}* — by developer; reply here when a row is done or wrong."]
-    who = {}
+# Dev today's groups, in the order posted; a row whose reason starts with none of them goes under *Also*
+DEV_GROUPS = (("Overdue", ("overdue",)), ("Due today", ("due today",)), ("Blocked", ("blocked",)), ("On hold", ("on hold",)),
+              ("Needs a ticket", ("build",)), ("Asks", ("ask from",)))
+
+
+def dev_groups(plan):
+    """[(group, rows)] in DEV_GROUPS order, then *Also*; an ask with no ticket is no row (its words are chat)."""
+    got = {}
     for r in plan["rows"]:
-        who.setdefault(r["who"], []).append(r)
-    for name, rs in who.items():
-        L.append(f"*{name}*")
-        for r in rs:
-            ref = f"<{r['url']}|{r['ticket']}>" if r["ticket"] else (f"<{r['url']}|thread>" if str(r["url"]).startswith("http") else f"`{r['id']}`")
-            L.append(f"• {ref} {cell(r['title'], 70)} — {r['reason']}")
+        if r.get("chat"):
+            continue
+        g = next((name for name, starts in DEV_GROUPS if r["reason"].startswith(starts)), "Also")
+        got.setdefault(g, []).append(r)
+    return [(g, got[g]) for g in [n for n, _ in DEV_GROUPS] + ["Also"] if g in got]
+
+
+def dev_line(r, group):
+    """`• Developer: <link> short title · 52d`; under Asks and Also the reason follows the title."""
+    who = page_name(r["who"]) if r["who"] not in ("—", None) else None
+    extra = [f"{r['age']}d"] if group == "Overdue" and r.get("age") is not None else \
+        [r["reason"]] if group in ("Asks", "Also") else []
+    return "• " + (f"{who}: " if who else "") + " · ".join([f"<{r['url']}|{r['ticket']}> {title_of(r['title'])}".rstrip(), *extra])
+
+
+def no_ticket_lines(rows):
+    """One line per build: `• build 79: 2 changes with no ticket (backend …; UR Caller …)`; never an nt- id."""
+    by = {}
+    for r in rows:
+        by.setdefault(r.get("build") or "?", []).append(r)
+    return [f"• build {b}: {len(rs)} change{'s' if len(rs) > 1 else ''} with no ticket ("
+            + "; ".join(title_of(r["title"], 70) for r in rs) + ")" for b, rs in by.items()]
+
+
+def dev_text(line, plan, at):
+    """Dev today as it is posted (the reference text of 2026-10-30, `<reports>/runner/actions/2026-10-30/slack-v2.md`):
+    the rows one line each under Overdue / Blocked / On hold / Needs a ticket, the rest counted."""
+    L = [f"*Dev today · {line} · {at:%a %m-%d}*", "Reply here when a row is done or wrong."]
+    for g, rs in dev_groups(plan):
+        L.append(f"*{g}*")
+        L += no_ticket_lines(rs) if g == "Needs a ticket" else [dev_line(r, g) for r in rs]
     if plan["more"]:
-        L.append(f"+{plan['more']} more on the dev list.")
+        L.append(f"{plan['more']} more on the dev list.")
+    return "\n".join(L)
+
+
+def dev_table(plan):
+    """Dev today for the vault page: one Markdown table, the group a column."""
+    L = ["| group | developer | ticket | title | age · why |", "|---|---|---|---|---|"]
+    for g, rs in dev_groups(plan):
+        for r in rs:
+            who = page_name(r["who"]) if r["who"] not in ("—", None) else "—"
+            name = f"[{r['ticket']}]({r['url']})" if r["ticket"] else f"build {r.get('build') or '?'}, no ticket"
+            what = f"{r['age']}d" if g == "Overdue" and r.get("age") is not None else "" if g in ("Blocked", "On hold") else cell(r["reason"], 60)
+            L.append(f"| {g} | {who} | {name} | {short(title_of(r['title'], 80))} | {what or '—'} |")
+    if plan["more"]:
+        L += ["", f"{plan['more']} more on the dev list."]
     return "\n".join(L)
 
 
@@ -1436,7 +1596,7 @@ def cmd_dev(a):
         plan = dev_today(outs, env, at, a.budget, guidance, shared.get("cache", {}), gaps)
         line = ", ".join(o["line"] for o in outs) or "no line"
         res = {"date": at.date().isoformat(), "line": line, "thread": None, "channel": B.DEV_CHANNEL, "post": "day post",
-               "text": dev_text(line, plan, at), **plan, "gaps": gaps}
+               "text": dev_text(line, plan, at), "table": dev_table(plan), **plan, "gaps": gaps}
         if a.json:
             print(json.dumps(res, ensure_ascii=False))
         else:
