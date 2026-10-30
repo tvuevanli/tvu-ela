@@ -161,7 +161,7 @@ list and writing your `ela:` priority lines; the 09:30 or 10:00 pass then sends 
 | `sprints/` | the sprints, each a plan | look at a sprint's start and end |
 | `meetings/` | one note per meeting: what you raise there, its send box, and what it ruled (30 days; older months in `archive/`) | look before the meeting; tick send, or answer an item with an `ela:` line after it |
 | `ela/` | the ela page (its measures, parts, schedule and week written by the sync; Waiting for your word, What changed for MediaHub this week and Known limits written by the desk), how ela runs, this page, the table view; attachments, hidden | rarely |
-| `ela/bot/` | the product side of ela: its design and the evidence reports | read when a report asks for your ruling |
+| `mediahub-bot/` | MediaHub's product bot, not ela: its design, answer contract, knowledge pack, the files it will commit (`files/`), its eval set (`eval/`) and the evidence (`evidence/`); the source until its repositories exist, then pointers | rule the design; confirm eval cases |
 | `ela/review/` | the evening reader pages | read in the evening |
 | `archive/` | what was acted on or you chose to keep; ela adds to it and keeps its status current, never its text, except the Afterwards it appends | look back (all notes, *Archive*); ask ela to tidy it |
 
