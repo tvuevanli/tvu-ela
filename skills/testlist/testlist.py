@@ -735,6 +735,35 @@ def cell(text, n=220):
     return t if len(t) <= n else t[:n].rsplit(" ", 1)[0] + " …"
 
 
+def short(text, n=60):
+    """One line of at most n characters, cut with … (a CJK title has no space to cut at)."""
+    t = " ".join(str(text or "").split()).replace("|", "\\|")
+    return t if len(t) <= n else t[:n - 1].rstrip() + "…"
+
+
+_ROSTER = None
+
+
+def page_name(name):
+    """A Jira display name as the roster writes it (its name, matched on the name or jira_name); unknown, as it came."""
+    global _ROSTER
+    if not name:
+        return None
+    if _ROSTER is None:
+        try:
+            import team as TM  # noqa: E402
+            _ROSTER = {n.lower(): p["name"] for p in TM.read_roster(TM.records())[1]
+                       for n in (p.get("name"), p.get("jira_name")) if n and p.get("name")}
+        except (SystemExit, ImportError, OSError, ValueError):
+            _ROSTER = {}
+    return _ROSTER.get(name.lower(), name)
+
+
+def callout(name, what, lines):
+    """A folded Obsidian callout: closed until opened, so the sheet above stays one screen."""
+    return ["", f"> [!note]- {name} · {what}"] + [f"> {l}" if l else ">" for l in lines]
+
+
 def render_page(out):
     at = datetime.datetime.fromisoformat(out["generated"])
     unit = "build" if out["kind"] == "qa" else "release"
@@ -746,12 +775,20 @@ def render_page(out):
          "*ela saw* is a read-only browser check overnight; QA's verdict overrules it.", "",
          f"{len(out['rows'])} open · " + " · ".join(f"{p} {sum(r['priority'] == p for r in out['rows'])}" for p in ("P1", "P2", "P3"))
          + f" · {sum(r['auto'] for r in out['rows'])} auto · {sum(not r['ticket'] for r in out['rows'])} no ticket", "",
-         "| | ticket | what | layer | how to verify | auto | verdict | builds | age | ela saw |", "|---|---|---|---|---|---|---|---|---|---|"]
+         "| P | ticket | title | status | assignee | verdict | builds | auto |", "|---|---|---|---|---|---|---|---|"]
+    notes = []
     for r in out["rows"]:
-        v = MARK.get(r["verdict"], "·") + (f" {r['verdict']} {r['verdict_version']} {r['verdict_date']}" if r["verdict"] != "untested" else " untested")
-        L.append(f"| **{r['priority']}** {cell(r['priority_reason'], 60)} | {link(r)} | {cell(r['title'], 90)} | {r['layer']} | "
-                 f"{cell(r['how_to_verify'])} | {'yes' if r['auto'] else '–'} | {v} | {r['first_build']} → {r['lane_build']} | "
-                 f"{r['age_days'] if r['age_days'] is not None else '?'}d | {cell((r['ela_saw'] or {}).get('line') if r['ela_saw'] else '', 120)} |")
+        v = MARK.get(r["verdict"], "·") + (f" {r['verdict']} {r['verdict_version'] or ''}".rstrip() if r["verdict"] != "untested" else " untested")
+        L.append(f"| {r['priority']} | {link(r) if r['ticket'] else 'no ticket'} | {short(r['title'])} | "
+                 f"{(r.get('status') or '—') if r['ticket'] else '—'} | {page_name(r.get('assignee')) or '—'} | {v} | "
+                 f"{r['first_build']} → {r['lane_build']} | {'yes' if r['auto'] else '–'} |")
+        saw = (r.get("ela_saw") or {}).get("line")
+        if r["how_to_verify"] == "steps unknown" and not saw:
+            continue
+        notes += callout(r["ticket"] or f"no ticket: {short(r['title'], 40)}", "how to verify",
+                         [f"**{r['priority']}** {r['priority_reason']} · layer {r['layer']} · {r['age_days'] if r['age_days'] is not None else '?'}d on the list", "",
+                          " ".join(str(r["how_to_verify"]).split())] + (["", f"*ela saw*: {' '.join(saw.split())}"] if saw else []))
+    L += notes
     L += env_section(out.get("env") or [])
     if out["left"]:
         L += ["", "## Left the list this week", ""]
