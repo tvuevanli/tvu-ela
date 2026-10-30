@@ -424,6 +424,23 @@ with tempfile.TemporaryDirectory() as t:
     check("a reading whose every ask is answered moves to readings, no status, no moves; one with an open ask and a plan stay",
           moved == [("to-read/a.md", "readings/a.md")] and "status:" not in ra and "moves:" not in ra and V.MOVES_HEAD not in ra
           and os.path.exists(os.path.join(t, "v", "to-read", "b.md")) and os.path.exists(os.path.join(t, "v", "to-read", "p.md")))
+with tempfile.TemporaryDirectory() as t:
+    os.makedirs(os.path.join(t, "runner", "jobs"))
+    def job(jid, status, kind="vault", note="readings/n.md"):
+        json.dump({"id": jid, "kind": kind, "status": status, "created": "2026-10-30T15:32:00+0800", "started": "2026-10-30T15:33:00+0800",
+                   "origin": {"note": note, "lines": ["do this"]}}, open(os.path.join(t, "runner", "jobs", jid + ".json"), "w"))
+    job("j1", "queued"); job("j2", "running"); job("j3", "done"); job("j4", "queued", kind="owner")
+    pend = V.load_pending(t)
+    check("the vault's pending jobs are read from the runner's job files, nothing else", [r["job"] for r in pend] == ["j1", "j2"])
+    nt = "# N\n\nela: do this\n\n## After\n\nx\n"
+    on = V.with_answers(nt, "readings/n.md", pend[:1])
+    check("a queued line shows at once as an on-it fold under it, and renders the same again",
+          "ela: do this\n\n> [!note]- on it · queued 15:32 · job j1\n> waiting its turn" in on
+          and V.with_answers(on, "readings/n.md", pend[:1]) == on and V.PENDING_FOLD.sub("", on) == nt)
+    ans = V.with_answers(on, "readings/n.md", pend[:1] + [{"note": "readings/n.md", "lines": ["do this"], "at": "2026-10-30T15:40:00+0800",
+                                                           "status": "done", "job": "j1", "answer": "Yes."}])
+    check("the answer replaces the on-it fold", "on it" not in ans and "ela answered · 15:40 · job j1\n> Yes." in ans)
+    check("a running job says since when", "running since 15:33" in V.pending_block(pend[1]))
 check("a sprint keeps its own status; a reading carries none", S("sprints", "active") == ("active", None, None) and S("readings", "decided") == (None, None, None))
 with tempfile.TemporaryDirectory() as t:
     os.makedirs(os.path.join(t, "readings"))

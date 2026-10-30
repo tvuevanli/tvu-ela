@@ -237,8 +237,8 @@ conclusions there.
 
 To tell ela what you want of a note, or to answer what it waits for, write a line starting `ela:` into the note,
 below its properties (the end is easiest: Ctrl+E, Ctrl+End, write, Ctrl+E), in your own words. Any note: a
-rewrite keeps your lines. Two minutes after you stop typing, a session takes the lines up, and its answer appears
-folded under the last of them. A place can be named ("write this to the KB", "into elak"); without one, ela
+rewrite keeps your lines. Two minutes after you stop typing, a session takes the lines up: at once a fold "on it ·
+queued HH:MM · job …" shows under the last of them, and the answer replaces it there. A place can be named ("write this to the KB", "into elak"); without one, ela
 chooses between its own knowledge in elak and the team's knowledge base (drafted, published on your word).
 
 Ask ela now and then to tidy the archive.
@@ -1905,6 +1905,33 @@ def load_answers(reports):
         return []
 
 
+PENDING = ("queued", "running")                  # a job's states before its answer
+PENDING_FOLD = re.compile(r"\n*^> \[!note\]- on it · queued \d\d:\d\d · job \S+\n(?:>.*(?:\n|\Z))*", re.M)
+
+
+def load_pending(reports):
+    """The runner's vault jobs not yet answered, from their job files (<reports>/runner/jobs/<id>.json), in the shape
+    of an answer row: {note, lines, at, status, job}. The runner writes the job; the vault only renders it."""
+    d, out = os.path.join(reports or "", "runner", "jobs"), []
+    for f in sorted(os.listdir(d)) if os.path.isdir(d) else []:
+        try:
+            j = json.load(open(os.path.join(d, f), encoding="utf-8")) if f.endswith(".json") else {}
+        except (OSError, ValueError):
+            continue
+        o = j.get("origin") or {}
+        if j.get("kind") == "vault" and j.get("status") in PENDING and o.get("note"):
+            out.append({"note": o["note"], "lines": o.get("lines") or [], "at": j.get("created"), "status": j["status"],
+                        "job": j.get("id"), "started": j.get("started")})
+    return out
+
+
+def pending_block(row):
+    """A line ela has taken up, folded under it until the answer replaces it."""
+    doing = f"running since {(row.get('started') or '')[11:16]}" if row.get("status") == "running" else "waiting its turn"
+    return "\n".join([f"> [!note]- on it · queued {(row.get('at') or '')[11:16]} · job {row.get('job')}",
+                      f"> {doing}; the answer replaces this fold."])
+
+
 def answer_block(row):
     """One answer as a folded callout. A line of the answer that reads as an instruction (`ela: …`) is defused, so
     the answer is never taken for a new ask."""
@@ -1915,13 +1942,18 @@ def answer_block(row):
 
 
 def with_answers(text, rel, answers):
-    """Each answer placed under the last of the `ela:` lines it answers, once (the job id marks it)."""
-    for row in (r for r in answers if r.get("note") == rel and r.get("job") and r["job"] not in text):
+    """Each answer placed under the last of the `ela:` lines it answers, once (the job id marks it); a job still
+    queued or running shows as an "on it" fold there, which its answer replaces."""
+    text = PENDING_FOLD.sub("", text)
+    answered = {r.get("job") for r in answers if r.get("status") not in PENDING}
+    rows = [r for r in answers if r.get("status") not in PENDING] + [r for r in answers if r.get("status") in PENDING
+                                                                     and r.get("job") not in answered]
+    for row in (r for r in rows if r.get("note") == rel and r.get("job") and r["job"] not in text):
         says = {x.strip() for x in row.get("lines") or []}
         hits = [m for m in GUIDE.finditer(text) if m.group(1).strip().strip('"').strip("'") in says]
         if hits:
             at = hits[-1].end()
-            text = text[:at] + "\n\n" + answer_block(row) + "\n" + text[at:]
+            text = text[:at] + "\n\n" + (pending_block(row) if row.get("status") in PENDING else answer_block(row)) + "\n" + text[at:]
     return text
 
 
@@ -2503,7 +2535,7 @@ def cmd_sync(a):
             listing[d] = set(os.listdir(d)) if os.path.isdir(d) else set()
         return listing[d]
     wrote, same = [], 0
-    answers = load_answers(s.get("reports") or "")
+    answers = load_answers(s.get("reports") or "") + load_pending(s.get("reports") or "")
     answer_native(vault, answers, a.dry_run)
     ensure_native_moves(vault, a.dry_run)
     # a task its source already ticked is not his choice; recorded so the guidance verb tells the two apart
