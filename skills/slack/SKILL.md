@@ -32,6 +32,17 @@ reaction; none is to be added silently.
 
 - **Dry run first, always.** Show Evan the dry-run output (target, identity, full text). `--apply` is sent
   only after his word in this conversation, once per message. Never batch several `--apply` behind one yes.
+- **Preview in Slack before a team post.** A terminal dry run cannot show how Slack renders a message, so a
+  post to a channel or a thread someone else will read goes `--preview` first: the text is DM'd to Evan, headed
+  with where it would go, and he judges it there. Only his word after the preview sends it to the target, and a
+  refinement is previewed again, never posted to the target to see how it looks (2026-10-30: a promotion
+  report went into the thread in a layout he did not want, and the bot cannot edit or delete). A DM to Evan
+  himself needs no preview.
+- **Write Slack's mrkdwn, not Markdown.** `*bold*` with one asterisk, `_italic_`, `<url|text>` links, `•` or
+  numbered lines, no `#` headings, no pipe tables: an aligned table goes in a ``` block with padded columns.
+  One item per line, the key first and a few words after it; a status read at a glance takes a marker from one
+  fixed set: ✅ verified · ⬜ no verdict · 🟠 medium-or-worse open bug · ⚪ low bug. `post` flags Markdown in
+  the dry run and refuses it on `--apply`.
 - **The bot speaks as itself** (`@helm` until renamed Ella), never as Evan. Write in the third person
   about him ("Evan's position, recorded on … is …"), cite the source of every claim (a Jira key, a
   decision file, a doc URL), and answer in the asker's language.

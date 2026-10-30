@@ -93,9 +93,19 @@ That reach, plus the lane's docker pin, is the risk sentence — not the commit 
    day rewrites the page.
    A decision the page touches (a standing constraint, a hold, a plan already in the vault) is linked, never
    restated: one decision, one note; the page says what changed since that note and when it read the bundles.
-2. **The Slack body** — English, written to `<runtime>/promote/<date>-<line>-<from>-<to>.post.md`, then shown as
-   `slack post '#prj_dev_mediahub' --file … ` **dry run**. Title first (`[MH <line>] <from> → <to> promotion — <scope>`),
-   body into the thread; two sends, two confirms.
+2. **The Slack body** — English, in Slack mrkdwn (the slack skill's rules), written to
+   `<runtime>/promote/<date>-<line>-<from>-<to>.post.md`, then `slack post <target> --file …` as a **dry run** and
+   `--preview` (DM'd to Evan) before any send. Title first (`[MH <line>] <from> → <to> promotion — <scope>`), body
+   into the thread; two sends, two confirms. When Evan has already posted the title, the body is the reply in his
+   thread. The body is a fixed layout, at most about forty lines; the review page holds the detail:
+   - *Versions* — one ``` block, a padded column per lane and per candidate build, a row per service.
+   - *<candidate build> — QA results* — one line per ticket: marker · key link · a few words · QA's verdict and date.
+     *New bugs from that round* under it, one line each, with severity.
+   - *Carried along from <earlier builds>* — what the target lane also gains: the unverified tickets one per line,
+     the verified ones as a single ✅ line of keys, ticketless commits as one counted line.
+   - *<next build> — not yet tested* — one line of keys, when a newer build is on the from-lane.
+   - *Open points* — numbered questions, one line each.
+   No verdict, and no decision of Evan's, even one he has stated in the session: he writes it in the thread.
 3. **The QA list** — one line per ticket in the delta whose QA state is not verified (dev-declared, none, not
    scheduled): key · what changed in the reporter's words · the lane and build to test on. Written in English,
    ready to paste to the QA lead under the owner's name; it is the answer to "what does QA still need to test"

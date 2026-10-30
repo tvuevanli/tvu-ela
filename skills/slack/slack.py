@@ -10,9 +10,12 @@ the one write, `post`, is a dry run until --apply.
   mentions   --since 48h [--user me] [--channels a,b]   messages that mention a user, with whether they answered
   unanswered --since 7d  [--user me] [--channels a,b]   threads a user started that nobody else replied to
   whoami     [--email x]                 the user id behind an email (default: JIRA_EMAIL in the env file)
-  post       <#channel|Cxxx|thread permalink> --text "…" | --file f.md [--dm me|email|Uxxx] [--apply]
+  post       <#channel|Cxxx|thread permalink> --text "…" | --file f.md [--dm me|email|Uxxx] [--preview] [--apply]
              send a message as the bot (a permalink → reply in that thread). Dry run by default; refuses a
-             duplicate of a message the bot already posted there; a DM needs --dm said explicitly.
+             duplicate of a message the bot already posted there; a DM needs --dm said explicitly. --preview DMs
+             the text to the owner, headed with where it would go, so he judges it as Slack renders it. A text
+             written in Markdown rather than Slack's mrkdwn (headings, **bold**, [t](url), pipe tables) is flagged
+             in the dry run and refused on --apply.
 
 Exit codes: 0 ok · 2 usage · 4 auth or refused · 5 remote error.
 Credential resolution: $SLACK_BOT_TOKEN → --env-file → $SLACK_ENV_FILE → $ELA_ENV_FILE. The script never stores it.
@@ -653,6 +656,18 @@ def log_write(where, link, chars):
 TEAM_CHANNELS = ("mediahub-qa-release", "prj_dev_mediahub")
 
 
+MRKDWN_SLIPS = ((re.compile(r"^#{1,6} ", re.M), "a Markdown heading (# …): use a *bold* line"),
+                (re.compile(r"\*\*[^*\n]+\*\*"), "**bold**: Slack bolds with single *asterisks*"),
+                (re.compile(r"(?<!!)\[[^\]\n]+\]\((https?://[^)\s]+)\)"), "a [text](url) link: write <url|text>"),
+                (re.compile(r"^\s*\|.*\|\s*$", re.M), "a pipe table: Slack shows it as raw pipes; use a ``` block or lines"))
+
+
+def mrkdwn_slips(text):
+    """What in the text is Markdown that Slack's mrkdwn renders literally. Code blocks are left alone."""
+    prose = re.sub(r"```.*?```", "", text, flags=re.S)
+    return [why for rx, why in MRKDWN_SLIPS if rx.search(prose)]
+
+
 def cmd_post(tok, a):
     """The one write. Target by shape: a thread permalink (reply there), #name / Cxxx (top level), or --dm.
     --team-thread: refused unless the target is a thread in one of TEAM_CHANNELS.
@@ -704,11 +719,25 @@ def cmd_post(tok, a):
         if mine:
             print(f"refused: --team-day-post: ela already posted top level in this channel today — {permalink_of(ch, mine['ts'])}; "
                   "reply in that thread", file=sys.stderr); sys.exit(EX_AUTH)
+    slips = mrkdwn_slips(text)
+    if a.preview:
+        uid = whoami(tok, a.env_file)
+        dm = call("conversations.open", tok, users=uid)["channel"]["id"]
+        head = f"_Preview, not sent — would post as @{me.get('user')} {where}_"
+        d = post_json("chat.postMessage", tok, {"channel": dm, "text": f"{head}\n\n{text}", "unfurl_links": False, "unfurl_media": False})
+        link = permalink_of(d["channel"], d["ts"])
+        log_write(f"preview to owner of: {where}", link, len(text))
+        print(json.dumps({"preview": True, "where": where, "permalink": link, "slips": slips}) if a.json
+              else f"preview DM'd to the owner  {link}" + "".join(f"\n  mrkdwn: {w}" for w in slips))
+        return
+    if a.apply and slips:
+        print("refused: the text is Markdown, not Slack mrkdwn —\n" + "\n".join(f"  {w}" for w in slips), file=sys.stderr); sys.exit(EX_USAGE)
     if not a.apply:
-        out = {"dry_run": True, "as": me.get("user"), "where": where, "channel": ch, "thread_ts": thread_ts, "chars": len(text), "text": text}
+        out = {"dry_run": True, "as": me.get("user"), "where": where, "channel": ch, "thread_ts": thread_ts, "chars": len(text), "slips": slips, "text": text}
         if a.json:
             print(json.dumps(out, ensure_ascii=False)); return
-        print(f"DRY RUN — would post as @{me.get('user')}  {where}\n{'─' * 76}\n{text}\n{'─' * 76}\npass --apply to send")
+        print(f"DRY RUN — would post as @{me.get('user')}  {where}\n{'─' * 76}\n{text}\n{'─' * 76}\n"
+              + "".join(f"mrkdwn: {w}\n" for w in slips) + "pass --preview to see it in Slack, --apply to send")
         return
     payload = {"channel": ch, "text": text, "unfurl_links": False, "unfurl_media": False}
     if thread_ts:
@@ -796,6 +825,8 @@ def main():
     p.add_argument("--text"); p.add_argument("--file", help="markdown/text file, or - for stdin")
     p.add_argument("--dm", help="me · an email · a user id — a direct message instead of a channel")
     p.add_argument("--apply", action="store_true", help="actually send; without it nothing leaves the machine")
+    p.add_argument("--preview", action="store_true", help="DM the text to the owner, headed with its target, instead of "
+                   "sending it there: how it renders in Slack is judged in Slack")
     p.add_argument("--team-thread", action="store_true", help="refuse unless the target is a thread in a team channel "
                    "(" + ", ".join(TEAM_CHANNELS) + "): the gate of a tier-2 action")
     p.add_argument("--team-day-post", action="store_true", help="refuse unless the target is a team channel by name, top "
