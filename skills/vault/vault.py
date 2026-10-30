@@ -78,11 +78,12 @@ STATUSES = tuple(dict.fromkeys(v for vs in STATUS_BY_FOLDER.values() for v in vs
 CLOSED_NEXT = {"accepted": "accept", "rejected": "reject", "not now": "not-now", "not-now": "not-now", "parked": "not-now",
                "confirmed": "confirm", "planned": "make-plan", "nudged": "nudge", "drafted": "draft-comment"}
 # an archived note's old outcome status, as the move that made it; the runner names the move itself with --next
-OWNER_FOLDERS = (ARCHIVE,)   # where the owner drags a note to keep it; ela never rewrites its text
+OWNER_FOLDERS = (ARCHIVE,)   # where the owner drags a note to keep it; ela never rewrites its text, only appends Afterwards
 ATTACH = "ela/attachments"
 DELETABLE = (DAYS, TO_READ, READINGS)
 KEEP_FOREVER = ("brief", "week", "changes")   # the morning pages are the record of what ela told the owner; the rest expires
-PROPS = ("title", "aliases", "type", "date", "kind", "status", "result", "target", "progress", "source", "moves", "next", "ela")
+PROPS = ("title", "aliases", "type", "date", "kind", "status", "result", "target", "progress", "source", "moves", "next", "ela",
+         "posted", "keys", "watch", "watched", "last")
 # the whole vocabulary; no tags (ADR 0010)
 MARKS = {"done": ARCHIVE, "drop": None}   # archive, delete; a drop of a reading something links archives it instead
 BUDGET = {"ticket": 700, "topic": 800, "guide": 1200, "board": 1000, "day": 1200, "review": 2500, "decision": 800, "plan": 800, "sprint": 800, "report": 1200}
@@ -162,7 +163,7 @@ list and writing your `ela:` priority lines; the 09:30 or 10:00 pass then sends 
 | `ela/` | the ela page (its measures, parts, schedule and week written by the sync; Waiting for your word, What changed for MediaHub this week and Known limits written by the desk), how ela runs, this page, the table view; attachments, hidden | rarely |
 | `ela/bot/` | the product side of ela: its design and the evidence reports | read when a report asks for your ruling |
 | `ela/review/` | the evening reader pages | read in the evening |
-| `archive/` | what was acted on or you chose to keep; ela adds to it and keeps its status current, never its text | look back; ask ela to tidy it |
+| `archive/` | what was acted on or you chose to keep; ela adds to it and keeps its status current, never its text, except the Afterwards it appends | look back (all notes, *Archive*); ask ela to tidy it |
 
 Folders are named for what you do with a note and carry no numbers: Home and the bookmarks are the way in, and
 the file explorer is rarely needed.
@@ -175,7 +176,9 @@ the file explorer is rarely needed.
 - Properties are `title`, `aliases` and `type`, plus `date`, `kind` on a day page, `status`, and `result` on a
   verification (pass or fail). A page ela writes in place also carries `source` ("vault": ela writes the note in
   place), `target` (what the note changes), `progress` (the desk's last state line) and `ela` (the generated or
-  hand line the desk leaves for you). status is ela's, never
+  hand line the desk leaves for you). A note that sent something out or follows tickets carries `posted` (the
+  permalinks of what went out from it), `keys` (the Jira keys to watch), `watch` (until when it is watched; empty
+  stops it), `watched` (when it was last read) and `last` (the date of its newest Afterwards line). status is ela's, never
   yours to set, and follows the folder: to-read *proposed* (waits on your word) or *blocked* (only you can unblock);
   in-progress *building*, *built* (waits on your accept), *waiting* (a loop that cannot finish; Progress says why) or
   *blocked*; parked *parked*; archive *closed*, with the outcome in `next`. Home's *Waiting for your word* holds only
@@ -245,6 +248,15 @@ chooses between its own knowledge in elak and the team's knowledge base (drafted
 
 Ask ela now and then to tidy the archive.
 
+The archive keeps listening. A note in `archive/` or `in-progress/` that carries `posted` or `keys` is read at
+13:00, 17:30 and 19:00 for a window after it leaves to-read: a promote or release review, a decision or plan, a
+meeting note 14 days from its date; a verification or ticket page 30; anything else 10 working days; or until its
+`watch` date. What happened since (a reply in a thread it posted, a key moving, a comment) becomes one dated line per
+source per day under its own **Afterwards** heading, in ela's words with the link, never a colleague's verbatim, at
+most 40 lines a note. That section is the one exception to "ela never rewrites an archived note": it is only
+appended, and nothing else there changes. Clear `watch` to stop it; a note with neither `posted` nor `keys` is left
+exactly as you left it. The *Archive* view of all notes lists them, newest first.
+
 Do it on the desktop; the laptop only receives. A living page (Home, the board, the lanes, how ela runs) is
 written again whatever happens to it. Finishing is never a verdict: deleting a decision does not revoke it; to
 change one, tell ela. `ela vault restore <path>` brings back a generated note; a page ela writes in place comes
@@ -299,19 +311,11 @@ properties:
     displayName: Note
 """
 
-WAITING = """      or:
-        - 'status == "built"'
-        - 'status == "proposed"'
-        - 'result == "fail"'
-        - 'status == "blocked"'
-"""
-
 VIEWS = {
     "all-notes": """filters:
   and:
     - 'file.ext == "md"'
     - not:
-        - file.inFolder("archive")
         - file.inFolder("library")
         - file.inFolder("to-learn")
         - file.inFolder("ela/moves")
@@ -321,7 +325,15 @@ VIEWS = {
   - type: table
     name: Waiting for your word
     filters:
-""" + WAITING + """    order: [date, formula.note, type, status, next]
+      and:
+        - not:
+            - file.inFolder("archive")
+        - or:
+            - 'status == "built"'
+            - 'status == "proposed"'
+            - 'result == "fail"'
+            - 'status == "blocked"'
+    order: [date, formula.note, type, status, next]
     sort:
       - property: formula.loop
         direction: ASC
@@ -371,6 +383,15 @@ VIEWS = {
     order: [date, formula.note, waits-on, parked, next]
     sort:
       - property: parked
+        direction: DESC
+  - type: table
+    name: Archive
+    filters:
+      and:
+        - file.inFolder("archive")
+    order: [date, formula.note, next, posted, last, watch]
+    sort:
+      - property: date
         direction: DESC
 """,
 }
@@ -1276,7 +1297,8 @@ def home(today, now, notes, desk=None):
              "[[board|board]]" if any(n.props.get("type") == "board" for n in notes) else None,
              f"[[{changes.path[:-3]}|changes]]" if changes else None,
              f"[[{PROGRAM[:-3]}|program]]", f"[[{OVERVIEW[:-3]}|ela]]",
-             f"[[{ELA}/all-notes.base|all notes]]" + (f" ({len(waiting)} wait for your word)" if waiting else "")]
+             f"[[{ELA}/all-notes.base|all notes]]" + (f" ({len(waiting)} wait for your word)" if waiting else ""),
+             f"[[{ELA}/all-notes.base#Archive|archive]]"]
     cons = next((n for n in notes if n.props.get("type") == "constraints"), None)
     held = getattr(cons, "counts", None) or {}
     if held.get("active") or held.get("expired"):
@@ -2472,7 +2494,7 @@ def atomic_write(path, text):
     os.replace(tmp, path)
 
 
-WRITERS = ("sync", "marks", "finish", "note", "restore", "setup")   # guidance only reads
+WRITERS = ("sync", "marks", "finish", "note", "restore", "setup", "afterwards")   # guidance only reads
 
 
 def vault_lock():
@@ -2704,6 +2726,199 @@ def cmd_sync(a):
         print(f"  note: {w}", file=sys.stderr)
 
 
+# ── the archive keeps listening: Afterwards ───────────────────────────────────────────────────────────
+# A note that sent something out (`posted:` permalinks) or follows tickets (`keys:`) is watched for a window after it
+# leaves to-read: the threads' replies and the keys' status changes and comments since `watched:` become one dated line
+# per source per day under its own `## Afterwards`, append-only; nothing else in the note is rewritten (vault
+# to-read/2026-10-30-vault-workflow-review.md, proposal 5). The reading is brief.py's parked watcher, pointed here.
+AFTERWARDS_HEAD = "## Afterwards"
+WATCH_FOLDERS = (ARCHIVE, IN_PROGRESS)
+WATCH_DAYS = {"review": 14, "decision": 14, "plan": 14, "meeting": 14, "verify": 30, "ticket": 30}   # calendar days from its date
+WATCH_WORKDAYS = 10              # any other type: working days from its date
+WATCH_NOTES, WATCH_LINES = 40, 40   # at most 40 notes a pass, oldest window first; at most 40 lines a note
+PERMALINK = re.compile(r"https://[\w.-]+\.slack\.com/archives/[^\s\"'\],)>]+")
+
+
+def plus_workdays(d, n):
+    while n > 0:
+        d += datetime.timedelta(days=1)
+        n -= d.weekday() < 5
+    return d
+
+
+def watch_until(props):
+    """The last day a note is watched: its `watch` (a date, or "until DATE"), else its type's window from its date; None
+    when `watch` is present and empty (he cleared it: stop) or the note has no date to count from."""
+    if "watch" in props:
+        m = re.search(r"\d{4}-\d{2}-\d{2}", props.get("watch") or "")
+        return datetime.date.fromisoformat(m.group(0)) if m else None
+    m = re.match(r"\d{4}-\d{2}-\d{2}", props.get("date") or "")
+    if not m:
+        return None
+    d = datetime.date.fromisoformat(m.group(0))
+    kind = props.get("type")
+    return d + datetime.timedelta(days=WATCH_DAYS[kind]) if kind in WATCH_DAYS else plus_workdays(d, WATCH_WORKDAYS)
+
+
+def watched_notes(vault, today):
+    """The notes in archive/ and in-progress/ carrying `posted:` or `keys:` whose window is open today, oldest window
+    first, at most WATCH_NOTES: [{note, props, keys, links, until}]."""
+    out = []
+    for folder in WATCH_FOLDERS:
+        for top_, dirs, fs in os.walk(os.path.join(vault, folder)):
+            dirs[:] = [d for d in dirs if not d.startswith(".")]
+            for f in sorted(fs):
+                if not f.endswith(".md"):
+                    continue
+                try:
+                    props = props_of(split_front(open(os.path.join(top_, f), encoding="utf-8").read())[0])
+                except OSError:
+                    continue
+                keys = sorted({k for k in KEY_RX.findall(props.get("keys") or "") if not NOT_KEYS.match(k)})
+                links = sorted(set(PERMALINK.findall(props.get("posted") or "")))
+                until = watch_until(props)
+                if (keys or links) and until and until >= today:
+                    out.append({"note": os.path.relpath(os.path.join(top_, f), vault).replace(os.sep, "/"), "props": props,
+                                "keys": keys, "links": links, "until": until})
+    return sorted(out, key=lambda w: (w["until"], w["note"]))[:WATCH_NOTES]
+
+
+def afterwards_lines(woke, jira_base=""):
+    """brief.parked_row's wake events as dated lines, one per source per day, in ela's words: who moved a key where,
+    who commented or replied, and the link; never what a colleague wrote. [(ref, date, line)]"""
+    groups = {}
+    for w in woke:
+        at = parse_at(w.get("at"))
+        if at:
+            groups.setdefault((w["ref"], at.astimezone().date().isoformat()), []).append(w)
+    out = []
+    for (ref, day), ws in sorted(groups.items(), key=lambda kv: (kv[0][1], kv[0][0])):
+        ws.sort(key=lambda w: w.get("at") or "")
+        def names(kind):
+            return ", ".join(dict.fromkeys(w.get("who") or "someone" for w in ws if w.get("kind") == kind))
+        if ws[0]["source"] == "slack":
+            line = f"thread: {'a reply' if len(ws) == 1 else f'{len(ws)} replies'} from {names('reply')} → [thread]({ref})"
+        else:
+            bits = [f"{w.get('from')} → {w.get('to')} ({w.get('who')})" for w in ws if w.get("kind") == "status"]
+            if names("comment"):
+                bits.append(f"a comment from {names('comment')}")
+            line = (f"[{ref}]({jira_base}/browse/{ref})" if jira_base else ref) + ": " + "; ".join(bits)
+        out.append((ref, day, f"- {day[5:]} · {line}"))
+    return out
+
+
+def parse_at(s):
+    for fmt in ("%Y-%m-%dT%H:%M:%S.%f%z", "%Y-%m-%dT%H:%M:%S%z"):
+        try:
+            return datetime.datetime.strptime(s or "", fmt)
+        except ValueError:
+            continue
+    return None
+
+
+def with_afterwards(text, lines):
+    """The note with its Afterwards lines: a line for a (ref, day) already there is brought up to date in place, a new
+    one appended, at most WATCH_LINES; the section sits at the note's end, above its next moves. Nothing else changes.
+    Returns (text, [(ref, day, line)] newly appended)."""
+    fl, body = split_front(text)
+    m = re.search(r"^" + re.escape(AFTERWARDS_HEAD) + r"[ \t]*\n", body, re.M)
+    if m:
+        nxt = re.search(r"^#{1,2}[ \t]", body[m.end():], re.M)
+        end = m.end() + (nxt.start() if nxt else len(body) - m.end())
+        head, sec, tail = body[:m.start()], body[m.end():end], body[end:]
+    else:
+        moves = re.search(r"^" + re.escape(MOVES_HEAD) + r"[ \t]*$", body, re.M)
+        cut = moves.start() if moves else len(body)
+        head, sec, tail = body[:cut].rstrip("\n") + "\n\n", "", ("\n" + body[cut:]) if moves else ""
+    rows = [l for l in sec.strip("\n").splitlines() if l.strip()]
+    new = []
+    for ref, day, line in lines:
+        at = next((i for i, l in enumerate(rows) if l.startswith(f"- {day[5:]} · ") and ref in l), None)
+        if at is not None:
+            rows[at] = line
+        elif sum(1 for l in rows if l.startswith("- ")) < WATCH_LINES:
+            rows.append(line); new.append((ref, day, line))
+    if not rows:
+        return text, []
+    body = head + AFTERWARDS_HEAD + "\n\n" + "\n".join(rows) + "\n" + tail
+    return ("---\n" + "\n".join(fl) + "\n---\n" + body if fl else body), new
+
+
+def cmd_afterwards(a):
+    """Read what happened after each watched note left to-read and append it under the note's Afterwards; the
+    runner calls this at 13:00, 17:30 and 19:00. Reads only; writes the vault and <reports>/ela/afterwards.jsonl."""
+    s = json.load(open(SITE))
+    vault, reports = s["vault"], s.get("reports") or ""
+    env = a.env_file or s.get("env")
+    e = ["--env-file", env] if env else []
+    now = datetime.datetime.now().astimezone()
+    sys.path.insert(0, os.path.join(HERE, "..", "brief"))
+    import brief as B                                       # the parked watcher: key events and thread replies since a time
+    since_arg = None
+    if a.since:
+        rel = re.match(r"^-(\d+)d$", a.since)
+        since_arg = (now - datetime.timedelta(days=int(rel.group(1)))).date() if rel else datetime.date.fromisoformat(a.since)
+    watched = watched_notes(vault, now.date())
+    for w in watched:                                      # from the start of the day last watched: a day's line is whole
+        day = re.match(r"\d{4}-\d{2}-\d{2}", w["props"].get("watched") or w["props"].get("date") or "")
+        w["since"] = since_arg or (datetime.date.fromisoformat(day.group(0)) if day else now.date())
+    gaps, jira_rows, threads = [], [], {}
+    jira_base = ""
+    if env and os.path.isfile(env):
+        jira_base = next((l.split("=", 1)[1].strip().rstrip("/") for l in open(env) if l.startswith("JIRA_BASE_URL=")), "")
+    me = B.owner_jira_name(e) if watched else None
+    keys = sorted({k for w in watched for k in w["keys"]})
+    first = min((w["since"] for w in watched), default=now.date())
+    for proj in sorted({k.split("-")[0] for k in keys}):
+        try:
+            got = B.run_json(["python3", JIRA, *e, "changes", "--project", proj, "--since", f"{first.isoformat()} 00:00",
+                              "--limit", "400", "--json"])
+            jira_rows += [r for r in got["issues"] if r["key"] in keys]
+        except (B.LaneError, subprocess.TimeoutExpired, ValueError) as x:
+            gaps.append({"source": f"jira {proj}", "error": str(x)[:200]})
+    for link in sorted({l for w in watched for l in w["links"]}):
+        try:
+            threads[link] = B.run_json(["python3", B.SLACK, *e, "read", link, "--json"], timeout=120)
+        except (B.LaneError, subprocess.TimeoutExpired, ValueError) as x:
+            gaps.append({"source": "slack", "error": str(x)[:200]})
+    try:
+        logged = {(r.get("note"), r.get("ref"), r.get("date")) for r in
+                  (json.loads(l) for l in open(os.path.join(reports, "ela", "afterwards.jsonl"), encoding="utf-8") if l.strip())}
+    except (OSError, ValueError):
+        logged = set()
+    out_lines, log = [], []
+    for w in watched:
+        n = {"note": w["note"], "title": w["props"].get("title") or w["note"], "waits_on": None,
+             "parked": f"{w['since'].isoformat()} 00:00", "wake": " ".join(w["keys"] + w["links"])}
+        lines = afterwards_lines(B.parked_row(n, jira_rows, threads, me, now)["woke"], jira_base)
+        p = os.path.join(vault, w["note"])
+        text = open(p, encoding="utf-8").read()
+        new_text, _ = with_afterwards(text, lines)
+        stamp = {"watched": now.strftime("%Y-%m-%d %H:%M")}
+        if lines:
+            stamp["last"] = max(d for _, d, _ in lines)
+        new_text = set_front(new_text, **stamp)
+        for ref, day, line in lines:
+            out_lines.append({"note": w["note"], "ref": ref, "date": day, "line": line})
+            if (w["note"], ref, day) not in logged:
+                log.append({"at": now.isoformat(timespec="seconds"), "note": w["note"], "ref": ref, "date": day, "line": line})
+        if not a.dry_run and new_text != text:
+            atomic_write(p, new_text)
+    if log and not a.dry_run:
+        os.makedirs(os.path.join(reports, "ela"), exist_ok=True)
+        with open(os.path.join(reports, "ela", "afterwards.jsonl"), "a", encoding="utf-8") as fh:
+            fh.writelines(json.dumps(r, ensure_ascii=False) + "\n" for r in log)
+    r = {"dry_run": a.dry_run, "since": (since_arg or first).isoformat(), "notes": [w["note"] for w in watched],
+         "lines": out_lines, "appended": len(log), "watched": len(watched), "gaps": gaps}
+    if a.json:
+        print(json.dumps(r, ensure_ascii=False)); return
+    print(f"{'DRY RUN — ' if a.dry_run else ''}afterwards: {len(watched)} notes watched, {len(log)} new lines, {len(out_lines)} in all")
+    for l in out_lines:
+        print(f"  {l['note']}: {l['line']}")
+    for g in gaps:
+        print(f"  gap {g['source']}: {g['error']}", file=sys.stderr)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--env-file", help="ela's env file; its Jira base URL turns ticket keys into links")
@@ -2739,6 +2954,12 @@ def main():
     p.add_argument("--waits-on", help="move --to parked: who it waits on, and where")
     p.add_argument("--wake", help="move --to parked: what brings it back (a Slack thread, a ticket key)")
     p.set_defaults(func=cmd_note)
+    p = sub.add_parser("afterwards", help="append what happened since to each watched note in archive/ and in-progress/ "
+                                          "(its posted threads' replies, its keys' changes)")
+    p.add_argument("--since", help="read from this day (YYYY-MM-DD or -Nd) instead of each note's watched")
+    p.add_argument("--dry-run", action="store_true", help="read and report; write nothing")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_afterwards)
     p = sub.add_parser("restore", help="bring back a note the owner deleted in the vault")
     p.add_argument("path", help="the note's path in the vault, as the deletion log lists it")
     p.set_defaults(func=cmd_restore)

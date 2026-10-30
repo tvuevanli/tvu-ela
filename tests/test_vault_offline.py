@@ -471,6 +471,76 @@ rev = V.Note("readings/2026-10-28-r.md", "r", "# R", {"type": "review", "date": 
 hm = V.home(datetime.date(2026, 10, 30), datetime.datetime(2026, 10, 30, 9), [past, now_, rev])
 check("Home owes no rewrite of a past day page; today's and a review stay listed",
       "owes a shorter version of 2" in hm and "2026-10-28-brief" not in hm and "2026-10-30-brief|" in hm)
+check("a watch window: an explicit date, a type's default, a cleared watch stops it",
+      V.watch_until({"watch": "until 2026-11-13"}) == datetime.date(2026, 11, 13)
+      and V.watch_until({"type": "review", "date": "2026-10-30"}) == datetime.date(2026, 11, 13)
+      and V.watch_until({"type": "meeting", "date": "2026-10-30"}) == datetime.date(2026, 11, 13)
+      and V.watch_until({"type": "report", "date": "2026-10-30"}) == datetime.date(2026, 11, 13)   # 10 working days
+      and V.watch_until({"type": "review", "date": "2026-10-30", "watch": ""}) is None)
+with tempfile.TemporaryDirectory() as t:
+    v, r = os.path.join(t, "v"), os.path.join(t, "r")
+    for d in ("archive", "in-progress", "readings"):
+        os.makedirs(os.path.join(v, d))
+    os.makedirs(os.path.join(r, "ela"))
+    link = "https://x.slack.com/archives/C1/p1793000000000001"
+    td = datetime.date.today()
+    open(os.path.join(v, "archive", "promote.md"), "w").write(
+        f'---\ntype: "review"\ndate: "{td}"\nstatus: "closed"\nposted: ["{link}"]\nkeys: "MH-3855"\n---\n# Promote\n\nHis text.\n')
+    open(os.path.join(v, "in-progress", "plan.md"), "w").write(
+        f'---\ntype: "plan"\ndate: "{td}"\nkeys: "MH-1"\nwatch: ""\n---\n# Plan\n\n## Next moves\n\n- x\n')
+    open(os.path.join(v, "archive", "old.md"), "w").write('---\ntype: "review"\ndate: "2026-01-01"\nkeys: "MH-2"\n---\n# Old\n')
+    open(os.path.join(v, "readings", "r.md"), "w").write(f'---\ntype: "review"\ndate: "{td}"\nkeys: "MH-3"\n---\n# R\n')
+    check("only archive and in-progress notes with posted or keys, in their window, are watched",
+          [w["note"] for w in V.watched_notes(v, td)] == ["archive/promote.md"])
+    tz = datetime.datetime.now().astimezone().strftime("%z")
+    at = f"{td}T10:00:00.000{tz}"
+    ts = str(datetime.datetime.combine(td, datetime.time(11)).timestamp())
+    jira = {"issues": [{"key": "MH-3855", "events": [{"field": "status", "at": at, "by": "Andy Zhao", "from": "In Progress", "to": "Done"}],
+                        "comments": [{"at": at, "by": "Erin Zhang", "text": "secret words of a colleague"},
+                                     {"at": at, "by": "Owner", "text": "mine"}]}]}
+    thread = {"messages": [{"ts": "1"}, {"ts": ts, "user": "Andy Zhao", "text": "deployed, verbatim"},
+                           {"ts": ts, "user": "Helm Lookout", "text": "bot"}]}
+    sys.path.insert(0, os.path.join(ROOT, "skills", "brief"))
+    import brief as B
+    calls = []
+    def fake(cmd, timeout=600):
+        calls.append(cmd)
+        return jira if "changes" in cmd else thread
+    B.run_json, B.owner_jira_name = fake, lambda e: "Owner"
+    json.dump({"vault": v, "reports": r}, open(os.path.join(t, "site.json"), "w"))
+    V.SITE = os.path.join(t, "site.json")
+    def after(**kw):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            V.cmd_afterwards(types.SimpleNamespace(env_file=None, since=None, dry_run=kw.get("dry", False), json=True))
+        return json.loads(buf.getvalue())
+    out = after(dry=True)
+    check("a dry run reads, reports and writes nothing", out["appended"] == 2 and "Afterwards" not in open(os.path.join(v, "archive", "promote.md")).read())
+    out = after()
+    txt = open(os.path.join(v, "archive", "promote.md")).read()
+    check("the JSON carries since, notes, lines, appended and watched", set(out) >= {"since", "notes", "lines", "appended", "watched"}
+          and out["watched"] == 1 and out["appended"] == 2)
+    check("one line per source per day, in ela's words: who moved the key, who commented, who replied, and the link",
+          f"- {td.isoformat()[5:]} · MH-3855: In Progress → Done (Andy Zhao); a comment from Erin Zhang" in txt
+          and f"- {td.isoformat()[5:]} · thread: a reply from Andy Zhao → [thread]({link})" in txt)
+    check("never a colleague's words, never the owner's own or a machine's", "secret" not in txt and "verbatim" not in txt
+          and "Owner" not in txt.split("## Afterwards")[1] and "Helm Lookout" not in txt)
+    check("his text is kept, watched and last are stamped", "His text." in txt and "watched:" in txt and f'last: "{td}"' in txt)
+    log = [json.loads(l) for l in open(os.path.join(r, "ela", "afterwards.jsonl"))]
+    check("one log row per new line", len(log) == 2 and {x["ref"] for x in log} == {"MH-3855", link})
+    again = after()
+    check("a second pass the same day is idempotent: no new line, no new row", again["appended"] == 0
+          and open(os.path.join(v, "archive", "promote.md")).read().replace(V.props_of(V.split_front(txt)[0])["watched"], "") .count("· MH-3855") == 1
+          and len(open(os.path.join(r, "ela", "afterwards.jsonl")).readlines()) == 2)
+body = "---\ntype: \"plan\"\n---\n# P\n\ntext\n\n## Next moves\n\n- **accept**\n"
+nt, new = V.with_afterwards(body, [("MH-1", "2026-10-31", "- 10-31 · MH-1: A → B (x)")])
+check("Afterwards sits above the next moves, so a move keeps it", nt.index("## Afterwards") < nt.index("## Next moves") and len(new) == 1)
+nt2, new2 = V.with_afterwards(nt, [("MH-1", "2026-10-31", "- 10-31 · MH-1: A → C (x)")])
+check("a day's line is brought up to date in place", new2 == [] and "A → C" in nt2 and "A → B" not in nt2)
+full = V.with_afterwards("# N\n", [(f"MH-{i}", "2026-10-31", f"- 10-31 · MH-{i}: x") for i in range(45)])[0]
+check("at most 40 lines a note", full.count("\n- 10-31") == 40)
+check("the all-notes base has an Archive view, and Home links it", "name: Archive" in V.VIEWS["all-notes"]
+      and "[[ela/all-notes.base#Archive|archive]]" in V.home(datetime.date(2026, 10, 30), datetime.datetime(2026, 10, 30, 9), []))
 check("a sprint keeps its own status; a reading carries none", S("sprints", "active") == ("active", None, None) and S("readings", "decided") == (None, None, None))
 with tempfile.TemporaryDirectory() as t:
     os.makedirs(os.path.join(t, "readings"))

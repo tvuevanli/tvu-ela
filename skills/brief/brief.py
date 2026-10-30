@@ -265,7 +265,8 @@ def parked_row(n, jira_rows, threads, me, now):
         for ev in r["events"]:
             at = parse_ts(ev["at"])
             if ev["field"] == "status" and at and since and at > since:
-                woke.append({"source": "jira", "ref": r["key"], "at": ev["at"], "what": f"{ev.get('from')} → {ev.get('to')} by {ev['by']}"})
+                woke.append({"source": "jira", "ref": r["key"], "at": ev["at"], "what": f"{ev.get('from')} → {ev.get('to')} by {ev['by']}",
+                             "kind": "status", "who": ev["by"], "from": ev.get("from"), "to": ev.get("to")})
         for c in r["comments"]:
             at = parse_ts(c["at"])
             if not (at and since and at > since) or MACHINES.search(c["by"] or ""):
@@ -273,7 +274,8 @@ def parked_row(n, jira_rows, threads, me, now):
             if c["by"] == me:
                 last = max(last, at)
             else:
-                woke.append({"source": "jira", "ref": r["key"], "at": c["at"], "what": f"{c['by']}: {c['text'][:120]}"})
+                woke.append({"source": "jira", "ref": r["key"], "at": c["at"], "what": f"{c['by']}: {c['text'][:120]}",
+                             "kind": "comment", "who": c["by"]})
     for link in links:
         for m in (threads.get(link) or {}).get("messages", [])[1:]:
             at = datetime.datetime.fromtimestamp(float(m["ts"]), datetime.timezone.utc) if m.get("ts") else None
@@ -282,7 +284,8 @@ def parked_row(n, jira_rows, threads, me, now):
             if m.get("user") == me:
                 last = max(last, at)
             else:
-                woke.append({"source": "slack", "ref": link, "at": at.isoformat(timespec="seconds"), "what": f"{m['user']}: {m['text'][:120]}"})
+                woke.append({"source": "slack", "ref": link, "at": at.isoformat(timespec="seconds"), "what": f"{m['user']}: {m['text'][:120]}",
+                             "kind": "reply", "who": m["user"]})
     row = waiting_row("parked", n["note"], n["waits_on"], last, n["title"], now)
     row.update(since=last.isoformat(timespec="minutes") if last else None, note=n["note"], wake=n["wake"], woke=woke,
                checked=keys + links, due=row["due"] and not woke)

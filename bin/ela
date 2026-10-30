@@ -133,6 +133,8 @@
   ela vault finish PATH [--to delete|archive]   on your word: finish with a note as you would in Obsidian
   ela note claim|release|progress|built|move PATH   a note's life from any session: claim it, record progress, mark it built, move it
   ela vault marks [--dry-run]      finish the to-read notes whose done or drop box you ticked
+  ela vault afterwards [--since D] [--json]   what happened after a note left to-read (its posted threads' replies, its
+                                   keys' moves), one dated line a day under its Afterwards; the runner calls it at 13:00, 17:30, 19:00
   ela secret NAME                  in your terminal: a credential typed at a prompt that does not echo, written to
                                    the site env file; never paste a token into a chat
   ela route <KEY>                  the routing facts: [Layer] token, ids, signal words per layer,
