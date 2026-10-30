@@ -131,7 +131,8 @@ plans for your decision.
 Start at [[home]]. Five lines: what ela did since you last looked, what leaves at 10:00 (or its own send time) unless you tick "don't",
 what only you can do (at most three `apply` boxes), the MediaHub program's next step, and one line from ela. Below
 the line, links: the morning page, lanes, board, changes, the program, the ela page and all notes. A box ticked on
-Home is the same as on the morning page.
+Home is the same as on the morning page. While you hold tier 2 (`ela-runner hold`), nothing leaves on its own: the
+block reads "held until DATE (dry run)", without boxes, and each action says what it would have posted.
 
 ## Layout
 
@@ -686,6 +687,8 @@ def action_states(body, actions_path):
             return m.group(0)
         if a.get("failed"):
             return f"{m.group(1)} · not done: {str((a['failed'] or {}).get('error') or 'failed')[:80]}"
+        if (a.get("dry_run") or {}).get("line"):            # held: the runner's own line, no box left to tick
+            return re.match(r"[ \t]*[-*][ \t]+", m.group(1)).group(0) + a["dry_run"]["line"]
         if a.get("vetoed"):
             return f"{m.group(1)} · held, you ticked {a['vetoed'][11:16]}"
         if a.get("applied"):
@@ -1109,10 +1112,11 @@ def link(n):
 
 
 def home(today, now, notes, desk=None):
-    """Home, five lines above a divider: what ela did since he last looked (tier 1), what leaves at 10:00 unless he
+    """Home, five lines above a divider: what ela did since he last looked (tier 1 and 2), what leaves at 10:00 unless he
     ticks (tier 2), what only he can do (at most three tier-3 boxes), the MediaHub program's next step, and one line
     on ela. Below the divider, links. `desk`: {actions: today's and the week's, since: when he last looked, program,
-    ela} (vault in-progress/2026-10-29-ela-three-loops-review.md, proposal 1)."""
+    ela, hold: the tier-2 hold standing today} (vault in-progress/2026-10-29-ela-three-loops-review.md, proposal 1).
+    Under a hold the tier-2 block has no boxes: nothing leaves, each action shows what it would have done."""
     desk = desk or {}
     def newest(kind):
         return sorted((n for n in notes if n.props.get("type") == "day" and n.props.get("kind") == kind),
@@ -1122,18 +1126,23 @@ def home(today, now, notes, desk=None):
     iso = today.isoformat()
     today_acts = [a for a in desk.get("actions") or [] if a.get("day") == iso]
     since = desk.get("since")
-    done = [a for a in desk.get("actions") or [] if a.get("tier") == 1 and a.get("applied")
-            and (a["applied"] > since if since else a.get("day") == iso)]
+    def new(at):
+        return bool(at) and (at > since if since else at[:10] == iso)
+    done = sorted((a for a in desk.get("actions") or [] if a.get("tier") in (1, 2)
+                   and (new(a.get("applied")) or new((a.get("dry_run") or {}).get("at")))),
+                  key=lambda a: a.get("applied") or a["dry_run"]["at"])
     soon = [a for a in today_acts if a.get("tier") == 2 and not (a.get("applied") or a.get("vetoed") or a.get("failed"))]
     mine = [a for a in today_acts if a.get("tier", 3) == 3 and not (a.get("applied") or a.get("by_owner"))]
+    hold = desk.get("hold")
     page = f"[[{brief.path[:-3]}|the morning page]]" if brief else "the morning page"
     L = [f"# {today:%a %Y-%m-%d}", ""]
-    L += [f"**Done since you last looked:** {len(done)} Jira write{'s' if len(done) != 1 else ''} under a closed rule, "
-          f"each with its evidence on {page}." if done else "**Done since you last looked:** nothing.", ""]
+    L += ["**Done since you last looked:**" + ("" if done else " nothing.")]
+    L += [f"- {done_line(a)}" for a in done] + [""]
     for at in sorted({"10:00"} | {a.get("send_at") or "10:00" for a in soon}):   # one heading per send time; 10:00 always
         due = [a for a in soon if (a.get("send_at") or "10:00") == at]
-        L += [f"**At {at} unless you tick:**" + ("" if due else " nothing.")]
-        L += [f"- [ ] don't {a['n']} — {a.get('text', '')}" for a in due] + [""]
+        L += [(f"**At {at}, held until {hold['until']} (dry run):**" if hold else f"**At {at} unless you tick:**") + ("" if due else " nothing.")]
+        L += [f"- {a['dry_run']['line']}" if (a.get("dry_run") or {}).get("line")
+              else f"- {a['n']} — {a.get('text', '')}" if hold else f"- [ ] don't {a['n']} — {a.get('text', '')}" for a in due] + [""]
     L += ["**Only you:**" + ("" if mine else " nothing today.")]
     L += [f"- [ ] apply {a['n']} — {a.get('text', '')}" for a in mine[:3]]
     L += [f"*+{len(mine) - 3} more on {page}*"] if len(mine) > 3 else []
@@ -1163,6 +1172,48 @@ def home(today, now, notes, desk=None):
     return "\n".join(L)
 
 
+def done_line(a):
+    """One sent or dry-run tier-1/2 action as Home's Done line reads it: what, when, and the post as evidence. A dry run
+    keeps the runner's own words, never "sent"."""
+    if (a.get("dry_run") or {}).get("line") and not a.get("applied"):
+        return a["dry_run"]["line"]
+    scope = a.get("scope") or []
+    where = f" on {scope[1]}" if len(scope) > 1 and scope[0] in ("--lane", "--line") else ""
+    what = {"qa-today": f"QA today{where}", "dev-today": f"Dev today{where}"}.get(a.get("rule")) \
+        or re.sub(r"^at \d\d:\d\d:\s*", "", str(a.get("text") or ""))
+    slack = a.get("kind") == "slack" or str(a.get("command") or "").startswith("ela slack")
+    link = f" · [link]({a['permalink']})" if a.get("permalink") else ""
+    return f"{a['n']} — {what} {'sent' if slack else 'done'} {a['applied'][11:16]}{link}"
+
+
+def tier2_hold(reports, date):
+    """The owner's hold on tier 2 standing on `date`, from <reports>/runner/hold.json (only `ela-runner hold` writes it):
+    {since, until, why} through `until` unless `lifted`, else None."""
+    try:
+        h = json.load(open(os.path.join(reports or "", "runner", "hold.json"), encoding="utf-8")).get("tier2")
+    except (OSError, ValueError, AttributeError):
+        return None
+    if not isinstance(h, dict) or h.get("lifted") or str(h.get("until") or "") < date:
+        return None
+    return h
+
+
+def slack_posts(reports):
+    """{second: permalink} of ela's Slack posts from its write log, for an action sent before the runner kept the link."""
+    out = {}
+    try:
+        for line in open(os.path.join(reports or "", "ela", "writes.jsonl"), encoding="utf-8"):
+            try:
+                w = json.loads(line)
+            except ValueError:
+                continue
+            if w.get("system") == "slack" and w.get("verb") == "post" and w.get("ok") and w.get("permalink"):
+                out[str(w.get("at") or "")[:19]] = w["permalink"]
+    except OSError:
+        pass
+    return out
+
+
 def week_actions(reports, today, days=7):
     """The drafted actions of the last `days` days, each with its `day`: [action]."""
     out = []
@@ -1173,6 +1224,10 @@ def week_actions(reports, today, days=7):
         except (OSError, ValueError):
             continue
         out += [dict(a, day=d) for a in acts if isinstance(a, dict) and str(a.get("n", "")).isdigit()]
+    posts = slack_posts(reports) if any(a.get("applied") and not a.get("permalink") for a in out) else {}
+    for a in out:
+        if a.get("applied") and not a.get("permalink") and posts.get(a["applied"][:19]):
+            a["permalink"] = posts[a["applied"][:19]]
     return out
 
 
@@ -1524,7 +1579,8 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since
             body = with_moves(body, n.path, n.props.get("type"))
         planned[n.path] = redact(front(n.front_lines, dict(n.props, title=n.title)) + (with_warning(body, n.held) if n.held else body))
     planned["home.md"] = redact(front([], {"type": "home", "date": today.isoformat()}) + linker(home(today, now, notes + native, {
-        "actions": week_actions(reports, today), "since": since, "program": program_next(s["vault"]), "ela": ela_line(s["vault"])})))
+        "actions": week_actions(reports, today), "since": since, "program": program_next(s["vault"]), "ela": ela_line(s["vault"]),
+        "hold": tier2_hold(reports, today.isoformat())})))
     planned[f"{ELA}/about-this-vault.md"] = unwrap(README)
     for name, text in VIEWS.items():
         planned[f"{ELA}/{name}.base"] = text

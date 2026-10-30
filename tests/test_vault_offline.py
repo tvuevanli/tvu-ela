@@ -146,10 +146,10 @@ with tempfile.TemporaryDirectory() as tmp:
               open(f"{reports}/runner/{today}-actions.json", "w"))
     hm = (sync(), open(f"{vault}/home.md").read())[1]
     check("Home counts the tier-1 writes since he last opened it, lists the 10:00 ones and his own, each with its box",
-          "**Done since you last looked:** 1 Jira write" in hm and "- [ ] don't 2 — reply in the release thread" in hm
+          "**Done since you last looked:**\n- 1 — label MH-1 done" in hm and "- [ ] don't 2 — reply in the release thread" in hm
           and "- [ ] apply 3 — close MH-3" in hm and "apply 4" not in hm)
     tab("home.md")
-    check("and keeps the count while he has it open", sync() == 0 and "**Done since you last looked:** 1 Jira write" in open(f"{vault}/home.md").read())
+    check("and keeps the count while he has it open", sync() == 0 and "- 1 — label MH-1 done" in open(f"{vault}/home.md").read())
     tab(f"readings/{today[:4]}-09-12-review-2.md")
     check("once he has seen it, nothing is new", sync() == 0 and "**Done since you last looked:** nothing." in open(f"{vault}/home.md").read())
     os.remove(f"{reports}/runner/{today}-actions.json"); sync()
@@ -518,6 +518,33 @@ t2 = [{"n": 7, "tier": 2, "text": "reply", "day": "2026-10-28"}, {"n": 8, "tier"
 hm = V.home(day, datetime.datetime(2026, 10, 28, 9), [], {"actions": t2})
 check("Home groups the don't boxes by send time, 10:00 first, an action without one at 10:00",
       hm.index("**At 10:00 unless you tick:**") < hm.index("don't 7") < hm.index("**At 19:00 unless you tick:**") < hm.index("don't 8"))
+sent = [{"n": 1, "tier": 1, "text": "label MH-1", "day": "2026-10-28", "applied": "2026-10-28T08:50:00+0800"},
+        {"n": 2, "tier": 2, "rule": "qa-today", "scope": ["--lane", "qa-cn3"], "kind": "slack", "day": "2026-10-28",
+         "applied": "2026-10-28T09:30:31+0800", "permalink": "https://x/p1"},
+        {"n": 3, "tier": 3, "text": "his own", "day": "2026-10-28", "applied": "2026-10-28T09:31:00+0800"}]
+hm = V.home(day, datetime.datetime(2026, 10, 28, 9), [], {"actions": sent})
+check("Home's Done line lists every sent tier-1 and tier-2 action with its time, a post with its link",
+      "- 1 — label MH-1 done 08:50" in hm and "- 2 — QA today on qa-cn3 sent 09:30 · [link](https://x/p1)" in hm and "his own" not in hm)
+held = [{"n": 7, "tier": 2, "text": "reply", "day": "2026-10-28"},
+        {"n": 8, "tier": 2, "text": "at 09:30: post", "day": "2026-10-28", "send_at": "09:30",
+         "dry_run": {"at": "2026-10-28T09:30:05+0800", "line": "8 — dry run: would have posted at 09:30 in #c · text in f"}}]
+hm = V.home(day, datetime.datetime(2026, 10, 28, 9), [], {"actions": held, "hold": {"until": "2026-11-05"}})
+check("under a tier-2 hold Home's block has no boxes and says until when",
+      "**At 10:00, held until 2026-11-05 (dry run):**\n- 7 — reply" in hm and "don't" not in hm and "unless you tick" not in hm)
+check("and a dry run shows its own line, in the Done line too, never as sent",
+      "**At 09:30, held until 2026-11-05 (dry run):**\n- 8 — dry run: would have posted at 09:30" in hm
+      and "**Done since you last looked:**\n- 8 — dry run:" in hm and "sent" not in hm)
+with tempfile.TemporaryDirectory() as t:
+    os.makedirs(f"{t}/runner")
+    check("no hold file, no hold", V.tier2_hold(t, "2026-10-30") is None)
+    json.dump({"tier2": {"until": "2026-11-05", "since": "2026-10-30"}}, open(f"{t}/runner/hold.json", "w"))
+    check("a hold stands through its until", V.tier2_hold(t, "2026-11-05") and V.tier2_hold(t, "2026-11-06") is None)
+    json.dump({"tier2": {"until": "2026-11-05", "lifted": "2026-10-31"}}, open(f"{t}/runner/hold.json", "w"))
+    check("a lifted hold ends it", V.tier2_hold(t, "2026-11-01") is None)
+    ap = os.path.join(t, "a.json")
+    json.dump([{"n": 14, "dry_run": {"line": "14 — dry run: would have posted at 09:30 in #c"}}], open(ap, "w"))
+    check("the morning page shows a dry run's line in place of its box",
+          V.action_states("x\n- [ ] don't 14 — at 09:30 unless you tick: QA today", ap) == "x\n- 14 — dry run: would have posted at 09:30 in #c")
 disk = "# B\n\n## Needs you\n\n- x\n\n## Scrum with the PM at 10:00\n\n- Sprint\nela: PM rules 0x81004009 shows the notice too\n\n## FYI\n\n- y\nela: drop the FYI\n"
 check("a line's section is the heading above it", V.section_at(disk, disk.index("ela: PM")) == "Scrum with the PM at 10:00")
 new_page = "# B\n\n## Needs you\n\n- x2\n\n## Scrum with the PM at 10:00\n\n- Sprint 2\n\n## Lanes\n\n- z\n"
