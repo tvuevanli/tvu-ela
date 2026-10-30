@@ -229,9 +229,10 @@ def lint(text, actions=None, counts=None, bundles=None, in_vault=False, brief=Fa
     for m in VAGUE_SERVICE_RX.finditer(plain):
         line = plain[:m.start()].count("\n") + 1
         fails.append(f"line {line}: \"{m.group(0)}\": name the service by its slug")
-    status = B.front_matter(text).get("status")
-    if status not in (None, "") and status not in V.STATUSES:
-        fails.append(f"status {status!r}: not in the closed set ({', '.join(V.STATUSES)})")
+    fm = B.front_matter(text)
+    status, closed = fm.get("status"), V.REPORT_STATUSES if fm.get("type") == "report" else V.STATUSES
+    if status not in (None, "") and status not in closed:
+        fails.append(f"status {status!r}: not in the closed set ({', '.join(closed)})")
     if counts:
         for rx, field in COUNT_PHRASES:
             if field not in counts:
@@ -306,11 +307,14 @@ def stray_action_files(actions_path, actions):
 
 
 def budget(path, text, actions_path=None):
-    """The reading budget a runner day page overruns, as the vault counts it ("1,489 words, budget 1,200"), so the
-    number matches Home's warning; None within budget or for a page the vault does not gate as a day page."""
+    """The reading budget a runner day page or a report overruns, as the vault counts it ("1,489 words, budget 1,200"),
+    so the number matches Home's warning; None within budget or for a page the vault does not gate either way."""
     m = re.search(r"(\d{4}-\d{2}-\d{2})-(brief|learned|week|changes)\.md$", path)
     if not m:
-        return None
+        if B.front_matter(text).get("type") != "report":
+            return None
+        note = V.Note(path, "", V.split_front(text)[1], {"type": "report"})
+        return next((p for p in V.reading_gate(note) if "words" in p and "budget" in p), None)
     body = V.split_front(text)[1]
     if m.group(2) == "brief":
         body = V.action_states(body, actions_path or os.path.join(os.path.dirname(path), f"{m.group(1)}-actions.json"))

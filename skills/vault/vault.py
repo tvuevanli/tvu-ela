@@ -84,17 +84,21 @@ DELETABLE = (DAYS, TO_READ, READINGS)
 KEEP_FOREVER = ("brief", "week", "changes")   # the morning pages are the record of what ela told the owner; the rest expires
 PROPS = ("title", "aliases", "type", "date", "kind", "status", "result", "moves", "next")   # the whole vocabulary; no tags (ADR 0010)
 MARKS = {"done": ARCHIVE, "drop": None}   # a ticked box in a to-read table row: archive, delete
-BUDGET = {"ticket": 700, "topic": 800, "guide": 1200, "board": 1000, "day": 1200, "review": 2500, "decision": 800, "plan": 800, "sprint": 800}
+BUDGET = {"ticket": 700, "topic": 800, "guide": 1200, "board": 1000, "day": 1200, "review": 2500, "decision": 800, "plan": 800, "sprint": 800, "report": 1200}
 # the closed set of note types, by family (the readme's Types): for his word, readings, living pages, day pages.
 # A type outside it, or a family outside its folders, is a lint line on the sync, never a failure.
 TYPE_FAMILY = {"decision": "decision", "plan": "plan", "sprint": "plan",
                "ticket": "reading", "review": "reading", "verify": "reading", "verify-plan": "reading",
                "home": "page", "board": "page", "lanes": "page", "test-list": "page", "dev-list": "page", "program": "page",
                "guide": "page", "vocabulary": "page", "system": "page", "constraints": "page", "readme": "page", "meeting": "page",
+               "report": "page",
                "day": "day", "reader": "day"}
 FAMILY_FOLDERS = {"decision": ("to-read", "in-progress", "parked", "archive"), "plan": ("to-read", "in-progress", "parked", "archive", "sprints"),
                   "reading": ("readings", "to-read", "archive")}   # a verification waits in to-read until its record is on Jira
-FOLDED = ("decision", "plan")                    # their budget counts the words above the first folded callout only
+FOLDED = ("decision", "plan", "report")          # their budget counts the words above the first folded callout only
+# a report is a standing review or design for his decision that does not move: any folder, no lifecycle, ruled in
+# place with an `ela:` line, so its status says only where his ruling stands
+REPORT_STATUSES = ("proposed", "decided", "superseded")
 FOLD_RX = re.compile(r"^>\s*\[![\w-]+\]-", re.M)
 LEARNED_MAX = 5                                  # the reader page's Learned section: more goes to a decision note
 TOLERANCE = 1.1                                  # a page 10% over its budget is not worth a rewrite
@@ -171,7 +175,9 @@ the file explorer is rarely needed.
 - Types are a closed set, in four families. For your word: `decision`, `plan` (a sprint is a plan), in to-read,
   in-progress, parked or archive. Readings: `ticket`, `review`, `verify` and `verify-plan` (checks), in readings,
   or in to-read while a verification waits for its record on Jira. Pages that live: home, board, lanes, test-list,
-  dev-list, program, the ela page (`guide`), vocabulary, system, constraints, readme, meeting. Day pages: `day`
+  dev-list, program, the ela page (`guide`), vocabulary, system, constraints, readme, meeting, and `report`: a
+  standing review or design for your decision that does not move, in any folder, its evidence in folds, ruled in
+  place with an `ela:` line (status proposed, decided or superseded). Day pages: `day`
   (brief, changes, week) and `reader`. A note outside the set, or a family outside its folders, is a lint line on
   the sync, never a failure.
 - A ticket key is a link to Jira, one click in reading mode.
@@ -179,7 +185,8 @@ the file explorer is rarely needed.
 ## Reading budgets
 
 A note is written for a person: a title heading, within its budget (day page 1,200 words, review 2,500,
-sprint 800; a decision or a plan 800 above its first folded callout, `> [!note]-`, the fold not counted; the
+sprint 800; a decision or a plan 800 above its first folded callout, `> [!note]-`, the fold not counted, a
+report 1,200 the same way; the
 reader page's Learned five lines), mostly prose, no machine paths. A note that misses is still here, under
 a warning, and Home lists it for 30 days as a rewrite ela owes.
 
@@ -1450,7 +1457,7 @@ def note_status(n):
 def meta_line(n):
     """One muted line under a record's or a review's title: what it is, when, its status. Properties are hidden while
     reading."""
-    if n.props.get("type") not in ("review", "decision", "plan", "sprint"):
+    if n.props.get("type") not in ("review", "decision", "plan", "sprint", "report"):
         return n.body
     st = note_status(n)
     bits = [n.props["type"], n.props.get("date"), st]
@@ -1545,6 +1552,11 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since
     native_warn = []
     for n in native:                                       # a page ela writes in place is not gated, only checked
         native_warn += [f"{n.path}: {p}" for p in mermaid_problems(n.body)]
+        if n.props.get("type") == "report":              # a report is his document; its budget is advice, never a hold
+            native_warn += [f"{n.path}: {p}" for p in reading_gate(n) if "words" in p and "budget" in p]
+            st = n.props.get("status")
+            if st and st not in REPORT_STATUSES:
+                native_warn.append(f"{n.path}: status {st!r}: a report is {', '.join(REPORT_STATUSES)}")
     native_warn += [f"type: {x}" for x in (type_lint(n.path, n.props.get("type")) for n in notes + native) if x]
     ov = overview_note(s, s["vault"], today)
     if ov:

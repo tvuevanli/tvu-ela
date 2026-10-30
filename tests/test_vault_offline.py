@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The vault, offline: names, links, redaction, the reading gate, and a whole sync against throwaway sources,
 including the safety rules (a missing source, a folder that halves, removal only of files the sync wrote)."""
-import datetime, json, os, re, subprocess, sys, tempfile, types
+import contextlib, datetime, io, json, os, re, subprocess, sys, tempfile, types
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "skills", "vault"))
 import vault as V  # noqa: E402
@@ -253,6 +253,19 @@ with tempfile.TemporaryDirectory() as tmp:
     check("a sync with a native page succeeds", sync(force=True) == 0)
     check("a native note is never overwritten", "It stands well." in open(native).read())
     check("a native note stays out of the manifest", "ela/workflow.md" not in open(f"{vault}/{V.MANIFEST}").read())
+    os.makedirs(f"{vault}/ela/bot", exist_ok=True)
+    rpt = f"{vault}/ela/bot/r.md"
+    def report_warnings(words):
+        open(rpt, "w").write('---\ntitle: "R"\ntype: "report"\nsource: "vault"\nstatus: "proposed"\n---\n\n# R\n\n' + "word " * words
+                             + "\n\n> [!note]- Evidence\n> " + "more " * 3000 + "\n")
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            sync(force=True)
+        return [w for w in json.loads(buf.getvalue().strip().splitlines()[-1])["warnings"] if "ela/bot/r.md" in w]
+    check("a report outside the lifecycle folders, its evidence folded, is no lint line", report_warnings(300) == [])
+    check("a report over 1,200 words above its fold is a warning",
+          any("above the fold, budget 1,200" in w for w in report_warnings(1500)))
+    os.remove(rpt)
     ov = f"{vault}/ela/overview.md"
     open(ov, "w").write('---\ntitle: "ela"\ntype: "guide"\nsource: "vault"\n---\n\n# ela\n\nIntro by hand.\n\n## The parts\n\nstale table\n\n'
                         '## Waiting for your word\n\n- [ ] **Rule on the cadence** note\n\n## Known limits\n\n- One machine.\n\n## Extra\n\nKept.\n')
@@ -590,6 +603,7 @@ with tempfile.TemporaryDirectory() as t:
 check("nothing closed says so", V.closed_by_ela({"reports": "/nonexistent"}, datetime.date(2026, 10, 29))[0].startswith("Nothing"))
 check("a type outside the closed set is a lint line", "not in the closed set" in V.type_lint("to-read/x.md", "memo"))
 check("a decision outside its folders is a lint line", "belongs in" in V.type_lint("readings/x.md", "decision"))
+check("a report is a page, in any folder", V.type_lint("ela/bot/x.md", "report") is None and V.type_lint("x.md", "report") is None)
 check("a verification waiting in to-read is in place", V.type_lint("to-read/2026-10-29-verify-mh-1.md", "verify") is None)
 with tempfile.TemporaryDirectory() as t:
     os.makedirs(os.path.join(t, "archive"))
