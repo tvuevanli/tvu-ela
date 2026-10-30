@@ -1,0 +1,4 @@
+{"_recorded": "GET <gateway>/orchestration-<token>/base/version, 2026-10-30; bodies verbatim, hosts by site key",
+ "gateway-test": {"wed": [200, "v4.0.206 build79 2026-10-27 08:34:39"], "mon": [200, "v4.0.172.1 build65 2026-08-20 07:59:14"], "prod3": [503, ""]},
+ "gateway": {"prod3": [200, "v4.0.205 build78 2026-10-19 09:08:49"], "prod4": [200, "v4.0.73 build109_2025-05-13 07:57:43"], "prod1": [404, ""], "wed": [503, ""]},
+ "gateway-qa": {"qa2": [200, "default"]}}

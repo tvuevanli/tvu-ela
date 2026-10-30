@@ -7,6 +7,9 @@ L1: subcommands, --json, stdlib only. No store, no scheduler: every answer is th
   bundle-diff <A> <B> [--host-a|--host-b] services added, removed and changed from A to B; A and B are a name, an id
                                           or a prefix (newest match wins, the rule printed); Slack searches suggested
   envs     [service] [--host qa|prod]     versions per lane; tag names mapped to lanes by <elak>/map/release.yaml hosts
+  gateway  [service] [--lane L]           versions userservice does not publish (orchestration), per lane, read through
+                                          the API gateway named in <elak>/map/release.yaml gateway_versions; no login.
+                                          A lane that does not answer or parse is UNDETERMINED, never "not deployed"
   builds   <job|service> [--limit N]      Jenkins builds: number, version, result, branch, sha, time
   pin      <line> <bundle> [--apply]      the line's official prod bundle in <elak>/blueprint/releases.yaml; dry run
                                           shows the change, --apply writes the entry and commits that file alone (ADR 0012)
@@ -1060,6 +1063,49 @@ def lane_versions(us, want=None):
     return out
 
 
+def gateway_versions(want=None, lane=None, get=None):
+    """Every (service, lane, token, version) the map's gateway_versions names, read live from the service through the
+    API gateway: GET <site.json services.<site_service>.url><path with the lane's token>. A lane whose host is not in
+    site.json, that does not answer 200, or whose body no version family parses is UNDETERMINED with the reason —
+    never "not deployed": a gateway answers 503 for a route it knows with no instance behind it, and 404 for none."""
+    get = get or (lambda url: http(url, timeout=10))
+    services = site().get("services") or {}
+    out = []
+    for svc, cfg in (rmap("gateway_versions") or {}).items():
+        if want and want not in svc:
+            continue
+        for ln, where in sorted((cfg.get("lanes") or {}).items()):
+            if lane and ln != lane:
+                continue
+            key, token = where.get("site_service"), where.get("token")
+            row = {"service": svc, "lane": ln, "token": token, "site_service": key, "source": "gateway", "version": None}
+            base = (services.get(key) or {}).get("url")
+            if not base:
+                out.append(dict(row, status="undetermined", why=f"site.json services.{key}.url is not set")); continue
+            st, body = get(base.rstrip("/") + str(cfg.get("path") or "").replace("{token}", str(token)))
+            raw = " ".join(body.split()) if st == 200 and isinstance(body, str) else ""
+            if not raw or parse_version(raw) is None:
+                why = f"HTTP {st}" + (f": {str(body)[:80]!r}" if st == 200 else {503: " (route known, no instance)", 404: " (no route)", 0: f" ({body})"}.get(st, ""))
+                out.append(dict(row, status="undetermined", why=why)); continue
+            out.append(dict(row, status="read", version=raw))
+    return out
+
+
+def cmd_gateway(a):
+    want = (a.service or "").lower()
+    if want and not any(want in s for s in rmap("gateway_versions")):
+        print(f"{a.service!r} is not in map/release.yaml gateway_versions ({', '.join(rmap('gateway_versions')) or 'none'})", file=sys.stderr); sys.exit(EX_NOTFOUND)
+    out = gateway_versions(want, a.lane)
+    if a.json:
+        print(json.dumps({"source": "gateway", "rows": out}, ensure_ascii=False)); return
+    cur = None
+    for r in out:
+        if r["service"] != cur:
+            cur = r["service"]; print(f"# {cur}  [gateway]")
+        v = vlabel(parse_version(r["version"])) if r["status"] == "read" else f"UNDETERMINED — {r['why']}"
+        print(f"  {r['lane']:<13} {r['site_service']:<14} {str(r['token']):<8} {v:<16} {r['version'] or ''}")
+
+
 def cmd_envs(a):
     us = US(a.env_file, a.host)
     out = lane_versions(us, (a.service or "").lower())
@@ -1177,6 +1223,8 @@ def main():
     for side in ("a", "b"): p.add_argument(f"--host-{side}", choices=("qa", "prod"), default="qa", help=f"host bundle {side.upper()} is read from (default qa)")
     p.add_argument("--json", action="store_true")
     p = sub.add_parser("envs"); p.add_argument("service", nargs="?"); host_arg(p); p.add_argument("--json", action="store_true")
+    p = sub.add_parser("gateway", help="versions userservice does not publish (orchestration), read per lane through the API gateways; no login")
+    p.add_argument("service", nargs="?"); p.add_argument("--lane", help="one lane (daily-wed, prod-3)"); p.add_argument("--json", action="store_true")
     p = sub.add_parser("create", help="a new bundle on prod from a base bundle, services changed one by one; dry run unless --apply; never deletes")
     p.add_argument("name", nargs="?", help="the new bundle's name; default the base's next (d45 → d46, MediaHub 2.1.15 → 2.1.16)")
     p.add_argument("--from", dest="base", required=True, help="the base bundle: name, id or prefix")
@@ -1192,7 +1240,7 @@ def main():
     p = sub.add_parser("login"); p.add_argument("target", nargs="?", choices=("qa", "tvu"), default="qa"); p.add_argument("--force", action="store_true"); p.add_argument("--no-browser", action="store_true"); p.add_argument("--timeout", type=int, default=300); p.add_argument("--json", action="store_true")
     p.add_argument("--keepalive", action="store_true", help="tvu: one validation call that renews the session's idle TTL; never logs in, never retries")
     a = ap.parse_args()
-    {"bundles": cmd_bundles, "bundle": cmd_bundle, "bundle-diff": cmd_bundle_diff, "envs": cmd_envs, "builds": cmd_builds, "drift": cmd_drift, "login": cmd_login, "pin": cmd_pin, "unpin": cmd_unpin, "pins": cmd_pins,
+    {"bundles": cmd_bundles, "bundle": cmd_bundle, "bundle-diff": cmd_bundle_diff, "envs": cmd_envs, "gateway": cmd_gateway, "builds": cmd_builds, "drift": cmd_drift, "login": cmd_login, "pin": cmd_pin, "unpin": cmd_unpin, "pins": cmd_pins,
      "create": cmd_create}[a.cmd](a)
 
 

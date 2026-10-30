@@ -46,6 +46,12 @@ lanes each release line uses — all in `<elak>/map/release.yaml` (origin per bl
   initData returns, `.env` `TVU_USER_AUTH_BASE` overrides.
   **Security:** kept alive, the SID in `session.json` no longer expires on its own while the machine is up;
   logging out in the browser still ends it at once. Accepted by the owner (2026-09-30).
+- **Orchestration's lane version comes from the gateway, not userservice.** `$R gateway [service] [--lane L]` reads
+  `GET <gateway><path>` per lane from `<elak>/map/release.yaml` `gateway_versions` (path, token per lane, the site.json
+  `services` key of each lane's gateway); the body is a plain string (`v4.0.206 build79 2026-10-27 08:34:39`, from
+  orchestration's `BaseVersionController`), parsed by the version families. No login. A host missing from site.json, a
+  404 (no route), a 503 (route, no instance) or an unparsable body is UNDETERMINED with the reason, never "not
+  deployed"; a product host that answers every path with a fixed body is exactly that case.
 - **Lane names are the release map's.** `aws-cn3-env` and `AWSCN3` are both `qa-cn3`; `MediaHubWednesday`
   is `daily-wed`; `UnifiedResourcesTest2` is `daily-test2`. Answer in lane names, show the tag once.
 - **Judgment is composed, not computed.** "Is MH-xxxx fixed on prod 3?" = the ticket's Fixed In (jira) → the

@@ -66,6 +66,8 @@
   ela bundle-diff <A> <B>          docker services added/removed/changed between two bundles
                                    (name, id or prefix; --host-a/--host-b)
   ela versions [service]           versions per env (userservice)
+  ela release gateway [service]    versions userservice does not publish (orchestration), per lane via the API
+                                   gateways; [--lane L] [--json]; a lane that does not answer is UNDETERMINED
   ela builds <job|service>         Jenkins builds: version, branch, sha
   ela drift                        newest bundle's GM names vs services.yaml
   ela release create [name] --from <base> --set "<svc>=<tag>" [--drop svc] [--note "why"] [--apply]
