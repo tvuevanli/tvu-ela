@@ -126,4 +126,19 @@ TL.env_found = lambda *a: ({}, set())
 st["env"]["diff-x"] = dict(st["env"]["diff-mediahub-backend"], id="diff-x", state="open", resolved=None)
 check("a source not read resolves nothing", [r["state"] for r in TL.env_rows("prod-2-china", st, {}, [], [], {}, [], set(), at) if r["id"] == "diff-x"] == ["open"])
 check("the page shows env rows in their own section", "## Environment, not code" in "\n".join(TL.env_section(got)))
+
+_ts = lambda h: str(_dt.datetime(2026, 10, 29, h, 0).astimezone().timestamp())  # noqa: E731
+_msgs = [{"ts": _ts(9), "permalink": "qa3", "user": "andyBot", "text": "2026-10-29_Release", "replies": [
+             {"user": "andyBot", "text": "release to *QA3* today?"},
+             {"user": "andyBot", "text": "mail sent: [Release Mediahub QA-AWS3] For 2.1 Release build 79"},
+             {"user": "helm", "text": "*Test list · QA-AWS2 build 2.0.11* — 1 new row(s)"}]},
+         {"ts": _ts(8), "permalink": "qa2-first", "user": "dev", "text": "@andyBot release qa2 mediahub-b release2.0", "replies": []},
+         {"ts": _ts(7), "permalink": "qa2", "user": "dev", "text": "@andyBot release qa2 mediahub-b release2.0",
+          "replies": [{"user": "lead", "text": "mail sent: [Release Mediahub QA-AWS2] build 2.0.11"}]}]
+check("the QA3 lane gets the thread that names QA3", TL.pick_thread(_msgs, "2026-10-29", "qa-cn3", "79") == "qa3")
+check("the QA2 lane gets its own thread, the one naming its build, not the day's QA3 thread",
+      TL.pick_thread(_msgs, "2026-10-29", "qa-cn2", "2.0.11") == "qa2")
+check("ela's own post naming a lane never makes a thread that lane's", TL.pick_thread(_msgs[:1], "2026-10-29", "qa-cn2", "2.0.11") is None)
+check("no thread names the lane: none", TL.pick_thread(_msgs, "2026-10-29", "qa-cn1", None) is None)
+check("another day's thread is not today's", TL.pick_thread(_msgs, "2026-10-30", "qa-cn3", "79") is None)
 sys.exit(1 if failures else 0)

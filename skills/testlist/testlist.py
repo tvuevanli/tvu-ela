@@ -33,8 +33,11 @@ list  Without --lane, every lane with release mails ("[Release MediaHub <env>]")
       a behaviour. An env row has its lane, since, owner (the roster responsibility owning env:<lane>, else
       "unowned"), state open or resolved, and the verdict "resolved on <lane> <date>"; it is kept under "env" in the
       state file and shown in its own section, "Environment, not code".
-      --new-rows: the rows each build released on --date (default today) added, Slack-formatted, with the day's
-      release thread in #mediahub-qa-release, for the runner's tier-2 post (rule test-list).
+      --new-rows: the rows each build released on --date (default today) added, Slack-formatted, with the lane's
+      release thread in #mediahub-qa-release, for the runner's tier-2 post (rule test-list). The thread is the one that
+      day whose root or replies name the lane (its mail tag QA-AWS3, or the build bot's QA3 / qa2), the one naming the
+      build first; ela's own posts never count. No thread names the lane: thread null, and the text says "no thread
+      for <lane>".
       --saw: writes the night run's line on the row (a local write; no --apply), stamped with the lane build.
       A QA member's reply in the release thread, "<KEY or nt- id> pass|fail on <version>", is a verdict for the row;
       on a row with a ticket it also drafts the tier-1 fact comment (`drafts`, rule fact-comment) once per reply.
@@ -823,12 +826,38 @@ def env_section(rows):
     return L
 
 
-def release_thread(env, date, gaps):
-    """The day's release thread in #mediahub-qa-release: the bot's `<date>_Release` message."""
+OWN_POSTERS = re.compile(r"^(helm|ela)$", re.I)          # ela's own posts name lanes too; they never make a thread a lane's
+
+
+def lane_rx(lane):
+    """The words a release thread uses for a lane: its mail tag (QA-AWS3) and the build bot's shorthand (QA3, qa2)."""
+    shown = lane_name(lane)[1]
+    n = re.fullmatch(r"qa-cn(\d+)", lane)
+    alts = [re.escape(shown)] + ([rf"qa[-_ ]?(?:aws[-_ ]?)?{n.group(1)}"] if n else [])
+    return re.compile(r"\b(?:" + "|".join(alts) + r")\b", re.I | re.A)
+
+
+def pick_thread(messages, date, lane, build=None):
+    """The release thread for `lane` among the channel's roots on `date`: one whose root or a reply (ela's own aside)
+    names the lane; of those, one that names the build (`build 79`, `v2.0.11`), else the latest. None when no thread
+    names the lane: the day's `<date>_Release` thread belongs to whichever lane it says, not to every lane."""
+    rx = lane_rx(lane)
+    brx = re.compile(rf"(?:build\s*|v){re.escape(str(build))}(?![\d.]*\d)", re.I) if build else None
+    hits = []
+    for m in messages:
+        ts = m.get("ts")
+        if not ts or datetime.datetime.fromtimestamp(float(ts)).astimezone().date().isoformat() != date:
+            continue
+        text = "\n".join(x.get("text") or "" for x in [m, *(m.get("replies") or [])] if not OWN_POSTERS.match(x.get("user") or ""))
+        if rx.search(text):
+            hits.append((bool(brx and brx.search(text)), float(ts), m.get("permalink")))
+    return max(hits)[2] if hits else None
+
+
+def release_thread(env, date, lane, build, gaps):
+    """The lane's release thread on `date` in #mediahub-qa-release (pick_thread), or None."""
     try:
-        for m in B.slack_rows(env, B.QA_RELEASE, date, gaps, threads=False):
-            if f"{date}_Release" in (m.get("text") or ""):
-                return m.get("permalink")
+        return pick_thread(B.slack_rows(env, B.QA_RELEASE, date, gaps), date, lane, build)
     except Exception as x:  # noqa: BLE001 — a missing thread is a skipped post, never a failed list
         gaps.append({"source": "slack release thread", "error": str(x)[:200]})
     return None
@@ -846,7 +875,6 @@ def slack_text(out, build, rows):
 
 def new_rows(out, env, date):
     builds, gaps = [], []
-    thread = None
     for b, v in sorted(out["builds"].items(), key=lambda kv: int(kv[0])):
         if (v.get("at") or "")[:10] != date:
             continue
@@ -854,8 +882,8 @@ def new_rows(out, env, date):
         if not rows:
             continue
         if out["kind"] == "qa":                             # QA builds have the day's thread in the QA release channel
-            thread = thread or release_thread(env, date, gaps)
-        builds.append({"lane": out["lane"], "build": v.get("label") or b, "mail_at": v.get("at"),
+            thread = release_thread(env, date, out["lane"], v.get("label") or b, gaps)
+        builds.append({"lane": out["lane"], "shown": out["shown"], "build": v.get("label") or b, "mail_at": v.get("at"),
                        "thread": thread if out["kind"] == "qa" else None, "channel": B.QA_RELEASE if out["kind"] == "qa" else None,
                        "text": slack_text(out, v.get("label") or b, rows), "rows": [r["id"] for r in rows]})
     out["gaps"] += [f"{g['source']}: {g['error']}" for g in gaps]
@@ -1062,15 +1090,15 @@ def cmd_list(a):
             plan = qa_today(out, env, at, a.budget, guidance, gaps)
             b = out["builds"].get(out["lane_build"]) or {}
             errs = []
-            thread = release_thread(env, (b.get("at") or "")[:10], errs) if b.get("at") else None
-            plans.append({"date": at.date().isoformat(), "lane": out["lane"], "lane_build": out["lane_build"], "thread": thread,
+            thread = release_thread(env, b["at"][:10], out["lane"], b.get("label") or out["lane_build"], errs) if b.get("at") else None
+            plans.append({"date": at.date().isoformat(), "lane": out["lane"], "shown": out["shown"], "lane_build": out["lane_build"], "thread": thread,
                           "channel": B.QA_RELEASE, "post": "thread" if thread else "day post", "text": today_text(out, plan, at), **plan,
                           "gaps": out["gaps"] + [f"{g['source']}: {g['error']}" for g in errs]})
         if a.json:
             print(json.dumps(plans[0] if a.lane and plans else {"lists": plans, "gaps": gaps}, ensure_ascii=False))
         else:
             for p in plans:
-                print(f"# {p['lane']} → {p['thread'] or 'the day post in #' + p['channel']}\n{p['text']}\n")
+                print(f"# {p['lane']} → {p['thread'] or 'no thread for ' + p['shown'] + '; the day post in #' + p['channel']}\n{p['text']}\n")
                 o = p["overnight"]
                 print(f"Overnight: {o['posts']} posts read in {', '.join('#' + c for c in o['channels']) or 'no channel'}, "
                       f"{o['placed']} asks placed above" + (f"; not read: {', '.join('#' + c for c in o['not_read'])}" if o["not_read"] else ""))
@@ -1087,7 +1115,7 @@ def cmd_list(a):
                              ensure_ascii=False))
         else:
             for b in builds:
-                print(f"# {b['lane']} {b['build']} → {b['thread'] or 'no release thread'}\n{b['text']}\n")
+                print(f"# {b['lane']} {b['build']} → {b['thread'] or 'no thread for ' + b['shown']}\n{b['text']}\n")
             print(f"{len(builds)} build(s) with new rows")
         return
     if a.json:
