@@ -605,6 +605,22 @@ check("a type outside the closed set is a lint line", "not in the closed set" in
 check("a decision outside its folders is a lint line", "belongs in" in V.type_lint("readings/x.md", "decision"))
 check("a report is a page, in any folder", V.type_lint("ela/bot/x.md", "report") is None and V.type_lint("x.md", "report") is None)
 check("a verification waiting in to-read is in place", V.type_lint("to-read/2026-10-29-verify-mh-1.md", "verify") is None)
+check("a guide outside ela/ is a lint line", "belongs in ela/" in (V.type_lint("meetings/review-list.md", "guide") or ""))
+check("the ela page is a guide in place", V.type_lint("ela/overview.md", "guide") is None)
+with tempfile.TemporaryDirectory() as t:
+    os.makedirs(os.path.join(t, "ela", "bot"))
+    open(os.path.join(t, "ela", "bot", "r.md"), "w").write('---\ntype: "report"\nsource: "vault"\nstatus: "proposed"\nmoves: "plan"\n---\n# R\n')
+    open(os.path.join(t, "ela", "bot", "q.md"), "w").write('---\ntype: "report"\nsource: "vault"\nstatus: "proposed"\nmoves: ""\n---\n# Q\n')
+    lint = {n.path: V.report_lint(n) for n in V.native_notes(t)}
+    check("a report carrying moves is a lint line", any("offers no moves" in x for x in lint["ela/bot/r.md"]))
+    check("a report with empty moves is quiet", lint["ela/bot/q.md"] == [])
+with tempfile.TemporaryDirectory() as t:
+    for d in ("to-read", "mh", "ela", "library", ".obsidian"):
+        os.makedirs(os.path.join(t, d))
+    open(os.path.join(t, "home.md"), "w").write("# H\n")
+    check("the readme's layout names its folders", {"to-read", "mh", "lanes", "ela", "board"} <= V.layout_folders() and "library" not in V.layout_folders())
+    check("a top folder the readme does not name is a lint line, hidden ones and files are not",
+          V.folder_lint(t) == ["library/: a top folder the readme's layout does not name"])
 with tempfile.TemporaryDirectory() as t:
     os.makedirs(os.path.join(t, "archive"))
     open(os.path.join(t, "archive", "a.md"), "w").write("---\ntype: verify\nstatus: \"closed\"\nmoves: \"closed\"\n---\n# A\n")

@@ -981,7 +981,38 @@ def type_lint(path, kind):
     folder = path.split("/", 1)[0] if "/" in path else ""
     if fam in FAMILY_FOLDERS and folder not in FAMILY_FOLDERS[fam]:
         return f"{path}: a {fam} belongs in {', '.join(FAMILY_FOLDERS[fam])}"
+    if kind == "guide" and folder != ELA:                 # the ela page's type; a page elsewhere has its own
+        return f"{path}: a guide is the ela page and belongs in {ELA}/"
     return None
+
+
+def report_lint(n):
+    """Lint lines for a report ela writes in place: its budget as advice, its status, and no moves, since a report
+    is ruled in place and has no lifecycle."""
+    out = [f"{n.path}: {p}" for p in reading_gate(n) if "words" in p and "budget" in p]
+    st = n.props.get("status")
+    if st and st not in REPORT_STATUSES:
+        out.append(f"{n.path}: status {st!r}: a report is {', '.join(REPORT_STATUSES)}")
+    if n.props.get(MOVE_SET):
+        out.append(f"{n.path}: moves {n.props[MOVE_SET]!r}: a report is ruled in place and offers no moves")
+    return out
+
+
+def layout_folders():
+    """The top folders the readme's layout table names."""
+    table = re.search(r"^## Layout\n(.*?)(?=^## )", README, re.M | re.S)
+    cells = re.findall(r"^\|([^|]*)\|", table.group(1) if table else "", re.M)
+    return {c.split("/")[0] for cell in cells for c in re.findall(r"`([^`]+)`", cell)}
+
+
+def folder_lint(vault):
+    """One lint line per top folder the readme's layout table does not name; hidden folders are Obsidian's."""
+    named = layout_folders()
+    try:
+        tops = sorted(d for d in os.listdir(vault) if not d.startswith(".") and os.path.isdir(os.path.join(vault, d)))
+    except OSError:
+        return []
+    return [f"{d}/: a top folder the readme's layout does not name" for d in tops if d not in named]
 
 
 def learned_lines(body):
@@ -1497,7 +1528,7 @@ def native_notes(vault):
                 continue
             props = {}
             for l in fl:
-                m = re.match(r"^(type|date|kind|status|title):\s*['\"]?([^'\"]*)['\"]?\s*$", l)
+                m = re.match(r"^(type|date|kind|status|title|moves):\s*['\"]?([^'\"]*)['\"]?\s*$", l)
                 if m:
                     props[m.group(1)] = m.group(2)
             rel = os.path.relpath(p, vault).replace(os.sep, "/")
@@ -1562,11 +1593,9 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since
     for n in native:                                       # a page ela writes in place is not gated, only checked
         native_warn += [f"{n.path}: {p}" for p in mermaid_problems(n.body)]
         if n.props.get("type") == "report":              # a report is his document; its budget is advice, never a hold
-            native_warn += [f"{n.path}: {p}" for p in reading_gate(n) if "words" in p and "budget" in p]
-            st = n.props.get("status")
-            if st and st not in REPORT_STATUSES:
-                native_warn.append(f"{n.path}: status {st!r}: a report is {', '.join(REPORT_STATUSES)}")
+            native_warn += report_lint(n)
     native_warn += [f"type: {x}" for x in (type_lint(n.path, n.props.get("type")) for n in notes + native) if x]
+    native_warn += [f"layout: {x}" for x in folder_lint(s["vault"])]
     ov = overview_note(s, s["vault"], today)
     if ov:
         notes.append(ov)
