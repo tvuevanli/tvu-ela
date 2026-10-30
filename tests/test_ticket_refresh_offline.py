@@ -125,4 +125,10 @@ st = {}
 got = T.stale_high([], datetime.datetime(2026, 10, 29, 12, 0, tzinfo=datetime.timezone.utc), st, [])
 check("a High ticket untouched since 10-10 is an unsure finding", [(f["key"], f["rule"], f["sure"]) for f in got] == [("MH-7", "high-untouched", False)])
 check("once a day", T.stale_high([], datetime.datetime(2026, 10, 29, 13, 0, tzinfo=datetime.timezone.utc), st, []) == [])
+os.makedirs(os.path.join(tmp, "runner"), exist_ok=True)
+for d, k in (("2026-10-29", "MH-11"), ("2026-10-30", "MH-12"), ("2026-10-31", "MH-13")):
+    json.dump([{"text": f"comment on {k}", "command": ""}], open(os.path.join(tmp, "runner", f"{d}-actions.json"), "w"))
+check("pending actions read the judged day's file, not tomorrow's", T.pending_action_keys(tmp, datetime.date(2026, 10, 30)) == {"MH-12"})
+check("with no file for the day, the newest not after it", T.pending_action_keys(tmp, datetime.date(2026, 11, 2)) == {"MH-13"})
+check("no file on or before the day reads nothing", T.pending_action_keys(tmp, datetime.date(2026, 10, 1)) == set())
 sys.exit(1 if failures else 0)

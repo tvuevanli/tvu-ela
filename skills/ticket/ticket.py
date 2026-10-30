@@ -61,9 +61,12 @@ def pages(reports):
     return out
 
 
-def pending_action_keys(reports):
-    """Keys named by today's or the latest drafted actions not yet applied nor handled by the owner."""
-    files = sorted(glob.glob(os.path.join(reports, "runner", "*-actions.json")))
+def pending_action_keys(reports, day=None):
+    """Keys named by the drafted actions of the day judged (today by default), or the newest file not after it, not yet
+    applied nor handled by the owner. The evening drafts the next working day's file, so the newest can be tomorrow's."""
+    day = (day or datetime.date.today()).isoformat()
+    files = sorted(f for f in glob.glob(os.path.join(reports, "runner", "*-actions.json"))
+                   if os.path.basename(f)[:10] <= day)
     try:
         acts = json.load(open(files[-1], encoding="utf-8")) if files else []
     except (OSError, ValueError):
