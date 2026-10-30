@@ -44,7 +44,7 @@ list  Without --lane, every lane with release mails ("[Release MediaHub <env>]")
       --today: QA today, the day's plan for each QA lane: carried rows without a verdict (P1 first, oldest first), the
       newest build's new rows, then interruptions (tickets assigned to QA in no build; asks to QA in #mediahub-qa-
       release and #prj_dev_mediahub since the last evening run, 19:00 the previous working day), cut at --budget
-      (10), each row with the reason it is in; --guidance applies his `ela:` lines (drop · first · add) first. The
+      (10), each row with the reason it is in; --guidance applies his `ela:` lines (drop · first · add · KEY P1) first. The
       json carries the text for the 09:30 tier-2 post (rule qa-today) in the lane build's release thread, or, when the
       build has none, as the day post (`post`: "day post", `ela slack post #<channel> … --team-day-post`), and the
       overnight count (posts read, channels not read, asks placed).
@@ -961,7 +961,8 @@ def overnight(env, since, who):
 
 
 def apply_guidance(plan, lines, out):
-    """His `ela:` lines under QA today: `drop KEY`, `KEY first`, `add KEY [why]`; anything else is returned unread."""
+    """His `ela:` lines under QA today or under a lane note's rows: `drop KEY`, `KEY first`, `add KEY [why]`, `KEY P1|P2|P3`
+    (the row takes that priority and moves ahead of the first row ranked below it); anything else is returned unread."""
     unread = []
     for raw in lines:
         g = GUIDE_RX.match(raw)
@@ -978,6 +979,14 @@ def apply_guidance(plan, lines, out):
             plan[:] = hit + [p for p in plan if p not in hit]
             for p in hit:
                 p["reason"] = "first, on your word; " + p["reason"]
+        elif re.search(r"\bP[123]\b", text, re.I):
+            to = re.search(r"\bP([123])\b", text, re.I).group(0).upper()
+            rank = lambda p: p["priority"] if re.fullmatch(r"P[123]", str(p["priority"])) else "P9"  # noqa: E731
+            for p in [p for p in plan if p["id"] in keys or p.get("ticket") in keys]:
+                plan.remove(p)
+                p["priority"], p["reason"] = to, f"{to} on your word; " + p["reason"]
+                at = next((i for i, q in enumerate(plan) if rank(q) > to), len(plan))
+                plan.insert(at, p)
         elif re.search(r"\badd\b", text, re.I):
             for k in keys:
                 if not any(p.get("ticket") == k or p["id"] == k for p in plan):
@@ -1459,7 +1468,7 @@ def main():
     p.add_argument("--saw", nargs=2, metavar=("KEY", "LINE"), help="write the night run's line on the row; a local write")
     p.add_argument("--today", action="store_true", help="QA today: the day's plan from the list, cut at --budget, Slack-formatted")
     p.add_argument("--budget", type=int, default=TODAY_BUDGET, help=f"rows in the day's plan (default {TODAY_BUDGET})")
-    p.add_argument("--guidance", help="a file of his `ela:` lines from the morning page's QA today section: drop KEY · KEY first · add KEY")
+    p.add_argument("--guidance", help="a file of his `ela:` lines from the morning page's QA today section: drop KEY · KEY first · add KEY · KEY P1")
     p.set_defaults(func=cmd_list)
     p = sub.add_parser("dev", help="the line's dev list: one row per owner ticket in development, with its gaps")
     p.add_argument("--line", help="one release line (2.1); default every line release.yaml names with a Jira label")

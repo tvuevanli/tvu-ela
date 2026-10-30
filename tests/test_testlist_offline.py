@@ -106,6 +106,12 @@ row = lambda k: {"id": k, "ticket": k, "url": "u", "also": [], "title": k, "prio
 plan = [row("MH-1"), row("MH-2"), row("MH-3")]
 left = TL.apply_guidance(plan, ["ela: drop MH-2", "ela: MH-3 first", "ela: something else"], {"rows": []})
 check("his lines drop and reorder; an unknown line is returned", [p["id"] for p in plan] == ["MH-3", "MH-1"] and left == ["something else"])
+plan = [dict(row("MH-1"), priority="P1"), dict(row("MH-2"), priority="P2"), row("MH-3"), row("MH-3820"), dict(row("MH-9"), priority="—")]
+left = TL.apply_guidance(plan, ["ela: MH-3820 P1"], {"rows": []})
+check("`ela: MH-3820 P1` moves the row up to the P1s, with the reason", [p["id"] for p in plan] == ["MH-1", "MH-3820", "MH-2", "MH-3", "MH-9"]
+      and plan[1]["priority"] == "P1" and plan[1]["reason"].startswith("P1 on your word") and left == [])
+TL.apply_guidance(plan, ["- ela: MH-1 p3"], {"rows": []})
+check("and a lower one moves it down, ahead of the unranked", [p["id"] for p in plan] == ["MH-3820", "MH-2", "MH-3", "MH-1", "MH-9"])
 check("a bot or helm is never an ask", all(TL.BOT_RX.search(n) for n in ("andyBot", "helm", "Summer Slack Bot")) and not TL.BOT_RX.search("Robin Wu"))
 
 rep = {"at": "2026-10-28T19:01", "text": "Test Environment\nTVU MediaHub (ENV: x)\nTest Result\n*MH-3752* FAIL output not reachable\n"
