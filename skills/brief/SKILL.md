@@ -348,10 +348,20 @@ he could tick became the page he stopped reading (from 2026-10-28).*
 - **One `## <Name> at HH:MM` section per meeting the owner has that day,** right after *Needs you*, in time order.
   The meetings are data, not page logic: `<elak>/blueprint/meetings.yaml`, read by `ela day --json` (and in `ela brief --json` as `day.meetings`, each with its `section` heading), gives each meeting's `name`,
   `weekdays`, `time`, `audience` and `enabled`. A meeting that is not enabled, or has no time yet, renders
-  nothing. Each section is his agenda for that meeting, in his speaking order, at most eight bullets. It adds no
-  new facts: every line restates the page's own items, lanes table or sprint table, with the key or link that
-  holds the evidence, so it costs the judge one more section, not one more read. A part with nothing to say is
-  left out, never filled. Services are named by slug.
+  nothing. The list itself lives in one note per meeting, `meetings/<key>.md` in the vault, written only by
+  `ela meeting --key K`; the section is its pointer: the `pointer` line of `ela meeting --key K --json`
+  ("Scrum with the PM at 10:00 · 4 items on [[meetings/scrum-pm]] · 2 new today") and its `new` items, one line
+  each, nothing else. No dated meeting note is written.
+
+  **What ela proposes.** Before writing the section the judge reads the page's own items, lanes table and sprint
+  table against the rubric below for that audience and adds each question the owner would bring, as
+  `ela meeting --key K --propose "<key> — <question>" --decides "<who>"` (one line, at most 140 characters as read;
+  the verb refuses a longer one, exit 4: shorten it and fold the evidence with `--detail`). It adds no new facts:
+  each restates an item with the key that holds the evidence. Only the rubric's asks become items (the PM's 3 and 4,
+  the sync's 2 to 5 where they ask); its status parts (sprint, releases, commitments) are said from the page. The verb skips a question already on the list. His own
+  `ela: raise <key> — <question>` line, anywhere in the vault or in the DM thread, is
+  `ela meeting --key K --raise "<key> — <question>"` for the meeting he names, else the next one whose audience
+  decides it.
 
   **The PM scrum** (audience: product manager):
   1. **Sprint**, one line: `day N of M · x on track · y at risk`, then the at-risk item and what it needs, by key.
@@ -376,15 +386,15 @@ he could tick became the page he stopped reading (from 2026-10-28).*
   5. **What he needs from each group today**, one line per group with an ask, written as the question he will ask.
   6. **What he commits to**, one line.
 
-  **Copy to Slack.** Under each meeting section a folded callout `> [!note]- copy to Slack` holds the output of
-  `ela meeting --key K --slack`. When meetings.yaml sets `post: true` and a `channel`, the section also ends with a
-  tier-2 Do line, `- [ ] don't N — at <the meeting's time> unless you tick: the list in #<channel>` (rule `meeting`,
-  `send_at` the meeting's time, the thread: that day's post in the channel); his `ela:` lines under the section are
-  applied before the send. With `post: false` the Do line is "your call: paste it at the meeting".
-
-  **After a meeting** the owner writes its rulings and answers as `ela:` lines under its section. The next pass
-  (13:00) reads them as guidance, like any `ela:` line on the page: a ruling closes its D item and is recorded on
-  the ticket or the decision note it names, as a drafted `apply N` for his tick.
+  **Sending the list.** The note opens with `- [ ] send`. Ticked, the runner posts `ela meeting --key K --slack` to
+  the meeting's `channel` at its time, in that day's thread, as a tier-3 send-box action under rule `meeting`
+  (his tick is the confirm; no channel set: he copies the list from the note). The page carries no box for it.
+  **After a meeting** he writes one `ela:` line under an item (`ela: ruled — hold for QA; PM agrees`) or ticks it.
+  Each pass runs `ela meeting --key K --rule --json`: a ruled item moves under `## Ruled` / `### <date>` with his
+  words, an item he ticked before any meeting saw it is dropped, and the send box is unticked for the next meeting.
+  Each of its `follow_ups` (a ruling that names a key) becomes a drafted action that day, rewritten in the ticket's
+  genre (a Jira comment, a priority change), tier 3 unless a closed rule admits it. Ruled keeps 30 days; the vault
+  sync moves older dates to `archive/meetings-<key>-<yyyy-mm>.md` and lints an item over 140 characters.
   **On Friday** the day's meeting sections also open the Friday page (`<date>-week.md`), above `## The sprint`.
   *Why: meetings are where rulings are given and asks are answered. A page that carries the questions in his
   speaking order turns them into recorded rulings the same day, and a meeting he adds or moves is one line of
@@ -433,8 +443,8 @@ commitment) and "due this week: N · …" (`lanes.due_week`), then
 when the ticket is addressed to him or is a customer incident; the eight-item cap and Home's three stand. The
 findings file keeps every one for the ticket pages and the replay.
 
-**Every section written for him ends with what he does.** An item, QA today, Dev today, a meeting section and the
-program's Next each end with a Do line: an `apply N`, a `don't N`, or "your call: <recommended> over <alternative>
+**Every section written for him ends with what he does.** An item, QA today, Dev today and the
+program's Next each end with a Do line (a meeting section's is its note's send box and rulings): an `apply N`, a `don't N`, or "your call: <recommended> over <alternative>
 because …". `ela review lint` names a section or an item without one. *Why: a description is not a deliverable; every
 answer ends with what he should do, what he can do, and how (working-with-evan.md, 2026-10-29).*
 
@@ -589,11 +599,12 @@ The page is read in Obsidian, so its form is fixed:
   Fixed In the builds ledger confirms; never a clear) and `assign-by-rule` (an assignment a closed routing rule
   gives); never a terminal status, a close, a transition or a customer-facing field. Tier 2, the runner sends it at
   10:00 unless he ticks "don't": `thread-reply` (a reply in a team channel's thread ela has read), `train-hold`,
-  `train-promote` and `meeting` (a meeting's list, at the meeting's time), each an `ela slack post <thread permalink> …
+  and `train-promote`, each an `ela slack post <thread permalink> …
   --team-thread`, which slack.py refuses outside the team channels. Tier 3 is everything else, on his word only
-  (`apply N`): customers, prod approvals, people, anything addressed to him, anything no closed rule admits. One tier-3
-  rule carries a send box: `qa-today` (QA today, below), drafted by the runner and sent when he ticks `send N` or says
-  `apply N`; it may make the day post, `ela slack post #<team channel> … --team-day-post`, which slack.py refuses when
+  (`apply N`): customers, prod approvals, people, anything addressed to him, anything no closed rule admits. Two tier-3
+  rules carry a send box. `meeting`: a meeting's list, its box `- [ ] send` atop the meeting's note, not on the page,
+  posted at the meeting's time in that day's thread (above). `qa-today` (QA today, below), drafted by the runner and
+  sent when he ticks `send N` or says `apply N`; it may make the day post, `ela slack post #<team channel> … --team-day-post`, which slack.py refuses when
   ela already posted top level in that channel that day. `test-list` (the 19:00 post) is retired and `dev-today` is
   parked; page-check fails an action drafted under either (decisions/2026-10-29-writes-run-in-three-tiers.md,
   amendment 2026-10-30). A tier-1 or tier-2 action carries `evidence`, one

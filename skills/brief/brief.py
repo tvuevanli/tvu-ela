@@ -2540,11 +2540,15 @@ TIER_RULES = {
     "thread-reply": (2, TEAM_POST),
     "train-hold": (2, TEAM_POST),
     "train-promote": (2, TEAM_POST),
-    "meeting": (2, TEAM_POST),            # a meeting's list, sent at the meeting's time under the day post (`ela meeting --slack`)
 }
 # tier 3 with a send box: the runner drafts it, it leaves only when he ticks `send N` (read at 09:30 and 10:00) or says
 # `apply N`, never on a timer (decisions/2026-10-29-writes-run-in-three-tiers.md, amendment 2026-10-30)
-SEND_BOX_RULES = {"qa-today": f"(?:{TEAM_POST})|(?:{DAY_POST})"}   # QA today in the lane build's release thread or as the day post
+SEND_BOX_RULES = {"qa-today": f"(?:{TEAM_POST})|(?:{DAY_POST})",   # QA today in the lane build's release thread or as the day post
+                  "meeting": TEAM_POST}                              # a meeting's list at its time, under the day post
+# a send box that is not on the morning page: the meeting's is `- [ ] send` atop its note, meetings/<key>.md
+# (`ela meeting --json` send_ticked), and the page carries only its pointer line (vault
+# in-progress/2026-10-30-review-list-redesign.md)
+SEND_BOX_IN_NOTE = ("meeting",)
 # rules the same amendment took out of tier 2: no action is drafted under them
 RETIRED_RULES = {"test-list": "retired: the evening drafts the next morning's QA today and posts nothing",
                  "dev-today": "parked until the dev list is taken up again"}
@@ -2596,7 +2600,7 @@ def tier_check(page, actions, demoted=None, verdict_build=None):
                              + ", ".join(SEND_BOX_RULES) + f", not tier {tier} rule {rule!r}")
             elif not re.search(SEND_BOX_RULES[rule], cmd + " "):
                 fails.append(f"action {n}: its command is not what rule {rule} admits: {cmd[:70]}")
-            if n not in sendbox and not settled:
+            if n not in sendbox and not settled and rule not in SEND_BOX_IN_NOTE:
                 fails.append(f"action {n}: a send-box action is written \"- [ ] send N — QA today on <lane> (your ela: lines applied first)\"")
             if n in done | dont | boxed:
                 fails.append(f"action {n}: a send-box action has only its send box on the page")
@@ -2845,18 +2849,9 @@ def qa_cycle_lines(cycle, today, days=3):
     return out
 
 
-# ── a meeting's section, as the list he brings to it ──────────────────────────────────────────────────
+# ── a meeting's list, from its note in the vault ─────────────────────────────────────────────────────
 
 MEETING_GUIDE_RX = re.compile(r"^[ \t]*(?:[-*+][ \t]+|>[ \t]*)*ela[ \t]*[:：][ \t]*(\S.*?)[ \t]*$", re.I | re.M)
-
-
-def meeting_section(page, heading):
-    """The body of `## <heading>` on a morning page, or None."""
-    m = re.search(r"^##[ \t]+" + re.escape(heading) + r"[ \t]*$", page or "", re.M)
-    if not m:
-        return None
-    nxt = re.search(r"^##[ \t]", page[m.end():], re.M)
-    return page[m.end(): m.end() + nxt.start()] if nxt else page[m.end():]
 
 
 def apply_meeting_guidance(body, lines):
@@ -2892,48 +2887,134 @@ def slack_form(md):
     return t
 
 
+def meeting_slots(m, doc, start, step, days=21):
+    """The meeting's dates from `start`, one way (step +1 or -1): working days on its weekdays, while it is enabled
+    and has a time."""
+    if m.get("enabled") is not True or not str(m.get("time") or "").strip():
+        return
+    for i in range(days):
+        d = start + datetime.timedelta(days=i * step)
+        if is_working_day(d, doc) and WEEKDAY_NAMES[d.weekday()] in flow_list(m.get("weekdays")):
+            yield d
+
+
+def meeting_note_path(vault, key):
+    return os.path.join(vault, "meetings", f"{key}.md")
+
+
+def meeting_raise_text(text):
+    """`<key or topic> — <question>` (a dash or a colon between) → (subject, question); no separator: the question."""
+    g = re.match(r"^\s*(\S[^—:]*?)\s+(?:—|--|-|:)\s+(\S.*)$", text or "") or re.match(r"^\s*([A-Z][A-Z0-9]+-\d+)[:,]?\s+(\S.*)$", text or "")
+    return (g.group(1).strip(), g.group(2).strip()) if g else ("", (text or "").strip())
+
+
 def cmd_meeting(args):
-    """`ela meeting --key K`: that meeting's section on the day's morning page, his `ela:` lines applied (those under the
-    section, and --guidance FILE), as the page holds it or (--slack) as Slack writes it. --json carries what the
-    runner's tier-2 post needs: the channel from meetings.yaml, and the thread: the day post in that channel when ela
-    made one (<runtime>/runner/<date>-day-posts.json), else null."""
-    d = datetime.date.fromisoformat(args.date) if args.date else datetime.date.today()
-    plan = day_plan(d)
-    m = next((x for x in plan["meetings"] if x["key"] == args.key), None)
+    """`ela meeting --key K`: the meeting's note in the vault, meetings/<key>.md, the one place its list lives. --raise and
+    --propose add an item (one line, at most 140 characters; --detail folds under it); --rule applies his ticks and
+    `ela:` lines (ruled or dropped, moved under Ruled by date) and unticks the send box once the meeting has begun;
+    --slack prints the list as Slack writes it; --json carries what the runner needs: the send box, the channel, the
+    thread, the morning page's pointer line and today's new items, and with --rule what was ruled. Writes are the
+    note's own and take the vault's lock; --dry-run writes nothing."""
+    sys.path.insert(0, os.path.join(HERE, "..", "vault"))
+    import vault as V
+    now = datetime.datetime.fromisoformat(args.now) if args.now else datetime.datetime.now()
+    d = datetime.date.fromisoformat(args.date) if args.date else now.date()
+    doc = owner_day()
+    m = next((x for x in doc["meetings"] if isinstance(x, dict) and x.get("key") == args.key), None)
     if not m:
-        print(f"meeting: no enabled meeting {args.key!r} on {d} ({', '.join(x['key'] for x in plan['meetings']) or 'none that day'})", file=sys.stderr)
+        print(f"meeting: no meeting {args.key!r} in meetings.yaml ({', '.join(str(x.get('key')) for x in doc['meetings'] if isinstance(x, dict)) or 'none'})",
+              file=sys.stderr)
         sys.exit(3)
     site = json.load(open(SITE))
-    runner = os.path.join(site.get("runtime") or os.path.join(site.get("projects", ""), ".ela"), "runner")
-    reports = site.get("reports") or os.path.join(site.get("projects", ""), "reports")
+    vault = site.get("vault") or ""
+    if not os.path.isdir(vault):
+        print(f"meeting: site.json `vault` is not a folder: {vault}", file=sys.stderr); sys.exit(3)
+    time_ = str(m.get("time") or "").strip()
+    name, channel = m.get("name") or args.key, str(m.get("channel") or "").lstrip("#") or None
+    title = f"{name} · {' '.join(flow_list(m.get('weekdays')))} {time_ or 'not scheduled yet'}".replace("  ", " ")
+    send_text = (f"the list goes to #{channel} at {time_} on your tick" if channel
+                 else "no channel set yet: copy the list from the Slack fold below on your own")
+    nxt = next(meeting_slots(m, doc, d, 1), None)
+    if nxt == d and time_ and now.date() == d and now.strftime("%H:%M") >= time_:
+        nxt = next(meeting_slots(m, doc, d + datetime.timedelta(days=1), 1), None)
+    last = next((x for x in meeting_slots(m, doc, d, -1) if x < now.date() or (time_ and now.strftime("%H:%M") >= time_)), None)
+    path = meeting_note_path(vault, args.key)
+    writes = bool(args.raise_ or args.propose or args.rule)
+    lock = V.vault_lock() if writes and not args.dry_run else None   # noqa: F841  (held until the process exits)
     try:
-        page = open(os.path.join(reports, "runner", f"{d.isoformat()}-brief.md"), encoding="utf-8").read()
+        text = open(path, encoding="utf-8").read()
     except OSError:
-        page = ""
-    body = meeting_section(page, m["section"])
-    if body is None:
-        print(f"meeting: the {d} morning page has no section ## {m['section']}", file=sys.stderr)
-        sys.exit(3)
-    lines = [g.group(0) for g in MEETING_GUIDE_RX.finditer(body)]
-    if args.guidance:
-        lines += open(args.guidance, encoding="utf-8").read().splitlines()
-    out, unread = apply_meeting_guidance(body, lines)
-    text = f"## {m['section']}\n\n{out}" if not args.slack else f"*{m['name']} · {d:%a %m-%d} {m['time']}*\n{slack_form(out)}"
+        text = ""
+    n = V.meeting_parse(text)
+    jira = ""
+    env = site.get("env")
+    if env and os.path.isfile(env):
+        jira = next((l.split("=", 1)[1].strip() for l in open(env) if l.startswith("JIRA_BASE_URL=")), "")
+    added, refused, ruled = [], [], []
+    for raw, proposed in [(t, False) for t in args.raise_ or []] + [(t, True) for t in args.propose or []]:
+        subject, question = meeting_raise_text(raw)
+        line = V.meeting_item(subject, question, d, args.decides, proposed, jira)
+        k = len(V.visible(line))
+        if k > V.MEETING_ITEM_MAX:
+            refused.append(f"{k} characters, over {V.MEETING_ITEM_MAX}: {V.visible(line)}"); continue
+        if V.meeting_add(n, line, args.detail):
+            added.append(line)
+    if args.rule:
+        ruled = V.meeting_rule(n, d, last)
+        if n["send"] and n["send"]["ticked"] and last == d and now.date() == d:
+            n["send"]["ticked"] = False                     # his tick was for this meeting; the next one needs its own
+    changed = not text or added or ruled or (args.rule and V.meeting_parse(text)["send"] != n["send"])
+    if writes and changed and not args.dry_run:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        V.atomic_write(path, V.meeting_render(n, title, send_text, d))
+    order = [it for it in n["items"] if not it["ticked"]]
+    first = [it for it in order if any(V.MEETING_ORDER.match(g.group(1).strip()) for g in (V.GUIDE.match(l) for l in it["under"]) if g)]
+    order = first + [it for it in order if it not in first]
+    clean = lambda t: re.sub(r"[ \t]*·[ \t]*ela proposes\b", "", t)  # noqa: E731
+    body = "\n".join(f"- {clean(it['text'])}" for it in order)
+    lines = open(args.guidance, encoding="utf-8").read().splitlines() if args.guidance else []
+    body, unread = apply_meeting_guidance(body, lines)
+    when = nxt or d
+    slack = f"*{name} · {when:%a %m-%d} {time_}*\n" + "\n".join(("• " + l[2:]) if l.startswith("- ") else l for l in slack_form(body).splitlines())
+    today_mmdd = f"{d:%m-%d}"
+    new = [it["text"] for it in n["items"] if V.meeting_fields(it["text"])["since"] == today_mmdd]
+    count = len(n["items"])
+    pointer = (f"{name} at {time_} · {count} item{'s' if count != 1 else ''} on [[meetings/{args.key}]]"
+               + (f" · {len(new)} new today" if new else ""))
     thread = None
     try:
-        posts = json.load(open(os.path.join(runner, f"{d.isoformat()}-day-posts.json"), encoding="utf-8"))
-        ch = (m.get("channel") or "").lstrip("#")
-        thread = next((v for k, v in (posts.items() if isinstance(posts, dict) else []) if k.lstrip("#") == ch and isinstance(v, str)), None) \
-            or next((p.get("permalink") for p in (posts if isinstance(posts, list) else []) if (p.get("channel") or "").lstrip("#") == ch), None)
+        runner = os.path.join(site.get("runtime") or os.path.join(site.get("projects", ""), ".ela"), "runner")
+        posts = json.load(open(os.path.join(runner, f"{when.isoformat()}-day-posts.json"), encoding="utf-8"))
+        thread = next((v for k, v in (posts.items() if isinstance(posts, dict) else []) if k.lstrip("#") == (channel or "") and isinstance(v, str)), None) \
+            or next((p.get("permalink") for p in (posts if isinstance(posts, list) else []) if (p.get("channel") or "").lstrip("#") == (channel or "")), None)
     except (OSError, ValueError, AttributeError):
         pass
+    follow = [{"key": r["key"], "tier": 3, "draft": f"{name}, {d.isoformat()}: {r['words']}"}
+              for r in ruled if r["outcome"] == "ruled" and r["key"] and r["words"]]
     if args.json:
-        print(json.dumps({"key": m["key"], "date": d.isoformat(), "time": m["time"], "channel": m.get("channel"), "post": m.get("post"),
-                          "thread": thread, "text": text, "guidance_unread": unread}, ensure_ascii=False))
-        return
-    print(text)
+        print(json.dumps({"key": args.key, "name": name, "note": f"meetings/{args.key}.md", "date": when.isoformat(), "time": time_,
+                          "channel": channel, "post": m.get("post") is True and bool(channel), "thread": thread,
+                          "send_ticked": bool(n["send"] and n["send"]["ticked"]), "items": [dict(V.meeting_fields(it["text"]), text=it["text"],
+                          ticked=it["ticked"]) for it in n["items"]], "pointer": pointer, "new": new, "text": slack,
+                          "added": added, "refused": refused, "ruled": ruled, "follow_ups": follow, "guidance_unread": unread,
+                          "lint": V.meeting_lint(f"meetings/{args.key}.md", V.meeting_render(n, title, send_text, d)),
+                          "dry_run": args.dry_run}, ensure_ascii=False))
+    elif args.slack:
+        print(slack)
+    else:
+        print(f"meetings/{args.key}.md · {pointer.split(' · ', 1)[1]}" + (" · DRY RUN" if args.dry_run else ""))
+        for it in n["items"]:
+            print(f"  [{'x' if it['ticked'] else ' '}] {V.visible(it['text'])}")
+        for a_ in added:
+            print(f"added: {V.visible(a_)}")
+        for r in ruled:
+            print(f"{r['outcome']}: {V.visible(r['text'])}" + (f" — {r['words']}" if r["words"] else ""))
+    for r in refused:
+        print(f"meeting: not added, {r}; fold the detail with --detail", file=sys.stderr)
     for u in unread:
-        print(f"\n(not applied: {u})", file=sys.stderr)
+        print(f"(not applied: {u})", file=sys.stderr)
+    if refused:
+        sys.exit(4)
 
 
 def cmd_day(args):
@@ -3077,11 +3158,19 @@ def main():
     p.add_argument("--date", help="YYYY-MM-DD (default today)")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_day)
-    p = sub.add_parser("meeting", help="a meeting's section on the day's morning page, his ela: lines applied; --slack as Slack writes it")
+    p = sub.add_parser("meeting", help="a meeting's note in the vault (meetings/<key>.md): add an item, apply his rulings, "
+                                       "or print the list; --slack as Slack writes it")
     p.add_argument("--key", required=True, help="the meeting's key in meetings.yaml (scrum-pm)")
-    p.add_argument("--date", help="YYYY-MM-DD (default today)")
-    p.add_argument("--slack", action="store_true", help="the Slack form: bold, links and wiki links as Slack writes them")
-    p.add_argument("--guidance", help="a file of his ela: lines (drop <word> · <word> first), applied after the section's own")
+    p.add_argument("--raise", dest="raise_", action="append", metavar="TEXT", help="his item: '<key or topic> — <question>' (repeatable)")
+    p.add_argument("--propose", action="append", metavar="TEXT", help="ela's item from the day's items, marked 'ela proposes' (repeatable)")
+    p.add_argument("--decides", help="with --raise/--propose: who decides (you decide with the PM)")
+    p.add_argument("--detail", action="append", help="with --raise/--propose: a line folded under the item (repeatable)")
+    p.add_argument("--rule", action="store_true", help="apply his ticks and ela: lines: ruled or dropped items move under Ruled by date")
+    p.add_argument("--slack", action="store_true", help="the list as Slack writes it: unticked items, his 'first' lines on top")
+    p.add_argument("--guidance", help="a file of his ela: lines (drop <word> · <word> first), applied to the Slack list")
+    p.add_argument("--date", help="YYYY-MM-DD, the day read as today (default today)")
+    p.add_argument("--now", help=argparse.SUPPRESS)       # fixtures: the moment read as now, ISO
+    p.add_argument("--dry-run", action="store_true", help="report what would change; write nothing")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_meeting)
     p = sub.add_parser("sprint", help="the active sprint note in the vault: goals and committed items with their keys and "

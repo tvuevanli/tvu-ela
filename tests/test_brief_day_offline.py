@@ -104,8 +104,6 @@ check("his ela: lines drop and reorder a meeting's bullets and never go out them
       out == "- Ask: MH-3829 the URL?\n- Releases: prod-3 runs 2.1.15" and unread == ["celebrate"])
 check("the Slack form: bold, links and wiki links as Slack writes them",
       B.slack_form("**Ask** [thread](https://x.y/p1) [[lanes|the lanes]]") == "*Ask* <https://x.y/p1|thread> the lanes")
-page = "# B\n\n## Scrum with the PM at 10:00\n\n- a\n\n## FYI\n\n- b\n"
-check("a meeting's section is read from its heading to the next", B.meeting_section(page, "Scrum with the PM at 10:00").strip() == "- a")
 check("the lead's release-labelled or Epic ticket is release bookkeeping; another's, or an unlabelled task, is not",
       B.is_release_bookkeeping({"reporter": "Lead", "labels": ["release:mh-2.1"], "type": "Task"}, "Lead")
       and B.is_release_bookkeeping({"reporter": "Lead", "labels": [], "type": "Epic"}, "Lead")

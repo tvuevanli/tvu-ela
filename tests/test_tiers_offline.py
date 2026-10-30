@@ -83,12 +83,19 @@ with tempfile.TemporaryDirectory() as t:
     check("the vault shows what the runner did: done, held by his tick, sent, not done",
           out == "- done 1 — a · done 08:31\n- [x] don't 2 — at 10:00 unless you tick: b · held, you ticked 09:12\n"
                  "- [ ] don't 3 — at 10:00 unless you tick: c · sent 10:00\n- done 4 — d · not done: jira 403")
-mt = [{"n": 5, "tier": 2, "rule": "meeting", "send_at": "14:00", "evidence": "the scrum's list",
+mt = [{"n": 5, "tier": 2, "rule": "train-hold", "send_at": "14:00", "evidence": "build 79 report: hold",
        "command": f"ela slack post {THREAD} --text-file f --team-thread"}]
-p14 = "- [ ] don't 5 — at 14:00 unless you tick: the scrum's list\n"
+p14 = "- [ ] don't 5 — at 14:00 unless you tick: hold the train\n"
 check("a tier-2 post at its send time passes", B.tier_check(p14, mt) == [])
 check("a page time that disagrees with the action's send_at fails",
       any("goes at 10:00" in f for f in B.tier_check(p14.replace("14:00", "10:00"), mt)))
+mtg = [{"n": 8, "tier": 3, "send_box": True, "rule": "meeting", "send_at": "10:00", "command": f"ela slack post {THREAD} --text-file f --team-thread"}]
+pointer = "## Scrum with the PM at 10:00\n\nScrum with the PM at 10:00 · 2 items on [[meetings/scrum-pm]] · 1 new today\n"
+check("a meeting's list is a tier-3 send box whose box is in its note: the page's pointer line passes", B.tier_check(pointer, mtg) == [])
+check("a meeting's list drafted at tier 2 fails", any("send-box action is tier 3" in f or "tier-2 rule" in f
+      for f in B.tier_check("- [ ] don't 8 — at 10:00 unless you tick: the scrum's list\n", [dict(mtg[0], tier=2, send_box=False)])))
+check("a meeting's list may not make a top-level post", any("not what rule" in f for f in B.tier_check(pointer, [dict(
+      mtg[0], command="ela slack post #prj_dev_mediahub --file f --team-day-post")])))
 check("the 19:00 test-list post is retired", any("rule test-list is retired" in f for f in B.tier_check(
       "- [ ] don't 5 — at 19:00 unless you tick: x\n", [dict(mt[0], rule="test-list", send_at="19:00")])))
 dp = [{"n": 6, "tier": 2, "rule": "dev-today", "evidence": "the 2.1 dev list", "command": "ela slack post #prj_dev_mediahub --file f --team-day-post"}]

@@ -110,12 +110,13 @@ DO_ANY_RX = re.compile(r"\*\*Do:\*\*|^\s*[-*]\s+\[[ xX]\]\s+(?:apply|don't)\s+\d
 
 def sections_without_do(text):
     """The headings of the sections written for him (QA today, Dev today, a meeting at HH:MM, a Next) with no Do line:
-    an apply N, a don't N, or "your call: <recommended> over <alternative> because …"."""
+    an apply N, a don't N, or "your call: <recommended> over <alternative> because …". A meeting's section that points
+    to its note (`[[meetings/<key>]]`) has its Do there: the send box and his rulings."""
     out, marks = [], list(DO_SECTION_RX.finditer(text))
     for m in marks:
         nxt = re.search(r"^##[ \t]", text[m.end():], re.M)
         body = text[m.end(): m.end() + nxt.start()] if nxt else text[m.end():]
-        if not DO_ANY_RX.search(body):
+        if not DO_ANY_RX.search(body) and not (re.search(r" at \d{1,2}:\d{2}$", m.group(1).strip()) and "[[meetings/" in body):
             out.append(m.group(1).strip())
     return out
 

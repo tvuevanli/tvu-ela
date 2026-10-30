@@ -107,8 +107,10 @@
                                    does not (tickets, QA verdicts, commits without a ticket), 14 days of moves
   ela day [--date D]               the owner's day as data (<elak>/blueprint/meetings.yaml): working day, hours, DM
                                    window, QA deploy hour, the meetings that day and their brief section headings
-  ela meeting --key K [--slack]    a meeting's section on the day's morning page, his ela: lines applied (drop · first);
-                                   --slack as Slack writes it; --json with the channel and the day post's thread
+  ela meeting --key K              a meeting's note in the vault (meetings/<key>.md): --raise / --propose TEXT add an
+                                   item (140 characters at most, --detail folds under it), --rule moves ruled and
+                                   dropped items under Ruled by date, --slack the list as Slack writes it, --json with
+                                   the send box, the channel, the thread and the morning page's pointer line
   ela page-check PAGE --actions F  every apply N on a brief page has its drafted action and its box; exit 1 naming any
   ela review lint PAGE              a page ela wrote, checked mechanically: keys are links, Do lines are boxes and
                                    never left for you, counts equal the day's, one item per key, services by slug

@@ -97,6 +97,9 @@ pg = ("# B\n\n## Needs you\n\n### 1. A thing\nfacts\n- one\n\n### 2. Another\nfa
 got = [f for f in RV.lint(pg, brief=True) if "Do line" in f]
 check("an item and a section written for him each end with a Do line; lint names the ones that do not",
       got == ["QA today: a section with no Do line (apply N, don't N, or your call: … over … because …)", "1. A thing: an item with no Do line"])
+ptr = "## Scrum with the PM at 10:00\n\nScrum with the PM at 10:00 · 2 items on [[meetings/scrum-pm]] · 1 new today\n- MH-1 — ship or hold?\n"
+check("a meeting section that points to its note has its Do there; one that does not still needs a Do line",
+      RV.sections_without_do(ptr) == [] and RV.sections_without_do(ptr.replace("[[meetings/scrum-pm]]", "the list")) == ["Scrum with the PM at 10:00"])
 check("a page not linted as a brief is not held to it", not [f for f in RV.lint(pg) if "Do line" in f])
 rp = '---\ntype: "report"\nstatus: "decided"\n---\n# A report\n\n' + "word " * 1500 + "\n\n> [!note]- Evidence\n> more\n"
 check("a report's status is proposed, decided or superseded; a plan's is the folder's",
