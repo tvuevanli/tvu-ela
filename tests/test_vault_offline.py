@@ -532,6 +532,28 @@ with tempfile.TemporaryDirectory() as t:
     check("a second pass the same day is idempotent: no new line, no new row", again["appended"] == 0
           and open(os.path.join(v, "archive", "promote.md")).read().replace(V.props_of(V.split_front(txt)[0])["watched"], "") .count("· MH-3855") == 1
           and len(open(os.path.join(r, "ela", "afterwards.jsonl")).readlines()) == 2)
+td = datetime.date.today()
+st = V.archive_stamp('---\ntype: "review"\ndate: "2026-10-01"\ntitle: "Promote MH-10"\n---\n# Promote [MH-10](x)\n\n'
+                     '> Status: [MH-11](x) open, see https://t.slack.com/archives/C1/p1793000000000002.\n\n'
+                     '## Detail\n\nMH-12 and UR-457 cited; https://t.slack.com/archives/C1/p1793000000000003\n', td)
+check("an archived note is stamped with its subject keys, every thread it links, and the day its window counts from",
+      st == {"archived": td.isoformat(), "keys": "MH-10 MH-11",
+             "posted": "https://t.slack.com/archives/C1/p1793000000000002 https://t.slack.com/archives/C1/p1793000000000003"})
+check("a note that already carries keys, posted or archived is never re-stamped",
+      all(V.archive_stamp(f'---\n{k}: "x"\n---\n# MH-1\n', td) is None for k in ("keys", "posted", "archived")))
+check("the window counts from archived when present",
+      V.watch_until({"type": "review", "date": "2026-01-01", "archived": "2026-10-30"}) == datetime.date(2026, 11, 13))
+with tempfile.TemporaryDirectory() as t2:
+    v = os.path.join(t2, "v"); os.makedirs(os.path.join(v, "archive"))
+    a = os.path.join(v, "archive", "old-review.md")
+    open(a, "w").write('---\ntype: "review"\ndate: "2026-01-01"\n---\n# Review of [MH-7](x)\n\nHis text.\n')
+    dry = V.stamp_archive(v, td, dry_run=True)
+    check("a dry run stamps nothing on disk but watches as if it had",
+          "archived:" not in open(a).read() and [w["note"] for w in V.watched_notes(v, td, dry)] == ["archive/old-review.md"])
+    V.stamp_archive(v, td)
+    check("an old note dragged into archive is watched from the day it was stamped, its text kept",
+          [w["note"] for w in V.watched_notes(v, td)] == ["archive/old-review.md"] and "His text." in open(a).read()
+          and V.stamp_archive(v, td) == {})
 body = "---\ntype: \"plan\"\n---\n# P\n\ntext\n\n## Next moves\n\n- **accept**\n"
 nt, new = V.with_afterwards(body, [("MH-1", "2026-10-31", "- 10-31 · MH-1: A → B (x)")])
 check("Afterwards sits above the next moves, so a move keeps it", nt.index("## Afterwards") < nt.index("## Next moves") and len(new) == 1)

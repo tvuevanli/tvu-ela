@@ -2963,10 +2963,44 @@ def cmd_sync(a):
 # to-read/2026-10-30-vault-workflow-review.md, proposal 5). The reading is brief.py's parked watcher, pointed here.
 AFTERWARDS_HEAD = "## Afterwards"
 WATCH_FOLDERS = (ARCHIVE, IN_PROGRESS)
-WATCH_DAYS = {"review": 14, "decision": 14, "plan": 14, "meeting": 14, "verify": 30, "ticket": 30}   # calendar days from its date
-WATCH_WORKDAYS = 10              # any other type: working days from its date
+WATCH_DAYS = {"review": 14, "decision": 14, "plan": 14, "meeting": 14, "verify": 30, "ticket": 30}   # calendar days from archived, else its date
+WATCH_WORKDAYS = 10              # any other type: working days, counted the same way
 WATCH_NOTES, WATCH_LINES = 40, 40   # at most 40 notes a pass, oldest window first; at most 40 lines a note
 PERMALINK = re.compile(r"https://[\w.-]+\.slack\.com/archives/[^\s\"'\],)>]+")
+STAMP_KEYS = 8                   # an archived note's subject: the keys of its title and opening, not every key it cites
+
+
+def archive_stamp(text, today):
+    """What an archived note is watched by, read from its own text the first pass after it reaches archive/: its subject
+    keys (the title and the part above the first `##`, where the status block sits; a key the body only cites would
+    flood the Afterwards), every Slack thread it links, and the day the window counts from. None for a note that
+    already carries keys, posted or archived, so a pass never re-stamps one or overrides the writer's own choice."""
+    fl, body = split_front(text)
+    props = props_of(fl)
+    if any(k in props for k in ("keys", "posted", "archived")):
+        return None
+    m = re.search(r"^##[ \t]", body, re.M)
+    head = (props.get("title") or "") + "\n" + (body[:m.start()] if m else body)
+    keys = list(dict.fromkeys(k for k in KEY_RX.findall(head) if not NOT_KEYS.match(k)))[:STAMP_KEYS]
+    links = list(dict.fromkeys(l.rstrip(".") for l in PERMALINK.findall(body)))
+    return {"archived": today.isoformat(), "keys": " ".join(keys) or None, "posted": " ".join(links) or None}
+
+
+def stamp_archive(vault, today, dry_run=False):
+    """Stamp every note in archive/ not yet stamped, however it got there: finish, a ticked box, a script move or his
+    drag in Obsidian. Returns {rel: stamp}; a dry run writes nothing and the caller reads the stamps as if written."""
+    out, d = {}, os.path.join(vault, ARCHIVE)
+    for f in sorted(os.listdir(d)) if os.path.isdir(d) else []:
+        p = os.path.join(d, f)
+        if not f.endswith(".md") or not os.path.isfile(p):
+            continue
+        text = open(p, encoding="utf-8").read()
+        stamp = archive_stamp(text, today)
+        if stamp:
+            out[f"{ARCHIVE}/{f}"] = stamp
+            if not dry_run:
+                atomic_write(p, set_front(text, **stamp))
+    return out
 
 
 def plus_workdays(d, n):
@@ -2982,7 +3016,7 @@ def watch_until(props):
     if "watch" in props:
         m = re.search(r"\d{4}-\d{2}-\d{2}", props.get("watch") or "")
         return datetime.date.fromisoformat(m.group(0)) if m else None
-    m = re.match(r"\d{4}-\d{2}-\d{2}", props.get("date") or "")
+    m = re.match(r"\d{4}-\d{2}-\d{2}", props.get("archived") or props.get("date") or "")
     if not m:
         return None
     d = datetime.date.fromisoformat(m.group(0))
@@ -2990,9 +3024,9 @@ def watch_until(props):
     return d + datetime.timedelta(days=WATCH_DAYS[kind]) if kind in WATCH_DAYS else plus_workdays(d, WATCH_WORKDAYS)
 
 
-def watched_notes(vault, today):
+def watched_notes(vault, today, stamps=None):
     """The notes in archive/ and in-progress/ carrying `posted:` or `keys:` whose window is open today, oldest window
-    first, at most WATCH_NOTES: [{note, props, keys, links, until}]."""
+    first, at most WATCH_NOTES: [{note, props, keys, links, until}]. `stamps` are a dry run's unwritten archive stamps."""
     out = []
     for folder in WATCH_FOLDERS:
         for top_, dirs, fs in os.walk(os.path.join(vault, folder)):
@@ -3004,11 +3038,13 @@ def watched_notes(vault, today):
                     props = props_of(split_front(open(os.path.join(top_, f), encoding="utf-8").read())[0])
                 except OSError:
                     continue
+                rel = os.path.relpath(os.path.join(top_, f), vault).replace(os.sep, "/")
+                props.update({k: v for k, v in ((stamps or {}).get(rel) or {}).items() if v is not None})
                 keys = sorted({k for k in KEY_RX.findall(props.get("keys") or "") if not NOT_KEYS.match(k)})
                 links = sorted(set(PERMALINK.findall(props.get("posted") or "")))
                 until = watch_until(props)
                 if (keys or links) and until and until >= today:
-                    out.append({"note": os.path.relpath(os.path.join(top_, f), vault).replace(os.sep, "/"), "props": props,
+                    out.append({"note": rel, "props": props,
                                 "keys": keys, "links": links, "until": until})
     return sorted(out, key=lambda w: (w["until"], w["note"]))[:WATCH_NOTES]
 
@@ -3075,8 +3111,8 @@ def with_afterwards(text, lines):
 
 
 def cmd_afterwards(a):
-    """Read what happened after each watched note left to-read and append it under the note's Afterwards; the
-    runner calls this at 13:00, 17:30 and 19:00. Reads only; writes the vault and <reports>/ela/afterwards.jsonl."""
+    """Read what happened after each watched note left to-read and append it under the note's Afterwards, first stamping
+    the archived notes not yet stamped (archive_stamp); the runner calls this at 13:00, 17:30 and 19:00. Reads only; writes the vault and <reports>/ela/afterwards.jsonl."""
     s = json.load(open(SITE))
     vault, reports = s["vault"], s.get("reports") or ""
     env = a.env_file or s.get("env")
@@ -3088,7 +3124,8 @@ def cmd_afterwards(a):
     if a.since:
         rel = re.match(r"^-(\d+)d$", a.since)
         since_arg = (now - datetime.timedelta(days=int(rel.group(1)))).date() if rel else datetime.date.fromisoformat(a.since)
-    watched = watched_notes(vault, now.date())
+    stamps = stamp_archive(vault, now.date(), a.dry_run)
+    watched = watched_notes(vault, now.date(), stamps if a.dry_run else None)
     for w in watched:                                      # from the start of the day last watched: a day's line is whole
         day = re.match(r"\d{4}-\d{2}-\d{2}", w["props"].get("watched") or w["props"].get("date") or "")
         w["since"] = since_arg or (datetime.date.fromisoformat(day.group(0)) if day else now.date())
@@ -3139,10 +3176,12 @@ def cmd_afterwards(a):
         with open(os.path.join(reports, "ela", "afterwards.jsonl"), "a", encoding="utf-8") as fh:
             fh.writelines(json.dumps(r, ensure_ascii=False) + "\n" for r in log)
     r = {"dry_run": a.dry_run, "since": (since_arg or first).isoformat(), "notes": [w["note"] for w in watched],
+         "stamped": sorted(stamps),
          "lines": out_lines, "appended": len(log), "watched": len(watched), "gaps": gaps}
     if a.json:
         print(json.dumps(r, ensure_ascii=False)); return
-    print(f"{'DRY RUN — ' if a.dry_run else ''}afterwards: {len(watched)} notes watched, {len(log)} new lines, {len(out_lines)} in all")
+    print(f"{'DRY RUN — ' if a.dry_run else ''}afterwards: {len(stamps)} archived notes stamped, {len(watched)} notes watched, "
+          f"{len(log)} new lines, {len(out_lines)} in all")
     for l in out_lines:
         print(f"  {l['note']}: {l['line']}")
     for g in gaps:
