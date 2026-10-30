@@ -84,7 +84,7 @@ DELETABLE = (DAYS, TO_READ, READINGS)
 KEEP_FOREVER = ("brief", "week", "changes")   # the morning pages are the record of what ela told the owner; the rest expires
 PROPS = ("title", "aliases", "type", "date", "kind", "status", "result", "target", "progress", "source", "moves", "next", "ela")
 # the whole vocabulary; no tags (ADR 0010)
-MARKS = {"done": ARCHIVE, "drop": None}   # a ticked box in a to-read table row: archive, delete
+MARKS = {"done": ARCHIVE, "drop": None}   # archive, delete; a drop of a reading something links archives it instead
 BUDGET = {"ticket": 700, "topic": 800, "guide": 1200, "board": 1000, "day": 1200, "review": 2500, "decision": 800, "plan": 800, "sprint": 800, "report": 1200}
 # the closed set of note types, by family (the readme's Types): for his word, readings, living pages, day pages.
 # A type outside it, or a family outside its folders, is a lint line on the sync, never a failure.
@@ -218,7 +218,8 @@ a warning, and Home lists it for 30 days as a rewrite ela owes.
 | nothing yet | leave it | it stays, or ela moves it on (below) |
 
 In `to-read/` the same moves are choices of the note's `next` field: `done` (archive) or `drop` (delete), and
-within a minute the note goes there; no session. A reading has no `next`: delete it when you are done, or answer it
+within a minute the note goes there; no session. A reading that a day page, a sprint or another note links is
+archived on `drop`, not deleted, with one line under its title naming what links it, so no link is left broken. A reading has no `next`: delete it when you are done, or answer it
 with `ela:` lines.
 
 Every note to read carries one field for its next move, **next**, at its top. The button beside it lists only
@@ -2007,7 +2008,7 @@ MOVE_MEANING = {
     "seen": "archived: you have read where it stands",
     "resume": "back to `to-read/` as proposed, for your next decision",
     "reopen": "back to `in-progress/` as built, for your accept or not-done: ela closed it, and that was wrong",
-    "done": "archived, nothing more", "drop": "deleted",
+    "done": "archived, nothing more", "drop": "deleted; a reading another note links is archived instead",
 }
 MOVES = MOVE_PROPS               # a kind with moves gets the section that explains them
 AGREEABLE = ("plan", "sprint")
@@ -2366,8 +2367,31 @@ def cmd_marks(a):
         print(f"{p}: {k}")
 
 
+def linked_from(vault, rel):
+    """The notes that link this one by a wikilink, its name or its path; Home is rewritten each sync and does not count."""
+    stem = os.path.basename(rel)[:-3].lower()
+    rx = re.compile(r"\[\[(?:[^\]|#]*/)?" + re.escape(stem) + r"(?:\.md)?[\]|#]", re.I)
+    out = []
+    for top_, dirs, fs in os.walk(vault):
+        dirs[:] = [d for d in dirs if not d.startswith(".")]
+        for f in fs:
+            r = os.path.relpath(os.path.join(top_, f), vault).replace(os.sep, "/")
+            if not f.endswith(".md") or r in (rel, "home.md"):
+                continue
+            try:
+                if rx.search(open(os.path.join(top_, f), encoding="utf-8").read()):
+                    out.append(r)
+            except OSError:
+                pass
+    return sorted(out)
+
+
 def finish(vault, reports, rel, to, move=None):
     p = os.path.realpath(os.path.join(vault, rel))
+    kind = props_of(split_front(open(p, encoding="utf-8").read())[0]).get("type") if os.path.isfile(p) else None
+    links = linked_from(vault, rel) if to == "delete" and TYPE_FAMILY.get(kind) == "reading" else []
+    if links:                                              # a deleted reading breaks the day pages and notes that cite it
+        to, move = "archive", "done"
     try:
         src = (json.load(open(os.path.join(vault, MANIFEST))).get("sources") or {}).get(rel)
     except (OSError, ValueError):
@@ -2380,6 +2404,13 @@ def finish(vault, reports, rel, to, move=None):
         text = clear_warn(PROP_RE.sub("", open(dst, encoding="utf-8").read()))   # the boxes belong to to-read
         if folder == ARCHIVE:                              # closed, and the move that closed it kept in next
             text = set_front(text, status="closed", **{MOVE_SET: "closed", NEXT: move or "done"})
+        if links:
+            fl, body = split_front(text)
+            why = ("*Archived, not deleted: " + ", ".join(f"[[{l[:-3]}]]" for l in links[:5])
+                   + (f" and {len(links) - 5} more" if len(links) > 5 else "") + " link this note.*\n\n")
+            m = re.search(r"^#[ \t]+.*\n", body, re.M)
+            body = body[:m.end()] + "\n" + why + body[m.end():].lstrip("\n") if m else why + body
+            text = "---\n" + "\n".join(fl) + "\n---\n" + body if fl else body
         open(dst, "w", encoding="utf-8").write(text)
     else:
         os.remove(p)
@@ -2399,7 +2430,8 @@ def cmd_finish(a):
     if not p.startswith(os.path.realpath(vault) + os.sep) or top(rel) not in DELETABLE or not rel.endswith(".md") or not os.path.isfile(p):
         print(f"not a note in days/, to-read/ or readings/: {a.path}", file=sys.stderr); sys.exit(2)
     folder = finish(vault, s.get("reports") or "", rel, a.to)
-    print(f"{rel}: {'moved to ' + folder + '/' if folder else 'deleted'}; logged as the owner's")
+    print(f"{rel}: {'moved to ' + folder + '/' if folder else 'deleted'}; logged as the owner's"
+          + ("; other notes link it, so it was archived, not deleted" if a.to == "delete" and folder else ""))
 
 
 def cmd_restore(a):

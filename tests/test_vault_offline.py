@@ -441,6 +441,26 @@ with tempfile.TemporaryDirectory() as t:
                                                            "status": "done", "job": "j1", "answer": "Yes."}])
     check("the answer replaces the on-it fold", "on it" not in ans and "ela answered · 15:40 · job j1\n> Yes." in ans)
     check("a running job says since when", "running since 15:33" in V.pending_block(pend[1]))
+with tempfile.TemporaryDirectory() as t:
+    v, r = os.path.join(t, "v"), os.path.join(t, "r")
+    for d in ("to-read", "days/2026", "sprints"):
+        os.makedirs(os.path.join(v, d))
+    os.makedirs(os.path.join(r, "ela"))
+    fm = '---\ntype: "{}"\nsource: "vault"\nstatus: "proposed"\nnext: "drop"\nmoves: "review"\n---\n# {}\n\nText.\n'
+    for n, k in (("deep-1", "review"), ("deep-2", "review"), ("plan-3", "plan")):
+        open(os.path.join(v, "to-read", n + ".md"), "w").write(fm.format(k, n))
+    open(os.path.join(v, "days/2026", "2026-10-29-brief.md"), "w").write("see [[deep-1|the deep read]] and [[to-read/plan-3]]\n")
+    open(os.path.join(v, "home.md"), "w").write("[[deep-2]]\n")
+    check("what links a note: day pages and notes, never Home", V.linked_from(v, "to-read/deep-1.md") == ["days/2026/2026-10-29-brief.md"]
+          and V.linked_from(v, "to-read/deep-2.md") == [])
+    V.apply_marks(v, r)
+    a1 = os.path.join(v, "archive", "deep-1.md")
+    check("drop on a linked reading archives it with one line naming what links it",
+          os.path.exists(a1) and "Archived, not deleted: [[days/2026/2026-10-29-brief]] link this note." in open(a1).read()
+          and 'status: "closed"' in open(a1).read())
+    check("drop on an unlinked reading deletes it; a linked plan is dropped as before",
+          not any(os.path.exists(os.path.join(v, d, "deep-2.md")) for d in ("to-read", "archive"))
+          and not any(os.path.exists(os.path.join(v, d, "plan-3.md")) for d in ("to-read", "archive")))
 check("a sprint keeps its own status; a reading carries none", S("sprints", "active") == ("active", None, None) and S("readings", "decided") == (None, None, None))
 with tempfile.TemporaryDirectory() as t:
     os.makedirs(os.path.join(t, "readings"))
