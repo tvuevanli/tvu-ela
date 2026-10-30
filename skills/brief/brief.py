@@ -2578,14 +2578,14 @@ TIER_RULES = {
 # tier 3 with a send box: the runner drafts it, it leaves only when he ticks `send N` (read at 09:30 and 10:00) or says
 # `apply N`, never on a timer (decisions/2026-10-29-writes-run-in-three-tiers.md, amendment 2026-10-30)
 SEND_BOX_RULES = {"qa-today": f"(?:{TEAM_POST})|(?:{DAY_POST})",   # QA today in the lane build's release thread or as the day post
+                  "dev-today": DAY_POST,                             # Dev today, the day post in the dev channel (un-parked 2026-10-30)
                   "meeting": TEAM_POST}                              # a meeting's list at its time, under the day post
 # a send box that is not on the morning page: the meeting's is `- [ ] send` atop its note, meetings/<key>.md
 # (`ela meeting --json` send_ticked), and the page carries only its pointer line (vault
 # in-progress/2026-10-30-review-list-redesign.md)
 SEND_BOX_IN_NOTE = ("meeting",)
 # rules the same amendment took out of tier 2: no action is drafted under them
-RETIRED_RULES = {"test-list": "retired: the evening drafts the next morning's QA today and posts nothing",
-                 "dev-today": "parked until the dev list is taken up again"}
+RETIRED_RULES = {"test-list": "retired: the evening drafts the next morning's QA today and posts nothing"}
 TRAIN_RULES = ("train-hold", "train-promote")
 # closed rules not yet promoted: their actions draft at tier 3 until the owner promotes the rule (Jira plan rules 1, 2);
 # promoting one moves it into TIER_RULES at tier 1
@@ -2635,7 +2635,8 @@ def tier_check(page, actions, demoted=None, verdict_build=None):
             elif not re.search(SEND_BOX_RULES[rule], cmd + " "):
                 fails.append(f"action {n}: its command is not what rule {rule} admits: {cmd[:70]}")
             if n not in sendbox and not settled and rule not in SEND_BOX_IN_NOTE:
-                fails.append(f"action {n}: a send-box action is written \"- [ ] send N — QA today on <lane> (your ela: lines applied first)\"")
+                fails.append(f"action {n}: a send-box action is written \"- [ ] send N — QA today on <lane> (your ela: lines applied first)\""
+                             " or \"- [ ] send N — Dev today on <line> (your ela: lines applied first)\"")
             if n in done | dont | boxed:
                 fails.append(f"action {n}: a send-box action has only its send box on the page")
             continue

@@ -99,8 +99,13 @@ check("a meeting's list may not make a top-level post", any("not what rule" in f
 check("the 19:00 test-list post is retired", any("rule test-list is retired" in f for f in B.tier_check(
       "- [ ] don't 5 — at 19:00 unless you tick: x\n", [dict(mt[0], rule="test-list", send_at="19:00")])))
 dp = [{"n": 6, "tier": 2, "rule": "dev-today", "evidence": "the 2.1 dev list", "command": "ela slack post #prj_dev_mediahub --file f --team-day-post"}]
-check("dev-today is parked: a draft fails, its absence passes", any("parked" in f for f in B.tier_check("- [ ] don't 6 — at 10:00 unless you tick: Dev today\n", dp))
-      and B.tier_check("## Dev today\n\nNo post today.\n", []) == [])
+check("dev-today on a timer fails: it is a tier-3 send box", any("send-box action is tier 3" in f
+      for f in B.tier_check("- [ ] don't 6 — at 10:00 unless you tick: Dev today\n", dp)))
+dsb = "## Dev today\n\n- [ ] send 6 — Dev today on 2.1 (your ela: lines applied first) · unticked: stays as apply 6\n"
+check("the runner's send-box draft of Dev today passes, ticked or not", B.tier_check(dsb, [dict(dp[0], tier=3, send_box=True)]) == []
+      and B.tier_check(dsb.replace("[ ]", "[x]"), [dict(dp[0], tier=3, send_box=True)]) == [])
+check("Dev today may make only the day post", any("not what rule" in f for f in B.tier_check(dsb, [dict(
+      dp[0], tier=3, send_box=True, command="ela slack post https://x.slack.com/archives/C1/p1700000000000000 --file f --team-thread")])))
 qa = [{"n": 9, "tier": 3, "send_box": True, "rule": "qa-today", "command": "ela slack post #mediahub-qa-release --file f --team-day-post"}]
 psb = "## QA today\n\n- [ ] send 9 — QA today on qa-cn3 (your ela: lines applied first) · unticked: stays as apply 9\n"
 check("the runner's send-box draft of QA today passes, ticked or not", B.tier_check(psb, qa) == [] and B.tier_check(psb.replace("[ ]", "[x]"), qa) == [])
