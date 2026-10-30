@@ -130,6 +130,35 @@ check("a lane with no release mail for a mail-only service says so, not a bare d
       B.matrix_cell("orchestration", "qa-cn3", orch, None, {}, {})["text"] == "no release mail")
 req = [{"host": "mail", "service": "orchestration", "lane": "prod-3", "version": "4.0.205", "state": "requested"}]
 check("a version known only from a request mail reads as requested", B.matrix_cell("orchestration", "prod-3", req, None, {}, {})["text"] == "4.0.205 requested")
+# orchestration through the gateways: a read lane replaces the mail's request, an undetermined one keeps a mail row or
+# stands undetermined, a failed read carries the base's gateway rows; recorded answers, no network
+GW = {"source": "gateway", "rows": [
+    {"service": "orchestration", "lane": "daily-wed", "token": "wed", "status": "read", "version": "v4.0.206 build79 2026-10-27 08:34:39"},
+    {"service": "orchestration", "lane": "prod-3", "token": "prod3", "status": "undetermined", "version": None, "why": "HTTP 503 (route known, no instance)"},
+    {"service": "orchestration", "lane": "qa-cn3", "token": None, "status": "undetermined", "version": None, "why": "site.json services.gateway-qa.url is not set"}]}
+real_run_json = B.run_json
+B.run_json = lambda cmd, timeout=None: GW if "gateway" in cmd else real_run_json(cmd, timeout)
+mails = [{"host": "mail", "service": "orchestration", "lane": "daily-wed", "version": "4.0.205", "state": "requested"},
+         {"host": "mail", "service": "orchestration", "lane": "prod-3", "version": "4.0.205", "state": "confirmed"}]
+read, gerrs = {}, []
+grows = B.with_gateway([], mails, None, read, gerrs)
+wed = [r for r in grows if r["lane"] == "daily-wed"]
+check("a lane the gateway reads replaces the mail's request for it", len(wed) == 1 and wed[0]["host"] == "gateway" and read.get("gateway"))
+check("an undetermined lane keeps the mail row it has", [r["host"] for r in grows if r["lane"] == "prod-3"] == ["mail"])
+cw = B.matrix_cell("orchestration", "daily-wed", grows, mails, {}, {})
+check("the gateway cell names its source, and a mail request is no base for ▲",
+      cw["text"] == "4.0.206+79 ○ · gateway" and cw["source"] == "gateway" and not cw["moved"])
+cq = B.matrix_cell("orchestration", "qa-cn3", grows, None, {}, {})
+check("a lane neither the gateway nor a mail determines reads undetermined, with the reason",
+      cq["text"] == "undetermined (gateway)" and "gateway-qa" in cq["why"] and cq["version"] is None)
+check("an undetermined lane is no move", B.lane_moves([{"host": "gateway", "lane": "qa-cn3", "service": "orchestration", "version": "v4.0.1 build1"}],
+                                                      [r for r in grows if r["lane"] == "qa-cn3"], None) == [])
+def down(cmd, timeout=None):
+    raise B.LaneError("gateway did not answer")
+B.run_json = down
+carried = B.with_gateway([], [], [wed[0], mails[0]], {}, [])
+check("a gateway that does not answer carries the base read's gateway rows only", carried == [wed[0]])
+B.run_json = real_run_json
 msg = lambda body: {"body": body}
 check("a release runs once a reply says so, and a later hold takes it back",
       B.release_state([msg("please deploy"), msg("Deployed to prod3.")]) == "confirmed"

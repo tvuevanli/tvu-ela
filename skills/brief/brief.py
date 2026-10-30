@@ -923,9 +923,11 @@ def built_at(raw):
 def lane_moves(prev, rows, win):
     """Each (lane, service) whose version differs from the last snapshot; with no snapshot, those whose build is dated
     inside the window, `from` unknown."""
-    old = {(r["host"], r.get("lane") or r.get("tag"), r["service"]): r["version"] for r in prev or []}
+    old = {(r["host"], r.get("lane") or r.get("tag"), r["service"]): r["version"] for r in prev or [] if r.get("version")}
     out = []
     for r in rows:
+        if not r.get("version"):                            # an undetermined lane is no move, either way
+            continue
         k = (r["host"], r.get("lane") or r.get("tag"), r["service"])
         was = old.get(k)
         if (prev is not None and k in old and vkey(was) != vkey(r["version"])) or (prev is None and in_window(built_at(r["version"]) or "", win)):
@@ -1234,6 +1236,7 @@ def changes_facts(args):
                          "state": release_state(msgs)})
     rows += [x for x in (prev or {}).get("rows", []) if x["host"] == "mail" and not any(
         y["host"] == "mail" and y["lane"] == x["lane"] and y["service"] == x["service"] for y in rows)]
+    rows = with_gateway(env, rows, (prev or {}).get("rows"), read, errors)
     json.dump({"date": date, "at": now.isoformat(timespec="seconds"), "read": read, "rows": rows},
               open(os.path.join(runner, f"versions-{date}.json"), "w"), ensure_ascii=False)
     tested = keep_tested(runner, qa, now)
@@ -1985,6 +1988,31 @@ def read_lanes_live(env, base_rows):
     return rows + [r for r in base_rows or [] if r.get("host") == "mail"], read, errors
 
 
+def with_gateway(env, rows, base_rows, read, errors):
+    """Orchestration's lanes read through the API gateways (`ela release gateway`), first-hand, so a lane the gateway
+    answers replaces the release mail's row for it; a lane it leaves UNDETERMINED keeps a mail row when there is one
+    and otherwise stands with no version and its reason, never as not deployed. When the gateway read itself fails, the
+    base read's gateway rows are carried."""
+    try:
+        got = run_json(["python3", RELEASE, *env, "gateway", "--json"], timeout=120)["rows"]
+        read["gateway"] = True
+    except (LaneError, subprocess.TimeoutExpired, ValueError) as e:
+        errors.append({"source": "versions gateway", "error": str(e)[:200]})
+        return rows + [r for r in base_rows or [] if r.get("host") == "gateway"]
+    out = list(rows)
+    for g in got:
+        row = {"host": "gateway", "lane": g["lane"], "tag": g.get("token"), "service": g["service"], "version": g.get("version"),
+               "updated": None, "source": "gateway"}
+        if g.get("status") == "read":
+            out = [x for x in out if not (x["service"] == g["service"] and x.get("lane") == g["lane"] and x["host"] == "mail")]
+        elif any(x["service"] == g["service"] and x.get("lane") == g["lane"] for x in out):
+            continue
+        else:
+            row["why"] = g.get("why")
+        out.append(row)
+    return out
+
+
 def save_intraday(runner, now, rows, read, last_rows):
     """Keep a later read when a lane in scope moved since the last saved one, so the moves page and tomorrow's diff see
     a deploy between the morning reads. Returns the path, or None when nothing moved."""
@@ -2004,12 +2032,15 @@ def matrix_cell(service, lane, rows, prev, tested, pins):
     and the constraint's mark."""
     row = next((r for r in rows if r["service"] == service and r.get("lane") == lane), None)
     v = row["version"] if row else None
+    if v is None and row and row.get("why"):                # the gateway left it undetermined, and no mail names it
+        return {"text": "undetermined (gateway)", "version": None, "source": "gateway", "why": row["why"]}
     if v is None:                                           # a service known only from its release mails has no lane row
         mail_only = any(r["service"] == service and r["host"] == "mail" for r in rows)
         return {"text": "no release mail" if mail_only else "—", "version": None}
     pv = R.parse_version(v)
     label = R.vlabel(pv) if pv else str(v)
-    old = next((r["version"] for r in prev or [] if r["service"] == service and r.get("lane") == lane), None)
+    old = next((r["version"] for r in prev or [] if r["service"] == service and r.get("lane") == lane and r.get("version")
+                and (r.get("host") == "mail") == (row.get("host") == "mail")), None)   # a request is no base for a read
     moved = old is not None and vkey(old) != vkey(v)
     qa = [x for x in tested.values() if x["service"] == service and vkey(x["version"]) == vkey(v) and not R.lane_region(x.get("lane"))]
     best = max(qa, key=lambda x: x["at"] or "", default=None)
@@ -2018,8 +2049,9 @@ def matrix_cell(service, lane, rows, prev, tested, pins):
     if row.get("host") == "mail" and row.get("state") != "confirmed":
         return {"text": f"{label} requested", "version": label, "moved": False, "pin": pin}   # asked for, not known to run
     text = ("▲ " if moved else "") + label + (" patch" if pv and pv[3] else "") + (f" (was {R.vlabel(R.parse_version(old)) if R.parse_version(old) else old})" if moved else "") \
-        + f" {mark}" + {"held": " 🔒", "over": " ⛔"}.get(pin, "")
-    return {"text": text, "version": label, "moved": moved, "was": old if moved else None, "qa": mark, "pin": pin}
+        + f" {mark}" + {"held": " 🔒", "over": " ⛔"}.get(pin, "") + (" · gateway" if row.get("host") == "gateway" else "")
+    return {"text": text, "version": label, "moved": moved, "was": old if moved else None, "qa": mark, "pin": pin,
+            **({"source": "gateway"} if row.get("host") == "gateway" else {})}
 
 
 def bundle_cell(b, how, newest_build, pinned):
@@ -2043,6 +2075,7 @@ def cmd_matrix(args):
     if getattr(args, "page", False) and today is not None:  # the page is right whenever it is built: read the lanes now
         last = (lane_reads(runner, date) or [(None, None, today["rows"])])[-1][2]
         rows, read, errs = read_lanes_live(env, last)
+        rows = with_gateway(env, rows, last, read, errs)
         errors += errs
         save_intraday(runner, datetime.datetime.now().astimezone(), rows, read, last)
     elif today is None:                                     # no `changes` run yet today: read the lanes now, not saved
@@ -2053,6 +2086,7 @@ def cmd_matrix(args):
             except (LaneError, subprocess.TimeoutExpired, ValueError) as e:
                 errors.append({"source": f"versions {host}", "error": str(e)[:200]})
         rows += [r for r in (before or {}).get("rows", []) if r["host"] == "mail"]
+        rows = with_gateway(env, rows, (before or {}).get("rows"), {}, errors)
         errors.append({"source": "versions", "error": "no snapshot from `ela changes` today; read live, Orchestration as last known"})
     else:
         rows = today["rows"]
@@ -2502,7 +2536,7 @@ def render_matrix(out):
         L += ["", f"*{len(out['same'])} more the same on every lane: " + "; ".join(out["same"]) + "*"]
     for g in out.get("regions") or []:
         L += ["", region_line(g)]
-    L += ["", "*▲ moved since yesterday · ✓ QA passed this exact version (date) · ◐ partly · ○ no QA report names it · 🔒 a pin held · ⛔ over*"]
+    L += ["", "*▲ moved since yesterday · ✓ QA passed this exact version (date) · ◐ partly · ○ no QA report names it · 🔒 a pin held · ⛔ over · gateway: read live through the API gateway*"]
     if out["gate"]:
         g = out["gate"]
         L += ["", f"prod candidate: {g['stop']} stop · {g['high']} high (promote report `{os.path.basename(g['report'])}`, "
