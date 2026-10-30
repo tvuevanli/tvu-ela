@@ -206,7 +206,8 @@ A note is written for a person: a title heading, within its budget (day page 1,2
 sprint 800; a decision or a plan 800 above its first folded callout, `> [!note]-`, the fold not counted, a
 report 1,200 the same way; the
 reader page's Learned five lines), mostly prose, no machine paths. A note that misses is still here, under
-a warning, and Home lists it for 30 days as a rewrite ela owes.
+a warning, and Home lists it for 30 days as a rewrite ela owes; a past day page is the morning's record and is
+not listed.
 
 ## Finishing with a note
 
@@ -1283,7 +1284,9 @@ def home(today, now, notes, desk=None):
                      + (f" · {held['expired']} expired" if held["expired"] else ""))
     L += [" · ".join(x for x in links if x), ""]
     owed_since = (today - datetime.timedelta(days=HELD_LISTED_DAYS)).isoformat()
-    owed = [n for n in notes if n.held and (n.props.get("date") or iso) >= owed_since]
+    # a past day page is the record of what ela told him that morning; it is never rewritten, so it is owed nothing
+    owed = [n for n in notes if n.held and (n.props.get("date") or iso) >= owed_since
+            and not (n.props.get("type") == "day" and (n.props.get("date") or iso) < iso)]
     if owed:
         L += ["> [!warning]- ela owes a shorter version of " + str(len(owed))] + [f"> - {link(n)}: {'; '.join(n.held)}" for n in owed] + [""]
     return "\n".join(L)
@@ -2670,13 +2673,16 @@ def cmd_sync(a):
                 except OSError:
                     break
     held = [{"note": n.path, "problems": n.held} for n in notes if n.held]
-    r = {"dry_run": a.dry_run, "deleted_by_owner": newly, "archived_by_ela": to_archive, "moved": [{"from": f, "to": t} for f, t in moved],
+    in_archive = sum(len([f for f in fs if f.endswith(".md")]) for _, _, fs in os.walk(os.path.join(vault, ARCHIVE)))
+    counts = {"generated": len(planned), "in_place": len(native_paths), "archived": in_archive}
+    r = {**counts, "dry_run": a.dry_run, "deleted_by_owner": newly, "archived_by_ela": to_archive, "moved": [{"from": f, "to": t} for f, t in moved],
          "answered": [{"from": f, "to": t} for f, t in answered],
          "left_in_retired": left, "notes": len(planned), "written": len(wrote), "unchanged": same, "files_copied": copied,
          "removed": gone, "held": held, "warnings": warnings}
     if a.json:
         print(json.dumps(r, ensure_ascii=False)); return
-    print(f"{'DRY RUN — ' if a.dry_run else ''}vault: {len(planned)} notes ({len(wrote)} written, {same} unchanged), "
+    print(f"{'DRY RUN — ' if a.dry_run else ''}vault: {counts['generated']} generated · {counts['in_place']} in place · "
+          f"{counts['archived']} archived ({len(wrote)} written, {same} unchanged), "
           f"{copied} files copied, {len(moved)} moved, {len(gone)} removed, {len(held)} under a warning")
     for f, t in moved:
         print(f"  moved {f} → {t}")

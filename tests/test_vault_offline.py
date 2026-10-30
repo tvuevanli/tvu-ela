@@ -94,6 +94,10 @@ with tempfile.TemporaryDirectory() as tmp:
         except OSError:
             return []
     check("a first sync succeeds", sync() == 0)
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        V.cmd_sync(types.SimpleNamespace(env_file=os.path.join(tmp, "none.env"), dry_run=True, force=False, json=False))
+    check("the sync's line says what it counts", re.search(r"vault: \d+ generated · \d+ in place · \d+ archived \(", buf.getvalue()) is not None)
     check("with no constraints file the page says none is confirmed, and Home is silent",
           "No standing constraint has been confirmed yet" in open(f"{vault}/constraints.md").read()
           and "standing constraint" not in open(f"{vault}/home.md").read())
@@ -461,6 +465,12 @@ with tempfile.TemporaryDirectory() as t:
     check("drop on an unlinked reading deletes it; a linked plan is dropped as before",
           not any(os.path.exists(os.path.join(v, d, "deep-2.md")) for d in ("to-read", "archive"))
           and not any(os.path.exists(os.path.join(v, d, "plan-3.md")) for d in ("to-read", "archive")))
+past = V.Note("days/2026/2026-10-28-brief.md", "b", "# B", {"type": "day", "kind": "brief", "date": "2026-10-28"}); past.held = ["too long"]
+now_ = V.Note("days/2026/2026-10-30-brief.md", "b", "# B", {"type": "day", "kind": "brief", "date": "2026-10-30"}); now_.held = ["too long"]
+rev = V.Note("readings/2026-10-28-r.md", "r", "# R", {"type": "review", "date": "2026-10-28"}); rev.held = ["too long"]
+hm = V.home(datetime.date(2026, 10, 30), datetime.datetime(2026, 10, 30, 9), [past, now_, rev])
+check("Home owes no rewrite of a past day page; today's and a review stay listed",
+      "owes a shorter version of 2" in hm and "2026-10-28-brief" not in hm and "2026-10-30-brief|" in hm)
 check("a sprint keeps its own status; a reading carries none", S("sprints", "active") == ("active", None, None) and S("readings", "decided") == (None, None, None))
 with tempfile.TemporaryDirectory() as t:
     os.makedirs(os.path.join(t, "readings"))
