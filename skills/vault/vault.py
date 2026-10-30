@@ -95,7 +95,9 @@ TYPE_FAMILY = {"decision": "decision", "plan": "plan", "sprint": "plan",
                "report": "page",
                "day": "day", "reader": "day"}
 FAMILY_FOLDERS = {"decision": ("to-read", "in-progress", "parked", "archive"), "plan": ("to-read", "in-progress", "parked", "archive", "sprints"),
-                  "reading": ("readings", "to-read", "archive")}   # a verification waits in to-read until its record is on Jira
+                  "reading": ("readings", "to-read", "archive")}   # a reading waits in to-read while it asks his word
+# to-read means "waits on his word", whatever the type: a reading's asks sit under this heading, one box each
+ASKS_HEAD = "Waiting for your word"
 FOLDED = ("decision", "plan", "report")          # their budget counts the words above the first folded callout only
 # a report is a standing review or design for his decision that does not move: any folder, no lifecycle, ruled in
 # place with an `ela:` line, so its status says only where his ruling stands
@@ -148,8 +150,8 @@ list and writing your `ela:` priority lines; the 09:30 or 10:00 pass then sends 
 | `home`, `board` | five lines for today, and the board's debt | look at Home each morning |
 | `constraints` | the standing constraints you confirmed: what each holds, whether its lane still keeps it, when it lifts | look when Home says one is over |
 | `days/<year>/` | the morning pages and what changed the day before, kept; the evening learning draft, 14 days | look back |
-| `to-read/` | plans and decisions waiting for your ruling, and verification results, newest first | rule, or read and delete |
-| `readings/` | deep reads, reviews of a release or the docker services, promote checks, ticket pages; no status, no moves | read when an item links one; delete when done |
+| `to-read/` | whatever waits on your word, any type: plans and decisions to rule, verification results, and readings whose asks sit under *Waiting for your word*; newest first | rule, or tick or answer each ask |
+| `readings/` | deep reads, reviews of a release or the docker services, promote checks, ticket pages, with no ask left open; no status, no moves | read when an item links one; delete when done |
 | `in-progress/` | what you agreed to, while ela builds it, until you accept it | accept or say what is missing |
 | `parked/` | what waits on others, with who it waits on and what brings it back | resume or drop |
 | `lanes` | the lanes, what each carries that the next does not, two weeks of moves | look before a promotion |
@@ -178,19 +180,24 @@ the file explorer is rarely needed.
   in-progress *building*, *built* (waits on your accept), *waiting* (a loop that cannot finish; Progress says why) or
   *blocked*; parked *parked*; archive *closed*, with the outcome in `next`. Home's *Waiting for your word* holds only
   what blocks something until you answer: a plan or decision proposed, a build to accept, something blocked, a failed
-  verification, a verification plan, the evening's learnings. Reviews and ticket pages carry no status and stay in
-  *To read*.
+  verification, a verification plan, the evening's learnings, and any note in to-read (a review there is *proposed*
+  like a plan). In readings a note carries no status.
   They feed the tables and show at the top of each note: a status to read, and `next`, the move you choose. A
   hidden `moves` property names the note's set of moves, so the chooser lists only those.
 - No tags: a keyword-guessed tag would be wrong often enough to cost trust.
 - Types are a closed set, in four families. For your word: `decision`, `plan` (a sprint is a plan), in to-read,
   in-progress, parked or archive. Readings: `ticket`, `review`, `verify` and `verify-plan` (checks), in readings,
-  or in to-read while a verification waits for its record on Jira. Pages that live: home, board, lanes, test-list,
+  or in to-read while one asks your word (a verification waiting for its record on Jira, a review with open
+  asks). Pages that live: home, board, lanes, test-list,
   dev-list, program, the ela page (`guide`), vocabulary, system, constraints, readme, meeting, and `report`: a
   standing review or design for your decision that does not move, in any folder, its evidence in folds, ruled in
   place with an `ela:` line (status proposed, decided or superseded). Day pages: `day`
   (brief, changes, week) and `reader`. A note outside the set, or a family outside its folders, is a lint line on
   the sync, never a failure.
+- `to-read/` means "waits on your word", whatever the type. A reading that asks something puts its asks under one
+  heading, **Waiting for your word**, one box each with ela's proposed answer. When every box there is ticked or
+  answered with an `ela:` line under it, the next sync moves the reading to `readings/`; a plan or decision goes on
+  along its own life. A reading elsewhere with an open box under that heading is a lint line on the sync.
 - A ticket key is a link to Jira, one click in reading mode.
 
 ## Reading budgets
@@ -420,7 +427,7 @@ def settled_status(folder, status, kind=None):
         return s if s in STATUS_BY_FOLDER[IN_PROGRESS] else "building", result, None
     if result:
         return ("proposed" if result == "fail" else None), result, None
-    return (s if s in STATUS_BY_FOLDER[TO_READ] else "proposed") if s else None, None, None
+    return (s if s in STATUS_BY_FOLDER[TO_READ] else "proposed"), None, None   # any type there waits on his word
 
 
 def settle_statuses(vault, dry_run=False):
@@ -999,6 +1006,49 @@ def type_lint(path, kind):
     if kind == "guide" and folder != ELA:                 # the ela page's type; a page elsewhere has its own
         return f"{path}: a guide is the ela page and belongs in {ELA}/"
     return None
+
+
+BOX = re.compile(r"^[ \t]*[-*][ \t]+\[([ xX])\][ \t]+\S", re.M)
+
+
+def open_asks(body):
+    """(open, total) boxes under the note's Waiting for your word heading. A box is answered when ticked, or when an
+    `ela:` line follows it before the next box; (0, 0) when the note has no such heading or no box under it."""
+    m = re.search(r"^##[ \t]+" + re.escape(ASKS_HEAD) + r"[ \t]*\n(.*?)(?=^#{1,2}[ \t]|\Z)", body or "", re.M | re.S)
+    sec = m.group(1) if m else ""
+    boxes = list(BOX.finditer(sec))
+    unanswered = sum(1 for i, b in enumerate(boxes) if b.group(1) == " "
+                     and not GUIDE.search(sec, b.end(), boxes[i + 1].start() if i + 1 < len(boxes) else len(sec)))
+    return unanswered, len(boxes)
+
+
+def asks_lint(n):
+    """One lint line when a reading outside to-read still has an open box under Waiting for your word: its asks
+    belong where he looks for what waits on him."""
+    if TYPE_FAMILY.get(n.props.get("type")) != "reading" or top(n.path) == TO_READ:
+        return None
+    left, _ = open_asks(n.body)
+    return f"{n.path}: {left} open under {ASKS_HEAD}; a reading that asks belongs in {TO_READ}/" if left else None
+
+
+def answered_readings(vault, reports, dry_run=False):
+    """A reading ela wrote in place in to-read whose every box under Waiting for your word is ticked or answered with
+    an `ela:` line moves to readings/; a plan or decision keeps its own life. Returns [(from, to)]."""
+    out, d = [], os.path.join(vault, TO_READ)
+    for f in sorted(os.listdir(d)) if os.path.isdir(d) else []:
+        if not f.endswith(".md"):
+            continue
+        try:
+            fl, body = split_front(open(os.path.join(d, f), encoding="utf-8").read())
+        except OSError:
+            continue
+        props = props_of(fl)
+        if props.get("source") != "vault" or TYPE_FAMILY.get(props.get("type")) != "reading":
+            continue
+        left, total = open_asks(body)
+        if total and not left:
+            out.append((f"{TO_READ}/{f}", None if dry_run else move_note(vault, reports, f"{TO_READ}/{f}", "readings")))
+    return out
 
 
 def report_lint(n):
@@ -1636,6 +1686,7 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since
         if n.props.get("type") == "report":              # a report is his document; its budget is advice, never a hold
             native_warn += report_lint(n)
     native_warn += [f"type: {x}" for x in (type_lint(n.path, n.props.get("type")) for n in notes + native) if x]
+    native_warn += [f"asks: {x}" for x in (asks_lint(n) for n in notes + native) if x]
     native_warn += [f"layout: {x}" for x in folder_lint(s["vault"])]
     ov = overview_note(s, s["vault"], today)
     if ov:
@@ -2390,6 +2441,7 @@ def cmd_sync(a):
     # a note the sync wrote that is gone from disk was deleted by the owner: that is feedback, and it stays deleted
     removed_path = os.path.join(s.get("reports") or "", "ela", "vault-removed.jsonl")
     marked = [] if a.dry_run else apply_marks(vault, s.get("reports") or "")   # ticked boxes first: they are his moves
+    answered = answered_readings(vault, s.get("reports") or "", a.dry_run)
     for fix in settle_statuses(vault, a.dry_run):
         print(f"status: {fix}", file=sys.stderr)
     if not a.dry_run:
@@ -2555,6 +2607,7 @@ def cmd_sync(a):
                     break
     held = [{"note": n.path, "problems": n.held} for n in notes if n.held]
     r = {"dry_run": a.dry_run, "deleted_by_owner": newly, "archived_by_ela": to_archive, "moved": [{"from": f, "to": t} for f, t in moved],
+         "answered": [{"from": f, "to": t} for f, t in answered],
          "left_in_retired": left, "notes": len(planned), "written": len(wrote), "unchanged": same, "files_copied": copied,
          "removed": gone, "held": held, "warnings": warnings}
     if a.json:
@@ -2569,6 +2622,8 @@ def cmd_sync(a):
         print(f"  removed {g}")
     if len(gone) > 20:
         print(f"  … and {len(gone) - 20} more (--json lists them all)")
+    for f, t in answered:
+        print(f"  every ask answered, moved to readings: {f}" + (f" → {t}" if t else ""))
     for d in to_archive:
         print(f"  acted on, archived by ela: {d}")
     for d in newly:

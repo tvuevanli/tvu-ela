@@ -398,11 +398,32 @@ S = V.settled_status
 check("each lifecycle folder settles its status", S("in-progress", "in progress") == ("building", None, None)
       and S("in-progress", "waiting") == ("waiting", None, None) and S("parked", "proposed") == ("parked", None, None)
       and S("to-read", "decided") == ("proposed", None, None) and S("to-read", "active") == ("proposed", None, None)
-      and S("to-read", None) == (None, None, None) and S("to-read", "blocked") == ("blocked", None, None))
+      and S("to-read", None, "review") == ("proposed", None, None) and S("to-read", "blocked") == ("blocked", None, None))
 check("an archived outcome moves to next", S("archive", "accepted") == ("closed", None, "accept") and S("archive", "planned") == ("closed", None, "make-plan")
       and S("archive", "not now") == ("closed", None, "not-now"))
 check("a verdict is a result: a fail waits on his word, a pass is read", S("to-read", "fail", "verify") == ("proposed", "fail", None)
       and S("to-read", "pass", "verify") == (None, "pass", None) and S("archive", "pass", "verify") == ("closed", "pass", None))
+asks = "# R\n\n## Waiting for your word\n\n- [x] one\n- [ ] two\n  ela: no, keep it\n- [ ] three\n\n## Next\n\n- [ ] not an ask\n"
+check("an ask is open until ticked or answered by an ela: line under it", V.open_asks(asks) == (1, 3)
+      and V.open_asks(asks.replace("- [ ] three", "- [x] three")) == (0, 3) and V.open_asks("# R\n\n- [ ] x\n") == (0, 0))
+check("a reading with an open ask outside to-read is a lint line, in to-read it is not",
+      "belongs in to-read/" in (V.asks_lint(V.Note("readings/r.md", "r", asks, {"type": "review"})) or "")
+      and V.asks_lint(V.Note("to-read/r.md", "r", asks, {"type": "review"})) is None
+      and V.asks_lint(V.Note("ela/r.md", "r", asks, {"type": "report"})) is None)
+with tempfile.TemporaryDirectory() as t:
+    os.makedirs(os.path.join(t, "v", "to-read")); os.makedirs(os.path.join(t, "r", "ela"))
+    fm = '---\ntype: "{}"\nsource: "vault"\nstatus: "proposed"\nnext: ""\nmoves: "{}"\n---\n'
+    open(os.path.join(t, "v", "to-read", "a.md"), "w").write(fm.format("review", "review") + asks.replace("- [ ] three", "- [x] three"))
+    open(os.path.join(t, "v", "to-read", "b.md"), "w").write(fm.format("review", "review") + asks)
+    open(os.path.join(t, "v", "to-read", "p.md"), "w").write(fm.format("plan", "plan") + asks.replace("- [ ] three", "- [x] three"))
+    check("a dry run names the answered reading and moves nothing",
+          V.answered_readings(os.path.join(t, "v"), os.path.join(t, "r"), dry_run=True) == [("to-read/a.md", None)]
+          and os.path.exists(os.path.join(t, "v", "to-read", "a.md")))
+    moved = V.answered_readings(os.path.join(t, "v"), os.path.join(t, "r"))
+    ra = open(os.path.join(t, "v", "readings", "a.md")).read()
+    check("a reading whose every ask is answered moves to readings, no status, no moves; one with an open ask and a plan stay",
+          moved == [("to-read/a.md", "readings/a.md")] and "status:" not in ra and "moves:" not in ra and V.MOVES_HEAD not in ra
+          and os.path.exists(os.path.join(t, "v", "to-read", "b.md")) and os.path.exists(os.path.join(t, "v", "to-read", "p.md")))
 check("a sprint keeps its own status; a reading carries none", S("sprints", "active") == ("active", None, None) and S("readings", "decided") == (None, None, None))
 with tempfile.TemporaryDirectory() as t:
     os.makedirs(os.path.join(t, "readings"))
