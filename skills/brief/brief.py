@@ -2537,11 +2537,14 @@ TIER_RULES = {
     "thread-reply": (2, TEAM_POST),
     "train-hold": (2, TEAM_POST),
     "train-promote": (2, TEAM_POST),
-    "test-list": (2, TEAM_POST),          # a build's new test-list rows in its release thread, sent at 19:00 (`ela testlist --new-rows`)
-    "qa-today": (2, f"(?:{TEAM_POST})|(?:{DAY_POST})"),           # QA today in the lane build's release thread, sent at 09:30 (`ela testlist --today`)
-    "dev-today": (2, f"(?:{TEAM_POST})|(?:{DAY_POST})"),
-    "meeting": (2, TEAM_POST),            # a meeting's list, sent at the meeting's time under the day post (`ela meeting --slack`)          # Dev today in the day's scrum thread, sent at 10:00 (`ela devlist --today`)
+    "meeting": (2, TEAM_POST),            # a meeting's list, sent at the meeting's time under the day post (`ela meeting --slack`)
 }
+# tier 3 with a send box: the runner drafts it, it leaves only when he ticks `send N` (read at 09:30 and 10:00) or says
+# `apply N`, never on a timer (decisions/2026-10-29-writes-run-in-three-tiers.md, amendment 2026-10-30)
+SEND_BOX_RULES = {"qa-today": f"(?:{TEAM_POST})|(?:{DAY_POST})"}   # QA today in the lane build's release thread or as the day post
+# rules the same amendment took out of tier 2: no action is drafted under them
+RETIRED_RULES = {"test-list": "retired: the evening drafts the next morning's QA today and posts nothing",
+                 "dev-today": "parked until the dev list is taken up again"}
 TRAIN_RULES = ("train-hold", "train-promote")
 # closed rules not yet promoted: their actions draft at tier 3 until the owner promotes the rule (Jira plan rules 1, 2);
 # promoting one moves it into TIER_RULES at tier 1
@@ -2550,6 +2553,7 @@ PENDING_RULES = {
     "due-by-rule": r"^ela jira due " + KEY_ARG + r"\s(?=.*--date\s)",
 }
 DONE_LINE_RX = re.compile(r"^\s*[-*]\s+done\s+(\d+)\s+—\s+(.*)$", re.M)                    # tier 1, no box: ela did it
+SEND_BOX_RX = re.compile(r"^\s*[-*]\s+\[[ xX]\]\s+send\s+(\d+)\s+—", re.I | re.M)                  # tier 3, leaves on his tick
 DONT_BOX_RX = re.compile(r"^\s*[-*]\s+\[[ xX]\]\s+don't\s+(\d+)\s+—\s+at (\d{2}:\d{2}) unless you tick\b", re.I | re.M)   # tier 2, at its send_at
 
 
@@ -2570,6 +2574,7 @@ def tier_check(page, actions, demoted=None, verdict_build=None):
     dont_at = {int(n): t for n, t in DONT_BOX_RX.findall(page)}
     dont = set(dont_at)
     boxed = {int(n) for n in APPLY_BOX_RX.findall(page)}
+    sendbox = {int(n) for n in SEND_BOX_RX.findall(page)}
     have = {}
     for a in actions:
         if not str(a.get("n", "")).isdigit():
@@ -2579,6 +2584,20 @@ def tier_check(page, actions, demoted=None, verdict_build=None):
         have[n] = tier
         if tier not in (1, 2, 3):
             fails.append(f"action {n}: tier {tier!r}, one of 1, 2, 3"); continue
+        settled = a.get("applied") or a.get("by_owner") or a.get("vetoed")   # said in words on a rerun (§3b)
+        if rule in RETIRED_RULES:
+            fails.append(f"action {n}: rule {rule} is {RETIRED_RULES[rule]}"); continue
+        if a.get("send_box") or rule in SEND_BOX_RULES:
+            if tier != 3 or not a.get("send_box") or rule not in SEND_BOX_RULES:
+                fails.append(f"action {n}: a send-box action is tier 3 with send_box true under "
+                             + ", ".join(SEND_BOX_RULES) + f", not tier {tier} rule {rule!r}")
+            elif not re.search(SEND_BOX_RULES[rule], cmd + " "):
+                fails.append(f"action {n}: its command is not what rule {rule} admits: {cmd[:70]}")
+            if n not in sendbox and not settled:
+                fails.append(f"action {n}: a send-box action is written \"- [ ] send N — QA today on <lane> (your ela: lines applied first)\"")
+            if n in done | dont | boxed:
+                fails.append(f"action {n}: a send-box action has only its send box on the page")
+            continue
         if tier < 3 and rule in PENDING_RULES:
             fails.append(f"action {n}: rule {rule} is tier 3 until the owner promotes it"); continue
         if tier < 3:
@@ -2596,20 +2615,16 @@ def tier_check(page, actions, demoted=None, verdict_build=None):
                 named = re.findall(r"\bbuild\s+(\d+)", ev, re.I)
                 if b not in named or not re.search(r"\breport\b", ev, re.I) or any(x != b for x in named):
                     fails.append(f"action {n}: a train action's evidence names the verdict build {b} and its report: {ev[:70]}")
-            if rule == "test-list" and not (re.search(r"\bbuild\s+\d+", a.get("evidence") or "", re.I)
-                                            and re.search(r"\b(release )?mail\b", a.get("evidence") or "", re.I)):
-                fails.append(f"action {n}: a test-list post's evidence names the build and its release mail: {(a.get('evidence') or '')[:70]}")
         if tier == 2 and n in dont_at and dont_at[n] != (a.get("send_at") or "10:00"):
             fails.append(f"action {n}: the page says it goes at {dont_at[n]}, the action at {a.get('send_at') or '10:00'}")
         want = {1: done, 2: dont, 3: boxed}[tier]
-        settled = a.get("applied") or a.get("by_owner") or a.get("vetoed")   # said in words on a rerun (§3b)
         if n not in want and not settled:
             fails.append(f"action {n}: a tier-{tier} action is written " + {1: "\"- done N — text · evidence\"",
                          2: "\"- [ ] don't N — at HH:MM unless you tick: text\" (10:00 unless its send_at says otherwise)", 3: "\"- [ ] apply N — text\""}[tier])
         for t, seen in ((1, done), (2, dont), (3, boxed)):
             if t != tier and n in seen:
                 fails.append(f"action {n}: tier {tier}, but the page writes it as tier {t}")
-    for n in sorted((done | dont) - set(have)):
+    for n in sorted((done | dont | sendbox) - set(have)):
         fails.append(f"action {n}: on the page, not in the actions file")
     return fails
 

@@ -83,16 +83,24 @@ with tempfile.TemporaryDirectory() as t:
     check("the vault shows what the runner did: done, held by his tick, sent, not done",
           out == "- done 1 — a · done 08:31\n- [x] don't 2 — at 10:00 unless you tick: b · held, you ticked 09:12\n"
                  "- [ ] don't 3 — at 10:00 unless you tick: c · sent 10:00\n- done 4 — d · not done: jira 403")
-tl = [{"n": 5, "tier": 2, "rule": "test-list", "send_at": "19:00", "evidence": "build 78, its release mail 10-28",
+mt = [{"n": 5, "tier": 2, "rule": "meeting", "send_at": "14:00", "evidence": "the scrum's list",
        "command": f"ela slack post {THREAD} --text-file f --team-thread"}]
-p19 = "- [ ] don't 5 — at 19:00 unless you tick: the build 78 test list\n"
-check("a test-list post at its send time passes", B.tier_check(p19, tl) == [])
+p14 = "- [ ] don't 5 — at 14:00 unless you tick: the scrum's list\n"
+check("a tier-2 post at its send time passes", B.tier_check(p14, mt) == [])
 check("a page time that disagrees with the action's send_at fails",
-      any("goes at 10:00" in f for f in B.tier_check(p19.replace("19:00", "10:00"), tl)))
-check("a test-list post's evidence names the build and its release mail",
-      any("release mail" in f for f in B.tier_check(p19, [dict(tl[0], evidence="the list")])))
+      any("goes at 10:00" in f for f in B.tier_check(p14.replace("14:00", "10:00"), mt)))
+check("the 19:00 test-list post is retired", any("rule test-list is retired" in f for f in B.tier_check(
+      "- [ ] don't 5 — at 19:00 unless you tick: x\n", [dict(mt[0], rule="test-list", send_at="19:00")])))
 dp = [{"n": 6, "tier": 2, "rule": "dev-today", "evidence": "the 2.1 dev list", "command": "ela slack post #prj_dev_mediahub --file f --team-day-post"}]
-check("dev-today may make the day post", B.tier_check("- [ ] don't 6 — at 10:00 unless you tick: Dev today\n", dp) == [])
+check("dev-today is parked: a draft fails, its absence passes", any("parked" in f for f in B.tier_check("- [ ] don't 6 — at 10:00 unless you tick: Dev today\n", dp))
+      and B.tier_check("## Dev today\n\nNo post today.\n", []) == [])
+qa = [{"n": 9, "tier": 3, "send_box": True, "rule": "qa-today", "command": "ela slack post #mediahub-qa-release --file f --team-day-post"}]
+psb = "## QA today\n\n- [ ] send 9 — QA today on qa-cn3 (your ela: lines applied first) · unticked: stays as apply 9\n"
+check("the runner's send-box draft of QA today passes, ticked or not", B.tier_check(psb, qa) == [] and B.tier_check(psb.replace("[ ]", "[x]"), qa) == [])
+check("QA today drafted at tier 2 fails", any("send-box action is tier 3" in f for f in B.tier_check(
+      "- [ ] don't 9 — at 09:30 unless you tick: QA today\n", [dict(qa[0], tier=2, send_box=False)])))
+check("a send-box action without its send box fails", any("is written" in f for f in B.tier_check("- [ ] apply 9 — QA today\n", qa)))
+check("a send box with no action fails", any("not in the actions file" in f for f in B.tier_check(psb, [])))
 check("thread-reply may not make a top-level post",
       any("not what rule" in f for f in B.tier_check("- [ ] don't 6 — at 10:00 unless you tick: x\n", [dict(dp[0], rule="thread-reply")])))
 pr = [{"n": 7, "tier": 1, "rule": "priority-by-rule", "evidence": "customer bracket", "command": "ela jira priority MH-1 --to High --why x"}]

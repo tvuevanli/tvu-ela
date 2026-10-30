@@ -393,23 +393,26 @@ he could tick became the page he stopped reading (from 2026-10-28).*
 **QA today** follows Needs you on a working day: `ela testlist --lane qa-cn3 --today --json` gives the day's plan
 (carried rows without a verdict, P1 first and oldest first; the newest build's new rows; interruptions: tickets
 assigned to QA in no build, asks to QA posted since the last evening run, 19:00 the previous working day), cut at
-ten, each row with the reason it is in. The section heads "goes 09:30 unless you tick don't", lists the rows as the
-post will, and ends with its Do line, the tier-2 `- [ ] don't N — at 09:30 unless you tick: QA today in the build N
-release thread` (rule `qa-today`, `send_at` 09:30, the json's `thread`, evidence: the lane's test list and its build).
-His `ela:` lines under it (`drop KEY`, `KEY first`, `add KEY`) are passed back as `--guidance FILE` before the send
-and the text that returns replaces the draft. Under the section one line: "Overnight: N posts read in <channels>, M
+ten, each row with the reason it is in. The section heads "goes when you tick send", lists the rows as the post will,
+and leaves its Do line to the runner: the runner drafts the action (tier 3, `send_box: true`, rule `qa-today`, in the
+lane build's release thread or, when the build has none, as the day post) and adds its line, `- [ ] send N — QA today
+on <lane> (your ela: lines applied first)`. It is sent only when he ticks `send N` (read at 09:30 and 10:00) or says
+`apply N`, never by a timer; the 19:00 test-list post is retired, and the evening drafts the next morning's QA today
+instead. His `ela:` lines under it (`drop KEY`, `KEY first`, `add KEY`, `KEY P1`) are passed back as `--guidance FILE`
+before the send and the text that returns replaces the draft. Under the section one line: "Overnight: N posts read in <channels>, M
 asks placed above", naming a channel the bot cannot read as not read; an overnight post addressed to QA is a row
 above, one addressed to him is a Needs-you item. *Why: QA was handed builds, not a ranked day; the plan is cut from
 the list QA already keeps verdicts against (the 2026-10-29 test-list plan, Resolution A2).*
 
-**Dev today** sits beside QA today: `ela devlist --today --json` gives the developers' cut, by developer, at most
+**Dev today** is parked until the dev list is taken up again (the amendment of 2026-10-30): no section, no draft;
+what follows is how it runs when it returns. It sits beside QA today: `ela devlist --today --json` gives the developers' cut, by developer, at most
 twelve rows (asks to a developer since the last evening run, one per thread, from anyone but him or a bot; due today
 or overdue; blocked or on hold; moved since then; QA assigned on a secondary ticket; a build change with no ticket;
 Fixed In without a verdict). A ticket QA holds is placed under its commit's author. The section heads "goes 10:00
 unless you tick don't" (on a scrum day "opens the scrum at 10:00", its rows the first lines of the scrum section)
 and ends with its Do line, the tier-2 `don't N` (rule `dev-today`, `send_at` 10:00): the day post in the dev
 channel, `ela slack post #prj_dev_mediahub --file F --team-day-post`, the one top-level message ela makes there that
-day, which becomes the day's thread. QA today goes the same way in the QA release channel only when the day's build
+day, which becomes the day's thread. QA today makes the day post in the QA release channel only when the day's build
 has no release thread (the json's `post`: "thread" or "day post"). *Why: a reply under someone else's message is
 invisible to the people the list is for; a standing thread goes stale (the desk's ruling of 2026-10-29, reviewed
 after a week of posts: if nobody replies under them, a standing thread instead).* His `ela:` lines apply as under QA today. A developer never reads QA rows, and QA never
@@ -586,12 +589,14 @@ The page is read in Obsidian, so its form is fixed:
   Fixed In the builds ledger confirms; never a clear) and `assign-by-rule` (an assignment a closed routing rule
   gives); never a terminal status, a close, a transition or a customer-facing field. Tier 2, the runner sends it at
   10:00 unless he ticks "don't": `thread-reply` (a reply in a team channel's thread ela has read), `train-hold`,
-  `train-promote`, and at 19:00 `test-list` (a build's new test-list rows in its release thread, from `ela testlist
-  --new-rows`; its evidence names the build and its release mail), at 09:30 `qa-today` and at 10:00 `dev-today` (QA today and Dev today, below), each an `ela slack post <thread permalink> …
-  --team-thread`, which slack.py refuses outside the team channels; `qa-today` and `dev-today` may instead make the
-  day post, `ela slack post #<team channel> … --team-day-post`, which slack.py refuses when ela already posted top
-  level in that channel that day. Tier 3 is everything else, on his word only (`apply N`): customers, prod approvals, people,
-  anything addressed to him, anything no closed rule admits. A tier-1 or tier-2 action carries `evidence`, one
+  `train-promote` and `meeting` (a meeting's list, at the meeting's time), each an `ela slack post <thread permalink> …
+  --team-thread`, which slack.py refuses outside the team channels. Tier 3 is everything else, on his word only
+  (`apply N`): customers, prod approvals, people, anything addressed to him, anything no closed rule admits. One tier-3
+  rule carries a send box: `qa-today` (QA today, below), drafted by the runner and sent when he ticks `send N` or says
+  `apply N`; it may make the day post, `ela slack post #<team channel> … --team-day-post`, which slack.py refuses when
+  ela already posted top level in that channel that day. `test-list` (the 19:00 post) is retired and `dev-today` is
+  parked; page-check fails an action drafted under either (decisions/2026-10-29-writes-run-in-three-tiers.md,
+  amendment 2026-10-30). A tier-1 or tier-2 action carries `evidence`, one
   line he can check; a train action's evidence names the verdict build and its QA report (`ela day --json`
   `verdict_build`). Read `<reports>/review/tiers.json` first: a rule marked `demoted` (three corrections in seven
   days) drafts tier 3 until it clears. `ela page-check` checks each tier against its rule and its form on the page.
