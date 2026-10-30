@@ -596,16 +596,49 @@ GUARD = [(re.compile(r"xox[abpe]-[A-Za-z0-9-]{10,}"), "Slack token"), (re.compil
          (re.compile(r"[\"“«「『]([^\"”»」』\n]{0,80}[\u4e00-\u9fff][^\"”»」』\n]{0,80})[\"”»」』]"), "a quoted CJK sentence")]
 
 
-def guard_flags(text):
+def guard_flags(text, name=""):
     """The content guard's rules a published page must pass (hooks/content-guard.sh): a credential anywhere, a quoted
-    sentence of eight or more CJK characters. → [(line number, why, line)]."""
+    sentence of eight or more CJK characters. A `.json` file's quotes are syntax, so there the quoted-sentence rule reads
+    its decoded string values and names the key path; a json that does not parse is read as text.
+    → [(line number or key path, why, line)]."""
+    values = None
+    if name.endswith(".json"):
+        try:
+            values = list(json_strings(json.loads(text)))
+        except ValueError:
+            pass
     out = []
     for n, line in enumerate(text.splitlines(), 1):
         for rx, why in GUARD:
+            if values is not None and why == "a quoted CJK sentence":
+                continue
             m = rx.search(line)
-            if m and (why != "a quoted CJK sentence" or len(re.findall(r"[\u4e00-\u9fff]", m.group(1))) >= 8):
+            if m and quoted_cjk_ok(why, m):
                 out.append((n, why, line.strip()[:100]))
+    for path, v in values or []:
+        rx, why = GUARD[-1]
+        for line in v.splitlines():
+            m = rx.search(line)
+            if m and quoted_cjk_ok(why, m):
+                out.append((path, why, line.strip()[:100]))
     return out
+
+
+def quoted_cjk_ok(why, m):
+    """True when a match counts: any credential, or a quotation holding eight or more CJK characters."""
+    return why != "a quoted CJK sentence" or len(re.findall(r"[\u4e00-\u9fff]", m.group(1))) >= 8
+
+
+def json_strings(v, path="$"):
+    """Every string value in a decoded json document → (key path, value)."""
+    if isinstance(v, str):
+        yield path, v
+    elif isinstance(v, dict):
+        for k, x in v.items():
+            yield from json_strings(x, f"{path}.{k}")
+    elif isinstance(v, list):
+        for i, x in enumerate(v):
+            yield from json_strings(x, f"{path}[{i}]")
 
 
 def cmd_lanes(a):
@@ -619,7 +652,7 @@ def cmd_lanes(a):
     done, refused = [], []
     for f in names:
         text = redact(open(os.path.join(src, f), encoding="utf-8").read())
-        flags = guard_flags(text)
+        flags = guard_flags(text, f)
         if flags:
             refused.append({"file": f, "flags": [f"{n}: {why}: {line}" for n, why, line in flags[:5]]}); continue
         os.makedirs(dst, exist_ok=True)

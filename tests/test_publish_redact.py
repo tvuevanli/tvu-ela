@@ -32,6 +32,16 @@ check([w for _, w, _ in publish.guard_flags("line\n" + q(cjk(14)) + "\n")] == ["
       "a quoted sentence on a lanes page is refused")
 check([w for _, w, _ in publish.guard_flags("tok" + "en = " + "a" * 26)] == ["credential assignment"],
       "a credential on a lanes page is refused")
+lane = lambda title: publish.json.dumps({"rows": [{"key": "MH-1", "title": title}]}, ensure_ascii=False)  # noqa: E731
+check(publish.guard_flags(lane(cjk(14)), "dev-list-2.1.json") == [],
+      "a lanes json whose title is a CJK sentence passes: json quotes are syntax")
+check([(n, w) for n, w, _ in publish.guard_flags(lane(cjk(4) + q(cjk(8))), "dev-list-2.1.json")]
+      == [("$.rows[0].title", "a quoted CJK sentence")],
+      "a lanes json whose title quotes an eight-character CJK sentence is refused, by key path")
+check([w for _, w, _ in publish.guard_flags(lane("tok" + "en = " + "a" * 26), "dev-list-2.1.json")] == ["credential assignment"],
+      "a credential in a lanes json is still refused on the raw text")
+check([w for _, w, _ in publish.guard_flags('{"title": "' + cjk(14) + '",', "dev-list-2.1.json")] == ["a quoted CJK sentence"],
+      "a lanes json that does not parse is read as text")
 check(bool(publish.LANE_PAGE.match("test-list-qa-cn3.json")) and not publish.LANE_PAGE.match("notes.md"),
       "only the lanes page and the lists are published from <reports>/lanes/")
 if failures:
