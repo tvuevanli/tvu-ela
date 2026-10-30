@@ -151,7 +151,13 @@ block reads "held until DATE (dry run)", without boxes, and each action says wha
 | `in-progress/` | what you agreed to, while ela builds it, until you accept it | accept or say what is missing |
 | `parked/` | what waits on others, with who it waits on and what brings it back | resume or drop |
 | `lanes` | the lanes, what each carries that the next does not, two weeks of moves | look before a promotion |
+| `lanes/` | the test list per lane and the dev list per release line | look before testing or a promotion |
+| `mh/` | the MediaHub program and its evidence | look when Home names the program's next step |
+| `sprints/` | the sprints, each a plan | look at a sprint's start and end |
+| `meetings/` | the review list (what you raise, by meeting) and each meeting's dated note | look before the meeting |
 | `ela/` | the ela page (its measures, parts, schedule and week written by the sync; Waiting for your word, What changed for MediaHub this week and Known limits written by the desk), how ela runs, this page, the table view; attachments, hidden | rarely |
+| `ela/bot/` | the product side of ela: its design and the evidence reports | read when a report asks for your ruling |
+| `ela/review/` | the evening reader pages | read in the evening |
 | `archive/` | what was acted on or you chose to keep; ela adds to it and keeps its status current, never its text | look back; ask ela to tidy it |
 
 Folders are named for what you do with a note and carry no numbers: Home and the bookmarks are the way in, and
