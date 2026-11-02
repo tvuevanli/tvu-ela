@@ -44,11 +44,15 @@ to type `! ela login tvu` and stop; never read a cache or another system's file 
   never by rewording the finding. An expired constraint is listed for seven days, then dropped. The file is
   written only when the owner confirms the proposing note; this skill never writes it. A missing file is no
   constraints.
-- **A report written with `--out` opens the pending promotion.** `<reports>/promote/pending.json` records the line,
+- **A report written with `--out` opens the pending promotion for its line and lanes.** `<reports>/promote/pending.json`
+  holds one record per line and lane pair (`{"2.1|daily-wed|prod-3": {...}, "2.0|qa-cn2|prod-8": {...}}`): the line,
   the lanes, the report's path and the candidate: the source lane's version per service. The next run for the same
-  line and lanes refreshes it; a cell the owner still has to choose is written there as `{"awaiting": "owner",
-  "options": [...], "why": "..."}` and kept until he rules. The morning shows the candidate as the next train in
-  `ela matrix` and each awaiting cell as a decision for him; `close` ends it when the promotion shipped or was dropped.
+  line and lanes refreshes that record and no other; a cell the owner still has to choose is written there as
+  `{"awaiting": "owner", "options": [...], "why": "..."}` and kept until he rules, as are the fields the report does
+  not produce (label, bundle, open_items, notes, waiting_on). A source lane the run could not read never blanks a
+  filled candidate: the last good versions stand, marked `stale: "<when> source unreadable"`. The morning shows each
+  line's candidate as the next train on the lanes page and each awaiting cell as a decision for him; `close` ends one
+  record when the promotion shipped or was dropped (`--line`/`--to` when several are open).
 - **Rank and cap.** Evan reads at most twelve findings; the rest are counted. A noisy report is an unread one.
 - **Read-only until his word.** Posting (`slack post --apply`), Jira backfills (`jira label|comment … --apply`)
   and the record in elak each wait for an explicit yes, one per action.

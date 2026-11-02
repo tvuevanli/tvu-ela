@@ -10,7 +10,8 @@ Fixed In, a Fixed In against the build that carries it, a claim against QA's own
   evidence <line> <from> <to> [--scope] [--since YYYY-MM-DD]   QA verdicts per key from Jira comments, mail and Slack
   bundles  <line> <from> <to>                    the two lanes' newest bundles, docker service by docker service
   report   <line> <from> <to> [--purpose regular|prod-staging|demo] [--scope] [--out DIR]   all of it, ranked and capped
-  close    [--json]                              mark the pending promotion closed (<reports>/promote/pending.json)
+  close    [--line L] [--to LANE] [--json]       mark one pending promotion closed (<reports>/promote/pending.json, one record
+                                                 per line and lane pair; the only open one needs no selection)
   constraints [--json]                           the owner's standing constraints (<elak>/blueprint/constraints.yaml), each
                                                  pin read on its lane now; expired ones listed for seven days; exit 3 when a pin is over
   compare-helm <line> <from> <to> [--scope all] [--helm-json F]   test only: Helm's payload as oracle; every difference classified
@@ -950,43 +951,102 @@ def cmd_constraints(a):
         sys.exit(EX_LANE)
 
 
-# ── the pending promotion: what the morning shows as the next train until it is closed ─────────────
+# ── the pending promotions: what the morning shows as each line's next train until it is closed ───────────
 
 def pending_path():
     return os.path.join(R.site().get("reports") or "", "promote", "pending.json")
 
 
-def record_pending(res, report_path, path=None):
-    """A report written with --out opens the pending promotion, or refreshes it when the same line and lanes are open.
-    The candidate is the source lane's version per service; a cell the owner still has to choose
-    ({"awaiting": "owner", "options": [...], "why": ...}) is kept as written until he rules."""
-    path = path or pending_path()
+def pending_key(line, frm, to):
+    """One record per line and lane pair: "2.1|daily-wed|prod-3"."""
+    return f"{line}|{frm}|{to}"
+
+
+def load_pending(path):
+    """pending.json as {key: record}. The single-record shape the file had before 2026-11-02 (one promotion for the
+    whole site) is read under its own key, so the first write after the change migrates it."""
     try:
-        old = json.load(open(path))
+        doc = json.load(open(path))
     except (OSError, ValueError):
-        old = {}
-    same = old and not old.get("closed") and (old.get("line"), old.get("from"), old.get("to")) == (res["line"], res["from"], res["to"])
-    kept = {k: v for k, v in ((old.get("candidate") or {}).get("versions") or {}).items() if same and isinstance(v, dict) and v.get("awaiting")}
-    versions = {s["service"]: {"version": short(s["from"])} for s in res["lanes"]["services"] if s.get("from")}
-    versions.update(kept)
-    rec = {"line": res["line"], "from": res["from"], "to": res["to"], "opened": old.get("opened") if same else res["generated_at"],
-           "refreshed": res["generated_at"], "report": report_path, "closed": False,
-           "candidate": {"label": f"next train → {res['to']}", "versions": versions},
-           "counts": res["counts"]["findings"]}
+        return {}
+    if not isinstance(doc, dict):
+        return {}
+    if "candidate" in doc and "line" in doc:               # the old shape: one record at the top level
+        return {pending_key(doc.get("line"), doc.get("from"), doc.get("to")): doc}
+    return {k: v for k, v in doc.items() if isinstance(v, dict) and "candidate" in v and "line" in v}
+
+
+def save_pending(path, recs):
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    json.dump(rec, open(path, "w"), ensure_ascii=False, indent=1)
+    tmp = path + ".tmp"
+    json.dump(recs, open(tmp, "w"), ensure_ascii=False, indent=1)
+    os.replace(tmp, path)
+
+
+def source_unreadable(res):
+    """Whether the report could not read the source lane: its host unread, or no service with a version on it."""
+    hosts = (res.get("lanes") or {}).get("hosts_read") or {}
+    if hosts.get(lane_host(res["from"])) is False:
+        return True
+    return not any(s.get("from") for s in (res.get("lanes") or {}).get("services") or [])
+
+
+def record_pending(res, report_path, path=None):
+    """A report written with --out opens the pending promotion for its line and lanes, or refreshes it when that one is
+    open; the other lines' records are untouched. The candidate is the source lane's version per service; a cell the
+    owner still has to choose ({"awaiting": "owner", "options": [...], "why": ...}) is kept as written until he rules,
+    and so are the fields the report does not produce (label, bundle, open_items, notes, waiting_on, departs). A
+    source lane the report could not read never overwrites a filled candidate: the previous versions stay and the
+    candidate is marked stale with the moment and the reason."""
+    path = path or pending_path()
+    recs = load_pending(path)
+    key = pending_key(res["line"], res["from"], res["to"])
+    old = recs.get(key) or {}
+    same = bool(old) and not old.get("closed")
+    rec = dict(old) if same else {}
+    cand = dict(rec.get("candidate") or {})
+    kept = {k: v for k, v in (cand.get("versions") or {}).items() if same and isinstance(v, dict) and v.get("awaiting")}
+    versions = {s["service"]: {"version": short(s["from"])} for s in res["lanes"]["services"] if s.get("from")}
+    if source_unreadable(res) and same and cand.get("versions"):
+        cand["stale"] = f"{res['generated_at']} source unreadable"   # the lane was not read: the last good candidate stands
+    else:
+        versions.update(kept)
+        cand["versions"] = versions
+        if source_unreadable(res):
+            cand["stale"] = f"{res['generated_at']} source unreadable"
+        else:
+            cand.pop("stale", None)
+    cand.setdefault("label", f"next train → {res['to']}")
+    rec.update({"line": res["line"], "from": res["from"], "to": res["to"], "opened": rec.get("opened") if same else res["generated_at"],
+                "refreshed": res["generated_at"], "report": report_path, "closed": False, "candidate": cand,
+                "counts": res["counts"]["findings"]})
+    recs[key] = rec
+    save_pending(path, recs)
     return rec
 
 
+def open_pending(recs):
+    return {k: v for k, v in recs.items() if not v.get("closed")}
+
+
 def cmd_close(a):
-    """Mark the pending promotion closed: it has shipped or been dropped, and the morning stops showing it."""
+    """Mark one pending promotion closed: it has shipped or been dropped, and the morning stops showing it. With one
+    open record no selection is needed; with several, --line and/or --to pick it, else the open ones are listed."""
     path = pending_path()
-    try:
-        rec = json.load(open(path))
-    except (OSError, ValueError):
+    recs = load_pending(path)
+    opened = open_pending(recs)
+    if not opened:
         print(f"no pending promotion ({path})", file=sys.stderr); sys.exit(EX_USAGE)
+    pick = {k: v for k, v in opened.items() if (not a.line or v.get("line") == a.line) and (not a.to or v.get("to") == a.to)}
+    if len(pick) != 1:
+        print(("no open promotion matches" if not pick else "several promotions are open; name one with --line/--to") + ":", file=sys.stderr)
+        for v in opened.values():
+            print(f"  --line {v.get('line')} --to {v.get('to')}   ({v.get('from')} → {v.get('to')}, opened {v.get('opened')})", file=sys.stderr)
+        sys.exit(EX_USAGE)
+    key, rec = next(iter(pick.items()))
     rec.update(closed=True, closed_at=now())
-    json.dump(rec, open(path, "w"), ensure_ascii=False, indent=1)
+    recs[key] = rec
+    save_pending(path, recs)
     print(json.dumps(rec, ensure_ascii=False) if a.json else f"closed: {rec['line']} {rec['from']} → {rec['to']} (opened {rec['opened']})")
 
 
@@ -1495,7 +1555,9 @@ def main():
     common(sub.add_parser("bundles"), scope=False)
     p = sub.add_parser("compare-helm", help="test only: Helm's release payload as the oracle; every difference classified"); common(p); p.add_argument("--helm-json", help="a saved oracle payload instead of running Helm"); p.add_argument("--out")
     p = sub.add_parser("report"); common(p); p.add_argument("--purpose", choices=("regular", "prod-staging", "prod-deploy", "demo"), default="regular"); p.add_argument("--since"); p.add_argument("--bundles", action="store_true", help="include the bundle diff even with --scope app"); p.add_argument("--out", help="directory for <date>-mh<line>-<from>-<to>.{json,md}")
-    p = sub.add_parser("close", help="mark the pending promotion closed; the morning stops showing it as the next train"); p.add_argument("--json", action="store_true")
+    p = sub.add_parser("close", help="mark one pending promotion closed; the morning stops showing it as the next train")
+    p.add_argument("--line", help="the line whose promotion closes (needed when several are open)"); p.add_argument("--to", help="its target lane")
+    p.add_argument("--json", action="store_true")
     p = sub.add_parser("constraints", help="the standing constraints in <elak>/blueprint/constraints.yaml, each pin read now; exit 3 when one is over"); p.add_argument("--json", action="store_true")
     a = ap.parse_args()
     global QUIET; QUIET = a.quiet

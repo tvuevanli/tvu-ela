@@ -1689,13 +1689,30 @@ def docker_moves(env, errors, win, site, extra=()):
     return list(merged.values())
 
 
-def read_pending(site):
-    """<reports>/promote/pending.json while it is open (written by `ela promote report --out`), else None."""
+def pending_records(doc):
+    """<reports>/promote/pending.json as {"<line>|<from>|<to>": record}; the single-record shape the file had before
+    2026-11-02 is read under its own key."""
+    if not isinstance(doc, dict):
+        return {}
+    if "candidate" in doc and "line" in doc:
+        return {f"{doc.get('line')}|{doc.get('from')}|{doc.get('to')}": doc}
+    return {k: v for k, v in doc.items() if isinstance(v, dict) and "candidate" in v and "line" in v}
+
+
+def pending_for(doc, line):
+    """The open pending promotion of one line, the most recently refreshed when several are; None when none is open."""
+    recs = [r for r in pending_records(doc).values() if str(r.get("line")) == str(line) and not r.get("closed")]
+    return max(recs, key=lambda r: str(r.get("refreshed") or ""), default=None)
+
+
+def read_pending(site, line=None):
+    """A line's pending promotion from <reports>/promote/pending.json while it is open (written by `ela promote report
+    --out`), else None; the morning's line when none is named."""
     try:
-        p = json.load(open(os.path.join(site.get("reports") or "", "promote", "pending.json")))
+        doc = json.load(open(os.path.join(site.get("reports") or "", "promote", "pending.json")))
     except (OSError, ValueError):
         return None
-    return None if p.get("closed") else p
+    return pending_for(doc, line or LINE)
 
 
 def mail_lane(env):
@@ -2114,9 +2131,10 @@ def cmd_matrix(args):
             cand = json.load(open(args.candidate))
         except (OSError, ValueError) as e:
             errors.append({"source": "candidate", "error": str(e)[:200]})
-        if cand and "candidate" in cand:                    # <reports>/promote/pending.json as it is
-            args.promote_report = args.promote_report or cand.get("report")
-            cand = None if cand.get("closed") else cand["candidate"]
+        if cand and ("candidate" in cand or pending_records(cand)):   # <reports>/promote/pending.json as it is: the line's record
+            rec = pending_for(cand, LINE)
+            args.promote_report = args.promote_report or (rec or {}).get("report")
+            cand = (rec or {}).get("candidate")
     # the bundle each lane runs. GM records no deployment, so it is inferred: QA and daily bundles follow the lane-token
     # names (mh2.1@qa-q26); prod releases are named "MediaHub <line>.<n>", so prod takes the newest of those, and the
     # rc token only when none exists. Either is unconfirmed, and marked stale when the lane moved after it.
