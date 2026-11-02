@@ -369,7 +369,8 @@ def needs_you(page):
     The facts line is the first non-empty line under the heading."""
     m = re.search(r"^## Needs you[ \t]*$(.*?)(?=^## |\Z)", page, re.M | re.S)
     out = []
-    for h, facts in re.findall(r"^### (?:\d+\.\s*)?(.+)$\n(?:[ \t]*\n)*(.*)$", m.group(1) if m else "", re.M):
+    for h, facts in re.findall(r"^(?:>\s*)?### (?:\d+\.\s*)?(.+)$\n(?:[ \t]*>?[ \t]*\n)*(.*)$", m.group(1) if m else "", re.M):
+        facts = facts.lstrip("> ")
         if facts.startswith("#"):
             facts = ""
         out.append((frozenset(keys_in(h + "\n" + facts)), re.sub(r"\s+", " ", h.strip().lower())))
@@ -2545,7 +2546,9 @@ def render_matrix(out):
 
 
 APPLY_RX = re.compile(r"\bapply\s+(\d+)\b", re.I)
-APPLY_BOX_RX = re.compile(r"^\s*[-*]\s+\[[ xX]\]\s+apply\s+(\d+)\b", re.I | re.M)
+QUOTE = r"(?:>\s*)?"                     # a box inside a folded callout (`> - [ ] apply N`) is the same box behind the `> `
+APPLY_BOX_RX = re.compile(r"^\s*" + QUOTE + r"[-*]\s+\[[ xX]\]\s+apply\s+(\d+)\b", re.I | re.M)
+UNFOLDED_MAX = 3                          # apply boxes above the fold under Needs you; the rest go under `> [!note]- N more`
 
 
 def page_check(page, actions):
@@ -2555,6 +2558,22 @@ def page_check(page, actions):
     boxed = {int(n) for n in APPLY_BOX_RX.findall(page)}
     have = {int(a["n"]) for a in actions if str(a.get("n", "")).isdigit()}
     return sorted(named - have), sorted(named - boxed)
+
+
+def unfolded_applies(page):
+    """The apply boxes under Needs you that stand outside a folded callout, in page order. The page shows at most
+    UNFOLDED_MAX of them; the rest are the same lines under one `> [!note]- N more` callout, where a tick still counts
+    (vault to-read/2026-11-02-ela-and-vault-workflow-review.md, fix 4)."""
+    m = re.search(r"^## Needs you[ \t]*$(.*?)(?=^## |\Z)", page, re.M | re.S)
+    out, inside = [], False
+    for line in (m.group(1) if m else "").splitlines():
+        if inside and line.startswith(">"):
+            continue
+        inside = bool(re.match(r"^>\s*\[![\w-]+\]-", line))
+        b = APPLY_BOX_RX.match(line)
+        if b and not inside and not line.lstrip().startswith(">"):
+            out.append(int(b.group(1)))
+    return out
 
 
 # ── tiers: what ela does alone, what leaves at 10:00 unless he ticks "don't", what waits for his word ───────
@@ -2593,9 +2612,9 @@ PENDING_RULES = {
     "priority-by-rule": r"^ela jira priority " + KEY_ARG + r"\s(?=.*--to\s)",
     "due-by-rule": r"^ela jira due " + KEY_ARG + r"\s(?=.*--date\s)",
 }
-DONE_LINE_RX = re.compile(r"^\s*[-*]\s+done\s+(\d+)\s+—\s+(.*)$", re.M)                    # tier 1, no box: ela did it
-SEND_BOX_RX = re.compile(r"^\s*[-*]\s+\[[ xX]\]\s+send\s+(\d+)\s+—", re.I | re.M)                  # tier 3, leaves on his tick
-DONT_BOX_RX = re.compile(r"^\s*[-*]\s+\[[ xX]\]\s+don't\s+(\d+)\s+—\s+at (\d{2}:\d{2}) unless you tick\b", re.I | re.M)   # tier 2, at its send_at
+DONE_LINE_RX = re.compile(r"^\s*" + QUOTE + r"[-*]\s+done\s+(\d+)\s+—\s+(.*)$", re.M)                    # tier 1, no box: ela did it
+SEND_BOX_RX = re.compile(r"^\s*" + QUOTE + r"[-*]\s+\[[ xX]\]\s+send\s+(\d+)\s+—", re.I | re.M)                  # tier 3, leaves on his tick
+DONT_BOX_RX = re.compile(r"^\s*" + QUOTE + r"[-*]\s+\[[ xX]\]\s+don't\s+(\d+)\s+—\s+at (\d{2}:\d{2}) unless you tick\b", re.I | re.M)   # tier 2, at its send_at
 
 
 def demoted_rules(reports):
@@ -2682,6 +2701,10 @@ def cmd_page_check(args):
         print(f"apply {n}: no such action in {os.path.basename(args.actions or '(none)')}")
     for n in unboxed:
         print(f"apply {n}: named without its box on the page")
+    over = unfolded_applies(page)[UNFOLDED_MAX:]
+    for n in over:
+        print(f"apply {n}: a fourth or later apply box above the fold under Needs you; at most {UNFOLDED_MAX} stand open, "
+              f"the rest go under one `> [!note]- N more` callout with the same lines")
     date = None
     m = re.match(r"(\d{4}-\d{2}-\d{2})-", os.path.basename(args.page))
     if m:
@@ -2712,7 +2735,7 @@ def cmd_page_check(args):
         print(f"budget: {over}")
     # the runner holds back a page that still fails after one repair, and its repair covers apply N only: the other
     # checks fail the page under --strict, once the repair knows them; until then they are printed as advice
-    sys.exit(1 if orphan or unboxed or tiers or (rest and args.strict) else 0)
+    sys.exit(1 if orphan or unboxed or over or tiers or (rest and args.strict) else 0)
 
 
 def front_matter(text):

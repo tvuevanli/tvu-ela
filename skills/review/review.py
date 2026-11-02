@@ -38,9 +38,10 @@ import ticket as T  # noqa: E402  — the QA roster and the fail pattern a refre
 SITE = os.path.expanduser("~/.claude/ela/site.json")
 CODE_SPAN = re.compile(r"(```.*?```|`[^`\n]*`)", re.S)
 LINKED = re.compile(r"\[[^\]]*\]\([^)]*\)|https?://\S+|\[\[[^\]]*\]\]")
-ITEM_RX = re.compile(r"^###\s+\d+\.\s", re.M)
-DO_RX = re.compile(r"^\s*[-*]\s+\*\*Do:\*\*\s*(.*)$")
-BOX_RX = re.compile(r"^\s*[-*]\s+\[[ xX]\]\s+(.*)$")
+QUOTE = B.QUOTE                                     # an item folded under `> [!note]- N more` keeps its form behind the `> `
+ITEM_RX = re.compile(r"^" + QUOTE + r"###\s+\d+\.\s", re.M)
+DO_RX = re.compile(r"^\s*" + QUOTE + r"[-*]\s+\*\*Do:\*\*\s*(.*)$")
+BOX_RX = re.compile(r"^\s*" + QUOTE + r"[-*]\s+\[[ xX]\]\s+(.*)$")
 DECISION_RX = re.compile(r"·\s*(?:decide\b|your call\b)", re.I)   # where a box with no write is decided (brief SKILL)
 # a box he must still act on: a slash command, or a draft, list, lookup or question left for him to make
 BARE_VERB_RX = re.compile(r"/ela:|^(?:draft|list|ask|run|check|look|read|find|write|go deep)\b", re.I)
@@ -91,12 +92,13 @@ def bare_keys(text, in_vault):
 
 def items(text):
     """The numbered items (`### N. …`): (heading line, facts line, body) each."""
-    starts = [m.start() for m in ITEM_RX.finditer(text)]
+    marks = list(ITEM_RX.finditer(text))
     out = []
-    for i, s in enumerate(starts):
-        end = starts[i + 1] if i + 1 < len(starts) else len(text)
-        nxt = re.search(r"^##\s", text[s + 3:end], re.M)
-        body = text[s:s + 3 + nxt.start()] if nxt else text[s:end]
+    for i, mk in enumerate(marks):
+        s, past = mk.start(), mk.end()                   # past the heading mark, whether or not a `> ` quotes it
+        end = marks[i + 1].start() if i + 1 < len(marks) else len(text)
+        nxt = re.search(r"^##\s", text[past:end], re.M)
+        body = text[s:past + nxt.start()] if nxt else text[s:end]
         lines = body.splitlines()
         out.append((lines[0], lines[1] if len(lines) > 1 else "", body))
     return out
@@ -105,7 +107,7 @@ def items(text):
 # the sections the page writes for him besides its items: each ends with what he should do (working-with-evan.md,
 # 2026-10-29: a description is not a deliverable)
 DO_SECTION_RX = re.compile(r"^##[ \t]+(QA today|Dev today|.+ at \d{1,2}:\d{2}|.*\bNext\b.*)[ \t]*$", re.M | re.I)
-DO_ANY_RX = re.compile(r"\*\*Do:\*\*|^\s*[-*]\s+\[[ xX]\]\s+(?:apply|don't)\s+\d+|^\s*[-*]\s+done\s+\d+\s+—|your call:", re.M | re.I)
+DO_ANY_RX = re.compile(r"\*\*Do:\*\*|^\s*" + QUOTE + r"[-*]\s+\[[ xX]\]\s+(?:apply|don't)\s+\d+|^\s*" + QUOTE + r"[-*]\s+done\s+\d+\s+—|your call:", re.M | re.I)
 
 
 def sections_without_do(text):
@@ -132,7 +134,8 @@ def do_lines(body):
                 out.append((line, None))
             continue
         if on:
-            if not line.strip() or line.startswith("#"):
+            bare = line.lstrip("> \t")                     # inside a fold the blank line is a lone `>`
+            if not bare or bare.startswith("#"):
                 break
             b = BOX_RX.match(line)
             out.append((line, b.group(1) if b else None))
@@ -198,7 +201,7 @@ def lint(text, actions=None, counts=None, bundles=None, in_vault=False, brief=Fa
     if brief:
         fails += [f"{h[:50]}: a section with no Do line (apply N, don't N, or your call: … over … because …)" for h in sections_without_do(text)]
     for head, facts, body in items(text):
-        title = head.lstrip("#").strip()
+        title = head.lstrip("> \t").lstrip("#").strip()
         numbers = []
         if brief and not do_lines(body) and not DO_ANY_RX.search(body):
             fails.append(f"{title[:50]}: an item with no Do line")

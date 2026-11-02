@@ -479,6 +479,15 @@ MH-3745 · Search's recording blocks MediaHub's SRT receiver · Gabriel Liu (orc
 - Fixed in orchestration 4.0.205; QA verified it on 10-22 and the daily release was requested (release mails).
 - **Do:** `apply 2` posts that status and sets Fixed In.
 
+> [!note]- 2 more
+> ### 3. MH-3752: Jira is behind the CN2 release mails
+> MH-3752 · China Environment B on 2.1 · Alice Wang · In Progress, Jira silent since 10-28 · 1st morning
+> - Mail holds four config changes and the partial report of 10-30.
+> - **Do:**
+> - [ ] apply 3 — post the 11-02 status, bilingual, citing the mail thread and the report
+>
+> ### 4. …
+
 ## FYI
 
 - Customer YouTube output loses audio · support holds it · the capture card reads audio at 0, so the
@@ -629,6 +638,12 @@ The page is read in Obsidian, so its form is fixed:
   (2026-10-23: the page said drop MH-3416 while two of its verifications had failed).
 - **At most eight items** under *Needs you*, merged and ordered as above; the rest of the facts are in the tables
   below, one row each. An item is a facts line with its real status and one action line of its class.
+- **At most three `apply` boxes stand open.** The items are written in rank order until their `apply` boxes
+  total three; every item after that goes, with the same heading, facts line, bullets and Do lines, under one
+  folded callout `> [!note]- N more` (N: the items folded), each of its lines prefixed `> `. A tick inside the
+  fold counts as on any line, and page-check fails a page with a fourth open `apply` box. *Why: Home promises at
+  most three `apply` boxes and the 2026-11-02 page carried 22 in 718 words; the budget counts what stands open
+  (vault to-read/2026-11-02-ela-and-vault-workflow-review.md, fix 4).*
 - **The lanes this morning** is the table `ela matrix` printed, pasted as it is from the runner's facts page (the
   runner runs it after `ela changes`), under its own heading after *FYI*. It is not retyped or summarised: the same
   table is embedded in Home and must read the same in both places.

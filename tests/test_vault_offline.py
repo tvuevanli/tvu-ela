@@ -267,8 +267,8 @@ with tempfile.TemporaryDirectory() as tmp:
             sync(force=True)
         return [w for w in json.loads(buf.getvalue().strip().splitlines()[-1])["warnings"] if "ela/bot/r.md" in w]
     check("a report outside the lifecycle folders, its evidence folded, is no lint line", report_warnings(300) == [])
-    check("a report over 1,200 words above its fold is a warning",
-          any("above the fold, budget 1,200" in w for w in report_warnings(1500)))
+    check("a report over 1,200 words outside its folds is a warning",
+          any("words, budget 1,200 (folded callouts not counted)" in w for w in report_warnings(1500)))
     os.remove(rpt)
     ov = f"{vault}/ela/overview.md"
     open(ov, "w").write('---\ntitle: "ela"\ntype: "guide"\nsource: "vault"\n---\n\n# ela\n\nIntro by hand.\n\n## The parts\n\nstale table\n\n'
@@ -759,9 +759,9 @@ with tempfile.TemporaryDirectory() as t:
     check("a reader page is carried to ela/review/, typed reader, no status, and leaves after 30 days",
           [n.path for n in rn] == ["ela/review/2026-10-28-reader.md"] and "status" not in rn[0].props and rn[0].src_rel == "review/2026-10-28-reader.md")
 big = "# A plan\n\n" + "word " * 700 + "\n\n> [!note]- Drafts\n> " + "more " * 3000 + "\n"
-check("a plan's budget counts only above its fold", V.reading_gate(V.Note("in-progress/p.md", "p", big, {"type": "plan"})) == [])
-check("a plan over 800 words above its fold is held",
-      any("above the fold" in x for x in V.reading_gate(V.Note("in-progress/p.md", "p", "# A plan\n\n" + "word " * 1000, {"type": "plan"}))))
+check("a plan's budget counts only outside its folds", V.reading_gate(V.Note("in-progress/p.md", "p", big, {"type": "plan"})) == [])
+check("a plan over 800 open words is held",
+      any("budget 800" in x for x in V.reading_gate(V.Note("in-progress/p.md", "p", "# A plan\n\n" + "word " * 1000, {"type": "plan"}))))
 rd = "# The reader\n\n## Learned\n\n" + "".join(f"- a lesson {i} — origin\n" for i in range(7))
 check("a reader page with more than five Learned lines is held", "7 Learned lines" in " ".join(V.reading_gate(V.Note("ela/review/r.md", "r", rd, {"type": "reader"}))))
 with tempfile.TemporaryDirectory() as t:

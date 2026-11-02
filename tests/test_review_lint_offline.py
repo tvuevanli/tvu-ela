@@ -104,6 +104,6 @@ check("a page not linted as a brief is not held to it", not [f for f in RV.lint(
 rp = '---\ntype: "report"\nstatus: "decided"\n---\n# A report\n\n' + "word " * 1500 + "\n\n> [!note]- Evidence\n> more\n"
 check("a report's status is proposed, decided or superseded; a plan's is the folder's",
       not [f for f in RV.lint(rp) if "status" in f] and [f for f in RV.lint(rp.replace("report", "plan", 1)) if "status" in f])
-check("a report over 1,200 words above its fold gives the vault's line, wherever it lives",
-      RV.budget("/v/ela/bot/r.md", rp) == "1,502 words above the fold, budget 1,200" and RV.budget("/v/ela/bot/r.md", rp.replace("word ", "", 900)) is None)
+check("a report over 1,200 words outside its folds gives the vault's line, wherever it lives",
+      RV.budget("/v/ela/bot/r.md", rp) == "1,502 words, budget 1,200 (folded callouts not counted)" and RV.budget("/v/ela/bot/r.md", rp.replace("word ", "", 900)) is None)
 sys.exit(1 if failures else 0)

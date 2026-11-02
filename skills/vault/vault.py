@@ -99,11 +99,13 @@ FAMILY_FOLDERS = {"decision": ("to-read", "in-progress", "parked", "archive"), "
                   "reading": ("readings", "to-read", "archive")}   # a reading waits in to-read while it asks his word
 # to-read means "waits on his word", whatever the type: a reading's asks sit under this heading, one box each
 ASKS_HEAD = "Waiting for your word"
-FOLDED = ("decision", "plan", "report")          # their budget counts the words above the first folded callout only
+# every budget counts the words outside folded callouts (`> [!note]- …` and its quoted lines): a fold is read on
+# demand, so the page's weight is what stands open (vault to-read/2026-11-02-ela-and-vault-workflow-review.md, fix 4)
 # a report is a standing review or design for his decision that does not move: any folder, no lifecycle, ruled in
 # place with an `ela:` line, so its status says only where his ruling stands
 REPORT_STATUSES = ("proposed", "decided", "superseded")
 FOLD_RX = re.compile(r"^>\s*\[![\w-]+\]-", re.M)
+QUOTE = r"(?:>[ \t]*)?"                           # a box or line inside a callout keeps its meaning behind the `> `
 LEARNED_MAX = 5                                  # the reader page's Learned section: more goes to a decision note
 TOLERANCE = 1.1                                  # a page 10% over its budget is not worth a rewrite
 KEY_RX = re.compile(r"(?<![\w/#=.-])([A-Z][A-Z0-9]{1,9}-\d{1,6})(?![\w-])")
@@ -137,7 +139,8 @@ ticked boxes, which are kept. To change something, write an `ela:` line in the n
 plans for your decision.
 
 Start at [[home]]. Five lines: what ela did since you last looked, what leaves at 10:00 (or its own send time) unless you tick "don't",
-what only you can do (at most three `apply` boxes), the MediaHub program's next step, and one line from ela. Below
+what only you can do (at most three `apply` boxes; the morning page folds the rest under "N more", where a tick
+still counts), the MediaHub program's next step, and one line from ela. Below
 the line, links: the morning page, lanes, board, changes, the program, the ela page and all notes. A box ticked on
 Home is the same as on the morning page. While you hold tier 2 (`ela-runner hold`), nothing leaves on its own: the
 block reads "held until DATE (dry run)", without boxes, and each action says what it would have posted. The QA day
@@ -206,11 +209,10 @@ the file explorer is rarely needed.
 ## Reading budgets
 
 A note is written for a person: a title heading, within its budget (day page 1,200 words, review 2,500,
-sprint 800; a decision or a plan 800 above its first folded callout, `> [!note]-`, the fold not counted, a
-report 1,200 the same way; the
-reader page's Learned five lines), mostly prose, no machine paths. A note that misses is still here, under
-a warning, and Home lists it for 30 days as a rewrite ela owes; a past day page is the morning's record and is
-not listed.
+sprint 800, a decision or a plan 800, a report 1,200; the reader page's Learned five lines), mostly prose, no machine paths. The budget counts what stands open: a folded callout (`> [!note]- …`
+and the quoted lines under it) is read on demand and is not counted, for every type, so a page keeps its
+detail in folds and its weight above them. A note that misses is still here, under a warning, and Home lists
+it for 30 days as a rewrite ela owes; a past day page is the morning's record and is not listed.
 
 ## Finishing with a note
 
@@ -702,10 +704,10 @@ def report_notes(reports, today):
     return notes
 
 
-APPLY_BOX = re.compile(r"^([ \t]*[-*][ \t]+)\[[ xX]\]([ \t]+apply[ \t]+(\d+)\b.*?)[ \t]*$", re.M)
-DONT_BOX = re.compile(r"^([ \t]*[-*][ \t]+\[[ xX]\][ \t]+don't[ \t]+(\d+)\b.*?)[ \t]*$", re.M)   # tier 2: his box vetoes it
-SEND_BOX = re.compile(r"^([ \t]*[-*][ \t]+)\[[ xX]\]([ \t]+send[ \t]+(\d+)\b.*?)[ \t]*$", re.M)   # tier 3: leaves on his tick
-DONE_LINE = re.compile(r"^([ \t]*[-*][ \t]+done[ \t]+(\d+)\b.*?)[ \t]*$", re.M)          # tier 1: ela did it
+APPLY_BOX = re.compile(r"^([ \t]*" + QUOTE + r"[-*][ \t]+)\[[ xX]\]([ \t]+apply[ \t]+(\d+)\b.*?)[ \t]*$", re.M)
+DONT_BOX = re.compile(r"^([ \t]*" + QUOTE + r"[-*][ \t]+\[[ xX]\][ \t]+don't[ \t]+(\d+)\b.*?)[ \t]*$", re.M)   # tier 2: his box vetoes it
+SEND_BOX = re.compile(r"^([ \t]*" + QUOTE + r"[-*][ \t]+)\[[ xX]\]([ \t]+send[ \t]+(\d+)\b.*?)[ \t]*$", re.M)   # tier 3: leaves on his tick
+DONE_LINE = re.compile(r"^([ \t]*" + QUOTE + r"[-*][ \t]+done[ \t]+(\d+)\b.*?)[ \t]*$", re.M)          # tier 1: ela did it
 
 
 def action_states(body, actions_path):
@@ -737,7 +739,7 @@ def action_states(body, actions_path):
         if a.get("failed"):
             return f"{m.group(1)} · not done: {str((a['failed'] or {}).get('error') or 'failed')[:80]}"
         if (a.get("dry_run") or {}).get("line"):            # held: the runner's own line, no box left to tick
-            return re.match(r"[ \t]*[-*][ \t]+", m.group(1)).group(0) + a["dry_run"]["line"]
+            return re.match(r"[ \t]*" + QUOTE + r"[-*][ \t]+", m.group(1)).group(0) + a["dry_run"]["line"]
         if a.get("vetoed"):
             return f"{m.group(1)} · held, you ticked {a['vetoed'][11:16]}"
         if a.get("applied"):
@@ -1031,7 +1033,7 @@ def type_lint(path, kind):
     return None
 
 
-BOX = re.compile(r"^[ \t]*[-*][ \t]+\[([ xX])\][ \t]+\S", re.M)
+BOX = re.compile(r"^[ \t]*" + QUOTE + r"[-*][ \t]+\[([ xX])\][ \t]+\S", re.M)
 
 
 def open_asks(body):
@@ -1108,6 +1110,19 @@ def learned_lines(body):
     return [l for l in (m.group(1) if m else "").splitlines() if re.match(r"^\s*[-*]\s+\S", l)]
 
 
+def outside_folds(body):
+    """The note without its folded callouts: a `> [!…]-` line and the quoted lines under it are read on demand, so
+    they weigh nothing in the budget. An open callout (`> [!note]`) stays."""
+    out, inside = [], False
+    for line in (body or "").splitlines():
+        if inside and line.startswith(">"):
+            continue
+        inside = bool(FOLD_RX.match(line))
+        if not inside:
+            out.append(line)
+    return "\n".join(out)
+
+
 def reading_gate(n):
     kind = n.props.get("type")
     if kind == "reader" and len(learned_lines(n.body)) > LEARNED_MAX:
@@ -1117,10 +1132,9 @@ def reading_gate(n):
     problems = []
     if not h1(n.body):
         problems.append("no title heading")
-    fold = FOLD_RX.search(n.body) if kind in FOLDED else None
-    units = reading_units(n.body[:fold.start()] if fold else n.body)
+    units = reading_units(outside_folds(n.body))
     if units > BUDGET[kind] * TOLERANCE:
-        problems.append(f"{units:,} words" + (" above the fold" if kind in FOLDED else "") + f", budget {BUDGET[kind]:,}")
+        problems.append(f"{units:,} words, budget {BUDGET[kind]:,}" + (" (folded callouts not counted)" if FOLD_RX.search(n.body) else ""))
     lines = len(n.body.splitlines()) or 1
     code = code_lines(n.body)
     if code > max(12, lines // 4):
@@ -2119,7 +2133,7 @@ def cmd_setup(a):
     print("vault settings applied; restart Obsidian to load them")
 
 
-TICKED = re.compile(r"^[ \t]*[-*][ \t]+\[[xX]\][ \t]+(\S.*?)[ \t]*$", re.M)   # a choice he ticked in a note: a click, not typing
+TICKED = re.compile(r"^[ \t]*" + QUOTE + r"[-*][ \t]+\[[xX]\][ \t]+(\S.*?)[ \t]*$", re.M)   # a choice he ticked in a note: a click, not typing
 # horizontal whitespace only: an empty `ela:` property must not reach across the line break to the next line; before
 # `ela:` only list or quote markers, a list marker with its space, so a bold `**ela:**` is never his line
 GUIDE = re.compile(r"^[ \t]*(?:[-*+][ \t]+|>[ \t]*)*ela[ \t]*[:：][ \t]*(\S.*?)[ \t]*$", re.I | re.M)
@@ -2832,7 +2846,7 @@ def cmd_sync(a):
         dfl, dbody = split_front(disk)
         planned[rel] = keep_choice(planned[rel], dfl, rel)   # the move he chose waits for the watcher, not for this rewrite
         for m in TICKED.finditer(dbody):                   # a choice he ticked stays ticked when the page is rewritten
-            planned[rel] = re.sub(r"^(\s*[-*]\s+)\[ \](\s+" + re.escape(m.group(1)) + r"\s*)$", r"\1[x]\2", planned[rel], count=1, flags=re.M)
+            planned[rel] = re.sub(r"^(\s*" + QUOTE + r"[-*]\s+)\[ \](\s+" + re.escape(m.group(1)) + r"\s*)$", r"\1[x]\2", planned[rel], count=1, flags=re.M)
         mine = [(section_at(dbody, m.start()), m.group(0).strip()) for m in GUIDE.finditer(dbody) if m.group(0).strip() not in planned[rel]]
         # a word typed in the ela property, which the tables no longer offer, stays as a line in the note, written as
         # typed so its guidance id is the one already handled
