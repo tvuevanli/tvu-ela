@@ -22,6 +22,7 @@ its date, so a folder sorts by time. Folders carry no numbers: Home and the book
     lanes.md                                    the lanes, what each carries that the next does not, two weeks of moves
     recent.md                                   the week's tickets placed by line and by lane (ela recent --write), a dashboard
     lanes/test-list-<lane>.md                   what QA should verify on the lane, ranked (ela testlist --page)
+    lanes/train-<line>.md                       the line's train: each fix with a cell per lane (ela train --page), a preview
     lanes/dev-list-<line>.md                    the line's tickets in development and their gaps (ela devlist --page)
     ela/review/<date>-reader.md                 the evening reader's verdict on each item of that morning's page, 30 days
     days/<year>/<date>-brief.md                 the morning page, kept, with -changes (what changed); what the day taught
@@ -88,12 +89,12 @@ PROPS = ("title", "aliases", "type", "date", "kind", "status", "result", "target
 # the whole vocabulary; no tags (ADR 0010)
 MARKS = {"done": ARCHIVE, "drop": None}   # archive, delete; a drop of a reading something links archives it instead
 BUDGET = {"ticket": 700, "topic": 800, "guide": 1200, "board": 1000, "day": 1200, "review": 2500, "decision": 800, "plan": 800, "sprint": 800, "report": 1200,
-          "recent": 1200}
+          "recent": 1200, "train": 1200}
 # the closed set of note types, by family (the readme's Types): for his word, readings, living pages, day pages.
 # A type outside it, or a family outside its folders, is a lint line on the sync, never a failure.
 TYPE_FAMILY = {"decision": "decision", "plan": "plan", "sprint": "plan",
                "ticket": "reading", "review": "reading", "verify": "reading", "verify-plan": "reading",
-               "home": "page", "board": "page", "lanes": "page", "recent": "page", "test-list": "page", "dev-list": "page", "program": "page",
+               "home": "page", "board": "page", "lanes": "page", "recent": "page", "test-list": "page", "dev-list": "page", "train": "page", "program": "page",
                "guide": "page", "vocabulary": "page", "system": "page", "constraints": "page", "readme": "page", "meeting": "page",
                "report": "page",
                "day": "day", "reader": "day"}
@@ -162,7 +163,7 @@ list and writing your `ela:` priority lines; the 09:30 or 10:00 pass then sends 
 | `parked/` | what waits on others, with who it waits on and what brings it back | resume or drop |
 | `lanes` | the lanes, what each carries that the next does not, two weeks of moves | look before a promotion |
 | `recent` | the week's MediaHub tickets placed: by release line with the line's train, where each fix stands, what QA said and what moved; by lane, what arrived, what is under test, what was reported from it; tickets with no line and the label ela would infer | look when a ticket moved and you want its place; tick *refresh recent* for the moment |
-| `lanes/` | the test list per lane and the dev list per release line | look before testing or a promotion |
+| `lanes/` | the test list per lane, the dev list per release line, and the line's train (each fix, a cell per lane) | look before testing or a promotion |
 | `mh/` | the MediaHub program and its evidence | look when Home names the program's next step |
 | `sprints/` | the sprints, each a plan | look at a sprint's start and end |
 | `meetings/` | one note per meeting: what you raise there, its send box, and what it ruled (30 days; older months in `archive/`) | look before the meeting; tick send, or answer an item with an `ela:` line after it |
@@ -198,7 +199,7 @@ the file explorer is rarely needed.
   in-progress, parked or archive. Readings: `ticket`, `review`, `verify` and `verify-plan` (checks), in readings,
   or in to-read while one asks your word (a verification waiting for its record on Jira, a review with open
   asks). Pages that live: home, board, lanes, recent, test-list,
-  dev-list, program, the ela page (`guide`), vocabulary, system, constraints, readme, meeting, and `report`: a
+  dev-list, train, program, the ela page (`guide`), vocabulary, system, constraints, readme, meeting, and `report`: a
   standing review or design for your decision that does not move, in any folder, its evidence in folds, ruled in
   place with an `ela:` line (status proposed, decided or superseded). Day pages: `day`
   (brief, changes, week) and `reader`. A note outside the set, or a family outside its folders, is a lint line on
@@ -667,11 +668,11 @@ def report_notes(reports, today):
         notes.append(rn)
     ld = os.path.join(reports, "lanes")
     for f in sorted(os.listdir(ld)) if os.path.isdir(ld) else []:   # what QA verifies per lane, what is in development per line
-        m = re.match(r"^(test-list|dev-list)-(.+)\.md$", f)
+        m = re.match(r"^(test-list|dev-list|train)-(.+)\.md$", f)
         if m:
             fl, body = split_front(open(os.path.join(ld, f), encoding="utf-8").read())
             dm = re.search(r"\*(\d{4}-\d{2}-\d{2})", body)
-            title = ("Test list · " if m.group(1) == "test-list" else "Dev list · ") + m.group(2)
+            title = {"test-list": "Test list · ", "dev-list": "Dev list · ", "train": "Train · "}[m.group(1)] + m.group(2)
             notes.append(Note(f"lanes/{f}", title, body, {"type": m.group(1), "date": dm.group(1) if dm else None}, fl, src_rel=f"lanes/{f}"))
     rv = os.path.join(reports, "review")
     for f in sorted(os.listdir(rv)) if os.path.isdir(rv) else []:   # the evening reader's verdicts on a morning page

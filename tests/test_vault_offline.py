@@ -93,6 +93,9 @@ with tempfile.TemporaryDirectory() as tmp:
                                        "due": None, "seen_on": [], "stands": {"text": "dev"}, "qa": None, "last": f"created {today[5:]}"}]}],
                "no_line": [], "sources": {"lane_read": True, "test_lists": ["qa-cn3"]}}, open(f"{reports}/recent/{today}.json", "w"))
     open(f"{reports}/runner/{today}-changes.md", "w").write("# What changed\n\n## Code\n\nOne commit.\n")
+    os.makedirs(f"{reports}/lanes", exist_ok=True)
+    open(f"{reports}/lanes/train-2.1.md", "w").write(f"# Train · 2.1\n\n*{today} 09:00 · line 2.1 · qa-cn3 → daily-wed → prod-3 · 1 rows*\n\n*QA 1 open · 0 P1*\n\n"
+                                                    "| P | ticket | title | owner | qa-cn3 | position |\n|---|---|---|---|---|---|\n| P3 | MH-5 | a thing | — | · 80 | qa |\n")
     open(f"{reports}/ela/{today}-long.md", "w").write("# Long review\n\n" + "word " * 3000)
     for i in range(20):
         open(f"{reports}/{today[:4]}-09-{i + 10}-review-{i}.md", "w").write(f"# Review {i}\n\nText.\n")
@@ -147,6 +150,8 @@ with tempfile.TemporaryDirectory() as tmp:
     check("the recent page is a generated root page of its type, rendered from the newest result, with its refresh box",
           'type: "recent"' in rc and "# Recent · 7 days" in rc and "- [ ] refresh recent (last 09:00;" in rc and "## 2.1" in rc and "dev" in rc)
     check("Home's footer links it beside lanes and board", "[[recent|recent]]" in home.split("\n---\n")[-1])
+    tr = open(f"{vault}/lanes/train-2.1.md").read()
+    check("a line's train page lands under lanes as a generated page of its type", 'type: "train"' in tr and "# Train · 2.1" in tr and f'date: "{today}"' in tr)
     check("the morning page's New tickets points at it", V.RECENT_POINTER in open(f"{vault}/days/{today[:4]}/{today}-brief.md").read())
     check("a decision carries its title as an alias and a meta line", 'aliases: ["Decision 0"]' in open(dec0).read() and "*decision · " in open(dec0).read())
     os.remove(dec0)
