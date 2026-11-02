@@ -2522,12 +2522,33 @@ def list_links(reports):
     return ["", "What QA verifies, ranked, and what is in development: " + " · ".join(links)] if links else []
 
 
+def train_lines(rec):
+    """What the pending record says beyond its versions, under the line's table: a candidate kept from the last readable
+    run (stale), what is open before the train leaves, the notes, and who it waits on (the ask's time and thread)."""
+    rec = rec or {}
+    cand = rec.get("candidate") or {}
+    L = []
+    if cand.get("stale"):
+        L += ["", f"*next train: versions kept from the last readable run — {cand['stale']}*"]
+    if rec.get("open_items"):
+        L += ["", f"**Open before {cand.get('label') or 'the next train'} leaves:**", ""] + [f"- {x}" for x in rec["open_items"]]
+    if rec.get("notes"):
+        L += ["", "*Notes:*", ""] + [f"- {x}" for x in rec["notes"]]
+    w = rec.get("waiting_on")
+    if isinstance(w, dict) and w.get("what"):
+        parts = [f"waiting on: {w['what']}"] + ([f"asked {w['asked']}"] if w.get("asked") else []) \
+                + ([f"[thread]({w['thread']})"] if w.get("thread") else []) + [w.get("reply") or "no reply yet"]
+        L += ["", "*" + " · ".join(parts) + "*"]
+    return L
+
+
 def line_section(out, shown):
-    """One line's part of the page: its heading, the table, the order check and the region lanes under it."""
+    """One line's part of the page: its heading, the table, the order check, and the pending train's open items and
+    the approval it waits on."""
     inv, und = out_of_order(out)
     order = (["", "**Out of order** (versions run QA ≥ daily ≥ prod):", ""] + [f"- {x}" for x in inv]) if inv else \
             ["", "*Every lane in order: QA ≥ daily ≥ prod*" + (f" *({und} pair{'s' if und != 1 else ''} in two series, not compared)*" if und else "")]
-    return [f"## Line {out['line']} · " + " ← ".join(shown(l) for l in out["lane_ids"]), "", render_matrix(out)] + order
+    return [f"## Line {out['line']} · " + " ← ".join(shown(l) for l in out["lane_ids"]), "", render_matrix(out)] + order + train_lines(out.get("pending"))
 
 
 def write_lanes_page(outs, site, env, runner, tested, held=()):

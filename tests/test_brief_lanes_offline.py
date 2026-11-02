@@ -82,4 +82,17 @@ buf = io.StringIO()
 with contextlib.redirect_stdout(buf):
     print(B.render_matrix(dict(outs[0], same=[], gate=None)))
 check("the morning's table is 2.1's", buf.getvalue().startswith("| | prod-3 | daily-wed | QA-AWS3 | Wednesday (build 78) → prod-3 |"))
+# under the table: the pending record's open items, notes and the approval it waits on
+rec = {"candidate": {"label": "Wednesday (build 78) → prod-3", "versions": {}},
+       "open_items": ["MH-3808 QA FAIL 10-30", "AMPP image pin 1.0.0.16 vs `latest`"], "notes": ["daily-wed bundle mh2.1@daily-wed-s2-d47"],
+       "waiting_on": {"what": "PM approval", "asked": "11:14", "thread": "https://example.invalid/t", "reply": None}}
+t = "\n".join(B.train_lines(rec))
+check("open items, notes and the waiting-on line render under the table",
+      "**Open before Wednesday (build 78) → prod-3 leaves:**\n\n- MH-3808 QA FAIL 10-30\n- AMPP image pin 1.0.0.16 vs `latest`" in t
+      and "*Notes:*\n\n- daily-wed bundle mh2.1@daily-wed-s2-d47" in t
+      and t.endswith("*waiting on: PM approval · asked 11:14 · [thread](https://example.invalid/t) · no reply yet*"))
+check("a stale candidate says so", B.train_lines({"candidate": {"stale": "2026-11-02T02:55Z source unreadable"}}) == ["", "*next train: versions kept from the last readable run — 2026-11-02T02:55Z source unreadable*"])
+check("a record with none of them adds nothing; no record adds nothing", B.train_lines({"candidate": {"versions": {}}}) == [] and B.train_lines(None) == [])
+sec = "\n".join(B.line_section(dict(outs[0], pending=rec), lambda l: l))
+check("the section carries them after the table", sec.index("| media bundle |") < sec.index("Open before") < sec.index("waiting on: PM approval"))
 sys.exit(1 if failures else 0)
