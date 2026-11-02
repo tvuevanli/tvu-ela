@@ -9,7 +9,7 @@ exceed TOTAL_BYTES or any one exceeds ONE_CHARS. `--table` prints each descripti
 import glob, os, sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-TOTAL_BYTES = 8500   # raised from 8000 on 2026-10-21 for the 34th skill (verify) and revisit's close triggers; ~1 KB of context per session
+TOTAL_BYTES = 8700   # 8000 → 8500 on 2026-10-21 for the 34th skill (verify) and revisit's close triggers; → 8700 on 2026-11-02 for the 35th (onething); ~1 KB of context per session
 ONE_CHARS = 800
 
 
