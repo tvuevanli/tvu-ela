@@ -726,7 +726,7 @@ def action_states(body, actions_path):
             return m.group(0)
         lead, rest, n = m.group(1), m.group(2), m.group(3)
         if a.get("applied"):
-            return f"{lead}[x]{rest} · applied {a['applied'][11:16]}"
+            return f"{lead}[x]{rest} · {applied_words(a, 'applied')}"
         o = a.get("by_owner")
         if not o:
             return f"{lead}[ ]{rest}\n{lead}[ ] I handled it myself — not apply {n}"
@@ -743,15 +743,15 @@ def action_states(body, actions_path):
         if a.get("vetoed"):
             return f"{m.group(1)} · held, you ticked {a['vetoed'][11:16]}"
         if a.get("applied"):
-            return f"{m.group(1)} · {'sent' if m.re is DONT_BOX else 'done'} {a['applied'][11:16]}"
+            return f"{m.group(1)} · {applied_words(a, 'sent' if m.re is DONT_BOX else 'done')}"
         return m.group(0)
     def sent(m):                                          # a send box: ticked, sent or not, as the runner recorded it
         a = acts.get(m.group(3))
         lead, rest = m.group(1), m.group(2)
-        if not a or re.search(r" · (sent|not sent|ticked) ", rest + " "):
+        if not a or re.search(r" · (sent|not sent|ticked|applied) ", rest + " "):
             return m.group(0)                             # unknown, or the runner's own line already says it
         if a.get("applied"):
-            return f"{lead}[x]{rest} · sent {a['applied'][11:16]}" + (f" · [link]({a['permalink']})" if a.get("permalink") else "")
+            return f"{lead}[x]{rest} · {applied_words(a, 'sent')}" + (f" · [link]({a['permalink']})" if a.get("permalink") else "")
         if a.get("failed"):
             return f"{lead}[x]{rest} · not sent: {str((a['failed'] or {}).get('error') or 'failed')[:80]}"
         if ticked_at(a):
@@ -1336,6 +1336,28 @@ def action_what(a):
         or re.sub(r"^at \d\d:\d\d:\s*", "", str(a.get("text") or ""))
 
 
+def trigger(a):
+    """What made an applied action leave, from the runner's `by` stamp: his tick, his word in Slack, a closed rule, the
+    test harness; a stamp without one says so, never "on your tick" (vault
+    to-read/2026-11-02-ela-and-vault-workflow-review.md, fix 5)."""
+    by = str(a.get("by") or "")
+    if by == "tick":
+        return "on your tick"
+    if by == "slack-word":
+        return "on your word in Slack"
+    if by.startswith("rule:") and by[5:]:
+        return f"under rule {by[5:]}"
+    if by == "harness":
+        return "by the test harness"
+    return "(trigger not recorded)"
+
+
+def applied_words(a, verb):
+    """`sent 08:59 on your tick`, `done 10:00 under rule label`, or `applied 08:59 (trigger not recorded)`."""
+    at = str(a.get("applied") or "")[11:16]
+    return f"{verb} {at} {trigger(a)}" if a.get("by") else f"applied {at} {trigger(a)}"
+
+
 def ticked_at(a):
     """When the runner found his send box ticked: `send_ticked` is {at}, or a bare time as `vetoed` is."""
     t = a.get("send_ticked")
@@ -1361,7 +1383,7 @@ def done_line(a):
     what = action_what(a)
     slack = a.get("kind") == "slack" or str(a.get("command") or "").startswith("ela slack")
     link = f" · [link]({a['permalink']})" if a.get("permalink") else ""
-    return f"{a['n']} — {what} {'sent' if slack else 'done'} {a['applied'][11:16]}{link}"
+    return f"{a['n']} — {what} {applied_words(a, 'sent' if slack else 'done')}{link}"
 
 
 def tier2_hold(reports, date):

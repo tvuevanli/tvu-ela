@@ -77,12 +77,12 @@ sys.path.insert(0, os.path.join(ROOT, "skills", "vault"))
 import vault as V  # noqa: E402
 with tempfile.TemporaryDirectory() as t:
     p = os.path.join(t, "a.json")
-    json.dump([{"n": 1, "applied": "2026-10-29T08:31:00+0800"}, {"n": 2, "vetoed": "2026-10-29T09:12:00+0800"},
+    json.dump([{"n": 1, "applied": "2026-10-29T08:31:00+0800", "by": "rule:fact-comment"}, {"n": 2, "vetoed": "2026-10-29T09:12:00+0800"},
                {"n": 3, "applied": "2026-10-29T10:00:05+0800"}, {"n": 4, "failed": {"error": "jira 403"}}], open(p, "w"))
     out = V.action_states("- done 1 — a\n- [x] don't 2 — at 10:00 unless you tick: b\n- [ ] don't 3 — at 10:00 unless you tick: c\n- done 4 — d", p)
     check("the vault shows what the runner did: done, held by his tick, sent, not done",
-          out == "- done 1 — a · done 08:31\n- [x] don't 2 — at 10:00 unless you tick: b · held, you ticked 09:12\n"
-                 "- [ ] don't 3 — at 10:00 unless you tick: c · sent 10:00\n- done 4 — d · not done: jira 403")
+          out == "- done 1 — a · done 08:31 under rule fact-comment\n- [x] don't 2 — at 10:00 unless you tick: b · held, you ticked 09:12\n"
+                 "- [ ] don't 3 — at 10:00 unless you tick: c · applied 10:00 (trigger not recorded)\n- done 4 — d · not done: jira 403")
 mt = [{"n": 5, "tier": 2, "rule": "train-hold", "send_at": "14:00", "evidence": "build 79 report: hold",
        "command": f"ela slack post {THREAD} --text-file f --team-thread"}]
 p14 = "- [ ] don't 5 — at 14:00 unless you tick: hold the train\n"

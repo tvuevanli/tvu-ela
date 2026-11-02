@@ -51,6 +51,23 @@ check("a ::: block becomes a collapsed callout", V.callouts("::: ref Sources\na\
 check("a colon in a mermaid timeline period is caught", V.mermaid_problems("```mermaid\ntimeline\n  01:00 : Night\n```") != []
       and V.mermaid_problems("```mermaid\ntimeline\n  1 am : Night\n```\n```mermaid\nflowchart LR\n  a[\"01:00\"] --> b\n```") == [])
 check("the warning sits under the title", V.with_warning("# T\n\nbody", ["too long"]).startswith("# T\n\n> [!warning]"))
+sent = {"n": 1, "rule": "qa-today", "scope": ["--lane", "qa-cn3"], "command": "ela slack post x --team-thread", "applied": "2026-11-02T08:59:56+0800"}
+check("Home's Done line says what made the post leave, and never 'on your tick' without the stamp",
+      V.done_line(dict(sent, by="tick")) == "1 — QA today on qa-cn3 sent 08:59 on your tick"
+      and V.done_line(dict(sent, by="slack-word")).endswith("sent 08:59 on your word in Slack")
+      and V.done_line(dict(sent, by="rule:thread-reply", command="ela slack post y --team-thread")).endswith("sent 08:59 under rule thread-reply")
+      and V.done_line(dict(sent, by="harness")).endswith("sent 08:59 by the test harness")
+      and V.done_line(dict(sent, sent_by="a session's test run")) == "1 — QA today on qa-cn3 applied 08:59 (trigger not recorded)"
+      and V.done_line({"n": 2, "text": "label MH-1", "command": "ela jira label MH-1 x", "applied": "2026-11-02T10:00:00+0800", "by": "rule:label"}) == "2 — label MH-1 done 10:00 under rule label")
+import tempfile as _tf
+with _tf.NamedTemporaryFile("w", suffix=".json", delete=False) as _fh:
+    json.dump([dict(sent, send_box=True), {"n": 2, "applied": "2026-11-02T10:00:00+0800", "by": "rule:label"}, {"n": 3, "applied": "2026-11-02T10:18:00+0800", "by": "tick"}], _fh)
+_page = V.action_states("- [ ] send 1 — QA today on qa-cn3\n- done 2 — label MH-1 · evidence: x\n- [ ] apply 3 — comment\n", _fh.name)
+os.unlink(_fh.name)
+check("the page's lines carry the trigger the same way",
+      "- [x] send 1 — QA today on qa-cn3 · applied 08:59 (trigger not recorded)" in _page
+      and "- done 2 — label MH-1 · evidence: x · done 10:00 under rule label" in _page
+      and "- [x] apply 3 — comment · applied 10:18 on your tick" in _page)
 
 
 def git(*args):
@@ -150,10 +167,10 @@ with tempfile.TemporaryDirectory() as tmp:
               open(f"{reports}/runner/{today}-actions.json", "w"))
     hm = (sync(), open(f"{vault}/home.md").read())[1]
     check("Home counts the tier-1 writes since he last opened it, lists the 10:00 ones and his own, each with its box",
-          "**Done since you last looked:**\n- 1 — label MH-1 done" in hm and "- [ ] don't 2 — reply in the release thread" in hm
+          "**Done since you last looked:**\n- 1 — label MH-1 applied" in hm and "- [ ] don't 2 — reply in the release thread" in hm
           and "- [ ] apply 3 — close MH-3" in hm and "apply 4" not in hm)
     tab("home.md")
-    check("and keeps the count while he has it open", sync() == 0 and "- 1 — label MH-1 done" in open(f"{vault}/home.md").read())
+    check("and keeps the count while he has it open", sync() == 0 and "- 1 — label MH-1 applied" in open(f"{vault}/home.md").read())
     tab(f"readings/{today[:4]}-09-12-review-2.md")
     check("once he has seen it, nothing is new", sync() == 0 and "**Done since you last looked:** nothing." in open(f"{vault}/home.md").read())
     os.remove(f"{reports}/runner/{today}-actions.json"); sync()
@@ -697,7 +714,7 @@ sent = [{"n": 1, "tier": 1, "text": "label MH-1", "day": "2026-10-28", "applied"
         {"n": 3, "tier": 3, "text": "his own", "day": "2026-10-28", "applied": "2026-10-28T09:31:00+0800"}]
 hm = V.home(day, datetime.datetime(2026, 10, 28, 9), [], {"actions": sent})
 check("Home's Done line lists every sent tier-1 and tier-2 action with its time, a post with its link",
-      "- 1 — label MH-1 done 08:50" in hm and "- 2 — QA today on qa-cn3 sent 09:30 · [link](https://x/p1)" in hm and "his own" not in hm)
+      "- 1 — label MH-1 applied 08:50 (trigger not recorded)" in hm and "- 2 — QA today on qa-cn3 applied 09:30 (trigger not recorded) · [link](https://x/p1)" in hm and "his own" not in hm)
 held = [{"n": 7, "tier": 2, "text": "reply", "day": "2026-10-28"},
         {"n": 8, "tier": 2, "text": "at 09:30: post", "day": "2026-10-28", "send_at": "09:30",
          "dry_run": {"at": "2026-10-28T09:30:05+0800", "line": "8 — dry run: would have posted at 09:30 in #c · text in f"}}]
@@ -720,7 +737,7 @@ check("Home lists a send box between the tier-2 block and his own, in the form t
 check("a send box ticked on Home is what the runner reads", re.findall(r"(?m)^[ \t]*[-*][ \t]+\[[xX]\][ \t]+send[ \t]+(\d+)\b", hm) == ["5"])
 hm = V.home(day, datetime.datetime(2026, 10, 28, 11), [], {"actions": [dict(sb, n=4, applied="2026-10-28T09:30:20+0800", permalink="https://x/p4")]})
 check("after the send the Done line lists it, the block is gone",
-      "- 4 — QA today on qa-cn3 sent 09:30 · [link](https://x/p4)" in hm and "Send when you tick" not in hm)
+      "- 4 — QA today on qa-cn3 applied 09:30 (trigger not recorded) · [link](https://x/p4)" in hm and "Send when you tick" not in hm)
 check("no send box today, no block", "Send when you tick" not in V.home(day, datetime.datetime(2026, 10, 28, 9), [], {"actions": acts}))
 with tempfile.TemporaryDirectory() as t:
     ap = os.path.join(t, "a.json")
@@ -730,7 +747,7 @@ with tempfile.TemporaryDirectory() as t:
          "- [ ] send 5 — b\n- [x] send 6 — c\n- [x] send 7 — d\n- [x] send 6 — c · sent 09:30 · [link](https://x/p6)"
     check("the morning page keeps the send box under QA today: open, ticked, sent with its link, not sent",
           V.action_states(pg, ap) == "## QA today\n\n- [ ] send 4 — QA today on qa-cn3 (your ela: lines applied first) · unticked: stays as apply 4\n"
-          "- [x] send 5 — b · ticked 09:12\n- [x] send 6 — c · sent 09:30 · [link](https://x/p6)\n- [x] send 7 — d · not sent: slack 500\n"
+          "- [x] send 5 — b · ticked 09:12\n- [x] send 6 — c · applied 09:30 (trigger not recorded) · [link](https://x/p6)\n- [x] send 7 — d · not sent: slack 500\n"
           "- [x] send 6 — c · sent 09:30 · [link](https://x/p6)")
 with tempfile.TemporaryDirectory() as t:
     os.makedirs(f"{t}/runner")
