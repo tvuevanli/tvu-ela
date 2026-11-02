@@ -10,16 +10,22 @@ Self-contained. Argument: a graph id (26 chars, `01M1…`), a process id (32 hex
 (19 digits, with the owner's email), or an email. Read-only: J2N and Pilot are only ever read.
 
 ## Invariants
-- **No environment to set.** The script probes three UR environments in order — `prod3` (MediaHub
-  2.1, which answers 2.0 too), `prod2` (older prod), `test2` — and stops at the first that has the
-  data; `UR_ENV_ORDER` in the env file overrides the list, `-e p3` pins one. The **environment printed
-  is the one the data says** (`app.tvunetworks.com/environment` on a graph, `env` on a process), not the
-  path that answered: the prod environments share one J2N. Say both when they differ.
-- **CN is named, never probed.** CN is a separate deployment on its own host (its own J2N, Pilot and
-  boxes), so the default probe cannot find a CN graph and says "not found on prod3, prod2, test2". An
-  owner, image registry or box region that points to China (`docker.tvunetworks.cn`, a Tencent or Aliyun
-  region in `cn-`/`ap-shanghai`) means re-run with `-e cn`. Pilot there calls its environment `prod`
-  while the graph says `cn`; the script prints both.
+- **No environment to set.** The script probes four UR environments in order — `prod3` (MediaHub
+  2.1, which answers 2.0 too), `prod2` (older prod), `test2`, then `cn2` (CN Prod2, on the China edge)
+  — and stops at the first that has the data; `UR_ENV_ORDER` in the env file overrides the list, `-e p3`
+  pins one. A miss costs one round trip per env, so a CN graph is found without `-e`, just last. The
+  **environment printed is the one the data says** (`app.tvunetworks.com/environment` on a graph, `env`
+  on a process), not the path that answered: the prod environments share one J2N. Say both when they differ.
+- **China is a second edge, not a root.** The CN host (`UR_CN_HOST`; the script has the default) carries
+  environments in the path exactly like the .com edge. The one that holds the owners' graphs is **CN
+  Prod2**: env name `cn2` (what its graphs say), path segment `prod2` (what the host answers under —
+  `/cn2`, `/cn1`, `/cn`, `/prod1` are 404 there). `-e cn` and `-e china` mean `cn2`. Its J2N is current
+  — `/any`, v2 and Pilot all answer — so stopped CN graphs, object histories and `--any/--deleted` read
+  like anywhere else. Graphs from before the region's 2.1 upgrade (MH-3752, 2026-10-21) carry the env
+  `cn` in the same store and come back through `cn2` too. The host's **root** is a different J2N instance
+  (environment `cn`) that lists only its own graphs and fails on filters: the script never reads it, and
+  an answer read from there is not the owners' CN Prod2. `ela envs` prints the order, the aliases and the
+  hosts without a request (`ela graph envs` does the same).
 - **QA is named, never probed.** QA (`qa2`) is a separate deployment with its own J2N, Pilot, boxes and
   profile store, laid out like the edge (env in the path) on the host in `UR_QA_HOST`. A QA graph,
   process or profile is invisible to the default probe, and a profile id that exists on test2 and prod
@@ -64,8 +70,9 @@ Read `~/.claude/ela/site.json` → `env`. Then:
 G="python3 ${CLAUDE_PLUGIN_ROOT}/skills/graph/graph.py --env-file <env>"
 O="python3 ${CLAUDE_PLUGIN_ROOT}/skills/object/object.py --env-file <env>"
 ```
-The env file carries `UR_ACCESS_KEY` (the same key answers on CN), optional `UR_BASE_HOST`, `UR_CN_HOST`,
-`UR_QA_HOST` (QA's host; `-e qa2` exits 2 without it) and `UR_ENV_ORDER` (comma list; overrides the default probe order). Missing → `/ela:setup`.
+The env file carries `UR_ACCESS_KEY` (the same key answers on CN and QA), optional `UR_BASE_HOST`, `UR_CN_HOST`
+(the China edge; the script's default is used when unset), `UR_QA_HOST` (QA's host; `-e qa2` exits 2 without it)
+and `UR_ENV_ORDER` (comma list; replaces the whole default probe order, cn2 included). Missing → `/ela:setup`.
 
 ## 1 — by id shape
 
@@ -104,14 +111,13 @@ to look at in the logs. A 32-hex id from a log that no longer runs: `process <id
 ## Gotchas
 - **A deleted process still answers** (`process`). Pilot returns a 200 skeleton with every field
   `None`; the script treats that as not found. Say "no live record" rather than "does not exist".
-- **J2N v2 is not everywhere** (`resolve`, `process`, `graphs`). `/j2n/api/v2` answers on prod3 and
-  test2; prod2 has no v2 (404). Everything v2-only — the object history, a dead process's graph,
-  `--any/--deleted` — is environment-dependent; the v1beta1 `/any` route (`graph`) works on all of them.
-- **CN has J2N v1 only** (`graph`, `resolve`, `process`, `graphs --any`). CN's J2N has no `/any` route
-  and no v2, so the script reads the plain graph route there: a live CN graph answers in full, but a
-  stopped one, an object's history and a dead process's graph are not readable on CN. Report that as a
-  gap in CN's J2N, not as "does not exist". `resolve <objectId> -e cn --email <owner>` still finds the
-  owner's live graphs.
+- **J2N v2 is not everywhere** (`resolve`, `process`, `graphs`). `/j2n/api/v2` answers on prod3,
+  test2 and cn2; the .com prod2 has no v2 (404). Everything v2-only — the object history, a dead
+  process's graph, `--any/--deleted` — is environment-dependent; the v1beta1 `/any` route (`graph`)
+  works on all of them.
+- **Two Prod2s** (`graphs`, `graph`). `prod2` is the .com lane (MediaHubProd2, line 1.5); `cn2` is the
+  China region's CN Prod2 (line 2.1), on another host under the same `/prod2` segment. The row's `env`
+  column and the "answered via" tag tell them apart; never shorten `cn2` to "Prod2" in an answer.
 - **Declared, not answering** (`profile`, `profiles`). The v2 EP API in Apifox (`/api/v2/ep/profiles`)
   and `encodingprofilecontroller` (`/profile/queryEncodingProfile`) do **not** answer on the UR edge —
   do not reach for them.

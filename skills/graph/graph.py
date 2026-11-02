@@ -22,7 +22,7 @@ probed across environments in a fixed order (MediaHub 2.1 prod first) until one 
   profiles [name] [--kind K] [--limit N]   profiles whose name contains <name> (server-side, case-insensitive)
   resolve  <id> [-d] [--limit N]           detect the id shape and route: graph · process · object → every graph the
                                            object ever ran in, stopped ones included, then the current (or last) one in full
-  envs                                     the probe order
+  envs                                     the probe order, the aliases and the second edge (no API call)
   connect  <ip|boxId|processId> [--env]    ssh to the box as root            (ura connect)
   exec     <processId> [--env]             docker exec -it -w /var/log <pid> bash on its box   (ura exec)
   start    <processId> --url U --format F --shm S [--name N] [--yes]   start a Sender working process   (ura start)
@@ -32,14 +32,18 @@ A stopped graph is not gone: J2N keeps it, and the routes that return it are `gr
 (v2 lists) and v2's object/process routes. Everything here reads those, so an Inactive object still has a history.
 
 Environments live in the URL path: https://ur.tvunetworks.com/<env>/j2n/… and …/<env>/pilot/….
-J2N v2 (`/j2n/api/v2`) is not on every environment — prod3 and test2 answer it today, prod2 does not.
-Probe order (first answer wins): UR_ENV_ORDER in the env file (comma-separated), else prod3, prod2, test2.
-CN is a separate deployment at https://ur.tvunetworks.cn (UR_CN_HOST overrides), no env in the path, never
-probed by default: `-e cn`. Its J2N has no `/any` and no v2, so a stopped CN graph and every v2 route read as
-not found there.
+J2N v2 (`/j2n/api/v2`) is not on every environment — prod3, test2 and cn2 answer it today, prod2 does not.
+China is a second edge, not a root: its host (UR_CN_HOST overrides the default) carries environments in the
+path exactly like the .com edge, and the one that holds the owners' graphs is CN Prod2 — env name `cn2` (what
+the graphs' `app.tvunetworks.com/environment` says), path segment `prod2` (what the host answers; `/cn2`,
+`/cn1`, `/cn` and `/prod1` are 404 there). `cn` and `china` are aliases of `cn2`. v2, `/any` and Pilot all
+answer under `/prod2`, so stopped CN graphs and object histories read like anywhere else. The host's root is a
+different J2N instance (environment `cn`) that lists only its own graphs — nothing here reads it.
+Probe order (first answer wins): UR_ENV_ORDER in the env file (comma-separated), else prod3, prod2, test2,
+then cn2 as the last resort — one more round trip on a miss, so a CN graph is found without `-e`.
 QA (qa2 …) is a separate deployment with its own data, laid out like the edge (env in the path) on the host
 named by UR_QA_HOST; never probed by default: `-e qa2`. The same access key answers there.
-Credentials: UR_ACCESS_KEY (+ UR_BASE_HOST, UR_QA_HOST) from $UR_ACCESS_KEY → --env-file → $ELA_ENV_FILE.
+Credentials: UR_ACCESS_KEY (+ UR_BASE_HOST, UR_CN_HOST, UR_QA_HOST) from $UR_ACCESS_KEY → --env-file → $ELA_ENV_FILE.
 Exit codes: 0 ok (a stopped process/graph answered from history counts as ok) · 2 usage · 3 not found on any env
 · 4 auth · 5 remote error.
 """
@@ -47,14 +51,16 @@ import argparse, datetime, http.client, json, os, queue, re, shutil, signal, sys
 from concurrent.futures import ThreadPoolExecutor
 
 EX_USAGE, EX_NOTFOUND, EX_AUTH, EX_REMOTE = 2, 3, 4, 5
-# Probe order — three envs cover everything Evan touches: prod3 (MediaHub 2.1, answers 2.0 too), prod2 (older
-# prod), test2 (test). Sequential fallback; a miss costs one round-trip per env. Override with UR_ENV_ORDER.
-DEFAULT_ORDER = ["prod3", "prod2", "test2"]
-ALIASES = {"p": "prod", "t": "test", "t2": "test2", "t1": "test1", "china": "cn"}
-# Environments that are a host of their own rather than a path on the UR edge. CN is a separate deployment
-# (its own J2N, Pilot and boxes) served at the root of its host, with an older J2N: no `/any` route and no v2.
-# Never probed by default — reached with `-e cn`; UR_CN_HOST in the env file overrides the host.
-SEPARATE = {"cn": ("UR_CN_HOST", "https://ur.tvunetworks.cn")}
+# Probe order — the .com edge first: prod3 (MediaHub 2.1, answers 2.0 too), prod2 (older prod), test2 (test);
+# then CN Prod2 on the China edge, last because it is the rarest answer and the costliest connection. Sequential
+# fallback; a miss costs one round-trip per env. Override with UR_ENV_ORDER.
+DEFAULT_ORDER = ["prod3", "prod2", "test2", "cn2"]
+ALIASES = {"p": "prod", "t": "test", "t2": "test2", "t1": "test1", "cn": "cn2", "china": "cn2"}
+# A second edge: a host of its own that carries environments in the path like the .com edge. Each env is named
+# as the data names it (the graphs' environment annotation) and mapped to the segment the host answers under —
+# CN Prod2 is `cn2` in the data and `/prod2` on the host. The host's root is another J2N instance that lists
+# only its own graphs; it is not an env here. env var → (default host, {env: (path segment, label)}).
+EDGES = {"UR_CN_HOST": ("https://ur.tvunetworks.cn", {"cn2": ("prod2", "CN Prod2")})}
 # QA is a deployment of its own (its own J2N, Pilot, profile store and boxes) laid out like the edge: the env is
 # in the path (qa2/j2n/…, qa2/pilot/…) on a host that is not the edge's. The host comes from UR_QA_HOST in the
 # env file only; QA envs are never probed by default — reached with `-e qa2`.
@@ -94,23 +100,25 @@ class UR:
         if not self.key:
             print("no UR_ACCESS_KEY (env, $ELA_ENV_FILE, or --env-file)", file=sys.stderr); sys.exit(EX_AUTH)
         self.host = (env_value("UR_BASE_HOST", env_file) or "https://ur.tvunetworks.com").rstrip("/")
-        self.separate = {e: (env_value(k, env_file) or d).rstrip("/") for e, (k, d) in SEPARATE.items()}
+        self.edges = {}                            # env → (host, path segment, label) on a second edge
+        for key, (default, envs) in EDGES.items():
+            host = (env_value(key, env_file) or default).rstrip("/")
+            self.edges.update({e: (host, seg, label) for e, (seg, label) in envs.items()})
         self.qa_host = (env_value("UR_QA_HOST", env_file) or "").rstrip("/")
         order = env_value("UR_ENV_ORDER", env_file)
         self.order = [e.strip() for e in order.split(",") if e.strip()] if order else DEFAULT_ORDER
-        self.pools = {}                            # host → idle connections; the edge is warmed, CN on first use
+        self.pools = {}                            # host → idle connections; the .com edge is warmed, CN on first use
         if warm:
             pool = self._pool(self.host)
             for _ in range(self.WARM):
                 threading.Thread(target=lambda: pool.put(self._connect(self.host)), daemon=True).start()
 
     def route(self, env, path):
-        """env + path → (host, target). The edge carries the env in the path; a separate env is its own host,
-        and one without `/any` is asked the plain graph route (it returns a live graph only)."""
-        if env in self.separate:
-            if path.startswith(J2N + "/graphs/") and path.endswith("/any"):
-                path = path[:-len("/any")]
-            return self.separate[env], path
+        """env + path → (host, target). Every host carries the env in the path; on a second edge the segment
+        is the one that host answers under (cn2 → /prod2), on the .com edge and QA it is the env name itself."""
+        if env in self.edges:
+            host, seg, _ = self.edges[env]
+            return host, f"/{seg}{path}"
         if QA_ENV.fullmatch(env):
             if not self.qa_host:
                 print(f"{env} is a QA env: set UR_QA_HOST in the env file", file=sys.stderr); sys.exit(EX_USAGE)
@@ -1270,15 +1278,28 @@ def cmd_stop(ur, a):
 
 
 def cmd_envs(ur, a):
-    qa = [f"qa<N>  (only with -e qa2 …; {ur.qa_host or 'UR_QA_HOST not set'})"]
-    print(json.dumps({"host": ur.host, "order": ur.order, "separate": ur.separate, "qa_host": ur.qa_host}) if a.json
-          else "\n".join(ur.order + [f"{e}  (only with -e {e}; {h})" for e, h in ur.separate.items()] + qa))
+    """The probe order, the aliases and the hosts — from the env file alone, no request."""
+    edges = {e: {"host": h, "path": seg, "label": label} for e, (h, seg, label) in ur.edges.items()}
+    if a.json:
+        print(json.dumps({"host": ur.host, "order": ur.order, "edges": edges, "aliases": ALIASES, "qa_host": ur.qa_host})); return
+    where = lambda e: f"{ur.edges[e][0]}/{ur.edges[e][1]}/…  ({ur.edges[e][2]})" if e in ur.edges else f"{ur.host}/{e}/…"
+    print("probe order (first answer wins; UR_ENV_ORDER overrides):")
+    for e in ur.order:
+        print(f"  {e:<7}{where(e)}")
+    named = [e for e in ur.edges if e not in ur.order]
+    if named:
+        print("named only (-e):")
+        for e in named:
+            print(f"  {e:<7}{where(e)}")
+    print(f"  qa<N>  {(ur.qa_host + '/qa<N>/…') if ur.qa_host else 'UR_QA_HOST not set'}  (-e qa2 …, never probed)")
+    short = " · ".join(f"{k} → {v}" for k, v in ALIASES.items())
+    print(f"aliases: {short} · p<N> → prod<N> · prod-N/test-N/qa-N → prodN/testN/qaN")
 
 
 def main():
     signal.signal(signal.SIGPIPE, signal.SIG_DFL)
     ap = argparse.ArgumentParser(description="UR graph capability: read graphs, processes and boxes first-hand; connect/exec/start/stop on Evan's word.")
-    ap.add_argument("--env-file", help="file with UR_ACCESS_KEY, UR_BASE_HOST, UR_ENV_ORDER, UR_QA_HOST")
+    ap.add_argument("--env-file", help="file with UR_ACCESS_KEY, UR_BASE_HOST, UR_CN_HOST, UR_QA_HOST, UR_ENV_ORDER")
     sub = ap.add_subparsers(dest="cmd", required=True)
     for name, arg in (("graph", "graph_id"), ("process", "process_id"), ("box", "box_id")):
         p = sub.add_parser(name); p.add_argument(arg)
@@ -1287,7 +1308,7 @@ def main():
         if name == "box":
             p.add_argument("-d", "--detail", action="store_true",
                            help="who holds what: SDI connectors, every occupied port and every node, each carried back to its graph, object and owner; orphaned ports flagged")
-        p.add_argument("-e", "--env", help="prod3 · p3 · prod2 · test2 · cn · qa2 …; default: probe in order (cn and qa only when named)")
+        p.add_argument("-e", "--env", help="prod3 · p3 · prod2 · test2 · cn2 (CN Prod2; cn) · qa2 …; default: probe in order (qa only when named)")
         p.add_argument("--json", action="store_true"); p.add_argument("--raw", action="store_true", help="the API body as-is")
         if name == "graph":
             p.add_argument("--all", action="store_true", help="every env that has it, not just the first")

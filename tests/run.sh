@@ -52,5 +52,6 @@ python3 tests/test_publish_head_offline.py || fail=1
 python3 tests/test_tiers_offline.py || fail=1
 python3 tests/test_sessions_offline.py || fail=1
 python3 tests/test_description_budget.py || fail=1
+python3 tests/test_graph_envs_offline.py || fail=1
 [ $fail -eq 0 ] && echo "ela: verification passed" || echo "ela: verification FAILED"
 exit $fail
