@@ -112,8 +112,8 @@
                                    <reports>/recent/ and the vault's sync renders the recent page from it
   ela onething facts --date D | --month YYYY-MM   the owner's own Jira actions and Slack messages per day, for
                                    his One Thing rows; sheet --month (rows already there) · render --rows F (the vault
-                                   note) · post NOTE --pick "1, 3" (dry run; --apply appends to the sheet on his word) ·
-                                   login (his one-time grant of the sheet write token, a URL to open)
+                                   note) · post NOTE --pick "1, 3" (the lines he pastes into the sheet, written into
+                                   the note; ela never writes to the sheet)
   ela day [--date D]               the owner's day as data (<elak>/blueprint/meetings.yaml): working day, hours, DM
                                    window, QA deploy hour, the meetings that day and their brief section headings
   ela meeting --key K              a meeting's note in the vault (meetings/<key>.md): --raise / --propose TEXT add an

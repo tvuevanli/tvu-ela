@@ -1,6 +1,6 @@
 ---
 name: onething
-description: The owner's daily One Thing sheet rows, drafted from his own Jira and Slack, edited in the vault, appended on his word. Use for "One Thing", "工作日志", "ela: post 1, 3".
+description: The owner's daily One Thing sheet rows, drafted from his own Jira and Slack, edited in the vault, copied to the sheet by him. Use for "One Thing", "工作日志", "ela: post 1, 3".
 user-invocable: true
 ---
 
@@ -8,7 +8,8 @@ user-invocable: true
 
 The team lead keeps a monthly One Thing sheet: one row per working day per person, columns
 `Project | Whom | Date | Content Overview`, one tab per month (`2026.10月`). This skill drafts the owner's rows from what
-he did himself, puts them in a vault note he edits, and appends to the sheet only the rows he names. The rules below come
+he did himself, puts them in a vault note he edits, and lays out the rows he names for him to paste. ela never writes
+to the sheet. The rules below come
 from the October backfill (vault `to-read/2026-11-02-one-thing-october.md`, five rounds of correction) and the plan
 ruled on 2026-11-02 (vault `in-progress/2026-11-02-one-thing-skill.md`).
 
@@ -22,15 +23,13 @@ ruled on 2026-11-02 (vault `in-progress/2026-11-02-one-thing-skill.md`).
 | `ela onething facts --month YYYY-MM --json` | the same for a month, up to today | nothing |
 | `ela onething sheet --month YYYY-MM [--json]` | the rows already in that month's tab under his name (Drive export, read token) | nothing |
 | `ela onething render --rows FILE [--out PATH] [--force]` | the vault note from drafted rows: numbered table, keys as links, the days left out, the evidence; prints the path; refuses to replace an existing note without `--force` | the vault note |
-| `ela onething post NOTE --pick "1, 3"` | the picked rows as the sheet takes them (plain keys, no links), tab-separated, ready to paste | nothing (dry run) |
-| `ela onething login` | the owner's one-time grant of the write token (§Write token) | the token file, the site `.env` |
-| `ela onething post NOTE --pick "1, 3" --apply` | appends them to the month's tab with the write token, skips a row already there with the same date and text, reads the tab back, records the post under `## Posted` in the note | the sheet (append only), the note |
+| `ela onething post NOTE --pick "1, 3"` | the picked rows as the sheet takes them (plain keys, no links): a `## Copy to the sheet` section (one already there is replaced) with a line naming the tab and the rows, then a fenced block of tab-separated lines, Project · Whom · Date (YYYY/MM/DD) · Content, which pasted at column A fill A–D; the same block printed; the note's progress set to `<stamp>: rows N ready to copy` | the vault note |
 
 `--pick` takes `1, 3`, `1 & 3`, `2-4` or `all`; a number not in the note exits 3. Exit codes: 0 ok · 2 usage · 3 not
-found · 4 auth (no write token, or a token with the wrong scope) · 5 remote.
+found · 4 auth (the read token) · 5 remote.
 
 Site env: `ONETHING_SHEET` (the spreadsheet id), `ONETHING_WHOM` (his name in column B), `ONETHING_PROJECT` (column A),
-`ONETHING_OWNER` (his Jira and Slack display name), `ONETHING_SHEETS_TOKEN_FILE` (the write token, below).
+`ONETHING_OWNER` (his Jira and Slack display name); `GOOGLE_TOKEN_FILE`, the read-only token gdoc uses.
 
 ## The flow
 
@@ -40,13 +39,14 @@ Site env: `ONETHING_SHEET` (the spreadsheet id), `ONETHING_WHOM` (his name in co
 3. `ela onething render --rows FILE` writes `to-read/<date>-one-thing.md` in the vault (a month:
    `to-read/<today>-one-thing-YYYY-MM.md`).
 4. The owner edits rows in place, then writes `ela: post 1, 3` (or `ela: post all`) in the note.
-5. `ela onething post NOTE --pick "1, 3"` shows the rows; then `--apply`. **His line in the note is the confirm.**
-   Never run `--apply` without it, and never pick rows he did not name.
+5. `ela onething post NOTE --pick "1, 3"` writes the rows to copy into the note; he pastes them into the sheet. Run it
+   only on his line, and never pick rows he did not name.
 
 **Nightly** (ela-runner's evening step, after the working day): steps 1–3 for that day only. The session runs only
-`ela onething facts|render|sheet` and ends with exactly one line: the note's path, `No row: <date> — <why>` when the day
-has nothing of his, or `Exists: <path>` when a note for that day is already there (it may hold his edits; never
-`--force` it). It never posts.
+`ela onething facts|render|sheet` and ends with exactly one line: the note's path; `No row: <date> — <why>` when both
+sources were read and the day has nothing of his; `Gap: <date> — <source>` when `errors` names a source not read (the
+runner reports it as failed); or `Exists: <path>` when a note for that day is already there (it may hold his edits;
+never `--force` it). It never runs `post`.
 
 **A month backfill:** `ela onething sheet --month YYYY-MM --json` first, and leave out the days already on the sheet
 (name them under `existing`). `facts --month` searches every channel's history for the month and takes about ten
@@ -71,32 +71,18 @@ minutes: run it in the background and wait for it, never in a foreground call th
    in. If `errors` is not empty, a day is not "nothing of yours": say which source was not read. *Why:* an invented row
    is worse than a missing one, and a gap is not an absence.
 
-## Write token
+## No write path
 
-`gdoc` stays read-only (its scope allowlist refuses any write scope). This skill's append is the only Google write
-path, and it only appends. The owner creates its token himself, once, with **`ela onething login`**:
-
-1. It reuses the OAuth client of the read token (`GOOGLE_TOKEN_FILE`: the same Desktop client) and prints a consent URL
-   that asks exactly `https://www.googleapis.com/auth/spreadsheets`, offline, with a state check and PKCE (S256), the
-   site's own address as the login hint. It opens no browser: under WSL he pastes the URL into the Windows browser, and
-   the loopback redirect to `127.0.0.1` reaches the listener.
-2. It exchanges the code, refuses a grant with any other scope or without a refresh token, and saves
-   `google-sheets-token.json` in the site directory, mode 600, with the keys gdoc's token has (`client_id`,
-   `client_secret`, `refresh_token`, `token_uri`, `scopes`). The secret is never printed.
-3. It sets `ONETHING_SHEETS_TOKEN_FILE` in the site `.env` (the line replaced if present) and reads the sheet's title
-   with the new token. If the Sheets API is disabled in the client's GCP project, it prints the enable link (the project
-   number is the client id's prefix) and exits 4; enable it and run `login` again.
-
-Login is a step of the owner's, not ela's: ela never runs it on his behalf. `post --apply` refuses a token whose
-`scopes` is anything but exactly that one scope (exit 4), refreshes the access token in memory and never rewrites the
-file. Until the token exists, `--apply` exits 4 and the dry run's rows are ready to paste.
+The owner posts to the sheet himself; ela only drafts (his ruling of 2026-11-02, after the plan's option A, a write
+token, had been accepted earlier that day). The skill is read-only toward Google like `gdoc`: `sheet` reads through
+Drive export with the read token, and `post` writes nothing but the vault note. Do not add an append, a write token or
+a Sheets write scope without a new ruling from him.
 
 ## Known limits
 
-- The Sheets API returned 403 with the read token while Drive export worked, so reads go through Drive export. If the
-  append also returns 403, the Sheets API may need enabling in the write token's GCP project; `login` prints the link.
-- Read-back goes through the same Drive export, which can lag the append by a moment; a row "not read back" is
-  re-checked with `sheet --month` before anything is appended again.
+- The Sheets API returned 403 with the read token while Drive export worked, so `sheet` reads through Drive export.
+- `post` does not check the sheet for rows already pasted; before a backfill, `sheet --month` names the days already
+  there.
 - Helm's own moves under the owner's account are recognised by a Helm comment within two minutes; a Helm write without
   such a comment would show as his.
 - Facts are capped per message (1200 characters); the permalink is the evidence for anything longer.

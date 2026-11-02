@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """ela onething, offline: the owner's own Jira and Slack facts per Asia/Shanghai day, the note's rows and the pick, the
-sheet's plain text, the xlsx reader, the render → read round trip, and the write token's scope gate. No network; nothing
-is written to the sheet, Jira or Slack."""
+sheet's plain text, the xlsx reader, the render → read round trip, and the lines post writes into the note for the owner
+to copy. No network; nothing is written to the sheet, Jira or Slack."""
 import argparse, datetime, io, json, os, sys, tempfile, zipfile
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FIX = os.path.join(ROOT, "tests", "fixtures", "onething")
@@ -141,70 +141,25 @@ check("render → plain: the sheet gets the text as drafted", O.plain(back[1][2]
 check("render: the days left out are named", "2026-10-18 (nothing of yours in Jira or Slack)" in note)
 check("render: the tab is named", "tab 2026.10月" in note)
 
-# ---- the write gate (no network: write_grant reads the file only)
+# ---- post: the lines he copies, written into the note; nothing goes to Google
 A = argparse.Namespace(env_file=None)
-with tempfile.TemporaryDirectory() as tmp:
-    def token(scopes):
-        p = os.path.join(tmp, "t.json")
-        with open(p, "w") as f:
-            json.dump({"client_id": "c", "client_secret": "s", "refresh_token": "r", "scopes": scopes}, f)
-        return p
-    check("write: no token file exits 4", exit_code(O.write_grant, A) == 4)
-    os.environ["ONETHING_SHEETS_TOKEN_FILE"] = token([O.WRITE_SCOPE, "https://www.googleapis.com/auth/drive"])
-    check("write: a token with any other scope is refused", exit_code(O.write_grant, A) == 4)
-    os.environ["ONETHING_SHEETS_TOKEN_FILE"] = token(["https://www.googleapis.com/auth/drive.readonly"])
-    check("write: the read token is refused", exit_code(O.write_grant, A) == 4)
-    os.environ["ONETHING_SHEETS_TOKEN_FILE"] = token([O.WRITE_SCOPE])
-    check("write: exactly the spreadsheets scope is accepted", (O.write_grant(A) or {}).get("refresh_token") == "r")
-    del os.environ["ONETHING_SHEETS_TOKEN_FILE"]
 check("whom: no ONETHING_WHOM exits 2", exit_code(O.whom, A) == 2)
-
-# ---- login (no Google: the exchange is faked, the redirect is served on loopback)
-import http.server, threading, urllib.parse as UP, urllib.request as UR  # noqa: E402,E401
-ver, chal = O.pkce()
-q = dict(UP.parse_qsl(UP.urlsplit(O.auth_url("cid-1", "http://127.0.0.1:5/", "st", chal, "owner@example.invalid")).query))
-check("login: the auth URL asks exactly the one write scope", q.get("scope") == O.WRITE_SCOPE)
-check("login: PKCE S256 and the state are in the URL", q.get("code_challenge") == chal
-      and q.get("code_challenge_method") == "S256" and q.get("state") == "st")
-check("login: offline access with consent", q.get("access_type") == "offline" and q.get("prompt") == "consent")
-check("login: the client secret is never in the URL", "client_secret" not in q)
-import base64, hashlib  # noqa: E402,E401
-check("login: the challenge is the verifier's S256", chal == base64.urlsafe_b64encode(
-      hashlib.sha256(ver.encode()).digest()).rstrip(b"=").decode())
-
-srv = http.server.HTTPServer(("127.0.0.1", 0), http.server.BaseHTTPRequestHandler)
-port = srv.server_address[1]
-def hit():
-    for qs in ("state=wrong&code=bad", "state=st&code=good"):
-        UR.urlopen(f"http://127.0.0.1:{port}/?{qs}", timeout=5).read()
-threading.Thread(target=hit, daemon=True).start()
-check("login: a redirect with the wrong state is ignored, the right one gives the code", O.wait_for_code(srv, "st", 30) == "good")
-srv.server_close()
-
-with tempfile.TemporaryDirectory() as tmp:
-    client = {"client_id": "123-x.apps", "client_secret": "s", "token_uri": "https://token.invalid"}
-    tok = os.path.join(tmp, "sheets.json")
-    O.save_token(tok, client, {"scope": O.WRITE_SCOPE, "refresh_token": "r", "access_token": "a"})
-    saved = json.load(open(tok))
-    check("login: the token file is mode 600", (os.stat(tok).st_mode & 0o777) == 0o600)
-    check("login: the token carries scopes == [the write scope] and gdoc's keys",
-          saved.get("scopes") == [O.WRITE_SCOPE] and set(saved) == {"client_id", "client_secret", "refresh_token", "token_uri", "scopes"})
-    check("login: the saved token passes the write gate", (os.environ.update(ONETHING_SHEETS_TOKEN_FILE=tok) or O.write_grant(A))["refresh_token"] == "r")
-    del os.environ["ONETHING_SHEETS_TOKEN_FILE"]
-    os.remove(tok)
-    check("login: a grant with a further scope saves nothing", exit_code(O.save_token, tok, client,
-          {"scope": O.WRITE_SCOPE + " https://www.googleapis.com/auth/drive", "refresh_token": "r"}) == 4 and not os.path.exists(tok))
-    check("login: a grant without a refresh token saves nothing",
-          exit_code(O.save_token, tok, client, {"scope": O.WRITE_SCOPE}) == 4 and not os.path.exists(tok))
-    env = os.path.join(tmp, ".env")
-    with open(env, "w") as f:
-        f.write("A=1\nONETHING_SHEETS_TOKEN_FILE=/old\nB=2\n")
-    os.chmod(env, 0o600)
-    O.set_env_line(env, "ONETHING_SHEETS_TOKEN_FILE", "/new")
-    check("login: the env line is replaced in place, the rest kept, mode kept",
-          open(env).read() == "A=1\nONETHING_SHEETS_TOKEN_FILE=/new\nB=2\n" and (os.stat(env).st_mode & 0o777) == 0o600)
-    O.set_env_line(env, "C", "3")
-    check("login: a missing env line is appended", open(env).read().endswith("B=2\nC=3\n"))
+check("no write path is left in the script", not any(hasattr(O, n) for n in
+      ("write_token", "write_grant", "append", "WRITE_SCOPE", "cmd_login")))
+lines = O.copy_lines("MH", "Owner", [(1, "2026-10-19", O.plain(back[0][2]))])
+check("copy: Project, Whom, YYYY/MM/DD, plain content, tab-separated",
+      lines == ["MH\tOwner\t2026/10/19\tVerified MH-3721 on QA 2"])
+once = O.copy_section(note, ["2026.10月"], "1, 2", lines)
+check("copy: a section with the tab and the rows above a fenced block",
+      "## Copy to the sheet\n\nTab 2026.10月, rows 1, 2." in once and "```\nMH\tOwner\t2026/10/19\t" in once)
+twice = O.copy_section(once, ["2026.10月"], "2", ["MH\tOwner\t2026/10/20\tsecond"])
+check("copy: a section already there is replaced, not added", twice.count("## Copy to the sheet") == 1
+      and "second" in twice and "2026/10/19" not in twice.split("## Copy to the sheet")[1])
+mid = O.copy_section(note + "\n## Copy to the sheet\n\nold\n\n## Later\nkept\n", ["2026.10月"], "1", ["new"])
+check("copy: a heading after the section is kept", mid.endswith("## Later\nkept\n") and "old" not in mid)
+check("copy: the table still reads after the section is written", O.note_rows(twice, "2026") == back)
+check("progress: set to rows N ready to copy",
+      'progress: "2026-11-02 10:00: rows 1 ready to copy"' in O.set_progress(note, "2026-11-02 10:00: rows 1 ready to copy"))
 
 print(f"\nonething offline: {'FAILED ' + str(len(failures)) if failures else 'all passed'}")
 sys.exit(1 if failures else 0)

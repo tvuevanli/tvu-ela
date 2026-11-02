@@ -1,27 +1,22 @@
 #!/usr/bin/env python3
 """The owner's rows in the team's monthly One Thing sheet: the facts of his own day, the vault note he edits, and the
-append of the rows he picks. Stdlib only.
+lines he copies into the sheet himself. Read-only toward Google, Jira and Slack; it writes only vault notes. Stdlib only.
 
   facts  (--date D | --month YYYY-MM)        his own Jira actions and Slack messages per day (Asia/Shanghai), Helm's
                                              auto-writes left out; --json for the drafting session
   sheet  --month YYYY-MM                     the rows already in that month's tab under his name (Drive export)
   render --rows FILE [--out PATH]            the vault note from drafted rows: numbered table, keys as links, the days
                                              left out, the evidence; the path is printed
-  post   NOTE --pick 1,3|all [--apply]       the picked rows as the sheet takes them (plain keys, no links); dry run
-                                             prints them ready to paste; --apply appends them to the month's tab with the
-                                             write token, reads the tab back and records the post in the note
-  login                                      the owner's one-time grant of the write token: a loopback consent URL to
-                                             open (the one spreadsheets scope, PKCE), the token saved mode 600 in the
-                                             site directory, ONETHING_SHEETS_TOKEN_FILE set, the sheet read to verify
+  post   NOTE --pick 1,3|all                 the picked rows as the sheet takes them (plain keys, no links), written
+                                             into the note under ## Copy to the sheet as tab-separated lines to paste
+                                             at column A, and printed; nothing is written to the sheet
 
 Site env (the site's .env): ONETHING_SHEET (the spreadsheet id), ONETHING_WHOM (the name in column B),
 ONETHING_PROJECT (column A, default MH), ONETHING_OWNER (his Jira and Slack display name; read from Jira when absent),
-GOOGLE_TOKEN_FILE (read-only, shared with gdoc), ONETHING_SHEETS_TOKEN_FILE (the one token allowed to write: its only
-scope is spreadsheets, and it is used for nothing but this append).
+GOOGLE_TOKEN_FILE (read-only, shared with gdoc).
 Exit codes: 0 ok · 2 usage · 3 not found · 4 auth · 5 remote.
 """
-import argparse, base64, datetime, hashlib, html, http.server, io, json, os, re, secrets, subprocess, sys, urllib.error, \
-    urllib.parse, urllib.request, zipfile
+import argparse, datetime, html, io, json, os, re, subprocess, sys, urllib.error, urllib.request, zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "gdoc"))
@@ -31,7 +26,6 @@ JIRA = os.path.join(HERE, "..", "jira", "jira.py")
 SLACK = os.path.join(HERE, "..", "slack", "slack.py")
 SITE = os.path.expanduser("~/.claude/ela/site.json")
 TZ = datetime.timezone(datetime.timedelta(hours=8))     # the owner's day is Asia/Shanghai, where the sheet's dates are
-WRITE_SCOPE = "https://www.googleapis.com/auth/spreadsheets"
 KEY = re.compile(r"\b[A-Z][A-Z0-9]{1,9}-\d+\b")
 TABLE_HEAD = "| # | date | Content Overview (edit freely) |"
 SKIP_FIELDS = {"Fixed In", "labels", "Link", "RemoteIssueLink", "Rank"}   # bookkeeping, not work; Fixed In is mostly Helm's
@@ -294,8 +288,8 @@ def render(spec, base, today):
          f'target: "the One Thing sheet, tab {tab}"', 'source: "vault"', 'status: "proposed"',
          f'progress: "{today}: drafted; nothing written to the sheet"', 'ela: ""', "---", f"# {title}", "",
          f"**In short.** {len(rows)} draft row(s) for {where}, tab {tab}, each the day's work you did yourself. "
-         "**Nothing is on the sheet yet.** Edit any row in place, then write `ela: post 1, 3` or `ela: post all` at the "
-         "bottom; ticket keys go to the sheet as plain text.", ""]
+         "**Nothing is on the sheet.** Edit any row in place, then write `ela: post 1, 3` or `ela: post all` at the "
+         "bottom; the picked rows appear under *Copy to the sheet* with plain keys, ready to paste at column A.", ""]
     if spec.get("existing"):
         L += ["Already on the sheet under your name: " + ", ".join(sorted(set(spec["existing"]))) + ".", ""]
     if spec.get("left_out"):
@@ -375,226 +369,29 @@ def pick(rows, spec):
     return [r for r in rows if r[0] in want]
 
 
-def write_grant(a):
-    """The write token file, checked: it exists and its only scope is spreadsheets. No network."""
-    path = setting(a, "ONETHING_SHEETS_TOKEN_FILE")
-    if not path or not os.path.isfile(os.path.expanduser(path)):
-        die("no ONETHING_SHEETS_TOKEN_FILE: the sheet write is not authorised (SKILL.md §Write token); "
-            "the rows above are ready to paste", EX_AUTH)
-    with open(os.path.expanduser(path), encoding="utf-8") as f:
-        t = json.load(f)
-    if set(t.get("scopes") or []) != {WRITE_SCOPE}:
-        die(f"the write token must carry exactly {WRITE_SCOPE}, refusing: {sorted(t.get('scopes') or [])}", EX_AUTH)
-    missing = [k for k in ("client_id", "client_secret", "refresh_token") if not t.get(k)]
-    if missing:
-        die(f"the write token file lacks {', '.join(missing)}", EX_AUTH)
-    return t
+COPY_HEAD = "## Copy to the sheet"
 
 
-_ACCESS = {}
+def copy_lines(project, who, rows):
+    """The picked rows as the sheet takes them, pasted at column A: Project, Whom, YYYY/MM/DD, Content (A–D)."""
+    return [f"{project}\t{who}\t{d.replace('-', '/')}\t{t}" for _, d, t in rows]
 
 
-def write_token(a):
-    """The append-only path: its own token file, whose only scope is spreadsheets; anything else is refused.
-    The access token is refreshed once per run, in memory; the file is never rewritten."""
-    if "token" not in _ACCESS:
-        t = write_grant(a)
-        body = urllib.parse.urlencode({"client_id": t["client_id"], "client_secret": t["client_secret"],
-                                       "refresh_token": t["refresh_token"], "grant_type": "refresh_token"}).encode()
-        try:
-            with urllib.request.urlopen(urllib.request.Request(t.get("token_uri") or "https://oauth2.googleapis.com/token", data=body), timeout=20) as r:
-                _ACCESS["token"] = json.loads(r.read())["access_token"]
-        except urllib.error.HTTPError as e:
-            die(f"google: write token refresh failed (HTTP {e.code})", EX_AUTH)
-    return _ACCESS["token"]
+def copy_section(text, tabs, nums, lines):
+    """The note with its ## Copy to the sheet section written: one there already is replaced, else it goes last."""
+    block = [COPY_HEAD, "",
+             f"Tab {', '.join(tabs)}, rows {nums}. Paste at column A of the first empty row; it fills A–D.", "",
+             "```", *lines, "```", ""]
+    start = text.find("\n" + COPY_HEAD + "\n")
+    if start < 0:
+        return text.rstrip("\n") + "\n\n" + "\n".join(block)
+    nxt = re.search(r"^## ", text[start + 1 + len(COPY_HEAD):], re.M)
+    rest = text[start + 1 + len(COPY_HEAD) + nxt.start():] if nxt else ""
+    return text[:start + 1] + "\n".join(block) + ("\n" + rest if rest else "")
 
 
-# ---------------------------------------------------------------- login: the owner creates the write token
-
-AUTH_URI = "https://accounts.google.com/o/oauth2/auth"
-TOKEN_NAME = "google-sheets-token.json"
-
-
-def pkce():
-    """A PKCE verifier and its S256 challenge."""
-    verifier = base64.urlsafe_b64encode(secrets.token_bytes(32)).rstrip(b"=").decode()
-    challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
-    return verifier, challenge
-
-
-def auth_url(client_id, redirect, state, challenge, hint=None):
-    """The consent URL: the one write scope, offline, consent, state and PKCE; nothing else is asked."""
-    q = {"client_id": client_id, "redirect_uri": redirect, "response_type": "code", "scope": WRITE_SCOPE,
-         "access_type": "offline", "prompt": "consent", "state": state,
-         "code_challenge": challenge, "code_challenge_method": "S256"}
-    if hint:
-        q["login_hint"] = hint
-    return AUTH_URI + "?" + urllib.parse.urlencode(q)
-
-
-def read_client(a):
-    """client_id, client_secret and token_uri from the read token (the same Desktop OAuth client)."""
-    path = setting(a, "GOOGLE_TOKEN_FILE")
-    if not path or not os.path.isfile(os.path.expanduser(path)):
-        die("no GOOGLE_TOKEN_FILE in the site env: login reuses its OAuth client", EX_AUTH)
-    with open(os.path.expanduser(path), encoding="utf-8") as f:
-        t = json.load(f)
-    if not t.get("client_id") or not t.get("client_secret"):
-        die("GOOGLE_TOKEN_FILE carries no client_id/client_secret", EX_AUTH)
-    return {"client_id": t["client_id"], "client_secret": t["client_secret"],
-            "token_uri": t.get("token_uri") or "https://oauth2.googleapis.com/token"}
-
-
-def wait_for_code(server, state, timeout=600):
-    """Serve the loopback redirect until the code arrives; the state must match."""
-    got = {}
-
-    class H(http.server.BaseHTTPRequestHandler):
-        def do_GET(self):
-            q = dict(urllib.parse.parse_qsl(urllib.parse.urlsplit(self.path).query))
-            if q.get("state") == state and (q.get("code") or q.get("error")):
-                got.update(q)
-                body = b"ela: done, you can close this tab." if q.get("code") else b"ela: consent refused."
-            else:
-                body = b"ela: not the expected redirect."
-            self.send_response(200); self.send_header("Content-Type", "text/plain"); self.end_headers()
-            self.wfile.write(body)
-
-        def log_message(self, *_):
-            pass
-    server.RequestHandlerClass = H
-    server.timeout = 5
-    end = datetime.datetime.now().timestamp() + timeout
-    while not got and datetime.datetime.now().timestamp() < end:
-        server.handle_request()
-    if not got:
-        die("no redirect within ten minutes", EX_AUTH)
-    if got.get("error"):
-        die(f"consent refused: {got['error']}", EX_AUTH)
-    return got["code"]
-
-
-def exchange_code(client, code, verifier, redirect):
-    body = urllib.parse.urlencode({"code": code, "client_id": client["client_id"], "client_secret": client["client_secret"],
-                                   "redirect_uri": redirect, "grant_type": "authorization_code",
-                                   "code_verifier": verifier}).encode()
-    try:
-        with urllib.request.urlopen(urllib.request.Request(client["token_uri"], data=body), timeout=30) as r:
-            return json.loads(r.read())
-    except urllib.error.HTTPError as e:
-        die(f"google: code exchange failed (HTTP {e.code})", EX_AUTH)
-
-
-def save_token(path, client, granted):
-    """The write token file, mode 600, in the shape gdoc's token has; refused unless exactly the one scope came back."""
-    scopes = (granted.get("scope") or "").split()
-    if scopes != [WRITE_SCOPE]:
-        die(f"google granted {scopes}, not exactly {WRITE_SCOPE}: nothing saved", EX_AUTH)
-    if not granted.get("refresh_token"):
-        die("google returned no refresh token (revoke the earlier grant and log in again): nothing saved", EX_AUTH)
-    data = {"client_id": client["client_id"], "client_secret": client["client_secret"],
-            "refresh_token": granted["refresh_token"], "token_uri": client["token_uri"], "scopes": [WRITE_SCOPE]}
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=1)
-    os.chmod(path, 0o600)
-
-
-def set_env_line(env_path, key, value):
-    """KEY=value in the site .env: the existing line replaced, or one appended; the file's mode kept."""
-    lines = open(env_path, encoding="utf-8").read().splitlines() if os.path.exists(env_path) else []
-    out, done = [], False
-    for line in lines:
-        if line.startswith(key + "="):
-            if not done:
-                out.append(f"{key}={value}"); done = True
-            continue
-        out.append(line)
-    if not done:
-        out.append(f"{key}={value}")
-    mode = os.stat(env_path).st_mode & 0o777 if os.path.exists(env_path) else 0o600
-    fd = os.open(env_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode)
-    with os.fdopen(fd, "w", encoding="utf-8") as f:
-        f.write("\n".join(out) + "\n")
-
-
-def verify_sheet(a, access, project):
-    sheet = setting(a, "ONETHING_SHEET")
-    if not sheet:
-        print("no ONETHING_SHEET in the site env: the token is saved, the sheet not checked"); return
-    url = f"https://sheets.googleapis.com/v4/spreadsheets/{sheet}?fields=properties.title"
-    try:
-        with urllib.request.urlopen(urllib.request.Request(url, headers={"Authorization": f"Bearer {access}"}), timeout=30) as r:
-            print(f"verified: the token reads the sheet ({json.loads(r.read()).get('properties', {}).get('title', '?')})")
-    except urllib.error.HTTPError as e:
-        text = e.read().decode("utf-8", "replace")
-        if e.code == 403 and ("SERVICE_DISABLED" in text or "has not been used" in text):
-            die("the token is saved, but the Sheets API is disabled in the client's GCP project; enable it at\n  "
-                f"https://console.developers.google.com/apis/api/sheets.googleapis.com/overview?project={project}\n"
-                "then run `ela onething login` again or retry the post", EX_AUTH)
-        die(f"the token is saved, but reading the sheet failed (HTTP {e.code}): {text[:200]}",
-            EX_AUTH if e.code in (401, 403) else EX_REMOTE)
-
-
-def env_path(a):
-    p = a.env_file or os.environ.get("ELA_ENV_FILE")
-    if not p:
-        die("no site env file: run as `ela onething login`", EX_USAGE)
-    return p
-
-
-def cmd_login(a, exchange=exchange_code):
-    """The owner's one-time grant of the write token: loopback consent, the token saved, the env pointed at it."""
-    client = read_client(a)
-    env = env_path(a)
-    site = {}
-    if os.path.isfile(SITE):
-        with open(SITE, encoding="utf-8") as f:
-            site = json.load(f)
-    hint = (site.get("emails") or {}).get("me")
-    verifier, challenge = pkce()
-    state = secrets.token_urlsafe(16)
-    server = http.server.HTTPServer(("127.0.0.1", 0), http.server.BaseHTTPRequestHandler)
-    redirect = f"http://127.0.0.1:{server.server_address[1]}/"
-    print("Open this URL in your browser and allow the one scope (spreadsheets):\n")
-    print(auth_url(client["client_id"], redirect, state, challenge, hint) + "\n", flush=True)
-    try:
-        code = wait_for_code(server, state)
-    finally:
-        server.server_close()
-    granted = exchange(client, code, verifier, redirect)
-    path = os.path.join(os.path.dirname(SITE), TOKEN_NAME)
-    save_token(path, client, granted)
-    set_env_line(env, "ONETHING_SHEETS_TOKEN_FILE", path)
-    print(f"saved {path} (mode 600) and ONETHING_SHEETS_TOKEN_FILE in the site env")
-    verify_sheet(a, granted.get("access_token"), client["client_id"].split("-")[0])
-
-
-def append(a, tab, values):
-    sheet = setting(a, "ONETHING_SHEET")
-    rng = urllib.parse.quote(f"'{tab}'!A:F")
-    url = (f"https://sheets.googleapis.com/v4/spreadsheets/{sheet}/values/{rng}:append"
-           "?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS")
-    req = urllib.request.Request(url, data=json.dumps({"values": values}).encode(), method="POST",
-                                 headers={"Authorization": f"Bearer {write_token(a)}", "Content-Type": "application/json"})
-    try:
-        with urllib.request.urlopen(req, timeout=60) as r:
-            return json.loads(r.read())
-    except urllib.error.HTTPError as e:
-        hint = (" — the Sheets API may need enabling in the write token's GCP project (SKILL.md §Known limits)"
-                if e.code == 403 else "")
-        die(f"google: append failed (HTTP {e.code}): {e.read().decode('utf-8', 'replace')[:300]}{hint}",
-            EX_AUTH if e.code in (401, 403) else EX_REMOTE)
-
-
-def record(note, line):
-    """The post, one line under ## Posted at the note's end, and the note's progress property."""
-    text = open(note, encoding="utf-8").read()
-    if "\n## Posted\n" not in text:
-        text = text.rstrip("\n") + "\n\n## Posted\n"
-    text = text.rstrip("\n") + f"\n- {line}\n"
-    text = re.sub(r'^progress: ".*"$', lambda _: f'progress: "{line}"', text, count=1, flags=re.M)
-    open(note, "w", encoding="utf-8").write(text)
+def set_progress(text, line):
+    return re.sub(r'^progress: ".*"$', lambda _: f'progress: "{line}"', text, count=1, flags=re.M)
 
 
 def cmd_post(a):
@@ -606,43 +403,20 @@ def cmd_post(a):
     if not rows:
         die("no One Thing table in the note", EX_NOTFOUND)
     chosen = pick(rows, a.pick)
-    project, who = setting(a, "ONETHING_PROJECT", "MH"), whom(a)
     out = [(n, d, plain(t)) for n, d, t in chosen]
     bad = [n for n, d, _ in out if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", d)]
     if bad:
         die(f"row(s) {bad} carry no date the sheet can take (MM-DD or YYYY-MM-DD)", EX_USAGE)
+    lines = copy_lines(setting(a, "ONETHING_PROJECT", "MH"), whom(a), out)
     tabs = sorted({tab_name(d[:7]) for _, d, _ in out})
-    print(f"{len(out)} row(s) for tab {', '.join(tabs)} (Project · Whom · Date · Content Overview), tab-separated:\n")
-    for _, d, t in out:
-        print(f"{project}\t{who}\t{d}\t{t}")
-    if not a.apply:
-        print("\ndry run: nothing written. --apply appends them to the sheet.")
-        return
-    write_token(a)                                      # refuse before reading the sheet when the write is not authorised
-    existing = {}
-    for month in sorted({d[:7] for _, d, _ in out}):
-        for r in owner_rows(a, month):
-            existing.setdefault(r["date"], []).append(r["text"].strip())
-    fresh = []
-    for n, d, t in out:
-        if t in existing.get(d, []):
-            print(f"row {n} ({d}) is already on the sheet: skipped", file=sys.stderr)
-        else:
-            fresh.append((n, d, t))
-    if not fresh:
-        print("\nnothing new to append."); return
-    for month in sorted({d[:7] for _, d, _ in fresh}):
-        part = [(n, d, t) for n, d, t in fresh if d[:7] == month]
-        append(a, tab_name(month), [[project, who, d.replace("-", "/"), t, "", ""] for _, d, t in part])
-        back = {(r["date"], r["text"].strip()) for r in owner_rows(a, month)}
-        missing = [n for n, d, t in part if (d, t) not in back]
-        nums = ", ".join(str(n) for n, _, _ in part)
-        stamp = datetime.datetime.now(TZ).strftime("%Y-%m-%d %H:%M")
-        if missing:
-            record(a.note, f"{stamp}: rows {nums} appended to {tab_name(month)}; rows {missing} not read back")
-            die(f"appended, but rows {missing} were not read back from {tab_name(month)}", EX_REMOTE)
-        record(a.note, f"{stamp}: rows {nums} appended to {tab_name(month)}, read back")
-        print(f"\nrows {nums} appended to {tab_name(month)} and read back.")
+    nums = ", ".join(str(n) for n, _, _ in out)
+    stamp = datetime.datetime.now(TZ).strftime("%Y-%m-%d %H:%M")
+    text = set_progress(copy_section(text, tabs, nums, lines), f"{stamp}: rows {nums} ready to copy")
+    with open(a.note, "w", encoding="utf-8") as f:
+        f.write(text)
+    print(f"tab {', '.join(tabs)}, rows {nums} (Project · Whom · Date · Content Overview), tab-separated:\n")
+    print("\n".join(lines))
+    print(f"\nwritten under {COPY_HEAD} in {a.note}; nothing is written to the sheet.")
 
 
 def main():
@@ -653,12 +427,11 @@ def main():
     g.add_argument("--date"); g.add_argument("--month"); f.add_argument("--json", action="store_true")
     s = sub.add_parser("sheet"); s.add_argument("--month", required=True); s.add_argument("--json", action="store_true")
     r = sub.add_parser("render"); r.add_argument("--rows", required=True); r.add_argument("--out"); r.add_argument("--force", action="store_true")
-    o = sub.add_parser("post"); o.add_argument("note"); o.add_argument("--pick", required=True); o.add_argument("--apply", action="store_true")
-    sub.add_parser("login")
+    o = sub.add_parser("post"); o.add_argument("note"); o.add_argument("--pick", required=True)
     a = p.parse_args()
     if getattr(a, "month", None) and not re.fullmatch(r"\d{4}-\d{2}", a.month):
         die("--month is YYYY-MM", EX_USAGE)
-    {"facts": cmd_facts, "sheet": cmd_sheet, "render": cmd_render, "post": cmd_post, "login": cmd_login}[a.cmd](a)
+    {"facts": cmd_facts, "sheet": cmd_sheet, "render": cmd_render, "post": cmd_post}[a.cmd](a)
 
 
 if __name__ == "__main__":
