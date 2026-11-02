@@ -1352,6 +1352,11 @@ def home(today, now, notes, desk=None):
     if held.get("active") or held.get("expired"):
         links.append(f"[[{cons.path[:-3]}|{held['active']} standing constraint{'s' if held['active'] != 1 else ''}]] · {held['over']} over"
                      + (f" · {held['expired']} expired" if held["expired"] else ""))
+    # the newest One Thing note still in to-read: its Copy to the sheet block is what he pastes (skills/onething)
+    one = sorted((n for n in notes if n.path.startswith(TO_READ + "/")
+                  and re.fullmatch(r"\d{4}-\d{2}-\d{2}-one-thing[^/]*\.md", n.path.rsplit("/", 1)[-1])), key=lambda n: n.path)
+    if one:
+        links.append(f"[[{one[-1].path[:-3]}|One Thing]] (copy block ready)")
     L += [" · ".join(x for x in links if x), ""]
     owed_since = (today - datetime.timedelta(days=HELD_LISTED_DAYS)).isoformat()
     # a past day page is the record of what ela told him that morning; it is never rewritten, so it is owed nothing

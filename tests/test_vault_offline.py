@@ -591,6 +591,14 @@ full = V.with_afterwards("# N\n", [(f"MH-{i}", "2026-10-31", f"- 10-31 · MH-{i}
 check("at most 40 lines a note", full.count("\n- 10-31") == 40)
 check("the all-notes base has an Archive view, and Home links it", "name: Archive" in V.VIEWS["all-notes"]
       and "[[ela/all-notes.base#Archive|archive]]" in V.home(datetime.date(2026, 10, 30), datetime.datetime(2026, 10, 30, 9), []))
+ot = lambda p: V.Note(p, "One Thing", "# One Thing\n", {"type": "report", "status": "proposed"})   # noqa: E731
+hm1 = V.home(datetime.date(2026, 11, 2), datetime.datetime(2026, 11, 2, 9),
+             [ot("to-read/2026-10-31-one-thing.md"), ot("to-read/2026-11-02-one-thing-2026-10.md"), ot("archive/2026-11-03-one-thing.md")])
+check("Home links the newest One Thing note in to-read, once, below the divider",
+      "[[to-read/2026-11-02-one-thing-2026-10|One Thing]] (copy block ready)" in hm1.split("\n---\n", 1)[1]
+      and hm1.count("|One Thing]]") == 1)
+check("Home has no One Thing link when none is in to-read",
+      "One Thing" not in V.home(datetime.date(2026, 11, 2), datetime.datetime(2026, 11, 2, 9), [ot("archive/2026-11-01-one-thing.md")]))
 check("a sprint keeps its own status; a reading carries none", S("sprints", "active") == ("active", None, None) and S("readings", "decided") == (None, None, None))
 with tempfile.TemporaryDirectory() as t:
     os.makedirs(os.path.join(t, "readings"))
