@@ -276,7 +276,8 @@ def jira_base(a):
     return (setting(a, "JIRA_BASE_URL") or setting(a, "JIRA_URL") or "https://tvunetworks.atlassian.net").rstrip("/")
 
 
-def render(spec, base, today):
+def render(spec, base, today, project=None, who=None):
+    """The note; with `who`, the Copy to the sheet block for every row as drafted, so a fresh note is copy-ready."""
     rows = sorted(spec.get("rows") or [], key=lambda r: r["date"])
     dates = [r["date"] for r in rows] or [spec.get("from") or today]
     span = dates[0] if dates[0] == dates[-1] else f"{dates[0]} to {dates[-1]}"
@@ -288,8 +289,8 @@ def render(spec, base, today):
          f'target: "the One Thing sheet, tab {tab}"', 'source: "vault"', 'status: "proposed"',
          f'progress: "{today}: drafted; nothing written to the sheet"', 'ela: ""', "---", f"# {title}", "",
          f"**In short.** {len(rows)} draft row(s) for {where}, tab {tab}, each the day's work you did yourself. "
-         "**Nothing is on the sheet.** Edit any row in place, then write `ela: post 1, 3` or `ela: post all` at the "
-         "bottom; the picked rows appear under *Copy to the sheet* with plain keys, ready to paste at column A.", ""]
+         "**Nothing is on the sheet.** *Copy to the sheet* at the bottom holds every row as drafted, plain keys, ready to "
+         "paste at column A. After you edit rows, write `ela: post all` to refresh it, or `ela: post 1, 3` for some.", ""]
     if spec.get("existing"):
         L += ["Already on the sheet under your name: " + ", ".join(sorted(set(spec["existing"]))) + ".", ""]
     if spec.get("left_out"):
@@ -300,7 +301,12 @@ def render(spec, base, today):
     L += ["", "> [!note]- Evidence",
           "> " + (spec.get("evidence") or "Your own Jira comments and moves and your own Slack messages that day, "
                   "dates in Asia/Shanghai; Helm's auto-writes left out."), ""]
-    return "\n".join(L) + "\n"
+    text = "\n".join(L) + "\n"
+    if who and rows:
+        out = [(n, r["date"], plain(r["text"])) for n, r in enumerate(rows, 1)]
+        text = copy_section(text, sorted({tab_name(d[:7]) for _, d, _ in out}), "all",
+                            copy_lines(project or "MH", who, out))
+    return text
 
 
 def cmd_render(a):
@@ -322,7 +328,9 @@ def cmd_render(a):
     if os.path.exists(out) and not a.force:
         die(f"{out} exists: it may hold your edits; --force to replace it", EX_USAGE)
     os.makedirs(os.path.dirname(out), exist_ok=True)
-    open(out, "w", encoding="utf-8").write(render(spec, jira_base(a), today))
+    text = render(spec, jira_base(a), today, setting(a, "ONETHING_PROJECT", "MH"), whom(a))
+    with open(out, "w", encoding="utf-8") as f:
+        f.write(text)
     print(out)
 
 

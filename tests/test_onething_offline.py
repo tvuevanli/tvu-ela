@@ -156,8 +156,15 @@ twice = O.copy_section(once, ["2026.10月"], "2", ["MH\tOwner\t2026/10/20\tsecon
 check("copy: a section already there is replaced, not added", twice.count("## Copy to the sheet") == 1
       and "second" in twice and "2026/10/19" not in twice.split("## Copy to the sheet")[1])
 mid = O.copy_section(note + "\n## Copy to the sheet\n\nold\n\n## Later\nkept\n", ["2026.10月"], "1", ["new"])
-check("copy: a heading after the section is kept", mid.endswith("## Later\nkept\n") and "old" not in mid)
+check("copy: a heading after the section is kept", mid.endswith("## Later\nkept\n") and "\nold\n" not in mid)
 check("copy: the table still reads after the section is written", O.note_rows(twice, "2026") == back)
+fresh = O.render(spec, "https://j", "2026-11-02", "MH", "Owner")
+check("render: a fresh note is copy-ready, every row as drafted, plain keys",
+      "Tab 2026.10月, rows all." in fresh and "MH\tOwner\t2026/10/19\tVerified MH-3721 on QA 2" in fresh
+      and "MH\tOwner\t2026/10/20\tAssessed MH-3797 / a | b split" in fresh)
+check("render: In short says post all refreshes the block after edits", "`ela: post all` to refresh it" in fresh)
+check("render: the table reads the same with the block below it", O.note_rows(fresh, "2026") == back)
+check("post after render: the block is replaced, not doubled", O.copy_section(fresh, ["2026.10月"], "1", ["x"]).count("## Copy to the sheet") == 1)
 check("progress: set to rows N ready to copy",
       'progress: "2026-11-02 10:00: rows 1 ready to copy"' in O.set_progress(note, "2026-11-02 10:00: rows 1 ready to copy"))
 

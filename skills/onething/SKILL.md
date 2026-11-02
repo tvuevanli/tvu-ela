@@ -22,8 +22,8 @@ ruled on 2026-11-02 (vault `in-progress/2026-11-02-one-thing-skill.md`).
 | `ela onething facts --date D --json` | the owner's own Jira comments and moves and his own Slack messages, per Asia/Shanghai day; Helm's auto-writes and bookkeeping fields (Fixed In, labels, links, rank) left out; `errors` names a source not read | nothing |
 | `ela onething facts --month YYYY-MM --json` | the same for a month, up to today | nothing |
 | `ela onething sheet --month YYYY-MM [--json]` | the rows already in that month's tab under his name (Drive export, read token) | nothing |
-| `ela onething render --rows FILE [--out PATH] [--force]` | the vault note from drafted rows: numbered table, keys as links, the days left out, the evidence; prints the path; refuses to replace an existing note without `--force` | the vault note |
-| `ela onething post NOTE --pick "1, 3"` | the picked rows as the sheet takes them (plain keys, no links): a `## Copy to the sheet` section (one already there is replaced) with a line naming the tab and the rows, then a fenced block of tab-separated lines, Project · Whom · Date (YYYY/MM/DD) · Content, which pasted at column A fill A–D; the same block printed; the note's progress set to `<stamp>: rows N ready to copy` | the vault note |
+| `ela onething render --rows FILE [--out PATH] [--force]` | the vault note from drafted rows: numbered table, keys as links, the days left out, the evidence, and `## Copy to the sheet` with every row as drafted, so a fresh note is copy-ready; prints the path; refuses to replace an existing note without `--force` | the vault note |
+| `ela onething post NOTE --pick "1, 3"` | rewrites `## Copy to the sheet` for the picked rows (plain keys, no links), after he edits rows or for a subset: the section with a line naming the tab and the rows, then a fenced block of tab-separated lines, Project · Whom · Date (YYYY/MM/DD) · Content, which pasted at column A fill A–D; the same block printed; the note's progress set to `<stamp>: rows N ready to copy` | the vault note |
 
 `--pick` takes `1, 3`, `1 & 3`, `2-4` or `all`; a number not in the note exits 3. Exit codes: 0 ok · 2 usage · 3 not
 found · 4 auth (the read token) · 5 remote.
@@ -38,9 +38,11 @@ Site env: `ONETHING_SHEET` (the spreadsheet id), `ONETHING_WHOM` (his name in co
    "left_out": [{"date": ..., "why": ...}], "existing": [dates already on the sheet], "evidence": "..."}`.
 3. `ela onething render --rows FILE` writes `to-read/<date>-one-thing.md` in the vault (a month:
    `to-read/<today>-one-thing-YYYY-MM.md`).
-4. The owner edits rows in place, then writes `ela: post 1, 3` (or `ela: post all`) in the note.
-5. `ela onething post NOTE --pick "1, 3"` writes the rows to copy into the note; he pastes them into the sheet. Run it
-   only on his line, and never pick rows he did not name.
+4. The note is copy-ready as rendered, and Home links the newest One Thing note in `to-read/` ("One Thing (copy block
+   ready)" in its links line) until he moves it out. If he edits rows, he writes `ela: post all` (or `ela: post 1, 3`)
+   in the note.
+5. `ela onething post NOTE --pick "1, 3"` rewrites the block from the rows as they now stand; he pastes it into the
+   sheet. Run it only on his line, and never pick rows he did not name.
 
 **Nightly** (ela-runner's evening step, after the working day): steps 1–3 for that day only. The session runs only
 `ela onething facts|render|sheet` and ends with exactly one line: the note's path; `No row: <date> — <why>` when both
