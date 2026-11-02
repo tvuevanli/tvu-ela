@@ -2083,6 +2083,80 @@ def bundle_cell(b, how, newest_build, pinned):
             "name": b["bundleName"], "source": how, "stale": stale}
 
 
+def followed_lines():
+    """The release lines the lanes page follows, newest first: those whose lanes release.yaml records as decided
+    (lines.<line>.decided). A line with placeholder lanes, or with Helm's config alone, is not followed; a line with
+    no lanes (2.2 today) is skipped. The morning's line is always among them."""
+    lines = R.rmap("lines") or {}
+    got = {k for k, v in lines.items() if isinstance(v, dict) and v.get("lanes") and v.get("decided")} | {LINE}
+    num = lambda k: tuple(int(x) if x.isdigit() else 0 for x in str(k).split("."))  # noqa: E731
+    return sorted(got, key=num, reverse=True)
+
+
+def line_matrix(line, args, env, rows, before, tested, pins, cand_doc, errors):
+    """One line's lanes table from the rows already read: its lanes from release.yaml, the bundle each runs, a cell per
+    service and lane, the next train from the line's pending record (or a plain {label, versions} file for the
+    morning's line), the promote report's gate counts, and the region lanes aligned with its prod."""
+    cfg = R.rmap("lines").get(line) or {}
+    roles = [r for r in ("prod", "daily", "qa") if (cfg.get("lanes") or {}).get(r)]
+    lanes = [cfg["lanes"][r] for r in roles]
+    rec = pending_for(cand_doc, line) if cand_doc else None
+    cand = (rec or {}).get("candidate")
+    if cand is None and cand_doc and line == LINE and not pending_records(cand_doc) and "versions" in cand_doc:
+        cand = cand_doc                                     # a plain candidate file names the morning's line
+    report = (args.promote_report if line == LINE else None) or (rec or {}).get("report")
+    # the bundle each lane runs. GM records no deployment, so it is inferred: QA and daily bundles follow the lane-token
+    # names (mh2.1@qa-q26); prod releases are named "MediaHub <line>.<n>", so prod takes the newest of those, and the
+    # rc token only when none exists. Either is unconfirmed, and marked stale when the lane moved after it.
+    bundle = {}
+    toks = cfg.get("bundle_lanes") or {}
+    for role, lane in zip(roles, lanes):
+        host = "qa" if role == "qa" else "prod"
+        newest = max((built_at(r["version"]) or "" for r in rows if r.get("lane") == lane and r["host"] != "mail"), default="")
+        try:
+            b, how = None, "token"
+            if role == "prod":                              # the owner's pin first (ADR 0012), then the newest release name
+                named = run_json(["python3", RELEASE, *env, "bundles", f"MediaHub {line}", "--host", host, "--limit", "50", "--json"], timeout=120)["bundles"]
+                pin = R.read_pins().get(line) or {}
+                b = next((x for x in named if pin and str(x.get("bundleId")) == str(pin.get("id"))), None)
+                how = "official"
+                if b is None:
+                    b = max((x for x in named if R.is_official(str(x.get("bundleName", "")), line)), key=lambda x: str(x.get("createTime") or ""), default=None)
+                    how = "by name"
+            if b is None and role != "prod":                # prod has no token lane: an rc bundle is special-purpose (2026-10-27)
+                got = run_json(["python3", RELEASE, *env, "bundles", cfg.get("bundle_line") or "", "--host", host, "--limit", "50", "--json"], timeout=120)["bundles"]
+                pre = (cfg.get("bundle_line") or "") + toks.get(role, "")
+                got = [x for x in got if str(x.get("bundleName", "")) == pre or str(x.get("bundleName", "")).startswith(pre + "-")]
+                b, how = max(got, key=lambda x: str(x.get("createTime") or ""), default=None), "token"
+            bundle[lane] = bundle_cell(b, how, newest, role == "prod" and how == "official")
+        except (LaneError, subprocess.TimeoutExpired, ValueError) as e:
+            bundle[lane] = {"text": "not read"}
+            errors.append({"source": f"bundles {host} ({line})", "error": str(e)[:200]})
+    prev = (before or {}).get("rows")
+    table = [bundle_row(bundle, lanes, cand)]
+    same = []
+    for s in MATRIX_ROWS:
+        cells = [matrix_cell(s, l, rows, prev, tested, pins) for l in lanes]
+        if cand:
+            cells.append(candidate_cell((cand.get("versions") or {}).get(s)))
+        if len({c.get("version") for c in cells[:len(lanes)]}) == 1 and not any(c.get("moved") or c.get("pin") for c in cells):
+            same.append(f"{LABEL.get(s, s)} {cells[0]['text']}")
+            continue
+        table.append({"row": LABEL.get(s, s), "service": s, "cells": cells})
+    gate = None
+    if report and os.path.isfile(report) and datetime.datetime.now().timestamp() - os.path.getmtime(report) < 86400:
+        try:
+            c = json.load(open(report))["counts"]["findings"]
+            age = int((datetime.datetime.now().timestamp() - os.path.getmtime(report)) // 3600)
+            gate = {"stop": c.get("stop", 0), "high": c.get("high", 0), "report": report, "age_hours": age}
+        except (OSError, ValueError, KeyError):
+            errors.append({"source": "promote report", "error": f"unreadable: {report}"})
+    regions = [region_reading(l, tested, rows) for l in region_lanes((cfg.get("lanes") or {}).get("prod"))]
+    return {"line": line, "lanes": [LANE_SHOWN.get(l, l) for l in lanes] + ([cand.get("label") or "next train"] if cand else []),
+            "rows": table, "same": same, "gate": gate, "lane_ids": lanes, "pending": rec,
+            "regions": [r for r in regions if r["versions"] or not r["retiring"]]}   # a retiring lane no report names is gone
+
+
 def cmd_matrix(args):
     site = json.load(open(SITE))
     env = ["--env-file", args.env_file] if args.env_file else []
@@ -2122,77 +2196,26 @@ def cmd_matrix(args):
                 held.append({"service": p.get("service"), "lane": p.get("lane"), "says": c.get("says") or c.get("id")})
     except (OSError, ValueError, subprocess.TimeoutExpired):
         errors.append({"source": "constraints", "error": "ela promote constraints did not answer; no pin marks"})
-    cfg = R.rmap("lines").get(LINE) or {}
-    roles = [r for r in ("prod", "daily", "qa") if (cfg.get("lanes") or {}).get(r)]
-    lanes = [cfg["lanes"][r] for r in roles]
-    cand = None
+    cand_doc = None
     if args.candidate:
         try:
-            cand = json.load(open(args.candidate))
+            cand_doc = json.load(open(args.candidate))   # <reports>/promote/pending.json as it is, or a plain {label, versions}
         except (OSError, ValueError) as e:
             errors.append({"source": "candidate", "error": str(e)[:200]})
-        if cand and ("candidate" in cand or pending_records(cand)):   # <reports>/promote/pending.json as it is: the line's record
-            rec = pending_for(cand, LINE)
-            args.promote_report = args.promote_report or (rec or {}).get("report")
-            cand = (rec or {}).get("candidate")
-    # the bundle each lane runs. GM records no deployment, so it is inferred: QA and daily bundles follow the lane-token
-    # names (mh2.1@qa-q26); prod releases are named "MediaHub <line>.<n>", so prod takes the newest of those, and the
-    # rc token only when none exists. Either is unconfirmed, and marked stale when the lane moved after it.
-    bundle = {}
-    toks = cfg.get("bundle_lanes") or {}
-    for role, lane in zip(roles, lanes):
-        host = "qa" if role == "qa" else "prod"
-        newest = max((built_at(r["version"]) or "" for r in rows if r.get("lane") == lane and r["host"] != "mail"), default="")
-        try:
-            b, how = None, "token"
-            if role == "prod":                              # the owner's pin first (ADR 0012), then the newest release name
-                named = run_json(["python3", RELEASE, *env, "bundles", f"MediaHub {LINE}", "--host", host, "--limit", "50", "--json"], timeout=120)["bundles"]
-                pin = R.read_pins().get(LINE) or {}
-                b = next((x for x in named if pin and str(x.get("bundleId")) == str(pin.get("id"))), None)
-                how = "official"
-                if b is None:
-                    b = max((x for x in named if R.is_official(str(x.get("bundleName", "")), LINE)), key=lambda x: str(x.get("createTime") or ""), default=None)
-                    how = "by name"
-            if b is None and role != "prod":                # prod has no token lane: an rc bundle is special-purpose (2026-10-27)
-                got = run_json(["python3", RELEASE, *env, "bundles", cfg.get("bundle_line") or "", "--host", host, "--limit", "50", "--json"], timeout=120)["bundles"]
-                pre = (cfg.get("bundle_line") or "") + toks.get(role, "")
-                got = [x for x in got if str(x.get("bundleName", "")) == pre or str(x.get("bundleName", "")).startswith(pre + "-")]
-                b, how = max(got, key=lambda x: str(x.get("createTime") or ""), default=None), "token"
-            bundle[lane] = bundle_cell(b, how, newest, role == "prod" and how == "official")
-        except (LaneError, subprocess.TimeoutExpired, ValueError) as e:
-            bundle[lane] = {"text": "not read"}
-            errors.append({"source": f"bundles {host}", "error": str(e)[:200]})
-    prev = (before or {}).get("rows")
-    table = [bundle_row(bundle, lanes, cand)]
-    same = []
-    for s in MATRIX_ROWS:
-        cells = [matrix_cell(s, l, rows, prev, tested, pins) for l in lanes]
-        if cand:
-            cells.append(candidate_cell((cand.get("versions") or {}).get(s)))
-        if len({c.get("version") for c in cells[:len(lanes)]}) == 1 and not any(c.get("moved") or c.get("pin") for c in cells):
-            same.append(f"{LABEL.get(s, s)} {cells[0]['text']}")
-            continue
-        table.append({"row": LABEL.get(s, s), "service": s, "cells": cells})
-    gate = None
-    if args.promote_report and os.path.isfile(args.promote_report) and \
-            datetime.datetime.now().timestamp() - os.path.getmtime(args.promote_report) < 86400:
-        try:
-            c = json.load(open(args.promote_report))["counts"]["findings"]
-            age = int((datetime.datetime.now().timestamp() - os.path.getmtime(args.promote_report)) // 3600)
-            gate = {"stop": c.get("stop", 0), "high": c.get("high", 0), "report": args.promote_report, "age_hours": age}
-        except (OSError, ValueError, KeyError):
-            errors.append({"source": "promote report", "error": f"unreadable: {args.promote_report}"})
-    regions = [region_reading(l, tested, rows) for l in region_lanes((cfg.get("lanes") or {}).get("prod"))]
-    out = {"date": date, "lanes": [LANE_SHOWN.get(l, l) for l in lanes] + ([cand.get("label") or "next train"] if cand else []),
-           "rows": table, "same": same, "gate": gate, "errors": errors, "held": held, "lane_ids": lanes,
-           "regions": [r for r in regions if r["versions"] or not r["retiring"]]}   # a retiring lane no report names is gone
+    lines = followed_lines() if args.page else [LINE]
+    outs = [line_matrix(l, args, env, rows, before, tested, pins, cand_doc, errors) for l in lines]
+    out = next(o for o in outs if o["line"] == LINE)
+    out.update(date=date, errors=errors, held=held)
     if args.page:
-        path = write_lanes_page(out, site, env, runner, tested)
+        path = write_lanes_page(outs, site, env, runner, tested, held)
         print(f"written: {path}")
     elif args.json:
         print(json.dumps(out, ensure_ascii=False)); return
     else:
         print(render_matrix(out))
+        others = [l for l in followed_lines() if l != LINE]
+        if others:                                          # the morning keeps one line; the others are on the lanes page
+            print("", f"*{', '.join(others)} on [[lanes]]*", sep="\n")
     for e in errors:
         print(f"not read: {e['source']}: {e['error']}", file=sys.stderr)
 
@@ -2217,10 +2240,10 @@ def shown_service(slug):
     return LABEL.get(slug, slug)
 
 
-def pair_report(env, a, b):
+def pair_report(env, a, b, line=LINE):
     """`ela promote report <line> a b --json`: the delta per service, its tickets and QA's verdict per key; read-only,
     no pending promotion recorded (that needs --out)."""
-    return run_json(["python3", PROMOTE, *env, "--quiet", "report", LINE, a, b, "--purpose", "regular", "--json"], timeout=900)
+    return run_json(["python3", PROMOTE, *env, "--quiet", "report", line, a, b, "--purpose", "regular", "--json"], timeout=900)
 
 
 def qa_said(ev):
@@ -2234,7 +2257,7 @@ def qa_said(ev):
     return "○ no QA verdict"
 
 
-def differences(rep_, shown, held=()):
+def differences(rep_, shown, held=(), line=None):
     """The section for one pair: a verdict line, then per service the tickets the next lane lacks, with QA's word and
     any standing constraint holding them, then the behaviour commits without a ticket, folded; docs and tests are one
     closing line."""
@@ -2246,7 +2269,7 @@ def differences(rep_, shown, held=()):
     keys = sorted({k for x in ahead for c in x["commits"] for k in keyed(c) if k in tickets})
     verified = [k for k in keys if (verdicts.get(k) or {}).get("verdict") == "pass"]
     unfiled = [c for x in ahead for c in x["commits"] if not keyed(c) and c.get("kind") not in NO_BEHAVIOUR]
-    L = [f"### {frm} ahead of {to}", ""]
+    L = [f"### {(str(line) + ' · ') if line else ''}{frm} ahead of {to}", ""]
     if not ahead:
         return L + [f"{to} carries everything {frm} runs.", ""]
     L += [f"**{frm} carries {len(keys)} ticket{'s' if len(keys) != 1 else ''} {to} does not; {len(verified)} verified, "
@@ -2309,12 +2332,27 @@ def out_of_order(out):
     return lines, und
 
 
+def bundle_lane(name, cfgs):
+    """The lane a QA or daily bundle name belongs to, from its line prefix and lane token (mh2.0@stage-s3-d12 →
+    daily-stage) through the followed lines' bundle_lanes; the old fixed tokens when the map does not say."""
+    tok = re.match(r"^([\w.]+@)([a-z]+(?:-[a-z]+)?)-", name)
+    if not tok:
+        return None
+    for cfg in cfgs.values():
+        if cfg.get("bundle_line") == tok.group(1):
+            role = next((r for r, t in (cfg.get("bundle_lanes") or {}).items() if t == tok.group(2)), None)
+            if role and (cfg.get("lanes") or {}).get(role):
+                return cfg["lanes"][role]
+    return {"daily-wed": "daily-wed", "stage": "daily-stage", "qa": "qa-cn3"}.get(tok.group(2))
+
+
 def movements(runtime, reports, tested, today, shown, bundles_now=None):
     """Every lane move of the last MOVES_DAYS days, newest first, from the daily changes files (lane versions, the
     release mails and threads with their tickets, new bundles) and the docker ledger (docker services as slug@image);
     today's bundles from the matrix when they moved since the last file. One row per lane, service and version."""
     runner = os.path.join(runtime, "runner")
     rows, first = {}, None
+    cfgs = {l: (R.rmap("lines") or {}).get(l) or {} for l in followed_lines()}
     images = {}
     for n, v in service_aliases().items():
         for slug in v["slugs"]:
@@ -2347,8 +2385,7 @@ def movements(runtime, reports, tested, today, shown, bundles_now=None):
             continue
         dnum = lambda b: int((re.search(r"-d(\d+)$", str(b.get("name") or "")) or [0, 0])[1])  # noqa: E731  (same minute: the counter orders)
         for b in sorted(d.get("bundles") or [], key=lambda b: (b.get("created") or "", dnum(b))):
-            tok = re.match(r"^[\w.]+@([a-z]+(?:-[a-z]+)?)-", str(b.get("name") or ""))
-            lane = {"daily-wed": "daily-wed", "stage": "daily-stage", "qa": "qa-cn3"}.get(tok.group(1) if tok else "")
+            lane = bundle_lane(str(b.get("name") or ""), cfgs)
             if lane:
                 prev = last_bundle.get(lane)
                 if (b.get("created") or "")[:10] >= since:
@@ -2366,11 +2403,11 @@ def movements(runtime, reports, tested, today, shown, bundles_now=None):
             if v.get("from") and vkey(v["from"]) == vkey(v["to"]):
                 continue
             add((v.get("built") or m.group(1))[:10], shown(v["lane"]), v["service"], v.get("from"), v["to"], keys, qa_mark(v["service"], v["to"]))
-        qa_lane = ((R.rmap("lines") or {}).get(LINE) or {}).get("lanes", {}).get("qa")
         for b in d.get("builds") or []:
             if b.get("result") != "SUCCESS":
                 continue
-            lanes = b.get("deployed_to") or ([qa_lane] if b.get("branch") == f"release{LINE}" and qa_lane else [])
+            qa_lane = next((c.get("lanes", {}).get("qa") for ln, c in cfgs.items() if b.get("branch") == f"release{ln}"), None)
+            lanes = b.get("deployed_to") or ([qa_lane] if qa_lane else [])
             keys = {keys_of[str(c)[:8]] for c in b.get("commits") or [] if str(c)[:8] in keys_of}
             to = f"{b['version']} build {b['build']}"
             pv = R.parse_version(b["version"])
@@ -2485,29 +2522,39 @@ def list_links(reports):
     return ["", "What QA verifies, ranked, and what is in development: " + " · ".join(links)] if links else []
 
 
-def write_lanes_page(out, site, env, runner, tested):
-    """<reports>/lanes/lanes.md, rewritten whole: the lanes table and any version out of order (QA ≥ daily ≥ prod),
-    what each lane carries that the next does not, and the moves of the last two weeks. The vault carries it as
+def line_section(out, shown):
+    """One line's part of the page: its heading, the table, the order check and the region lanes under it."""
+    inv, und = out_of_order(out)
+    order = (["", "**Out of order** (versions run QA ≥ daily ≥ prod):", ""] + [f"- {x}" for x in inv]) if inv else \
+            ["", "*Every lane in order: QA ≥ daily ≥ prod*" + (f" *({und} pair{'s' if und != 1 else ''} in two series, not compared)*" if und else "")]
+    return [f"## Line {out['line']} · " + " ← ".join(shown(l) for l in out["lane_ids"]), "", render_matrix(out)] + order
+
+
+def write_lanes_page(outs, site, env, runner, tested, held=()):
+    """<reports>/lanes/lanes.md, rewritten whole: for each followed line (release.yaml lines with decided lanes, newest
+    first) its lanes table with its own next train and any version out of order (QA ≥ daily ≥ prod); then what each
+    lane carries that the next does not, line by line, and the moves of the last two weeks. The vault carries it as
     lanes.md beside the board."""
     reports = site.get("reports") or os.path.join(site.get("projects", ""), "reports")
     runtime = site.get("runtime") or os.path.join(site.get("projects", ""), ".ela")
     now = datetime.datetime.now().astimezone()
     shown = lambda l: LANE_SHOWN.get(l, l)  # noqa: E731
-    inv, und = out_of_order(out)
-    order = (["", "**Out of order** (versions run QA ≥ daily ≥ prod):", ""] + [f"- {x}" for x in inv]) if inv else \
-            ["", "*Every lane in order: QA ≥ daily ≥ prod*" + (f" *({und} pair{'s' if und != 1 else ''} in two series, not compared)*" if und else "")]
     note = deploy_note(now, day_plan(now.date()))
-    L = ["# The lanes", "", f"*{now:%Y-%m-%d %H:%M} · line {LINE}*", "", "## The lanes this morning", "", render_matrix(out)] + order + \
-        (["", note] if note else []) + qa_cycle_block(now, runtime) + list_links(reports) + ["", "## Differences", ""]
+    L = ["# The lanes", "", f"*{now:%Y-%m-%d %H:%M} · lines {', '.join(o['line'] for o in outs)}*"]
+    for i, out in enumerate(outs):
+        L += [""] + line_section(out, shown)
+        if i == 0:                                          # the QA cycle and the lists follow the morning's line
+            L += (["", note] if note else []) + qa_cycle_block(now, runtime) + list_links(reports)
+    L += ["", "## Differences", ""]
     import concurrent.futures
-    with concurrent.futures.ThreadPoolExecutor(max_workers=len(PAIRS)) as ex:
-        futs = [(a, b, ex.submit(pair_report, env, a, b)) for a, b in PAIRS]
-        for a, b, fu in futs:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(PAIRS) * len(outs)) as ex:
+        futs = [(out["line"], a, b, ex.submit(pair_report, env, a, b, out["line"])) for out in outs for a, b in PAIRS]
+        for line, a, b, fu in futs:
             try:
-                L += differences(fu.result(), shown, out.get("held") or [])
+                L += differences(fu.result(), shown, held, line)
             except (LaneError, subprocess.TimeoutExpired, ValueError, KeyError) as e:
-                L += [f"### {a} ahead of {b}", "", f"Not read: {str(e)[:200]}", ""]
-    bundles_now = {lane: (c.get("name") if isinstance(c, dict) else None)
+                L += [f"### {line} · {a} ahead of {b}", "", f"Not read: {str(e)[:200]}", ""]
+    bundles_now = {lane: (c.get("name") if isinstance(c, dict) else None) for out in outs
                    for lane, c in zip(out.get("lane_ids") or [], (out["rows"][0]["cells"] if out["rows"] else []))}
     L += ["## Movements, 14 days", ""] + movements(runtime, reports, tested, now.date(), shown, bundles_now) + [""]
     path = os.path.join(reports, "lanes", "lanes.md")
@@ -3222,8 +3269,9 @@ def main():
     p.add_argument("--candidate", help="a JSON file {label, versions: {service: version}}: the next train as a fourth column")
     p.add_argument("--promote-report", help="the promotion report JSON (ela promote report --out): its stop and high count, when under a day old")
     p.add_argument("--json", action="store_true")
-    p.add_argument("--page", action="store_true", help="write the lanes page (<reports>/lanes/lanes.md, the vault's lanes.md): this table, "
-                                                      "what each lane carries that the next does not, and 14 days of moves; minutes, it reads two promotions")
+    p.add_argument("--page", action="store_true", help="write the lanes page (<reports>/lanes/lanes.md, the vault's lanes.md): this table for every "
+                                                      "line whose lanes the release map records as decided (2.1, 2.0), each with its own next train, what "
+                                                      "each lane carries that the next does not, and 14 days of moves; minutes, it reads two promotions per line")
     p.set_defaults(func=cmd_matrix)
     p = sub.add_parser("page-check", help="every apply N on a brief page has its action in the actions file and its box, and the page passes `ela review lint`; exit 1 naming any failure")
     p.add_argument("page"); p.add_argument("--actions", help="<reports>/runner/<date>-actions.json")

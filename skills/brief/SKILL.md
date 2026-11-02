@@ -646,7 +646,8 @@ The page is read in Obsidian, so its form is fixed:
   (vault to-read/2026-11-02-ela-and-vault-workflow-review.md, fix 4).*
 - **The lanes this morning** is the table `ela matrix` printed, pasted as it is from the runner's facts page (the
   runner runs it after `ela changes`), under its own heading after *FYI*. It is not retyped or summarised: the same
-  table is embedded in Home and must read the same in both places.
+  table is embedded in Home and must read the same in both places. It shows the morning's line only (its budget);
+  the pointer line under it (`2.0 on [[lanes]]`) names the other lines the lanes page renders, one section each.
 - **At most five lines** under *FYI*, each a thread §2a rated FYI: what to know and who holds it, no **Do:**.
   Beyond five, a count in the lanes table; the section is omitted when empty.
 - **The sprint is a table after the lanes,** under `## Sprint`, from §0's sprint read. Its first line is exactly
