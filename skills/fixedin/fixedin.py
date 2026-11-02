@@ -575,6 +575,7 @@ def known_slugs():
     out = {s for _, s in named_services() if s} | set(SERIES_SLUGS.values())
     al = (R.rmap("fixed_in") or {}).get("slug_aliases") or {}
     out |= set(al) | set(al.values()) | set((R.rmap("repos") or {}).keys()) | set((R.rmap("jobs") or {}).values())
+    out |= set((R.rmap("fixed_in") or {}).get("bundle_tracked_extra_slugs") or [])   # SaaS rows a bundle carries, no lane of their own
     for bucket in image_index().values():
         out |= {e["slug"] for e in bucket}
     return out

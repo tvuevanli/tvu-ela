@@ -1590,11 +1590,47 @@ def _fixed_in_one(creds, key, add, apply, remove=None, clear=False):
     return r, [f"{key}: Fixed In = {r['value']}"]
 
 
+def _fixed_in_vocabulary():
+    """(known slugs, docker resolver) from the fixed-in skill, which reads the published map; None when it cannot load."""
+    try:
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "fixedin"))
+        import fixedin as F
+        return F.known_slugs(), F.resolve_docker
+    except Exception:  # noqa: BLE001 — no map: the grammar alone still applies
+        return None
+
+
+def fixed_in_problem(entry, known=None, resolve_docker=None):
+    """Why `entry` breaks the release map's Fixed In grammar (map/release.yaml fixed_in), or None.
+    A docker entry is `mds-<slug>@<image>:<tag>` with the image mandatory; a SaaS entry is `<slug>@<version>` with a
+    slug the map knows. An image name in the slug's place passes the shape check (MH-3829, 2026-11-02), so the slug is
+    checked against the map and the docker form is suggested from the image index."""
+    if not FIXED_IN_ENTRY.match(entry):
+        return "not <slug>@<version>"
+    slug, ver = entry.split("@", 1)
+    if slug.startswith("mds-") and ":" not in ver:
+        return "a docker entry is mds-<slug>@<image>:<tag>; the image is missing"
+    if ":" in ver and not slug.startswith("mds-"):
+        return "an <image>:<tag> version belongs to an mds- slug"
+    if known is not None and slug not in known:
+        hint = resolve_docker(f"{slug}:{ver}") if resolve_docker else []
+        if hint:
+            return "a docker image is not a slug; write " + " or ".join(f"{s}@{t}" for s, t in hint)
+        return "slug not in the release map"
+    return None
+
+
 def _fixed_in_args(text):
+    """The entries to add, each checked against the map's grammar; `--remove` is not checked, so a grandfathered or
+    wrong entry can always be taken out."""
     add = fixed_in_entries(text)
-    bad = [e for e in add if not FIXED_IN_ENTRY.match(e)]
-    if not add or bad:
-        sys.exit(f"fixed-in: entries must be <slug>@<version>; bad: {', '.join(bad) or '(none given)'}")
+    if not add:
+        sys.exit("fixed-in: entries must be <slug>@<version>; none given")
+    vocab = _fixed_in_vocabulary()
+    known, resolver = vocab if vocab else (None, None)
+    bad = [(e, p) for e in add if (p := fixed_in_problem(e, known, resolver))]
+    if bad:
+        sys.exit("fixed-in: refused\n" + "\n".join(f"  {e}: {p}" for e, p in bad))
     return add
 
 
