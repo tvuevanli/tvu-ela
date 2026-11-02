@@ -10,6 +10,9 @@ append of the rows he picks. Stdlib only.
   post   NOTE --pick 1,3|all [--apply]       the picked rows as the sheet takes them (plain keys, no links); dry run
                                              prints them ready to paste; --apply appends them to the month's tab with the
                                              write token, reads the tab back and records the post in the note
+  login                                      the owner's one-time grant of the write token: a loopback consent URL to
+                                             open (the one spreadsheets scope, PKCE), the token saved mode 600 in the
+                                             site directory, ONETHING_SHEETS_TOKEN_FILE set, the sheet read to verify
 
 Site env (the site's .env): ONETHING_SHEET (the spreadsheet id), ONETHING_WHOM (the name in column B),
 ONETHING_PROJECT (column A, default MH), ONETHING_OWNER (his Jira and Slack display name; read from Jira when absent),
@@ -17,7 +20,8 @@ GOOGLE_TOKEN_FILE (read-only, shared with gdoc), ONETHING_SHEETS_TOKEN_FILE (the
 scope is spreadsheets, and it is used for nothing but this append).
 Exit codes: 0 ok · 2 usage · 3 not found · 4 auth · 5 remote.
 """
-import argparse, datetime, html, io, json, os, re, subprocess, sys, urllib.error, urllib.parse, urllib.request, zipfile
+import argparse, base64, datetime, hashlib, html, http.server, io, json, os, re, secrets, subprocess, sys, urllib.error, \
+    urllib.parse, urllib.request, zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "gdoc"))
@@ -405,6 +409,167 @@ def write_token(a):
     return _ACCESS["token"]
 
 
+# ---------------------------------------------------------------- login: the owner creates the write token
+
+AUTH_URI = "https://accounts.google.com/o/oauth2/auth"
+TOKEN_NAME = "google-sheets-token.json"
+
+
+def pkce():
+    """A PKCE verifier and its S256 challenge."""
+    verifier = base64.urlsafe_b64encode(secrets.token_bytes(32)).rstrip(b"=").decode()
+    challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+    return verifier, challenge
+
+
+def auth_url(client_id, redirect, state, challenge, hint=None):
+    """The consent URL: the one write scope, offline, consent, state and PKCE; nothing else is asked."""
+    q = {"client_id": client_id, "redirect_uri": redirect, "response_type": "code", "scope": WRITE_SCOPE,
+         "access_type": "offline", "prompt": "consent", "state": state,
+         "code_challenge": challenge, "code_challenge_method": "S256"}
+    if hint:
+        q["login_hint"] = hint
+    return AUTH_URI + "?" + urllib.parse.urlencode(q)
+
+
+def read_client(a):
+    """client_id, client_secret and token_uri from the read token (the same Desktop OAuth client)."""
+    path = setting(a, "GOOGLE_TOKEN_FILE")
+    if not path or not os.path.isfile(os.path.expanduser(path)):
+        die("no GOOGLE_TOKEN_FILE in the site env: login reuses its OAuth client", EX_AUTH)
+    with open(os.path.expanduser(path), encoding="utf-8") as f:
+        t = json.load(f)
+    if not t.get("client_id") or not t.get("client_secret"):
+        die("GOOGLE_TOKEN_FILE carries no client_id/client_secret", EX_AUTH)
+    return {"client_id": t["client_id"], "client_secret": t["client_secret"],
+            "token_uri": t.get("token_uri") or "https://oauth2.googleapis.com/token"}
+
+
+def wait_for_code(server, state, timeout=600):
+    """Serve the loopback redirect until the code arrives; the state must match."""
+    got = {}
+
+    class H(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            q = dict(urllib.parse.parse_qsl(urllib.parse.urlsplit(self.path).query))
+            if q.get("state") == state and (q.get("code") or q.get("error")):
+                got.update(q)
+                body = b"ela: done, you can close this tab." if q.get("code") else b"ela: consent refused."
+            else:
+                body = b"ela: not the expected redirect."
+            self.send_response(200); self.send_header("Content-Type", "text/plain"); self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *_):
+            pass
+    server.RequestHandlerClass = H
+    server.timeout = 5
+    end = datetime.datetime.now().timestamp() + timeout
+    while not got and datetime.datetime.now().timestamp() < end:
+        server.handle_request()
+    if not got:
+        die("no redirect within ten minutes", EX_AUTH)
+    if got.get("error"):
+        die(f"consent refused: {got['error']}", EX_AUTH)
+    return got["code"]
+
+
+def exchange_code(client, code, verifier, redirect):
+    body = urllib.parse.urlencode({"code": code, "client_id": client["client_id"], "client_secret": client["client_secret"],
+                                   "redirect_uri": redirect, "grant_type": "authorization_code",
+                                   "code_verifier": verifier}).encode()
+    try:
+        with urllib.request.urlopen(urllib.request.Request(client["token_uri"], data=body), timeout=30) as r:
+            return json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        die(f"google: code exchange failed (HTTP {e.code})", EX_AUTH)
+
+
+def save_token(path, client, granted):
+    """The write token file, mode 600, in the shape gdoc's token has; refused unless exactly the one scope came back."""
+    scopes = (granted.get("scope") or "").split()
+    if scopes != [WRITE_SCOPE]:
+        die(f"google granted {scopes}, not exactly {WRITE_SCOPE}: nothing saved", EX_AUTH)
+    if not granted.get("refresh_token"):
+        die("google returned no refresh token (revoke the earlier grant and log in again): nothing saved", EX_AUTH)
+    data = {"client_id": client["client_id"], "client_secret": client["client_secret"],
+            "refresh_token": granted["refresh_token"], "token_uri": client["token_uri"], "scopes": [WRITE_SCOPE]}
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=1)
+    os.chmod(path, 0o600)
+
+
+def set_env_line(env_path, key, value):
+    """KEY=value in the site .env: the existing line replaced, or one appended; the file's mode kept."""
+    lines = open(env_path, encoding="utf-8").read().splitlines() if os.path.exists(env_path) else []
+    out, done = [], False
+    for line in lines:
+        if line.startswith(key + "="):
+            if not done:
+                out.append(f"{key}={value}"); done = True
+            continue
+        out.append(line)
+    if not done:
+        out.append(f"{key}={value}")
+    mode = os.stat(env_path).st_mode & 0o777 if os.path.exists(env_path) else 0o600
+    fd = os.open(env_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write("\n".join(out) + "\n")
+
+
+def verify_sheet(a, access, project):
+    sheet = setting(a, "ONETHING_SHEET")
+    if not sheet:
+        print("no ONETHING_SHEET in the site env: the token is saved, the sheet not checked"); return
+    url = f"https://sheets.googleapis.com/v4/spreadsheets/{sheet}?fields=properties.title"
+    try:
+        with urllib.request.urlopen(urllib.request.Request(url, headers={"Authorization": f"Bearer {access}"}), timeout=30) as r:
+            print(f"verified: the token reads the sheet ({json.loads(r.read()).get('properties', {}).get('title', '?')})")
+    except urllib.error.HTTPError as e:
+        text = e.read().decode("utf-8", "replace")
+        if e.code == 403 and ("SERVICE_DISABLED" in text or "has not been used" in text):
+            die("the token is saved, but the Sheets API is disabled in the client's GCP project; enable it at\n  "
+                f"https://console.developers.google.com/apis/api/sheets.googleapis.com/overview?project={project}\n"
+                "then run `ela onething login` again or retry the post", EX_AUTH)
+        die(f"the token is saved, but reading the sheet failed (HTTP {e.code}): {text[:200]}",
+            EX_AUTH if e.code in (401, 403) else EX_REMOTE)
+
+
+def env_path(a):
+    p = a.env_file or os.environ.get("ELA_ENV_FILE")
+    if not p:
+        die("no site env file: run as `ela onething login`", EX_USAGE)
+    return p
+
+
+def cmd_login(a, exchange=exchange_code):
+    """The owner's one-time grant of the write token: loopback consent, the token saved, the env pointed at it."""
+    client = read_client(a)
+    env = env_path(a)
+    site = {}
+    if os.path.isfile(SITE):
+        with open(SITE, encoding="utf-8") as f:
+            site = json.load(f)
+    hint = (site.get("emails") or {}).get("me")
+    verifier, challenge = pkce()
+    state = secrets.token_urlsafe(16)
+    server = http.server.HTTPServer(("127.0.0.1", 0), http.server.BaseHTTPRequestHandler)
+    redirect = f"http://127.0.0.1:{server.server_address[1]}/"
+    print("Open this URL in your browser and allow the one scope (spreadsheets):\n")
+    print(auth_url(client["client_id"], redirect, state, challenge, hint) + "\n", flush=True)
+    try:
+        code = wait_for_code(server, state)
+    finally:
+        server.server_close()
+    granted = exchange(client, code, verifier, redirect)
+    path = os.path.join(os.path.dirname(SITE), TOKEN_NAME)
+    save_token(path, client, granted)
+    set_env_line(env, "ONETHING_SHEETS_TOKEN_FILE", path)
+    print(f"saved {path} (mode 600) and ONETHING_SHEETS_TOKEN_FILE in the site env")
+    verify_sheet(a, granted.get("access_token"), client["client_id"].split("-")[0])
+
+
 def append(a, tab, values):
     sheet = setting(a, "ONETHING_SHEET")
     rng = urllib.parse.quote(f"'{tab}'!A:F")
@@ -489,10 +654,11 @@ def main():
     s = sub.add_parser("sheet"); s.add_argument("--month", required=True); s.add_argument("--json", action="store_true")
     r = sub.add_parser("render"); r.add_argument("--rows", required=True); r.add_argument("--out"); r.add_argument("--force", action="store_true")
     o = sub.add_parser("post"); o.add_argument("note"); o.add_argument("--pick", required=True); o.add_argument("--apply", action="store_true")
+    sub.add_parser("login")
     a = p.parse_args()
     if getattr(a, "month", None) and not re.fullmatch(r"\d{4}-\d{2}", a.month):
         die("--month is YYYY-MM", EX_USAGE)
-    {"facts": cmd_facts, "sheet": cmd_sheet, "render": cmd_render, "post": cmd_post}[a.cmd](a)
+    {"facts": cmd_facts, "sheet": cmd_sheet, "render": cmd_render, "post": cmd_post, "login": cmd_login}[a.cmd](a)
 
 
 if __name__ == "__main__":

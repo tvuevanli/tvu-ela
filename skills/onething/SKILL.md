@@ -23,6 +23,7 @@ ruled on 2026-11-02 (vault `in-progress/2026-11-02-one-thing-skill.md`).
 | `ela onething sheet --month YYYY-MM [--json]` | the rows already in that month's tab under his name (Drive export, read token) | nothing |
 | `ela onething render --rows FILE [--out PATH] [--force]` | the vault note from drafted rows: numbered table, keys as links, the days left out, the evidence; prints the path; refuses to replace an existing note without `--force` | the vault note |
 | `ela onething post NOTE --pick "1, 3"` | the picked rows as the sheet takes them (plain keys, no links), tab-separated, ready to paste | nothing (dry run) |
+| `ela onething login` | the owner's one-time grant of the write token (§Write token) | the token file, the site `.env` |
 | `ela onething post NOTE --pick "1, 3" --apply` | appends them to the month's tab with the write token, skips a row already there with the same date and text, reads the tab back, records the post under `## Posted` in the note | the sheet (append only), the note |
 
 `--pick` takes `1, 3`, `1 & 3`, `2-4` or `all`; a number not in the note exits 3. Exit codes: 0 ok · 2 usage · 3 not
@@ -73,22 +74,27 @@ minutes: run it in the background and wait for it, never in a foreground call th
 ## Write token
 
 `gdoc` stays read-only (its scope allowlist refuses any write scope). This skill's append is the only Google write
-path, and it only appends. The owner creates its token by hand, once:
+path, and it only appends. The owner creates its token himself, once, with **`ela onething login`**:
 
-1. In the GCP project that holds the OAuth client used for `GOOGLE_TOKEN_FILE`, run the same installed-app consent flow
-   with the single scope `https://www.googleapis.com/auth/spreadsheets`.
-2. Save the result as an authorized-user JSON like `GOOGLE_TOKEN_FILE`'s (`client_id`, `client_secret`,
-   `refresh_token`, `token_uri`, `scopes`) in the site directory, mode 600.
-3. Name it in the site `.env` as `ONETHING_SHEETS_TOKEN_FILE=<path>`.
+1. It reuses the OAuth client of the read token (`GOOGLE_TOKEN_FILE`: the same Desktop client) and prints a consent URL
+   that asks exactly `https://www.googleapis.com/auth/spreadsheets`, offline, with a state check and PKCE (S256), the
+   site's own address as the login hint. It opens no browser: under WSL he pastes the URL into the Windows browser, and
+   the loopback redirect to `127.0.0.1` reaches the listener.
+2. It exchanges the code, refuses a grant with any other scope or without a refresh token, and saves
+   `google-sheets-token.json` in the site directory, mode 600, with the keys gdoc's token has (`client_id`,
+   `client_secret`, `refresh_token`, `token_uri`, `scopes`). The secret is never printed.
+3. It sets `ONETHING_SHEETS_TOKEN_FILE` in the site `.env` (the line replaced if present) and reads the sheet's title
+   with the new token. If the Sheets API is disabled in the client's GCP project, it prints the enable link (the project
+   number is the client id's prefix) and exits 4; enable it and run `login` again.
 
-`post --apply` refuses a token whose `scopes` is anything but exactly that one scope (exit 4), refreshes the access token
-in memory and never rewrites the file. Until the token exists, `--apply` exits 4 and the dry run's rows are ready to
-paste.
+Login is a step of the owner's, not ela's: ela never runs it on his behalf. `post --apply` refuses a token whose
+`scopes` is anything but exactly that one scope (exit 4), refreshes the access token in memory and never rewrites the
+file. Until the token exists, `--apply` exits 4 and the dry run's rows are ready to paste.
 
 ## Known limits
 
 - The Sheets API returned 403 with the read token while Drive export worked, so reads go through Drive export. If the
-  append also returns 403, the Sheets API may need enabling in the write token's GCP project.
+  append also returns 403, the Sheets API may need enabling in the write token's GCP project; `login` prints the link.
 - Read-back goes through the same Drive export, which can lag the append by a moment; a row "not read back" is
   re-checked with `sheet --month` before anything is appended again.
 - Helm's own moves under the owner's account are recognised by a Helm comment within two minutes; a Helm write without

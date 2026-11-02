@@ -159,5 +159,52 @@ with tempfile.TemporaryDirectory() as tmp:
     del os.environ["ONETHING_SHEETS_TOKEN_FILE"]
 check("whom: no ONETHING_WHOM exits 2", exit_code(O.whom, A) == 2)
 
+# ---- login (no Google: the exchange is faked, the redirect is served on loopback)
+import http.server, threading, urllib.parse as UP, urllib.request as UR  # noqa: E402,E401
+ver, chal = O.pkce()
+q = dict(UP.parse_qsl(UP.urlsplit(O.auth_url("cid-1", "http://127.0.0.1:5/", "st", chal, "owner@example.invalid")).query))
+check("login: the auth URL asks exactly the one write scope", q.get("scope") == O.WRITE_SCOPE)
+check("login: PKCE S256 and the state are in the URL", q.get("code_challenge") == chal
+      and q.get("code_challenge_method") == "S256" and q.get("state") == "st")
+check("login: offline access with consent", q.get("access_type") == "offline" and q.get("prompt") == "consent")
+check("login: the client secret is never in the URL", "client_secret" not in q)
+import base64, hashlib  # noqa: E402,E401
+check("login: the challenge is the verifier's S256", chal == base64.urlsafe_b64encode(
+      hashlib.sha256(ver.encode()).digest()).rstrip(b"=").decode())
+
+srv = http.server.HTTPServer(("127.0.0.1", 0), http.server.BaseHTTPRequestHandler)
+port = srv.server_address[1]
+def hit():
+    for qs in ("state=wrong&code=bad", "state=st&code=good"):
+        UR.urlopen(f"http://127.0.0.1:{port}/?{qs}", timeout=5).read()
+threading.Thread(target=hit, daemon=True).start()
+check("login: a redirect with the wrong state is ignored, the right one gives the code", O.wait_for_code(srv, "st", 30) == "good")
+srv.server_close()
+
+with tempfile.TemporaryDirectory() as tmp:
+    client = {"client_id": "123-x.apps", "client_secret": "s", "token_uri": "https://token.invalid"}
+    tok = os.path.join(tmp, "sheets.json")
+    O.save_token(tok, client, {"scope": O.WRITE_SCOPE, "refresh_token": "r", "access_token": "a"})
+    saved = json.load(open(tok))
+    check("login: the token file is mode 600", (os.stat(tok).st_mode & 0o777) == 0o600)
+    check("login: the token carries scopes == [the write scope] and gdoc's keys",
+          saved.get("scopes") == [O.WRITE_SCOPE] and set(saved) == {"client_id", "client_secret", "refresh_token", "token_uri", "scopes"})
+    check("login: the saved token passes the write gate", (os.environ.update(ONETHING_SHEETS_TOKEN_FILE=tok) or O.write_grant(A))["refresh_token"] == "r")
+    del os.environ["ONETHING_SHEETS_TOKEN_FILE"]
+    os.remove(tok)
+    check("login: a grant with a further scope saves nothing", exit_code(O.save_token, tok, client,
+          {"scope": O.WRITE_SCOPE + " https://www.googleapis.com/auth/drive", "refresh_token": "r"}) == 4 and not os.path.exists(tok))
+    check("login: a grant without a refresh token saves nothing",
+          exit_code(O.save_token, tok, client, {"scope": O.WRITE_SCOPE}) == 4 and not os.path.exists(tok))
+    env = os.path.join(tmp, ".env")
+    with open(env, "w") as f:
+        f.write("A=1\nONETHING_SHEETS_TOKEN_FILE=/old\nB=2\n")
+    os.chmod(env, 0o600)
+    O.set_env_line(env, "ONETHING_SHEETS_TOKEN_FILE", "/new")
+    check("login: the env line is replaced in place, the rest kept, mode kept",
+          open(env).read() == "A=1\nONETHING_SHEETS_TOKEN_FILE=/new\nB=2\n" and (os.stat(env).st_mode & 0o777) == 0o600)
+    O.set_env_line(env, "C", "3")
+    check("login: a missing env line is appended", open(env).read().endswith("B=2\nC=3\n"))
+
 print(f"\nonething offline: {'FAILED ' + str(len(failures)) if failures else 'all passed'}")
 sys.exit(1 if failures else 0)
