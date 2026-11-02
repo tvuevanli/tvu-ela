@@ -42,6 +42,8 @@ check("envs shows cn2 as CN Prod2 under /prod2 on the CN host", f"{CN}/prod2/" i
 check("envs lists the aliases", "cn → cn2" in r.stdout and "china → cn2" in r.stdout and "p<N> → prod<N>" in r.stdout)
 check("envs names QA as named-only", "qa<N>" in r.stdout and "never probed" in r.stdout and QA in r.stdout)
 check("envs makes no request", "ur " not in r.stderr and "401" not in r.stderr)
+r2 = run("graph", "envs")
+check("`graph envs` is the envs listing, not a graph lookup", r2.returncode == 0 and r2.stdout == r.stdout)
 j = json.loads(run("envs", "--json").stdout)
 check("envs --json carries order, edges and aliases",
       j["order"][-1] == "cn2" and j["edges"]["cn2"] == {"host": CN, "path": "prod2", "label": "CN Prod2"} and j["aliases"]["cn"] == "cn2")

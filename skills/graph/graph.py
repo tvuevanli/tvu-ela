@@ -573,6 +573,8 @@ def print_graph(a, via, g):
 
 
 def cmd_graph(ur, a):
+    if a.graph_id == "envs":                      # `ela graph envs` reaches here by shape; it is the envs listing
+        return cmd_envs(ur, a)
     path = graph_path(a.graph_id)
     if a.all:
         found = []
@@ -1346,7 +1348,7 @@ def main():
     a = ap.parse_args()
     # `envs` makes no request: warming TLS in background threads and then exiting mid-handshake
     # segfaults the interpreter on shutdown (intermittently, in OpenSSL) — so do not warm for it.
-    ur = UR(a.env_file, warm=(a.cmd != "envs"))
+    ur = UR(a.env_file, warm=not (a.cmd == "envs" or (a.cmd == "graph" and a.graph_id == "envs")))
     {"graph": cmd_graph, "process": cmd_process, "box": cmd_box, "graphs": cmd_graphs,
      "profile": cmd_profile, "profiles": cmd_profiles, "resolve": cmd_resolve, "envs": cmd_envs, "connect": cmd_connect, "exec": cmd_exec, "start": cmd_start, "stop": cmd_stop}[a.cmd](ur, a)
 
