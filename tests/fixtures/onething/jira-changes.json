@@ -1,0 +1,19 @@
+{"since": "2026-10-17 00:00", "count": 3, "issues": [
+ {"key": "MH-101", "summary": "Decimal bitrate rejected by the encoder", "status": "In Progress",
+  "events": [
+   {"at": "2026-10-18T20:17:00.000-0700", "by": "The Owner", "field": "status", "from": "Open", "to": "In Progress"},
+   {"at": "2026-10-19T01:00:00.000-0700", "by": "The Owner", "field": "labels", "from": "", "to": "release:mh-2.1"},
+   {"at": "2026-10-19T01:05:00.000-0700", "by": "The Owner", "field": "Fixed In", "from": "", "to": "copier@2.1.13"},
+   {"at": "2026-10-19T02:00:00.000-0700", "by": "A Developer", "field": "assignee", "from": "", "to": "A Developer"}],
+  "comments": [
+   {"at": "2026-10-19T03:00:00.000-0700", "by": "The Owner", "text": "Assessed the 2.1 impact: JPEG-XS is blocked; the fix scope is the copier's parser."},
+   {"at": "2026-10-19T03:10:00.000-0700", "by": "A Developer", "text": "Will take it."}]},
+ {"key": "MH-102", "summary": "DR cooldown", "status": "Done",
+  "events": [
+   {"at": "2026-10-19T00:30:00.000-0700", "by": "The Owner", "field": "status", "from": "QA", "to": "Done"}],
+  "comments": [
+   {"at": "2026-10-19T00:31:00.000-0700", "by": "The Owner", "text": "Helm: closed on evidence from the release map (auto)."}]},
+ {"key": "MH-103", "summary": "Only someone else's", "status": "Open",
+  "events": [{"at": "2026-10-19T00:00:00.000-0700", "by": "A Developer", "field": "status", "from": "Open", "to": "In Progress"}],
+  "comments": []}
+]}

@@ -1,0 +1,11 @@
+{"pattern": ".", "since": "2026-10-18", "count": 3, "messages": [
+ {"channel": "prj_dev_mediahub", "ts": "1792375200.000100", "permalink": "https://example.invalid/p1", "user": "The Owner",
+  "text": "Fox RTMP push fails in mediamtx: no B-frame support; a single-box upgrade path is ready.",
+  "reply_hits": [
+   {"ts": "1792375800.000200", "user": "The Owner", "text": "Test plan for the upgrade is in MH-3753."},
+   {"ts": "1792376000.000300", "user": "A Developer", "text": "Thanks."}]},
+ {"channel": "prj_dev_mediahub", "ts": "1792375800.000200", "permalink": "https://example.invalid/p2", "user": "The Owner",
+  "text": "Test plan for the upgrade is in MH-3753.", "reply_hits": []},
+ {"channel": "mediahub-qa-release", "ts": "1792375300.000400", "permalink": "https://example.invalid/p3", "user": "A QA Engineer",
+  "text": "Build 78 passed.", "reply_hits": []}
+]}

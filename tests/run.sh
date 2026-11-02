@@ -38,6 +38,7 @@ python3 tests/test_brief_changes_offline.py || fail=1
 python3 tests/test_vault_offline.py || fail=1
 python3 tests/test_page_fold_offline.py || fail=1
 python3 tests/test_recent_offline.py || fail=1
+python3 tests/test_onething_offline.py || fail=1
 python3 tests/test_promote_constraints_offline.py || fail=1
 python3 tests/test_promote_pending_offline.py || fail=1
 python3 tests/test_brief_pending_offline.py || fail=1
