@@ -20,6 +20,7 @@ its date, so a folder sorts by time. Folders carry no numbers: Home and the book
     home.md, board.md                           the entry point, five lines and links; the board's debt, one living page
     constraints.md                              the standing constraints, each pin read on its lane
     lanes.md                                    the lanes, what each carries that the next does not, two weeks of moves
+    recent.md                                   the week's tickets placed by line and by lane (ela recent --write), a dashboard
     lanes/test-list-<lane>.md                   what QA should verify on the lane, ranked (ela testlist --page)
     lanes/dev-list-<line>.md                    the line's tickets in development and their gaps (ela devlist --page)
     ela/review/<date>-reader.md                 the evening reader's verdict on each item of that morning's page, 30 days
@@ -86,12 +87,13 @@ PROPS = ("title", "aliases", "type", "date", "kind", "status", "result", "target
          "posted", "keys", "watch", "watched", "last")
 # the whole vocabulary; no tags (ADR 0010)
 MARKS = {"done": ARCHIVE, "drop": None}   # archive, delete; a drop of a reading something links archives it instead
-BUDGET = {"ticket": 700, "topic": 800, "guide": 1200, "board": 1000, "day": 1200, "review": 2500, "decision": 800, "plan": 800, "sprint": 800, "report": 1200}
+BUDGET = {"ticket": 700, "topic": 800, "guide": 1200, "board": 1000, "day": 1200, "review": 2500, "decision": 800, "plan": 800, "sprint": 800, "report": 1200,
+          "recent": 1200}
 # the closed set of note types, by family (the readme's Types): for his word, readings, living pages, day pages.
 # A type outside it, or a family outside its folders, is a lint line on the sync, never a failure.
 TYPE_FAMILY = {"decision": "decision", "plan": "plan", "sprint": "plan",
                "ticket": "reading", "review": "reading", "verify": "reading", "verify-plan": "reading",
-               "home": "page", "board": "page", "lanes": "page", "test-list": "page", "dev-list": "page", "program": "page",
+               "home": "page", "board": "page", "lanes": "page", "recent": "page", "test-list": "page", "dev-list": "page", "program": "page",
                "guide": "page", "vocabulary": "page", "system": "page", "constraints": "page", "readme": "page", "meeting": "page",
                "report": "page",
                "day": "day", "reader": "day"}
@@ -141,7 +143,7 @@ plans for your decision.
 Start at [[home]]. Five lines: what ela did since you last looked, what leaves at 10:00 (or its own send time) unless you tick "don't",
 what only you can do (at most three `apply` boxes; the morning page folds the rest under "N more", where a tick
 still counts), the MediaHub program's next step, and one line from ela. Below
-the line, links: the morning page, lanes, board, changes, the program, the ela page and all notes. A box ticked on
+the line, links: the morning page, lanes, board, recent, changes, the program, the ela page and all notes. A box ticked on
 Home is the same as on the morning page. While you hold tier 2 (`ela-runner hold`), nothing leaves on its own: the
 block reads "held until DATE (dry run)", without boxes, and each action says what it would have posted. The QA day
 post never leaves on a timer: under "Send when you tick:" it waits as `send N` until you tick it, after reviewing the
@@ -159,6 +161,7 @@ list and writing your `ela:` priority lines; the 09:30 or 10:00 pass then sends 
 | `in-progress/` | what you agreed to, while ela builds it, until you accept it | accept or say what is missing |
 | `parked/` | what waits on others, with who it waits on and what brings it back | resume or drop |
 | `lanes` | the lanes, what each carries that the next does not, two weeks of moves | look before a promotion |
+| `recent` | the week's MediaHub tickets placed: by release line with the line's train, where each fix stands, what QA said and what moved; by lane, what arrived, what is under test, what was reported from it; tickets with no line and the label ela would infer | look when a ticket moved and you want its place; tick *refresh recent* for the moment |
 | `lanes/` | the test list per lane and the dev list per release line | look before testing or a promotion |
 | `mh/` | the MediaHub program and its evidence | look when Home names the program's next step |
 | `sprints/` | the sprints, each a plan | look at a sprint's start and end |
@@ -194,7 +197,7 @@ the file explorer is rarely needed.
 - Types are a closed set, in four families. For your word: `decision`, `plan` (a sprint is a plan), in to-read,
   in-progress, parked or archive. Readings: `ticket`, `review`, `verify` and `verify-plan` (checks), in readings,
   or in to-read while one asks your word (a verification waiting for its record on Jira, a review with open
-  asks). Pages that live: home, board, lanes, test-list,
+  asks). Pages that live: home, board, lanes, recent, test-list,
   dev-list, program, the ela page (`guide`), vocabulary, system, constraints, readme, meeting, and `report`: a
   standing review or design for your decision that does not move, in any folder, its evidence in folds, ruled in
   place with an `ela:` line (status proposed, decided or superseded). Day pages: `day`
@@ -209,7 +212,7 @@ the file explorer is rarely needed.
 ## Reading budgets
 
 A note is written for a person: a title heading, within its budget (day page 1,200 words, review 2,500,
-sprint 800, a decision or a plan 800, a report 1,200; the reader page's Learned five lines), mostly prose, no machine paths. The budget counts what stands open: a folded callout (`> [!note]- …`
+sprint 800, a decision or a plan 800, a report 1,200, the recent page 1,200; the reader page's Learned five lines), mostly prose, no machine paths. The budget counts what stands open: a folded callout (`> [!note]- …`
 and the quoted lines under it) is read on demand and is not counted, for every type, so a page keeps its
 detail in folds and its weight above them. A note that misses is still here, under a warning, and Home lists
 it for 30 days as a rewrite ela owes; a past day page is the morning's record and is not listed.
@@ -659,6 +662,9 @@ def report_notes(reports, today):
         fl, body = split_front(open(lp, encoding="utf-8").read())
         dm = re.search(r"\*(\d{4}-\d{2}-\d{2})", body)
         notes.append(Note("lanes.md", "The lanes", body, {"type": "lanes", "date": dm.group(1) if dm else None}, fl, src_rel="lanes/lanes.md"))
+    rn = recent_note(reports)
+    if rn:                                                 # the week's tickets placed, a dashboard rewritten from the newest result
+        notes.append(rn)
     ld = os.path.join(reports, "lanes")
     for f in sorted(os.listdir(ld)) if os.path.isdir(ld) else []:   # what QA verifies per lane, what is in development per line
         m = re.match(r"^(test-list|dev-list)-(.+)\.md$", f)
@@ -702,6 +708,33 @@ def report_notes(reports, today):
             notes.append(Note(path, title, body, {"type": kind, "date": m.group(1) if m else None}, fl,
                               src_rel=f"{sub + '/' if sub else ''}{f}"))
     return notes
+
+
+RECENT_POINTER = "*Every ticket of the week, placed by line and lane: [[recent|Recent · 7 days]]*"
+
+
+def recent_note(reports):
+    """recent.md from the newest <reports>/recent/<date>.json (`ela recent --write`), rendered by the recent skill's own
+    page writer so the vault and `ela recent` read the same; None when there is no result or it cannot be rendered."""
+    try:
+        sys.path.insert(0, os.path.join(HERE, "..", "recent"))
+        import recent as RC  # noqa: E402
+        path, data = RC.newest_result(reports)
+        if not data:
+            return None
+        body = RC.render_page(data)
+    except Exception as e:                                 # a result an older recent wrote, or an import problem: no page, said once
+        print(f"recent: not rendered — {str(e)[:120]}", file=sys.stderr)
+        return None
+    return Note("recent.md", RC.TITLE, body, {"type": "recent", "date": (data.get("at") or "")[:10] or None}, [],
+                src_rel=f"recent/{os.path.basename(path)}")
+
+
+def with_recent_pointer(body, have_recent):
+    """The morning page's New tickets line points at the recent page when the vault has one and the page does not yet."""
+    if not have_recent or "[[recent" in body:
+        return body
+    return re.sub(r"^(## New tickets[ \t]*)$", lambda m: m.group(1) + "\n\n" + RECENT_POINTER, body, count=1, flags=re.M)
 
 
 APPLY_BOX = re.compile(r"^([ \t]*" + QUOTE + r"[-*][ \t]+)\[[ xX]\]([ \t]+apply[ \t]+(\d+)\b.*?)[ \t]*$", re.M)
@@ -1309,6 +1342,7 @@ def home(today, now, notes, desk=None):
     links = [f"[[{brief.path[:-3]}|brief]]" if brief else None,
              "[[lanes|lanes]]" if any(n.props.get("type") == "lanes" for n in notes) else None,
              "[[board|board]]" if any(n.props.get("type") == "board" for n in notes) else None,
+             "[[recent|recent]]" if any(n.props.get("type") == "recent" for n in notes) else None,
              f"[[{changes.path[:-3]}|changes]]" if changes else None,
              f"[[{PROGRAM[:-3]}|program]]", f"[[{OVERVIEW[:-3]}|ela]]",
              f"[[{ELA}/all-notes.base|all notes]]" + (f" ({len(waiting)} wait for your word)" if waiting else ""),
@@ -1996,7 +2030,10 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since
     reps = {n.src_rel: n for n in notes if n.src_rel and n.props.get("type") in ("day", "review", "reader")}
     linker = Linker({n.src_rel: n for n in enotes}, titles, jira_base, projects, reports, reps)
     planned = {}
+    have_recent = any(n.props.get("type") == "recent" for n in notes)
     for n in notes:
+        if n.props.get("type") == "day" and n.props.get("kind") == "brief":
+            n.body = with_recent_pointer(n.body, have_recent)
         if top(n.path) in tuple(STATUS_BY_FOLDER) + (READINGS,):
             st, result, _ = settled_status(top(n.path), note_status(n), n.props.get("type"))
             n.props.update(status=st, result=n.props.get("result") or result)

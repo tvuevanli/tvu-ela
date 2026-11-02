@@ -85,7 +85,13 @@ with tempfile.TemporaryDirectory() as tmp:
     open(f"{ELAK}/blueprint/decisions/{today[:4]}-01-02-internal.md", "w").write("---\nstatus: proposed\n---\n# How a script is built\n\nText.\n")
     open(f"{ELAK}/blueprint/decisions/{today[:4]}-01-03-ruled.md", "w").write("---\nreader: owner\nstatus: decided\n---\n# Ruled\n\nText.\n")
     git("init", "-q"); git("add", "."); git(SAVE, "-qm", "x")
-    open(f"{reports}/runner/{today}-brief.md", "w").write("# Brief\n\n## Needs you\n\n### 1. A thing\n\n- [ ] apply 2 — ask QA\n- [ ] probe MH-1 from the replay\n- [x] already done upstream\n")
+    open(f"{reports}/runner/{today}-brief.md", "w").write("# Brief\n\n## Needs you\n\n### 1. A thing\n\n- [ ] apply 2 — ask QA\n- [ ] probe MH-1 from the replay\n- [x] already done upstream\n\n## New tickets\n\nMH-5 new, read.\n")
+    os.makedirs(f"{reports}/recent")
+    json.dump({"at": f"{today}T09:00", "days": 7, "since": today, "count": 1, "counts": {"2.1": 1, "no line": 0},
+               "lines": [{"line": "2.1", "label": "release:mh-2.1", "lanes": {"qa": "qa-cn3"}, "train": [], "by_lane": [],
+                          "tickets": [{"key": "MH-5", "summary": "a thing", "type": "Bug", "status": "Review", "assignee": "Dev", "priority": "High",
+                                       "due": None, "seen_on": [], "stands": {"text": "dev"}, "qa": None, "last": f"created {today[5:]}"}]}],
+               "no_line": [], "sources": {"lane_read": True, "test_lists": ["qa-cn3"]}}, open(f"{reports}/recent/{today}.json", "w"))
     open(f"{reports}/runner/{today}-changes.md", "w").write("# What changed\n\n## Code\n\nOne commit.\n")
     open(f"{reports}/ela/{today}-long.md", "w").write("# Long review\n\n" + "word " * 3000)
     for i in range(20):
@@ -137,6 +143,11 @@ with tempfile.TemporaryDirectory() as tmp:
           and "wait for your word)" in home and not V.GUIDE.search(home))
     check("the changes page is a day page, linked from Home", os.path.exists(f"{vault}/days/{today[:4]}/{today}-changes.md")
           and f"[[days/{today[:4]}/{today}-changes|changes]]" in home)
+    rc = open(f"{vault}/recent.md").read()
+    check("the recent page is a generated root page of its type, rendered from the newest result, with its refresh box",
+          'type: "recent"' in rc and "# Recent · 7 days" in rc and "- [ ] refresh recent (last 09:00;" in rc and "## 2.1" in rc and "dev" in rc)
+    check("Home's footer links it beside lanes and board", "[[recent|recent]]" in home.split("\n---\n")[-1])
+    check("the morning page's New tickets points at it", V.RECENT_POINTER in open(f"{vault}/days/{today[:4]}/{today}-brief.md").read())
     check("a decision carries its title as an alias and a meta line", 'aliases: ["Decision 0"]' in open(dec0).read() and "*decision · " in open(dec0).read())
     os.remove(dec0)
     check("a note the owner deleted is not written again", sync() == 0 and not os.path.exists(dec0))
