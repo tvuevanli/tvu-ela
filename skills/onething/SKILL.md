@@ -1,19 +1,36 @@
 ---
 name: onething
-description: The owner's daily One Thing sheet rows, drafted from his own Jira and Slack, edited in the vault, copied to the sheet by him. Use for "One Thing", "工作日志", "ela: post 1, 3".
+description: The owner's daily One Thing sheet rows, drafted from his own Jira and Slack into a store, shown on the day's changes page, copied to the sheet by him. Use for "One Thing", "工作日志", "the row for yesterday".
 user-invocable: true
 ---
 
 # /ela:onething — the owner's One Thing rows
 
 The team lead keeps a monthly One Thing sheet: one row per working day per person, columns
-`Project | Whom | Date | Content Overview`, one tab per month (`2026.10月`). This skill drafts the owner's rows from what
-he did himself, puts them in a vault note he edits, and lays out the rows he names for him to paste. ela never writes
-to the sheet. The rules below come
-from the October backfill (vault `to-read/2026-11-02-one-thing-october.md`, five rounds of correction) and the plan
-ruled on 2026-11-02 (vault `in-progress/2026-11-02-one-thing-skill.md`).
+`Project | Whom | Date | Content Overview`, one tab per month (`2026.10月`). This skill drafts the owner's row from what
+he did himself into a store, puts it on the next morning's changes page as part of yesterday's truth (his ruling of
+2026-11-03: the row lives beside everything else that happened, not in a note per day), takes his rewording and his
+"pasted" tick from that page, and keeps the month's unpasted rows on one page he pastes from. ela never writes to the
+sheet. The row rules below come from the October backfill (five rounds of correction, vault
+`to-read/2026-11-02-one-thing-october.md`, now imported into the store) and the plan ruled on 2026-11-02 (vault
+`in-progress/2026-11-02-one-thing-skill.md`).
 
-`onething.py` gives facts; the session writes the rows. Wording is judgment, so it is never in the script.
+`onething.py` gives facts and keeps the store; the session writes the rows. Wording is judgment, so it is never in the
+script.
+
+## The store
+
+`<reports>/onething/<YYYY-MM>.json`, one file per month, one entry per working day:
+
+```
+{"month": "2026-11", "days": [
+  {"date": "2026-11-02", "drafted_at": "…", "source_errors": [],
+   "rows": [{"n": 1, "text": "…", "evidence": "…", "pasted": false, "ela_lines": []}]}]}
+```
+
+`text` is the row as it stands (the latest `ela:` line once one is applied; every applied line is kept under
+`ela_lines`); `pasted` is his tick; `source_errors` names a source `facts` could not read. An entry is replaced only
+for its own date; other days are never touched.
 
 ## The verbs
 
@@ -22,37 +39,50 @@ ruled on 2026-11-02 (vault `in-progress/2026-11-02-one-thing-skill.md`).
 | `ela onething facts --date D --json` | the owner's own Jira comments and moves and his own Slack messages, per Asia/Shanghai day; Helm's auto-writes and bookkeeping fields (Fixed In, labels, links, rank) left out; `errors` names a source not read | nothing |
 | `ela onething facts --month YYYY-MM --json` | the same for a month, up to today | nothing |
 | `ela onething sheet --month YYYY-MM [--json]` | the rows already in that month's tab under his name (Drive export, read token) | nothing |
-| `ela onething render --rows FILE [--out PATH] [--force]` | the vault note from drafted rows: numbered table, keys as links, the days left out, the evidence, and `## Copy to the sheet` with every row as drafted, so a fresh note is copy-ready; prints the path; refuses to replace an existing note without `--force` | the vault note |
-| `ela onething post NOTE --pick "1, 3"` | rewrites `## Copy to the sheet` for the picked rows (plain keys, no links), after he edits rows or for a subset: the section with a line naming the tab and the rows, then a fenced block of tab-separated lines, Project · Whom · Date (YYYY/MM/DD) · Content, which pasted at column A fill A–D; the same block printed; the note's progress set to `<stamp>: rows N ready to copy` | the vault note |
+| `ela onething render --rows FILE [--force]` | the drafted rows into the store, that date's entry appended or (with `--force` only) replaced; refuses a date already drafted, it may hold his edits. `--out PATH` writes a vault note instead, on request | the store |
+| `ela onething block --date D [--json]` | the day's block for the changes page: `## Your day, <weekday date>`, the numbered row table (keys linked), the evidence folded, a folded *Copy to the sheet* with the tab-separated line(s) as `post` prints them, one `- [ ] pasted n` box per row | nothing |
+| `ela onething apply --date D --lines FILE` | his lines from the page, one per line: a bare line (or `n: …`) replaces row n's text and is kept under `ela_lines`; `pasted n` (or `pasted YYYY-MM-DD [n]`, from the month page) sets the flag. Applied once: the same line at a later pass changes nothing | the store |
+| `ela onething post (--date D \| --month YYYY-MM) [--pick "1, 3"] [--all]` | the rows as the sheet takes them (plain keys), tab-separated, Project · Whom · Date (YYYY/MM/DD) · Content, which pasted at column A fill A–D; a month prints its rows not yet pasted (`--all`: every row) | nothing |
+| `ela onething import NOTE [--force] [--pasted]` | one-off: a One Thing vault note's table into the store, the note's Evidence fold on each row | the store |
 
-`--pick` takes `1, 3`, `1 & 3`, `2-4` or `all`; a number not in the note exits 3. Exit codes: 0 ok · 2 usage · 3 not
+`--pick` takes `1, 3`, `1 & 3`, `2-4` or `all`; a number not drafted exits 3. Exit codes: 0 ok · 2 usage · 3 not
 found · 4 auth (the read token) · 5 remote.
 
 Site env: `ONETHING_SHEET` (the spreadsheet id), `ONETHING_WHOM` (his name in column B), `ONETHING_PROJECT` (column A),
 `ONETHING_OWNER` (his Jira and Slack display name); `GOOGLE_TOKEN_FILE`, the read-only token gdoc uses.
 
+## Where he meets the rows
+
+- **The day's changes page** (`days/<year>/<date>-changes.md`, "What changed"): its last section, *Your day, <the
+  previous working day>*, is the block above. ela-runner inserts it after the morning's judge writes the page and
+  again at the 13:00, 17:30 and 19:00 passes, applying the page's own marks first: an `ela:` line under the section
+  rewords the row (`ela: 2: …` for row 2 of a day with several); a ticked `pasted n` marks the row as on the sheet. The vault keeps his lines and ticks through each rewrite.
+- **`one-thing.md`** at the vault's root ("One Thing · <month>", type `one-thing`, a living page of the vault's page
+  family rendered by the sync from the store): the month's rows not yet pasted, one *Copy to the sheet* block, a
+  `pasted <date>` box per row, and earlier months' unpasted rows under their own heading. He pastes weekly from here
+  and ticks; Home's links line points at it with the count still to paste.
+
 ## The flow
 
 1. `ela onething facts --date D --json > <runtime>/onething/D.json` (one day reads in a minute or two).
 2. Write the rows file from the facts under the six rules: `{"rows": [{"date": "YYYY-MM-DD", "text": "..."}],
-   "left_out": [{"date": ..., "why": ...}], "existing": [dates already on the sheet], "evidence": "..."}`.
-3. `ela onething render --rows FILE` writes `to-read/<date>-one-thing.md` in the vault (a month:
-   `to-read/<today>-one-thing-YYYY-MM.md`).
-4. The note is copy-ready as rendered, and Home links the newest One Thing note in `to-read/` ("One Thing (copy block
-   ready)" in its links line) until he moves it out. If he edits rows, he writes `ela: post all` (or `ela: post 1, 3`)
-   in the note.
-5. `ela onething post NOTE --pick "1, 3"` rewrites the block from the rows as they now stand; he pastes it into the
-   sheet. Run it only on his line, and never pick rows he did not name.
+   "left_out": [{"date": ..., "why": ...}], "existing": [dates already on the sheet], "evidence": "...",
+   "errors": [...]}`.
+3. `ela onething render --rows FILE` writes the day's entry into the store. The next morning's changes page carries
+   it; `one-thing.md` lists it until he ticks `pasted`.
+4. He rewords with an `ela:` line under *Your day* and ticks `pasted` after pasting; the runner's passes apply both.
+   `ela onething post --month YYYY-MM` prints the month's unpasted lines when he asks for them in a session.
 
 **Nightly** (ela-runner's evening step, after the working day): steps 1–3 for that day only. The session runs only
-`ela onething facts|render|sheet` and ends with exactly one line: the note's path; `No row: <date> — <why>` when both
-sources were read and the day has nothing of his; `Gap: <date> — <source>` when `errors` names a source not read (the
-runner reports it as failed); or `Exists: <path>` when a note for that day is already there (it may hold his edits;
-never `--force` it). It never runs `post`.
+`ela onething facts|render|sheet` and ends with exactly one line: render's line naming the store; `No row: <date> —
+<why>` when both sources were read and the day has nothing of his; `Gap: <date> — <source>` when `errors` names a
+source not read (the runner reports it as failed); or `Exists: <date>` when render says the date is already drafted
+(the entry may hold his edits; never `--force` it). It never runs `post`, `apply` or `import`.
 
 **A month backfill:** `ela onething sheet --month YYYY-MM --json` first, and leave out the days already on the sheet
 (name them under `existing`). `facts --month` searches every channel's history for the month and takes about ten
-minutes: run it in the background and wait for it, never in a foreground call that times out.
+minutes: run it in the background and wait for it, never in a foreground call that times out. `render --rows` with
+many dates writes one entry per date; a date already drafted stops the whole write unless `--force`.
 
 ## How a row is written
 
@@ -65,8 +95,8 @@ minutes: run it in the background and wait for it, never in a foreground call th
    team lead reads outcomes against effort.
 3. **Slack is a first-class source.** Much of a day is only in threads: an unblock, a ruling, a design meeting. Read
    the `slack` facts as fully as the `jira` ones. *Why:* his coordination happens in threads, not in Jira fields.
-4. **One row a day, at most three works, joined by " / ".** The team writes this way. *Why:* `post 1, 3` then picks
-   days, and the sheet stays scannable.
+4. **One row a day, at most three works, joined by " / ".** The team writes this way. *Why:* the sheet stays
+   scannable, and one `pasted` box says the day is done.
 5. **English, short, verb-first.** Keep a ticket key where the ticket is the point; it is a link in the vault and plain
    text on the sheet. *Why:* the sheet is read in a glance; a row never carries a link there.
 6. **No evidence, no row.** A day with nothing of his in either source is named under `left_out` with why, never filled
@@ -77,14 +107,14 @@ minutes: run it in the background and wait for it, never in a foreground call th
 
 The owner posts to the sheet himself; ela only drafts (his ruling of 2026-11-02, after the plan's option A, a write
 token, had been accepted earlier that day). The skill is read-only toward Google like `gdoc`: `sheet` reads through
-Drive export with the read token, and `post` writes nothing but the vault note. Do not add an append, a write token or
-a Sheets write scope without a new ruling from him.
+Drive export with the read token, and `post` prints and writes nothing. Do not add an append, a write token or a
+Sheets write scope without a new ruling from him.
 
 ## Known limits
 
 - The Sheets API returned 403 with the read token while Drive export worked, so `sheet` reads through Drive export.
-- `post` does not check the sheet for rows already pasted; before a backfill, `sheet --month` names the days already
-  there.
+- `pasted` is his tick, not a read of the sheet; before a backfill, `sheet --month` names the days already there.
 - Helm's own moves under the owner's account are recognised by a Helm comment within two minutes; a Helm write without
   such a comment would show as his.
 - Facts are capped per message (1200 characters); the permalink is the evidence for anything longer.
+- A rewording on the month page is not read; it belongs under *Your day* on the day's changes page.
