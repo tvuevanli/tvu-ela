@@ -21,6 +21,8 @@ its date, so a folder sorts by time. Folders carry no numbers: Home and the book
     constraints.md                              the standing constraints, each pin read on its lane
     lanes.md                                    the lanes, what each carries that the next does not, two weeks of moves
     recent.md                                   the week's tickets placed by line and by lane (ela recent --write), a dashboard
+    one-thing.md                                his One Thing rows not yet on the team's sheet, one copy block (the store
+                                                <reports>/onething/, skills/onething); each day's row sits on its changes page
     lanes/test-list-<lane>.md                   what QA should verify on the lane, ranked (ela testlist --page)
     lanes/train-<line>.md                       the line's train: each fix with a cell per lane (ela train --page), a preview
     lanes/dev-list-<line>.md                    the line's tickets in development and their gaps (ela devlist --page)
@@ -89,12 +91,12 @@ PROPS = ("title", "aliases", "type", "date", "kind", "status", "result", "target
 # the whole vocabulary; no tags (ADR 0010)
 MARKS = {"done": ARCHIVE, "drop": None}   # archive, delete; a drop of a reading something links archives it instead
 BUDGET = {"ticket": 700, "topic": 800, "guide": 1200, "board": 1000, "day": 1200, "review": 2500, "decision": 800, "plan": 800, "sprint": 800, "report": 1200,
-          "recent": 1200, "train": 1200}
+          "recent": 1200, "train": 1200, "one-thing": 1200}
 # the closed set of note types, by family (the readme's Types): for his word, readings, living pages, day pages.
 # A type outside it, or a family outside its folders, is a lint line on the sync, never a failure.
 TYPE_FAMILY = {"decision": "decision", "plan": "plan", "sprint": "plan",
                "ticket": "reading", "review": "reading", "verify": "reading", "verify-plan": "reading",
-               "home": "page", "board": "page", "lanes": "page", "recent": "page", "test-list": "page", "dev-list": "page", "train": "page", "program": "page",
+               "home": "page", "board": "page", "lanes": "page", "recent": "page", "one-thing": "page", "test-list": "page", "dev-list": "page", "train": "page", "program": "page",
                "guide": "page", "vocabulary": "page", "system": "page", "constraints": "page", "readme": "page", "meeting": "page",
                "report": "page",
                "day": "day", "reader": "day"}
@@ -164,6 +166,7 @@ list and writing your `ela:` priority lines; the 09:30 or 10:00 pass then sends 
 | `lanes` | the lanes, what each carries that the next does not, two weeks of moves | look before a promotion |
 | `recent` | the week's MediaHub tickets placed: by release line with the line's train, where each fix stands, what QA said and what moved; by lane, what arrived, what is under test, what was reported from it; tickets with no line and the label ela would infer | look when a ticket moved and you want its place; tick *refresh recent* for the moment |
 | `lanes/` | the test list per lane, the dev list per release line, and the line's train (each fix, a cell per lane) | look before testing or a promotion |
+| `one-thing` | your One Thing rows not yet on the team's monthly sheet, one copy block, a `pasted` box per row; each day's row is drafted at 19:00 and sits on the next morning's changes page under *Your day* | paste weekly from here; tick `pasted`; reword a row with an `ela:` line under *Your day* on its changes page |
 | `mh/` | the MediaHub program and its evidence | look when Home names the program's next step |
 | `sprints/` | the sprints, each a plan | look at a sprint's start and end |
 | `meetings/` | one note per meeting: what you raise there, its send box, and what it ruled (30 days; older months in `archive/`) | look before the meeting; tick send, or answer an item with an `ela:` line after it |
@@ -198,7 +201,7 @@ the file explorer is rarely needed.
 - Types are a closed set, in four families. For your word: `decision`, `plan` (a sprint is a plan), in to-read,
   in-progress, parked or archive. Readings: `ticket`, `review`, `verify` and `verify-plan` (checks), in readings,
   or in to-read while one asks your word (a verification waiting for its record on Jira, a review with open
-  asks). Pages that live: home, board, lanes, recent, test-list,
+  asks). Pages that live: home, board, lanes, recent, one-thing, test-list,
   dev-list, train, program, the ela page (`guide`), vocabulary, system, constraints, readme, meeting, and `report`: a
   standing review or design for your decision that does not move, in any folder, its evidence in folds, ruled in
   place with an `ela:` line (status proposed, decided or superseded). Day pages: `day`
@@ -666,6 +669,9 @@ def report_notes(reports, today):
     rn = recent_note(reports)
     if rn:                                                 # the week's tickets placed, a dashboard rewritten from the newest result
         notes.append(rn)
+    on = onething_note(reports, today)
+    if on:                                                 # his One Thing rows not yet pasted, rendered from the store each sync
+        notes.append(on)
     ld = os.path.join(reports, "lanes")
     for f in sorted(os.listdir(ld)) if os.path.isdir(ld) else []:   # what QA verifies per lane, what is in development per line
         m = re.match(r"^(test-list|dev-list|train)-(.+)\.md$", f)
@@ -729,6 +735,28 @@ def recent_note(reports):
         return None
     return Note("recent.md", RC.TITLE, body, {"type": "recent", "date": (data.get("at") or "")[:10] or None}, [],
                 src_rel=f"recent/{os.path.basename(path)}")
+
+
+def onething_note(reports, today):
+    """one-thing.md from the One Thing store (<reports>/onething/<month>.json), rendered by the onething skill's own page
+    writer so the vault and `ela onething post` read the same rows; None when the store is empty or cannot be rendered.
+    `count` on the note is the rows not yet pasted, for Home's link."""
+    try:
+        sys.path.insert(0, os.path.join(HERE, "..", "onething"))
+        import onething as OT  # noqa: E402
+        base, project, who = OT.jira_base(), OT.setting(None, "ONETHING_PROJECT", "MH"), OT.setting(None, "ONETHING_WHOM")
+        if not who:
+            return None                                    # no name in the site env: no copy block to offer
+        body, count = OT.month_page(reports, today, base, project, who)
+    except Exception as e:                                 # an import problem or a store an older onething wrote: no page, said once
+        print(f"one-thing: not rendered — {str(e)[:120]}", file=sys.stderr)
+        return None
+    if body is None:
+        return None
+    n = Note("one-thing.md", OT.PAGE_TITLE.format(month=today.isoformat()[:7]), body,
+             {"type": "one-thing", "date": today.isoformat()}, [], src_rel=f"onething/{today.isoformat()[:7]}.json")
+    n.count = count
+    return n
 
 
 def with_recent_pointer(body, have_recent):
@@ -1353,11 +1381,11 @@ def home(today, now, notes, desk=None):
     if held.get("active") or held.get("expired"):
         links.append(f"[[{cons.path[:-3]}|{held['active']} standing constraint{'s' if held['active'] != 1 else ''}]] · {held['over']} over"
                      + (f" · {held['expired']} expired" if held["expired"] else ""))
-    # the newest One Thing note still in to-read: its Copy to the sheet block is what he pastes (skills/onething)
-    one = sorted((n for n in notes if n.path.startswith(TO_READ + "/")
-                  and re.fullmatch(r"\d{4}-\d{2}-\d{2}-one-thing[^/]*\.md", n.path.rsplit("/", 1)[-1])), key=lambda n: n.path)
+    # the One Thing page: the rows not yet on the team's sheet, one copy block (skills/onething; the store under reports)
+    one = next((n for n in notes if n.props.get("type") == "one-thing"), None)
     if one:
-        links.append(f"[[{one[-1].path[:-3]}|One Thing]] (copy block ready)")
+        left = getattr(one, "count", 0) or 0
+        links.append("[[one-thing|One Thing]]" + (f" ({left} to paste)" if left else ""))
     L += [" · ".join(x for x in links if x), ""]
     owed_since = (today - datetime.timedelta(days=HELD_LISTED_DAYS)).isoformat()
     # a past day page is the record of what ela told him that morning; it is never rewritten, so it is owed nothing

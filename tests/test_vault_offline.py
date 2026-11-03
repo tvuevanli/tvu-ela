@@ -596,14 +596,18 @@ full = V.with_afterwards("# N\n", [(f"MH-{i}", "2026-10-31", f"- 10-31 · MH-{i}
 check("at most 40 lines a note", full.count("\n- 10-31") == 40)
 check("the all-notes base has an Archive view, and Home links it", "name: Archive" in V.VIEWS["all-notes"]
       and "[[ela/all-notes.base#Archive|archive]]" in V.home(datetime.date(2026, 10, 30), datetime.datetime(2026, 10, 30, 9), []))
-ot = lambda p: V.Note(p, "One Thing", "# One Thing\n", {"type": "report", "status": "proposed"})   # noqa: E731
-hm1 = V.home(datetime.date(2026, 11, 2), datetime.datetime(2026, 11, 2, 9),
-             [ot("to-read/2026-10-31-one-thing.md"), ot("to-read/2026-11-02-one-thing-2026-10.md"), ot("archive/2026-11-03-one-thing.md")])
-check("Home links the newest One Thing note in to-read, once, below the divider",
-      "[[to-read/2026-11-02-one-thing-2026-10|One Thing]] (copy block ready)" in hm1.split("\n---\n", 1)[1]
-      and hm1.count("|One Thing]]") == 1)
-check("Home has no One Thing link when none is in to-read",
-      "One Thing" not in V.home(datetime.date(2026, 11, 2), datetime.datetime(2026, 11, 2, 9), [ot("archive/2026-11-01-one-thing.md")]))
+one = V.Note("one-thing.md", "One Thing · 2026-11", "# One Thing · 2026-11\n", {"type": "one-thing", "date": "2026-11-03"})
+one.count = 14
+hm1 = V.home(datetime.date(2026, 11, 3), datetime.datetime(2026, 11, 3, 9), [one])
+check("Home links the One Thing page with the rows still to paste, once, below the divider",
+      "[[one-thing|One Thing]] (14 to paste)" in hm1.split("\n---\n", 1)[1] and hm1.count("|One Thing]]") == 1)
+one.count = 0
+check("Home links the One Thing page without a count when every row is pasted",
+      "[[one-thing|One Thing]]" in V.home(datetime.date(2026, 11, 3), datetime.datetime(2026, 11, 3, 9), [one])
+      and "to paste" not in V.home(datetime.date(2026, 11, 3), datetime.datetime(2026, 11, 3, 9), [one]))
+check("Home has no One Thing link when the vault has no One Thing page",
+      "One Thing" not in V.home(datetime.date(2026, 11, 2), datetime.datetime(2026, 11, 2, 9), []))
+check("the One Thing page is a living page of the page family", V.TYPE_FAMILY.get("one-thing") == "page" and "one-thing" in V.BUDGET)
 check("a sprint keeps its own status; a reading carries none", S("sprints", "active") == ("active", None, None) and S("readings", "decided") == (None, None, None))
 with tempfile.TemporaryDirectory() as t:
     os.makedirs(os.path.join(t, "readings"))
