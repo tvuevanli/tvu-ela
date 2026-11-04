@@ -129,10 +129,11 @@ def fixed_in_entries(value):
 # ── lanes ────────────────────────────────────────────────────────────────────────────────────────────
 
 def lane_versions(rows):
-    """{(service, lane): version} from a saved lane read; the release mails' rows are requests, not lanes."""
+    """{(service, lane): version} from a saved lane read: a host read, or a QA lane's row as QA's report or the release
+    names it (the brief's lane rows); a release mail's request is not a lane."""
     out = {}
     for r in rows or []:
-        if r.get("lane") and r.get("version") and r.get("host") != "mail":
+        if r.get("lane") and r.get("version") and B.is_lane_row(r):
             out[(r["service"], r["lane"])] = r["version"]
     return out
 

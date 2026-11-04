@@ -175,7 +175,7 @@ def verdict_lane(at, version, lanes, recs, qa_builds, reads=None, named_lanes=()
     pv = R.parse_version(ver)
     if pv and pv[4]:
         ran = {r.get("lane") for d, _, rows in reads or [] if d <= day for r in rows
-               if r.get("host") != "mail" and B.vkey(r.get("version")) == (pv[:4], pv[4])}
+               if B.is_lane_row(r) and B.vkey(r.get("version")) == (pv[:4], pv[4])}
         hit = [lane for lane in path if lane in ran]
         if hit:
             return hit[0]

@@ -19,7 +19,7 @@ Every column is a fact ela already reads; the verb only joins them. Nothing is w
 | column | source |
 |---|---|
 | the line | the ticket's `release:mh-<line>` label; lines and their lanes from the published map `map/release.yaml` § lines, through the release skill's map reader (`rmap`) |
-| the train row | the last lane read saved by `ela changes` / `ela matrix --page` (`<runtime>/runner/versions-*.json`), rendered cell by cell by the brief's `matrix_cell`, so ▲ ✓ ◐ ○ mean what they mean on the lanes page; the constraints' 🔒/⛔ are not read here (that read asks the lane hosts) |
+| the train row | the last lane read saved by `ela changes` / `ela matrix --page` (`<runtime>/runner/versions-*.json`), rendered cell by cell by the brief's `matrix_cell`, so ▲ ✓ ◐ ○ mean what they mean on the lanes page, and a QA lane the host did not admit reads as QA's report or the release names it (`· QA report MM-DD`, `built, no report`); the constraints' 🔒/⛔ are not read here (that read asks the lane hosts) |
 | type · status · assignee, P / due | the ticket |
 | seen on | the lanes the summary or description names (prod-3, CN Prod2, QA-AWS3, daily-wed, stage), canonical through the release skill's lane words |
 | fix stands at | the Fixed In field (`slug@version`, aliases resolved by the map) against the lane versions of the line's qa, daily and prod lanes, compared by the promote skill's `cmp_versions`: `dev` without a Fixed In; the furthest lane whose versions carry every judged entry, the QA lane with its build; `declared` when no entry can be read against a lane (a docker image, a bundle-tracked slug); `· CN behind` when the China lane aligned with prod has not caught up. This is a version comparison, not the commit-ancestry chain `ela fixed-in` runs per ticket |
