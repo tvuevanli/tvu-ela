@@ -35,6 +35,8 @@ sys.path.insert(0, os.path.join(SKILLS, "release"))
 import release as R  # noqa: E402  — the release map, the userservice hosts, Jenkins
 sys.path.insert(0, os.path.join(SKILLS, "brief"))
 import brief as B  # noqa: E402  — the QA lanes' rows from QA's report mails and the release thread when the qa host is unreadable
+sys.path.insert(0, os.path.join(SKILLS, "facts"))
+import facts as F  # noqa: E402  — the fact store's read times
 
 EX_USAGE, EX_LANE, EX_REMOTE = 2, 3, 5
 KEY_RE = re.compile(r"\b[A-Z][A-Z0-9]{1,5}-\d{2,6}\b")
@@ -1158,6 +1160,23 @@ def assess(a, lanes, delta, tickets, evidence, bundles, gaps):
     return F
 
 
+def keep_last_report(a, res, lanes):
+    """The report's last result under <reports>/promote/<line>-<from>-<to>.json, by the roles asked for (qa, daily,
+    prod) and by the lane names when they were given instead, so the lanes page and the next-train column read the
+    day's report instead of running it again. Never fatal."""
+    try:
+        reports = R.site().get("reports")
+        if not reports:
+            return
+        cfg = line_cfg(a.line)
+        role_of = {lane_name(cfg, r): r for r in ("qa", "daily", "prod") if lane_name(cfg, r)}
+        names = {(a.src, a.dst), (role_of.get(lanes["from"], a.src), role_of.get(lanes["to"], a.dst))}
+        for frm, to in names:
+            F.write_json(os.path.join(reports, "promote", f"{a.line}-{frm}-{to}.json"), res)
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
+
+
 def cmd_report(a):
     gaps = []
     lanes = collect_lanes(a, gaps)
@@ -1174,7 +1193,9 @@ def cmd_report(a):
            "lanes": lanes, "delta": delta, "tickets": tickets, "evidence": evidence, "bundles": bundles, "untracked": untracked, "findings": findings, "gaps": gaps,
            "counts": {"commits": sum(len(s["commits"]) for s in delta["services"]), "tickets": len(tickets["tickets"]),
                       "findings": {k: sum(1 for f in findings if f["severity"] == k) for k in SEV}}}
+    res["read_at"] = F.read_at()
     md = render_gate(res) if gate else render_md(res)
+    keep_last_report(a, res, lanes)
     if a.out:
         os.makedirs(a.out, exist_ok=True)
         stem = f"{datetime.date.today().isoformat()}-mh{a.line}-{lanes['from']}-{lanes['to']}"
@@ -1195,6 +1216,8 @@ def render_md(r):
     L.append("")
     hosts = r["lanes"].get("hosts_read") or {}
     L.append("hosts read: " + ", ".join(f"{h} {host_read_word(ok)}" for h, ok in sorted(hosts.items())))
+    if r.get("read_at"):
+        L.append(F.read_at_line(r["read_at"]))
     L.append("")
     L.append("| service | " + r["from"] + " | " + r["to"] + " | relation | source |")
     L.append("|---|---|---|---|---|")

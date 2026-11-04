@@ -349,7 +349,7 @@ def cmd_queue(a):
     roll_up_epics(rows)
     rows.sort(key=lambda r: (ORDER.index(r["action"]) if r["action"] in ORDER else 99, -(r["fix_age_days"] or 0)))
     if a.json:
-        print(json.dumps({"days": a.days, "rows": rows}, ensure_ascii=False))
+        print(json.dumps({"days": a.days, "rows": rows, "read_at": P.F.read_at()}, ensure_ascii=False))
     else:
         print_queue(rows, a.days)
 

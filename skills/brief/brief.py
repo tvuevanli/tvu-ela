@@ -47,6 +47,19 @@ import sys
 HERE = os.path.dirname(os.path.realpath(__file__))
 JIRA = os.path.join(HERE, "..", "jira", "jira.py")
 EX_USAGE, EX_REMOTE = 2, 5
+sys.path.insert(0, os.path.join(HERE, "..", "facts"))
+import facts as F  # noqa: E402 — the fact store's read times; the sources it serves are read through their scripts
+
+
+def facts_read_at(**extra):
+    """{source: read time} for a result: the store's watermarks plus what this verb saved itself."""
+    return {**F.read_at(), **{k: v for k, v in extra.items() if v}}
+
+
+def pass_fresh(args):
+    """--fresh on a verb: every source read below it goes live (ELA_FACTS_FRESH reaches the subprocesses)."""
+    if getattr(args, "fresh", False):
+        os.environ["ELA_FACTS_FRESH"] = "1"
 
 PROJECT = "project = MH AND "
 UMBRELLA = "MH-2342"
@@ -718,8 +731,33 @@ def git_window(code_root, hours):
     return rows, stale
 
 
+def yesterday_path(date, hours):
+    return os.path.join(F.store_dir("yesterday"), f"{date}-{hours}h.json")
+
+
+def saved_yesterday(hours, fresh=False):
+    """The window's saved `yesterday` result (this verb's own save, else the runner's <date>-yesterday.json) while its
+    read is fresh and its hours match; None otherwise. `changes` reads this rather than reading the sources again."""
+    if fresh or F.forced_fresh():
+        return None
+    date = datetime.date.today().isoformat()
+    site = json.load(open(SITE))
+    runner = os.path.join(site.get("runtime") or os.path.join(site.get("projects", ""), ".ela"), "runner")
+    for path in (yesterday_path(date, hours), os.path.join(runner, f"{date}-yesterday.json")):
+        doc = F.read_json(path)
+        if doc and doc.get("hours") == hours and F.fresh(doc.get("read_at") or doc.get("generated")):
+            doc["saved"] = path
+            return doc
+    return None
+
+
 def yesterday_facts(args):
-    """The window's facts joined into cases by ticket key; `errors` names every source not read."""
+    """The window's facts joined into cases by ticket key; `errors` names every source not read. Saved per window under
+    <runtime>/facts/yesterday/ and served from there while fresh, so one morning reads the window once."""
+    saved = saved_yesterday(args.hours, getattr(args, "fresh", False))
+    if saved is not None:
+        F.served("yesterday", saved.get("read_at") or saved.get("generated"), f"{args.hours}h ({saved['saved']})")
+        return saved
     site = json.load(open(SITE))
     hours = args.hours
     now = datetime.datetime.now(datetime.timezone.utc)
@@ -832,11 +870,17 @@ def yesterday_facts(args):
                       "unticketed_threads": len(threads), "ela_jobs": len(jobs), "ela_writes": len(writes), "helm_autowrites": len(machine)},
            "cases": ranked, "untracked_commits": untracked, "unticketed_threads": sorted(threads, key=lambda t: -t["replies"]),
            "ela": {"jobs": jobs, "writes": writes, "helm_autowrites": machine}, "stale_checkouts": stale, "errors": errors,
-           "bulk_commits": [x for where, x in bulk if where == "commits"]}
+           "bulk_commits": [x for where, x in bulk if where == "commits"],
+           "read_at": facts_read_at(yesterday=now.astimezone().isoformat(timespec="seconds"))}
+    try:
+        F.write_json(yesterday_path(now.astimezone().date().isoformat(), hours), out)
+    except OSError:
+        pass
     return out
 
 
 def cmd_yesterday(args):
+    pass_fresh(args)
     out = yesterday_facts(args)
     hours, ranked, errors = out["hours"], out["cases"], out["errors"]
     untracked, threads = out["untracked_commits"], out["unticketed_threads"]
@@ -1134,7 +1178,7 @@ def changes_facts(args):
     win = window_of(args.hours, now)
     env = ["--env-file", args.env_file] if args.env_file else []
     errors = []
-    y = yesterday_facts(argparse.Namespace(hours=args.hours, env_file=args.env_file, fetch=args.fetch))
+    y = yesterday_facts(argparse.Namespace(hours=args.hours, env_file=args.env_file, fetch=args.fetch, fresh=getattr(args, "fresh", False)))
     errors += y["errors"]
     # code: per repo, per ticket, from yesterday's case join; then what rode along without a ticket
     scoped = {R.rmap("repos")[s] for s in SCOPE if R.rmap("repos").get(s)}
@@ -1307,7 +1351,8 @@ def changes_facts(args):
     out = {"date": date, "window": win, "releases": releases, "builds": builds, "versions": versions, "bundles": bundles,
             "qa": qa, "tickets": tickets, "code": {"repos": code, "unticketed_threads": y["unticketed_threads"]},
             "dev_threads": dev_threads, "you": you, "ela": y["ela"], "team_report": team_report,
-            "stale_checkouts": y["stale_checkouts"], "errors": errors, "lane_sources": lane_sources(rows)}
+            "stale_checkouts": y["stale_checkouts"], "errors": errors, "lane_sources": lane_sources(rows),
+            "read_at": facts_read_at(yesterday=(y.get("read_at") or {}).get("yesterday"))}
     try:
         named = run_json(["python3", RELEASE, *env, "bundles", f"MediaHub {LINE}", "--host", "prod", "--limit", "50", "--json"], timeout=120)["bundles"]
         out["findings_extra"] = pin_findings(named, R.read_pins().get(LINE))
@@ -2093,11 +2138,12 @@ def cmd_changes(args):
     if args.date and args.date != today:
         print(f"changes reads the last {args.hours}h of each source; a past day ({args.date}) cannot be read again", file=sys.stderr)
         sys.exit(EX_USAGE)
+    pass_fresh(args)
     out = changes_facts(args)
     if args.json:                       # every source not read is in `errors`; the rest is still the answer
         print(json.dumps(out, ensure_ascii=False)); return
     w = out["window"]
-    print(f"# changes · {out['date']} · {w['start'][:16]} → {w['end'][:16]}\n")
+    print(f"# changes · {out['date']} · {w['start'][:16]} → {w['end'][:16]}\n*{F.read_at_line(out.get('read_at'))}*\n")
     print(f"## lanes ({len(out['versions'])} moves)")
     for v in out["versions"]:
         print(f"  {str(v['lane']):<12} {v['label']:<34} {v['from'] or '?'} → {v['to']}{'  (patch)' if v['patch'] else ''}"
@@ -2303,6 +2349,11 @@ def line_matrix(line, args, env, rows, before, tested, pins, cand_doc, errors):
     if cand is None and cand_doc and line == LINE and not pending_records(cand_doc) and "versions" in cand_doc:
         cand = cand_doc                                     # a plain candidate file names the morning's line
     report = (args.promote_report if line == LINE else None) or (rec or {}).get("report")
+    if not report and "daily" in roles and "prod" in roles:   # the day's stored daily → prod report, when the verb wrote one
+        site_ = json.load(open(SITE))
+        cand_path = stored_report_path(site_.get("reports") or os.path.join(site_.get("projects", ""), "reports"), line, "daily", "prod")
+        if stored_report(os.path.dirname(os.path.dirname(cand_path)), line, "daily", "prod"):
+            report = cand_path
     # the bundle each lane runs. GM records no deployment, so it is inferred: QA and daily bundles follow the lane-token
     # names (mh2.1@qa-q26); prod releases are named "MediaHub <line>.<n>", so prod takes the newest of those, and the
     # rc token only when none exists. Either is unconfirmed, and marked stale when the lane moved after it.
@@ -2398,7 +2449,7 @@ def cmd_matrix(args):
     lines = followed_lines() if args.page else [LINE]
     outs = [line_matrix(l, args, env, rows, before, tested, pins, cand_doc, errors) for l in lines]
     out = next(o for o in outs if o["line"] == LINE)
-    out.update(date=date, errors=errors, held=held)
+    out.update(date=date, errors=errors, held=held, read_at=facts_read_at())
     if args.page:
         path = write_lanes_page(outs, site, env, runner, tested, held)
         print(f"written: {path}")
@@ -2433,9 +2484,31 @@ def shown_service(slug):
     return LABEL.get(slug, slug)
 
 
+def stored_report_path(reports, line, a, b):
+    """Where `ela promote report <line> a b` keeps its last result: <reports>/promote/<line>-<a>-<b>.json."""
+    return os.path.join(reports, "promote", f"{line}-{a}-{b}.json")
+
+
+def stored_report(reports, line, a, b, today=None):
+    """The pair's last stored report when it was generated today; None otherwise."""
+    doc = F.read_json(stored_report_path(reports, line, a, b))
+    t = F.parse_iso(str((doc or {}).get("generated_at") or "").replace("Z", "+00:00"))
+    if doc and t and t.astimezone().date() == (today or datetime.date.today()):
+        return doc
+    return None
+
+
 def pair_report(env, a, b, line=LINE):
     """`ela promote report <line> a b --json`: the delta per service, its tickets and QA's verdict per key; read-only,
-    no pending promotion recorded (that needs --out)."""
+    no pending promotion recorded (that needs --out). The day's stored report is read when there is one, so the lanes
+    page runs each pair at most once a day; the report verb writes it."""
+    site_ = json.load(open(SITE))
+    reports = site_.get("reports") or os.path.join(site_.get("projects", ""), "reports")
+    if not F.forced_fresh():
+        doc = stored_report(reports, line, a, b)
+        if doc:
+            F.served("promote", doc.get("generated_at"), f"report {line} {a} {b}")
+            return doc
     return run_json(["python3", PROMOTE, *env, "--quiet", "report", line, a, b, "--purpose", "regular", "--json"], timeout=900)
 
 
@@ -2754,7 +2827,7 @@ def write_lanes_page(outs, site, env, runner, tested, held=()):
     now = datetime.datetime.now().astimezone()
     shown = lambda l: LANE_SHOWN.get(l, l)  # noqa: E731
     note = deploy_note(now, day_plan(now.date()))
-    L = ["# The lanes", "", f"*{now:%Y-%m-%d %H:%M} · lines {', '.join(o['line'] for o in outs)}*"]
+    L = ["# The lanes", "", f"*{now:%Y-%m-%d %H:%M} · lines {', '.join(o['line'] for o in outs)}*", f"*{F.read_at_line()}*"]
     for i, out in enumerate(outs):
         L += [""] + line_section(out, shown)
         if i == 0:                                          # the QA cycle and the lists follow the morning's line
@@ -3470,6 +3543,7 @@ def main():
     p.add_argument("--hours", type=int, default=24, help="window length (default 24; the runner passes 72 on Mondays)")
     p.add_argument("--top", type=int, default=15, help="rows per section in the text form (default 15)")
     p.add_argument("--fetch", action="store_true", help="fetch every checkout under the code root first (remote refs only)")
+    p.add_argument("--fresh", action="store_true", help="read every source live instead of the fact store and the saved window")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_yesterday)
     p = sub.add_parser("changes", help="the day's real changes for the Changes page: lane moves, builds and the commits they "
@@ -3478,12 +3552,14 @@ def main():
     p.add_argument("--date", help="the page's date, today only (default today); names the versions snapshot")
     p.add_argument("--hours", type=int, default=24, help="window length (default 24; 72 on Mondays)")
     p.add_argument("--fetch", action="store_true", help="fetch every checkout under the code root first (remote refs only)")
+    p.add_argument("--fresh", action="store_true", help="read every source live instead of the fact store and the saved window")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_changes)
     p = sub.add_parser("matrix", help="which version runs on which lane this morning: components by prod / daily / QA, a move "
                                       "since yesterday, QA's mark on the exact version, a pin's mark; markdown, or --json")
     p.add_argument("--candidate", help="a JSON file {label, versions: {service: version}}: the next train as a fourth column")
     p.add_argument("--promote-report", help="the promotion report JSON (ela promote report --out): its stop and high count, when under a day old")
+    p.add_argument("--fresh", action="store_true", help="read every source live instead of the fact store")
     p.add_argument("--json", action="store_true")
     p.add_argument("--page", action="store_true", help="write the lanes page (<reports>/lanes/lanes.md, the vault's lanes.md): this table for every "
                                                       "line whose lanes the release map records as decided (2.1, 2.0), each with its own next train, what "

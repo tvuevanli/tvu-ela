@@ -727,6 +727,7 @@ def collect(a, s, env):
         lgaps = []
         out = collect_lane(lane, got.get("shown") or (lane_name(a.lane)[1] if want else None), got.get("mails") or [],
                            reports.get(lane) or [], s, env, cache, lgaps, said if is_qa(lane) else ())
+        out["read_at"] = B.facts_read_at()
         outs.append(out)
     return outs, gaps
 
@@ -777,7 +778,8 @@ def callout(name, what, lines):
 def render_page(out):
     at = datetime.datetime.fromisoformat(out["generated"])
     unit = "build" if out["kind"] == "qa" else "release"
-    L = ["# Test list · " + out["shown"], "", f"*{at:%Y-%m-%d %H:%M} · lane {out['lane']} · {unit} {out['lane_label'] or '?'} now*", "",
+    L = ["# Test list · " + out["shown"], "", f"*{at:%Y-%m-%d %H:%M} · lane {out['lane']} · {unit} {out['lane_label'] or '?'} now*",
+         f"*{B.F.read_at_line(out.get('read_at'))}*", "",
          ("" if out["kind"] == "qa" else "A release check: the tickets the last train or hotfix carried to this prod lane, "
           "verified on the lane (QA's smoke comment, or ela's read-only browser check). ") +
          f"What QA should verify on {out['shown']}, highest priority first. One row per behaviour; a row stays until it has a "
@@ -1224,7 +1226,7 @@ def cmd_list(a):
             plans.append({"date": at.date().isoformat(), "lane": out["lane"], "shown": out["shown"], "lane_build": out["lane_build"], "thread": thread,
                           "channel": B.QA_RELEASE, "post": "thread" if thread else "day post", "text": today_text(out, plan, at),
                           "table": today_table(out, plan), **plan,
-                          "gaps": out["gaps"] + [f"{g['source']}: {g['error']}" for g in errs]})
+                          "gaps": out["gaps"] + [f"{g['source']}: {g['error']}" for g in errs], "read_at": out.get("read_at")})
         if a.json:
             print(json.dumps(plans[0] if a.lane and plans else {"lists": plans, "gaps": gaps}, ensure_ascii=False))
         else:
@@ -1359,7 +1361,7 @@ def collect_dev(line, s, env, shared):
     rows.sort(key=lambda r: (not r["gaps"], r["layer"], r["key"]))
     for n, r in enumerate(rows, 1):
         r["rank"] = n
-    return {"line": str(line), "lane": lane, "generated": now().isoformat(timespec="minutes"), "rows": rows,
+    return {"line": str(line), "lane": lane, "generated": now().isoformat(timespec="minutes"), "rows": rows, "read_at": B.facts_read_at(),
             "unticketed": unticketed, "env": dev_env(cfg, s, env_tickets), "gaps": [f"{g['source']}: {g['error']}" for g in gaps]}
 
 
@@ -1603,7 +1605,7 @@ def cmd_dev(a):
         plan = dev_today(outs, env, at, a.budget, guidance, shared.get("cache", {}), gaps)
         line = ", ".join(o["line"] for o in outs) or "no line"
         res = {"date": at.date().isoformat(), "line": line, "thread": None, "channel": B.DEV_CHANNEL, "post": "day post",
-               "text": dev_text(line, plan, at), "table": dev_table(plan), **plan, "gaps": gaps}
+               "text": dev_text(line, plan, at), "table": dev_table(plan), **plan, "gaps": gaps, "read_at": B.facts_read_at()}
         if a.json:
             print(json.dumps(res, ensure_ascii=False))
         else:

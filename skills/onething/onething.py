@@ -190,7 +190,9 @@ def cmd_facts(a):
         k = d.isoformat()
         days.append({"date": k, "weekday": d.strftime("%a"), "jira": jira.get(k, []), "slack": slack.get(k, [])})
         d += datetime.timedelta(days=1)
-    out = {"owner": owner, "from": first.isoformat(), "to": last.isoformat(), "days": days, "errors": errors}
+    out = {"owner": owner, "from": first.isoformat(), "to": last.isoformat(), "days": days, "errors": errors,
+           "read_at": {k: v for k, v in ((("jira", ch.get("read_at")) if jira else ("jira", None)),
+                                         (("slack", (sl.get("messages") or [{}])[-1].get("_read_at")) if slack else ("slack", None))) if v}}
     if a.json:
         print(json.dumps(out, ensure_ascii=False, indent=1))
     else:

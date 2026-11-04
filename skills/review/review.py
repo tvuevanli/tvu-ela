@@ -766,6 +766,7 @@ def cmd_replay(args):
     s = site()
     e = ["--env-file", args.env_file] if args.env_file else []
     out = replay(args.date, s, e, B.owner_jira_name(e))
+    out["read_at"] = B.facts_read_at()
     reports, _, _ = roots(s)
     path = os.path.join(reports, "review", f"{args.date}-replay.json")
     os.makedirs(os.path.dirname(path), exist_ok=True)

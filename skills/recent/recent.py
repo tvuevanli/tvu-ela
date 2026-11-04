@@ -477,7 +477,8 @@ def render_page(res, rows_open=ROWS_OPEN, budget=BUDGET):
     hm = at[11:16]
     summary = " · ".join(f"{k}: {v}" for k, v in (res.get("counts") or {}).items())
     L = [f"# {TITLE}", "",
-         f"*{at[:10]} {hm} · {res.get('count', 0)} tickets created or updated since {(res.get('since') or '')[5:]} · {summary}*", "",
+         f"*{at[:10]} {hm} · {res.get('count', 0)} tickets created or updated since {(res.get('since') or '')[5:]} · {summary}*",
+         f"*{B.F.read_at_line(res.get('read_at'))}*", "",
          f"- [ ] refresh recent (last {hm}; the runner refreshes it at its passes)", ""]
     for ln in res.get("lines") or []:
         L += [f"## {ln['line']}", ""]
@@ -536,16 +537,22 @@ def main():
     ap.add_argument("--json", action="store_true", help="the result instead of the page")
     ap.add_argument("--write", action="store_true", help="keep the result as <reports>/recent/<date>.json for the vault's sync")
     ap.add_argument("--limit", type=int, default=SEARCH_LIMIT, help=argparse.SUPPRESS)
+    ap.add_argument("--fresh", action="store_true", help="search Jira now instead of the fact store's sweep")
     a = ap.parse_args()
     if a.days < 1 or a.days > 60:
         print("--days: 1 to 60", file=sys.stderr); sys.exit(EX_USAGE)
     creds = J.load_env(a.env_file)
     reports, runtime = roots(site())
     now = datetime.datetime.now().astimezone()
-    try:
-        issues = read_issues(creds, a.days, a.limit)
-    except SystemExit as e:                                  # jira.py exits with the HTTP failure in its message
-        print(f"recent: {e}", file=sys.stderr); sys.exit(EX_REMOTE)
+    stored = None if a.fresh else J.stored_changed("MH", now - datetime.timedelta(days=a.days))
+    if stored is not None:                                   # the store's sweep holds the window: no search
+        issues, jira_read_at = stored["issues"][: a.limit], stored["at"]
+        B.F.served("jira", jira_read_at, f"issues updated in {a.days}d")
+    else:
+        try:
+            issues, jira_read_at = read_issues(creds, a.days, a.limit), now.isoformat(timespec="seconds")
+        except SystemExit as e:                              # jira.py exits with the HTTP failure in its message
+            print(f"recent: {e}", file=sys.stderr); sys.exit(EX_REMOTE)
     runner = os.path.join(runtime, "runner")
     reads = B.lane_reads(runner)
     rows = reads[-1][2] if reads else []
@@ -557,6 +564,7 @@ def main():
     except (OSError, ValueError):
         tested = {}
     res = collect(issues, lines_cfg(), rows, before, tested, read_testlists(reports), now, a.days, creds.get("JIRA_BASE_URL", ""), handles())
+    res["read_at"] = B.facts_read_at(jira=jira_read_at)
     if a.write:
         d = os.path.join(reports, "recent")
         os.makedirs(d, exist_ok=True)

@@ -419,7 +419,8 @@ def render_page(res, rows_open=ROWS_OPEN, budget=BUDGET):
     at = res.get("at") or ""
     qa_lane = next((l for l in res["lanes"] if l["role"] == "qa"), None)
     path = " → ".join(l["lane"] for l in res["lanes"] if l["role"] in ROLES) + "".join(f" · {l['shown']}" for l in res["lanes"] if l["role"] == "cn")
-    L = [f"# {title_of(res['line'])}", "", f"*{at[:10]} {at[11:16]} · line {res['line']} · {path} · {len(res['rows'])} rows*", ""]
+    L = [f"# {title_of(res['line'])}", "", f"*{at[:10]} {at[11:16]} · line {res['line']} · {path} · {len(res['rows'])} rows*",
+         f"*{B.F.read_at_line(res.get('read_at'))}*", ""]
     L += render_block(res, rows_open)
     legend = ["", "*✓ pass · ❌ fail · `·` arrived, untested · — not arrived · ⚠ incident · n/a no record (the lane's list began later) · "
               "↩ regression: failed after a pass on QA, P1 · position: the furthest lane the fix reached.*"]
@@ -513,6 +514,7 @@ def main():
         tested = {}
     res = collect(line, cfg, states, mails, {l: reports.get(l) or [] for _, l in lanes}, said, cache, incidents, at,
                   TL.sprint_keys(s), TL.departs_soon(s, at), regions, lane_read=rows, before=before, tested=tested, gaps=gaps, reads=reads)
+    res["read_at"] = B.facts_read_at()
     if a.parity:
         qa_lane = dict(lanes)["qa"]
         p = parity(res, states[qa_lane])
