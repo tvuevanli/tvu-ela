@@ -717,6 +717,13 @@ def collect_evidence(a, tickets, delta, gaps, since=None):
                 v = classify(text, person_area(roster, who))
                 ev[k].append({"source": "slack", "who": who, "when": iso_when(m.get("ts") or m.get("date")), "verdict": v if v in ("pass", "fail", "n-a", "not-scheduled", "dev-declared") else "mention",
                               "permalink": m.get("permalink"), "quote": re.sub(r"\s+", " ", text)[:220]})
+    # 4 the train: its cell for the source lane, when the train was computed after this report's inputs
+    train = B.stored_train(a.line, B.inputs_read_at())
+    if train:
+        for k in keys:
+            for when, v, ver, src, ln in B.train_cells(train, [k], lane_name(line_cfg(a.line), a.src)):
+                ev[k].append({"source": "train", "who": "QA", "area": "qa", "when": when, "verdict": v,
+                              "quote": f"{src}: {ln} {v} on {ver or '?'}"})
     # verdict per key: QA words win; dev words never mean verified
     summary = {}
     for k, items in ev.items():

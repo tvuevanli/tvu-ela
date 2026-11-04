@@ -56,6 +56,51 @@ def facts_read_at(**extra):
     return {**F.read_at(), **{k: v for k, v in extra.items() if v}}
 
 
+TRAIN_WORD = {"n/a": "n-a"}          # the train's verdict word → the test list's
+
+
+def stored_train(line, newer_than=None):
+    """<reports>/train/<line>.json (`ela train --write`) when it exists and was computed at or after `newer_than` (an
+    ISO time: the reader's own inputs), so a consumer takes the train's cells instead of recomputing them; else None.
+    The 11-02 train design, phase 2; the per-lane test-list state stays the fallback."""
+    site_ = json.load(open(SITE))
+    reports = site_.get("reports") or os.path.join(site_.get("projects", ""), "reports")
+    doc = F.read_json(os.path.join(reports, "train", f"{line}.json"))
+    if not doc or not doc.get("at"):
+        return None
+    at, floor = F.parse_iso(doc["at"]), F.parse_iso(newer_than) if newer_than else None
+    if at is None or (floor is not None and at < floor):
+        return None
+    return doc
+
+
+def inputs_read_at(*paths):
+    """The newest of the store's read times and the given files' mtimes, as ISO: what a consumer computed from."""
+    stamps = list(F.read_at().values())
+    for p in paths:
+        try:
+            stamps.append(datetime.datetime.fromtimestamp(os.path.getmtime(p)).astimezone().isoformat(timespec="seconds"))
+        except OSError:
+            pass
+    return max((s for s in stamps if F.parse_iso(s)), key=lambda s: F.parse_iso(s), default=None)
+
+
+def train_cells(doc, keys, lane=None):
+    """[(at, verdict word as the test list says it, version, source, lane)] for a row's keys from a train, lanes with a
+    pass, fail or n/a verdict only."""
+    out = []
+    keys = {k for k in keys if k}
+    for r in (doc or {}).get("rows") or []:
+        if not ({r.get("key")} | set(r.get("also") or [])) & keys:
+            continue
+        for ln, c in (r.get("cells") or {}).items():
+            if (lane and ln != lane) or c.get("verdict") not in ("pass", "fail", "n/a"):
+                continue
+            out.append((str(c.get("at") or c.get("since") or "")[:16], TRAIN_WORD.get(c["verdict"], c["verdict"]),
+                        c.get("version") or "", f"train {doc.get('line')} ({c.get('source') or 'lane cell'})", ln))
+    return out
+
+
 def pass_fresh(args):
     """--fresh on a verb: every source read below it goes live (ELA_FACTS_FRESH reaches the subprocesses)."""
     if getattr(args, "fresh", False):

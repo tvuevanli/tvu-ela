@@ -528,6 +528,8 @@ def collect_lane(lane, shown, mails, reports, s, env, cache, gaps, said=()):
     sprint = sprint_keys(s)
     soon = departs_soon(s, now()) and not B.R.lane_region(lane)    # China has no train of its own; the .com one ranks nothing there
     rows, at, drafts = [], now(), []
+    line_of = next((str(k) for k, c in (B.R.rmap("lines") or {}).items() if lane in (c.get("lanes") or {}).values()), None)
+    train = B.stored_train(line_of, B.inputs_read_at(path)) if line_of else None   # the train, when computed after this list's inputs
     for rid, r in list(st["rows"].items()):
         t = r["ticket"]
         issue = jira_read(env, t, cache, gaps) if t else None
@@ -557,6 +559,9 @@ def collect_lane(lane, shown, mails, reports, s, env, cache, gaps, said=()):
             summ = [x for x in reports if x["summary"] and x["build"] and int(x["build"]) >= int(r.get("last_build") or r["first_build"])]
             if summ:                                        # summary report on its build closes the round it rode in
                 found.append((summ[-1]["at"][:16], "n-a", f"build {summ[-1]['build']}", "QA summary report"))
+        for at_, v, ver, src, _ in B.train_cells(train, [t, *r.get("also", [])], lane) if t else []:
+            if at_ >= (r.get("last_at") or r["first_at"])[:16]:   # the train's cell for this lane, when it is the fresher object
+                found.append((at_, v, ver, src))
         found.sort()
         verdict, vv, vd, vs = ("untested", None, None, None) if not found else (found[-1][1], found[-1][2], found[-1][0][:10], found[-1][3])
         after = [b for b in builds if int(b) > int(r["first_build"])]

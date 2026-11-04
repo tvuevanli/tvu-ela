@@ -224,6 +224,23 @@ def read_testlists(reports):
 VERDICTS = {"pass": "pass", "fail": "fail", "n-a": "n/a"}   # a list row's other words (untested, pending) are no verdict
 
 
+def with_trains(testlists, reports):
+    """The test lists plus each line's train (<reports>/train/<line>.json) when the train is newer than the lists: its
+    pass, fail and n/a cells as rows under their lane, so `qa_said` reads the fresher object (the 11-02 design, phase 2)."""
+    d = os.path.join(reports or "", "lanes")
+    newest = max((os.path.getmtime(os.path.join(d, f)) for f in (os.listdir(d) if os.path.isdir(d) else []) if f.startswith("test-list-") and f.endswith(".json")), default=0)
+    floor = datetime.datetime.fromtimestamp(newest).astimezone().isoformat(timespec="seconds") if newest else None
+    out = {lane: list(rows) for lane, rows in (testlists or {}).items()}
+    for f in sorted(os.listdir(os.path.join(reports or "", "train")) if os.path.isdir(os.path.join(reports or "", "train")) else []):
+        if not f.endswith(".json"):
+            continue
+        doc = B.stored_train(f[:-5], floor)
+        for r in (doc or {}).get("rows") or []:
+            for at, v, ver, src, lane in B.train_cells(doc, [r.get("key")]):
+                out.setdefault(lane, []).append({"ticket": r.get("key"), "also": r.get("also") or [], "verdict": v, "verdict_version": ver, "verdict_date": at[:10]})
+    return out
+
+
 def qa_said(key, testlists):
     """The latest verdict a lane test list records for the key: {verdict, version, date, lane} or None."""
     found = []
@@ -563,7 +580,7 @@ def main():
         tested = json.load(open(os.path.join(runner, "qa-tested.json"), encoding="utf-8"))
     except (OSError, ValueError):
         tested = {}
-    res = collect(issues, lines_cfg(), rows, before, tested, read_testlists(reports), now, a.days, creds.get("JIRA_BASE_URL", ""), handles())
+    res = collect(issues, lines_cfg(), rows, before, tested, with_trains(read_testlists(reports), reports), now, a.days, creds.get("JIRA_BASE_URL", ""), handles())
     res["read_at"] = B.facts_read_at(jira=jira_read_at)
     if a.write:
         d = os.path.join(reports, "recent")
