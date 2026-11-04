@@ -511,7 +511,18 @@ def _standard_gate(args, issuetype, result):
     return lines
 
 def cmd_projects(creds, args):
-    """Every project key the account can see — the allow-list for recognising a ticket key in free text — and its lead."""
+    """Every project key the account can see — the allow-list for recognising a ticket key in free text — and its lead.
+    Served from the store for a day: the list changes rarely and every key-recognising reader asks for it."""
+    path = os.path.join(F.store_dir("jira"), "projects.json") if F else None
+    doc = F.read_json(path) if path else None
+    if doc and not args.fresh and not F.forced_fresh() and F.fresh(doc.get("at"), OWNER_TTL_H):
+        F.served("jira", doc["at"], "projects")
+        keys = doc["projects"]
+        if args.json:
+            print(json.dumps({"count": len(keys), "projects": keys, "read_at": doc["at"]}, ensure_ascii=False)); return
+        for p in keys:
+            print(f"{p['key']:<12} {p['name']}")
+        return
     keys, start = [], 0
     while True:
         d = api_get(creds, "/rest/api/3/project/search", {"startAt": start, "maxResults": 100, "expand": "lead"})
@@ -520,6 +531,8 @@ def cmd_projects(creds, args):
         if d.get("isLast", True) or not d.get("values"):
             break
         start += len(d["values"])
+    if path:
+        F.write_json(path, {"at": F.now_iso(), "projects": keys})
     if args.json:
         print(json.dumps({"count": len(keys), "projects": keys}, ensure_ascii=False)); return
     for p in keys:
@@ -938,11 +951,20 @@ def standing_queries(creds):
                                                                        "issues": search_rows(creds, OWNER_JQL, 1)})
 
 
+def _jql_path(q, limit):
+    import hashlib
+    return os.path.join(F.store_dir("jira", "queries"), f"jql-{hashlib.sha1(f'{q}|{limit}'.encode()).hexdigest()[:16]}.json")
+
+
 def stored_query(jql, limit):
-    """A standing query's rows from the store when its read is fresh and deep enough; None otherwise."""
+    """A standing query's rows from the store when its read is fresh and deep enough; any other JQL for the short TTL
+    after its last read (the same search is asked several times in one pass); None otherwise."""
     if not F or F.forced_fresh():
         return None
     q = " ".join(jql.split())
+    doc = F.read_json(_jql_path(q, limit))
+    if doc and F.fresh(doc.get("at"), SHORT_TTL_H):
+        return doc
     if q == OWNER_JQL and limit == 1:
         doc = F.read_json(os.path.join(F.store_dir("jira"), "owner.json"))
         return doc if doc and F.fresh(doc.get("at"), OWNER_TTL_H) else None
@@ -963,6 +985,8 @@ def cmd_jql(creds, args):
         issues, read_at = search_rows(creds, args.jql, args.limit), datetime.datetime.now().astimezone().isoformat(timespec="seconds")
         if F and " ".join(args.jql.split()) == OWNER_JQL and args.limit == 1:   # the owner-name query: once a day
             F.write_json(os.path.join(F.store_dir("jira"), "owner.json"), {"jql": OWNER_JQL, "limit": 1, "at": read_at, "issues": issues})
+        elif F:                                                                  # any other search: once per pass
+            F.write_json(_jql_path(" ".join(args.jql.split()), args.limit), {"jql": args.jql, "limit": args.limit, "at": read_at, "issues": issues})
     if args.json:
         rows = [{
             "key": i.get("key"),
@@ -2005,6 +2029,7 @@ def main():
     p.set_defaults(func=cmd_files)
 
     p = sub.add_parser("projects", help="every project key the account can see (read-only)")
+    p.add_argument("--fresh", action="store_true", help="read Jira now instead of the store's list")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_projects)
 
