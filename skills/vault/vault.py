@@ -86,22 +86,30 @@ OWNER_FOLDERS = (ARCHIVE,)   # where the owner drags a note to keep it; ela neve
 ATTACH = "ela/attachments"
 DELETABLE = (DAYS, TO_READ, READINGS)
 KEEP_FOREVER = ("brief", "week", "changes")   # the morning pages are the record of what ela told the owner; the rest expires
-PROPS = ("title", "aliases", "type", "date", "kind", "status", "result", "target", "progress", "source", "moves", "next", "ela",
-         "posted", "keys", "watch", "watched", "last")
+PROPS = ("title", "aliases", "type", "date", "kind", "project", "deadline", "next-step", "status", "result", "target", "progress", "source",
+         "moves", "next", "ela", "posted", "channels", "keys", "watch", "watched", "last")
 # the whole vocabulary; no tags (ADR 0010)
 MARKS = {"done": ARCHIVE, "drop": None}   # archive, delete; a drop of a reading something links archives it instead
 BUDGET = {"ticket": 700, "topic": 800, "guide": 1200, "board": 1000, "day": 1200, "review": 2500, "decision": 800, "plan": 800, "sprint": 800, "report": 1200,
-          "recent": 1200, "train": 1200, "one-thing": 1200}
+          "recent": 1200, "train": 1200, "one-thing": 1200, "project": 1200}
 # the closed set of note types, by family (the readme's Types): for his word, readings, living pages, day pages.
 # A type outside it, or a family outside its folders, is a lint line on the sync, never a failure.
 TYPE_FAMILY = {"decision": "decision", "plan": "plan", "sprint": "plan",
                "ticket": "reading", "review": "reading", "verify": "reading", "verify-plan": "reading",
                "home": "page", "board": "page", "lanes": "page", "recent": "page", "one-thing": "page", "test-list": "page", "dev-list": "page", "train": "page", "program": "page",
                "guide": "page", "vocabulary": "page", "system": "page", "constraints": "page", "readme": "page", "meeting": "page",
-               "report": "page",
+               "report": "page", "project": "page",
                "day": "day", "reader": "day"}
 FAMILY_FOLDERS = {"decision": ("to-read", "in-progress", "parked", "archive"), "plan": ("to-read", "in-progress", "parked", "archive", "sprints"),
-                  "reading": ("readings", "to-read", "archive")}   # a reading waits in to-read while it asks his word
+                  "reading": ("readings", "to-read", "archive", "projects")}   # a reading waits in to-read while it asks his word; a project keeps its own
+# a project: bounded work with a deadline and parties outside the program (a customer PoC, a trial), one folder
+# projects/<key>/ holding its page projects/<key>/<key>.md (type project, the living family) and what it keeps; any
+# note elsewhere names it with `project: <key>` (elak decisions/2026-11-04-projects-are-bounded-work-with-one-page-each.md)
+PROJECTS = "projects"
+PROJECT_PAGE = re.compile(r"^projects/([^/]+)/\1\.md$")
+PROJECT_HEAD_END = "## Where it stands"   # above it the desk's head, kept as written; below it the sync's tail, written each sync
+PROJECT_WATCH_DAYS = 14                   # the page's watch defaults to its deadline plus this
+PROJECT_SOON_DAYS = 14                    # Home names a project's step only with the deadline nearer than this and the step overdue
 # to-read means "waits on his word", whatever the type: a reading's asks sit under this heading, one box each
 ASKS_HEAD = "Waiting for your word"
 # every budget counts the words outside folded callouts (`> [!note]- …` and its quoted lines): a fold is read on
@@ -147,7 +155,9 @@ Start at [[home]]. Five lines: what ela did since you last looked, what leaves a
 what only you can do (at most three `apply` boxes; the morning page folds the rest under "N more", where a tick
 still counts), the MediaHub program's next step, and one line from ela. Below
 the line, links: the morning page, lanes, board, recent, changes, the program, the ela page and all notes. A box ticked on
-Home is the same as on the morning page. While you hold tier 2 (`ela-runner hold`), nothing leaves on its own: the
+Home is the same as on the morning page. Below the line, `projects` names each project with its days left, and the
+fourth line names a project's step instead of the program's only when its deadline is under 14 days away and the
+step is overdue. While you hold tier 2 (`ela-runner hold`), nothing leaves on its own: the
 block reads "held until DATE (dry run)", without boxes, and each action says what it would have posted. The QA day
 post never leaves on a timer: under "Send when you tick:" it waits as `send N` until you tick it, after reviewing the
 list and writing your `ela:` priority lines; the 09:30 or 10:00 pass then sends it, and the Done line lists it.
@@ -168,6 +178,7 @@ list and writing your `ela:` priority lines; the 09:30 or 10:00 pass then sends 
 | `lanes/` | the test list per lane, the dev list per release line, and the line's train (each fix, a cell per lane) | look before testing or a promotion |
 | `one-thing` | your One Thing rows not yet on the team's monthly sheet, one copy block, a `pasted` box per row; each day's row is drafted at 19:00 and sits on the next morning's changes page under *Your day* | paste weekly from here; tick `pasted`; reword a row with an `ela:` line under *Your day* on its changes page |
 | `mh/` | the MediaHub program and its evidence | look when Home names the program's next step |
+| `projects/` | one folder per project: bounded work with a deadline and parties outside the program (a customer PoC, a trial, a demo), holding its page `projects/<key>/<key>.md` and the readings and reports it keeps; a note elsewhere names its project with `project: <key>` and the page lists it wherever it is | look when Home lists a project's days left; keep the head's facts current, `ela: keep this` once they are settled |
 | `sprints/` | the sprints, each a plan | look at a sprint's start and end |
 | `meetings/` | one note per meeting: what you raise there, its send box, and what it ruled (30 days; older months in `archive/`) | look before the meeting; tick send, or answer an item with an `ela:` line after it |
 | `ela/` | the ela page (its measures, parts, schedule and week written by the sync; Waiting for your word, What changed for MediaHub this week and Known limits written by the desk), how ela runs, this page, the table view; attachments, hidden | rarely |
@@ -188,7 +199,10 @@ the file explorer is rarely needed.
   place), `target` (what the note changes), `progress` (the desk's last state line) and `ela` (the generated or
   hand line the desk leaves for you). A note that sent something out or follows tickets carries `posted` (the
   permalinks of what went out from it), `keys` (the Jira keys to watch), `watch` (until when it is watched; empty
-  stops it), `watched` (when it was last read) and `last` (the date of its newest Afterwards line). status is ela's, never
+  stops it), `watched` (when it was last read) and `last` (the date of its newest Afterwards line). A note that
+  belongs to a project carries `project` (its key; the sync infers it when the note's `keys` are among the
+  project's); a project page carries `deadline`, `next-step` (the step Home may name), `channels` (the threads it
+  watches) and the watch fields above. status is ela's, never
   yours to set, and follows the folder: to-read *proposed* (waits on your word) or *blocked* (only you can unblock);
   in-progress *building*, *built* (waits on your accept), *waiting* (a loop that cannot finish; Progress says why) or
   *blocked*; parked *parked*; archive *closed*, with the outcome in `next`. Home's *Waiting for your word* holds only
@@ -202,9 +216,10 @@ the file explorer is rarely needed.
   in-progress, parked or archive. Readings: `ticket`, `review`, `verify` and `verify-plan` (checks), in readings,
   or in to-read while one asks your word (a verification waiting for its record on Jira, a review with open
   asks). Pages that live: home, board, lanes, recent, one-thing, test-list,
-  dev-list, train, program, the ela page (`guide`), vocabulary, system, constraints, readme, meeting, and `report`: a
+  dev-list, train, program, the ela page (`guide`), vocabulary, system, constraints, readme, meeting, `report`: a
   standing review or design for your decision that does not move, in any folder, its evidence in folds, ruled in
-  place with an `ela:` line (status proposed, decided or superseded). Day pages: `day`
+  place with an `ela:` line (status proposed, decided or superseded), and `project`: a project's page,
+  `projects/<key>/<key>.md`, its head yours above *Where it stands* and its tail the sync's below. Day pages: `day`
   (brief, changes, week) and `reader`. A note outside the set, or a family outside its folders, is a lint line on
   the sync, never a failure.
 - `to-read/` means "waits on your word", whatever the type. A reading that asks something puts its asks under one
@@ -216,7 +231,7 @@ the file explorer is rarely needed.
 ## Reading budgets
 
 A note is written for a person: a title heading, within its budget (day page 1,200 words, review 2,500,
-sprint 800, a decision or a plan 800, a report 1,200, the recent page 1,200; the reader page's Learned five lines), mostly prose, no machine paths. The budget counts what stands open: a folded callout (`> [!note]- …`
+sprint 800, a decision or a plan 800, a report 1,200, the recent page 1,200, a project page 1,200; the reader page's Learned five lines), mostly prose, no machine paths. The budget counts what stands open: a folded callout (`> [!note]- …`
 and the quoted lines under it) is read on demand and is not counted, for every type, so a page keeps its
 detail in folds and its weight above them. A note that misses is still here, under a warning, and Home lists
 it for 30 days as a rewrite ela owes; a past day page is the morning's record and is not listed.
@@ -264,7 +279,8 @@ meeting note 14 days from its date; a verification or ticket page 30; anything e
 source per day under its own **Afterwards** heading, in ela's words with the link, never a colleague's verbatim, at
 most 40 lines a note. That section is the one exception to "ela never rewrites an archived note": it is only
 appended, and nothing else there changes. Clear `watch` to stop it; a note with neither `posted` nor `keys` is left
-exactly as you left it. The *Archive* view of all notes lists them, newest first.
+exactly as you left it. The *Archive* view of all notes lists them, newest first. A project page is watched the same
+way through its `keys`, `posted` and `channels`, until its deadline plus 14 days unless its `watch` says otherwise.
 
 Do it on the desktop; the laptop only receives. A living page (Home, the board, the lanes, how ela runs) is
 written again whatever happens to it. Finishing is never a verdict: deleting a decision does not revoke it; to
@@ -342,7 +358,7 @@ VIEWS = {
             - 'status == "proposed"'
             - 'result == "fail"'
             - 'status == "blocked"'
-    order: [date, formula.note, type, status, next]
+    order: [date, formula.note, type, project, status, next]
     sort:
       - property: formula.loop
         direction: ASC
@@ -380,8 +396,21 @@ VIEWS = {
     filters:
       and:
         - file.inFolder("in-progress")
-    order: [date, formula.note, status, progress, built, next, claimed]
+    order: [date, formula.note, project, status, progress, built, next, claimed]
     sort:
+      - property: date
+        direction: DESC
+  - type: table
+    name: Projects
+    filters:
+      and:
+        - or:
+            - file.hasProperty("project")
+            - file.inFolder("projects")
+    order: [project, date, formula.note, type, status, next]
+    sort:
+      - property: project
+        direction: ASC
       - property: date
         direction: DESC
   - type: table
@@ -1092,6 +1121,16 @@ def type_lint(path, kind):
         return f"{path}: a {fam} belongs in {', '.join(FAMILY_FOLDERS[fam])}"
     if kind == "guide" and folder != ELA:                 # the ela page's type; a page elsewhere has its own
         return f"{path}: a guide is the ela page and belongs in {ELA}/"
+    if kind == "project" and not PROJECT_PAGE.match(path):
+        return f"{path}: a project page is {PROJECTS}/<key>/<key>.md"
+    return None
+
+
+def project_lint(path, props, vault):
+    """One lint line when a note names a project (`project: <key>`) that has no folder projects/<key>/; else None."""
+    key = (props.get("project") or "").strip()
+    if key and not os.path.isdir(os.path.join(vault, PROJECTS, key)):
+        return f"{path}: project {key!r} has no folder {PROJECTS}/{key}/"
     return None
 
 
@@ -1973,7 +2012,7 @@ def native_notes(vault):
                 continue
             props = {}
             for l in fl:
-                m = re.match(r"^(type|date|kind|status|title|moves):\s*['\"]?([^'\"]*)['\"]?\s*$", l)
+                m = re.match(r"^(type|date|kind|status|title|moves|project):\s*['\"]?([^'\"]*)['\"]?\s*$", l)
                 if m:
                     props[m.group(1)] = m.group(2)
             rel = os.path.relpath(p, vault).replace(os.sep, "/")
@@ -2041,7 +2080,11 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since
             native_warn += report_lint(n)
         if n.props.get("type") == "meeting" and top(n.path) == MEETINGS:
             native_warn += [f"meeting: {x}" for x in meeting_lint(n.path, n.body)]
+    for n in notes:                                        # a source's own `project:` line names its project
+        if not n.props.get("project") and props_of(n.front_lines).get("project"):
+            n.props["project"] = props_of(n.front_lines)["project"]
     native_warn += [f"type: {x}" for x in (type_lint(n.path, n.props.get("type")) for n in notes + native) if x]
+    native_warn += [f"project: {x}" for x in (project_lint(n.path, n.props, s["vault"]) for n in notes + native) if x]
     native_warn += [f"asks: {x}" for x in (asks_lint(n) for n in notes + native) if x]
     native_warn += [f"layout: {x}" for x in folder_lint(s["vault"])]
     ov = overview_note(s, s["vault"], today)

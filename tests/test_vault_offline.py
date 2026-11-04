@@ -97,6 +97,7 @@ with tempfile.TemporaryDirectory() as tmp:
     open(f"{reports}/lanes/train-2.1.md", "w").write(f"# Train · 2.1\n\n*{today} 09:00 · line 2.1 · qa-cn3 → daily-wed → prod-3 · 1 rows*\n\n*QA 1 open · 0 P1*\n\n"
                                                     "| P | ticket | title | owner | qa-cn3 | position |\n|---|---|---|---|---|---|\n| P3 | MH-5 | a thing | — | · 80 | qa |\n")
     open(f"{reports}/ela/{today}-long.md", "w").write("# Long review\n\n" + "word " * 3000)
+    open(f"{reports}/ela/{today}-ghost.md", "w").write("---\nproject: ghost\n---\n# Ghost reading\n\nText.\n")
     for i in range(20):
         open(f"{reports}/{today[:4]}-09-{i + 10}-review-{i}.md", "w").write(f"# Review {i}\n\nText.\n")
     BATCH = [f"{today[:4]}-08-{i + 10}-batch-{i}.md" for i in range(15)]   # bulk, for the halving and mass checks
@@ -124,6 +125,12 @@ with tempfile.TemporaryDirectory() as tmp:
     with contextlib.redirect_stdout(buf):
         V.cmd_sync(types.SimpleNamespace(env_file=os.path.join(tmp, "none.env"), dry_run=True, force=False, json=False))
     check("the sync's line says what it counts", re.search(r"vault: \d+ generated · \d+ in place · \d+ archived \(", buf.getvalue()) is not None)
+    bufj = io.StringIO()
+    with contextlib.redirect_stdout(bufj):
+        V.cmd_sync(types.SimpleNamespace(env_file=os.path.join(tmp, "none.env"), dry_run=True, force=False, json=True))
+    check("a reading's own project: line is carried into the vault, and a project with no folder is a lint line",
+          'project: "ghost"' in open(f"{vault}/readings/{today}-ghost.md").read()
+          and any("project 'ghost' has no folder projects/ghost/" in w for w in json.loads(bufj.getvalue())["warnings"]))
     check("with no constraints file the page says none is confirmed, and Home is silent",
           "No standing constraint has been confirmed yet" in open(f"{vault}/constraints.md").read()
           and "standing constraint" not in open(f"{vault}/home.md").read())
@@ -857,4 +864,18 @@ with tempfile.TemporaryDirectory() as t:
     fixes = V.settle_statuses(t)
     check("an unquoted type in archive is quoted, the body untouched", fixes == ["archive/a.md: type quoted"]
           and 'type: "verify"' in open(os.path.join(t, "archive", "a.md")).read())
+check("a project is a living page with a budget, and a reading may live in its folder",
+      V.TYPE_FAMILY.get("project") == "page" and V.BUDGET.get("project") == 1200 and "projects" in V.FAMILY_FOLDERS["reading"])
+check("a project page is projects/<key>/<key>.md; a reading or a report beside it is in place",
+      V.type_lint("projects/a/a.md", "project") is None and "projects/<key>/<key>.md" in (V.type_lint("projects/a/b.md", "project") or "")
+      and "projects/<key>/<key>.md" in (V.type_lint("mh/a.md", "project") or "")
+      and V.type_lint("projects/a/2026-11-04-glossary.md", "review") is None and V.type_lint("projects/a/r.md", "report") is None)
+with tempfile.TemporaryDirectory() as t:
+    os.makedirs(os.path.join(t, "projects", "sb"))
+    check("project: names a folder that exists, or it is a lint line",
+          V.project_lint("readings/x.md", {"project": "sb"}, t) is None and V.project_lint("readings/x.md", {}, t) is None
+          and "has no folder projects/nope/" in (V.project_lint("readings/x.md", {"project": "nope"}, t) or ""))
+check("the readme's layout names projects/, the base has a Projects view and a project column",
+      "projects" in V.layout_folders() and "name: Projects" in V.VIEWS["all-notes"] and 'file.hasProperty("project")' in V.VIEWS["all-notes"]
+      and "order: [date, formula.note, type, project, status, next]" in V.VIEWS["all-notes"] and "project" in V.PROPS)
 sys.exit(1 if failures else 0)
