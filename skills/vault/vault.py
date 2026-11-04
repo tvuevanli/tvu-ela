@@ -676,6 +676,7 @@ def report_notes(reports, today):
         raise SourceError(f"the reports root is missing: {reports}")
     notes = []
     rd = os.path.join(reports, "runner")
+    lists = list_links(reports)
     for f in sorted(os.listdir(rd)) if os.path.isdir(rd) else []:
         m = re.match(r"^(\d{4}-\d{2}-\d{2})-(brief|week|changes)\.md$", f)   # the day's learning is the reader page's ## Learned
         if not m or (m.group(2) not in KEEP_FOREVER and (today - datetime.date.fromisoformat(m.group(1))).days >= DAYS_KEPT):
@@ -683,7 +684,7 @@ def report_notes(reports, today):
         d = datetime.date.fromisoformat(m.group(1))
         fl, body = split_front(open(os.path.join(rd, f), encoding="utf-8").read())
         if m.group(2) == "brief":
-            body = action_states(body, os.path.join(rd, f"{m.group(1)}-actions.json"))
+            body = action_states(body, os.path.join(rd, f"{m.group(1)}-actions.json"), lists)
         label = {"brief": "Morning brief", "week": "The week", "changes": "What changed"}[m.group(2)]
         notes.append(Note(f"{DAYS}/{m.group(1)[:4]}/{m.group(1)}-{m.group(2)}.md", f"{label} · {d:%a} {m.group(1)}", body,
                           {"type": "day", "date": m.group(1), "kind": m.group(2)}, fl, src_rel=f"runner/{f}"))
@@ -802,9 +803,53 @@ APPLY_BOX = re.compile(r"^([ \t]*" + QUOTE + r"[-*][ \t]+)\[[ xX]\]([ \t]+apply[
 DONT_BOX = re.compile(r"^([ \t]*" + QUOTE + r"[-*][ \t]+\[[ xX]\][ \t]+don't[ \t]+(\d+)\b.*?)[ \t]*$", re.M)   # tier 2: his box vetoes it
 SEND_BOX = re.compile(r"^([ \t]*" + QUOTE + r"[-*][ \t]+)\[[ xX]\]([ \t]+send[ \t]+(\d+)\b.*?)[ \t]*$", re.M)   # tier 3: leaves on his tick
 DONE_LINE = re.compile(r"^([ \t]*" + QUOTE + r"[-*][ \t]+done[ \t]+(\d+)\b.*?)[ \t]*$", re.M)          # tier 1: ela did it
+# what follows an open send box, replaced by the outcome once it has one: the runner's "unticked: stays as apply N",
+# or ela's list link, channel and "untouched: not sent"
+SEND_TAIL = re.compile(r"[ \t]*·[ \t]*(?:unticked: stays as apply \d+|\[\[lanes/[^\]]*\]\](?: → #[\w-]+)?|→ #[\w-]+|untouched: not sent)[ \t]*$")
+LIST_COUNTS = {"qa-today": ("test-list", re.compile(r"(\d+) open(?: · P1 (\d+))?"), "P1"),
+               "dev-today": ("dev-list", re.compile(r"(\d+) ticket\(s\)(?: · (\d+) with a gap)?"), "with a gap")}
 
 
-def action_states(body, actions_path):
+def list_links(reports):
+    """{(rule, lane or line): wikilink} for each lane list on disk, the page a send box would send: QA today's test list
+    as [[lanes/test-list-<lane>|N rows, M P1]], Dev today's dev list as [[lanes/dev-list-<line>|N rows, M with a gap]],
+    the counts read from the page's own count line."""
+    out, d = {}, os.path.join(reports or "", "lanes")
+    for f in sorted(os.listdir(d)) if os.path.isdir(d) else []:
+        m = re.match(r"^(test-list|dev-list)-(.+)\.md$", f)
+        if not m:
+            continue
+        rule = "qa-today" if m.group(1) == "test-list" else "dev-today"
+        try:
+            c = LIST_COUNTS[rule][1].search(open(os.path.join(d, f), encoding="utf-8").read(8000))
+        except OSError:
+            continue
+        label = f"{c.group(1)} rows, {c.group(2) or 0} {LIST_COUNTS[rule][2]}" if c else "the list"
+        out[(rule, m.group(2))] = f"[[lanes/{f[:-3]}|{label}]]"
+    return out
+
+
+def send_tail(a, lists=None):
+    """What follows an open send box: the list it would send, the channel it goes to, and that untouched it is not
+    sent. Nothing of it changes the box prefix the runner reads (`- [x] send N`)."""
+    scope = a.get("scope") or []
+    where = scope[1] if len(scope) > 1 and scope[0] in ("--lane", "--line") else None
+    kind = LIST_COUNTS.get(a.get("rule"), (None,))[0]
+    link = (lists or {}).get((a.get("rule"), where)) or (f"[[lanes/{kind}-{where}|the list]]" if kind and where else None)
+    chan = str(a.get("channel") or "").lstrip("#") or next(iter(re.findall(r"#([\w-]+)", str(a.get("command") or ""))), None)
+    head = " ".join(x for x in (link, f"→ #{chan}" if chan else None) if x)
+    return (f" · {head}" if head else "") + " · untouched: not sent"
+
+
+def strip_send_tail(rest):
+    while True:
+        cut = SEND_TAIL.sub("", rest)
+        if cut == rest:
+            return rest
+        rest = cut
+
+
+def action_states(body, actions_path, lists=None):
     """The morning page as a checklist: each drafted write shows what became of it, read from the day's actions file.
     Applied: the apply box ticked, with the time. Not applied: a second box beside it, "I handled it myself", for a
     write he made his own way (ticking apply would run the drafted one); ticked when he ticks it or when the runner
@@ -839,18 +884,21 @@ def action_states(body, actions_path):
         if a.get("applied"):
             return f"{m.group(1)} · {applied_words(a, 'sent' if m.re is DONT_BOX else 'done')}"
         return m.group(0)
-    def sent(m):                                          # a send box: ticked, sent or not, as the runner recorded it
+    def sent(m):                                          # a send box: open with what it would send, ticked, sent or not
         a = acts.get(m.group(3))
         lead, rest = m.group(1), m.group(2)
-        if not a or re.search(r" · (sent|not sent|ticked|applied) ", rest + " "):
+        if not a or re.search(r" · (sent|not sent|ticked|applied)\b", rest):
             return m.group(0)                             # unknown, or the runner's own line already says it
+        rest = strip_send_tail(rest)
         if a.get("applied"):
             return f"{lead}[x]{rest} · {applied_words(a, 'sent')}" + (f" · [link]({a['permalink']})" if a.get("permalink") else "")
         if a.get("failed"):
             return f"{lead}[x]{rest} · not sent: {str((a['failed'] or {}).get('error') or 'failed')[:80]}"
         if ticked_at(a):
             return f"{lead}[x]{rest} · ticked {ticked_at(a)[11:16]}"
-        return m.group(0)
+        if (a.get("unsent") or {}).get("final"):
+            return f"{lead}[ ]{rest} · not sent: no tick · stays as apply {m.group(3)}"
+        return f"{lead}[ ]{rest}{send_tail(a, lists)}"
     return SEND_BOX.sub(sent, DONE_LINE.sub(outcome, DONT_BOX.sub(outcome, APPLY_BOX.sub(one, body))))
 
 
@@ -1628,7 +1676,7 @@ def home(today, now, notes, desk=None):
         L += [f"- {a['dry_run']['line']}" if (a.get("dry_run") or {}).get("line")
               else f"- {a['n']} — {a.get('text', '')}" if hold else f"- [ ] don't {a['n']} — {a.get('text', '')}" for a in due] + [""]
     if send:
-        L += ["**Send when you tick:**"] + [f"- {send_line(a)}" for a in send] + [""]
+        L += ["**Send when you tick:**"] + [f"- {send_line(a, desk.get('lists'))}" for a in send] + [""]
     L += ["**Only you:**" + ("" if mine else " nothing today.")]
     L += [f"- [ ] apply {a['n']} — {a.get('text', '')}" for a in mine[:3]]
     L += [f"*+{len(mine) - 3} more on {page}*"] if len(mine) > 3 else []
@@ -1720,15 +1768,18 @@ def ticked_at(a):
     return str((t.get("at") if isinstance(t, dict) else t) or "")
 
 
-def send_line(a):
-    """A send-box action as Home lists it, in the box form the runner reads (`send N`): open, ticked with the time the
-    runner saw it, or not sent with the error, without a box."""
+def send_line(a, lists=None):
+    """A send-box action as Home lists it, in the box form the runner reads (`send N`): open, with the list it would
+    send, its channel and "untouched: not sent"; ticked with the time the runner saw it; or not sent (an error, or
+    no tick by the last pass), without a box."""
     what = f"{a['n']} — {action_what(a)} (your ela: lines applied first)"
     if a.get("failed"):
         return f"send {what} · not sent: {str((a['failed'] or {}).get('error') or 'failed')[:80]}"
     if ticked_at(a):
         return f"[x] send {what} · ticked {ticked_at(a)[11:16]}"
-    return f"[ ] send {what}"
+    if (a.get("unsent") or {}).get("final"):
+        return f"send {what} · not sent: no tick · stays as apply {a['n']}"
+    return f"[ ] send {what}{send_tail(a, lists)}"
 
 
 def done_line(a):
@@ -2381,7 +2432,7 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since
         planned[n.path] = redact(front(n.front_lines, dict(n.props, title=n.title)) + (with_warning(body, n.held) if n.held else body))
     planned["home.md"] = redact(front([], {"type": "home", "date": today.isoformat()}) + linker(home(today, now, notes + native, {
         "actions": week_actions(reports, today), "since": since, "program": program_next(s["vault"]), "ela": ela_line(s["vault"]),
-        "hold": tier2_hold(reports, today.isoformat())})))
+        "hold": tier2_hold(reports, today.isoformat()), "lists": list_links(reports)})))
     planned[f"{ELA}/about-this-vault.md"] = unwrap(README)
     for name, text in VIEWS.items():
         planned[f"{ELA}/{name}.base"] = text

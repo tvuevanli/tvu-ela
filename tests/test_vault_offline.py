@@ -794,10 +794,27 @@ box = [dict(sb, n=4), dict(sb, n=5, scope=["--lane", "qa-us1"], send_ticked={"at
 hm = V.home(day, datetime.datetime(2026, 10, 28, 9), [], {"actions": box, "hold": {"until": "2026-11-05"}})
 check("Home lists a send box between the tier-2 block and his own, in the form the runner reads, a ticked one with its time",
       hm.index("unless you tick" if "unless you tick" in hm else "held until") < hm.index("**Send when you tick:**") < hm.index("**Only you:**")
-      and "- [ ] send 4 — QA today on qa-cn3 (your ela: lines applied first)" in hm
+      and "- [ ] send 4 — QA today on qa-cn3 (your ela: lines applied first) · [[lanes/test-list-qa-cn3|the list]] · untouched: not sent" in hm
       and "- [x] send 5 — QA today on qa-us1 (your ela: lines applied first) · ticked 09:12" in hm
       and "send 6" not in hm and "apply 4" not in hm and "**Only you:** nothing today." in hm)
-check("a send box ticked on Home is what the runner reads", re.findall(r"(?m)^[ \t]*[-*][ \t]+\[[xX]\][ \t]+send[ \t]+(\d+)\b", hm) == ["5"])
+RUNNER_TICK = r"(?m)^[ \t]*(?:>[ \t]*)*[-*][ \t]+\[[xX]\][ \t]+send[ \t]+(\d+)\b"   # ela-runner's `ticked()` regex, as it stands
+check("a send box ticked on Home is what the runner reads, the decorated open one is not", re.findall(RUNNER_TICK, hm) == ["5"]
+      and re.findall(r"(?m)^[ \t]*[-*][ \t]+\[[ xX]\][ \t]+send[ \t]+(\d+) — ", hm) == ["4", "5"])
+lists = {("qa-today", "qa-cn3"): "[[lanes/test-list-qa-cn3|19 rows, 2 P1]]", ("dev-today", "2.1"): "[[lanes/dev-list-2.1|78 rows, 19 with a gap]]"}
+dev = dict(sb, n=9, rule="dev-today", scope=["--line", "2.1"], channel="prj_dev_mediahub", command="ela slack post #prj_dev_mediahub --file f --team-day-post")
+hm = V.home(day, datetime.datetime(2026, 10, 28, 9), [], {"actions": [dict(sb, n=4, channel="mediahub-qa-release"), dev,
+                                                                       dict(sb, n=8, scope=["--lane", "qa-us1"], unsent={"at": "x", "final": True})], "lists": lists})
+check("an open send line links the list it would send with its counts, names the channel and ends untouched: not sent",
+      "- [ ] send 4 — QA today on qa-cn3 (your ela: lines applied first) · [[lanes/test-list-qa-cn3|19 rows, 2 P1]] → #mediahub-qa-release · untouched: not sent" in hm
+      and "- [ ] send 9 — Dev today on 2.1 (your ela: lines applied first) · [[lanes/dev-list-2.1|78 rows, 19 with a gap]] → #prj_dev_mediahub · untouched: not sent" in hm)
+check("one the runner gave up on at its last pass has no box and says so", "- send 8 — QA today on qa-us1 (your ela: lines applied first) · not sent: no tick · stays as apply 8" in hm
+      and re.findall(RUNNER_TICK, hm) == [])
+with tempfile.TemporaryDirectory() as t:
+    os.makedirs(os.path.join(t, "lanes"))
+    open(os.path.join(t, "lanes", "test-list-qa-cn3.md"), "w").write("# Test list · QA-AWS3\n\n*now*\n\n19 open · P1 2 · P2 5 · P3 12 · 4 auto\n\n| P |\n")
+    open(os.path.join(t, "lanes", "dev-list-2.1.md"), "w").write("# Dev list · 2.1\n\n78 ticket(s) · 19 with a gap · 3 build change(s)\n")
+    open(os.path.join(t, "lanes", "train-2.1.md"), "w").write("# Train\n")
+    check("the lane lists' links are read from the pages' own count lines", V.list_links(t) == lists and V.list_links(os.path.join(t, "none")) == {})
 hm = V.home(day, datetime.datetime(2026, 10, 28, 11), [], {"actions": [dict(sb, n=4, applied="2026-10-28T09:30:20+0800", permalink="https://x/p4")]})
 check("after the send the Done line lists it, the block is gone",
       "- 4 — QA today on qa-cn3 applied 09:30 (trigger not recorded) · [link](https://x/p4)" in hm and "Send when you tick" not in hm)
@@ -807,11 +824,12 @@ with tempfile.TemporaryDirectory() as t:
     json.dump([dict(sb, n=4), dict(sb, n=5, send_ticked="2026-10-28T09:12:00+0800"),
                dict(sb, n=6, applied="2026-10-28T09:30:20+0800", permalink="https://x/p6"), dict(sb, n=7, failed={"error": "slack 500"})], open(ap, "w"))
     pg = "## QA today\n\n- [ ] send 4 — QA today on qa-cn3 (your ela: lines applied first) · unticked: stays as apply 4\n" \
-         "- [ ] send 5 — b\n- [x] send 6 — c\n- [x] send 7 — d\n- [x] send 6 — c · sent 09:30 · [link](https://x/p6)"
-    check("the morning page keeps the send box under QA today: open, ticked, sent with its link, not sent",
-          V.action_states(pg, ap) == "## QA today\n\n- [ ] send 4 — QA today on qa-cn3 (your ela: lines applied first) · unticked: stays as apply 4\n"
+         "- [ ] send 5 — b · unticked: stays as apply 5\n- [x] send 6 — c\n- [x] send 7 — d\n- [x] send 6 — c · sent 09:30 · [link](https://x/p6)"
+    check("the morning page's send box under QA today: open with the list, channel and untouched: not sent; ticked, sent with its link, not sent",
+          V.action_states(pg, ap, lists) == "## QA today\n\n- [ ] send 4 — QA today on qa-cn3 (your ela: lines applied first) · [[lanes/test-list-qa-cn3|19 rows, 2 P1]] · untouched: not sent\n"
           "- [x] send 5 — b · ticked 09:12\n- [x] send 6 — c · applied 09:30 (trigger not recorded) · [link](https://x/p6)\n- [x] send 7 — d · not sent: slack 500\n"
           "- [x] send 6 — c · sent 09:30 · [link](https://x/p6)")
+    check("a decorated line is decorated once", V.action_states(V.action_states(pg, ap, lists), ap, lists) == V.action_states(pg, ap, lists))
 with tempfile.TemporaryDirectory() as t:
     os.makedirs(f"{t}/runner")
     check("no hold file, no hold", V.tier2_hold(t, "2026-10-30") is None)
