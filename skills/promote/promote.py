@@ -1084,8 +1084,8 @@ def key_branch_state(key, line, repos):
         path = repo_path(repo)
         if not path:
             continue
-        rc, refs, _ = git(path, "for-each-ref", "--format=%(refname:short)", f"refs/remotes/origin/*{key}*")
-        branches = [b for b in (refs or "").split() if b]
+        rc, refs, _ = git(path, "branch", "-r", "--list", f"*{key}*")   # a for-each-ref glob cannot cross the slash in feature/<KEY>
+        branches = [b.strip() for b in (refs or "").splitlines() if b.strip() and " -> " not in b]
         rc, _, _ = git(path, "rev-parse", "--verify", "--quiet", f"origin/release{line}")
         if rc != 0:
             out.append((repo, "no release branch", branches)); continue
@@ -1112,7 +1112,7 @@ def plan_checks(a, rec):
         states = key_branch_state(key, a.line, repos)
         bad = [r for r, st, _ in states if st == "not merged"]
         none = [r for r, st, _ in states if st == "no branch"]
-        branch = next((b[0] for _, _, b in states if b), f"feature/{key}")
+        branch = next((re.sub(r"^origin/", "", b[0]) for _, _, b in states if b), f"feature/{key}")
         if bad:
             lines.append(f"✗ {key}: {branch} not merged into release{a.line} in {len(bad)} repo{'s' if len(bad) != 1 else ''} as of {today} ({', '.join(bad)})")
         elif any(st == "merged" for _, st, _ in states):
