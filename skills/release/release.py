@@ -597,11 +597,17 @@ def _bundles_path(kind, line):
 
 
 def stored_bundles(kind, line, limit):
-    """The store's bundle list for a host and line name while fresh and at least as deep as `limit`; else None."""
+    """The store's bundle list for a host and line name while fresh and at least as deep as `limit`, or its fresh gap
+    (the host refused at the last read); else None."""
     if not _store_fresh():
         return None
     doc = F.read_json(_bundles_path(kind, line))
-    if doc and F.fresh(doc.get("at")) and (doc.get("limit", 0) >= limit or len(doc.get("bundles") or []) < doc.get("limit", 0)):
+    if not doc:
+        return None
+    gap = doc.get("gap")
+    if gap and F.fresh(gap.get("at")) and str(gap.get("at")) >= str(doc.get("at") or ""):
+        return {"gap": gap, "at": doc.get("at"), "bundles": doc.get("bundles")}
+    if F.fresh(doc.get("at")) and (doc.get("limit", 0) >= limit or len(doc.get("bundles") or []) < doc.get("limit", 0)):
         return doc
     return None
 
@@ -609,10 +615,21 @@ def stored_bundles(kind, line, limit):
 def bundle_list(us, line, limit=50, fresh=False):
     doc = None if fresh else stored_bundles(us.kind, line, limit)
     if doc is not None:
+        if doc.get("gap"):
+            g = doc["gap"]
+            print(f"userservice {us.kind}: {g.get('why')} (facts {str(g.get('at'))[:16]}; last good read {str(doc.get('at') or 'none')[:16]}; --fresh retries)", file=sys.stderr)
+            sys.exit(int(g.get("exit") or EX_REMOTE))
         F.served("release", doc["at"], f"bundles {us.kind} {line}")
         return list(doc["bundles"])[:limit]
-    body = us.call("/userGroup/user-group/tagBundle/page",
-                   {"bundleName": line, "operator": "", "createStartTime": "", "createEndTime": "", "pageNum": 1, "pageSize": limit})
+    try:
+        body = us.call("/userGroup/user-group/tagBundle/page",
+                       {"bundleName": line, "operator": "", "createStartTime": "", "createEndTime": "", "pageNum": 1, "pageSize": limit})
+    except SystemExit as e:
+        if F:
+            prev = F.read_json(_bundles_path(us.kind, line), {}) or {}
+            prev["gap"] = {"at": F.now_iso(), "exit": e.code if isinstance(e.code, int) else EX_REMOTE, "why": f"read failed (exit {e.code})"}
+            F.write_json(_bundles_path(us.kind, line), prev)
+        raise
     rows = ((body or {}).get("result") or {}).get("list") or []
     if F:
         F.write_json(_bundles_path(us.kind, line), {"at": F.now_iso(), "host": us.kind, "line": line, "limit": limit, "bundles": rows})
