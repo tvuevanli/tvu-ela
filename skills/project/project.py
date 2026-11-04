@@ -24,7 +24,7 @@ import vault as V  # noqa: E402
 
 SITE = os.path.expanduser("~/.claude/ela/site.json")
 KEY = re.compile(r"^[a-z0-9][a-z0-9-]{1,40}$")          # a project's key: a folder name, lowercase with hyphens
-HEAD_SECTIONS = ("Goal", "Deadline", "Parties", "What is known", "Next step")
+HEAD_SECTIONS = ("Goal", "Dates", "Parties", "What is known", "Next step")   # never one of the sync's tail headings
 
 
 def site():
@@ -113,9 +113,9 @@ def skeleton(key, title, deadline, today):
     fm = V.front([], {"title": title, "type": "project", "date": today.isoformat(), "deadline": deadline, "source": "vault"})
     body = [f"# {title}", "",
             "*The head is the desk's text until you write `ela: keep this` and its facts go to elak; the sync writes everything "
-            f"below *{V.PROJECT_HEAD_END[3:]}* on each pass. Fill the sections in your own words; the first unticked box under "
+            f"from *{V.PROJECT_HEAD_END[3:]}* down on each pass. Fill the sections in your own words; the first unticked box under "
             "*Next step* is the step Home may name, or set `next-step` in the properties.*", ""]
-    hints = {"Goal": "What TVU must prove, in one paragraph.", "Deadline": f"{deadline} — what happens on that day, and the dates before it.",
+    hints = {"Goal": "What TVU must prove, in one paragraph.", "Dates": f"{deadline} — what happens on that day, and the dates before it.",
              "Parties": "- customer: \n- others: \n- TVU: who does what", "What is known": "- ", "Next step": "- [ ] "}
     for h in HEAD_SECTIONS:
         body += [f"## {h}", "", hints[h], ""]

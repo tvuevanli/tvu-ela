@@ -140,13 +140,12 @@ with tempfile.TemporaryDirectory() as tmp:
     check("a project page is written in place: its properties settled, the desk's lines kept, watch from the deadline",
           'type: "project"' in sbp and f'deadline: "{SB_DEADLINE}"' in sbp and 'customer: "Hearst"' in sbp and 'aliases: ["Super Bowl"]' in sbp
           and f'watch: "{(datetime.date.today() + datetime.timedelta(days=44)).isoformat()}"' in sbp and f'date: "{today}"' in sbp)
-    check("its head stands as written above the marker, the tail below",
-          sbb.startswith("# Super Bowl\n\n## Goal\n\nProve the chain.\n\n## Next step\n\n- [ ] wire the decoder by 2026-01-05\n\nela: keep the head\n")
-          and sbb.count(V.PROJECT_HEAD_END) == 1 and sbb.index("## Goal") < sbb.index(V.PROJECT_HEAD_END) < sbb.index("## Waiting for your word")
-          < sbb.index("## Notes") < sbb.index("## Afterwards"))
+    check("its head stands as written above the tail's first heading, the tail's five headings in the runner's order",
+          sbb.startswith("# Super Bowl\n\n## Goal\n\nProve the chain.\n\n## Next step\n\n- [ ] wire the decoder by 2026-01-05\n\nela: keep the head\n\n## Waiting for your word\n")
+          and [h for h in re.findall(r"(?m)^## (.+)$", sbb) if h in V.TAIL_HEADS] == list(V.TAIL_HEADS) and sbb.count("## Waiting for your word") == 1)
     check("the tail says the days left and the overdue step, the keys watched, and lists the folder's reading and the inferred one",
-          f"*Deadline {SB_DEADLINE} · 30 days left · next step: wire the decoder by 2026-01-05 (**overdue**)*" in sbb
-          and "*Watching: keys MH-5 · no threads · watched until" in sbb and "Nothing waits on you for this project." in sbb
+          f"## Deadline\n\n*{SB_DEADLINE} · 30 days left · next step: wire the decoder by 2026-01-05 (**overdue**)*" in sbb
+          and "## Keys and threads\n\n*keys MH-5 · no threads · watched until" in sbb and "Nothing waits on you for this project." in sbb
           and "**in this folder**\n- [[projects/sb/glossary|Glossary]] · review · 2026-11-01" in sbb
           and f"**readings**/\n- [[readings/{today}-sb-read|A read for the project]] · review · {today}" in sbb
           and "*Nothing yet: the 13:00" in sbb)
@@ -923,7 +922,7 @@ with tempfile.TemporaryDirectory() as t:
           and "has no folder projects/nope/" in (V.project_lint("readings/x.md", {"project": "nope"}, t) or ""))
 td = datetime.date(2026, 11, 4)
 pf = V.project_facts("sb", '---\ntitle: "SB"\ndeadline: "2027-02-14"\nnext-step: "the PoC week, 11-10"\nkeys: "MH-1 MH-2 AC-4"\n'
-                     'channels: "https://x.slack.com/archives/C1/p1"\n---\n# SB\n\n- [ ] first box\n\n## Where it stands\n\nold tail\n\n'
+                     'channels: "https://x.slack.com/archives/C1/p1"\n---\n# SB\n\n- [ ] first box\n\n## Notes\n\nold tail\n\n'
                      '## Afterwards\n\n- 11-03 · MH-1: A → B (x)\n', td)
 check("a project's facts: the deadline and days, the next-step property before the first box, its date, keys without codecs, threads from channels, "
       "the Afterwards rows, the head without the tail",

@@ -15,16 +15,19 @@ property `project: <key>` and keeps its own life and folder; the page lists it. 
 
 ## The page
 
-Two halves, one marker: `## Where it stands`.
+Two halves. The boundary is the first of the sync's five `##` headings, in this order: *Waiting for your word*,
+*Notes*, *Keys and threads*, *Afterwards*, *Deadline* (ela-runner's morning Projects section reads the same
+boundary, so the head never uses one of those five names).
 
-- **The head**, above the marker, is the desk's: goal, deadline, parties and roles, what is known, the next step
-  (the first unticked box there, or the `next-step` property). The sync keeps it as written. Once the owner writes
-  `ela: keep this`, its settled facts go to elak `knowledge/projects/<key>/<key>.md` and the head is rendered from
-  that copy; until then the page says the head is the desk's.
-- **The tail**, from the marker down, is written on every `ela vault sync`: the days to the deadline and the step
-  (marked overdue when its date has passed, or, with no date, when the deadline has), what is watched; *Waiting
-  for your word* (the project's notes in `to-read/` and `in-progress/`, with status and `next`); *Notes* by folder,
-  newest first (every note carrying `project: <key>`, plus what the folder keeps); *Afterwards*.
+- **The head**, above it, is the desk's: goal, dates, parties and roles, what is known, the next step (the first
+  unticked box there, or the `next-step` property; a box whose line carries a date is an ask the morning page can
+  see). The sync keeps it as written. Once the owner writes `ela: keep this`, its settled facts go to elak
+  `knowledge/projects/<key>/<key>.md` and the head is rendered from that copy; until then the page says the head is
+  the desk's.
+- **The tail** is written on every `ela vault sync`: *Waiting for your word* (the project's notes in `to-read/` and
+  `in-progress/`, with status and `next`); *Notes* by folder, newest first (every note carrying `project: <key>`,
+  plus what the folder keeps); *Keys and threads* (what is watched, until when); *Afterwards*; *Deadline* (the days
+  to it and the step, marked overdue when its date has passed, or, with no date, when the deadline has).
 - **Properties**: `deadline`, `next-step`, and the archive's watch fields: `keys` (the Jira keys to follow),
   `posted` and `channels` (Slack permalinks), `watch` (defaults to the deadline plus 14 days; empty stops it),
   `watched`, `last`. The 13:00, 17:30 and 19:00 afterwards passes read the page like an archived note and append
@@ -56,6 +59,7 @@ Exit codes: 0 ok · 2 usage or site · 3 no such project (or it exists already, 
 - The desk writes the first page and moves readings into the folder; the script only makes the skeleton. Write the
   head in the owner's words, a date on each step, so Home's fourth line can tell overdue from pending.
 - Keys and threads are the watch: add a ticket only when the project depends on it, or the Afterwards fills with
-  noise. A `project:<key>` Jira label is not in the vocabulary until the owner's word.
+  noise. The project concept stays in the vault for now (the owner's ruling of 2026-11-04): there is no
+  `project:<key>` Jira label, and `ela project` writes nothing to Jira.
 - Skills that write notes (`breakdown`, `explain`, `digest`, `verify`) do not yet take `--project`; set the
   property on the note by hand until they do.

@@ -37,8 +37,8 @@ its date, so a folder sorts by time. Folders carry no numbers: Home and the book
     in-progress/<name>.md                       a note he agreed to, while ela builds it and until he accepts it
     parked/<name>.md                            a note that waits on others, with who and what brings it back
     archive/                                    where he drags a note to keep it
-    projects/<key>/<key>.md                     a project's page: the desk's head above "## Where it stands", the sync's tail
-                                                below (asks, notes, keys and threads with their Afterwards, days to the deadline);
+    projects/<key>/<key>.md                     a project's page: the desk's head above the sync's first heading, the tail
+                                                below (Waiting for your word, Notes, Keys and threads, Afterwards, Deadline);
                                                 the folder keeps its readings and reports; `ela project list|show|new|keys`
     ela/                                        about this vault, the ela page (overview.md: generated, three sections
                                                 the desk's), how ela runs, the table view, the Jira vocabulary, and
@@ -110,7 +110,11 @@ FAMILY_FOLDERS = {"decision": ("to-read", "in-progress", "parked", "archive"), "
 # note elsewhere names it with `project: <key>` (elak decisions/2026-11-04-projects-are-bounded-work-with-one-page-each.md)
 PROJECTS = "projects"
 PROJECT_PAGE = re.compile(r"^projects/([^/]+)/\1\.md$")
-PROJECT_HEAD_END = "## Where it stands"   # above it the desk's head, kept as written; below it the sync's tail, written each sync
+# the sync's tail, these headings in this order; the head is everything above the first of them, the boundary
+# ela-runner's morning Projects section reads too, so a desk heading of these names would end the head early
+TAIL_HEADS = ("Waiting for your word", "Notes", "Keys and threads", "Afterwards", "Deadline")
+PROJECT_HEAD_END = "## " + TAIL_HEADS[0]
+TAIL_HEAD_RX = re.compile(r"^##[ \t]+(?:" + "|".join(re.escape(h) for h in TAIL_HEADS) + r")[ \t]*$", re.M)
 PROJECT_WATCH_DAYS = 14                   # the page's watch defaults to its deadline plus this
 PROJECT_SOON_DAYS = 14                    # Home names a project's step only with the deadline nearer than this and the step overdue
 # to-read means "waits on his word", whatever the type: a reading's asks sit under this heading, one box each
@@ -222,7 +226,8 @@ the file explorer is rarely needed.
   dev-list, train, program, the ela page (`guide`), vocabulary, system, constraints, readme, meeting, `report`: a
   standing review or design for your decision that does not move, in any folder, its evidence in folds, ruled in
   place with an `ela:` line (status proposed, decided or superseded), and `project`: a project's page,
-  `projects/<key>/<key>.md`, its head yours above *Where it stands* and its tail the sync's below. Day pages: `day`
+  `projects/<key>/<key>.md`, its head yours above *Waiting for your word* and its tail the sync's from there (Notes,
+  Keys and threads, Afterwards, Deadline). Day pages: `day`
   (brief, changes, week) and `reader`. A note outside the set, or a family outside its folders, is a lint line on
   the sync, never a failure.
 - `to-read/` means "waits on your word", whatever the type. A reading that asks something puts its asks under one
@@ -1408,10 +1413,10 @@ def constraints_note(data, today):
 
 
 # ── a project's page: the desk's head, the sync's tail ────────────────────────────────────────────────
-# projects/<key>/<key>.md. Above PROJECT_HEAD_END the desk's settled facts (goal, deadline, parties, what is known, the
-# next step), kept as written. Below it, written on every sync: the days to the deadline and the step, what waits on
-# his word (the project's notes in to-read and in-progress), its notes by folder, and its keys and threads with their
-# Afterwards (the archive's watch, pointed at the page too). Reasons: elak
+# projects/<key>/<key>.md. Above the first of TAIL_HEADS the desk's settled facts (goal, dates, parties, what is known,
+# the next step), kept as written. From there, written on every sync: what waits on his word (the project's notes in
+# to-read and in-progress), its notes by folder, its keys and threads, their Afterwards (the archive's watch, pointed
+# at the page too), and the days to the deadline with the step. Reasons: elak
 # blueprint/decisions/2026-11-04-projects-are-bounded-work-with-one-page-each.md.
 STEP_DATE = re.compile(r"(?<![\d-])(\d{4}-\d{2}-\d{2}|\d{2}-\d{2})(?![\d-])")
 PROJECT_FOLDERS = ("in this folder", TO_READ, IN_PROGRESS, PARKED, READINGS, ARCHIVE)   # the Notes section's order
@@ -1432,12 +1437,12 @@ def project_pages(vault):
 
 
 def project_head(body):
-    """(head, afterwards) of a project page's body: the desk's text above the marker, its Afterwards section taken
-    out, and the `- ` rows of that section wherever it sits (the afterwards pass appends below the tail)."""
+    """(head, afterwards) of a project page's body: the desk's text above the first tail heading, and the `- ` rows of
+    its Afterwards section wherever it sits (the afterwards pass appends below the tail)."""
     m = re.search(r"^" + re.escape(AFTERWARDS_HEAD) + r"[ \t]*\n(.*?)(?=^#{1,2}[ \t]|\Z)", body, re.M | re.S)
     rows = [l for l in (m.group(1) if m else "").splitlines() if l.startswith("- ")]
-    head = re.split(r"^" + re.escape(PROJECT_HEAD_END) + r"[ \t]*$", body, maxsplit=1, flags=re.M)[0]
-    head = re.sub(r"^" + re.escape(AFTERWARDS_HEAD) + r"[ \t]*\n(.*?)(?=^#{1,2}[ \t]|\Z)", "", head, flags=re.M | re.S)
+    cut = TAIL_HEAD_RX.search(body)
+    head = body[:cut.start()] if cut else body
     return head.rstrip("\n") + "\n", rows
 
 
@@ -1521,21 +1526,9 @@ def days_words(days):
 
 
 def project_tail(facts, rows, today, jira_base=""):
-    """The sync's half of a project page, from the marker down."""
-    L = [PROJECT_HEAD_END, ""]
+    """The sync's half of a project page: TAIL_HEADS in their order."""
     d = facts["deadline"]
-    L.append(f"*Deadline {d.isoformat()} · {days_words(facts['days'])}" if d else "*No deadline: write `deadline: YYYY-MM-DD` in the properties")
-    if facts["step"]:
-        L[-1] += f" · next step: {facts['step']}" + (" (**overdue**)" if facts["overdue"] else "")
-    L[-1] += "*"
-    keys = [f"[{k}]({jira_base}/browse/{k})" if jira_base else k for k in facts["keys"]]
-    links = facts["links"]
-    wp = facts["props"]
-    watch = wp.get("watch") if "watch" in wp else ((d + datetime.timedelta(days=PROJECT_WATCH_DAYS)).isoformat() if d else None)
-    bits = [f"keys {', '.join(keys)}" if keys else "no keys yet (`ela project keys <key> --add MH-…`)",
-            f"{len(links)} thread{'s' if len(links) != 1 else ''}" if links else "no threads",
-            f"watched until {watch}" if watch else "not watched"]
-    L += [f"*Watching: {' · '.join(bits)}*", "", f"## {ASKS_HEAD}", ""]
+    L = [f"## {ASKS_HEAD}", ""]
     asks = [r for r in rows if top(r["path"]) in (TO_READ, IN_PROGRESS)]
     for r in asks:
         bits = [r["type"], r["status"], f"next: {r['next']}" if r.get("next") else None]
@@ -1555,7 +1548,21 @@ def project_tail(facts, rows, today, jira_base=""):
             bits = [r["type"], r["date"], r["status"] if g not in (READINGS, "in this folder") else None]
             L.append(f"- [[{r['path'][:-3]}|{r['title']}]] · " + " · ".join(b for b in bits if b))
         L.append("")
+    keys = [f"[{k}]({jira_base}/browse/{k})" if jira_base else k for k in facts["keys"]]
+    links = facts["links"]
+    wp = facts["props"]
+    watch = wp.get("watch") if "watch" in wp else ((d + datetime.timedelta(days=PROJECT_WATCH_DAYS)).isoformat() if d else None)
+    bits = [f"keys {', '.join(keys)}" if keys else "no keys yet (`ela project keys <key> --add MH-…`)",
+            f"{len(links)} thread{'s' if len(links) != 1 else ''}" if links else "no threads",
+            f"watched until {watch}" if watch else "not watched"]
+    L += [f"## {TAIL_HEADS[2]}", "", f"*{' · '.join(bits)}*"] + [f"- [thread]({l})" for l in links] + [""]
     L += [AFTERWARDS_HEAD, ""] + (facts["afterwards"] or ["*Nothing yet: the 13:00, 17:30 and 19:00 passes read its keys and threads.*"]) + [""]
+    L += [f"## {TAIL_HEADS[4]}", ""]
+    L.append(f"*{d.isoformat()} · {days_words(facts['days'])}" if d else "*No deadline: write `deadline: YYYY-MM-DD` in the properties")
+    if facts["step"]:
+        L[-1] += f" · next step: {facts['step']}" + (" (**overdue**)" if facts["overdue"] else "")
+    L[-1] += "*"
+    L.append("")
     return "\n".join(L)
 
 
