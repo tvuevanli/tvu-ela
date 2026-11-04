@@ -505,9 +505,23 @@ def _cache_dir():
         d = F.store_dir("slack")
         old = os.path.join(F.runtime_root(), "slack-cache")
         if os.path.isdir(old):
-            for f in os.listdir(old):
-                if f.endswith(".json") and not os.path.exists(os.path.join(d, f)):
-                    os.replace(os.path.join(old, f), os.path.join(d, f))
+            for f in os.listdir(old):                      # a file an older copy of this script still writes is merged in
+                if not re.fullmatch(r"[CG][A-Z0-9]+\.json", f):
+                    continue
+                src, dst = os.path.join(old, f), os.path.join(d, f)
+                if not os.path.exists(dst):
+                    os.replace(src, dst); continue
+                try:
+                    o, n = json.load(open(src, encoding="utf-8")), json.load(open(dst, encoding="utf-8"))
+                    for ts, m in (o.get("messages") or {}).items():
+                        n.setdefault("messages", {}).setdefault(ts, m)
+                    if o.get("oldest") and (not n.get("oldest") or float(o["oldest"]) < float(n["oldest"])):
+                        n["oldest"] = o["oldest"]
+                    tmp = f"{dst}.{os.getpid()}.tmp"
+                    json.dump(n, open(tmp, "w", encoding="utf-8")); os.replace(tmp, dst)
+                    os.remove(src)
+                except (OSError, ValueError):
+                    pass
         return d
     try:
         site = json.load(open(os.path.expanduser("~/.claude/ela/site.json")))
