@@ -26,7 +26,7 @@ the last good read. `--fresh` ignores the watermarks and reads every source whol
 Serving rules (in the source scripts): a verb serves the store while its watermark is younger than
 ELA_FACTS_MAX_AGE hours (default 6) and prints the read time; `--fresh` on the verb, or ELA_FACTS_FRESH=1 in the
 environment, reads live and writes through. ELA_FACTS_TRACE=1 prints one `facts-trace <source> <what>` line on
-stderr per live call, so a pass can count what it still reads.
+stderr per live call; ELA_FACTS_TRACE=<path> appends it to that file across every process of a pass.
 
 Exit codes: 0 ok · 2 usage · 5 no source could be read (a partial refresh is 0 with the gaps on stderr).
 Decision: elak blueprint/decisions/2026-11-04-read-once-close-by-outcome-home-as-an-index.md (phase A).
@@ -104,9 +104,19 @@ def forced_fresh():
 
 
 def trace(source, what):
-    """One line per live call when ELA_FACTS_TRACE=1, so a pass can count what it still reads."""
-    if os.environ.get("ELA_FACTS_TRACE"):
-        print(f"facts-trace {source} {what}", file=sys.stderr, flush=True)
+    """One line per live call when ELA_FACTS_TRACE is set, so a pass can count what it still reads: `1` prints to
+    stderr; a path appends to that file, which is what a consumer's subprocesses (their stderr captured) need."""
+    t = os.environ.get("ELA_FACTS_TRACE")
+    if not t:
+        return
+    line = f"facts-trace {source} {what}"
+    if t == "1":
+        print(line, file=sys.stderr, flush=True); return
+    try:
+        with open(t, "a", encoding="utf-8") as fh:
+            fh.write(line + "\n")
+    except OSError:
+        print(line, file=sys.stderr, flush=True)
 
 
 def served(source, at, what=""):
