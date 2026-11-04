@@ -759,7 +759,9 @@ ela-runner starts this skill headless every weekday morning after it wrote the f
   - **Releases and versions**: per lane, each move as `service old → new (#build, date)`, a patch build named as
     one, a build that reached no lane as "built, not deployed", and which of the window's commits each build
     carried. The release thread's per-build lines (the tickets each carries) outrank Jenkins for what reached a
-    lane.
+    lane. A lane whose versions are not a host read now — the QA lane since the QA environment stopped admitting
+    ela's account (2026-11-04): QA's report mail or the release thread — is said so with the source and its time, from
+    `lane_sources` ("QA-AWS3 as QA reported 11-03 19:07; lane not read"); a move by mail says `(reported by mail)`.
   - **Docker services**, from `docker[]`: each version that moved or was announced in the window, by slug (the
     name as announced when the map has no slug), with where it landed (a lane's bundle, a QA box, a default tag) and
     its source (bundle name, mail subject, the ticket comment). The tickets it claims follow it; a version announced

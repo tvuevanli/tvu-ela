@@ -924,18 +924,20 @@ def built_at(raw):
 def lane_moves(prev, rows, win):
     """Each (lane, service) whose version differs from the last snapshot; with no snapshot, those whose build is dated
     inside the window, `from` unknown."""
-    old = {(r["host"], r.get("lane") or r.get("tag"), r["service"]): r["version"] for r in prev or [] if r.get("version")}
+    hk = lambda r: ("lane" if is_lane_row(r) else r["host"], r.get("lane") or r.get("tag"), r["service"])  # noqa: E731
+    old = {hk(r): r["version"] for r in prev or [] if r.get("version")}
     out = []
     for r in rows:
         if not r.get("version"):                            # an undetermined lane is no move, either way
             continue
-        k = (r["host"], r.get("lane") or r.get("tag"), r["service"])
+        k = hk(r)
         was = old.get(k)
         if (prev is not None and k in old and vkey(was) != vkey(r["version"])) or (prev is None and in_window(built_at(r["version"]) or "", win)):
             v = R.parse_version(r["version"])
             out.append({"host": r["host"], "lane": k[1], "service": r["service"], "label": LABEL.get(r["service"], r["service"]),
                         "from": short_version(was) if was else None, "to": short_version(r["version"]),
-                        "build": v[4] if v else None, "built": built_at(r["version"]), "patch": bool(v and v[3])})
+                        "build": v[4] if v else None, "built": built_at(r["version"]), "patch": bool(v and v[3]),
+                        **({"state": r["state"]} if r.get("state") in LANE_STATES else {})})
     return out
 
 
@@ -1047,7 +1049,7 @@ def region_reading(lane, tested, rows):
            "retiring": bool(meta.get("retiring")), "at": max((x.get("at") or "" for x in mine.values()), default="") or None,
            "versions": {k: short_version(v["version"]) for k, v in mine.items()}, "differences": [], "behind": None}
     for svc, x in sorted(mine.items()):
-        theirs = next((r["version"] for r in rows if r.get("lane") == ref and r["service"] == svc and r.get("host") != "mail"), None)
+        theirs = next((r["version"] for r in rows if r.get("lane") == ref and r["service"] == svc and is_lane_row(r)), None)
         if theirs is None or vkey(theirs) == vkey(x["version"]):
             continue
         a, b = R.parse_version(x["version"]), R.parse_version(theirs)
@@ -1074,6 +1076,10 @@ def mail_time(date):
 
 # the release bot writes its build-result and release-done messages in Chinese; the markers, escaped
 BUILD_RESULT, RELEASE_DONE, DEPLOYED = "\u6784\u5efa\u7ed3\u679c", "\u53d1\u7248\u5b8c\u6210", "\u90e8\u7f72"
+# the thread's build summary ("this run built N (all QA-AWS3): job vX · job vY"): the count, the lane in brackets, the list
+BUILT_SUMMARY = "\u672c\u6b21\u6784\u5efa"
+SUMMARY_RX = re.compile(BUILT_SUMMARY + r"\s*(?P<n>\d+)\s*\u4e2a?\s*[（(]\s*(?:\u5168\u90e8\s*)?(?P<env>[^（）()]+?)\s*[）)]\s*[:：]\s*(?P<list>.+)")
+SUMMARY_ITEM_RX = re.compile(r"(?P<job>[\w.-]+)\s+v(?P<to>\d+(?:\.\d+)+)")
 DONE_RX = re.compile(r"^\s*[•*-]\s*(?P<job>[\w.-]+)\s+v(?P<to>[\d.]+)\s*\(#(?P<number>\d+)\)\s*(?:←\s*(?P<by>.+))?$")
 BUILT_RX = re.compile(r"(?P<job>[\w.-]+)\s+v(?P<to>[\d.]+)\s*·.*?/job/[\w.-]+/(?P<number>\d+)/")
 
@@ -1088,6 +1094,13 @@ def parse_release_thread(texts):
         deployed = d.group(1) if d else deployed
         cur = None
         for line in text.splitlines():
+            sm = SUMMARY_RX.search(line)
+            if sm:                                          # the summary names the lane; a bullet above it the build number
+                for it in SUMMARY_ITEM_RX.finditer(sm.group("list")):
+                    r = rows.setdefault(it.group("job"), {"service": jobs.get(it.group("job"), it.group("job")), "job": it.group("job"),
+                                                          "branch": "", "from": None, "to": it.group("to"), "number": None, "env": "", "items": []})
+                    r["env"] = r["env"] or sm.group("env").strip()
+                continue
             m = DONE_RX.match(line) or BUILT_RX.search(line)
             if m:
                 cur = rows.setdefault(m.group("job"), {"service": jobs.get(m.group("job"), m.group("job")), "job": m.group("job"),
@@ -1150,15 +1163,66 @@ def changes_facts(args):
         prev = json.load(open(os.path.join(runner, snaps[-1]))) if snaps else None
     except (OSError, ValueError):
         prev = None
-    rows, read = [], {}
+    live, read = [], {}
     for host in ("qa", "prod"):
         try:
-            rows += [dict(r, host=host) for r in run_json(["python3", RELEASE, *env, "envs", "--host", host, "--json"], timeout=120)["rows"]]
+            live += [dict(r, host=host) for r in run_json(["python3", RELEASE, *env, "envs", "--host", host, "--json"], timeout=120)["rows"]]
             read[host] = True
         except (LaneError, subprocess.TimeoutExpired, ValueError) as e:
             errors.append({"source": f"versions {host}", "error": str(e)[:200]})
-            rows += [r for r in (prev or {}).get("rows", []) if r["host"] == host]   # carried, so the next diff has a base
-    versions = [m for m in lane_moves(prev["rows"] if prev else None, rows, win) if read.get(m["host"]) and m["service"] in SCOPE]
+    # mail: release notices and QA reports, by subject, inside the window
+    span = f"after:{int(datetime.datetime.fromisoformat(win['start']).timestamp())} before:{int(now.timestamp())}"
+    releases, qa, mail_docker = [], [], []
+    aliases = service_aliases()
+    try:
+        by_thread = {}
+        for m in run_json(["python3", MAIL, *env, "search", f"{span} subject:Release", "--limit", "40", "--body", "--json"], timeout=300)["messages"]:
+            if not re.match(r"^\s*Re:", m["subject"], re.I):
+                mail_docker += docker_from_mail(m, aliases)
+            if re.search(r"\[Release", m["subject"], re.I) and not re.search(r"test report", m["subject"], re.I):
+                by_thread.setdefault(m["thread"], []).append(m)
+        for msgs in by_thread.values():                     # a thread is one release: its first message, the replies counted
+            first = next((m for m in msgs if not re.match(r"^\s*Re:", m["subject"], re.I)), msgs[-1])
+            r = parse_release_mail(first)
+            r["replies"] = len(msgs) - 1
+            if IN_SCOPE_MAIL.search(r["subject"]):
+                releases.append(r)
+        for m in run_json(["python3", MAIL, *env, "search", f'{span} subject:("test report")', "--limit", "25", "--body", "--json"], timeout=300)["messages"]:
+            if not re.match(r"^\s*Re:", m["subject"], re.I):
+                mail_docker += docker_from_mail(m, aliases)
+                q = parse_qa_mail(m)
+                if q["mediahub"]:
+                    qa.append(q)
+                    if all(q[k] is None for k in ("pass", "fail", "closed", "new")):
+                        errors.append({"source": f"qa mail {q['subject'][:60]}", "error": "no counts in a shape ela parses; read it by hand"})
+    except (LaneError, subprocess.TimeoutExpired, ValueError) as e:
+        errors.append({"source": "mail", "error": str(e)[:200]})
+    # Slack: the day's release thread, read with the mail so the QA lanes' rows can come from it
+    since = (now - datetime.timedelta(hours=args.hours + 24)).date().isoformat()
+    for m in slack_rows(env, QA_RELEASE, since, errors):
+        stamps = [m["at"]] + [datetime.datetime.fromtimestamp(float(r["ts"])).astimezone().isoformat() for r in m.get("replies") or []]
+        if re.search(r"\d{4}-\d{2}-\d{2}_Release", m["text"]) and any(in_window(s, win) for s in stamps):
+            done = [r["text"] for r in m.get("replies") or [] if re.search(f"{RELEASE_DONE}|{BUILD_RESULT}|{BUILT_SUMMARY}", r["text"])]
+            releases.append({"subject": " ".join(m["text"].split())[:120], "from": m["user"], "date": m["at"], "env": "slack",
+                             "moves": parse_release_thread(done), "text": "\n\n".join(done)[:3000],
+                             "link": m["permalink"], "replies": m["reply_count"]})
+    tested = keep_tested(runner, qa, now)
+    mail_rows = []
+    for r in releases:                                      # Orchestration publishes no lane version; its mails name it
+        o = re.search(r"Orchestration Service of version\s*v?([\d.]+)", r["subject"], re.I)
+        lane = mail_lane(r["env"])
+        if o and lane:                                      # a request until a reply in its thread says it was done
+            msgs = read_thread(env, r.get("thread"), errors) if r.get("replies") else []
+            mail_rows.append({"host": "mail", "lane": lane, "tag": None, "service": "orchestration", "version": o.group(1), "updated": r["date"],
+                              "at": mail_time(r["date"]), "state": release_state(msgs)})
+    mail_rows += qa_mail_rows(tested, releases)             # the QA lanes as QA's reports and the releases say, where no read is newer
+    rows = merge_lane_rows(live, read, (prev or {}).get("rows"), mail_rows, now)
+    rows = with_gateway(env, rows, (prev or {}).get("rows"), read, errors)
+    json.dump({"date": date, "at": now.isoformat(timespec="seconds"), "read": read, "rows": rows},
+              open(os.path.join(runner, f"versions-{date}.json"), "w"), ensure_ascii=False)
+    from_mail = {(r.get("lane"), r["service"]) for r in rows if r["host"] == "mail" and r.get("state") in LANE_STATES}
+    versions = [m for m in lane_moves(prev["rows"] if prev else None, rows, win)
+                if (read.get(m["host"]) or (m["lane"], m["service"]) in from_mail) and m["service"] in SCOPE]
     if prev is None:
         errors.append({"source": "versions", "error": "no earlier snapshot: moves are the builds dated inside the window, `from` unknown"})
     # Jenkins builds in the window, each with the lanes running it and the window's commits it carries
@@ -1200,56 +1264,7 @@ def changes_facts(args):
                     bundles.append({"host": host, "name": b.get("bundleName"), "id": b.get("bundleId"), "created": R.when(b.get("createTime"))})
         except (LaneError, subprocess.TimeoutExpired, ValueError) as e:
             errors.append({"source": f"bundles {host}", "error": str(e)[:200]})
-    # mail: release notices and QA reports, by subject, inside the window
-    span = f"after:{int(datetime.datetime.fromisoformat(win['start']).timestamp())} before:{int(now.timestamp())}"
-    releases, qa, mail_docker = [], [], []
-    aliases = service_aliases()
-    try:
-        by_thread = {}
-        for m in run_json(["python3", MAIL, *env, "search", f"{span} subject:Release", "--limit", "40", "--body", "--json"], timeout=300)["messages"]:
-            if not re.match(r"^\s*Re:", m["subject"], re.I):
-                mail_docker += docker_from_mail(m, aliases)
-            if re.search(r"\[Release", m["subject"], re.I) and not re.search(r"test report", m["subject"], re.I):
-                by_thread.setdefault(m["thread"], []).append(m)
-        for msgs in by_thread.values():                     # a thread is one release: its first message, the replies counted
-            first = next((m for m in msgs if not re.match(r"^\s*Re:", m["subject"], re.I)), msgs[-1])
-            r = parse_release_mail(first)
-            r["replies"] = len(msgs) - 1
-            if IN_SCOPE_MAIL.search(r["subject"]):
-                releases.append(r)
-        for m in run_json(["python3", MAIL, *env, "search", f'{span} subject:("test report")', "--limit", "25", "--body", "--json"], timeout=300)["messages"]:
-            if not re.match(r"^\s*Re:", m["subject"], re.I):
-                mail_docker += docker_from_mail(m, aliases)
-                q = parse_qa_mail(m)
-                if q["mediahub"]:
-                    qa.append(q)
-                    if all(q[k] is None for k in ("pass", "fail", "closed", "new")):
-                        errors.append({"source": f"qa mail {q['subject'][:60]}", "error": "no counts in a shape ela parses; read it by hand"})
-    except (LaneError, subprocess.TimeoutExpired, ValueError) as e:
-        errors.append({"source": "mail", "error": str(e)[:200]})
-    for r in releases:                                      # Orchestration publishes no lane version; its mails name it
-        o = re.search(r"Orchestration Service of version\s*v?([\d.]+)", r["subject"], re.I)
-        lane = mail_lane(r["env"])
-        if o and lane:                                      # a request until a reply in its thread says it was done
-            msgs = read_thread(env, r.get("thread"), errors) if r.get("replies") else []
-            rows = [x for x in rows if not (x["service"] == "orchestration" and x.get("lane") == lane)]
-            rows.append({"host": "mail", "lane": lane, "tag": None, "service": "orchestration", "version": o.group(1), "updated": r["date"],
-                         "state": release_state(msgs)})
-    rows += [x for x in (prev or {}).get("rows", []) if x["host"] == "mail" and not any(
-        y["host"] == "mail" and y["lane"] == x["lane"] and y["service"] == x["service"] for y in rows)]
-    rows = with_gateway(env, rows, (prev or {}).get("rows"), read, errors)
-    json.dump({"date": date, "at": now.isoformat(timespec="seconds"), "read": read, "rows": rows},
-              open(os.path.join(runner, f"versions-{date}.json"), "w"), ensure_ascii=False)
-    tested = keep_tested(runner, qa, now)
-    # Slack by channel: the day's release thread, the dev channel's threads, the team report
-    since = (now - datetime.timedelta(hours=args.hours + 24)).date().isoformat()
-    for m in slack_rows(env, QA_RELEASE, since, errors):
-        stamps = [m["at"]] + [datetime.datetime.fromtimestamp(float(r["ts"])).astimezone().isoformat() for r in m.get("replies") or []]
-        if re.search(r"\d{4}-\d{2}-\d{2}_Release", m["text"]) and any(in_window(s, win) for s in stamps):
-            done = [r["text"] for r in m.get("replies") or [] if re.search(f"{RELEASE_DONE}|{BUILD_RESULT}", r["text"])]
-            releases.append({"subject": " ".join(m["text"].split())[:120], "from": m["user"], "date": m["at"], "env": "slack",
-                             "moves": parse_release_thread(done), "text": "\n\n".join(done)[:3000],
-                             "link": m["permalink"], "replies": m["reply_count"]})
+    # Slack: the dev channel's threads, the team report
     dev_threads = [{"by": m["user"], "at": m["at"], "text": " ".join(m["text"].split())[:200], "replies": m["reply_count"],
                     "keys": keys_in(m["text"]), "link": m["permalink"]}
                    for m in slack_rows(env, DEV_CHANNEL, f"{args.hours}h", errors, threads=False)]
@@ -1292,7 +1307,7 @@ def changes_facts(args):
     out = {"date": date, "window": win, "releases": releases, "builds": builds, "versions": versions, "bundles": bundles,
             "qa": qa, "tickets": tickets, "code": {"repos": code, "unticketed_threads": y["unticketed_threads"]},
             "dev_threads": dev_threads, "you": you, "ela": y["ela"], "team_report": team_report,
-            "stale_checkouts": y["stale_checkouts"], "errors": errors}
+            "stale_checkouts": y["stale_checkouts"], "errors": errors, "lane_sources": lane_sources(rows)}
     try:
         named = run_json(["python3", RELEASE, *env, "bundles", f"MediaHub {LINE}", "--host", "prod", "--limit", "50", "--json"], timeout=120)["bundles"]
         out["findings_extra"] = pin_findings(named, R.read_pins().get(LINE))
@@ -1721,7 +1736,7 @@ def mail_lane(env):
     e = re.sub(r"\s+", "", env or "").lower()
     if R.prod_lane(e):
         return R.prod_lane(e)
-    return next((lane for k, lane in (("dailywed", "daily-wed"), ("qa-aws3", "qa-cn3"), ("qaaws3", "qa-cn3")) if k in e), None)
+    return next((lane for k, lane in (("dailywed", "daily-wed"), ("qa-aws3", "qa-cn3"), ("qaaws3", "qa-cn3"), ("qa3", "qa-cn3")) if k in e), None)
 
 
 TESTED_KEPT_DAYS = 60
@@ -1752,6 +1767,150 @@ def newest_tested(tested, lane, service):
     return max(rows, key=lambda v: (vkey(v["version"]), v["at"] or ""), default=None)
 
 
+def latest_report(tested, lane, service):
+    """The newest QA report by time that names the lane's version of the service (newest_tested picks by version)."""
+    rows = [v for v in tested.values() if v["lane"] == lane and v["service"] == service and vkey(v["version"])]
+    return max(rows, key=lambda v: (v["at"] or "", vkey(v["version"])), default=None)
+
+
+# ── the QA lanes when the qa host does not admit ela (2026-11-04): their rows come from the mails ─────────────────
+# A lane row is what a lane runs: a host read, or a mail row QA reported (the report's environment block) or a release
+# built (the release mail, the day's release thread) — never a request. Precedence: a host read now; else the base
+# read's row while it is newer than any mail row, carried with its read time; else the newest mail row by time. Every
+# consumer that shows a lane row that is not a read now says its source and its time (row_source, lane_sources).
+LANE_STATES = ("reported", "built")
+
+
+def qa_lanes():
+    """The QA lanes: each line's qa lane and the qa host's lane class (release.yaml)."""
+    lines = (R.rmap("lines") or {}).values()
+    return {c.get("lanes", {}).get("qa") for c in lines if isinstance(c, dict) and (c.get("lanes") or {}).get("qa")} \
+        | set(((R.rmap("hosts") or {}).get("lane_classes") or {}).get("qa") or [])
+
+
+def is_lane_row(r):
+    """A row that says what a lane runs: a host read, or a mail row QA reported or a release built; a request is not."""
+    return r.get("host") != "mail" or r.get("state") in LANE_STATES
+
+
+def row_time(r):
+    """When the row's fact is from, ISO local: a mail row's report or release time, a read row's read time, else ''."""
+    return r.get("at") or r.get("read_at") or mail_time(r.get("updated")) or ""
+
+
+def row_source(r):
+    """Where a row's version is from when it is not a host read now — "QA reported 11-03 19:07" · "built 11-02 17:36
+    (release thread), no QA report" · "last read 10-30 08:13" — and None for a read now."""
+    t = (row_time(r) or "")[5:16].replace("T", " ")
+    if r.get("host") == "mail":
+        if r.get("state") == "reported":
+            return f"QA reported {t}".rstrip()
+        if r.get("state") == "built":
+            return f"built {t} ({r.get('source') or 'release'}), no QA report".replace("built  (", "built (")
+        return f"{r.get('state') or 'requested'} by mail {t}".rstrip()
+    if r.get("state") == "carried":
+        return f"last read {t}" if t else "carried from an earlier read, its time unknown"
+    return None
+
+
+def reported_rows(tested, lanes):
+    """QA's report mails as lane rows: per QA lane and service the newest report by time, {host: mail, state: reported}."""
+    best = {}
+    for v in tested.values():
+        if v.get("lane") in lanes and vkey(v.get("version")) and v.get("at"):
+            k = (v["lane"], v["service"])
+            if k not in best or (v["at"], vkey(v["version"])) > (best[k]["at"], vkey(best[k]["version"])):
+                best[k] = v
+    return [{"host": "mail", "lane": l, "tag": None, "service": sv, "version": v["version"], "updated": v["at"], "at": v["at"],
+             "state": "reported", "source": "QA report", "subject": v.get("subject")} for (l, sv), v in sorted(best.items())]
+
+
+QA_WORDS_RX = re.compile(r"qa[- ]?aws\s*(\d)|\bqa\s*(\d)\b", re.I)
+
+
+def built_rows(releases, lanes):
+    """The release mails' and the day's release thread's builds as lane rows, {host: mail, state: built}: what a QA lane
+    was sent, standing until a QA report names the version it ran. The thread's row carries the build number."""
+    best = {}
+    for r in releases:
+        thread = r.get("env") == "slack"
+        if thread:
+            try:
+                at = datetime.datetime.fromisoformat(str(r.get("date"))).astimezone().isoformat(timespec="seconds")
+            except ValueError:
+                at = None
+        else:
+            at = mail_time(r.get("date"))
+        if not at:
+            continue
+        words = QA_WORDS_RX.search(str(r.get("text") or "")[:200]) if thread else None
+        for m in r.get("moves") or []:
+            lane = mail_lane(m.get("env")) or mail_lane(r.get("env")) or (f"qa-cn{words.group(1) or words.group(2)}" if words else None)
+            svc = mail_slug(str(m.get("service") or "").strip("* "))
+            if lane not in lanes or svc not in MATRIX_ROWS or not m.get("to"):
+                continue
+            version = f"v{m['to']}" + (f" build{m['number']}" if m.get("number") else "")
+            row = {"host": "mail", "lane": lane, "tag": None, "service": svc, "version": version, "updated": at, "at": at, "state": "built",
+                   "source": "release thread" if thread else "release mail", "subject": r.get("subject")}
+            k = (lane, svc)
+            if k not in best or (vkey(version), at) > (vkey(best[k]["version"]), best[k]["at"]):
+                best[k] = row
+    return list(best.values())
+
+
+def qa_mail_rows(tested, releases, lanes=None):
+    """The QA lanes' rows from mail: QA's newest report per service, and a release newer than it as built."""
+    lanes = qa_lanes() if lanes is None else lanes
+    rows = {(r["lane"], r["service"]): r for r in reported_rows(tested, lanes)}
+    for b in built_rows(releases, lanes):
+        cur = rows.get((b["lane"], b["service"]))
+        if cur is None or (R.parse_version(b["version"]) or ())[:4] > (R.parse_version(cur["version"]) or ())[:4]:
+            rows[(b["lane"], b["service"])] = b
+    return list(rows.values())
+
+
+def merge_lane_rows(live, read, base_rows, mail_rows, now):
+    """One row per lane and service: a host read now (dated by it); else the base read's row where it is newer than any
+    mail row, carried with its read time; else the newest mail row by time — QA's report, the release, Orchestration's
+    request. A mail row never replaces a row read now or read later than it."""
+    now = now.isoformat(timespec="seconds") if hasattr(now, "isoformat") else now
+    out = [dict(r, read_at=r.get("read_at") or now) for r in live]
+    for host in ("qa", "prod"):
+        if not read.get(host):
+            out += [dict(r, state="carried") for r in base_rows or [] if r.get("host") == host]
+    key = lambda r: (r.get("lane"), r["service"])  # noqa: E731
+    cands = {}
+    for m in list(mail_rows) + [r for r in base_rows or [] if r.get("host") == "mail"]:
+        if key(m) not in cands or row_time(m) > row_time(cands[key(m)]):
+            cands[key(m)] = m
+    for k, m in cands.items():
+        cur = next((r for r in out if key(r) == k and r["host"] != "mail"), None)
+        if cur is None:
+            out.append(m)
+        elif cur.get("state") == "carried" and is_lane_row(m) and row_time(cur) < row_time(m):
+            out.remove(cur); out.append(m)
+    return out
+
+
+def lane_sources(rows, lanes=None):
+    """One line per lane whose rows are not all host reads now, naming each source and its time, so a page that shows
+    the lane says where its versions are from: "QA-AWS3 as QA reported 11-03 19:07; lane not read"."""
+    out = []
+    for lane in lanes if lanes is not None else sorted({r.get("lane") for r in rows if r.get("lane")}, key=str):
+        srcs = {}
+        for r in rows:
+            if r.get("lane") == lane and r["service"] in MATRIX_ROWS and r.get("version") and is_lane_row(r) and row_source(r):
+                srcs.setdefault(row_source(r), []).append(LABEL.get(r["service"], r["service"]))
+        if not srcs:
+            continue
+        shown = LANE_SHOWN.get(lane, lane)
+        if len(srcs) == 1:
+            out.append(f"{shown} as {next(iter(srcs))}; lane not read")
+        else:
+            out.append(f"{shown}: " + "; ".join(f"{', '.join(v)} as {k}" for k, v in srcs.items()) + "; lane not read")
+    return out
+
+
 NOT_A_CHANGE = re.compile(r"^(docs|test|chore|style)\b|\[arc-review\]", re.I)   # what rides along harmlessly
 LINE = "2.1"   # the MediaHub release line the morning follows; its lanes come from map/release.yaml lines
 
@@ -1768,8 +1927,9 @@ def findings_of(out, rows, tested, env, errors, candidate=frozenset()):
         t = newest_tested(tested, qa_lane, r["service"])
         if t and vkey(r["version"]) <= vkey(t["version"]):
             continue
-        what = (f"{qa_lane} runs {r['service']} {short_version(r['version'])}; the newest QA report on it tested "
-                f"{short_version(t['version'])} ({(t['at'] or '')[:10]})" if t else f"{qa_lane} runs {r['service']} {short_version(r['version'])}; no QA report names it")
+        verb = f"was sent ({r.get('source') or 'release'})" if r.get("state") == "built" else "runs"
+        what = (f"{qa_lane} {verb} {r['service']} {short_version(r['version'])}; the newest QA report on it tested "
+                f"{short_version(t['version'])} ({(t['at'] or '')[:10]})" if t else f"{qa_lane} {verb} {r['service']} {short_version(r['version'])}; no QA report names it")
         F.append({"kind": "untested_build_on_lane", "lane": qa_lane, "service": r["service"], "what": what,
                   "evidence": [f"mail: {t['subject']}"] if t else [], "at": built_at(r["version"])})
         m = moved.get((qa_lane, r["service"]))
@@ -1777,6 +1937,15 @@ def findings_of(out, rows, tested, env, errors, candidate=frozenset()):
             F.append({"kind": "version_moved_after_qa_run", "lane": qa_lane, "service": r["service"],
                       "what": f"{r['service']} moved to {m['to']} on {qa_lane} after the QA run of {(t['at'] or '')[:16]}",
                       "evidence": [f"mail: {t['subject']}"], "at": m["built"]})
+    for r in rows:                                          # both readable today: the host and QA's newest report must agree
+        if r.get("lane") != qa_lane or r.get("host") != "qa" or r.get("state") == "carried" or not vkey(r.get("version")):
+            continue
+        t = latest_report(tested, qa_lane, r["service"])
+        if t and vkey(t["version"]) > vkey(r["version"]):   # the host behind the report; the host ahead is the untested build above
+            F.append({"kind": "lane_disagrees_with_qa_report", "lane": qa_lane, "service": r["service"],
+                      "what": f"{qa_lane} reads {r['service']} {short_version(r['version'])} on the host, while QA's newest report "
+                              f"({(t['at'] or '')[:16].replace('T', ' ')}) ran {short_version(t['version'])}: the read and the report disagree",
+                      "evidence": [f"mail: {t['subject']}"], "at": t["at"]})
     ticketed = {cm["sha"] for r in out["code"]["repos"] for tk in r["tickets"] for cm in tk["commits"]}
     for b in out["builds"]:
         prod = [l for l in b["deployed_to"] if str(l).startswith("prod")]
@@ -1846,7 +2015,8 @@ def findings_of(out, rows, tested, env, errors, candidate=frozenset()):
 
 # the order the morning ranks findings in (morning-package spec §2); None = the lanes table only, not an item
 RANKS = {"lane_change_pending_external_word": 1, "constraint_over": 2, "candidate_awaiting_owner": 3, "customer_ask_unanswered": 4,
-         "prod_fix_without_ticket": 5, "lane_change_pending_internal_word": 6, "unticketed_change_on_a_prod_path": 9}
+         "prod_fix_without_ticket": 5, "lane_change_pending_internal_word": 6, "lane_disagrees_with_qa_report": 6,
+         "unticketed_change_on_a_prod_path": 9}
 
 
 def now_date():
@@ -1930,7 +2100,10 @@ def cmd_changes(args):
     print(f"# changes · {out['date']} · {w['start'][:16]} → {w['end'][:16]}\n")
     print(f"## lanes ({len(out['versions'])} moves)")
     for v in out["versions"]:
-        print(f"  {str(v['lane']):<12} {v['label']:<34} {v['from'] or '?'} → {v['to']}{'  (patch)' if v['patch'] else ''}")
+        print(f"  {str(v['lane']):<12} {v['label']:<34} {v['from'] or '?'} → {v['to']}{'  (patch)' if v['patch'] else ''}"
+              + (f"  ({v['state']} by mail)" if v.get("state") else ""))
+    for line in out.get("lane_sources") or []:
+        print(f"  {line}")
     print(f"\n## builds ({len(out['builds'])})")
     for b in out["builds"]:
         print(f"  {b['label']:<34} #{b['number']:<5} {str(b['version']):<10} {b['branch'][:20]:<20} {b['time']}  "
@@ -1985,25 +2158,29 @@ def lane_reads(runner, since=""):
         if not d or d < since:
             continue
         try:
-            rows = json.load(open(os.path.join(runner, f), encoding="utf-8")).get("rows") or []
-        except (OSError, ValueError):
+            doc = json.load(open(os.path.join(runner, f), encoding="utf-8"))
+            rows = doc.get("rows") or []
+        except (OSError, ValueError, AttributeError):
             continue
+        for r in rows:                                      # a row the file read live is dated by it; a carried one keeps its own
+            if r.get("host") in (doc.get("read") or {}) and not r.get("read_at"):
+                r["read_at"] = doc.get("at") or f"{d}T{hm[:2]}:{hm[2:]}:00"
         out.append((d, hm, rows))
     return sorted(out, key=lambda x: (x[0], x[1]))
 
 
 def read_lanes_live(env, base_rows):
-    """The lanes as they run now, both hosts; a host that does not answer keeps its rows from the base read, and the
-    mail-only rows (Orchestration) come from it too. (rows, {host: read}, errors)."""
-    rows, read, errors = [], {}, []
+    """The lanes as they run now, both hosts, merged with the base read the merge rule's way: a host that does not
+    answer keeps the base's rows only where no mail row (QA's report, the release) is newer, each carried with its read
+    time; the mail-only rows (Orchestration, the QA lanes by report) come from the base. (rows, {host: read}, errors)."""
+    live, read, errors = [], {}, []
     for host in ("qa", "prod"):
         try:
-            rows += [dict(r, host=host) for r in run_json(["python3", RELEASE, *env, "envs", "--host", host, "--json"], timeout=120)["rows"]]
+            live += [dict(r, host=host) for r in run_json(["python3", RELEASE, *env, "envs", "--host", host, "--json"], timeout=120)["rows"]]
             read[host] = True
         except (LaneError, subprocess.TimeoutExpired, ValueError) as e:
             errors.append({"source": f"versions {host}", "error": str(e)[:200]})
-            rows += [r for r in base_rows or [] if r.get("host") == host]
-    return rows + [r for r in base_rows or [] if r.get("host") == "mail"], read, errors
+    return merge_lane_rows(live, read, base_rows, [], datetime.datetime.now().astimezone()), read, errors
 
 
 def with_gateway(env, rows, base_rows, read, errors):
@@ -2058,18 +2235,29 @@ def matrix_cell(service, lane, rows, prev, tested, pins):
     pv = R.parse_version(v)
     label = R.vlabel(pv) if pv else str(v)
     old = next((r["version"] for r in prev or [] if r["service"] == service and r.get("lane") == lane and r.get("version")
-                and (r.get("host") == "mail") == (row.get("host") == "mail")), None)   # a request is no base for a read
+                and is_lane_row(r)), None)                  # a request is no base for a read; a reported lane row is
     moved = old is not None and vkey(old) != vkey(v)
     qa = [x for x in tested.values() if x["service"] == service and vkey(x["version"]) == vkey(v) and not R.lane_region(x.get("lane"))]
     best = max(qa, key=lambda x: x["at"] or "", default=None)
     mark = ("✓ " if best["verdict"] == "pass" else "◐ ") + (best["at"] or "")[5:10] if best else "○"
     pin = pins.get((service, lane))
+    pinned = {"held": " 🔒", "over": " ⛔"}.get(pin, "")
+    was = f" (was {R.vlabel(R.parse_version(old)) if R.parse_version(old) else old})" if moved else ""
+    if row.get("host") == "mail" and row.get("state") == "built":   # sent to the lane; no report says it ran
+        return {"text": f"{label} built, no report{pinned}", "version": label, "moved": moved, "was": old if moved else None, "qa": "○",
+                "pin": pin, "source": row.get("source") or "release", "at": row_time(row)}
+    if row.get("host") == "mail" and row.get("state") == "reported":  # the lane as QA's report says it ran
+        text = ("▲ " if moved else "") + label + (" patch" if pv and pv[3] else "") + was + f" {mark.split()[0]}" + pinned + f" · QA report {row_time(row)[5:10]}"
+        return {"text": text, "version": label, "moved": moved, "was": old if moved else None, "qa": mark, "pin": pin,
+                "source": "QA report", "at": row_time(row)}
     if row.get("host") == "mail" and row.get("state") != "confirmed":
         return {"text": f"{label} requested", "version": label, "moved": False, "pin": pin}   # asked for, not known to run
-    text = ("▲ " if moved else "") + label + (" patch" if pv and pv[3] else "") + (f" (was {R.vlabel(R.parse_version(old)) if R.parse_version(old) else old})" if moved else "") \
-        + f" {mark}" + {"held": " 🔒", "over": " ⛔"}.get(pin, "") + (" · gateway" if row.get("host") == "gateway" else "")
+    text = ("▲ " if moved else "") + label + (" patch" if pv and pv[3] else "") + was \
+        + f" {mark}" + pinned + (" · gateway" if row.get("host") == "gateway" else "") \
+        + (f" · {row_source(row)}" if row.get("state") == "carried" else "")
     return {"text": text, "version": label, "moved": moved, "was": old if moved else None, "qa": mark, "pin": pin,
-            **({"source": "gateway"} if row.get("host") == "gateway" else {})}
+            **({"source": "gateway"} if row.get("host") == "gateway" else {}),
+            **({"source": row_source(row), "at": row_time(row)} if row.get("state") == "carried" else {})}
 
 
 def bundle_cell(b, how, newest_build, pinned):
@@ -2112,7 +2300,7 @@ def line_matrix(line, args, env, rows, before, tested, pins, cand_doc, errors):
     toks = cfg.get("bundle_lanes") or {}
     for role, lane in zip(roles, lanes):
         host = "qa" if role == "qa" else "prod"
-        newest = max((built_at(r["version"]) or "" for r in rows if r.get("lane") == lane and r["host"] != "mail"), default="")
+        newest = max((built_at(r["version"]) or "" for r in rows if r.get("lane") == lane and is_lane_row(r)), default="")
         try:
             b, how = None, "token"
             if role == "prod":                              # the owner's pin first (ADR 0012), then the newest release name
@@ -2153,7 +2341,7 @@ def line_matrix(line, args, env, rows, before, tested, pins, cand_doc, errors):
             errors.append({"source": "promote report", "error": f"unreadable: {report}"})
     regions = [region_reading(l, tested, rows) for l in region_lanes((cfg.get("lanes") or {}).get("prod"))]
     return {"line": line, "lanes": [LANE_SHOWN.get(l, l) for l in lanes] + ([cand.get("label") or "next train"] if cand else []),
-            "rows": table, "same": same, "gate": gate, "lane_ids": lanes, "pending": rec,
+            "rows": table, "same": same, "gate": gate, "lane_ids": lanes, "pending": rec, "sources": lane_sources(rows, lanes),
             "regions": [r for r in regions if r["versions"] or not r["retiring"]]}   # a retiring lane no report names is gone
 
 
@@ -2171,15 +2359,10 @@ def cmd_matrix(args):
         errors += errs
         save_intraday(runner, datetime.datetime.now().astimezone(), rows, read, last)
     elif today is None:                                     # no `changes` run yet today: read the lanes now, not saved
-        rows = []
-        for host in ("qa", "prod"):
-            try:
-                rows += [dict(r, host=host) for r in run_json(["python3", RELEASE, *env, "envs", "--host", host, "--json"], timeout=120)["rows"]]
-            except (LaneError, subprocess.TimeoutExpired, ValueError) as e:
-                errors.append({"source": f"versions {host}", "error": str(e)[:200]})
-        rows += [r for r in (before or {}).get("rows", []) if r["host"] == "mail"]
-        rows = with_gateway(env, rows, (before or {}).get("rows"), {}, errors)
-        errors.append({"source": "versions", "error": "no snapshot from `ela changes` today; read live, Orchestration as last known"})
+        rows, read, errs = read_lanes_live(env, (before or {}).get("rows"))
+        rows = with_gateway(env, rows, (before or {}).get("rows"), read, errs)
+        errors += errs
+        errors.append({"source": "versions", "error": "no snapshot from `ela changes` today; read live, the rest as last known"})
     else:
         rows = today["rows"]
     try:
@@ -2623,6 +2806,8 @@ def render_matrix(out):
         L += ["", f"*{len(out['same'])} more the same on every lane: " + "; ".join(out["same"]) + "*"]
     for g in out.get("regions") or []:
         L += ["", region_line(g)]
+    for src in out.get("sources") or []:                    # a lane not read now says where its versions are from
+        L += ["", f"*{src}*"]
     L += ["", "*▲ moved since yesterday · ✓ QA passed this exact version (date) · ◐ partly · ○ no QA report names it · 🔒 a pin held · ⛔ over · gateway: read live through the API gateway*"]
     if out["gate"]:
         g = out["gate"]

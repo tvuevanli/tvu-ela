@@ -20,7 +20,12 @@ lanes each release line uses — all in `<elak>/map/release.yaml` (origin per bl
 ## Invariants
 - **First-hand, current.** What userservice and Jenkins say now. History older than they keep is not
   ela's to hold.
-- **Two hosts, two sessions.** qa is a tvutest account login (a two-hour SID) the script renews. prod is a person's session:
+- **Two hosts, two sessions.** qa is a tvutest account login (a two-hour SID) the script renews; since 2026-11-04 the
+  QA environment no longer admits that account, so `envs --host qa` exits 4 and a QA lane's versions come from QA's
+  report mails (the environment block) and the day's release thread instead, kept by the brief's `ela changes` as lane
+  rows with `host: mail` (state `reported` or `built`) in `<runtime>/runner/versions-<date>.json`; every page that
+  shows such a row says the source and its time ("QA-AWS3 as QA reported 11-03 19:07; lane not read"). A live read,
+  when it works, stays first. prod is a person's session:
   `ela login tvu` opens a page at the hostname `release.py` names for `login tvu`, mapped in the machine's
   hosts file (site configuration, not written here); because that name sits under the company domain, a
   browser already signed in to userservice sends its SID to the page (one self-signed certificate warning
