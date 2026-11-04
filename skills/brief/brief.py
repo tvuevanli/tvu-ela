@@ -2169,10 +2169,12 @@ def lane_reads(runner, since=""):
     return sorted(out, key=lambda x: (x[0], x[1]))
 
 
-def read_lanes_live(env, base_rows):
+def read_lanes_live(env, base_rows, mail_rows=()):
     """The lanes as they run now, both hosts, merged with the base read the merge rule's way: a host that does not
     answer keeps the base's rows only where no mail row (QA's report, the release) is newer, each carried with its read
-    time; the mail-only rows (Orchestration, the QA lanes by report) come from the base. (rows, {host: read}, errors)."""
+    time; the mail-only rows (Orchestration, the QA lanes by report) come from the base and from `mail_rows` (the QA
+    lanes as qa-tested.json reports them, so a base read from before the reports stands no longer than they do).
+    (rows, {host: read}, errors)."""
     live, read, errors = [], {}, []
     for host in ("qa", "prod"):
         try:
@@ -2180,7 +2182,15 @@ def read_lanes_live(env, base_rows):
             read[host] = True
         except (LaneError, subprocess.TimeoutExpired, ValueError) as e:
             errors.append({"source": f"versions {host}", "error": str(e)[:200]})
-    return merge_lane_rows(live, read, base_rows, [], datetime.datetime.now().astimezone()), read, errors
+    return merge_lane_rows(live, read, base_rows, list(mail_rows), datetime.datetime.now().astimezone()), read, errors
+
+
+def reported_now(runner):
+    """The QA lanes' rows as qa-tested.json reports them, for a live read between two `ela changes` runs."""
+    try:
+        return qa_mail_rows(json.load(open(os.path.join(runner, "qa-tested.json"), encoding="utf-8")), [])
+    except (OSError, ValueError):
+        return []
 
 
 def with_gateway(env, rows, base_rows, read, errors):
@@ -2354,12 +2364,12 @@ def cmd_matrix(args):
     today, before = snapshots(runner, date)
     if getattr(args, "page", False) and today is not None:  # the page is right whenever it is built: read the lanes now
         last = (lane_reads(runner, date) or [(None, None, today["rows"])])[-1][2]
-        rows, read, errs = read_lanes_live(env, last)
+        rows, read, errs = read_lanes_live(env, last, reported_now(runner))
         rows = with_gateway(env, rows, last, read, errs)
         errors += errs
         save_intraday(runner, datetime.datetime.now().astimezone(), rows, read, last)
     elif today is None:                                     # no `changes` run yet today: read the lanes now, not saved
-        rows, read, errs = read_lanes_live(env, (before or {}).get("rows"))
+        rows, read, errs = read_lanes_live(env, (before or {}).get("rows"), reported_now(runner))
         rows = with_gateway(env, rows, (before or {}).get("rows"), read, errs)
         errors += errs
         errors.append({"source": "versions", "error": "no snapshot from `ela changes` today; read live, the rest as last known"})

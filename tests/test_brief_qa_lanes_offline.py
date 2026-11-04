@@ -152,6 +152,12 @@ with tempfile.TemporaryDirectory() as d:
     B.run_json = real
     check("a live read with no host answering carries the merged base, the report's rows included",
           not read and any(r["state"] == "reported" for r in live_rows) and all(r.get("state") for r in live_rows if r["host"] != "mail"))
+    json.dump(tested, open(os.path.join(d, "qa-tested.json"), "w"))
+    B.run_json = down
+    live_rows, read, errs = B.read_lanes_live([], base[:3], B.reported_now(d))   # a base from before the reports, unmarked
+    B.run_json = real
+    qa_be = next(r for r in live_rows if r["service"] == "mediahub-backend" and r["lane"] == "qa-cn3")
+    check("the reports kept in qa-tested.json outrank a base read from before them", qa_be["state"] == "reported" and B.vkey(qa_be["version"]) == ((2, 1, 39, 0), 271))
 
 # the finding: both readable today, and the read is behind QA's newest report
 real = B.subprocess
