@@ -94,6 +94,7 @@ flowchart LR
 | 换了机器 / token 过期了 | `setup` | `/ela:setup` |
 | 想看 ela 自己现在什么状态 | `reports` | `ela reports list` |
 | 临时目录占地方了 | `runtime` | `ela runtime status` · `ela runtime clean` |
+| 每个 pass 开头把源读一遍（Jira 变更与单票、Slack 频道与 thread、三条固定的邮件搜索、各 lane 版本、Jenkins 与 bundle）进事实库 `<runtime>/facts/`，后面的 brief / changes / matrix / testlist / promote / train / recent 都读库并打印读取时间；想看库的新鲜度和缺口；某个动词要现读源就加它自己的 `--fresh` | `facts` | `ela facts refresh` · `ela facts refresh --source jira --source mail` · `ela facts refresh --fresh` · `ela facts status` · `ELA_FACTS_TRACE=1 ela changes`（每次真实请求打一行） |
 | 找之前那个关于 X 的 session | `sessions` | `ela sessions <word>` |
 | 开一个 worker session：在目标规则所在的位置，默认是 workers tab 里叠起来的一个 pane（标题是 session 名），`--tab` 单独一个 tab，`--pane` 放在当前 pane 旁边（topic session）；名字被活着的 session 占着就拒绝；结束一个 session；看这台机器上有哪些 session | `session` | `ela session open runner --name runner-dev "brief"` · `ela session open . --name topic-x --pane --brief f.md` · `ela session close runner-dev` · `ela session list` |
 | 看板上哪些票的 fix 早就在 prod 了、哪些到了 QA 还没填 Fixed In、哪些等 QA 说话——按动作分组，一批一批确认；ela 提议的关票（评论 + flag:closing + 转给你）由你在 Jira 里点；你亲口点名的关票，ela 用 `ela jira close KEY --terminal` 一次确认执行 | `stage` | `ela stage --jql 'project = MH AND statusCategory != Done'` · `ela stage MH-2601`（Epic 展开子票） |
