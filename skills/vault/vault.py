@@ -1631,8 +1631,14 @@ def home(today, now, notes, desk=None):
     L += [f"- [ ] apply {a['n']} — {a.get('text', '')}" for a in mine[:3]]
     L += [f"*+{len(mine) - 3} more on {page}*"] if len(mine) > 3 else []
     L += [""]
-    L += [f"**MediaHub:** {desk['program']} → [[{PROGRAM[:-3]}|the program]]" if desk.get("program")
-          else f"**MediaHub:** no next step in [[{PROGRAM[:-3]}|the program]].", ""]
+    projects = [n.facts for n in notes if n.props.get("type") == "project" and getattr(n, "facts", None)]
+    urgent = project_step(projects)
+    if urgent:                                             # a project's step takes the fourth line only when it is near and late
+        L += [f"**{urgent['key']}:** {urgent['step']} · {days_words(urgent['days'])} to {urgent['deadline'].isoformat()}, the step is overdue "
+              f"→ [[{urgent['path'][:-3]}|the project]]", ""]
+    else:
+        L += [f"**MediaHub:** {desk['program']} → [[{PROGRAM[:-3]}|the program]]" if desk.get("program")
+              else f"**MediaHub:** no next step in [[{PROGRAM[:-3]}|the program]].", ""]
     # labelled "From ela", never "ela:": a line starting `ela:` is his instruction to the watcher
     L += [f"**From ela:** {desk['ela']} → [[{OVERVIEW[:-3]}|the ela page]]" if desk.get("ela") else f"**From ela:** [[{OVERVIEW[:-3]}|the ela page]].", ""]
     L += ["---", ""]
@@ -1642,7 +1648,9 @@ def home(today, now, notes, desk=None):
              "[[board|board]]" if any(n.props.get("type") == "board" for n in notes) else None,
              "[[recent|recent]]" if any(n.props.get("type") == "recent" for n in notes) else None,
              f"[[{changes.path[:-3]}|changes]]" if changes else None,
-             f"[[{PROGRAM[:-3]}|program]]", f"[[{OVERVIEW[:-3]}|ela]]",
+             f"[[{PROGRAM[:-3]}|program]]",
+             ("projects: " + " · ".join(f"[[{f['path'][:-3]}|{f['key']}]] {days_words(f['days'])}" for f in projects)) if projects else None,
+             f"[[{OVERVIEW[:-3]}|ela]]",
              f"[[{ELA}/all-notes.base|all notes]]" + (f" ({len(waiting)} wait for your word)" if waiting else ""),
              f"[[{ELA}/all-notes.base#Archive|archive]]"]
     cons = next((n for n in notes if n.props.get("type") == "constraints"), None)
@@ -1663,6 +1671,13 @@ def home(today, now, notes, desk=None):
     if owed:
         L += ["> [!warning]- ela owes a shorter version of " + str(len(owed))] + [f"> - {link(n)}: {'; '.join(n.held)}" for n in owed] + [""]
     return "\n".join(L)
+
+
+def project_step(facts):
+    """The project whose step Home names instead of the program's: its deadline nearer than PROJECT_SOON_DAYS and its
+    step overdue; the nearest deadline when several; None otherwise."""
+    due = [f for f in facts if f.get("days") is not None and f["days"] < PROJECT_SOON_DAYS and f.get("overdue") and f.get("step")]
+    return min(due, key=lambda f: f["days"]) if due else None
 
 
 def action_what(a):

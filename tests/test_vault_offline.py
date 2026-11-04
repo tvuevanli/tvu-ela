@@ -940,6 +940,19 @@ with tempfile.TemporaryDirectory() as t:
           [(w["note"], w["links"]) for w in V.watched_notes(t, td)] == [("projects/sb/sb.md", ["https://x.slack.com/archives/C1/p1"])])
     rows = V.project_rows(t, "sb")
     check("the project's rows are the notes naming it, newest first", [r["path"] for r in rows] == ["archive/a.md"])
+def _proj(key, days, overdue, step="ask the customer"):
+    n = V.Note(f"projects/{key}/{key}.md", key, "# x", {"type": "project"})
+    n.facts = {"key": key, "path": n.path, "days": days, "deadline": td + datetime.timedelta(days=days), "overdue": overdue, "step": step}
+    return n
+hm = V.home(td, datetime.datetime(2026, 11, 4, 9), [_proj("sb", 102, True), _proj("poc", 3, False)], {"program": "Plan 4."})
+check("Home lists each project with its days left beside the program, and keeps the program's step while none is near and late",
+      "[[mh/engineering-management|program]] · projects: [[projects/sb/sb|sb]] 102 days left · [[projects/poc/poc|poc]] 3 days left · [[ela/overview|ela]]" in hm
+      and "**MediaHub:** Plan 4." in hm and "**sb:**" not in hm)
+hm = V.home(td, datetime.datetime(2026, 11, 4, 9), [_proj("sb", 102, True), _proj("poc", 3, True, "send the SRT listener")], {"program": "Plan 4."})
+check("a project with its deadline under 14 days and its step overdue takes the fourth line",
+      "**poc:** send the SRT listener · 3 days left to 2026-11-07, the step is overdue → [[projects/poc/poc|the project]]" in hm
+      and "**MediaHub:**" not in hm)
+check("no project, no projects link", "projects:" not in V.home(td, datetime.datetime(2026, 11, 4, 9), []))
 check("the readme's layout names projects/, the base has a Projects view and a project column",
       "projects" in V.layout_folders() and "name: Projects" in V.VIEWS["all-notes"] and 'file.hasProperty("project")' in V.VIEWS["all-notes"]
       and "order: [date, formula.note, type, project, status, next]" in V.VIEWS["all-notes"] and "project" in V.PROPS)
