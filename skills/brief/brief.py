@@ -2487,6 +2487,11 @@ def cmd_matrix(args):
         errors.append({"source": "constraints", "error": "ela promote constraints did not answer; no pin marks"})
     cand_doc = None
     if args.candidate:
+        if args.page:                                       # each pass re-checks the planned promotions before the page reads them
+            for rec in list(pending_records(F.read_json(args.candidate, {}) or {}).values()):
+                if rec.get("plan") and not rec.get("closed"):
+                    subprocess.run(["python3", PROMOTE, *env, "--quiet", "plan", str(rec["line"]), rec["from"], rec["to"], "--check", "--json"],
+                                   capture_output=True, text=True, timeout=300)
         try:
             cand_doc = json.load(open(args.candidate))   # <reports>/promote/pending.json as it is, or a plain {label, versions}
         except (OSError, ValueError) as e:
@@ -2839,6 +2844,10 @@ def train_lines(rec):
     rec = rec or {}
     cand = rec.get("candidate") or {}
     L = []
+    if rec.get("plan"):                                     # a planned promotion: the day, the condition, the carried keys, the checks
+        sys.path.insert(0, os.path.join(HERE, "..", "promote"))
+        import promote as P_  # noqa: E402 — the plan's one-line form; promote imports this module, so the import is lazy
+        L += ["", f"**{P_.plan_line(rec)}**"] + [f"- {x}" for x in (rec.get("plan_checks") or {}).get("lines") or []]
     if cand.get("stale"):
         L += ["", f"*next train: versions kept from the last readable run — {cand['stale']}*"]
     if rec.get("open_items"):

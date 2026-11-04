@@ -87,6 +87,10 @@
   ela promote constraints          the owner's standing constraints, each pin read on its lane now
   ela promote close                the pending promotion is done: the morning stops showing its next train
                                    (a report written with --out opens or refreshes it)
+  ela promote plan <line> <from> <to> --on YYYY-MM-DD --after "<condition>" [--carry KEY…]
+                                   a planned promotion on the pending record (local file only): the lanes block, the
+                                   next-train column and the report show it; each pass re-checks the carried keys
+                                   (merged into release<line> per repo · named by the newest QA build · its QA report)
  sessions
   ela session open <alias|path> [--name N] [--tab|--pane] [--brief FILE] [--permission-mode M] "brief"
                                    a worker session where the target's rules live: a stacked pane in the workers tab
@@ -241,7 +245,7 @@ VERBS = {
     "testlist": ("testlist", "list"), "devlist": ("testlist", "dev"),
     "verify": ("verify", "report"), "verify-plan": ("verify", "plan"),
 }
-PROMOTE_SUBS = {"lanes", "commits", "delta", "tickets", "evidence", "bundles", "report", "compare-helm", "constraints", "close"}
+PROMOTE_SUBS = {"lanes", "commits", "delta", "tickets", "evidence", "bundles", "report", "compare-helm", "constraints", "close", "plan"}
 
 
 def site():

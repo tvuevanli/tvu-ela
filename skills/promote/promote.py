@@ -10,6 +10,10 @@ Fixed In, a Fixed In against the build that carries it, a claim against QA's own
   evidence <line> <from> <to> [--scope] [--since YYYY-MM-DD]   QA verdicts per key from Jira comments, mail and Slack
   bundles  <line> <from> <to>                    the two lanes' newest bundles, docker service by docker service
   report   <line> <from> <to> [--purpose regular|prod-staging|demo] [--scope] [--out DIR]   all of it, ranked and capped
+  plan     <line> <from> <to> --on YYYY-MM-DD --after "<condition>" [--carry KEY…] [--check] [--json]
+           a planned promotion in the pending record (local file only, never Slack): the day, the condition in
+           words, the keys it carries; each run re-checks the carried keys (merged into the line's release branch
+           in every mapped repo · named by the newest QA build's release mail · that build's QA report) as ✓/·/✗
   close    [--line L] [--to LANE] [--json]       mark one pending promotion closed (<reports>/promote/pending.json, one record
                                                  per line and lane pair; the only open one needs no selection)
   constraints [--json]                           the owner's standing constraints (<elak>/blueprint/constraints.yaml), each
@@ -1069,6 +1073,137 @@ def open_pending(recs):
     return {k: v for k, v in recs.items() if not v.get("closed")}
 
 
+# ── a planned promotion: the day, the condition, the keys it carries, re-checked each pass ─────────────
+
+def key_branch_state(key, line, repos):
+    """For each mapped repo on disk: whether a branch named after the key is an ancestor of the line's release branch
+    (origin/release<line>). [(repo, state)] with state merged · not merged · no branch · no release branch; read-only,
+    the refs as last fetched."""
+    out = []
+    for slug, repo in sorted(repos.items()):
+        path = repo_path(repo)
+        if not path:
+            continue
+        rc, refs, _ = git(path, "for-each-ref", "--format=%(refname:short)", f"refs/remotes/origin/*{key}*")
+        branches = [b for b in (refs or "").split() if b]
+        rc, _, _ = git(path, "rev-parse", "--verify", "--quiet", f"origin/release{line}")
+        if rc != 0:
+            out.append((repo, "no release branch", branches)); continue
+        if not branches:
+            out.append((repo, "no branch", [])); continue
+        merged = all(git(path, "merge-base", "--is-ancestor", b, f"origin/release{line}")[0] == 0 for b in branches)
+        out.append((repo, "merged" if merged else "not merged", branches))
+    return out
+
+
+def plan_checks(a, rec):
+    """The three re-checks of a planned promotion, as lines headed ✓ (holds) · (not yet) ✗ (blocks): each carried key's
+    branches against the line's release branch in every mapped repo; whether the newest QA build's release mail names
+    the key; whether that build has a QA report. Reads the store (mails) and the checkouts; nothing live."""
+    sys.path.insert(0, os.path.join(SKILLS, "testlist"))
+    import testlist as TL  # noqa: E402 — the release mails and QA reports per lane, through the store
+    cfg = line_cfg(a.line)
+    qa_lane = (cfg.get("lanes") or {}).get("qa")
+    env = ["--env-file", a.env_file] if a.env_file else []
+    repos = {s: r for s, r in (R.rmap("repos") or {}).items() if s in scope_slugs("app")}
+    today = datetime.date.today().strftime("%m-%d")
+    lines, carried = [], []
+    for key in rec.get("plan", {}).get("carry") or []:
+        states = key_branch_state(key, a.line, repos)
+        bad = [r for r, st, _ in states if st == "not merged"]
+        none = [r for r, st, _ in states if st == "no branch"]
+        branch = next((b[0] for _, _, b in states if b), f"feature/{key}")
+        if bad:
+            lines.append(f"✗ {key}: {branch} not merged into release{a.line} in {len(bad)} repo{'s' if len(bad) != 1 else ''} as of {today} ({', '.join(bad)})")
+        elif any(st == "merged" for _, st, _ in states):
+            lines.append(f"✓ {key}: {branch} merged into release{a.line} in {sum(st == 'merged' for _, st, _ in states)} repo(s) as of {today}")
+        else:
+            lines.append(f"· {key}: no branch named {key} in {len(none) or len(states)} mapped repo(s) as of {today}")
+        carried.append({"key": key, "branch": branch, "not_merged": bad, "merged": [r for r, st, _ in states if st == "merged"], "no_branch": none})
+    build, named, report = None, [], False
+    try:
+        mails = (TL.release_mails(env, 21).get(qa_lane) or {}).get("mails") or []
+        reports = TL.report_mails(env, 21).get(qa_lane) or []
+    except (B.LaneError, subprocess.TimeoutExpired, ValueError, SystemExit):
+        mails, reports = [], []
+    if mails:
+        b = mails[-1]
+        build = b["build"]
+        keys_named = {k for l in b["log"] + b["focus"] for k in l["keys"]}
+        named = [k for k in (rec.get("plan", {}).get("carry") or []) if k in keys_named]
+        report = any(x.get("build") == build for x in reports)
+    carry = rec.get("plan", {}).get("carry") or []
+    if build is None:
+        lines.append(f"· no QA build read for {qa_lane or 'the QA lane'} in 21 days")
+    elif carry:
+        miss = [k for k in carry if k not in named]
+        lines.append((f"✓ QA build {build} names {', '.join(named)}" if named else f"· QA build {build}") + (f" — not {', '.join(miss)}" if miss else ""))
+    else:
+        lines.append(f"· QA build {build} is the newest ({TL.B.mail_time(b['at'])[:10] if False else b['at'][:10]})")
+    if build is not None:
+        lines.append(f"✓ QA report on build {build}" if report else f"· no QA report on build {build} yet")
+    return {"at": now(), "qa_build": build, "named": named, "report": report, "carried": carried, "lines": lines}
+
+
+def plan_line(rec):
+    """One line for a page or a report: `planned Fri 11-06 after … · carries MH-1860 (…)`; None without a plan."""
+    p = (rec or {}).get("plan")
+    if not p:
+        return None
+    try:
+        day = datetime.date.fromisoformat(p["on"]).strftime("%a %m-%d")
+    except (KeyError, ValueError):
+        day = str(p.get("on") or "?")
+    carried = (rec.get("plan_checks") or {}).get("carried") or []
+    notes = {c["key"]: (f"{c['branch']} not merged into release{rec.get('line')} in {len(c['not_merged'])} repo{'s' if len(c['not_merged']) != 1 else ''} as of "
+                        f"{str((rec.get('plan_checks') or {}).get('at') or '')[5:10]}" if c.get("not_merged") else None) for c in carried}
+    keys = " · carries " + ", ".join(f"{k} ({notes[k]})" if notes.get(k) else k for k in p.get("carry") or []) if p.get("carry") else ""
+    return f"planned {day} after {p.get('after') or 'no condition stated'}{keys}"
+
+
+def cmd_plan(a):
+    """Write or re-check a planned promotion for one line and lane pair in the pending record. --on and --after set
+    the plan (and --carry its keys); --check alone re-runs the three checks on the plan already there. Writes only
+    <reports>/promote/pending.json (or --pending), never Slack."""
+    cfg = line_cfg(a.line)
+    frm, to = lane_name(cfg, a.src), lane_name(cfg, a.dst)
+    path = a.pending or pending_path()
+    recs = load_pending(path)
+    key = pending_key(a.line, frm, to)
+    rec = recs.get(key) or {}
+    if rec.get("closed"):
+        rec = {}
+    if a.on or a.after or a.carry:
+        if not (a.on and a.after):
+            print("plan needs both --on YYYY-MM-DD and --after \"<condition>\" (or --check alone)", file=sys.stderr); sys.exit(EX_USAGE)
+        try:
+            datetime.date.fromisoformat(a.on)
+        except ValueError:
+            print(f"--on: not a date: {a.on}", file=sys.stderr); sys.exit(EX_USAGE)
+        bad = [k for k in a.carry or [] if not re.fullmatch(r"[A-Z][A-Z0-9]+-\d+", k)]
+        if bad:
+            print(f"--carry: not ticket keys: {', '.join(bad)}", file=sys.stderr); sys.exit(EX_USAGE)
+        rec["plan"] = {"on": a.on, "after": a.after, "carry": list(a.carry or []), "set_at": now()}
+    elif not rec.get("plan"):
+        print(f"no plan for {a.line} {frm} → {to}; set one with --on and --after", file=sys.stderr); sys.exit(EX_USAGE)
+    rec.setdefault("line", a.line); rec.setdefault("from", frm); rec.setdefault("to", to)
+    rec.setdefault("opened", now()); rec["closed"] = False
+    cand = dict(rec.get("candidate") or {})
+    cand.setdefault("versions", {})
+    cand["label"] = f"planned {datetime.date.fromisoformat(rec['plan']['on']).strftime('%a %m-%d')} → {to}"
+    rec["candidate"] = cand
+    rec["plan_checks"] = plan_checks(a, rec)
+    rec["refreshed"] = now()
+    recs[key] = rec
+    save_pending(path, recs)
+    if a.json:
+        print(json.dumps(rec, ensure_ascii=False)); return
+    print(f"{a.line} {frm} → {to}: {plan_line(rec)}")
+    for line in rec["plan_checks"]["lines"]:
+        print(f"  {line}")
+    print(f"written: {path} (local only; nothing posted)", file=sys.stderr)
+
+
 def cmd_close(a):
     """Mark one pending promotion closed: it has shipped or been dropped, and the morning stops showing it. With one
     open record no selection is needed; with several, --line and/or --to pick it, else the open ones are listed."""
@@ -1085,6 +1220,7 @@ def cmd_close(a):
         sys.exit(EX_USAGE)
     key, rec = next(iter(pick.items()))
     rec.update(closed=True, closed_at=now())
+    rec.pop("plan", None); rec.pop("plan_checks", None)       # a closed promotion carries no plan
     recs[key] = rec
     save_pending(path, recs)
     print(json.dumps(rec, ensure_ascii=False) if a.json else f"closed: {rec['line']} {rec['from']} → {rec['to']} (opened {rec['opened']})")
@@ -1201,6 +1337,11 @@ def cmd_report(a):
            "counts": {"commits": sum(len(s["commits"]) for s in delta["services"]), "tickets": len(tickets["tickets"]),
                       "findings": {k: sum(1 for f in findings if f["severity"] == k) for k in SEV}}}
     res["read_at"] = F.read_at()
+    planned = load_pending(pending_path()).get(pending_key(a.line, lanes["from"], lanes["to"])) or {}
+    if planned.get("plan") and not planned.get("closed"):   # the plan on record, its checks run again now
+        planned["plan_checks"] = plan_checks(a, planned)
+        recs = load_pending(pending_path()); recs[pending_key(a.line, lanes["from"], lanes["to"])] = planned; save_pending(pending_path(), recs)
+        res["plan"] = planned
     md = render_gate(res) if gate else render_md(res)
     keep_last_report(a, res, lanes)
     if a.out:
@@ -1225,6 +1366,8 @@ def render_md(r):
     L.append("hosts read: " + ", ".join(f"{h} {host_read_word(ok)}" for h, ok in sorted(hosts.items())))
     if r.get("read_at"):
         L.append(F.read_at_line(r["read_at"]))
+    if r.get("plan"):
+        L += ["", f"**{plan_line(r['plan'])}**"] + [f"- {x}" for x in (r["plan"].get("plan_checks") or {}).get("lines") or []]
     L.append("")
     L.append("| service | " + r["from"] + " | " + r["to"] + " | relation | source |")
     L.append("|---|---|---|---|---|")
@@ -1621,13 +1764,18 @@ def main():
     common(sub.add_parser("bundles"), scope=False)
     p = sub.add_parser("compare-helm", help="test only: Helm's release payload as the oracle; every difference classified"); common(p); p.add_argument("--helm-json", help="a saved oracle payload instead of running Helm"); p.add_argument("--out")
     p = sub.add_parser("report"); common(p); p.add_argument("--purpose", choices=("regular", "prod-staging", "prod-deploy", "demo"), default="regular"); p.add_argument("--since"); p.add_argument("--bundles", action="store_true", help="include the bundle diff even with --scope app"); p.add_argument("--out", help="directory for <date>-mh<line>-<from>-<to>.{json,md}")
+    p = sub.add_parser("plan", help="a planned promotion in the pending record: the day, the condition, the keys it carries; re-checked on every run; local file only")
+    common(p, scope=False); p.add_argument("--on", help="the planned day, YYYY-MM-DD"); p.add_argument("--after", help="the condition in words")
+    p.add_argument("--carry", nargs="*", help="ticket keys the train carries whose merge state is checked each pass")
+    p.add_argument("--check", action="store_true", help="re-run the checks on the plan already recorded")
+    p.add_argument("--pending", help=argparse.SUPPRESS)
     p = sub.add_parser("close", help="mark one pending promotion closed; the morning stops showing it as the next train")
     p.add_argument("--line", help="the line whose promotion closes (needed when several are open)"); p.add_argument("--to", help="its target lane")
     p.add_argument("--json", action="store_true")
     p = sub.add_parser("constraints", help="the standing constraints in <elak>/blueprint/constraints.yaml, each pin read now; exit 3 when one is over"); p.add_argument("--json", action="store_true")
     a = ap.parse_args()
     global QUIET; QUIET = a.quiet
-    {"close": cmd_close, "constraints": cmd_constraints, "lanes": cmd_lanes, "commits": cmd_delta, "delta": cmd_delta, "tickets": cmd_tickets, "evidence": cmd_evidence, "bundles": cmd_bundles, "report": cmd_report, "compare-helm": cmd_compare_helm}[a.cmd](a)
+    {"close": cmd_close, "plan": cmd_plan, "constraints": cmd_constraints, "lanes": cmd_lanes, "commits": cmd_delta, "delta": cmd_delta, "tickets": cmd_tickets, "evidence": cmd_evidence, "bundles": cmd_bundles, "report": cmd_report, "compare-helm": cmd_compare_helm}[a.cmd](a)
 
 
 if __name__ == "__main__":
