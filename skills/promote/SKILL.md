@@ -14,6 +14,7 @@ $P report 2.1 qa daily --purpose prod-staging --bundles --out <runtime>/promote 
 $P report 2.1 qa prod --purpose prod-deploy --out <runtime>/promote                # the deploy gate: four fixed sections
 $P lanes|commits|tickets|evidence|bundles 2.1 qa daily                            # one step at a time when arguing with a finding
 $P constraints [--json]                                                            # the standing constraints, each pin read now; exit 3 when one is over
+$P plan 2.1 daily prod --on 2026-11-06 --after "QA's report on Thursday's build" --carry MH-1860   # a planned promotion, local file only
 $P close                                                                           # the pending promotion shipped or was dropped
 # Progress goes to stderr one line per step (--quiet to silence); the JSON contract is what the session reads.
 ```
@@ -60,6 +61,13 @@ before.
   filled candidate: the last good versions stand, marked `stale: "<when> source unreadable"`. The morning shows each
   line's candidate as the next train on the lanes page and each awaiting cell as a decision for him; `close` ends one
   record when the promotion shipped or was dropped (`--line`/`--to` when several are open).
+- **A planned promotion is on the same record.** `plan <line> <from> <to> --on YYYY-MM-DD --after "<condition>"
+  [--carry KEY…]` writes the day, the condition in words and the keys the train carries (the local file only, never
+  Slack); the lanes block, the next-train column and `report` show it as one line — "planned Fri 11-06 after QA's
+  report on Thursday's build · carries MH-1860 (feature/MH-1860 not merged into release2.1 in 3 repos as of 11-04)".
+  Every `plan`, `plan --check` and `report` run, and every lanes-page pass, re-checks three facts as ✓/·/✗ lines: each
+  carried key's branches against `origin/release<line>` in every mapped checkout (the refs as last fetched), whether
+  the newest QA build's release mail names the key, and whether that build has a QA report. `close` clears the plan.
 - **Rank and cap.** Evan reads at most twelve findings; the rest are counted. A noisy report is an unread one.
 - **Read-only until his word.** Posting (`slack post --apply`), Jira backfills (`jira label|comment … --apply`)
   and the record in elak each wait for an explicit yes, one per action.
