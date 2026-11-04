@@ -771,10 +771,13 @@ check("Home groups the don't boxes by send time, 10:00 first, an action without 
 sent = [{"n": 1, "tier": 1, "text": "label MH-1", "day": "2026-10-28", "applied": "2026-10-28T08:50:00+0800"},
         {"n": 2, "tier": 2, "rule": "qa-today", "scope": ["--lane", "qa-cn3"], "kind": "slack", "day": "2026-10-28",
          "applied": "2026-10-28T09:30:31+0800", "permalink": "https://x/p1"},
-        {"n": 3, "tier": 3, "text": "his own", "day": "2026-10-28", "applied": "2026-10-28T09:31:00+0800"}]
+        {"n": 3, "tier": 3, "text": "his own", "command": "ela jira fixed-in MH-1 --add x", "day": "2026-10-28", "applied": "2026-10-28T10:56:00+0800", "by": "tick"},
+        {"n": 4, "tier": 3, "text": "to the desk", "command": "ela jira fixed-in MH-2 --remove y", "day": "2026-10-28", "applied": "2026-10-28T14:08:00+0800", "by": "desk-word"},
+        {"n": 5, "tier": 3, "text": "not yet", "day": "2026-10-28"}]
 hm = V.home(day, datetime.datetime(2026, 10, 28, 9), [], {"actions": sent})
-check("Home's Done line lists every sent tier-1 and tier-2 action with its time, a post with its link",
-      "- 1 — label MH-1 applied 08:50 (trigger not recorded)" in hm and "- 2 — QA today on qa-cn3 applied 09:30 (trigger not recorded) · [link](https://x/p1)" in hm and "his own" not in hm)
+check("Home's Done line lists every applied action, tier 3 included, with its time and trigger, a post with its link",
+      "- 1 — label MH-1 applied 08:50 (trigger not recorded)" in hm and "- 2 — QA today on qa-cn3 applied 09:30 (trigger not recorded) · [link](https://x/p1)" in hm
+      and "- 3 — his own done 10:56 on your tick" in hm and "- 4 — to the desk done 14:08 on your word to the desk" in hm and "not yet" not in hm.split("**At")[0])
 held = [{"n": 7, "tier": 2, "text": "reply", "day": "2026-10-28"},
         {"n": 8, "tier": 2, "text": "at 09:30: post", "day": "2026-10-28", "send_at": "09:30",
          "dry_run": {"at": "2026-10-28T09:30:05+0800", "line": "8 — dry run: would have posted at 09:30 in #c · text in f"}}]

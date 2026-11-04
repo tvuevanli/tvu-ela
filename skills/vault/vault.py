@@ -1592,7 +1592,7 @@ def link(n):
 
 
 def home(today, now, notes, desk=None):
-    """Home, five lines above a divider: what ela did since he last looked (tier 1 and 2), what leaves at 10:00 unless he
+    """Home, five lines above a divider: what ela did since he last looked (every applied action, a tier-1 or tier-2 dry run), what leaves at 10:00 unless he
     ticks (tier 2), what only he can do (at most three tier-3 boxes), the MediaHub program's next step, and one line
     on ela. Below the divider, links. `desk`: {actions: today's and the week's, since: when he last looked, program,
     ela, hold: the tier-2 hold standing today} (vault in-progress/2026-10-29-ela-three-loops-review.md, proposal 1).
@@ -1608,8 +1608,10 @@ def home(today, now, notes, desk=None):
     since = desk.get("since")
     def new(at):
         return bool(at) and (at > since if since else at[:10] == iso)
-    done = sorted((a for a in desk.get("actions") or [] if (a.get("tier") in (1, 2) or a.get("send_box"))
-                   and (new(a.get("applied")) or new((a.get("dry_run") or {}).get("at")))),
+    # every applied action, whatever its tier: an `apply N` he ticked or said to the desk is done work too (the vault review
+    # of 2026-11-04: apply 2 applied 10:56 on his tick read as "nothing"); a dry run only for tier 1 and 2 and a send box
+    done = sorted((a for a in desk.get("actions") or [] if new(a.get("applied"))
+                   or ((a.get("tier") in (1, 2) or a.get("send_box")) and new((a.get("dry_run") or {}).get("at")))),
                   key=lambda a: a.get("applied") or a["dry_run"]["at"])
     soon = [a for a in today_acts if a.get("tier") == 2 and not (a.get("applied") or a.get("vetoed") or a.get("failed"))]
     # tier 3 with a send box (the QA day post): it leaves only on his tick, read by the runner's 09:30 and 10:00 passes
@@ -1689,14 +1691,16 @@ def action_what(a):
 
 
 def trigger(a):
-    """What made an applied action leave, from the runner's `by` stamp: his tick, his word in Slack, a closed rule, the
-    test harness; a stamp without one says so, never "on your tick" (vault
-    to-read/2026-11-02-ela-and-vault-workflow-review.md, fix 5)."""
+    """What made an applied action leave, from the runner's `by` stamp: his tick, his word in Slack, his word to the desk
+    session, a closed rule, the test harness; a stamp without one says so, never "on your tick" (vault
+    to-read/2026-11-02-ela-and-vault-workflow-review.md, fix 5). The vocabulary is ela-runner lib/trigger.py's."""
     by = str(a.get("by") or "")
     if by == "tick":
         return "on your tick"
     if by == "slack-word":
         return "on your word in Slack"
+    if by == "desk-word":
+        return "on your word to the desk"
     if by.startswith("rule:") and by[5:]:
         return f"under rule {by[5:]}"
     if by == "harness":
