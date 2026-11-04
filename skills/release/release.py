@@ -217,7 +217,24 @@ def site():
         return {}
 
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "facts"))
+try:
+    import facts as F  # noqa: E402 — the fact store: lane versions, the gateway, Jenkins builds and bundles once per pass
+except ImportError:
+    F = None
+
+
+def _safe(name):
+    return re.sub(r"[^A-Za-z0-9._@-]+", "_", str(name))
+
+
+def _store_fresh():
+    return bool(F) and not F.forced_fresh()
+
+
 def http(url, payload=None, cookie=None, timeout=20):
+    if F:
+        F.trace("release", url.split("?")[0])
     headers = {"Accept": "application/json"}
     if cookie:
         headers["Cookie"] = cookie
@@ -383,6 +400,18 @@ class US:
         if st != 200:
             print(f"userservice {path}: HTTP {st} {str(body)[:200]}", file=sys.stderr); sys.exit(EX_REMOTE)
         return body
+
+
+class LazyUS:
+    """A userservice handle that logs in only when a call is made, so a read the store answers costs no login."""
+    def __init__(self, env_file, host="qa"):
+        self.kind = "prod" if host == "prod" else "qa"
+        self.env_file, self._us = env_file, None
+
+    def call(self, path, payload=None):
+        if self._us is None:
+            self._us = US(self.env_file, "prod" if self.kind == "prod" else "qa")
+        return self._us.call(path, payload)
 
 
 def tvutest_login(env_file, host):
@@ -563,23 +592,62 @@ def when(v):
         return str(v or "")[:16]
 
 
-def bundle_list(us, line, limit=50):
+def _bundles_path(kind, line):
+    return os.path.join(F.store_dir("builds", "bundles", kind), f"{_safe(line)}.json")
+
+
+def stored_bundles(kind, line, limit):
+    """The store's bundle list for a host and line name while fresh and at least as deep as `limit`; else None."""
+    if not _store_fresh():
+        return None
+    doc = F.read_json(_bundles_path(kind, line))
+    if doc and F.fresh(doc.get("at")) and (doc.get("limit", 0) >= limit or len(doc.get("bundles") or []) < doc.get("limit", 0)):
+        return doc
+    return None
+
+
+def bundle_list(us, line, limit=50, fresh=False):
+    doc = None if fresh else stored_bundles(us.kind, line, limit)
+    if doc is not None:
+        F.served("release", doc["at"], f"bundles {us.kind} {line}")
+        return list(doc["bundles"])[:limit]
     body = us.call("/userGroup/user-group/tagBundle/page",
                    {"bundleName": line, "operator": "", "createStartTime": "", "createEndTime": "", "pageNum": 1, "pageSize": limit})
-    return ((body or {}).get("result") or {}).get("list") or []
+    rows = ((body or {}).get("result") or {}).get("list") or []
+    if F:
+        F.write_json(_bundles_path(us.kind, line), {"at": F.now_iso(), "host": us.kind, "line": line, "limit": limit, "bundles": rows})
+    return rows
 
 
-def bundle_detail(us, bundle_id):
+def refresh_bundles(env_file, host, line, limit):
+    """`ela facts refresh`: one list per host and line, written through; (rows, gap)."""
+    try:
+        return bundle_list(LazyUS(env_file, host), line, limit, fresh=True), None
+    except SystemExit as e:
+        return None, f"exit {e.code}"
+
+
+def bundle_detail(us, bundle_id, fresh=False):
+    path = os.path.join(F.store_dir("builds", "bundles", "detail"), f"{_safe(bundle_id)}.json") if F else None
+    doc = F.read_json(path) if path else None
+    if doc and not fresh and _store_fresh() and F.fresh(doc.get("at")):
+        F.served("release", doc["at"], f"bundle {bundle_id}")
+        return doc["bundle"]
     body = us.call(f"/userGroup/user-group/tagBundle/getDetail?bundleId={urllib.parse.quote(str(bundle_id))}")
-    return (body or {}).get("result") or {}
+    out = (body or {}).get("result") or {}
+    if path and out:
+        F.write_json(path, {"at": F.now_iso(), "host": us.kind, "bundle": out})
+    return out
 
 
 def cmd_bundles(a):
-    us = US(a.env_file, a.host)
-    rows = bundle_list(us, a.line, a.limit)
+    us = LazyUS(a.env_file, a.host)
+    rows = bundle_list(us, a.line, a.limit, fresh=a.fresh)
     rows.sort(key=lambda x: str(x.get("createTime") or ""), reverse=True)
     if a.json:
-        print(json.dumps({"host": a.host, "line": a.line, "count": len(rows), "bundles": rows}, ensure_ascii=False)); return
+        doc = None if a.fresh else stored_bundles(us.kind, a.line, a.limit)
+        print(json.dumps({"host": a.host, "line": a.line, "count": len(rows), "bundles": rows,
+                          "read_at": (doc or {}).get("at") or _now()}, ensure_ascii=False)); return
     if not rows:
         print(f"no bundles for {a.line!r} on {a.host}", file=sys.stderr); sys.exit(EX_NOTFOUND)
     for b in rows:
@@ -1043,8 +1111,58 @@ def cmd_create(a):
 
 # ── env versions ──────────────────────────────────────────────────────────────
 
-def lane_versions(us, want=None):
-    """Every (service, tag, lane, version, updated) row a host publishes for the mapped service ids."""
+def _envs_path(kind):
+    return os.path.join(F.store_dir("lanes"), f"envs-{kind}.json")
+
+
+def stored_envs(kind):
+    """The store's lane read for a host: {at, rows} or {gap} while fresh; None when there is none or it is stale."""
+    if not _store_fresh():
+        return None
+    doc = F.read_json(_envs_path(kind))
+    if not doc:
+        return None
+    gap = doc.get("gap")
+    if gap and F.fresh(gap.get("at")) and str(gap.get("at")) >= str(doc.get("at") or ""):
+        return {"gap": gap, "rows": doc.get("rows"), "at": doc.get("at")}
+    if doc.get("at") and F.fresh(doc["at"]):
+        return {"at": doc["at"], "rows": doc.get("rows") or []}
+    return None
+
+
+def lane_versions(us, want=None, fresh=False):
+    """Every (service, tag, lane, version, updated) row a host publishes for the mapped service ids. Served from the
+    store while its read of the host is fresh (a recorded gap exits as the live read did); a live read writes through."""
+    doc = None if fresh else stored_envs(us.kind)
+    if doc is not None:
+        if doc.get("gap"):
+            g = doc["gap"]
+            print(f"userservice {us.kind}: {g.get('why')} (facts {str(g.get('at'))[:16]}; last good read {str(doc.get('at') or 'none')[:16]}; --fresh retries)", file=sys.stderr)
+            sys.exit(int(g.get("exit") or EX_REMOTE))
+        F.served("release", doc["at"], f"envs {us.kind}")
+        return [r for r in doc["rows"] if not want or want in r.get("service", "")]
+    try:
+        out = _lane_versions_live(us, want)
+    except SystemExit as e:
+        if F and not want:
+            prev = F.read_json(_envs_path(us.kind), {}) or {}
+            prev["gap"] = {"at": F.now_iso(), "exit": e.code if isinstance(e.code, int) else EX_REMOTE, "why": f"read failed (exit {e.code})"}
+            F.write_json(_envs_path(us.kind), prev)
+        raise
+    if F and not want:
+        F.write_json(_envs_path(us.kind), {"at": F.now_iso(), "host": us.kind, "rows": out})
+    return out
+
+
+def refresh_envs(env_file, host):
+    """`ela facts refresh`: one read of a host's lanes, written through; (rows, gap)."""
+    try:
+        return lane_versions(LazyUS(env_file, host), fresh=True), None
+    except SystemExit as e:
+        return None, f"exit {e.code}"
+
+
+def _lane_versions_live(us, want=None):
     ids = rmap("service_ids" if us.kind == "prod" else "qa_service_ids")
     out = []
     for svc_id, slugs in ids.items():
@@ -1063,11 +1181,18 @@ def lane_versions(us, want=None):
     return out
 
 
-def gateway_versions(want=None, lane=None, get=None):
+def gateway_versions(want=None, lane=None, get=None, fresh=False):
     """Every (service, lane, token, version) the map's gateway_versions names, read live from the service through the
     API gateway: GET <site.json services.<site_service>.url><path with the lane's token>. A lane whose host is not in
     site.json, that does not answer 200, or whose body no version family parses is UNDETERMINED with the reason —
-    never "not deployed": a gateway answers 503 for a route it knows with no instance behind it, and 404 for none."""
+    never "not deployed": a gateway answers 503 for a route it knows with no instance behind it, and 404 for none.
+    Served from the store while its read is fresh; a whole live read (no `get` injected) writes through."""
+    path = os.path.join(F.store_dir("lanes"), "gateway.json") if F else None
+    doc = F.read_json(path) if path else None
+    if doc and not fresh and get is None and _store_fresh() and F.fresh(doc.get("at")):
+        F.served("release", doc["at"], "gateway")
+        return [r for r in doc["rows"] if (not want or want in r["service"]) and (not lane or r["lane"] == lane)]
+    live = get is None
     get = get or (lambda url: http(url, timeout=10))
     services = site().get("services") or {}
     out = []
@@ -1088,16 +1213,26 @@ def gateway_versions(want=None, lane=None, get=None):
                 why = f"HTTP {st}" + (f": {str(body)[:80]!r}" if st == 200 else {503: " (route known, no instance)", 404: " (no route)", 0: f" ({body})"}.get(st, ""))
                 out.append(dict(row, status="undetermined", why=why)); continue
             out.append(dict(row, status="read", version=raw))
+    if path and live and not want and not lane:
+        F.write_json(path, {"at": F.now_iso(), "rows": out})
     return out
+
+
+def refresh_gateway():
+    try:
+        return gateway_versions(fresh=True), None
+    except SystemExit as e:
+        return None, f"exit {e.code}"
 
 
 def cmd_gateway(a):
     want = (a.service or "").lower()
     if want and not any(want in s for s in rmap("gateway_versions")):
         print(f"{a.service!r} is not in map/release.yaml gateway_versions ({', '.join(rmap('gateway_versions')) or 'none'})", file=sys.stderr); sys.exit(EX_NOTFOUND)
-    out = gateway_versions(want, a.lane)
+    out = gateway_versions(want, a.lane, fresh=a.fresh)
     if a.json:
-        print(json.dumps({"source": "gateway", "rows": out}, ensure_ascii=False)); return
+        doc = (F.read_json(os.path.join(F.store_dir("lanes"), "gateway.json")) or {}) if F and not a.fresh else {}
+        print(json.dumps({"source": "gateway", "rows": out, "read_at": doc.get("at") or _now()}, ensure_ascii=False)); return
     cur = None
     for r in out:
         if r["service"] != cur:
@@ -1107,10 +1242,11 @@ def cmd_gateway(a):
 
 
 def cmd_envs(a):
-    us = US(a.env_file, a.host)
-    out = lane_versions(us, (a.service or "").lower())
+    us = LazyUS(a.env_file, a.host)
+    out = lane_versions(us, (a.service or "").lower(), fresh=a.fresh)
     if a.json:
-        print(json.dumps({"host": a.host, "rows": out}, ensure_ascii=False)); return
+        doc = None if a.fresh else stored_envs(us.kind)
+        print(json.dumps({"host": a.host, "rows": out, "read_at": (doc or {}).get("at") or _now()}, ensure_ascii=False)); return
     if not out:
         print(f"no env versions for {a.service!r} on {a.host}", file=sys.stderr); sys.exit(EX_NOTFOUND)
     cur = None
@@ -1122,16 +1258,38 @@ def cmd_envs(a):
 
 # ── jenkins ───────────────────────────────────────────────────────────────────
 
-def cmd_builds(a):
-    base = _service_url("jenkins")
+def job_of(name):
+    """A Jenkins job by its name, its service slug, or a substring; None when unknown."""
     JOBS = rmap("jobs")
-    job = a.job
-    if job not in JOBS:
-        by_service = {v: k for k, v in JOBS.items()}
-        job = by_service.get(job) or next((k for k in JOBS if a.job.lower() in k), None)
-        if not job:
-            print(f"unknown job or service {a.job!r}; jobs: {', '.join(JOBS)}", file=sys.stderr); sys.exit(EX_USAGE)
-    tree = f"builds[number,displayName,result,timestamp,url,actions[lastBuiltRevision[branch[name,SHA1]]]]{{0,{a.limit}}}"
+    if name in JOBS:
+        return name
+    by_service = {v: k for k, v in JOBS.items()}
+    return by_service.get(name) or next((k for k in JOBS if name.lower() in k), None)
+
+
+def _builds_path(job):
+    return os.path.join(F.store_dir("builds"), f"{_safe(job)}.json")
+
+
+def stored_builds(job, limit):
+    if not _store_fresh():
+        return None
+    doc = F.read_json(_builds_path(job))
+    if doc and F.fresh(doc.get("at")) and (doc.get("limit", 0) >= limit or len(doc.get("builds") or []) < doc.get("limit", 0)):
+        return doc
+    return None
+
+
+def builds_rows(job, limit=15, fresh=False):
+    """A job's newest builds: number, version, build, result, branch, sha (12), sha_full, time, url. Served from the
+    store while fresh and deep enough; a live read writes through. Raises SystemExit(5) when Jenkins does not answer."""
+    doc = None if fresh else stored_builds(job, limit)
+    if doc is not None:
+        F.served("release", doc["at"], f"builds {job}")
+        return list(doc["builds"])[:limit]
+    JOBS = rmap("jobs")
+    base = _service_url("jenkins")
+    tree = f"builds[number,displayName,result,timestamp,url,actions[lastBuiltRevision[branch[name,SHA1]]]]{{0,{limit}}}"
     st, body = http(f"{base}/job/{urllib.parse.quote(job, safe='')}/api/json?tree={urllib.parse.quote(tree, safe='[],:{}')}", timeout=30)
     if st != 200 or not isinstance(body, dict):
         print(f"jenkins {job}: HTTP {st} {str(body)[:200]}", file=sys.stderr); sys.exit(EX_REMOTE)
@@ -1145,8 +1303,28 @@ def cmd_builds(a):
                      "result": b.get("result"), "branch": (br.get("name") or "").replace("refs/remotes/origin/", ""), "sha": (br.get("SHA1") or "")[:12],
                      "sha_full": br.get("SHA1") or "",
                      "time": datetime.datetime.fromtimestamp((b.get("timestamp") or 0) / 1000).strftime("%Y-%m-%d %H:%M"), "url": b.get("url")})
+    if F:
+        F.write_json(_builds_path(job), {"at": F.now_iso(), "job": job, "service": JOBS[job], "limit": limit, "builds": rows})
+    return rows
+
+
+def refresh_builds(job, limit):
+    """`ela facts refresh`: one Jenkins read per job, written through; (rows, gap)."""
+    try:
+        return builds_rows(job, limit, fresh=True), None
+    except SystemExit as e:
+        return None, f"exit {e.code}"
+
+
+def cmd_builds(a):
+    JOBS = rmap("jobs")
+    job = job_of(a.job)
+    if not job:
+        print(f"unknown job or service {a.job!r}; jobs: {', '.join(JOBS)}", file=sys.stderr); sys.exit(EX_USAGE)
+    rows = builds_rows(job, a.limit, fresh=a.fresh)
     if a.json:
-        print(json.dumps({"job": job, "service": JOBS[job], "builds": rows}, ensure_ascii=False)); return
+        doc = None if a.fresh else stored_builds(job, a.limit)
+        print(json.dumps({"job": job, "service": JOBS[job], "builds": rows, "read_at": (doc or {}).get("at") or _now()}, ensure_ascii=False)); return
     print(f"# {job}  ({JOBS[job]})")
     for r in rows:
         print(f"  #{r['number']:<5} {str(r['version']):<12} {str(r['result']):<9} {r['branch']:<20} {r['sha']:<12} {r['time']}")
@@ -1215,16 +1393,16 @@ def main():
     ap.add_argument("--env-file")
     sub = ap.add_subparsers(dest="cmd", required=True)
     def host_arg(p): p.add_argument("--host", choices=("qa", "prod"), default="qa", help="qa (tvutest, account login) or prod (the person's TVU session; ela login tvu)")
-    p = sub.add_parser("bundles"); p.add_argument("line", nargs="?", default="mh2.1@"); p.add_argument("--limit", type=int, default=50); host_arg(p); p.add_argument("--json", action="store_true")
+    p = sub.add_parser("bundles"); p.add_argument("line", nargs="?", default="mh2.1@"); p.add_argument("--limit", type=int, default=50); host_arg(p); p.add_argument("--fresh", action="store_true", help="read the host now instead of the store"); p.add_argument("--json", action="store_true")
     p = sub.add_parser("bundle"); p.add_argument("ref", help="bundle name (mh2.1@daily-wed-s1-d33) or id"); host_arg(p); p.add_argument("--json", action="store_true"); p.add_argument("--raw", action="store_true")
     p = sub.add_parser("bundle-diff", help="docker services added, removed and changed between two bundles")
     p.add_argument("a", help="bundle A: exact name, id, or a prefix (mh2.0@rc-s5, or '2.0 rc-s5') — the newest match wins")
     p.add_argument("b", help="bundle B, resolved the same way")
     for side in ("a", "b"): p.add_argument(f"--host-{side}", choices=("qa", "prod"), default="qa", help=f"host bundle {side.upper()} is read from (default qa)")
     p.add_argument("--json", action="store_true")
-    p = sub.add_parser("envs"); p.add_argument("service", nargs="?"); host_arg(p); p.add_argument("--json", action="store_true")
+    p = sub.add_parser("envs"); p.add_argument("service", nargs="?"); host_arg(p); p.add_argument("--fresh", action="store_true", help="read the host now instead of the store"); p.add_argument("--json", action="store_true")
     p = sub.add_parser("gateway", help="versions userservice does not publish (orchestration), read per lane through the API gateways; no login")
-    p.add_argument("service", nargs="?"); p.add_argument("--lane", help="one lane (daily-wed, prod-3)"); p.add_argument("--json", action="store_true")
+    p.add_argument("service", nargs="?"); p.add_argument("--lane", help="one lane (daily-wed, prod-3)"); p.add_argument("--fresh", action="store_true", help="read the gateways now instead of the store"); p.add_argument("--json", action="store_true")
     p = sub.add_parser("create", help="a new bundle on prod from a base bundle, services changed one by one; dry run unless --apply; never deletes")
     p.add_argument("name", nargs="?", help="the new bundle's name; default the base's next (d45 → d46, MediaHub 2.1.15 → 2.1.16)")
     p.add_argument("--from", dest="base", required=True, help="the base bundle: name, id or prefix")
@@ -1235,7 +1413,7 @@ def main():
     p = sub.add_parser("pin", help="hold a line's prod bundle on an older official, with why; dry run unless --apply (ADR 0013)"); p.add_argument("line"); p.add_argument("bundle", help="name (MediaHub 2.1.15), number (2.1.15) or id"); p.add_argument("--why", required=True, help="why prod stays on this bundle"); p.add_argument("--apply", action="store_true")
     p = sub.add_parser("unpin", help="lift a line's hold: prod follows the newest official again; dry run unless --apply"); p.add_argument("line"); p.add_argument("--apply", action="store_true")
     p = sub.add_parser("pins", help="the official bundle per line, as pinned"); p.add_argument("--json", action="store_true")
-    p = sub.add_parser("builds"); p.add_argument("job"); p.add_argument("--limit", type=int, default=15); p.add_argument("--json", action="store_true")
+    p = sub.add_parser("builds"); p.add_argument("job"); p.add_argument("--limit", type=int, default=15); p.add_argument("--fresh", action="store_true", help="read Jenkins now instead of the store"); p.add_argument("--json", action="store_true")
     p = sub.add_parser("drift"); p.add_argument("line", nargs="?", default="mh2.1@"); p.add_argument("--bundles", type=int, default=5, help="newest N bundles to union (default 5)"); host_arg(p); p.add_argument("--json", action="store_true")
     p = sub.add_parser("login"); p.add_argument("target", nargs="?", choices=("qa", "tvu"), default="qa"); p.add_argument("--force", action="store_true"); p.add_argument("--no-browser", action="store_true"); p.add_argument("--timeout", type=int, default=300); p.add_argument("--json", action="store_true")
     p.add_argument("--keepalive", action="store_true", help="tvu: one validation call that renews the session's idle TTL; never logs in, never retries")

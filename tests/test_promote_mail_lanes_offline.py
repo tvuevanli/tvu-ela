@@ -39,8 +39,8 @@ with tempfile.TemporaryDirectory() as d:
     json.dump({"qa-cn3|mediahub-backend|2.1.39 build 271": {"lane": "qa-cn3", "service": "mediahub-backend", "version": REPORTED["version"],
                                                             "at": REPORTED["at"], "verdict": "pass", "subject": REPORTED["subject"]}},
               open(os.path.join(d, "runner", "qa-tested.json"), "w"))
-    real = (P.R.US, P.R.lane_versions, P.R.site)
-    P.R.US, P.R.lane_versions, P.R.site = fake_us, lambda us: list(PROD), lambda: {"runtime": d}
+    real = (P.R.US, P.R.LazyUS, P.R.lane_versions, P.R.site)
+    P.R.US, P.R.LazyUS, P.R.lane_versions, P.R.site = fake_us, fake_us, lambda us, want=None, fresh=False: list(PROD), lambda: {"runtime": d}
     try:
         gaps = []
         a = types.SimpleNamespace(line="2.1", src="qa", dst="daily", scope="app", env_file=None)
@@ -70,6 +70,6 @@ with tempfile.TemporaryDirectory() as d:
         check("with no report or release naming the lanes, the host is unreadable as before",
               [g["kind"] for g in gaps] == ["host_unreadable"] and res["hosts_read"]["qa"] is False and "no QA report" in gaps[0]["detail"])
     finally:
-        P.R.US, P.R.lane_versions, P.R.site = real
+        P.R.US, P.R.LazyUS, P.R.lane_versions, P.R.site = real
 
 sys.exit(1 if failures else 0)

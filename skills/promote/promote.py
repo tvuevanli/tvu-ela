@@ -152,18 +152,13 @@ def mail_lane_rows(gaps, why, code=None):
 def read_host(env_file, host, gaps):
     """All lane rows a host publishes; for the qa host that does not admit ela, the mail rows (mail_lane_rows); None
     (and a gap) when the host is unreadable."""
-    try:
-        us = R.US(env_file, host)
-    except SystemExit as e:
-        if host == "qa":
-            return mail_lane_rows(gaps, "qa login failed", e.code)
-        gaps.append({"kind": "host_unreadable", "host": host, "detail": "no session — run: ela login tvu", "exit": e.code}); return None
-    try:
-        return R.lane_versions(us)
+    try:                                                    # the store answers without a login; a live read logs in
+        return R.lane_versions(R.LazyUS(env_file, host))
     except SystemExit as e:                                 # the qa host answers the login call with exit 4 from the read
         if host == "qa":
             return mail_lane_rows(gaps, "qa login failed" if e.code == 4 else f"read failed (exit {e.code})", e.code)
-        gaps.append({"kind": "host_unreadable", "host": host, "detail": f"read failed (exit {e.code})", "exit": e.code}); return None
+        gaps.append({"kind": "host_unreadable", "host": host, "detail": "no session — run: ela login tvu" if e.code == 4 else f"read failed (exit {e.code})",
+                     "exit": e.code}); return None
 
 
 def collect_lanes(a, gaps):
@@ -250,21 +245,14 @@ def cmd_lanes(a):
 # ── delta: builds → commits ───────────────────────────────────────────────────
 
 def jenkins_builds(job, limit=80):
-    base = R._service_url("jenkins")
-    tree = f"builds[number,displayName,result,timestamp,url,actions[lastBuiltRevision[branch[name,SHA1]]]]{{0,{limit}}}"
-    st, body = R.http(f"{base}/job/{R.urllib.parse.quote(job, safe='')}/api/json?tree={R.urllib.parse.quote(tree, safe='[],:{}')}", timeout=30)
-    if st != 200 or not isinstance(body, dict):
+    """A job's builds through the release capability's store (one Jenkins read per job per pass); None when unreadable."""
+    try:
+        rows = R.builds_rows(job, limit)
+    except SystemExit:
         return None
-    rows = []
-    for b in body.get("builds") or []:
-        rev = next((x.get("lastBuiltRevision") for x in b.get("actions") or [] if isinstance(x, dict) and x.get("lastBuiltRevision")), {}) or {}
-        br = (rev.get("branch") or [{}])[0]
-        pv = parse_version(b.get("displayName") or "")
-        rows.append({"number": b.get("number"), "display": b.get("displayName"), "version": vlabel(pv).split("+")[0] if pv else None,
-                     "build": pv[4] if pv else None, "result": b.get("result"),
-                     "branch": (br.get("name") or "").replace("refs/remotes/origin/", ""), "sha": br.get("SHA1") or "",
-                     "time": datetime.datetime.fromtimestamp((b.get("timestamp") or 0) / 1000).strftime("%Y-%m-%d %H:%M"), "url": b.get("url")})
-    return rows
+    return [{"number": b.get("number"), "display": b.get("display"), "version": b.get("version"), "build": b.get("build"),
+             "result": b.get("result"), "branch": b.get("branch"), "sha": b.get("sha_full") or b.get("sha") or "",
+             "time": b.get("time"), "url": b.get("url")} for b in rows]
 
 
 def match_build(rows, parsed):
@@ -783,7 +771,7 @@ def collect_bundles(a, gaps):
         what = f"the official MediaHub {a.line} bundle" if role == "prod" else f"{bl}{toks.get(role, '?')}*"
         say(f"bundle {what} on {host}")
         try:
-            us = R.US(a.env_file, host)
+            us = R.LazyUS(a.env_file, host)
             # prod's bundle is the official one the owner pins, not an rc token (owner's ruling, 2026-10-27)
             b = R.official_bundle(us, a.line) if role == "prod" else newest_bundle(us, bl, toks[role]) if role in toks else None
             if not b:

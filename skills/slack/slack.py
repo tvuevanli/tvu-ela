@@ -9,6 +9,8 @@ the one write, `post`, is a dry run until --apply.
                                          keeping a person's app-posted message — the daily reports arrive that way)
   mentions   --since 48h [--user me] [--channels a,b]   messages that mention a user, with whether they answered
   unanswered --since 7d  [--user me] [--channels a,b]   threads a user started that nobody else replied to
+             history, mentions, unanswered, search and channels serve from the fact store (<runtime>/facts/slack/, the
+             one per-channel cache, filled by `ela facts refresh`) while its read is fresh; --fresh reads Slack now
   whoami     [--email x]                 the user id behind an email (default: JIRA_EMAIL in the env file)
   post       <#channel|Cxxx|thread permalink> --text "…" | --file f.md [--dm me|email|Uxxx] [--preview] [--apply]
              send a message as the bot (a permalink → reply in that thread). Dry run by default; refuses a
@@ -26,6 +28,12 @@ from datetime import datetime, timedelta, timezone
 
 API = "https://slack.com/api/"
 EX_USAGE, EX_AUTH, EX_REMOTE = 2, 4, 5
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "facts"))
+try:
+    import facts as F  # noqa: E402 — the fact store: the per-channel cache, the channel and user lists
+except ImportError:
+    F = None
+USERS_TTL_H = 24 * 7       # a user's name and bot flag change rarely
 # A large response body truncates on this link (IncompleteRead), and a retry at the same size
 # truncates again — so a page that fails is refetched smaller, at the same cursor.
 PAGE_STEPS = (200, 100, 50, 25, 10)
@@ -58,6 +66,8 @@ def token(env_file=None):
 
 def raw(method, tok, **params):
     """One Slack call, no retries, no exit — for probing before we can advise. Returns the payload."""
+    if F:
+        F.trace("slack", method)
     url = API + method + "?" + urllib.parse.urlencode(params)
     req = urllib.request.Request(url, headers={"Authorization": f"Bearer {tok}"})
     try:
@@ -91,6 +101,8 @@ def call(method, tok, _soft=False, **params):
     url = API + method + "?" + urllib.parse.urlencode(params)
     last = None
     for attempt in range(6):
+        if F:
+            F.trace("slack", method)
         req = urllib.request.Request(url, headers={"Authorization": f"Bearer {tok}"})
         try:
             with urllib.request.urlopen(req, timeout=60) as r:
@@ -138,11 +150,25 @@ def paged(method, tok, key, limit=200, **params):
         time.sleep(0.3)  # conversations.list is tier 2: a 2500-channel walk must not trip the limiter
 
 
+def _users_path():
+    return os.path.join(F.store_dir("slack"), "users.json") if F else None
+
+
+def _users_store():
+    return (F.read_json(_users_path(), {}) if F else None) or {"users": {}, "emails": {}}
+
+
 class Names:
+    """User ids → names and bot flags, from the store's users.json (a week) before users.info."""
     def __init__(self, tok):
         self.tok, self.cache, self.bots = tok, {}, {}
+        self.store, self.dirty = _users_store(), False
 
     def _load(self, uid):
+        rec = (self.store.get("users") or {}).get(uid)
+        if rec and F and F.fresh(rec.get("read_at"), USERS_TTL_H) and not F.forced_fresh():
+            self.cache[uid], self.bots[uid] = rec["name"], rec["is_bot"]
+            return
         try:
             u = call("users.info", self.tok, user=uid)["user"]
         except SystemExit:
@@ -151,6 +177,13 @@ class Names:
         self.cache[uid] = (u.get("profile", {}).get("real_name") or u.get("real_name")
                            or u.get("name") or uid)
         self.bots[uid] = bool(u.get("is_bot")) or uid == "USLACKBOT"
+        if F:
+            self.store.setdefault("users", {})[uid] = {"name": self.cache[uid], "is_bot": self.bots[uid], "read_at": F.now_iso()}
+            self.dirty = True
+
+    def save(self):
+        if self.dirty and F:
+            F.write_json(_users_path(), self.store); self.dirty = False
 
     def user(self, uid):
         if not uid:
@@ -217,11 +250,19 @@ def from_bot(m, names=None):
     return names.is_bot(uid) if names else False
 
 
-def list_channels(tok):
+def list_channels(tok, fresh=False):
+    """The channels the bot is in, from the store's channels.json while fresh (the refresh rewrites it)."""
+    path = os.path.join(F.store_dir("slack"), "channels.json") if F else None
+    doc = F.read_json(path) if path else None
+    if doc and not fresh and not F.forced_fresh() and F.fresh(doc.get("at")):
+        return doc["channels"]
     chans = paged("users.conversations", tok, "channels", types="public_channel,private_channel")
-    return [{"id": c["id"], "name": c.get("name"), "members": c.get("num_members"), "member": True,
-             "private": bool(c.get("is_private")), "purpose": (c.get("purpose") or {}).get("value", "")}
-            for c in chans]
+    out = [{"id": c["id"], "name": c.get("name"), "members": c.get("num_members"), "member": True,
+            "private": bool(c.get("is_private")), "purpose": (c.get("purpose") or {}).get("value", "")}
+           for c in chans]
+    if path:
+        F.write_json(path, {"at": F.now_iso(), "channels": out})
+    return out
 
 
 def list_public_channels(tok):
@@ -266,7 +307,14 @@ def whoami(tok, env_file, email=None):
     email = email or env_value("JIRA_EMAIL", env_file)
     if not email:
         print("no email: pass --email or put JIRA_EMAIL in the env file", file=sys.stderr); sys.exit(EX_USAGE)
+    store = _users_store()
+    rec = (store.get("emails") or {}).get(email)
+    if rec and F and F.fresh(rec.get("read_at"), USERS_TTL_H) and not F.forced_fresh():
+        return rec["id"]
     d = call("users.lookupByEmail", tok, email=email)
+    if F:
+        store.setdefault("emails", {})[email] = {"id": d["user"]["id"], "read_at": F.now_iso()}
+        F.write_json(_users_path(), store)
     return d["user"]["id"]
 
 
@@ -397,7 +445,7 @@ def cmd_files(tok, a):
 
 
 def cmd_channels(tok, a):
-    chans = list_public_channels(tok) if a.all else list_channels(tok)
+    chans = list_public_channels(tok) if a.all else list_channels(tok, fresh=a.fresh)
     if a.match:
         m = a.match.lower()
         chans = [c for c in chans if m in (c["name"] or "").lower() or m in (c["purpose"] or "").lower()]
@@ -423,7 +471,7 @@ def cmd_history(tok, a):
     ch = resolve_channel(tok, a.channel)
     names = Names(tok)
     try:
-        msgs = fetch_history(tok, ch, since_ts(a.since))
+        msgs, read_at = history_rows(tok, ch, float(since_ts(a.since)), fresh=a.fresh)
     except Transient as e:
         print(f"slack history: {ch} did not come down whole ({e})", file=sys.stderr); sys.exit(EX_REMOTE)
     msgs = sorted((m for m in msgs if not is_noise(m)), key=lambda m: float(m["ts"]))
@@ -436,37 +484,74 @@ def cmd_history(tok, a):
                "is_bot": from_bot(m, names), "text": names.render(m.get("text")),
                "reply_count": m.get("reply_count", 0), "reply_users": [names.user(u) for u in m.get("reply_users", [])]}
         if a.threads and m.get("reply_count"):
-            reps = call("conversations.replies", tok, channel=ch, ts=m["ts"], limit=200)["messages"][1:]
+            reps = replies_rows(tok, ch, m, fresh=a.fresh)
             row["replies"] = [{"ts": r["ts"], "user": names.user(r.get("user")) if r.get("user") else "bot",
                                "text": names.render(r.get("text"))} for r in reps]
         rows.append(row)
+    names.save()
     if a.json:
-        print(json.dumps({"channel_id": ch, "since": a.since, "count": len(rows), "messages": rows}, ensure_ascii=False)); return
+        print(json.dumps({"channel_id": ch, "since": a.since, "count": len(rows), "messages": rows, "read_at": read_at}, ensure_ascii=False)); return
     for r in rows:
         bot = " [bot]" if r["is_bot"] else ""
         print(f"--- {r['at']}  {r['user']}{bot}  replies={r['reply_count']}  {r['permalink']}")
         print(r["text"][:600]); print()
 
 
+# ── the per-channel store: top-level messages and thread replies, the one path for every scan ─────────────────────
+
 def _cache_dir():
+    """<runtime>/facts/slack/ — the store's Slack directory; the earlier <runtime>/slack-cache/ is moved in once."""
+    if F:
+        d = F.store_dir("slack")
+        old = os.path.join(F.runtime_root(), "slack-cache")
+        if os.path.isdir(old):
+            for f in os.listdir(old):
+                if f.endswith(".json") and not os.path.exists(os.path.join(d, f)):
+                    os.replace(os.path.join(old, f), os.path.join(d, f))
+        return d
     try:
         site = json.load(open(os.path.expanduser("~/.claude/ela/site.json")))
         root = site.get("runtime") or os.path.join(site.get("projects") or os.getcwd(), ".ela")
     except (OSError, ValueError):
         root = os.getcwd()
-    d = os.path.join(root, "slack-cache"); os.makedirs(d, exist_ok=True)
+    d = os.path.join(root, "facts", "slack"); os.makedirs(d, exist_ok=True)
     return d
 
 
-def cached_history(tok, ch, oldest):
-    """Top-level messages of a channel since `oldest`, from a per-channel cache in the runtime directory plus
-    one fetch of what is newer than the cache. A 25-minute pull of months of history is paid once; the
-    cache is raw working state and deletable (`ela runtime clean`)."""
-    path = os.path.join(_cache_dir(), f"{ch}.json")
+def _channel_path(ch):
+    return os.path.join(_cache_dir(), f"{ch}.json")
+
+
+def load_channel(ch):
     try:
-        cache = json.load(open(path))
+        cache = json.load(open(_channel_path(ch), encoding="utf-8"))
     except (OSError, ValueError):
         cache = {"oldest": None, "messages": {}}
+    cache.setdefault("replies", {})
+    return cache
+
+
+def save_channel(ch, cache):
+    path = _channel_path(ch)
+    tmp = f"{path}.{os.getpid()}.tmp"
+    json.dump(cache, open(tmp, "w", encoding="utf-8"))
+    os.replace(tmp, path)
+
+
+def _now_iso():
+    return datetime.now().astimezone().isoformat(timespec="seconds")
+
+
+def _merge(cache, msgs, read_at):
+    for m in msgs:
+        m["_read_at"] = read_at
+        cache["messages"][m["ts"]] = m
+
+
+def cached_history(tok, ch, oldest):
+    """Top-level messages of a channel since `oldest`, from the per-channel store plus one fetch of what is newer
+    than it (a refill from `oldest` when the store does not reach back that far). Writes through."""
+    cache = load_channel(ch)
     have_from = float(cache["oldest"]) if cache.get("oldest") else None
     newest = max((float(t) for t in cache["messages"]), default=None)
     if have_from is None or oldest < have_from:          # the cache does not reach back far enough: refill from `oldest`
@@ -474,10 +559,65 @@ def cached_history(tok, ch, oldest):
         cache["oldest"] = oldest
     else:                                                # extend forward only
         msgs = fetch_history(tok, ch, f"{(newest if newest else oldest):.6f}")
-    for m in msgs:
-        cache["messages"][m["ts"]] = m
-    json.dump(cache, open(path, "w"))
-    return [m for t, m in cache["messages"].items() if float(t) >= oldest]
+    read_at = _now_iso()
+    _merge(cache, msgs, read_at)
+    cache["read_at"] = read_at
+    save_channel(ch, cache)
+    return [m for t, m in cache["messages"].items() if float(t) >= oldest], read_at
+
+
+def history_rows(tok, ch, oldest, fresh=False):
+    """(top-level messages since `oldest`, the read time). Served from the store while its read of the channel is
+    fresh and reaches back to `oldest`; --fresh, or a stale or short store, extends it live. Raises Transient."""
+    cache = load_channel(ch)
+    have_from = float(cache["oldest"]) if cache.get("oldest") else None
+    if (not fresh and F and not F.forced_fresh() and cache.get("read_at") and F.fresh(cache["read_at"])
+            and have_from is not None and oldest >= have_from):
+        F.served("slack", cache["read_at"], ch)
+        return [m for t, m in cache["messages"].items() if float(t) >= oldest], cache["read_at"]
+    return cached_history(tok, ch, oldest)
+
+
+def replies_rows(tok, ch, parent, fresh=False):
+    """A thread's replies (the parent left out), from the store when its record is as new as the parent's
+    `latest_reply`; else one conversations.replies call, written through. [] when the thread will not come down."""
+    cache = load_channel(ch)
+    rec = (cache.get("replies") or {}).get(parent["ts"])
+    want = str(parent.get("latest_reply") or parent["ts"])
+    if (rec and not fresh and not (F and F.forced_fresh()) and str(rec.get("latest_reply") or "") >= want
+            and len(rec.get("messages") or []) >= int(parent.get("reply_count") or 0)):
+        return rec["messages"]
+    try:
+        reps = call("conversations.replies", tok, _soft=True, channel=ch, ts=parent["ts"], limit=200)["messages"][1:]
+    except Transient:
+        return rec["messages"] if rec else []
+    cache = load_channel(ch)                              # re-read: another thread of this process may have saved
+    cache.setdefault("replies", {})[parent["ts"]] = {"latest_reply": max([want] + [r["ts"] for r in reps]), "read_at": _now_iso(),
+                                                      "messages": reps}
+    save_channel(ch, cache)
+    return reps
+
+
+def refresh_channel(tok, ch, oldest, full=False):
+    """One pass over a channel for `ela facts refresh`: the parents since `oldest` (the horizon, so a reply to an
+    older thread shows on its parent), then the replies of every thread whose parent moved. (parents merged,
+    threads read). Raises Transient when the channel will not come down."""
+    cache = load_channel(ch)
+    have_from = float(cache["oldest"]) if cache.get("oldest") else None
+    frm = oldest if (full or have_from is None or oldest < have_from) else max(oldest, have_from)
+    msgs = fetch_history(tok, ch, f"{frm:.6f}")
+    read_at = _now_iso()
+    _merge(cache, msgs, read_at)
+    if have_from is None or frm < have_from:
+        cache["oldest"] = frm
+    cache["read_at"] = read_at
+    save_channel(ch, cache)
+    stale = [m for m in msgs if m.get("reply_count") and
+             str(((cache.get("replies") or {}).get(m["ts"]) or {}).get("latest_reply") or "") < str(m.get("latest_reply") or m["ts"])]
+    if full:
+        stale = [m for m in msgs if m.get("reply_count")]
+    got = replies_for(tok, ch, stale, fresh=True)
+    return len(msgs), len(got)
 
 
 def cmd_search(tok, a):
@@ -489,7 +629,7 @@ def cmd_search(tok, a):
     rows = []
     for c in pick_channels(tok, a.channels):
         try:
-            msgs = cached_history(tok, c["id"], oldest)
+            msgs, _ = history_rows(tok, c["id"], oldest, fresh=a.fresh)
         except Transient as e:
             print(f"slack search: #{c.get('name')} did not come down whole ({e})", file=sys.stderr); continue
         for m in sorted((m for m in msgs if not is_noise(m)), key=lambda m: float(m["ts"])):
@@ -497,10 +637,7 @@ def cmd_search(tok, a):
             hit = rx.search(text)
             reps = []
             if a.threads and m.get("reply_count"):
-                try:
-                    reps = call("conversations.replies", tok, channel=c["id"], ts=m["ts"], limit=200)["messages"][1:]
-                except Transient:
-                    reps = []
+                reps = replies_rows(tok, c["id"], m, fresh=a.fresh)
             rep_hits = [{"ts": r["ts"], "user": names.user(r.get("user")) if r.get("user") else "bot", "text": names.render(r.get("text"))}
                         for r in reps if rx.search(names.render(r.get("text")))]
             if hit or rep_hits:
@@ -508,6 +645,7 @@ def cmd_search(tok, a):
                              "user": names.user(m.get("user")) if m.get("user") else (m.get("username") or "bot"), "text": text,
                              "matched": "message" if hit else "reply", "reply_count": m.get("reply_count", 0), "reply_hits": rep_hits})
     rows.sort(key=lambda r: float(r["ts"]))
+    names.save()
     if a.json:
         print(json.dumps({"pattern": a.pattern, "since": a.since, "count": len(rows), "messages": rows}, ensure_ascii=False)); return
     for r in rows:
@@ -535,16 +673,37 @@ def pick_channels(tok, spec):
     return picked
 
 
-def replies_for(tok, ch, parents, workers=4):
-    """Replies for many parents, a few at a time. Returns {ts: [replies]}. A thread that will not come
-    down is empty rather than fatal — its parent still carries reply_count and reply_users."""
+_STORE_LOCK = __import__("threading").Lock()
+
+
+def replies_for(tok, ch, parents, workers=4, fresh=False):
+    """Replies for many parents, a few at a time, through the store. Returns {ts: [replies]}. A thread that will
+    not come down is empty rather than fatal — its parent still carries reply_count and reply_users."""
     def one(m):
+        cache = load_channel(ch)
+        rec = (cache.get("replies") or {}).get(m["ts"])
+        want = str(m.get("latest_reply") or m["ts"])
+        if (rec and not fresh and not (F and F.forced_fresh()) and str(rec.get("latest_reply") or "") >= want
+                and len(rec.get("messages") or []) >= int(m.get("reply_count") or 0)):
+            return m["ts"], rec["messages"], False
         try:
-            return m["ts"], call("conversations.replies", tok, _soft=True, channel=ch, ts=m["ts"], limit=200)["messages"][1:]
+            reps = call("conversations.replies", tok, _soft=True, channel=ch, ts=m["ts"], limit=200)["messages"][1:]
         except Transient:
-            return m["ts"], []
+            return m["ts"], (rec["messages"] if rec else []), False
+        return m["ts"], reps, True
     with ThreadPoolExecutor(max_workers=workers) as ex:
-        return dict(ex.map(one, parents))
+        got = list(ex.map(one, parents))
+    new = [(ts, reps) for ts, reps, live in got if live]
+    if new:
+        with _STORE_LOCK:
+            cache = load_channel(ch)
+            at = _now_iso()
+            for ts, reps in new:
+                parent = next((m for m in parents if m["ts"] == ts), {})
+                cache.setdefault("replies", {})[ts] = {"latest_reply": max([str(parent.get("latest_reply") or ts)] + [r["ts"] for r in reps]),
+                                                       "read_at": at, "messages": reps}
+            save_channel(ch, cache)
+    return {ts: reps for ts, reps, _ in got}
 
 
 def cmd_mentions(tok, a):
@@ -555,12 +714,12 @@ def cmd_mentions(tok, a):
     out, unread = [], []
     for c in pick_channels(tok, a.channels):
         try:
-            roots = fetch_history(tok, c["id"], oldest)
+            roots, _ = history_rows(tok, c["id"], float(oldest), fresh=a.fresh)
         except Transient as e:
             unread.append({"channel": c["name"], "id": c["id"], "why": str(e)}); continue
         # replies are fetched only for threads that were active inside the window
         active = [m for m in roots if m.get("reply_count") and float(m.get("latest_reply") or m["ts"]) >= float(oldest)]
-        reps_by = replies_for(tok, c["id"], active)
+        reps_by = replies_for(tok, c["id"], active, fresh=a.fresh)
         for root in roots:
             thread = [root] + reps_by.get(root["ts"], [])
             hits = [m for m in thread if tag in (m.get("text") or "") and m.get("user") != user and float(m["ts"]) >= float(oldest)]
@@ -574,6 +733,7 @@ def cmd_mentions(tok, a):
                         "mentions": [{"at": iso(m["ts"]), "by": names.user(m.get("user")), "text": names.render(m.get("text"))[:300]} for m in hits],
                         "last_mention_at": iso(f"{last_hit:.6f}"), "answered": answered})
     out.sort(key=lambda r: (r["answered"], r["last_mention_at"]))
+    names.save()
     if a.json:
         print(json.dumps({"user": user, "since": a.since, "count": len(out),
                           "unanswered": sum(1 for r in out if not r["answered"]),
@@ -600,7 +760,7 @@ def cmd_unanswered(tok, a):
     out, unread = [], []
     for c in pick_channels(tok, a.channels):
         try:
-            roots = fetch_history(tok, c["id"], oldest)
+            roots, _ = history_rows(tok, c["id"], float(oldest), fresh=a.fresh)
         except Transient as e:
             unread.append({"channel": c["name"], "id": c["id"], "why": str(e)}); continue
         for root in roots:
@@ -612,6 +772,7 @@ def cmd_unanswered(tok, a):
             out.append({"channel": c["name"], "permalink": permalink_of(c["id"], root["ts"]), "at": iso(root["ts"]),
                         "root": names.render(root.get("text"))[:400], "own_replies": root.get("reply_count", 0)})
     out.sort(key=lambda r: r["at"])
+    names.save()
     if a.json:
         print(json.dumps({"user": user, "since": a.since, "count": len(out),
                           "unread_channels": unread, "threads": out}, ensure_ascii=False)); return
@@ -794,26 +955,30 @@ def main():
     p = sub.add_parser("channels", help="channels the bot is in; --all every public channel of the workspace")
     p.add_argument("match", nargs="?", help="substring of a channel name or purpose")
     p.add_argument("--all", action="store_true", help="every public channel, joined or not (needs channels:read)")
+    p.add_argument("--fresh", action="store_true", help="read Slack now instead of the store's list")
     p.add_argument("--json", action="store_true")
     p = sub.add_parser("history", help="top-level messages in a channel since a point in time")
     p.add_argument("channel", help="channel id or #name"); p.add_argument("--since", required=True)
     p.add_argument("--threads", action="store_true", help="include replies")
+    p.add_argument("--fresh", action="store_true", help="read Slack now instead of the store's channel")
     p.add_argument("--humans", action="store_true",
                    help="drop posts whose author is a bot user. A person posting through an app is kept — "
                         "the daily reports arrive that way, so this never hides them")
     p.add_argument("--json", action="store_true")
     p = sub.add_parser("search", help="text search (regex, case-insensitive) over channel history since a time, through a per-channel cache; --threads searches replies of each message too")
     p.add_argument("pattern"); p.add_argument("--since", default="60d", help="e.g. 60d, 2026-09-01"); p.add_argument("--channels", help="a,b,#name (default: every channel the bot is in)")
-    p.add_argument("--threads", action="store_true"); p.add_argument("--json", action="store_true")
+    p.add_argument("--threads", action="store_true"); p.add_argument("--fresh", action="store_true", help="read Slack now instead of the store"); p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_search)
 
     p = sub.add_parser("mentions", help="messages mentioning a user, and whether they answered")
     p.add_argument("--since", required=True); p.add_argument("--user", default="me")
     p.add_argument("--channels", help="comma-separated ids or #names; default every channel the bot sees")
+    p.add_argument("--fresh", action="store_true", help="read Slack now instead of the store")
     p.add_argument("--json", action="store_true")
     p = sub.add_parser("unanswered", help="threads a user started that nobody else replied to")
     p.add_argument("--since", required=True); p.add_argument("--user", default="me")
     p.add_argument("--channels", help="comma-separated ids or #names; default every channel the bot sees")
+    p.add_argument("--fresh", action="store_true", help="read Slack now instead of the store")
     p.add_argument("--json", action="store_true")
     p = sub.add_parser("whoami", help="user id behind an email")
     p.add_argument("--email"); p.add_argument("--json", action="store_true")

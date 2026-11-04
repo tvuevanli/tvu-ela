@@ -41,8 +41,15 @@ import urllib.parse
 import urllib.request
 
 HERE = os.path.dirname(os.path.realpath(__file__))
+sys.path.insert(0, os.path.join(HERE, "..", "facts"))
+try:
+    import facts as F  # noqa: E402 — the fact store: `read`, `changes` and the standing queries serve from it
+except ImportError:                                     # a copied script without the store reads live
+    F = None
 
 ENV_KEYS = ("JIRA_BASE_URL", "JIRA_EMAIL", "JIRA_TOKEN")
+SHORT_TTL_H = 0.5          # a key read with no sweep after it is served again this long: one read per key per pass
+OWNER_TTL_H = 24           # the owner-name JQL runs once a day
 
 # Closed vocabulary — one token, one owning layer. A title that does not start
 # with exactly one of these is invalid; no caller may create it.
@@ -108,6 +115,8 @@ def _request(creds, path, params=None, payload=None, method="GET"):
 
 
 def _request_raw(creds, path, params=None, payload=None, method="GET"):
+    if F:
+        F.trace("jira", f"{method} {path}")
     url = creds["JIRA_BASE_URL"] + path
     if params:
         url += "?" + urllib.parse.urlencode(params)
@@ -522,15 +531,38 @@ def cmd_projects(creds, args):
 CHANGE_FIELDS = {"status", "priority", "assignee", "labels", "Fixed In", "issuetype", "resolution", "Link", "Parent", "Sprint"}
 
 
-def cmd_changes(creds, args):
-    """Tickets updated since --since (a JQL relative date such as -1d, or YYYY-MM-DD HH:MM), each with the changelog
-    items and comments inside the window: who moved what, when. Feeds the brief's yesterday section."""
-    jql = f'project = {args.project} AND updated >= "{args.since}" ORDER BY updated DESC' if not args.since.startswith("-") \
-        else f"project = {args.project} AND updated >= {args.since} ORDER BY updated DESC"
+# the sweep's fields: what `changes` renders, plus what `recent` reads off the same issues (reporter, labels, due,
+# the description and Fixed In), so one read per window serves both
+SWEEP_FIELDS = ("summary,status,assignee,reporter,priority,issuetype,parent,comment,created,updated,labels,duedate,"
+                "description,resolution,resolutiondate," + FIXED_IN_FIELD)
+
+
+def since_cutoff(since):
+    """A JQL relative date (-1d, -72h) or 'YYYY-MM-DD HH:MM' (machine local) as an aware UTC cutoff."""
+    if since.startswith("-"):
+        n = int(re.sub(r"\D", "", since) or 1); unit = since[-1]
+        delta = {"d": datetime.timedelta(days=n), "h": datetime.timedelta(hours=n), "w": datetime.timedelta(weeks=n)}.get(unit, datetime.timedelta(days=n))
+        return datetime.datetime.now(datetime.timezone.utc) - delta
+    return datetime.datetime.fromisoformat(since).astimezone(datetime.timezone.utc)
+
+
+def updated_iso(ts):
+    """A Jira stamp (2026-11-02T09:41:12.345+0800) as an aware ISO string, comparable as text; '' when unreadable."""
+    try:
+        t = datetime.datetime.strptime(ts[:19], "%Y-%m-%dT%H:%M:%S").replace(tzinfo=datetime.timezone.utc) - \
+            datetime.timedelta(minutes=int(ts[-4:-2]) * 60 + int(ts[-2:])) * (1 if ts[-5] == "+" else -1)
+        return t.isoformat(timespec="seconds")
+    except (TypeError, ValueError, IndexError):
+        return ""
+
+
+def search_changed(creds, project, since, limit=400, fields=SWEEP_FIELDS):
+    """The raw issues of a project updated since `since`, changelog expanded, newest update first."""
+    jql = f'project = {project} AND updated >= "{since}" ORDER BY updated DESC' if not since.startswith("-") \
+        else f"project = {project} AND updated >= {since} ORDER BY updated DESC"
     issues, token = [], None
-    while len(issues) < args.limit:
-        p = {"jql": jql, "maxResults": min(100, args.limit - len(issues)), "expand": "changelog",
-             "fields": "summary,status,assignee,priority,issuetype,parent,comment,created,updated"}
+    while len(issues) < limit:
+        p = {"jql": jql, "maxResults": min(100, limit - len(issues)), "expand": "changelog", "fields": fields}
         if token:
             p["nextPageToken"] = token
         d = api_get(creds, "/rest/api/3/search/jql", p)
@@ -538,13 +570,45 @@ def cmd_changes(creds, args):
         token = d.get("nextPageToken")
         if not token or d.get("isLast"):
             break
-    if args.since.startswith("-"):
-        n = int(re.sub(r"\D", "", args.since) or 1); unit = args.since[-1]
-        delta = {"d": datetime.timedelta(days=n), "h": datetime.timedelta(hours=n), "w": datetime.timedelta(weeks=n)}.get(unit, datetime.timedelta(days=n))
-        cutoff = datetime.datetime.now(datetime.timezone.utc) - delta
-    else:
-        cutoff = datetime.datetime.fromisoformat(args.since).astimezone(datetime.timezone.utc)
+    return issues
 
+
+def sweep_issue(i, read_at):
+    """A raw search issue as the store keeps it: Jira's shape (key, fields, changelog) plus a top-level `comments`
+    list (id, created, author, body) and the read time, so a reader needs no knowledge of the search payload."""
+    f = i.get("fields") or {}
+    return {"key": i.get("key"), "id": i.get("id"), "read_at": read_at, "fields": f, "changelog": i.get("changelog") or {},
+            "comments": list(((f.get("comment") or {}).get("comments")) or [])}
+
+
+def stored_changed(project=None, cutoff=None):
+    """The store's changed issues (facts/jira/changes.json) for a project, updated at or after the cutoff, newest
+    first; None when the store does not cover the window (no sweep, a stale one, or a horizon after the cutoff)."""
+    if not F or F.forced_fresh():
+        return None
+    wm = F.watermark("jira")
+    if not wm.get("at") or not F.fresh(wm["at"]):
+        return None
+    if project and project not in (wm.get("projects") or []):
+        return None
+    horizon = F.parse_iso(wm.get("horizon"))
+    if cutoff is not None and (horizon is None or horizon > cutoff + datetime.timedelta(minutes=1)):
+        return None
+    out = []
+    for i in F.read_json(os.path.join(F.store_dir("jira"), "changes.json"), []) or []:
+        k = i.get("key") or ""
+        if project and not k.startswith(project + "-"):
+            continue
+        upd = updated_iso(((i.get("fields") or {}).get("updated")) or "")
+        if cutoff is not None and upd and upd < cutoff.isoformat(timespec="seconds"):
+            continue
+        out.append(i)
+    out.sort(key=lambda i: updated_iso(((i.get("fields") or {}).get("updated")) or ""), reverse=True)
+    return {"at": wm["at"], "issues": out}
+
+
+def changes_rows(issues, cutoff):
+    """The `changes` rows from raw issues: the changelog items and comments inside the window."""
     def inside(ts):
         try:
             return datetime.datetime.strptime(ts[:19], "%Y-%m-%dT%H:%M:%S").replace(tzinfo=datetime.timezone.utc) - \
@@ -574,9 +638,24 @@ def cmd_changes(creds, args):
                      "assignee": name_of(f.get("assignee")), "priority": name_of(f.get("priority"), "name"),
                      "type": name_of(f.get("issuetype"), "name"), "parent": (f.get("parent") or {}).get("key"),
                      "created_in_window": created, "events": events, "comments": comments, "other_edits": other})
+    return rows
+
+
+def cmd_changes(creds, args):
+    """Tickets updated since --since (a JQL relative date such as -1d, or YYYY-MM-DD HH:MM), each with the changelog
+    items and comments inside the window: who moved what, when. Feeds the brief's yesterday section. Served from the
+    store's sweep when it covers the window (`ela facts refresh`); --fresh reads Jira now."""
+    cutoff = since_cutoff(args.since)
+    stored = None if getattr(args, "fresh", False) else stored_changed(args.project, cutoff)
+    if stored is not None:
+        issues, read_at = stored["issues"][: args.limit], stored["at"]
+        F.served("jira", read_at, f"changes {args.project} since {args.since}")
+    else:
+        issues, read_at = search_changed(creds, args.project, args.since, args.limit), datetime.datetime.now().astimezone().isoformat(timespec="seconds")
+    rows = changes_rows(issues, cutoff)
     if args.json:
-        print(json.dumps({"since": args.since, "cutoff": cutoff.isoformat(timespec="seconds"), "count": len(rows), "issues": rows},
-                         ensure_ascii=False)); return
+        print(json.dumps({"since": args.since, "cutoff": cutoff.isoformat(timespec="seconds"), "count": len(rows), "issues": rows,
+                          "read_at": read_at}, ensure_ascii=False)); return
     print(f"# {len(rows)} issue(s) changed since {args.since}\n")
     for r in rows:
         ev = "; ".join(f"{e['field']}: {e['from'] or '—'} → {e['to'] or '—'} ({e['by']})" for e in r["events"])
@@ -605,16 +684,58 @@ def fetch_comments(creds, key):
     return cdata.get("comments") or []
 
 
-def print_issue(creds, key, deep=False, comments=True, seen=None):
+_CHANGED = {}
+def _changed_updated(key):
+    """The `updated` the store's last sweep saw for a key, or None when the sweep did not list it."""
+    if "doc" not in _CHANGED:
+        _CHANGED["doc"] = {i.get("key"): i for i in (F.read_json(os.path.join(F.store_dir("jira"), "changes.json"), []) or [])}
+    rec = _CHANGED["doc"].get(key) or {}
+    return updated_iso(((rec.get("fields") or {}).get("updated")) or "") or None
+
+
+def cache_holds(key, cached):
+    """Whether a cached issue read still stands: the store's sweep ran after the read and does not say the key moved;
+    with no sweep since the read, the short TTL (one read per key per pass)."""
+    if not F or F.forced_fresh() or not cached:
+        return False
+    read_at = cached.get("read_at")
+    moved = _changed_updated(key)
+    if moved and moved > str(cached.get("updated") or ""):
+        return False
+    wm = F.watermark("jira")
+    swept = F.parse_iso(wm.get("at"))
+    if swept and F.fresh(wm["at"]) and key.split("-")[0] in (wm.get("projects") or []) and F.parse_iso(read_at) and swept >= F.parse_iso(read_at):
+        return True
+    return F.fresh(read_at, SHORT_TTL_H)
+
+
+def issue_doc(creds, key, comments=True, fresh=False):
+    """One issue as `read --json` prints it: {key, url, fields, comments, updated, read_at}. Served from the store's key
+    cache (facts/jira/issues/<KEY>.json) while the sweep says the issue has not moved; a live read writes through."""
+    path = os.path.join(F.store_dir("jira", "issues"), f"{key}.json") if F else None
+    cached = F.read_json(path) if path else None
+    if cached and not fresh and cache_holds(key, cached) and (cached.get("has_comments") or not comments):
+        F.served("jira", cached.get("read_at"), key)
+        return cached
+    data = api_get(creds, f"/rest/api/3/issue/{key}", {"fields": "*all"})
+    f = data.get("fields") or {}
+    doc = {"key": data.get("key"), "url": f"{creds['JIRA_BASE_URL']}/browse/{data.get('key')}", "fields": f,
+           "updated": updated_iso(f.get("updated") or ""), "read_at": datetime.datetime.now().astimezone().isoformat(timespec="seconds"),
+           "has_comments": bool(comments)}
+    if comments:
+        doc["comments"] = fetch_comments(creds, key)
+    if path:
+        F.write_json(path, doc)
+    return doc
+
+
+def print_issue(creds, key, deep=False, comments=True, seen=None, fresh=False):
     seen = seen if seen is not None else set()
     if key in seen:
         return
     seen.add(key)
 
-    data = api_get(creds, f"/rest/api/3/issue/{key}", {
-        "fields": "*all",
-        "expand": "renderedFields",
-    })
+    data = issue_doc(creds, key, comments=comments, fresh=fresh)
     f = data.get("fields") or {}
 
     print("=" * 78)
@@ -678,7 +799,7 @@ def print_issue(creds, key, deep=False, comments=True, seen=None):
         print(f"  # download: jira.py files {key} [--id <id>] [--out DIR]")
 
     if comments:
-        cs = fetch_comments(creds, key)
+        cs = data.get("comments") or []
         print(f"\n--- comments ({len(cs)}) ---")
         for c in cs:
             print(f"\n[{short_date(c.get('created'))}] {name_of(c.get('author'))}")
@@ -696,7 +817,7 @@ def print_issue(creds, key, deep=False, comments=True, seen=None):
             related.append(f["parent"].get("key"))
         for k in related:
             if k and k not in seen:
-                print_issue(creds, k, deep=False, comments=comments, seen=seen)
+                print_issue(creds, k, deep=False, comments=comments, seen=seen, fresh=fresh)
 
 
 # ── Subcommands ──────────────────────────────────────────────────────────────
@@ -768,26 +889,29 @@ def cmd_files(creds, args):
 def cmd_read(creds, args):
     key = extract_key(args.target)
     if args.json:
-        data = api_get(creds, f"/rest/api/3/issue/{key}", {"fields": "*all"})
-        out = {
-            "key": data.get("key"),
-            "url": f"{creds['JIRA_BASE_URL']}/browse/{data.get('key')}",
-            "fields": data.get("fields") or {},
-        }
+        doc = issue_doc(creds, key, comments=not args.no_comments, fresh=args.fresh)
+        out = {"key": doc.get("key"), "url": doc.get("url"), "fields": doc.get("fields") or {}}
         if not args.no_comments:
-            out["comments"] = fetch_comments(creds, key)
+            out["comments"] = doc.get("comments") or []
+        out["read_at"] = doc.get("read_at")
         print(json.dumps(out, ensure_ascii=False))
         return
-    print_issue(creds, key, deep=args.deep, comments=not args.no_comments)
+    print_issue(creds, key, deep=args.deep, comments=not args.no_comments, fresh=args.fresh)
 
 
-def cmd_jql(creds, args):
-    # /search/jql pages at 100; follow nextPageToken until --limit rows or the last page.
+# ── the standing queries: run once per refresh, served to the verbs that ask the same JQL ─────────────
+OWNER_JQL = "assignee = currentUser() ORDER BY updated DESC"
+STANDING = {"incidents": "project = MH AND parent = MH-2342 AND statusCategory != Done ORDER BY updated ASC"}
+STANDING_LIMIT = 300
+
+
+def search_rows(creds, jql, limit):
+    """`jql` rows as the verb prints them with --json; pages of 100 followed to `limit`."""
     issues, token = [], None
-    while len(issues) < args.limit:
+    while len(issues) < limit:
         params = {
-            "jql": args.jql,
-            "maxResults": min(100, args.limit - len(issues)),
+            "jql": jql,
+            "maxResults": min(100, limit - len(issues)),
             "fields": "summary,status,assignee,reporter,issuetype,priority,labels,parent,subtasks,created,updated,duedate",
         }
         if token:
@@ -797,6 +921,48 @@ def cmd_jql(creds, args):
         token = data.get("nextPageToken")
         if not token or data.get("isLast"):
             break
+    return issues
+
+
+def standing_queries(creds):
+    """The incidents umbrella's open children, and the owner's Jira name (once a day), kept in the store."""
+    if not F:
+        return
+    d = F.store_dir("jira", "queries")
+    for name, jql in STANDING.items():
+        F.write_json(os.path.join(d, f"{name}.json"), {"jql": jql, "limit": STANDING_LIMIT, "at": F.now_iso(),
+                                                       "issues": search_rows(creds, jql, STANDING_LIMIT)})
+    owner = F.read_json(os.path.join(F.store_dir("jira"), "owner.json"), {}) or {}
+    if not F.fresh(owner.get("at"), OWNER_TTL_H):
+        F.write_json(os.path.join(F.store_dir("jira"), "owner.json"), {"jql": OWNER_JQL, "limit": 1, "at": F.now_iso(),
+                                                                       "issues": search_rows(creds, OWNER_JQL, 1)})
+
+
+def stored_query(jql, limit):
+    """A standing query's rows from the store when its read is fresh and deep enough; None otherwise."""
+    if not F or F.forced_fresh():
+        return None
+    q = " ".join(jql.split())
+    if q == OWNER_JQL and limit == 1:
+        doc = F.read_json(os.path.join(F.store_dir("jira"), "owner.json"))
+        return doc if doc and F.fresh(doc.get("at"), OWNER_TTL_H) else None
+    for name, standing in STANDING.items():
+        if q == standing:
+            doc = F.read_json(os.path.join(F.store_dir("jira", "queries"), f"{name}.json"))
+            if doc and F.fresh(doc.get("at")) and (limit <= doc.get("limit", 0) or len(doc.get("issues") or []) < doc.get("limit", 0)):
+                return doc
+    return None
+
+
+def cmd_jql(creds, args):
+    stored = None if args.fresh else stored_query(args.jql, args.limit)
+    if stored is not None:
+        issues, read_at = (stored.get("issues") or [])[: args.limit], stored.get("at")
+        F.served("jira", read_at, "jql (standing query)")
+    else:
+        issues, read_at = search_rows(creds, args.jql, args.limit), datetime.datetime.now().astimezone().isoformat(timespec="seconds")
+        if F and " ".join(args.jql.split()) == OWNER_JQL and args.limit == 1:   # the owner-name query: once a day
+            F.write_json(os.path.join(F.store_dir("jira"), "owner.json"), {"jql": OWNER_JQL, "limit": 1, "at": read_at, "issues": issues})
     if args.json:
         rows = [{
             "key": i.get("key"),
@@ -813,7 +979,7 @@ def cmd_jql(creds, args):
             "updated": (i.get("fields") or {}).get("updated"),
             "due": (i.get("fields") or {}).get("duedate"),
         } for i in issues]
-        print(json.dumps({"jql": args.jql, "count": len(rows), "issues": rows},
+        print(json.dumps({"jql": args.jql, "count": len(rows), "issues": rows, "read_at": read_at},
                          ensure_ascii=False))
         return
     print(f"# {len(issues)} issue(s) for: {args.jql}\n")
@@ -1827,6 +1993,7 @@ def main():
     p.add_argument("--deep", action="store_true",
                    help="also print linked issues / subtasks / parent")
     p.add_argument("--no-comments", action="store_true")
+    p.add_argument("--fresh", action="store_true", help="read Jira now instead of the store's copy")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_read)
 
@@ -1845,12 +2012,14 @@ def main():
                                          "Fixed In moves and the comments in the window — read-only")
     p.add_argument("--since", default="-1d", help="JQL relative date (-1d, -72h) or 'YYYY-MM-DD HH:MM' (default -1d)")
     p.add_argument("--project", default="MH"); p.add_argument("--limit", type=int, default=400)
+    p.add_argument("--fresh", action="store_true", help="read Jira now instead of the store's sweep")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_changes)
 
     p = sub.add_parser("jql", help="search; key/status/assignee/summary rows")
     p.add_argument("jql")
     p.add_argument("--limit", type=int, default=50, help="max rows; pages of 100 are followed up to this")
+    p.add_argument("--fresh", action="store_true", help="a standing query: read Jira now instead of the store")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_jql)
 
