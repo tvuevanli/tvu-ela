@@ -1069,19 +1069,26 @@ WHY_WORD = (("customer", "customer"), ("re-test", "re-test after fail"), ("hotfi
 
 def lane_versions(lane, s, env, gaps):
     """[(service, version)] on the lane now: the last lane read (`ela changes`, `ela matrix --page`) for each service, the
-    current version only, then the newest bundle on the line's QA token. Empty when nothing was read."""
+    current version only — a QA lane's row as QA's report or the release names it when the host was not read, the
+    source and its time then a last `source` row — then the newest bundle on the line's QA token. Empty when nothing
+    was read."""
     import release as R  # noqa: E402 — on the path through brief
     runner = os.path.join(s.get("runtime") or os.path.join(s.get("projects", ""), ".ela"), "runner")
     have = {}
-    for _, _, rows in B.lane_reads(runner):
-        for r in rows:
-            if r.get("lane") == lane and r.get("host") != "mail" and r.get("version"):
-                have[r["service"]] = r["version"]
+    for _, _, rows in B.lane_reads(runner):               # per service the newest row by its own time; a read of the same
+        for r in rows:                                      # time as a mail row outranks it, a carried row of no time loses
+            if r.get("lane") == lane and r.get("version") and B.is_lane_row(r) and (r.get("host") != "mail" or is_qa(lane)):
+                cur = have.get(r["service"])
+                if cur is None or (B.row_time(r), r.get("host") != "mail") >= (B.row_time(cur), cur.get("host") != "mail"):
+                    have[r["service"]] = r
     out = []
     for slug, name in SLACK_SERVICES:
-        pv = R.parse_version(have.get(slug))
+        pv = R.parse_version((have.get(slug) or {}).get("version"))
         if pv:
             out.append((name, f"{pv[0]}.{pv[1]}.{pv[2]}" + (f".{pv[3]}" if pv[3] else "")))
+    srcs = B.lane_sources([r for r in have.values() if r["service"] in dict(SLACK_SERVICES)], [lane])
+    if srcs:
+        out.append(("source", srcs[0]))
     cfg = next((c for c in (R.rmap("lines") or {}).values() if (c.get("lanes") or {}).get("qa") == lane and c.get("bundle_line")), None)
     if cfg and out:
         pre = cfg["bundle_line"] + (cfg.get("bundle_lanes") or {}).get("qa", "qa")

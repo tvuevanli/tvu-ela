@@ -147,4 +147,44 @@ check("the QA2 lane gets its own thread, the one naming its build, not the day's
 check("ela's own post naming a lane never makes a thread that lane's", TL.pick_thread(_msgs[:1], "2026-10-29", "qa-cn2", "2.0.11") is None)
 check("no thread names the lane: none", TL.pick_thread(_msgs, "2026-10-29", "qa-cn1", None) is None)
 check("another day's thread is not today's", TL.pick_thread(_msgs, "2026-10-30", "qa-cn3", "79") is None)
+# the lane's versions for the day post: a QA lane's row as QA's report names it when the host was not read, its source said
+import json, tempfile  # noqa: E402
+B = TL.B
+with tempfile.TemporaryDirectory() as d:
+    os.makedirs(os.path.join(d, "runner"))
+    old_rows = [{"service": "mediahub-backend", "tag": "aws-cn3-env", "lane": "qa-cn3", "version": "v2.1.37 build269 2026-10-29 09:44:16", "host": "qa"},
+                {"service": "mediahub-backend", "tag": "MediaHubProd3", "lane": "prod-3", "version": "v2.1.36 build267 2026-10-27 09:46:52", "host": "prod"}]
+    json.dump({"date": "2026-10-30", "at": "2026-10-30T08:13:10+08:00", "read": {"qa": True, "prod": True}, "rows": old_rows},
+              open(os.path.join(d, "runner", "versions-2026-10-30.json"), "w"))
+    new_rows = [{"service": "mediahub-backend", "tag": None, "lane": "qa-cn3", "version": "v2.1.39 build271 2026-11-02 09:39:26", "host": "mail",
+                 "state": "reported", "at": "2026-11-03T19:07:07+08:00", "source": "QA report"},
+                {"service": "unified-streaming", "tag": None, "lane": "qa-cn3", "version": "v2.1.82", "host": "mail", "state": "built",
+                 "at": "2026-11-04T17:40:00+08:00", "source": "release thread"},
+                {"service": "orchestration", "tag": None, "lane": "daily-wed", "version": "4.0.207", "host": "mail", "state": "requested", "updated": "Mon, 02 Nov 2026 14:59:31 +0800"},
+                old_rows[1]]
+    json.dump({"date": "2026-11-04", "at": "2026-11-04T08:10:45+08:00", "read": {"prod": True}, "rows": new_rows},
+              open(os.path.join(d, "runner", "versions-2026-11-04.json"), "w"))
+    stale = [dict(old_rows[0]), old_rows[1]]                # an intraday read from before the morning's merge carried the old qa row
+    json.dump({"date": "2026-11-04", "at": "2026-11-04T08:17:58+08:00", "read": {"prod": True}, "rows": stale},
+              open(os.path.join(d, "runner", "2026-11-04-versions-0817.json"), "w"))
+    real_run, real_map = B.run_json, B.R._MAP
+    def down(cmd, timeout=None):
+        raise B.LaneError("qa login failed")
+    B.run_json = down
+    B.R._MAP = {"lines": {"2.1": {"lanes": {"qa": "qa-cn3", "daily": "daily-wed", "prod": "prod-3"}, "bundle_line": "mh2.1@", "bundle_lanes": {"qa": "qa"}}}, "hosts": {}}
+    try:
+        gaps = []
+        got = TL.lane_versions("qa-cn3", {"runtime": d}, [], gaps)
+        check("a QA lane's versions come from the newest saved read, QA's report and the release rows accepted, the source said",
+              got == [("mediahub-backend", "2.1.39"), ("UR Caller", "2.1.82"),
+                      ("source", "QA-AWS3: mediahub-backend as QA reported 11-03 19:07; UR Caller (unified-streaming) as built 11-04 17:40 (release thread), no QA report; lane not read")]
+              and gaps and gaps[0].startswith("bundles qa"))
+        check("a daily lane's request row is not its version", TL.lane_versions("daily-wed", {"runtime": d}, [], []) == [])
+        later = [dict(old_rows[0], version="v2.1.40 build272 2026-11-04 09:40:00")]
+        json.dump({"date": "2026-11-04", "at": "2026-11-04T13:04:00+08:00", "read": {"qa": True}, "rows": later},
+                  open(os.path.join(d, "runner", "2026-11-04-versions-1304.json"), "w"))
+        check("a host read later than the report outranks it", TL.lane_versions("qa-cn3", {"runtime": d}, [], [])[0] == ("mediahub-backend", "2.1.40"))
+    finally:
+        B.run_json, B.R._MAP = real_run, real_map
+
 sys.exit(1 if failures else 0)
