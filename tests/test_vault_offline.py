@@ -104,6 +104,13 @@ with tempfile.TemporaryDirectory() as tmp:
     for f in BATCH:
         open(f"{reports}/{f}", "w").write("# Batch\n\nText.\n")
     open(f"{vault}/mine.md", "w").write("the owner's own file")
+    os.makedirs(f"{vault}/projects/sb")
+    SB_DEADLINE = (datetime.date.today() + datetime.timedelta(days=30)).isoformat()
+    open(f"{vault}/projects/sb/sb.md", "w").write(f'---\ntitle: "Super Bowl"\ntype: "project"\ndeadline: "{SB_DEADLINE}"\nkeys: "MH-5"\n'
+                                                   'customer: "Hearst"\nsource: "vault"\n---\n# Super Bowl\n\n## Goal\n\nProve the chain.\n\n'
+                                                   '## Next step\n\n- [ ] wire the decoder by 2026-01-05\n\nela: keep the head\n')
+    open(f"{vault}/projects/sb/glossary.md", "w").write('---\ntitle: "Glossary"\ntype: "review"\ndate: "2026-11-01"\nsource: "vault"\n---\n# Glossary\n')
+    open(f"{reports}/ela/{today}-sb-read.md", "w").write("---\nkeys: MH-5\n---\n# A read for the project\n\nText.\n")
     site = os.path.join(tmp, "site.json")
     json.dump({"vault": vault, "elak": ELAK, "reports": reports, "runtime": runtime}, open(site, "w"))
     V.SITE = site
@@ -128,6 +135,24 @@ with tempfile.TemporaryDirectory() as tmp:
     bufj = io.StringIO()
     with contextlib.redirect_stdout(bufj):
         V.cmd_sync(types.SimpleNamespace(env_file=os.path.join(tmp, "none.env"), dry_run=True, force=False, json=True))
+    sbp = open(f"{vault}/projects/sb/sb.md").read()
+    sbf, sbb = V.split_front(sbp)
+    check("a project page is written in place: its properties settled, the desk's lines kept, watch from the deadline",
+          'type: "project"' in sbp and f'deadline: "{SB_DEADLINE}"' in sbp and 'customer: "Hearst"' in sbp and 'aliases: ["Super Bowl"]' in sbp
+          and f'watch: "{(datetime.date.today() + datetime.timedelta(days=44)).isoformat()}"' in sbp and f'date: "{today}"' in sbp)
+    check("its head stands as written above the marker, the tail below",
+          sbb.startswith("# Super Bowl\n\n## Goal\n\nProve the chain.\n\n## Next step\n\n- [ ] wire the decoder by 2026-01-05\n\nela: keep the head\n")
+          and sbb.count(V.PROJECT_HEAD_END) == 1 and sbb.index("## Goal") < sbb.index(V.PROJECT_HEAD_END) < sbb.index("## Waiting for your word")
+          < sbb.index("## Notes") < sbb.index("## Afterwards"))
+    check("the tail says the days left and the overdue step, the keys watched, and lists the folder's reading and the inferred one",
+          f"*Deadline {SB_DEADLINE} · 30 days left · next step: wire the decoder by 2026-01-05 (**overdue**)*" in sbb
+          and "*Watching: keys MH-5 · no threads · watched until" in sbb and "Nothing waits on you for this project." in sbb
+          and "**in this folder**\n- [[projects/sb/glossary|Glossary]] · review · 2026-11-01" in sbb
+          and f"**readings**/\n- [[readings/{today}-sb-read|A read for the project]] · review · {today}" in sbb
+          and "*Nothing yet: the 13:00" in sbb)
+    check("the read with the project's key carries the inferred property, and the sync says so",
+          'project: "sb"' in open(f"{vault}/readings/{today}-sb-read.md").read()
+          and {"note": f"readings/{today}-sb-read.md", "project": "sb"} in json.loads(bufj.getvalue())["projects"])
     check("a reading's own project: line is carried into the vault, and a project with no folder is a lint line",
           'project: "ghost"' in open(f"{vault}/readings/{today}-ghost.md").read()
           and any("project 'ghost' has no folder projects/ghost/" in w for w in json.loads(bufj.getvalue())["warnings"]))
@@ -261,7 +286,7 @@ with tempfile.TemporaryDirectory() as tmp:
         V.cmd_guidance(types.SimpleNamespace(all=False, json=True))
     g = json.loads(buf.getvalue())
     check("ela: lines anywhere in the vault are read as his guidance", sorted(x["says"] for x in g["guidance"])
-          == ["1A, post it", "keep an eye on this", "post this to Jira", "probe MH-1 from the replay", "write this to the KB"]
+          == ["1A, post it", "keep an eye on this", "keep the head", "post this to Jira", "probe MH-1 from the replay", "write this to the KB"]
           and "to_learn" not in g)
     p1 = f"{ELAK}/blueprint/decisions/{today[:4]}-02-01-decision-1.md"
     open(p1, "w").write(open(p1).read().replace("status: proposed", "status: decided"))
@@ -875,6 +900,46 @@ with tempfile.TemporaryDirectory() as t:
     check("project: names a folder that exists, or it is a lint line",
           V.project_lint("readings/x.md", {"project": "sb"}, t) is None and V.project_lint("readings/x.md", {}, t) is None
           and "has no folder projects/nope/" in (V.project_lint("readings/x.md", {"project": "nope"}, t) or ""))
+td = datetime.date(2026, 11, 4)
+pf = V.project_facts("sb", '---\ntitle: "SB"\ndeadline: "2027-02-14"\nnext-step: "the PoC week, 11-10"\nkeys: "MH-1 MH-2 AC-4"\n'
+                     'channels: "https://x.slack.com/archives/C1/p1"\n---\n# SB\n\n- [ ] first box\n\n## Where it stands\n\nold tail\n\n'
+                     '## Afterwards\n\n- 11-03 · MH-1: A → B (x)\n', td)
+check("a project's facts: the deadline and days, the next-step property before the first box, its date, keys without codecs, threads from channels, "
+      "the Afterwards rows, the head without the tail",
+      pf["days"] == 102 and pf["step"] == "the PoC week, 11-10" and pf["step_due"] == datetime.date(2026, 11, 10) and not pf["overdue"]
+      and pf["keys"] == ["MH-1", "MH-2"] and pf["links"] == ["https://x.slack.com/archives/C1/p1"] and pf["afterwards"] == ["- 11-03 · MH-1: A → B (x)"]
+      and pf["head"] == "# SB\n\n- [ ] first box\n")
+pf2 = V.project_facts("sb", '---\ndeadline: "2026-11-10"\n---\n# SB\n\n- [x] done\n- [ ] ask Robin, since 10-28\n', td)
+check("without next-step the first unticked box is the step; a past date makes it overdue",
+      pf2["step"] == "ask Robin, since 10-28" and pf2["step_due"] == datetime.date(2026, 10, 28) and pf2["overdue"])
+check("a step without a date is overdue only once the deadline has passed",
+      not V.project_facts("sb", '---\ndeadline: "2026-11-10"\n---\n- [ ] ask\n', td)["overdue"]
+      and V.project_facts("sb", '---\ndeadline: "2026-11-01"\n---\n- [ ] ask\n', td)["overdue"]
+      and V.project_facts("sb", '---\ndeadline: "2026-11-01"\n---\n# nothing\n', td)["step"] is None)
+check("a month-day step date lands in the nearest year", V.step_date("by 01-05", td) == datetime.date(2027, 1, 5)
+      and V.step_date("since 10-28", td) == datetime.date(2026, 10, 28) and V.step_date("no date", td) is None)
+check("a project page is watched until its deadline plus 14 days unless watch says otherwise",
+      V.watch_until({"type": "project", "deadline": "2027-02-14"}) == datetime.date(2027, 2, 28)
+      and V.watch_until({"type": "project", "deadline": "2027-02-14", "watch": ""}) is None)
+with tempfile.TemporaryDirectory() as t:
+    for d in ("projects/sb", "archive", "readings"):
+        os.makedirs(os.path.join(t, d))
+    open(os.path.join(t, "projects", "sb", "sb.md"), "w").write('---\ntype: "project"\ndeadline: "2027-02-14"\nkeys: "MH-1"\nchannels: "https://x.slack.com/archives/C1/p1"\n---\n# SB\n')
+    open(os.path.join(t, "archive", "a.md"), "w").write('---\ntype: "review"\nkeys: "MH-1 MH-9"\n---\n# A\n')
+    open(os.path.join(t, "archive", "b.md"), "w").write('---\ntype: "review"\nkeys: "MH-9"\nproject: "other"\n---\n# B\n')
+    open(os.path.join(t, "readings", "c.md"), "w").write('---\ntype: "review"\n---\n# C\n')
+    gen = V.Note("to-read/2026-11-04-verify-mh-1.md", "MH-1 · PASS", "# x", {"type": "verify"})
+    got = V.infer_projects(t, {"sb": {"MH-1"}}, [gen], dry_run=True)
+    check("a dry run infers and writes nothing", got == [("to-read/2026-11-04-verify-mh-1.md", "sb"), ("archive/a.md", "sb")]
+          and "project:" not in open(os.path.join(t, "archive", "a.md")).read() and gen.props.get("project") == "sb")
+    V.infer_projects(t, {"sb": {"MH-1"}}, [], dry_run=False)
+    check("the sync writes the inferred project into a note's front matter, never onto one that names its own or the page",
+          'project: "sb"' in open(os.path.join(t, "archive", "a.md")).read() and 'project: "other"' in open(os.path.join(t, "archive", "b.md")).read()
+          and "project:" not in open(os.path.join(t, "projects", "sb", "sb.md")).read() and "project:" not in open(os.path.join(t, "readings", "c.md")).read())
+    check("a project page and what its folder keeps are watched, its threads read from channels",
+          [(w["note"], w["links"]) for w in V.watched_notes(t, td)] == [("projects/sb/sb.md", ["https://x.slack.com/archives/C1/p1"])])
+    rows = V.project_rows(t, "sb")
+    check("the project's rows are the notes naming it, newest first", [r["path"] for r in rows] == ["archive/a.md"])
 check("the readme's layout names projects/, the base has a Projects view and a project column",
       "projects" in V.layout_folders() and "name: Projects" in V.VIEWS["all-notes"] and 'file.hasProperty("project")' in V.VIEWS["all-notes"]
       and "order: [date, formula.note, type, project, status, next]" in V.VIEWS["all-notes"] and "project" in V.PROPS)

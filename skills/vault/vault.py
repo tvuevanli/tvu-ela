@@ -37,6 +37,9 @@ its date, so a folder sorts by time. Folders carry no numbers: Home and the book
     in-progress/<name>.md                       a note he agreed to, while ela builds it and until he accepts it
     parked/<name>.md                            a note that waits on others, with who and what brings it back
     archive/                                    where he drags a note to keep it
+    projects/<key>/<key>.md                     a project's page: the desk's head above "## Where it stands", the sync's tail
+                                                below (asks, notes, keys and threads with their Afterwards, days to the deadline);
+                                                the folder keeps its readings and reports; `ela project list|show|new|keys`
     ela/                                        about this vault, the ela page (overview.md: generated, three sections
                                                 the desk's), how ela runs, the table view, the Jira vocabulary, and
     ela/attachments/verify/<year-month>/<record>/   each verification record copied whole, hidden in the explorer
@@ -1355,6 +1358,233 @@ def constraints_note(data, today):
     return n
 
 
+
+# ── a project's page: the desk's head, the sync's tail ────────────────────────────────────────────────
+# projects/<key>/<key>.md. Above PROJECT_HEAD_END the desk's settled facts (goal, deadline, parties, what is known, the
+# next step), kept as written. Below it, written on every sync: the days to the deadline and the step, what waits on
+# his word (the project's notes in to-read and in-progress), its notes by folder, and its keys and threads with their
+# Afterwards (the archive's watch, pointed at the page too). Reasons: elak
+# blueprint/decisions/2026-11-04-projects-are-bounded-work-with-one-page-each.md.
+STEP_DATE = re.compile(r"(?<![\d-])(\d{4}-\d{2}-\d{2}|\d{2}-\d{2})(?![\d-])")
+PROJECT_FOLDERS = ("in this folder", TO_READ, IN_PROGRESS, PARKED, READINGS, ARCHIVE)   # the Notes section's order
+
+
+def project_pages(vault):
+    """{key: text} for every project page projects/<key>/<key>.md, by key."""
+    out, d = {}, os.path.join(vault, PROJECTS)
+    for key in sorted(os.listdir(d)) if os.path.isdir(d) else []:
+        p = os.path.join(d, key, key + ".md")
+        if key.startswith(".") or not os.path.isfile(p):
+            continue
+        try:
+            out[key] = open(p, encoding="utf-8").read()
+        except OSError:
+            continue
+    return out
+
+
+def project_head(body):
+    """(head, afterwards) of a project page's body: the desk's text above the marker, its Afterwards section taken
+    out, and the `- ` rows of that section wherever it sits (the afterwards pass appends below the tail)."""
+    m = re.search(r"^" + re.escape(AFTERWARDS_HEAD) + r"[ \t]*\n(.*?)(?=^#{1,2}[ \t]|\Z)", body, re.M | re.S)
+    rows = [l for l in (m.group(1) if m else "").splitlines() if l.startswith("- ")]
+    head = re.split(r"^" + re.escape(PROJECT_HEAD_END) + r"[ \t]*$", body, maxsplit=1, flags=re.M)[0]
+    head = re.sub(r"^" + re.escape(AFTERWARDS_HEAD) + r"[ \t]*\n(.*?)(?=^#{1,2}[ \t]|\Z)", "", head, flags=re.M | re.S)
+    return head.rstrip("\n") + "\n", rows
+
+
+def step_date(text, today):
+    """The date a step names: YYYY-MM-DD, or MM-DD read in the year that puts it within half a year of today; None
+    without one."""
+    m = STEP_DATE.search(text or "")
+    if not m:
+        return None
+    try:
+        if len(m.group(1)) == 10:
+            return datetime.date.fromisoformat(m.group(1))
+        d = datetime.date(today.year, int(m.group(1)[:2]), int(m.group(1)[3:]))
+    except ValueError:
+        return None
+    if (d - today).days > 183:
+        d = d.replace(year=today.year - 1)
+    elif (today - d).days > 183:
+        d = d.replace(year=today.year + 1)
+    return d
+
+
+def project_facts(key, text, today):
+    """A project page as data: its title, deadline and the days to it, its step (the `next-step` property, else the
+    first unticked box in the head) with its date and whether it is overdue (its date passed; with no date, the
+    deadline passed), its keys, the threads it watches (`posted` and `channels`), the head and the Afterwards rows."""
+    fl, body = split_front(text)
+    props = props_of(fl)
+    head, after = project_head(body)
+    dm = re.search(r"\d{4}-\d{2}-\d{2}", props.get("deadline") or "")
+    deadline = datetime.date.fromisoformat(dm.group(0)) if dm else None
+    box = re.search(r"^[ \t]*[-*][ \t]+\[ \][ \t]+(\S.*?)[ \t]*$", head, re.M)
+    step = (props.get("next-step") or "").strip() or (box.group(1).strip() if box else None)
+    due = step_date(step, today) if step else None
+    overdue = bool(step) and ((due < today) if due else (deadline is not None and deadline < today))
+    keys = list(dict.fromkeys(k for k in KEY_RX.findall(props.get("keys") or "") if not NOT_KEYS.match(k)))
+    links = list(dict.fromkeys(l.rstrip(".") for l in PERMALINK.findall((props.get("posted") or "") + " " + (props.get("channels") or ""))))
+    return {"key": key, "path": f"{PROJECTS}/{key}/{key}.md", "title": props.get("title") or h1(body) or key, "deadline": deadline,
+            "days": (deadline - today).days if deadline else None, "step": step, "step_due": due, "overdue": overdue,
+            "keys": keys, "links": links, "props": props, "front": fl, "head": head, "afterwards": after}
+
+
+def project_rows(vault, key, notes=()):
+    """The notes of project `key`: every note carrying `project: <key>`, the vault on disk overlaid with the notes this
+    sync writes, plus every note inside projects/<key>/ but the page: [{path, title, type, date, status, next, inside}],
+    newest first."""
+    page, folder, rows = f"{PROJECTS}/{key}/{key}.md", f"{PROJECTS}/{key}/", {}
+    for top_, dirs, fs in os.walk(vault):
+        dirs[:] = [d for d in dirs if not d.startswith(".") and os.path.relpath(os.path.join(top_, d), vault).replace(os.sep, "/")
+                   not in (ATTACH,) + RETIRED]
+        for f in fs:
+            rel = os.path.relpath(os.path.join(top_, f), vault).replace(os.sep, "/")
+            if not f.endswith(".md") or rel == page:
+                continue
+            inside = rel.startswith(folder)
+            try:
+                fl, body = split_front(open(os.path.join(top_, f), encoding="utf-8").read())
+            except OSError:
+                continue
+            props = props_of(fl)
+            if props.get("project") != key and not inside:
+                continue
+            rows[rel] = {"path": rel, "title": props.get("title") or h1(body) or f[:-3], "type": props.get("type"), "date": props.get("date"),
+                         "status": props.get("status"), "next": props.get("next"), "inside": inside}
+    for n in notes:
+        if n.props.get("project") != key or n.path == page:
+            continue
+        disk = rows.get(n.path) or {}
+        rows[n.path] = {"path": n.path, "title": n.title, "type": n.props.get("type"), "date": n.props.get("date"),
+                        "status": note_status(n) or disk.get("status"), "next": disk.get("next") or n.props.get(NEXT), "inside": n.path.startswith(folder)}
+    return sorted(rows.values(), key=lambda r: (r["date"] or "", r["path"]), reverse=True)
+
+
+def days_words(days):
+    """`102 days left`, `due today`, `3 days past`."""
+    if days is None:
+        return "no deadline"
+    if days == 0:
+        return "due today"
+    return f"{days} day{'s' if days != 1 else ''} left" if days > 0 else f"{-days} day{'s' if days != -1 else ''} past"
+
+
+def project_tail(facts, rows, today, jira_base=""):
+    """The sync's half of a project page, from the marker down."""
+    L = [PROJECT_HEAD_END, ""]
+    d = facts["deadline"]
+    L.append(f"*Deadline {d.isoformat()} · {days_words(facts['days'])}" if d else "*No deadline: write `deadline: YYYY-MM-DD` in the properties")
+    if facts["step"]:
+        L[-1] += f" · next step: {facts['step']}" + (" (**overdue**)" if facts["overdue"] else "")
+    L[-1] += "*"
+    keys = [f"[{k}]({jira_base}/browse/{k})" if jira_base else k for k in facts["keys"]]
+    links = facts["links"]
+    wp = facts["props"]
+    watch = wp.get("watch") if "watch" in wp else ((d + datetime.timedelta(days=PROJECT_WATCH_DAYS)).isoformat() if d else None)
+    bits = [f"keys {', '.join(keys)}" if keys else "no keys yet (`ela project keys <key> --add MH-…`)",
+            f"{len(links)} thread{'s' if len(links) != 1 else ''}" if links else "no threads",
+            f"watched until {watch}" if watch else "not watched"]
+    L += [f"*Watching: {' · '.join(bits)}*", "", f"## {ASKS_HEAD}", ""]
+    asks = [r for r in rows if top(r["path"]) in (TO_READ, IN_PROGRESS)]
+    for r in asks:
+        bits = [r["type"], r["status"], f"next: {r['next']}" if r.get("next") else None]
+        L.append(f"- [[{r['path'][:-3]}|{r['title']}]] · " + " · ".join(b for b in bits if b))
+    L += ["Nothing waits on you for this project."] if not asks else []
+    L += ["", "## Notes", ""]
+    if not rows:
+        L.append(f"No note names this project yet: `project: {facts['key']}` in a note's properties, or a note in its folder.")
+    groups = {}
+    for r in rows:
+        groups.setdefault("in this folder" if r["inside"] else top(r["path"]), []).append(r)
+    for g in list(PROJECT_FOLDERS) + sorted(k for k in groups if k not in PROJECT_FOLDERS):
+        if g not in groups:
+            continue
+        L.append(f"**{g}**" + ("" if g == "in this folder" else "/"))
+        for r in groups[g]:
+            bits = [r["type"], r["date"], r["status"] if g not in (READINGS, "in this folder") else None]
+            L.append(f"- [[{r['path'][:-3]}|{r['title']}]] · " + " · ".join(b for b in bits if b))
+        L.append("")
+    L += [AFTERWARDS_HEAD, ""] + (facts["afterwards"] or ["*Nothing yet: the 13:00, 17:30 and 19:00 passes read its keys and threads.*"]) + [""]
+    return "\n".join(L)
+
+
+def project_note(key, text, vault, notes, today, jira_base=""):
+    """The page as the sync writes it: its properties settled (type project, watch defaulting to the deadline plus 14
+    days, every other line kept), the head as written, the tail generated. The Note carries front_text, head and tail
+    apart, so the head is never linked, unwrapped or retitled."""
+    facts = project_facts(key, text, today)
+    props = facts["props"]
+    want = {"title": facts["title"], "type": "project", "date": props.get("date") or today.isoformat(), "deadline": props.get("deadline"),
+            "next-step": props.get("next-step"), "source": "vault", "posted": props.get("posted"), "channels": props.get("channels"),
+            "keys": props.get("keys"), "watch": props.get("watch") if "watch" in props else
+            ((facts["deadline"] + datetime.timedelta(days=PROJECT_WATCH_DAYS)).isoformat() if facts["deadline"] else None),
+            "watched": props.get("watched"), "last": props.get("last")}
+    if "watch" in props and not props.get("watch"):
+        want["watch"] = ""                                 # cleared by him: stays cleared, which stops the watch
+    fm = front([], {k: v for k, v in want.items() if v})
+    if "watch" in want and want["watch"] == "":
+        fm = fm.replace("\n---\n\n", '\nwatch: ""\n---\n\n', 1)
+    keep = [l for l in facts["front"] if re.match(r"^([\w-]+):", l) and re.match(r"^([\w-]+):", l).group(1) not in tuple(want) + ("aliases",)]
+    if keep:
+        fm = fm[:-len("---\n\n")] + "\n".join(keep) + "\n---\n\n"
+    rows = project_rows(vault, key, notes)
+    tail = project_tail(facts, rows, today, jira_base)
+    n = Note(facts["path"], facts["title"], facts["head"] + "\n" + tail, {"type": "project", "date": want["date"], "deadline": want["deadline"]})
+    n.front_text, n.head, n.tail, n.facts, n.rows = fm, facts["head"] + "\n", tail, facts, rows
+    return n
+
+
+def infer_projects(vault, projects, notes=(), natives=(), dry_run=False):
+    """`project: <key>` on a note that carries none and whose keys are among one project's keys (a verification's
+    ticket counts as its key): set on a note this sync writes before it is written, written into the front matter of
+    a note on disk, and nothing else of it. → [(path, key)]."""
+    by_key = {k: key for key, ks in projects.items() for k in ks}
+    def guess(keys):
+        hits = {by_key[k] for k in keys if k in by_key}
+        return hits.pop() if len(hits) == 1 else None
+    out, done = [], set()
+    for n in notes:
+        done.add(n.path)
+        if n.props.get("project") or PROJECT_PAGE.match(n.path):
+            continue
+        keys = set(KEY_RX.findall(props_of(n.front_lines).get("keys") or ""))
+        m = re.search(r"-verify-([a-z][a-z0-9]+-\d+)", n.path)
+        if m:
+            keys.add(m.group(1).upper())
+        key = guess(keys)
+        if key:
+            n.props["project"] = key
+            out.append((n.path, key))
+    native_by_path = {n.path: n for n in natives}
+    for top_, dirs, fs in os.walk(vault):
+        dirs[:] = [d for d in dirs if not d.startswith(".") and os.path.relpath(os.path.join(top_, d), vault).replace(os.sep, "/")
+                   not in (ATTACH,) + RETIRED]
+        for f in sorted(fs):
+            rel = os.path.relpath(os.path.join(top_, f), vault).replace(os.sep, "/")
+            if not f.endswith(".md") or rel in done or PROJECT_PAGE.match(rel):
+                continue
+            try:
+                text = open(os.path.join(top_, f), encoding="utf-8").read()
+            except OSError:
+                continue
+            fl, _ = split_front(text)
+            props = props_of(fl)
+            if not fl or props.get("project") or not props.get("keys"):
+                continue
+            key = guess(set(KEY_RX.findall(props["keys"])))
+            if not key:
+                continue
+            out.append((rel, key))
+            if rel in native_by_path:
+                native_by_path[rel].props["project"] = key
+            if not dry_run:
+                atomic_write(os.path.join(top_, f), set_front(text, project=key))
+    return out
+
+
 # ── home ──────────────────────────────────────────────────────────────────────────────────────────────
 
 def link(n):
@@ -2016,7 +2246,7 @@ def native_notes(vault):
                 if m:
                     props[m.group(1)] = m.group(2)
             rel = os.path.relpath(p, vault).replace(os.sep, "/")
-            if rel == OVERVIEW:                            # generated since layout 4, its hand sections kept
+            if rel == OVERVIEW or PROJECT_PAGE.match(rel):   # generated: the ela page's hand sections and a project page's head kept
                 continue
             out.append(Note(rel, props.pop("title", None) or h1(body) or f[:-3], body, props, fl))
     return out
@@ -2062,7 +2292,7 @@ def vocabulary_note(elak):
                 src_rel="elak:map/jira-labels.yaml")
 
 
-def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since=None):
+def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since=None, dry_run=False):
     reports = s.get("reports")
     enotes, titles = elak_notes(s.get("elak"))
     notes = report_notes(reports, today) + enotes + [constraints_note(standing_constraints(s, env), today)]
@@ -2083,6 +2313,8 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since
     for n in notes:                                        # a source's own `project:` line names its project
         if not n.props.get("project") and props_of(n.front_lines).get("project"):
             n.props["project"] = props_of(n.front_lines)["project"]
+    pages = project_pages(s["vault"])
+    inferred = infer_projects(s["vault"], {k: set(project_facts(k, t, today)["keys"]) for k, t in pages.items()}, notes, native, dry_run)
     native_warn += [f"type: {x}" for x in (type_lint(n.path, n.props.get("type")) for n in notes + native) if x]
     native_warn += [f"project: {x}" for x in (project_lint(n.path, n.props, s["vault"]) for n in notes + native) if x]
     native_warn += [f"asks: {x}" for x in (asks_lint(n) for n in notes + native) if x]
@@ -2102,6 +2334,8 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since
     jira_base = ""
     if env and os.path.isfile(env):
         jira_base = next((l.split("=", 1)[1].strip().rstrip("/") for l in open(env) if l.startswith("JIRA_BASE_URL=")), "")
+    for key, text in pages.items():                        # each project's page: its head as written, its tail from the notes
+        notes.append(project_note(key, text, s["vault"], notes + native, today, jira_base))
     projects = project_keys(env, s.get("runtime")) if jira_base else set()
     warnings = native_warn + ([] if jira_base and projects else ["ticket keys are not linked: no Jira base URL or project list"])
     reps = {n.src_rel: n for n in notes if n.src_rel and n.props.get("type") in ("day", "review", "reader")}
@@ -2118,6 +2352,10 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since
         if top(n.path) == TO_READ:
             n.props.update({NEXT: "", MOVE_SET: move_set(n.props.get("type"))})
         n.held = reading_gate(n)
+        if getattr(n, "front_text", None):                 # a project page: the head as the desk wrote it, the tail linked
+            body = n.head + linker(n.tail)
+            planned[n.path] = redact(n.front_text + (with_warning(body, n.held) if n.held else body))
+            continue
         body = linker(unwrap(callouts(meta_line(Note(n.path, n.title, tidy_title(n.body), n.props, n.front_lines)))))
         if top(n.path) == TO_READ:
             body = with_moves(body, n.path, n.props.get("type"))
@@ -2128,7 +2366,7 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since
     planned[f"{ELA}/about-this-vault.md"] = unwrap(README)
     for name, text in VIEWS.items():
         planned[f"{ELA}/{name}.base"] = text
-    return planned, files, notes, warnings, {n.path for n in native}
+    return planned, files, notes, warnings, {n.path for n in native}, inferred
 
 
 def ruled(elak, src):
@@ -2932,9 +3170,9 @@ def cmd_sync(a):
     before = old_home.get("looked") if opening else old_home.get("before")
     since = before if is_open else looked
     try:
-        planned, files, notes, warnings, native_paths = plan(s, env, today, now, removed | set(newly),
-                                                              removed_src | {old_src[r] for r in newly if old_src.get(r)},
-                                                              since)
+        planned, files, notes, warnings, native_paths, inferred = plan(s, env, today, now, removed | set(newly),
+                                                                        removed_src | {old_src[r] for r in newly if old_src.get(r)},
+                                                                        since, a.dry_run)
     except SourceError as e:
         print(f"vault: not synced — {e}", file=sys.stderr); sys.exit(3)
     if newly and not a.dry_run:
@@ -3078,7 +3316,7 @@ def cmd_sync(a):
          "answered": [{"from": f, "to": t} for f, t in answered],
          "rolled": [{"note": f, "date": d, "to": t} for f, d, t in rolled],
          "left_in_retired": left, "notes": len(planned), "written": len(wrote), "unchanged": same, "files_copied": copied,
-         "removed": gone, "held": held, "warnings": warnings}
+         "removed": gone, "held": held, "warnings": warnings, "projects": [{"note": p, "project": k} for p, k in inferred]}
     if a.json:
         print(json.dumps(r, ensure_ascii=False)); return
     print(f"{'DRY RUN — ' if a.dry_run else ''}vault: {counts['generated']} generated · {counts['in_place']} in place · "
@@ -3100,6 +3338,8 @@ def cmd_sync(a):
         print(f"  ruled {d}, over {MEETING_RULED_DAYS} days: {f} → {t}")
     for d in newly:
         print(f"  deleted by the owner, recorded as read: {d}")
+    for p_, k in inferred:
+        print(f"  project {k} inferred from its keys: {p_}")
     for h in held:
         print(f"  warning {h['note']}: {'; '.join(h['problems'])}")
     for w in warnings:
@@ -3112,7 +3352,7 @@ def cmd_sync(a):
 # per source per day under its own `## Afterwards`, append-only; nothing else in the note is rewritten (vault
 # to-read/2026-10-30-vault-workflow-review.md, proposal 5). The reading is brief.py's parked watcher, pointed here.
 AFTERWARDS_HEAD = "## Afterwards"
-WATCH_FOLDERS = (ARCHIVE, IN_PROGRESS)
+WATCH_FOLDERS = (ARCHIVE, IN_PROGRESS, PROJECTS)   # a project page, and what its folder keeps, carries keys and threads too
 WATCH_DAYS = {"review": 14, "decision": 14, "plan": 14, "meeting": 14, "verify": 30, "ticket": 30}   # calendar days from archived, else its date
 WATCH_WORKDAYS = 10              # any other type: working days, counted the same way
 WATCH_NOTES, WATCH_LINES = 40, 40   # at most 40 notes a pass, oldest window first; at most 40 lines a note
@@ -3166,6 +3406,9 @@ def watch_until(props):
     if "watch" in props:
         m = re.search(r"\d{4}-\d{2}-\d{2}", props.get("watch") or "")
         return datetime.date.fromisoformat(m.group(0)) if m else None
+    m = re.match(r"\d{4}-\d{2}-\d{2}", props.get("deadline") or "") if props.get("type") == "project" else None
+    if m:                                                  # a project: until its deadline plus 14 days
+        return datetime.date.fromisoformat(m.group(0)) + datetime.timedelta(days=PROJECT_WATCH_DAYS)
     m = re.match(r"\d{4}-\d{2}-\d{2}", props.get("archived") or props.get("date") or "")
     if not m:
         return None
@@ -3191,7 +3434,7 @@ def watched_notes(vault, today, stamps=None):
                 rel = os.path.relpath(os.path.join(top_, f), vault).replace(os.sep, "/")
                 props.update({k: v for k, v in ((stamps or {}).get(rel) or {}).items() if v is not None})
                 keys = sorted({k for k in KEY_RX.findall(props.get("keys") or "") if not NOT_KEYS.match(k)})
-                links = sorted(set(PERMALINK.findall(props.get("posted") or "")))
+                links = sorted(set(PERMALINK.findall((props.get("posted") or "") + " " + (props.get("channels") or ""))))
                 until = watch_until(props)
                 if (keys or links) and until and until >= today:
                     out.append({"note": rel, "props": props,
