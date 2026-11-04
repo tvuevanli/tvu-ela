@@ -21,7 +21,11 @@ and every comment.
 - `--deep` — after the issue, also print each linked issue, subtask, and parent.
   Use when the user asks about "related tickets".
 - `--no-comments` — identity + description only; good for bulk reads.
-- `--json` — raw fields + comments as one JSON object, for machine callers.
+- `--json` — raw fields + comments as one JSON object, for machine callers; `read_at` says when it was read.
+- **The read serves the fact store.** `<runtime>/facts/jira/issues/<KEY>.json` holds one read per key; it is served
+  while the store's last sweep (`ela facts refresh`: every MH issue updated since the previous sweep, with changelog
+  and comments, `facts/jira/changes.json`) ran after that read and does not list the key as moved, and for half an
+  hour after a read when no sweep followed. The store says so on stderr with the read time. `--fresh` reads Jira now.
 
 ## files
 
@@ -31,7 +35,15 @@ is local and `<runtime>` holds no records.
 
 ## jql
 
-Key / status / assignee / summary rows. `--limit N` (default 50), `--json`.
+Key / status / assignee / summary rows. `--limit N` (default 50), `--json`. Two standing queries are served from the
+store: the owner-name query (`assignee = currentUser() ORDER BY updated DESC`, limit 1, once a day) and the incidents
+umbrella's open children; `--fresh` runs them now. Every other JQL is live.
+
+## changes
+
+`changes --since -24h|"YYYY-MM-DD HH:MM" [--project MH] [--limit N]`: each issue updated in the window with its
+status, priority, assignee, label, Fixed In, type, resolution, link, parent and sprint moves and its comments. Served
+from the store's sweep while it covers the window and is fresh (`read_at` in JSON); `--fresh` reads Jira now.
 
 ## assign — re-assign one issue, gated twice
 

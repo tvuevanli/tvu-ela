@@ -11,9 +11,15 @@ verbs and their flags. `mentions` counts a mention answered when Evan replied af
 `users` walks the whole workspace, Slack Connect guests included, and takes about a minute.
 
 Every subcommand takes `--json`. `--since` is `48h`, `7d` or `YYYY-MM-DD`. Exit codes: 0 ok · 2 usage ·
-4 auth · 5 remote error. Scans cost one call per thread active in the window, so `--channels` makes a
-run cheaper — but it is no longer what keeps one alive: a channel that will not come down whole is
-named in `unread_channels` and the rest are still reported.
+4 auth · 5 remote error. A channel that will not come down whole is named in `unread_channels` and the rest are
+still reported.
+
+**The scans read the fact store.** `history`, `mentions`, `unanswered`, `search` and `channels` answer from
+`<runtime>/facts/slack/` — one file per channel with its top-level messages and thread replies, the channel list,
+the user names — while `ela facts refresh` read it less than `ELA_FACTS_MAX_AGE` hours ago (default 6), and say so on
+stderr with the read time; JSON carries `read_at`. The refresh re-reads the last eight days of parents per channel
+(a reply to an older thread shows on its parent) and the replies of each thread that moved. `--fresh` on a verb reads
+Slack now and writes through; a window the store does not reach is read live and kept. Nothing else caches.
 
 ## Credentials
 

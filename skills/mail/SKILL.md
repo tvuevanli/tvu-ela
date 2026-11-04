@@ -13,6 +13,13 @@ $MAIL read <message id>            # headers + body as text
 $MAIL thread <thread id>           # every message, oldest first
 ```
 Every subcommand takes `--json`. Exit codes: 0 ok · 2 usage · 3 not found · 4 auth · 5 remote error.
+
+**The standing searches read the fact store.** `ela facts refresh` keeps `subject:Release`, `subject:("test report")`
+and `in:sent` over a rolling 21 days in `<runtime>/facts/mail/` (ids newest first; each message fetched once, by id).
+A `search` whose clauses fall inside one of those — date bounds plus a `subject:` inside it, or `in:sent` — answers
+from the store without a call while the index is fresh (its read time on stderr, `read_at` in JSON). Any other query
+(`from:`, OR groups, other subjects) lists ids live and fetches only the ids not yet stored. `read` is served from the
+store; `thread` while fresh. `--fresh` reads Gmail now.
 Credentials: the read-only Google token the gdoc capability uses (`GOOGLE_TOKEN_FILE` in the env file); the
 token must carry `gmail.readonly`. Nothing here sends, labels or deletes.
 

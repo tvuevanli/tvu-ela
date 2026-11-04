@@ -6,8 +6,11 @@ user-invocable: true
 
 # /ela:release — bundles, lane versions, builds, first-hand
 
-Self-contained. The script reads userservice (both hosts) and Jenkins directly; no store, no scheduler,
-nothing cached — every answer is the source's current state.
+Self-contained. The script reads userservice (both hosts), the API gateways and Jenkins. `envs`, `gateway`,
+`builds`, `bundles` and `bundle` answer from the fact store (`<runtime>/facts/lanes/`, `<runtime>/facts/builds/`,
+filled by `ela facts refresh` once per pass) while that read is younger than `ELA_FACTS_MAX_AGE` hours (default 6),
+and say its time on stderr (`read_at` in JSON); a host that refused at the refresh is served as the same refusal
+(exit 4) with the last good read named. `--fresh` on a verb reads the source now and writes through.
 
 `R="python3 ${CLAUDE_PLUGIN_ROOT}/skills/release/release.py --env-file <env>"` (or `ela bundles · versions ·
 builds · login tvu`); `$R --help` lists the verbs and their flags. `bundle` is the bill of materials

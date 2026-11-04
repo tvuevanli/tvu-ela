@@ -27,7 +27,17 @@ approves, edits or skips; execution goes through the skill named on the item.
   the day's view; tomorrow recomputes it.
 
 ## 0 — gather
-Read `~/.claude/ela/site.json` → `env`, `map`, `elak`, `published`. The Jira lanes are one call:
+**The saved facts are the input; the sources are not read again.** The runner's pass has already run `ela facts
+refresh` and the facts verbs, and saved `<runtime>/runner/<date>-{brief,stage,slack,yesterday,changes}.json`, the
+lanes table, the test and dev lists and the train (`<reports>/train/<line>.json`). The judge reads those files. A
+verb it still runs (`ela jira read`, `ela slack history`, `ela mail search`, `ela promote constraints`) answers from
+the fact store (`<runtime>/facts/`, `/ela:facts`) and prints its read time; that is one process, not a live call.
+A fact the page needs and no file holds is a **gap**: the judge fills at most one per page with a single `--fresh`
+read, names it in the page's gaps line (`gaps: read live — ela jira read MH-3871 --fresh, the comment after 17:00`),
+and never re-reads what the files hold (elak `blueprint/decisions/2026-11-04-read-once-close-by-outcome-home-as-an-index.md`).
+
+Read `~/.claude/ela/site.json` → `env`, `map`, `elak`, `published`. The Jira lanes are one call, already saved as
+`<date>-brief.json` by the runner; run it only when that file is missing:
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/skills/brief/brief.py" --env-file <env> lanes --json   # or: ela brief --json
 ```
@@ -37,9 +47,9 @@ JIRA="python3 ${CLAUDE_PLUGIN_ROOT}/skills/jira/jira.py --env-file <env>"
 SLACK="python3 ${CLAUDE_PLUGIN_ROOT}/skills/slack/slack.py --env-file <env>"
 TEAM="python3 ${CLAUDE_PLUGIN_ROOT}/skills/team/team.py --env-file <env>"   # or: ela who … · ela team areas
 ```
-The owner's standing constraints — pins and hand checks his rulings put on a lane, each with an expiry — are one
-call: `python3 "${CLAUDE_PLUGIN_ROOT}/skills/promote/promote.py" --env-file <env> constraints --json` (or `ela
-promote constraints --json`; exit 3 = a pin is over). A pin `over`, or a constraint whose `days_since_expiry` is
+The owner's standing constraints — pins and hand checks his rulings put on a lane, each with an expiry — are in
+`<date>-changes.json` (`findings` of kind `constraint_*`) and on the lanes table; the verb itself
+(`ela promote constraints --json`, exit 3 = a pin is over) is run only when neither file is there. A pin `over`, or a constraint whose `days_since_expiry` is
 0 or 1 (it lapsed since the last brief), is an item under *Needs you*: what it says, the lane and version, its
 source note, and the one move (roll back or ask the owner to lift it; renew or let it lapse). Otherwise it is one
 row in the lanes table, "standing constraints: N active" (plus "N pins unread" when a pin's `state` is `unknown`).
@@ -50,8 +60,9 @@ sprint --json` finds the active sprint note under `<vault>/sprints/` (front matt
 "active"`) and returns its goals and committed items, each with its keys and its "done when", the working day it is
 on (`day` of `days`), and on a Friday the week's `<runtime>/runner/<date>-yesterday.json` files. `{"active": null}`
 means no sprint is running. The note's own "where it stands" column is a snapshot from the day it was written; each
-key is read again first-hand (`$JIRA read <key>`): its comments since the fix, its latest QA verdict and any
-question left open, and what the owner already did on it. Its **real status** follows the rule in §3 ("Deployed" is
+key's comments since the fix, its latest QA verdict and any open question are read from the saved facts (`<date>-
+changes.json` tickets, the train's row, `<date>-stage.json`), and `$JIRA read <key>` (the store's copy) only for a key
+none of them holds; what the owner already did on it is in `<date>-changes.json` `you`. Its **real status** follows the rule in §3 ("Deployed" is
 a fact, never a status; a QA Fail or an open question after the fix is where it stands), never Jira's status field
 alone. An item without a key (a pair of feed failures, a decision) is judged against its "done when" from the
 day's other reads.
@@ -151,6 +162,9 @@ measured against.
 
 ## 2 — Slack lanes (facts by script, judgment here)
 
+The Slack facts are saved: `<date>-slack.json` (mentions, by the runner), `<date>-yesterday.json` (every channel's
+history with threads for the window) and `<date>-changes.json` `dev_threads`. The verbs below are run only for a
+window no file covers, and they answer from the fact store's per-channel cache (their read time on stderr):
 ```bash
 $SLACK channels --json                                   # what the bot can see; DMs are never visible — say so
 $SLACK history '#prj_dev_mediahub' --since 24h --json    # report threads posted since yesterday
@@ -180,7 +194,8 @@ a standing gap, not a lane: `$SLACK channels --all <word>` finds them and joinin
 ### 2a — what a thread needs from Evan
 
 Every thread that reaches the brief through Evan — a mention, a tag, a cc, a thread he took part in — is
-read to its latest reply and **assessed**. Being tagged does not make a thread his, and someone else
+read to its latest reply (the replies are in the saved history; `$SLACK read <permalink>` is the one live read, for
+a thread the files truncate) and **assessed**. Being tagged does not make a thread his, and someone else
 driving it does not make it not his: an unanswered mention read as owed drafts work in another person's
 lane, and a driven thread read as settled hides a decision only he can make. The assessment gives one
 role, with the reason in one clause:
@@ -543,7 +558,8 @@ At most three lines (§2b), then [[2026-10-28-changes|What changed]].
 **Jira is kept true to the conversations: that is ela's job, not the owner's.** Before an item calls a ticket
 silent, stalled or waiting, read what happened since its last Jira update: `ela slack search` for the key and for
 two or three distinctive words of its title, and `ela mail search` for the key and for its service and version
-words (`newer_than:14d`). Release and test mails often describe a fix without its key. When the conversations are
+words (`newer_than:14d`) — both answer from the fact store (the Slack cache; the standing mail searches), so they
+cost no call and say their read time. Release and test mails often describe a fix without its key. When the conversations are
 ahead of Jira, the item says so ("Jira is behind the release mails"), states what they say, and drafts the status
 comment, plus Fixed In when a version is named, as its action, each source cited. A ticket is called silent only
 when Slack and mail are silent too (2026-10-23: MH-3752 and MH-3745 were reported as stalled while their
@@ -567,10 +583,12 @@ not drafted. *Why: on 2026-10-28 item 7 said MH-3829 and MH-3830 carried MH-3800
 empty on both, only a copied comment said so, and applies 14 and 15 would have cleared empty fields.*
 
 **What an item owes before it reaches the page.** A train item (a build riding the next promotion) carries the
-`/ela:promote` assessment's verdict for that build (`ela promote report`: the stop and high findings) and the train's
+`/ela:promote` assessment's verdict for that build (the day's stored report, `<reports>/promote/<line>-daily-prod.json`,
+written by `ela promote report` and read by the lanes table; the verb is not run again) and the train's
 departure time from the release cadence recorded in elak, or "departure not recorded" when none states it; the
-apply is the hold or the promote post that verdict supports. Its QA facts cite the lane's test list (`ela testlist
---lane <lane> --json`): the P1 rows without a verdict, each by key and the reason it ranks P1, or "no P1 row open";
+apply is the hold or the promote post that verdict supports. Its QA facts cite the lane's test list
+(`<reports>/lanes/test-list-<lane>.json`, or the train `<reports>/train/<line>.json`, whichever is newer): the P1
+rows without a verdict, each by key and the reason it ranks P1, or "no P1 row open";
 never "no QA report yet", which names a mail instead of what is untested. A customer incident addressed to him takes the first
 deep pick, before any other pick and any Backlog item, and its item carries what the logs and the graph showed
 (`/ela:logs`, `/ela:graph`), not an uninvestigated lead. *Why: on 2026-10-28 item 1 offered hold or promote with no
