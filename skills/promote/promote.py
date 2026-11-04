@@ -20,9 +20,11 @@ Fixed In, a Fixed In against the build that carries it, a claim against QA's own
 Nouns: plural names a table of many (lanes · commits · tickets · bundles), singular a summary (evidence · report).
 --quiet silences the one-line-per-step progress on stderr.
 <line> is a key of map/release.yaml lines ("2.1"); <from>/<to> are lane roles (qa · daily · prod) or lane names
-(qa-cn3 · daily-wed · prod-3). QA lanes are read on the qa host (account login); daily/stage/prod lanes and their
-bundles on the prod host with the person's TVU session (`ela login tvu`) — a missing session is a finding, never
-a cached number. Judgement is not here: the skill ranks and words; this script collects and reconciles.
+(qa-cn3 · daily-wed · prod-3). QA lanes are read on the qa host (account login) when it admits ela; when it does
+not, their rows are the brief's from QA's report mails and the release thread (the last saved lane read, `ela changes`),
+each saying its source and time — a gap, never a stop. daily/stage/prod lanes and their bundles are read on the prod
+host with the person's TVU session (`ela login tvu`) — a missing session is a finding, never a cached number.
+Judgement is not here: the skill ranks and words; this script collects and reconciles.
 Exit codes: 0 ok · 2 usage · 3 a lane is unreadable, or a standing pin is over · 5 remote error.
 """
 import argparse, datetime, email.utils, json, os, re, signal, subprocess, sys
@@ -31,6 +33,8 @@ HERE = os.path.dirname(os.path.realpath(__file__))
 SKILLS = os.path.dirname(HERE)
 sys.path.insert(0, os.path.join(SKILLS, "release"))
 import release as R  # noqa: E402  — the release map, the userservice hosts, Jenkins
+sys.path.insert(0, os.path.join(SKILLS, "brief"))
+import brief as B  # noqa: E402  — the QA lanes' rows from QA's report mails and the release thread when the qa host is unreadable
 
 EX_USAGE, EX_LANE, EX_REMOTE = 2, 3, 5
 KEY_RE = re.compile(r"\b[A-Z][A-Z0-9]{1,5}-\d{2,6}\b")
@@ -124,15 +128,41 @@ def scope_slugs(scope):
     return seen
 
 
+def mail_lane_rows(gaps, why, code=None):
+    """The QA lanes' rows the brief keeps when the qa host is unreadable: the last saved lane read's rows from QA's report
+    mails and the release thread (`host: mail`, reported or built), with any newer report in qa-tested.json. The gap
+    names the source and its newest time; None, and an unreadable-host gap, when nothing names the lanes."""
+    runner = os.path.join(R.site().get("runtime") or os.path.join(R.site().get("projects", ""), ".ela"), "runner")
+    reads = B.lane_reads(runner)
+    try:
+        tested = json.load(open(os.path.join(runner, "qa-tested.json"), encoding="utf-8"))
+    except (OSError, ValueError):
+        tested = {}
+    lanes = B.qa_lanes()
+    merged = B.merge_lane_rows([], {}, reads[-1][2] if reads else [], B.qa_mail_rows(tested, [], lanes), datetime.datetime.now().astimezone())
+    rows = [r for r in merged if r.get("host") == "mail" and r.get("state") in B.LANE_STATES and r.get("lane") in lanes]
+    if not rows:
+        gaps.append({"kind": "host_unreadable", "host": "qa", "detail": f"{why}; no QA report or release names the QA lanes either", "exit": code}); return None
+    newest = max(B.row_time(r) for r in rows)[:16].replace("T", " ")
+    gaps.append({"kind": "host_from_mail", "host": "qa", "exit": code,
+                 "detail": f"{why}; the QA lanes as QA's report mails and the release thread say (newest {newest}), from the last saved lane read"})
+    return rows
+
+
 def read_host(env_file, host, gaps):
-    """All lane rows a host publishes; None (and a gap) when the host is unreadable."""
+    """All lane rows a host publishes; for the qa host that does not admit ela, the mail rows (mail_lane_rows); None
+    (and a gap) when the host is unreadable."""
     try:
         us = R.US(env_file, host)
     except SystemExit as e:
-        gaps.append({"kind": "host_unreadable", "host": host, "detail": "no session — run: ela login tvu" if host == "prod" else "qa login failed", "exit": e.code}); return None
+        if host == "qa":
+            return mail_lane_rows(gaps, "qa login failed", e.code)
+        gaps.append({"kind": "host_unreadable", "host": host, "detail": "no session — run: ela login tvu", "exit": e.code}); return None
     try:
         return R.lane_versions(us)
-    except SystemExit as e:
+    except SystemExit as e:                                 # the qa host answers the login call with exit 4 from the read
+        if host == "qa":
+            return mail_lane_rows(gaps, "qa login failed" if e.code == 4 else f"read failed (exit {e.code})", e.code)
         gaps.append({"kind": "host_unreadable", "host": host, "detail": f"read failed (exit {e.code})", "exit": e.code}); return None
 
 
@@ -147,7 +177,7 @@ def collect_lanes(a, gaps):
     for h, rows in hosts.items():
         for r in rows or []:
             if r["service"] in slugs and r.get("lane"):
-                by.setdefault(r["service"], {})[r["lane"]] = dict(r, host=h, parsed=parse_version(r["version"]))
+                by.setdefault(r["service"], {})[r["lane"]] = dict(r, host=r.get("host") if r.get("host") == "mail" else h, parsed=parse_version(r["version"]))
     lane_for_slug = cfg.get("lane_for_slug") or {}
     out = []
     qa_pref = cfg.get("qa_lane_preference") or []
@@ -174,12 +204,24 @@ def collect_lanes(a, gaps):
             for ln, row in lanes.items():
                 if ln in relevant and ln not in (tl, fl) and row["parsed"] and cmp_versions(slug, row["parsed"], to["parsed"]) == 1:
                     ahead.append({"lane": ln, "version": row["version"]})
-        out.append({"service": slug, "from_lane": fl, "to_lane": tl,
-                    "from": fr and {"version": fr["version"], "parsed": fr["parsed"], "tag": fr["tag"], "host": fr["host"]},
-                    "to": to and {"version": to["version"], "parsed": to["parsed"], "tag": to["tag"], "host": to["host"]},
+        side = lambda r: r and {"version": r["version"], "parsed": r["parsed"], "tag": r.get("tag"), "host": r["host"],  # noqa: E731
+                                "source": B.row_source(r) or "live", "at": B.row_time(r) or None}
+        out.append({"service": slug, "from_lane": fl, "to_lane": tl, "from": side(fr), "to": side(to),
                     "relation": rel, "other_lanes_ahead_of_to": ahead,
                     "unreadable": [h for h in (lane_host(f_lane), lane_host(tl)) if hosts.get(h) is None]})
-    return {"line": a.line, "from": f_lane, "to": t_lane, "services": out, "hosts_read": {h: (rows is not None) for h, rows in hosts.items()}}
+    # a host read now: True; its lanes from the mails: "mail"; unreadable: False
+    return {"line": a.line, "from": f_lane, "to": t_lane, "services": out,
+            "hosts_read": {h: ("mail" if rows and all(r.get("host") == "mail" for r in rows) else rows is not None) for h, rows in hosts.items()}}
+
+
+def host_read_word(ok):
+    return "ok" if ok is True else "from mail" if ok == "mail" else "UNREADABLE"
+
+
+def source_cell(s):
+    """The version table's source column: where each side's version is from when it is not a host read now."""
+    parts = [f"{s[k + '_lane']}: {s[k]['source']}" for k in ("from", "to") if s.get(k) and s[k].get("source") not in (None, "live")]
+    return "; ".join(parts) or "live"
 
 
 def short(row):
@@ -194,13 +236,14 @@ def cmd_lanes(a):
     res = collect_lanes(a, gaps); res["gaps"] = gaps
     if a.json:
         print(json.dumps(res, ensure_ascii=False)); return
-    print(f"# {a.line}: {res['from']} → {res['to']}   read: " + ", ".join(f"{h} {'ok' if ok else 'UNREADABLE'}" for h, ok in sorted(res["hosts_read"].items())))
+    print(f"# {a.line}: {res['from']} → {res['to']}   read: " + ", ".join(f"{h} {host_read_word(ok)}" for h, ok in sorted(res["hosts_read"].items())))
     for s in res["services"]:
         extra = ("  ← " + ", ".join(f"{x['lane']} ahead ({vlabel(parse_version(x['version']))})" for x in s["other_lanes_ahead_of_to"])) if s["other_lanes_ahead_of_to"] else ""
-        print(f"  {s['service']:<24} {short(s['from']):<16} → {short(s['to']):<16} {s['relation'] or '?'}{extra}")
+        src = source_cell(s)
+        print(f"  {s['service']:<24} {short(s['from']):<16} → {short(s['to']):<16} {s['relation'] or '?'}{extra}" + (f"  · {src}" if src != "live" else ""))
     for g in gaps:
         print(f"  ! {g['kind']}: {g.get('host', '')} {g['detail']}")
-    if gaps:
+    if any(g["kind"] == "host_unreadable" for g in gaps):
         sys.exit(EX_LANE)
 
 
@@ -1066,6 +1109,8 @@ def assess(a, lanes, delta, tickets, evidence, bundles, gaps):
     for g in gaps:
         if g["kind"] == "host_unreadable":
             add("stop", "lane_unreadable", f"{g['host']} host unreadable — {g['detail']}")
+        elif g["kind"] == "host_from_mail":
+            add("medium", "lane_from_mail", f"{g['host']} host not read — {g['detail']}")
         elif g["kind"] in ("repo_missing", "jenkins_unreadable", "mail_unreadable", "slack_unreadable", "jira_reverse_lookup_failed", "bundle_missing", "bundle_lanes_unknown"):
             add("medium", g["kind"], str(g.get("detail") or g))
     for s in lanes["services"]:
@@ -1160,12 +1205,15 @@ def render_md(r):
     L = []
     L.append(f"# MH {r['line']}: {r['from']} → {r['to']}  ·  purpose {r['purpose']}  ·  scope {r['scope']}  ·  {r['generated_at']}")
     L.append("")
-    L.append("| service | " + r["from"] + " | " + r["to"] + " | relation |")
-    L.append("|---|---|---|---|")
+    hosts = r["lanes"].get("hosts_read") or {}
+    L.append("hosts read: " + ", ".join(f"{h} {host_read_word(ok)}" for h, ok in sorted(hosts.items())))
+    L.append("")
+    L.append("| service | " + r["from"] + " | " + r["to"] + " | relation | source |")
+    L.append("|---|---|---|---|---|")
     for s in r["lanes"]["services"]:
         f = short(s["from"]); t = short(s["to"])
         extra = "; ".join(f"{x['lane']} ahead" for x in s["other_lanes_ahead_of_to"])
-        L.append(f"| {s['service']} | {f} | {t} | {s['relation'] or '?'}{(' · ' + extra) if extra else ''} |")
+        L.append(f"| {s['service']} | {f} | {t} | {s['relation'] or '?'}{(' · ' + extra) if extra else ''} | {source_cell(s)} |")
     L.append("")
     c = r["counts"]
     L.append(f"{c['commits']} commit(s) · {c['tickets']} ticket(s) · evidence read since {(r['evidence'] or {}).get('since')} · findings: " + ", ".join(f"{k} {v}" for k, v in c["findings"].items() if v))
@@ -1213,7 +1261,7 @@ def render_gate(r):
     hosts = r["lanes"].get("hosts_read") or {}
     L.append(f"# MH {r['line']} deploy gate: {r['from']} → {r['to']}  ·  {r['generated_at']}")
     L.append("")
-    L.append("hosts read: " + ", ".join(f"{h} {'ok' if ok else 'UNREADABLE'}" for h, ok in sorted(hosts.items()))
+    L.append("hosts read: " + ", ".join(f"{h} {host_read_word(ok)}" for h, ok in sorted(hosts.items()))
              + f" · evidence since {(r['evidence'] or {}).get('since')}")
     c = r["counts"]
     L.append(f"{c['commits']} commit(s) · {c['tickets']} ticket(s) · findings: "
@@ -1222,13 +1270,13 @@ def render_gate(r):
     L.append("")
     L.append("## 1 · What really changes")
     L.append("")
-    L.append(f"| service | {r['from']} | {r['to']} | relation | range | commits | diff |")
-    L.append("|---|---|---|---|---|---|---|")
+    L.append(f"| service | {r['from']} | {r['to']} | relation | source | range | commits | diff |")
+    L.append("|---|---|---|---|---|---|---|---|")
     for s in r["lanes"]["services"]:
         d = next((x for x in r["delta"]["services"] if x["service"] == s["service"]), {}) or {}
         fb, tb = d.get("from_build") or {}, d.get("to_build") or {}
         rng = f"{(tb.get('sha') or '?')[:8]}..{(fb.get('sha') or '?')[:8]}" if (fb or tb) else (d.get("note") or "—")
-        L.append(f"| {s['service']} | {short(s['from'])} | {short(s['to'])} | {s['relation'] or '?'} | {rng} | "
+        L.append(f"| {s['service']} | {short(s['from'])} | {short(s['to'])} | {s['relation'] or '?'} | {source_cell(s)} | {rng} | "
                  f"{len(d.get('commits') or [])} | {d.get('shortstat') or '—'} |")
 
     L.append("")

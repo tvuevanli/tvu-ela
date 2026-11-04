@@ -19,7 +19,12 @@ $P close                                                                        
 ```
 `<line>` is a key of `<elak>/map/release.yaml lines`; `<from>`/`<to>` are lane roles (qa · daily · prod) or lane
 names. Exit 3 means a lane could not be read — for daily/stage/prod that is the person's TVU session: tell Evan
-to type `! ela login tvu` and stop; never read a cache or another system's file instead.
+to type `! ela login tvu` and stop; never read a cache or another system's file instead. The qa host is the exception
+since 2026-11-04 (the QA environment no longer admits ela's account): a QA lane's rows then come from QA's report mails
+and the day's release thread, as the brief keeps them in the last saved lane read (`host: mail`, `reported` or
+`built`), the gap `host_from_mail` names the source and its newest time (a medium finding, not a stop), and the
+version table's `source` column says so per service. With no report or release naming the lanes it is unreadable as
+before.
 
 ## Invariants
 - **Every source is checked against another.** A commit's ticket is the key in its subject (the body's key only
@@ -30,7 +35,9 @@ to type `! ela login tvu` and stop; never read a cache or another system's file 
   person, a result line or the close/reopened list in a QA report mail, a QA Slack message — quoted with source
   and date. Never re-derive a pass rate; never infer a pass from silence.
 - **The to-lane is read live or declared unreadable.** Any lane ahead of the target (prod ahead of daily) is
-  reported; a target lane ahead of the source stops the promotion until explained.
+  reported; a target lane ahead of the source stops the promotion until explained. A from-lane that is a QA lane may
+  be QA's word (its report's environment block) or the release's (the thread, the `[Release Mediahub QA-AWS3]` mail)
+  when the host is unreadable; the post says which, with the time.
 - **Facts here, decisions there.** The post this skill produces is step 1 of the promotion thread (elak `blueprint/decisions/2026-09-04-promotion-thread-three-steps.md`): title = the object, body =
   versions, changes **grouped by change** with the services carrying each and its QA state, *Open points* as
   questions, mentioning only Evan. No verdict, no "known issue", nothing attributed to Evan before he writes it
