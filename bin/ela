@@ -153,6 +153,9 @@
   ela vault marks [--dry-run]      finish the to-read notes whose done or drop box you ticked
   ela vault afterwards [--since D] [--json]   what happened after a note left to-read (its posted threads' replies, its
                                    keys' moves), one dated line a day under its Afterwards; the runner calls it at 13:00, 17:30, 19:00
+  ela project list|show KEY|new KEY --deadline D|keys KEY --add MH-…   the projects (projects/<key>/ in the vault): each
+                                   with its deadline, days left and open asks; one page's state; a new folder and page
+                                   with the head skeleton; the keys its page watches (ela vault sync renders the page)
   ela secret NAME                  in your terminal: a credential typed at a prompt that does not echo, written to
                                    the site env file; never paste a token into a chat
   ela route <KEY>                  the routing facts: [Layer] token, ids, signal words per layer,
@@ -221,7 +224,7 @@ VERBS = {
     "sentry": ("sentry", None),
     "promote": ("promote", None), "runtime": ("runtime", None),
     "recent": ("recent", None), "train": ("train", None),
-    "onething": ("onething", None),
+    "onething": ("onething", None), "project": ("project", None),
     "brief": ("brief", "lanes"), "yesterday": ("brief", "yesterday"), "changes": ("brief", "changes"), "matrix": ("brief", "matrix"), "page-check": ("brief", "page-check"), "day": ("brief", "day"), "meeting": ("brief", "meeting"), "ticket": ("ticket", None), "review": ("review", None), "vault": ("vault", None), "note": ("vault", "note"), "secret": ("setup", "secret"),
     "mr": ("mr", "create"), "mr-preflight": ("mr", "preflight"),
     "sessions": ("sessions", "find"), "session": ("sessions", None),
