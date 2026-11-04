@@ -1,0 +1,43 @@
+# A fixture of the published release.yaml: the blocks the service map reads, in the subset release.py parses.
+verified: '2026-09-04'
+
+service_ids:                      # userservice (prod) service id → [[component, field], …]
+  dc517f04aaaa4bbbcccc000011112222: [["mediahub-backend", "backendVersion"], ["mediahub-frontend", "frontendVersion"]]
+  a9305b63aaaa4bbbcccc000011112222: [["j2n", "backendVersion"]]
+
+qa_service_ids:
+  09bda8fcaaaa4bbbcccc000011112222: [["mediahub-backend", "backendVersion"], ["mediahub-frontend", "frontendVersion"]]
+
+jobs:                             # Jenkins job → service
+  media-hub-v4: mediahub-backend
+  mediahub-front-docker: mediahub-frontend
+  orchestration-docker: orchestration
+
+repos:                            # service → checkout
+  mediahub-backend: web/tvu-media-hub
+  mediahub-frontend: web/media-hub-front
+  orchestration: web/orchestration
+
+gateway_versions:
+  orchestration:
+    path: "/orchestration-{token}/base/version"
+    lanes: {"daily-wed": {"site_service": "gateway-test", "token": "wed"}, "prod-3": {"site_service": "gateway", "token": "prod3"}}
+
+version_rules:
+  app_layer:
+    slugs: ["mediahub-backend", "mediahub-frontend"]
+    grammar: "M.m.SUB[.PATCH][+BUILD]"
+  semver_build:
+    slugs: ["ur-portal", "j2n"]
+    default_for: every docker image not listed elsewhere
+    grammar: "M.m.p+SUFFIX"
+    patch_only: ["ur-portal", "j2n"]
+
+fixed_in:
+  field: customfield_11252
+  grammar: "<slug>@<version>[; <slug>@<version> ...]"
+  canonical_version: "M.m.p+BUILD"
+  grandfathered_forms: ["bare build N — read as 0.0.0+N", "legacy short slugs mh-*, um-*, ur-streaming on historical entries"]
+  patch_only_dot_form: "ur-portal@1.8.8.640 means ur-portal@1.8.8+640 — the trailing segment is the build; normalise to + when writing"
+  docker_form: "mds-<slug>@<image>:<tag> — the image qualifier is mandatory"
+  same_slug_twice: the effective build is MAX inside one series; entries in different series are evaluated independently

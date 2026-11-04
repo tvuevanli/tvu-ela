@@ -976,4 +976,65 @@ check("no project, no projects link", "projects:" not in V.home(td, datetime.dat
 check("the readme's layout names projects/, the base has a Projects view and a project column",
       "projects" in V.layout_folders() and "name: Projects" in V.VIEWS["all-notes"] and 'file.hasProperty("project")' in V.VIEWS["all-notes"]
       and "order: [date, formula.note, type, project, status, next]" in V.VIEWS["all-notes"] and "project" in V.PROPS)
+
+# the service map: one living page from the published map (site.json `map`), its Review section the owner's
+check("the service map is a living page of the page family with a 2,500-word budget, and lives only at ela/service-map.md",
+      V.TYPE_FAMILY.get("services") == "page" and V.BUDGET.get("services") == 2500 and V.type_lint(V.SERVICES_PAGE, "services") is None
+      and V.type_lint("to-read/service-map.md", "services") is not None and "`ela/service-map`" in V.README)
+with tempfile.TemporaryDirectory() as tmp:
+    ELAK, reports, vault, runtime = (os.path.join(tmp, d) for d in ("elak", "reports", "vault", "runtime"))
+    for d in (ELAK + "/blueprint/decisions", reports + "/runner", reports + "/ela", vault + "/ela", runtime):
+        os.makedirs(d)
+    open(f"{ELAK}/blueprint/decisions/2026-01-01-d.md", "w").write("---\nreader: owner\nstatus: proposed\n---\n# D\n\nText.\n")
+    git("init", "-q"); git("add", "."); git(SAVE, "-qm", "x")
+    fixtures = os.path.join(ROOT, "tests", "fixtures", "map")
+    check("no published map, no page", V.services_note({"map": os.path.join(tmp, "none")}, vault, datetime.date.today()) is None)
+    page = os.path.join(vault, "ela", "service-map.md")
+    open(page, "w").write('---\ntitle: "The service map for review"\ntype: "report"\ndate: "2026-11-04"\nsource: "vault"\nstatus: "proposed"\nela: ""\n---\n'
+                          "# The service map for review\n\n*Written by the desk.*\n\n## The Fixed In grammar\n\n- the old grammar text\n\n"
+                          "## Docker images and their services\n\n| old |\n|---|\n| `copier` |\n\nela: the copier owner is wrong\n\n"
+                          "## Review items from this week\n\n- [x] MH-1 carried a swapped slug.\n- [ ] MH-2 confirm the prod id.\n\nela: agree to the first rule\n\n"
+                          "## What you should do\n\n- [ ] Read the tables.\n")
+    V.SITE = os.path.join(tmp, "site.json")
+    json.dump({"vault": vault, "elak": ELAK, "reports": reports, "runtime": runtime, "map": fixtures}, open(V.SITE, "w"))
+    def sync():
+        try:
+            V.cmd_sync(types.SimpleNamespace(env_file=os.path.join(tmp, "none.env"), dry_run=False, force=False, json=True)); return 0
+        except SystemExit as e:
+            return e.code or 0
+    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        code = sync()
+    text = open(page).read()
+    check("the sync writes the page as a generated note: type services, the title an alias, no longer the desk's report",
+          code == 0 and 'type: "services"' in text and 'aliases: ["The service map for review"]' in text and "source:" not in text and "status:" not in text)
+    check("the Fixed In grammar is release.yaml's, not the desk's",
+          "- Field `customfield_11252`; grammar `<slug>@<version>[; <slug>@<version> ...]`; canonical version `M.m.p+BUILD`." in text
+          and "- Docker form: `mds-<slug>@<image>:<tag> — the image qualifier is mandatory`." in text
+          and "- Grandfathered: bare build N — read as 0.0.0+N; legacy short slugs mh-*, um-*, ur-streaming on historical entries." in text
+          and "the old grammar text" not in text)
+    check("the app-layer table: repo, job, both ids shortened with their field, the grammar by rule, the Fixed In form; the gateway line",
+          "| `mediahub-backend` | `web/tvu-media-hub` | `media-hub-v4` | `dc517f04…` · backendVersion | `09bda8fc…` · backendVersion | app_layer: `M.m.SUB[.PATCH][+BUILD]` | `mediahub-backend@M.m.p+BUILD` |" in text
+          and "| `orchestration` | `web/orchestration` | `orchestration-docker` | — | — | semver_build (default): `M.m.p+SUFFIX` | `orchestration@M.m.p+BUILD` |" in text
+          and "| `j2n` | — | — | `a9305b63…` · backendVersion | — | semver_build: `M.m.p+SUFFIX` | `j2n@M.m.p+BUILD` |" in text
+          and "Orchestration publishes no lane version in userservice; its version is read through the API gateway at `/orchestration-{token}/base/version` per lane token (2 lanes)." in text)
+    check("the docker table is folded under the counts, one row per GM service, the image, class, repos and owner on the first row only",
+          "> [!note]- 2 images · 3 services\n> | image (class) | slug | GM name | process type | MQTT topic | service id | status | repo | owner |\n> |---|---|---|---|---|---|---|---|---|\n"
+          "> | `copier` (mds-wrapped) | `mds-srt-copier` | Docker Srt Copier | `srt_copier` | `docker_srt_copier` | `04b1ff59…` | Deployed | `media/tvu264`<br>`media/mediaboxPlugins` | Owner A |\n"
+          "> |  | `mds-udp-copier` | Docker Udp Copier | `udp_copier` | `docker_udp_copier` | `131519da…` | Deployed |  |  |\n"
+          "> | `output` (?) | `mds-ai-sender` | Docker Sender | `Sender` | — | (no prod serviceId — 2.1 daily 23ffedf6…) | Deployed (2.1 daily + QA) | `media/AI/Output` |  |\n" in text
+          and "\n2 images, 3 GM services.\n" in text and "| old |" not in text)
+    check("the desk's sections become the Review section, kept as written one level down, ticks and ela: lines with them",
+          "## Review\n\n### Review items from this week\n\n- [x] MH-1 carried a swapped slug.\n- [ ] MH-2 confirm the prod id.\n\nela: agree to the first rule\n\n### What you should do\n\n- [ ] Read the tables.\n" in text
+          and text.count("\n## Review\n") == 1)
+    check("an ela: line under a generated section is kept at the end of that section, and once",
+          text.count("ela: the copier owner is wrong") == 1 and text.index("2 images, 3 GM services.") < text.index("ela: the copier owner is wrong") < text.index("## Review"))
+    check("the page is within its budget: the fold is not counted", V.reading_gate(V.Note(V.SERVICES_PAGE, "x", V.split_front(text)[1], {"type": "services"})) == [])
+    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        sync()
+    check("a second sync writes the same page", open(page).read() == text)
+    open(page, "a").write("\nela: drop the second item\n\n### Later\n\nA note of mine.\n")
+    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        sync()
+    text3 = open(page).read()
+    check("what he adds under Review is kept as written on the next sync", text3.endswith("ela: drop the second item\n\n### Later\n\nA note of mine.\n") and text3.count("### Later") == 1)
 sys.exit(1 if failures else 0)

@@ -1,0 +1,33 @@
+verified: '2026-09-09'
+source: 'a fixture of the published services.yaml: a prose header, then one block per image with JSON-in-YAML rows'
+note: '`slug` is Helm''s naming convention, adopted by ela; `gm_name` is what GM actually registers; `service_id` is GM''s id.'
+images:
+  copier:
+    arch: {"class": "mds-wrapped", "adapter": "copierIface", "image_installs_mediabox": true, "evidence": "read in the fixture"}
+    shm: {"in": null, "out": null, "settles_it": "not read"}
+    owners: ["Owner A"]
+    slugs: ["mds-srt-copier", "mds-udp-copier"]
+    gm_names: ["Docker Srt Copier", "Docker Udp Copier"]
+    process_types: ["srt_copier", "udp_copier"]
+    services:
+      - {"slug": "mds-srt-copier", "gm_name": "Docker Srt Copier", "service_id": "04b1ff59aaaa4bbbcccc000011112222", "process_type": "srt_copier", "mqtt_topic": "docker_srt_copier", "status": "Deployed"}
+      - {"slug": "mds-udp-copier", "gm_name": "Docker Udp Copier", "service_id": "131519daaaaa4bbbcccc000011112222", "process_type": "udp_copier", "mqtt_topic": "docker_udp_copier", "status": "Deployed"}
+    repos:
+      - gitlab: media/tvu264
+        role: module source
+      - gitlab: media/mediaboxPlugins
+        role: plugins/<module>Iface — the plugin adapter
+      - gitlab: media/mediabox
+        role: host process every media docker runs as
+  output:
+    arch: {"class": null, "adapter": "none found", "image_installs_mediabox": "not read", "settles_it": "clone and read the Dockerfile"}
+    shm: {"in": null, "out": null, "settles_it": "not read"}
+    owners: []
+    slugs: ["mds-ai-sender"]
+    gm_names: ["Docker Sender"]
+    process_types: ["Sender"]
+    services:
+      - {"slug": "mds-ai-sender", "gm_name": "Docker Sender", "service_id": "(no prod serviceId — 2.1 daily 23ffedf6aaaa4bbbcccc000011112222)", "process_type": "Sender", "mqtt_topic": "—", "status": "Deployed (2.1 daily + QA)"}
+    repos:
+      - gitlab: media/AI/Output
+        role: module source

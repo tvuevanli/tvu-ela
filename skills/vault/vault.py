@@ -94,14 +94,14 @@ PROPS = ("title", "aliases", "type", "date", "kind", "project", "deadline", "nex
 # the whole vocabulary; no tags (ADR 0010)
 MARKS = {"done": ARCHIVE, "drop": None}   # archive, delete; a drop of a reading something links archives it instead
 BUDGET = {"ticket": 700, "topic": 800, "guide": 1200, "board": 1000, "day": 1200, "review": 2500, "decision": 800, "plan": 800, "sprint": 800, "report": 1200,
-          "recent": 1200, "train": 1200, "one-thing": 1200, "project": 1200}
+          "recent": 1200, "train": 1200, "one-thing": 1200, "project": 1200, "services": 2500}
 # the closed set of note types, by family (the readme's Types): for his word, readings, living pages, day pages.
 # A type outside it, or a family outside its folders, is a lint line on the sync, never a failure.
 TYPE_FAMILY = {"decision": "decision", "plan": "plan", "sprint": "plan",
                "ticket": "reading", "review": "reading", "verify": "reading", "verify-plan": "reading",
                "home": "page", "board": "page", "lanes": "page", "recent": "page", "one-thing": "page", "test-list": "page", "dev-list": "page", "train": "page", "program": "page",
                "guide": "page", "vocabulary": "page", "system": "page", "constraints": "page", "readme": "page", "meeting": "page",
-               "report": "page", "project": "page",
+               "report": "page", "project": "page", "services": "page",
                "day": "day", "reader": "day"}
 FAMILY_FOLDERS = {"decision": ("to-read", "in-progress", "parked", "archive"), "plan": ("to-read", "in-progress", "parked", "archive", "sprints"),
                   "reading": ("readings", "to-read", "archive", "projects")}   # a reading waits in to-read while it asks his word; a project keeps its own
@@ -189,6 +189,7 @@ list and writing your `ela:` priority lines; the 09:30 or 10:00 pass then sends 
 | `sprints/` | the sprints, each a plan | look at a sprint's start and end |
 | `meetings/` | one note per meeting: what you raise there, its send box, and what it ruled (30 days; older months in `archive/`) | look before the meeting; tick send, or answer an item with an `ela:` line after it |
 | `ela/` | the ela page (its measures, parts, schedule and week written by the sync; Waiting for your word, What changed for MediaHub this week and Known limits written by the desk), how ela runs, this page, the table view; attachments, hidden | rarely |
+| `ela/service-map` | the service map from the published map: every slug ela uses, what GM registers it as, its id, repo and Jenkins job, the Fixed In grammar; the docker table folded; its Review section yours, kept as written | review a row; write `ela:` under one that is wrong and ela corrects the map on your word |
 | `mediahub-bot/` | MediaHub's product bot, not ela: its design, answer contract, knowledge pack, the files it will commit (`files/`), its eval set (`eval/`) and the evidence (`evidence/`); the source until its repositories exist, then pointers | rule the design; confirm eval cases |
 | `ela/review/` | the evening reader pages | read in the evening |
 | `archive/` | what was acted on or you chose to keep; ela adds to it and keeps its status current, never its text, except the Afterwards it appends | look back (all notes, *Archive*); ask ela to tidy it |
@@ -223,7 +224,8 @@ the file explorer is rarely needed.
   in-progress, parked or archive. Readings: `ticket`, `review`, `verify` and `verify-plan` (checks), in readings,
   or in to-read while one asks your word (a verification waiting for its record on Jira, a review with open
   asks). Pages that live: home, board, lanes, recent, one-thing, test-list,
-  dev-list, train, program, the ela page (`guide`), vocabulary, system, constraints, readme, meeting, `report`: a
+  dev-list, train, program, the ela page (`guide`), vocabulary, system, constraints, readme, meeting, `services` (the
+  service map, `ela/service-map`, from the published map, its Review section yours), `report`: a
   standing review or design for your decision that does not move, in any folder, its evidence in folds, ruled in
   place with an `ela:` line (status proposed, decided or superseded), and `project`: a project's page,
   `projects/<key>/<key>.md`, its head yours above *Waiting for your word* and its tail the sync's from there (Notes,
@@ -239,7 +241,7 @@ the file explorer is rarely needed.
 ## Reading budgets
 
 A note is written for a person: a title heading, within its budget (day page 1,200 words, review 2,500,
-sprint 800, a decision or a plan 800, a report 1,200, the recent page 1,200, a project page 1,200; the reader page's Learned five lines), mostly prose, no machine paths. The budget counts what stands open: a folded callout (`> [!note]- …`
+sprint 800, a decision or a plan 800, a report 1,200, the recent page 1,200, a project page 1,200, the service map 2,500; the reader page's Learned five lines), mostly prose, no machine paths. The budget counts what stands open: a folded callout (`> [!note]- …`
 and the quoted lines under it) is read on demand and is not counted, for every type, so a page keeps its
 detail in folds and its weight above them. A note that misses is still here, under a warning, and Home lists
 it for 30 days as a rewrite ela owes; a past day page is the morning's record and is not listed.
@@ -1179,6 +1181,8 @@ def type_lint(path, kind):
         return f"{path}: a guide is the ela page and belongs in {ELA}/"
     if kind == "project" and not PROJECT_PAGE.match(path):
         return f"{path}: a project page is {PROJECTS}/<key>/<key>.md"
+    if kind == "services" and path != SERVICES_PAGE:
+        return f"{path}: the service map is {SERVICES_PAGE}"
     return None
 
 
@@ -1988,7 +1992,8 @@ def overview_note(s, vault, today):
           f"| ela | {skills} and the `ela` verbs, in every Claude session |",
           "| ela-runner | the clock, the vault watcher, the Slack front door, the judge sessions |",
           "| the vault | your desk: Home, the morning page, readings, decisions and plans |",
-          "| elak | facts and knowledge, written on your word |", "| published | the redacted subset Helm and colleagues read |",
+          "| elak | facts and knowledge, written on your word |",
+          "| published | the redacted subset Helm and colleagues read; its service map, for your review: [[ela/service-map\\|service map]] |",
           "| Helm | the builds ledger and the live release views |", ""]
     L += ["## The schedule", ""]
     timers = run_out(["systemctl", "--user", "list-timers", "--all", "--no-legend", "--no-pager"])
@@ -2323,7 +2328,7 @@ def native_notes(vault):
                 if m:
                     props[m.group(1)] = m.group(2)
             rel = os.path.relpath(p, vault).replace(os.sep, "/")
-            if rel == OVERVIEW or PROJECT_PAGE.match(rel):   # generated: the ela page's hand sections and a project page's head kept
+            if rel in (OVERVIEW, SERVICES_PAGE) or PROJECT_PAGE.match(rel):   # generated: the ela page's hand sections, the service map's Review and a project page's head kept
                 continue
             out.append(Note(rel, props.pop("title", None) or h1(body) or f[:-3], body, props, fl))
     return out
@@ -2369,6 +2374,174 @@ def vocabulary_note(elak):
                 src_rel="elak:map/jira-labels.yaml")
 
 
+# the service map: one living page, ela/service-map.md, written from the published map (site.json `map`: services.yaml
+# and release.yaml, never elak directly) so the slugs ela uses never drift from it; the owner's Review section is his
+SERVICES_PAGE = f"{ELA}/service-map.md"
+SERVICES_TITLE = "The service map for review"
+SERVICES_HEAD = "## Review"
+SERVICES_GENERATED = ("The Fixed In grammar", "App-layer services (SaaS)", "Docker images and their services")
+HEX_ID = re.compile(r"\b([0-9a-f]{8})[0-9a-f]{24}\b")
+
+
+def services_map(path):
+    """The published services.yaml, read the way brief.py reads it: a prose header, then `  <image>:` blocks whose
+    `arch:` is JSON, whose `owners:` is a JSON list, whose service rows are `- {…}` and whose repos are `- gitlab:`
+    lines. Not strict YAML, so no YAML reader; the regexes are the contract. None when the file is not there."""
+    try:
+        text = open(path, encoding="utf-8").read()
+    except OSError:
+        return None
+    out, image = {"verified": None, "images": {}}, None
+    for line in text.splitlines():
+        m = re.match(r"^verified:\s*['\"]?([\d-]+)", line)
+        if m and not out["verified"]:
+            out["verified"] = m.group(1)
+        h = re.match(r"^  ([\w.-]+):\s*$", line)
+        if h:
+            image = out["images"].setdefault(h.group(1), {"class": None, "owners": [], "services": [], "repos": []})
+            continue
+        if image is None:
+            continue
+        m = re.match(r"^    (arch|owners):\s*(\{.*\}|\[.*\])\s*$", line)
+        if m:
+            try:
+                v = json.loads(m.group(2))
+            except ValueError:
+                continue
+            if m.group(1) == "arch" and isinstance(v, dict):
+                image["class"] = v.get("class")
+            elif m.group(1) == "owners" and isinstance(v, list):
+                image["owners"] = [str(x) for x in v]
+            continue
+        m = re.match(r"^\s+- (\{.*\})\s*$", line)
+        if m:
+            try:
+                row = json.loads(m.group(1))
+            except ValueError:
+                row = None
+            if isinstance(row, dict) and row.get("slug"):
+                image["services"].append(row)
+            continue
+        m = re.match(r"^\s+- gitlab:\s*(\S+)", line)
+        if m:
+            image["repos"].append(m.group(1))
+    return out
+
+
+def services_review(body):
+    """The owner's Review section as written on disk: everything from `## Review` to the end, verbatim, the way a
+    project page keeps its head. A section of his above it, or every section of his when there is no Review yet (the
+    desk's first write), is kept under it one level down, so the next sync finds it there."""
+    m = re.search(r"^" + re.escape(SERVICES_HEAD) + r"[ \t]*$", body or "", re.M)
+    head = body[:m.start()] if m else (body or "")
+    kept = body[m.start():].rstrip("\n") + "\n" if m else ""
+    extra = [t.rstrip("\n") for h, t in sections(head) if h and h not in SERVICES_GENERATED]
+    if not kept:
+        kept = SERVICES_HEAD + "\n" + ("" if extra else "\nNothing yet: write your review here, or an `ela:` line under a row; "
+                                                          "this section is kept as written.\n")
+    for t in extra:
+        kept += "\n#" + t + "\n"
+    return kept
+
+
+def services_note(s, vault, today):
+    """The service map as one living page, from the published map: the Fixed In grammar (release.yaml `fixed_in`),
+    the app-layer services (`repos`, `jobs`, `service_ids`, `qa_service_ids`, `version_rules`) and every docker
+    image's GM services (services.yaml `images:`), folded so the page reads short; the Review section his, kept
+    as written. None when the published map has no services.yaml."""
+    mdir = s.get("map") or ""
+    m = services_map(os.path.join(mdir, "services.yaml"))
+    if m is None:
+        return None
+    sys.path.insert(0, os.path.join(HERE, "..", "release"))
+    from release import _yaml_subset
+    try:
+        r = _yaml_subset(open(os.path.join(mdir, "release.yaml"), encoding="utf-8").read()) or {}
+    except OSError:
+        r = {}
+    try:
+        _, disk = split_front(open(os.path.join(vault, SERVICES_PAGE), encoding="utf-8").read())
+    except OSError:
+        disk = ""
+
+    def cell(x):
+        return str(x if x is not None else "").replace("|", "/").replace("\n", " ").strip()
+
+    def short(x):
+        x = cell(x)
+        if not x or x == "—":
+            return "—"
+        return f"`{HEX_ID.sub(r'\1…', x)}`" if HEX_ID.fullmatch(x) else HEX_ID.sub(r"\1…", x)
+    L = [f"# {SERVICES_TITLE}", "",
+         f"*Written by the sync from the published map, `map/services.yaml` (verified {m.get('verified') or '?'}) and "
+         f"`map/release.yaml` (verified {r.get('verified') or '?'}), for your review: every slug ela uses, what GM registers "
+         "it as, its id, its repo and Jenkins job, and the form a Fixed In entry takes. Three words are kept apart on purpose: "
+         "the **slug** is ela's and Helm's name, the **GM name** is what GM registers, the **service id** is GM's id. The page "
+         "is written again on every sync; your `ela:` lines under a row change the map on your word, and the Review section "
+         "at the end is yours, kept as written.*", ""]
+    fx = r.get("fixed_in") or {}
+    L += [f"## {SERVICES_GENERATED[0]}", ""]
+    if not fx:
+        L += ["The release map is not published; the grammar and the app-layer table wait for it.", ""]
+    else:
+        L += [f"- Field `{cell(fx.get('field'))}`; grammar `{cell(fx.get('grammar'))}`; canonical version `{cell(fx.get('canonical_version'))}`.",
+              f"- Docker form: `{cell(fx.get('docker_form'))}`.",
+              f"- Patch-only dot form: {cell(fx.get('patch_only_dot_form'))}.",
+              f"- Same slug twice: {cell(fx.get('same_slug_twice'))}.",
+              "- Grandfathered: " + "; ".join(cell(x) for x in (fx.get("grandfathered_forms") or [])) + ".", ""]
+    vr = r.get("version_rules") or {}
+    app, sem = vr.get("app_layer") or {}, vr.get("semver_build") or {}
+    ids, qids, jobs, repos = r.get("service_ids") or {}, r.get("qa_service_ids") or {}, r.get("jobs") or {}, r.get("repos") or {}
+    by_slug, qa_by_slug = {}, {}
+    for table, dst in ((ids, by_slug), (qids, qa_by_slug)):
+        for sid, pairs in table.items():
+            for pair in pairs or []:
+                if isinstance(pair, list) and len(pair) == 2:
+                    dst.setdefault(pair[0], (sid, pair[1]))
+    slugs = list(dict.fromkeys(list(repos) + list(by_slug) + list(qa_by_slug)))
+    canonical = cell(fx.get("canonical_version")) or "M.m.p+BUILD"
+    L += [f"## {SERVICES_GENERATED[1]}", "",
+          "| slug | repo | Jenkins job | prod userservice id · field | QA userservice id · field | version grammar | Fixed In form |",
+          "|---|---|---|---|---|---|---|"]
+    for sl in slugs:
+        job = next((j for j, v in jobs.items() if v == sl), None)
+        prod, qa = by_slug.get(sl), qa_by_slug.get(sl)
+        if sl in (app.get("slugs") or []):
+            grammar = f"app_layer: `{cell(app.get('grammar'))}`"
+        elif sl in (sem.get("slugs") or []):
+            grammar = f"semver_build: `{cell(sem.get('grammar'))}`"
+        else:
+            grammar = f"semver_build (default): `{cell(sem.get('grammar')) or 'M.m.p+SUFFIX'}`"
+        L.append(f"| `{sl}` | {f'`{cell(repos[sl])}`' if repos.get(sl) else '—'} | {f'`{job}`' if job else '—'} | "
+                 f"{f'{short(prod[0])} · {cell(prod[1])}' if prod else '—'} | {f'{short(qa[0])} · {cell(qa[1])}' if qa else '—'} | "
+                 f"{grammar} | `{sl}@{canonical}` |")
+    L.append("")
+    for name, gw in (r.get("gateway_versions") or {}).items():
+        if isinstance(gw, dict) and gw.get("path"):
+            L += [f"{sentence(name)} publishes no lane version in userservice; its version is read through the API gateway at "
+                  f"`{cell(gw['path'])}` per lane token ({len(gw.get('lanes') or {})} lanes).", ""]
+    images = m["images"]
+    n_services = sum(len(i["services"]) for i in images.values())
+    L += [f"## {SERVICES_GENERATED[2]}", "",
+          "One row per GM service; the image is the codebase and the Fixed In's `<image>:<tag>` qualifier, its class as the "
+          "map records it (`?` where the map has not settled it). Repos are the first two the map lists; owners as the map records them.", "",
+          f"> [!note]- {len(images)} images · {n_services} services",
+          "> | image (class) | slug | GM name | process type | MQTT topic | service id | status | repo | owner |",
+          "> |---|---|---|---|---|---|---|---|---|"]
+    for name in sorted(images):
+        im = images[name]
+        first = [f"`{cell(name)}` ({cell(im['class']) or '?'})", "<br>".join(f"`{cell(x)}`" for x in im["repos"][:2]), ", ".join(cell(x) for x in im["owners"])]
+        rows = im["services"] or [{}]
+        for i, sv in enumerate(rows):
+            lead, repo, owner = first if i == 0 else ("", "", "")
+            topic = cell(sv.get("mqtt_topic"))
+            L.append(f"> | {lead} | `{cell(sv.get('slug'))}` | {cell(sv.get('gm_name'))} | `{cell(sv.get('process_type'))}` | "
+                     f"{f'`{topic}`' if topic and topic != '—' else '—'} | {short(sv.get('service_id'))} | {cell(sv.get('status'))} | {repo} | {owner} |")
+    L += ["", f"{len(images)} images, {n_services} GM services.", "", services_review(disk)]
+    return Note(SERVICES_PAGE, SERVICES_TITLE, "\n".join(L), {"type": "services", "date": today.isoformat()},
+                src_rel="published:map/services.yaml")
+
+
 def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since=None, dry_run=False):
     reports = s.get("reports")
     enotes, titles = elak_notes(s.get("elak"))
@@ -2402,6 +2575,9 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since
     vocab = vocabulary_note(s.get("elak"))
     if vocab:
         notes.append(vocab)
+    smap = services_note(s, s["vault"], today)
+    if smap:
+        notes.append(smap)
     taken = set()
     for n in notes:                                        # one note per path; a namesake gets -2, never an overwrite
         stem, i = n.path[:-3], 2
