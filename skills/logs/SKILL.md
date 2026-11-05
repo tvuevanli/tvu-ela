@@ -16,6 +16,12 @@ needs `ela login tvu`, and exit 4 names it.
   logs under its own; say which reads came back empty.
 - **Times are UTC.** Output prints UTC and local; the java-log's clock is UTC, so `--at` is UTC unless
   an offset is given.
+- **Loki has a process's text, not every body it wrote.** The syncer ships only lines carrying the
+  `[YYYYMMDD hh:mm:ss.mmm L]` prefix, so a multi-line body written without it (the copier's `sent metrics
+  json: {`, `send SRT conn status: {`; decoderMediaBox's `…,json:`) arrives as its first line only. `loki`
+  marks such a line `⟂ body not in Loki` (`body_cut` in `--json`), or `⟂?` when a `--grep` may have filtered
+  the body out. Never read an empty result for those bodies as "no data": a copier's SRT statistics are in
+  Observer's metrics history, not here (verified against the file on the box, 2026-11-05).
 
 ## The steps
 

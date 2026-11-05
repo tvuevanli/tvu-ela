@@ -365,6 +365,47 @@ def cmd_java(a):
 
 # ── Loki through Observer ────────────────────────────────────────────────────
 
+# A record that opens a multi-line body: the message ends with an opener and the body follows on the
+# next lines of the file. The syncer ships only lines carrying the `[YYYYMMDD hh:mm:ss.mmm L]` prefix,
+# so a body written without that prefix on each line (copier's `sent metrics json: {`, decoderMediaBox's
+# `…,json:`) never reaches Loki; a body whose every line is prefixed (playeroftvu's `playerStatus:{`)
+# does. Verified 2026-11-05 against the files on the box (copier 6f7dc1a6, decoderMediaBox f282537c).
+BODY_OPENER = re.compile(r"(\{|\[|json:)\s*$", re.I)
+LOG_PREFIX = re.compile(r"^\[\d{8} \d{2}:\d{2}:\d{2}\.\d{3} \w\] - ")
+THREAD_TAG = re.compile(r"^\[t:\d+\]-")
+
+
+def _message(line):
+    """The message after the `[time L] - ` prefix and a playeroftvu `[t:N]-` thread tag."""
+    return THREAD_TAG.sub("", LOG_PREFIX.sub("", line, count=1), count=1)
+
+
+def _same_ms_key(l):
+    m = LOG_PREFIX.match(l["line"])
+    return (l["pid"], l["file"], l["line"][:m.end() - 6] if m else None)  # `[YYYYMMDD hh:mm:ss.mmm`
+
+
+def mark_cut_bodies(lines, filtered):
+    """Set `body_cut` on each line: True when it opens a multi-line body and no continuation line of the
+    same file was read in the same millisecond (the body is not in Loki); None when the read was filtered,
+    so the continuation may only have been filtered out; False otherwise. Returns how many were marked."""
+    groups = {}
+    for l in lines:
+        groups.setdefault(_same_ms_key(l), []).append(l)
+    n = 0
+    for l in lines:
+        l["body_cut"] = False
+        if not BODY_OPENER.search(_message(l["line"])):
+            continue
+        continued = any(s is not l and (_message(s["line"])[:1].isspace() or _message(s["line"]).lstrip()[:1] in ("}", "]"))
+                        for s in groups.get(_same_ms_key(l), []))
+        if continued:
+            continue
+        l["body_cut"] = None if filtered else True
+        n += 1
+    return n
+
+
 def cmd_loki(a):
     if not (a.pid or a.service or a.query):
         die("loki needs --pid, --service or --query", EX_USAGE)
@@ -388,7 +429,7 @@ def cmd_loki(a):
     for g in a.grep or []:
         q += " |= `%s`" % g
     st, body = request(base + "/api/observer/v1/log", {"Authorization": f"Bearer {tok}"},
-                       {"query": q, "start": int(s.timestamp()), "end": int(e.timestamp()) + 1, "limit": a.limit,
+                       {"query": q, "start": int(s.timestamp()), "end": min(int(e.timestamp()) + 1, int(s.timestamp()) + int(LOKI_WINDOW.total_seconds())), "limit": a.limit,
                         "direction": "backward"})
     if st in (401, 403):
         die(f"Observer refused the bearer token (HTTP {st}) — TVU_CC_BEARER_TOKEN; /ela:setup", EX_AUTH)
@@ -415,14 +456,27 @@ def cmd_loki(a):
     searched = f"Loki {q} from {show_time(s)} to {show_time(e)}"
     if not lines:
         die(f"no Loki lines — searched {searched}", EX_NOTFOUND)
+    filtered = bool(a.grep) or bool(re.search(r"\|[=~]|![=~]", q))
+    cut = mark_cut_bodies(lines, filtered)
+    note = None
+    if cut:
+        note = (f"{cut} line(s) open a multi-line body that is not in Loki — the syncer ships only "
+                f"[timestamp]-prefixed lines, so the body exists only in the file on the box"
+                if not filtered else
+                f"{cut} line(s) open a multi-line body not shown here — filtered out by this query, or not "
+                f"synced to Loki; re-read the same moment without --grep or line filters to tell")
     if a.json:
-        print(json.dumps({"searched": searched, "lines": [{**l, "time": l["time"].isoformat() if l["time"] else None} for l in lines]},
+        print(json.dumps({"searched": searched, "body_cut_note": note,
+                          "lines": [{**l, "time": l["time"].isoformat() if l["time"] else None} for l in lines]},
                          ensure_ascii=False, indent=1))
         return
     print(f"{len(lines)} line(s){' (limit reached)' if len(lines) >= a.limit else ''} · {searched}")
     for l in lines:
+        mark = {True: "  ⟂ body not in Loki", None: "  ⟂? body not shown"}.get(l["body_cut"], "")
         print(f"{show_time(l['time'])}  {l['service']}/{l['file'] or '?'}  {l['level'] or ''}  "
-              f"{l['line'] if a.verbose else l['line'][:a.width]}")
+              f"{l['line'] if a.verbose else l['line'][:a.width]}{mark}")
+    if note:
+        print(f"note: {note}")
 
 
 def main():
