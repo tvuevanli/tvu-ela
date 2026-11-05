@@ -77,6 +77,7 @@ flowchart LR
 | 从一个 bundle 出发建新 bundle（只建，绝不删）：先看和底版的差异、自动写的说明、各 lane 版本顺序（QA ≥ daily ≥ prod）的警告，我同意后再建，建完按名字读回核对 | `release` | `ela release create --from mh2.1@daily-wed-s1-d45 --set "Docker Encoder=1.0.56"` · 加 `--apply` 才建 |
 | 两个 bundle 之间 docker service 变了什么 | `release` | `ela bundle-diff <A> <B>` |
 | QA 要推 daily、daily 要上 prod | `promote` | `ela promote 2.1 qa daily` |
+| QA 报过的某个 docker 镜像能不能进 lane：引 QA 报告里的结论、报告里的单和是否阻断、各 lane 的 bundle 带的版本，结论 ready / not ready，daily lane 落后时给出建 bundle 的命令（dry run）；prod 只随发布线 promotion 走 | `docker` | `ela docker`（打印页面）· `--image tvu_live_transmit` · `--json` · `--write`（落到 reports/docker/candidates.json）· `--page`（写 lanes/docker.md） |
 | 这票的 Fixed In 该填什么，证据在哪；确认后写进去 | `fixedin` · `jira` | `ela fixed-in MH-xxxx` → `ela jira fixed-in MH-xxxx --add '<slug>@<version>; …'`（dry run，你说了再 `--apply`；只追加） |
 | 「这个接口有哪些参数」 | `apifox` | `ela api read ur "GET /v1beta1/graphs/{graphId}"` |
 | 「输出流里到底带了什么」 | `stream` | `ela stream probe <url>` · `ela stream diff <a> <b>` |

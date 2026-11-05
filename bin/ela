@@ -68,6 +68,8 @@
   ela bundle <name|id>             its bill of materials
   ela bundle-diff <A> <B>          docker services added/removed/changed between two bundles
                                    (name, id or prefix; --host-a/--host-b)
+  ela docker [--image I] [--page]   QA's docker test reports per image against the lanes' bundles: ready / not ready,
+                                   the bundle command per daily lane
   ela versions [service]           versions per env (userservice)
   ela release gateway [service]    versions userservice does not publish (orchestration), per lane via the API
                                    gateways; [--lane L] [--json]; a lane that does not answer is UNDETERMINED
@@ -231,7 +233,7 @@ VERBS = {
     "facts": ("facts", None),
     "sentry": ("sentry", None),
     "promote": ("promote", None), "runtime": ("runtime", None),
-    "recent": ("recent", None), "train": ("train", None),
+    "recent": ("recent", None), "train": ("train", None), "docker": ("docker", None),
     "onething": ("onething", None), "project": ("project", None),
     "brief": ("brief", "lanes"), "yesterday": ("brief", "yesterday"), "changes": ("brief", "changes"), "matrix": ("brief", "matrix"), "page-check": ("brief", "page-check"), "day": ("brief", "day"), "meeting": ("brief", "meeting"), "ticket": ("ticket", None), "review": ("review", None), "vault": ("vault", None), "note": ("vault", "note"), "secret": ("setup", "secret"),
     "mr": ("mr", "create"), "mr-preflight": ("mr", "preflight"),
