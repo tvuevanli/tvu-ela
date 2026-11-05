@@ -27,6 +27,10 @@ and the day's release thread, as the brief keeps them in the last saved lane rea
 version table's `source` column says so per service. With no report or release naming the lanes it is unreadable as
 before.
 
+One docker image moving on its own — QA's summary report for `copier:1.0.88`, say — is not a line's promotion:
+`ela docker [--image I]` joins that image's report to the lanes' bundles and gives ready / not ready and, for a daily
+lane behind it, the dry-run bundle command. The line's promotion stays here, and prod moves only with the line.
+
 ## Invariants
 - **Every source is checked against another.** A commit's ticket is the key in its subject (the body's key only
   when the subject has none; a body-cited key is a reference, not a carried ticket). A ticket's Fixed In is
