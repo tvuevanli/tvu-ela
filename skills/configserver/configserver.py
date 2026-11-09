@@ -16,8 +16,12 @@ explains a failure is the calling skill's judgment.
 Values are redacted, always: a key whose name carries a credential word (password, secret, token, cert, keystore,
 clientId, …) or whose last segment ends in `key`,
 a `{cipher}` value, or a value shaped like a credential (the backend's ApiKeyDetector rules, a URI with user:pass@,
-a JWT, a long base64 or hex blob) prints as `<redacted: N chars, …>`. `--json` redacts identically. There is no flag
-to turn it off; a redacted value is read by the person in the web UI. False positives are accepted.
+a JWT, a long base64 or hex blob) prints as `<redacted: N chars, …>`. A credential embedded in an otherwise printable
+value — a query or fragment parameter (key, api-key, x-api-key, token, secret, password, sig, signature, access_key),
+a header or JSON pair under such a name, user:pass@ in a URL, a Bearer/Basic token, a JWT, an AWS or AppSync key — is
+cut out in place as `<redacted>`, in every field of every record, so in every subcommand. `--json` redacts
+identically. There is no flag to turn it off; a redacted value is read by the person in the web UI. False positives
+are accepted.
 
 Source quirks, verified 2026-09-30 against webteam/config-server-backend and the live server:
   - an expired or foreign SID answers HTTP 200 with errorCode -1 and the login URL as errorInfo; that is a refused
@@ -85,13 +89,45 @@ VALUE_SHAPES = [(re.compile(f"(?<!{_B}){p}(?!{_B})"), "credential pattern") for 
     (re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"), "private key"),
     (re.compile(r"[a-z][a-z0-9+.-]*://[^\s:\"',;{}/?#@]+:[^\s@\"',;{}/?#]+@", re.I), "URI with credentials"),
     (re.compile(r"AccountKey=|\"type\"\s*:\s*\"service_account\"|hooks\.slack\.com/services/"), "credential pattern"),
-    (re.compile(r"(?:password|passwd|pwd|secret|token|accesskey|apikey)[\"']?\s*[=:]\s*[\"']?[^\s\"',;&}]{3,}", re.I),
+    (re.compile(r"(?:password|passwd|pwd|secret|token|accesskey|apikey)[\"']?\s*[=:]\s*[\"']?(?!<redacted>)"
+                r"[^\s\"',;&}]{3,}", re.I),
      "credential assignment"),
     (re.compile(r"(?<![0-9A-Fa-f])[0-9A-Fa-f]{32,}(?![0-9A-Fa-f])"), "hex blob"),
     # upper, lower and digit all present: random base64 of this length always is; a word or a lowercase path is not
     (re.compile(r"(?<![A-Za-z0-9+/_-])(?=[A-Za-z0-9+/_-]*\d)(?=[A-Za-z0-9+/_-]*[a-z])(?=[A-Za-z0-9+/_-]*[A-Z])"
                 r"[A-Za-z0-9+/_-]{32,}={0,2}"), "base64 blob"),
 ]
+
+
+# Credentials embedded inside an otherwise printable value: a route URL carrying an API key in its query, a header
+# map carrying a token. Each is cut out in place and replaced by `<redacted>`, so the rest of the value still reads.
+# The parameter names a credential sits under, in a query, a fragment, a header or a JSON/assignment pair.
+_P = (r"(?:x[-_]?)?api[-_]?key|key|[a-z0-9_-]*token|[a-z0-9_-]*secret|password|passwd|pwd|sig|signature"
+      r"|access[-_]?key(?:[-_]?id)?|secret[-_]?key|x-amz-(?:signature|credential|security-token)|authorization"
+      r"|client[-_]?secret|auth")
+RED = "<redacted>"
+_SCRUB = [
+    # ?key=… &x-api-key=… #access_token=… ;sig=…  (query, fragment, matrix parameters)
+    (re.compile(rf"([?&#;](?:{_P})=)(?!{RED})[^&#;\s\"'<>]+", re.I), r"\1" + RED),
+    # "x-api-key": "…"  'token'='…'  apiKey: …  (JSON, YAML, header maps, Java properties inside a value)
+    (re.compile(rf"([\"']?(?<![A-Za-z0-9])(?:{_P})[\"']?\s*[:=]\s*[\"']?)(?!{RED})(?!Bearer\b|Basic\b)"
+                r"[^\s\"',;&}<>]{3,}", re.I), r"\1" + RED),
+    # scheme://user:pass@host
+    (re.compile(r"([a-z][a-z0-9+.-]*://)[^\s:\"',;{}/?#@<>]+:[^\s@\"',;{}/?#<>]+@", re.I), r"\1" + RED + "@"),
+    # Authorization: Bearer … / Basic …
+    (re.compile(rf"\b(Bearer|Basic|Token)\s+(?!{RED})[A-Za-z0-9._~+/=-]{{8,}}", re.I), r"\1 " + RED),
+    # AWS AppSync API key
+    (re.compile(r"(?<![A-Za-z0-9_-])da2-[a-z0-9]{26}(?![A-Za-z0-9_-])"), RED),
+] + [(re.compile(f"(?<!{_B}){p}(?!{_B})"), RED) for p in _DETECTOR]
+
+
+def scrub(value):
+    """The value with each embedded credential replaced by `<redacted>`; non-strings pass through unchanged."""
+    if not isinstance(value, str):
+        return value
+    for rx, rep in _SCRUB:
+        value = rx.sub(rep, value)
+    return value
 
 
 def key_is_secret(key):
@@ -128,12 +164,13 @@ def shape_of(value):
 
 
 def shown(key, value):
-    """The printable form of a value: the value itself, or a redaction label that says only its length and shape."""
+    """The printable form of a value: the value with embedded credentials cut out, or — when the key names a
+    credential, or something credential-shaped survives the cut — a label that says only its length and shape."""
     if value is None:
         return None
-    why = secret_reason(key, value)
+    why = "key name" if key_is_secret(key) else secret_reason("", scrub(value))
     if not why:
-        return value
+        return scrub(value)
     tags = [f"{len(str(value))} chars"] + [t for t in (shape_of(value),) if t] + [why]
     return f"<redacted: {', '.join(tags)}>"
 
@@ -145,10 +182,10 @@ def safe_item(it, key=None):
     for f, v in it.items():
         if f in ("value", "pendingValue"):
             out[f] = shown(k, v)
-        elif f in ("remark", "pendingRemark") and v and secret_reason("", v):
+        elif f in ("remark", "pendingRemark") and v:
             out[f] = shown("", v)
         else:
-            out[f] = v
+            out[f] = scrub(v)
     return out
 
 
