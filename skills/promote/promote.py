@@ -664,10 +664,24 @@ def collect_evidence(a, tickets, delta, gaps, since=None):
         dates = [b["time"][:10] for s in delta["services"] for b in (s.get("builds_between") or [])]
         since = min(dates) if dates else (datetime.date.today() - datetime.timedelta(days=7)).isoformat()
     ev = {k: [] for k in keys}
-    # 1 jira comments
+    # 1 jira: QA's own result comments first (qajira: counts, ⚠ partial, environment block, splits followed), then the
+    # other comments for dev declarations. A QA comment is never re-classified here: qajira is the one reading of it.
+    import qajira as QJ  # noqa: E402 — same skill
+    say(f"jira: QA verdicts for {len(keys)} ticket(s), splits followed")
+    qa_jira = QJ.read(keys, a.env_file)
+    for k, v in qa_jira.items():
+        lt = v.get("latest")
+        if not lt:
+            continue
+        ev[k].append({"source": "jira", "who": lt.get("who"), "area": "qa", "when": iso_when(lt.get("when")),
+                      "verdict": lt["verdict"], "counts": lt.get("counts"), "open_points": lt.get("open_points"),
+                      "env_lane": (lt.get("env") or {}).get("lane"), "env_versions": (lt.get("env") or {}).get("versions"),
+                      "splits": v.get("splits"), "line": QJ.line(v), "quote": lt.get("head")})
     for t in tickets["tickets"]:
         for c in t.get("comments") or []:
-            if c["when"] and c["when"] < since and not c["area"] == "qa":
+            if c["area"] == "qa":
+                continue
+            if c["when"] and c["when"] < since:
                 continue
             v = classify(c["text"], c["area"])
             if c["area"] == "qa":
@@ -731,12 +745,15 @@ def collect_evidence(a, tickets, delta, gaps, since=None):
     # verdict per key: QA words win; dev words never mean verified
     summary = {}
     for k, items in ev.items():
-        qa = [i for i in items if i["verdict"] in ("pass", "fail", "n-a", "not-scheduled") and (i.get("area") == "qa" or i["source"] == "mail" and i.get("area") == "qa")]
+        qa = [i for i in items if i["verdict"] in ("pass", "partial", "accepted", "fail", "n-a", "not-scheduled") and i.get("area") == "qa"]
         qa.sort(key=lambda i: i.get("when") or "")
         final = qa[-1]["verdict"] if qa else (
             "qa-comment-unclear" if any(i["verdict"] == "qa-comment-unclear" for i in items)
             else "dev-declared" if any(i["verdict"] == "dev-declared" for i in items) else "none")
-        summary[k] = {"verdict": final, "qa_items": len(qa), "items": items}
+        jq = qa_jira.get(k) or {}
+        summary[k] = {"verdict": final, "qa_items": len(qa), "items": items, "source": qa[-1]["source"] if qa else None,
+                      "jira_line": QJ.line(jq) if jq.get("latest") or jq.get("splits") else None, "splits": jq.get("splits") or [],
+                      "status": jq.get("status")}
     return {"since": since, "keys": summary, "qa_people": sorted(qa_names)}
 
 
@@ -1266,6 +1283,9 @@ def assess(a, lanes, delta, tickets, evidence, bundles, gaps):
                 add(sev, "no_qa_verdict", f"{t['key']} [{t['status']}] {t.get('summary','')[:70]} — {len(code)} code commit(s) in {', '.join(t['services_in_delta'])}; evidence: {v}", key=t["key"])
             elif v == "fail":
                 add("high", "qa_failed", f"{t['key']} — QA's latest verdict is FAIL", key=t["key"])
+            elif v == "partial":
+                sk = (ev.get(t["key"]) or {})
+                add("medium", "qa_partial", f"{t['key']} — QA passed it with open points: {sk.get('jira_line') or 'see Jira'}", key=t["key"])
             elif v == "not-scheduled":
                 add("medium" if strict else "low", "qa_not_scheduled", f"{t['key']} — QA recorded it as not scheduled", key=t["key"])
         for fl in t["flags"]:
@@ -1499,15 +1519,15 @@ def render_gate(r):
     shown = 0
     for t in r["tickets"]["tickets"]:
         s = ev.get(t["key"]) or {}
-        if s.get("verdict") not in ("pass", "n-a"):
+        if s.get("verdict") not in ("pass", "accepted", "partial", "n-a"):
             continue
         qa = sorted([i for i in (s.get("items") or [])
-                     if i["verdict"] in ("pass", "fail", "n-a", "not-scheduled") and i.get("area") == "qa"],
+                     if i["verdict"] in ("pass", "partial", "accepted", "fail", "n-a", "not-scheduled") and i.get("area") == "qa"],
                     key=lambda i: i.get("when") or "")
         last = qa[-1] if qa else {}
         when = last.get("when") or ""
-        L.append(f"- **{t['key']}** {s['verdict']} — {last.get('who') or '?'} · {when or 'no date'} · "
-                 f"{last.get('source') or '?'} · {last.get('quote') or ''}")
+        L.append(f"- **{t['key']}** " + (s.get("jira_line") or f"{s['verdict']} — {last.get('who') or '?'} · {when or 'no date'} · "
+                 f"{last.get('source') or '?'} · {last.get('quote') or ''}"))
         later = [(x["service"], cm) for x in r["delta"]["services"] if x["service"] in (t["services_in_delta"] or [])
                  for cm in x["commits"] if when and cm["date"] > when[:10]]
         if later:
@@ -1530,7 +1550,7 @@ def render_gate(r):
             n += 1
             continue
         v = (ev.get(t["key"]) or {}).get("verdict", "none")
-        if v in ("pass", "n-a", "qa-comment-unclear"):
+        if v in ("pass", "accepted", "partial", "n-a", "qa-comment-unclear"):
             continue
         if not [cm for cm in t["commits"] if cm["kind"] not in ("docs", "chore", "test", "style")]:
             continue

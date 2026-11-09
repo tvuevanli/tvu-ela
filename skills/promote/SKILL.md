@@ -37,9 +37,15 @@ lane behind it, the dry-run bundle command. The line's promotion stays here, and
   when the subject has none; a body-cited key is a reference, not a carried ticket). A ticket's Fixed In is
   checked against the build that actually carries its commits. A ticket's status is never taken as evidence.
   Dev-declared ("deployed to QA", "fixed in build …") is **not verified**. QA's N/A is a conclusion, not a gap.
-- **QA's own words decide.** The verdict is the latest QA statement about that key — a Jira comment by a QA
-  person, a result line or the close/reopened list in a QA report mail, a QA Slack message — quoted with source
-  and date. Never re-derive a pass rate; never infer a pass from silence.
+- **QA's own words decide, read from Jira first.** The verdict is QA's latest statement about that key. Jira comes
+  first: `qajira.py` reads every ticket's latest QA-person comment (roster area qa; a copy headed by another key, or by
+  an automation account, is not this ticket's verdict). Mail reports, a QA Slack message and the train come second,
+  and the newest statement across sources wins. A result comment is pass, **partial** (⚠: both Pass and Fail counts,
+  遗漏 or ⚠️, a 待确认 count, or a 说明 / 存在的问题 line naming what is still open), fail, accepted (保持现状: the
+  described change does not ship) or n-a. Each verdict is shown with its counts, the lane and build its environment
+  block proves (`envproof`), and the tickets it split into or was cloned to, each with its own verdict and status.
+  A partial is never shown as a pass. Never re-derive a pass rate; never infer a pass from silence. On 2026-11-09 mail
+  alone missed seven build-85 verdicts (MH-3872, 3882, 3885, 3909, 3911, 3916, 3924).
 - **A test counts for a lane only when the lane is proven.** The gateway routes by the account, so "tested on Wed"
   proves nothing by itself: on 2026-11-09 a volume test "on Wed" ran through prod-3's UR Caller. The verify skill's
   rule applies to every piece of test evidence promote shows, and to any sentence of the page that says something

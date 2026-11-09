@@ -1,0 +1,33 @@
+# Synthetic QA comment shapes (paraphrased; the forms QA uses in Jira, MH tickets, 2026-10..11). One per === section.
+=== partial-with-env
+验证结果：主功能通过但有遗漏点 ⚠️ 3 Pass + 1 Fail（含回归）
+验证日期：2026-11-09
+验证环境：
+TVU MediaHub (ENV: aws-cn3-env)Beta
+Backend: v2.1.42 build274 2026-11-06 09:40:16
+Unified Resources Caller (ENV: AWSCN3)Beta
+Backend: v2.1.85 build375 2026-11-06 09:40:08
+=== pass
+验证结果：已修复 ✅ 2 Pass
+=== pass-with-note
+验证结果：已修复 ✅ 10 Pass
+说明：协议一致性校验已另开 MH-3967；平台类型读回由已有单跟踪。
+=== pending
+验证结果：前端已修复 ✅ 4 Pass + 1 待确认
+=== accepted
+验证结果：按 PM 口径保持现状 ✅ 9 Pass
+原描述的改动未实现
+=== split
+主功能通过但有遗漏点 ⚠️ 117 Pass + 9 Fail
+已拆分：MH-3738、MH-3739、MH-3740 跟进
+=== words
+乱序没有再出现，但是反应还是很慢
+音画不同步。
+TVU MediaHub (ENV: aws-cn3-env)Beta
+Backend: v2.1.33 build264 2026-10-22 09:42:12
+=== remark
+明天再看
+=== fail
+验证结果：未修复 ❌ 0 Pass + 2 Fail
+=== copy
+MH-3932 验证结果：⚠️ 21 Pass + 2 Fail
