@@ -389,6 +389,8 @@ def cmd_run(a):
 
 
 def main():
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "configserver"))
+    import redact; redact.guard_output()  # a credential inside a remote payload never reaches the terminal
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--env-file")
     sub = ap.add_subparsers(dest="cmd", required=True)

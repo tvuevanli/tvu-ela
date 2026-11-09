@@ -65,4 +65,19 @@ safe = json.dumps(C.safe_item(rec))
 check(APPSYNC not in safe and TOK not in safe, "safe_item leaves no embedded credential in any field")
 check(C.safe_item(rec)["id"] == 1, "non-string fields pass through")
 
+# the other read senses wrap their whole output: a print of a remote payload is scrubbed, a ticket key is kept
+import subprocess  # noqa: E402
+prog = ("import sys; sys.path.insert(0, sys.argv[1]); import redact; redact.guard_output(); "
+        "print(sys.argv[2]); print(sys.argv[2], file=sys.stderr)")
+payload = json.dumps({"key": "MH-1860", "url": f"{HOST}?x-api-key={APPSYNC}", "Authorization": f"Bearer {TOK}"})
+r = subprocess.run([sys.executable, "-c", prog, os.path.join(ROOT, "skills", "configserver"), payload],
+                   capture_output=True, text=True)
+check(r.returncode == 0 and APPSYNC not in r.stdout + r.stderr and TOK not in r.stdout + r.stderr,
+      "guard_output scrubs every print, stdout and stderr")
+check('"key": "MH-1860"' in r.stdout, "guard_output keeps a JSON ticket key")
+for sense in ("logs/logs", "graph/graph", "release/release", "object/object", "browser/browser", "sentry/sentry",
+              "apifox/apifox"):
+    src = open(os.path.join(ROOT, "skills", sense + ".py")).read()
+    check("redact.guard_output()" in src.split("\ndef main():\n", 1)[-1][:400], f"{sense} guards its output")
+
 sys.exit(1 if failures else 0)

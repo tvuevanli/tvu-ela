@@ -238,6 +238,8 @@ def cmd_events(a):
 
 
 def main():
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "configserver"))
+    import redact; redact.guard_output()  # a credential inside a remote payload never reaches the terminal
     signal.signal(signal.SIGPIPE, signal.SIG_DFL)
     ap = argparse.ArgumentParser(description="Sentry capability: crashes and errors, read-only.")
     ap.add_argument("--env-file", help="file with SENTRY_URL, SENTRY_TOKEN, SENTRY_ORG")

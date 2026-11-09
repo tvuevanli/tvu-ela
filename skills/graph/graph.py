@@ -1299,6 +1299,8 @@ def cmd_envs(ur, a):
 
 
 def main():
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "configserver"))
+    import redact; redact.guard_output()  # a credential inside a remote payload never reaches the terminal
     signal.signal(signal.SIGPIPE, signal.SIG_DFL)
     ap = argparse.ArgumentParser(description="UR graph capability: read graphs, processes and boxes first-hand; connect/exec/start/stop on Evan's word.")
     ap.add_argument("--env-file", help="file with UR_ACCESS_KEY, UR_BASE_HOST, UR_CN_HOST, UR_QA_HOST, UR_ENV_ORDER")
