@@ -651,7 +651,8 @@ with tempfile.TemporaryDirectory() as t:
     to = V.move_note(vlt, rep, "to-read/r.md", "archive", "in a session", next_="make-plan")
     r = open(os.path.join(vlt, to)).read()
     check("a move into archive with --next keeps that word as next, status closed", 'next: "make-plan"' in r and 'status: "closed"' in r)
-check("the statuses are seven", V.STATUSES == ("proposed", "blocked", "building", "built", "waiting", "parked", "closed"))
+check("the statuses are nine: a case adds open and answered",
+      V.STATUSES == ("proposed", "blocked", "building", "built", "waiting", "parked", "closed", "open", "answered"))
 with tempfile.TemporaryDirectory() as t:
     for d in ("archive", "in-progress", "sprints"):
         os.makedirs(os.path.join(t, d))
@@ -1037,4 +1038,61 @@ with tempfile.TemporaryDirectory() as tmp:
         sync()
     text3 = open(page).read()
     check("what he adds under Review is kept as written on the next sync", text3.endswith("ela: drop the second item\n\n### Later\n\nA note of mine.\n") and text3.count("### Later") == 1)
+
+# closed notes by subject (vault in-progress/2026-11-09-kept-notes-by-subject-cases-and-archive.md)
+H = V.home_for
+check("a closing note goes to its subject home by type, else archive",
+      H("to-read/2026-11-05-x-timeline.md", {"type": "case"}) == "cases"
+      and H("to-read/2026-10-21-verify-mh-1.md", {"type": "verify"}) == "mh/releases"
+      and H("to-read/2026-10-29-verify-plan-mh-2.md", {"type": "verify-plan"}) == "mh/releases"
+      and H("readings/2026-11-02-promote-2-1-daily-wed-to-prod-3.md", {"type": "review"}) == "mh/releases"
+      and H("readings/2026-11-03-promote-wed-to-prod-3-docker-check.md", {"type": "review"}) == "mh/releases"
+      and H("readings/2026-10-28-mh-2-0-region-hotfix-review.md", {"type": "review"}) == "mh/releases"
+      and H("in-progress/2026-10-27-a.md", {"type": "plan", "target": "ela-runner"}) == "ela/history"
+      and H("in-progress/2026-11-04-b.md", {"type": "plan", "target": "the vault's layout and lint"}) == "ela/history"
+      and H("to-read/2026-10-26-c.md", {"type": "review", "title": "System review: ela, the runner"}) == "ela/history"
+      and H("to-read/2026-10-27-d.md", {"type": "plan", "target": "helm"}) == "archive"
+      and H("readings/2026-09-21-audio-mixer-mediabox.md", {"type": "review"}) == "archive"
+      and H("readings/2026-10-28-deep-mh-3829.md", {"type": "ticket"}) == "archive"
+      and H("to-read/2026-11-02-one-thing.md", {"type": "report", "target": "ela"}) == "archive"
+      and H("x/2026-10-01-elastic-plan.md", {"type": "plan", "target": "elastic search"}) == "archive")
+check("a case is its own family, in cases/; a closed plan may sit in ela/history, a closed verification in mh/releases",
+      V.type_lint("cases/2026-11-05-x.md", "case") is None and V.type_lint("archive/x.md", "case") is not None
+      and V.type_lint("ela/history/x.md", "plan") is None and V.type_lint("mh/releases/x.md", "verify") is None
+      and V.type_lint("mh/x.md", "verify") is not None)
+check("a closed home settles to closed; a case keeps open, answered or closed",
+      S("mh/releases", "accepted") == ("closed", None, "accept") and S("ela/history", "proposed")[0] == "closed"
+      and S("cases", "answered") == ("answered", None, None) and S("cases", "weird")[0] == "open")
+with tempfile.TemporaryDirectory() as t:
+    vlt, rep = os.path.join(t, "v"), os.path.join(t, "r")
+    os.makedirs(os.path.join(vlt, "to-read")); os.makedirs(os.path.join(vlt, "readings")); os.makedirs(rep)
+    open(os.path.join(vlt, "to-read", "2026-11-02-promote-x.md"), "w").write('---\ntype: "review"\n---\n# P\n')
+    open(os.path.join(vlt, "to-read", "2026-11-05-case-x.md"), "w").write('---\ntype: "case"\nstatus: "answered"\n---\n# C\n')
+    open(os.path.join(vlt, "to-read", "2026-11-04-plan-x.md"), "w").write('---\ntype: "plan"\ntarget: "ela"\n---\n# Pl\n')
+    open(os.path.join(vlt, "readings", "2026-11-04-plain.md"), "w").write('---\ntype: "review"\n---\n# R\n')
+    to1 = V.move_note(vlt, rep, "to-read/2026-11-02-promote-x.md", "archive", next_="done")
+    to2 = V.move_note(vlt, rep, "to-read/2026-11-05-case-x.md", "archive", next_="done")
+    with contextlib.redirect_stdout(io.StringIO()):
+        f3 = V.finish(vlt, rep, "to-read/2026-11-04-plan-x.md", "archive", "done")
+        f4 = V.finish(vlt, rep, "readings/2026-11-04-plain.md", "archive", "done")
+    c = open(os.path.join(vlt, to2)).read()
+    check("the close move files a release review, a case and an ela plan in their homes, the rest in archive",
+          to1 == "mh/releases/2026-11-02-promote-x.md" and to2 == "cases/2026-11-05-case-x.md"
+          and f3 == "ela/history" and os.path.exists(os.path.join(vlt, "ela/history/2026-11-04-plan-x.md"))
+          and f4 == "archive" and os.path.exists(os.path.join(vlt, "archive/2026-11-04-plain.md"))
+          and 'status: "closed"' in c and 'moves: "case"' in c)
+    rows = [json.loads(l) for l in open(os.path.join(rep, "ela", "vault-removed.jsonl"))]
+    check("the log records a kept note as archived, naming its home",
+          all(x["fate"] == "archived" for x in rows) and {x.get("home") for x in rows} == {"mh/releases", "cases", "ela/history", None})
+with tempfile.TemporaryDirectory() as t:
+    v = os.path.join(t, "v")
+    for d in ("archive", "cases", "mh/releases"):
+        os.makedirs(os.path.join(v, d))
+    td = datetime.date.today()
+    open(os.path.join(v, "cases", "c.md"), "w").write(f'---\ntype: "case"\ndate: "{td}"\nstatus: "open"\nkeys: "MH-9"\n---\n# C\n')
+    open(os.path.join(v, "mh/releases", "p.md"), "w").write(f'---\ntype: "review"\ndate: "{td}"\nkeys: "MH-8"\n---\n# P\n')
+    check("the afterwards watch covers cases and the other subject homes",
+          sorted(w["note"] for w in V.watched_notes(v, td)) == ["cases/c.md", "mh/releases/p.md"])
+    open(os.path.join(v, "mh/releases", "s.md"), "w").write('---\ntype: "review"\n---\n# S\n\nSee MH-7 and https://x.slack.com/archives/C1/p1793000000000009\n')
+    check("a note reaching a subject home is stamped like an archived one", "mh/releases/s.md" in V.stamp_archive(v, td, dry_run=True))
 sys.exit(1 if failures else 0)
