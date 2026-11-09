@@ -1054,9 +1054,9 @@ check("a closing note goes to its subject home by type, else archive",
       H("to-read/2026-11-05-x-timeline.md", {"type": "case"}) == "cases"
       and H("to-read/2026-10-21-verify-mh-1.md", {"type": "verify"}) == "mh/releases"
       and H("to-read/2026-10-29-verify-plan-mh-2.md", {"type": "verify-plan"}) == "mh/releases"
-      and H("readings/2026-11-02-promote-2-1-daily-wed-to-prod-3.md", {"type": "review"}) == "mh/releases"
+      and H("readings/2026-11-02-promote-2-1-daily-wed-to-prod-3.md", {"type": "review"}) == "mh/releases/2.1"
       and H("readings/2026-11-03-promote-wed-to-prod-3-docker-check.md", {"type": "review"}) == "mh/releases"
-      and H("readings/2026-10-28-mh-2-0-region-hotfix-review.md", {"type": "review"}) == "mh/releases"
+      and H("readings/2026-10-28-mh-2-0-region-hotfix-review.md", {"type": "review"}) == "mh/releases/2.0"
       and H("in-progress/2026-10-27-a.md", {"type": "plan", "target": "ela-runner"}) == "ela/history"
       and H("in-progress/2026-11-04-b.md", {"type": "plan", "target": "the vault's layout and lint"}) == "ela/history"
       and H("to-read/2026-10-26-c.md", {"type": "review", "title": "System review: ela, the runner"}) == "ela/history"
@@ -1242,4 +1242,21 @@ check("a note for a Chinese-speaking audience keeps its body's language and stil
       "title not in English" in V.spec_lint("mh/releases/2.0/2026-10-28-x-review.md", zh)
       and not any(l.startswith("body not in English") for l in V.spec_lint("mh/releases/2.0/2026-10-28-x-review.md", zh))
       and "language" in V.PROPS and 'language: \\"zh\\"' not in V.spec_text() and '`language: "zh"`' in V.spec_text())
+# release filing by name: the real names of mh/releases/2.1, the lane hop and mh<line> shapes included
+REAL_21 = ["2026-10-27-release-2-1-cannot-evaluate", "2026-10-30-promote-2-1-qa-cn3-to-daily-wed",
+           "2026-11-02-deploy-approvals-prod-3-and-prod-8", "2026-11-02-promote-2-1-daily-wed-to-prod-3",
+           "2026-11-02-promote-2-1-qa-cn3-to-daily-wed", "2026-11-03-promote-wed-to-prod-3-docker-check",
+           "2026-11-06-promote-2-1-build-85-to-daily-wed", "2026-11-09-mh2-1-daily-wed-to-prod-3"]
+check("every release review name in mh/releases/2.1 reads as a release review by its name alone",
+      all(V.RELEASE_NAME.search(n[11:]) for n in REAL_21))
+check("a lane hop and an mh<line> name match; a lane named in passing does not",
+      V.RELEASE_NAME.search("mh2-1-notes") and V.RELEASE_NAME.search("daily-wed-to-prod-3")
+      and V.RELEASE_NAME.search("qa-cn3-to-daily-wed") and not V.RELEASE_NAME.search("risk-html-input-on-prod3")
+      and not V.RELEASE_NAME.search("steps-to-production") and not V.RELEASE_NAME.search("audio-mixer-mediabox"))
+check("a ticket number in a name is not a line", V.release_line({}, lambda k: None, "2026-10-29-verify-mh-1084-2") is None)
+check("a review named mh2-1-…, untitled, closes into mh/releases/2.1 by the line its name writes",
+      V.home_for("archive/2026-11-09-mh2-1-daily-wed-to-prod-3.md", {"type": "review"}, lambda k: None) == "mh/releases/2.1"
+      and V.home_for("archive/2026-11-02-promote-2-1-daily-wed-to-prod-3.md", {"type": "review"}, lambda k: None)
+      == "mh/releases/2.1")
+
 sys.exit(1 if failures else 0)

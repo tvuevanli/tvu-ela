@@ -102,7 +102,12 @@ CASES, RELEASES, HISTORY = "cases", "mh/releases", "ela/history"
 SUBJECT_HOMES = (CASES, RELEASES, HISTORY)
 CLOSED_FOLDERS = (ARCHIVE, RELEASES, HISTORY)   # a note there is closed, its outcome in next; a case keeps its own status
 OWNER_FOLDERS = (ARCHIVE,) + SUBJECT_HOMES   # kept notes: ela never rewrites their text, only status and appended Afterwards
-RELEASE_NAME = re.compile(r"(?:^|-)(promote|deploy|docker|release|hotfix)(?:-|$)")   # a review of a release, by its file name
+# a review of a release, by its file name: a release word, a line written mh<major>-<minor> (mh2-1), or a lane hop
+# <lane>-to-<lane> (daily-wed-to-prod-3, qa-cn3-to-daily-wed)
+LANE = r"(?:qa|daily|stage|test\d*|prod|cn)"
+RELEASE_NAME = re.compile(r"(?:^|-)(?:promote|deploy|docker|release|hotfix)(?:-|$)|(?:^|-)mh\d+-\d+(?:-|$)"
+                          rf"|(?:^|-){LANE}(?:-[a-z0-9]+)?-to-{LANE}(?:-|\d|$)")
+LINE_NAME = re.compile(r"(?:^|-)(?:mh|promote|release)-?(\d{1,2})-(\d{1,2})(?:-|$)")   # mh2-1, promote-2-1 → 2.1
 RELEASE_TITLE = re.compile(r"\b(promote|promotion|deploy|docker|release|hotfix)\b", re.I)   # … or by its title
 # mh/releases/ holds one folder per release line (mh/releases/2.1/, its record the way in); a note is filed by the line
 # its title names first ("MH 2.1", "Release 2.1"; a version such as 2.1.15 names no line), else by its first key's
@@ -655,12 +660,16 @@ def facts_line(key):
     return found.pop() if len(found) == 1 else None
 
 
-def release_line(props, line_of_key=None):
-    """The release line a note belongs to: the first line its title names, else its first key's release label
-    (line_of_key, the fact store by default); None when neither says, and the note stays at the mh/releases/ root."""
+def release_line(props, line_of_key=None, name=""):
+    """The release line a note belongs to: the first line its title names, else the line its file name writes (mh2-1,
+    promote-2-1), else its first key's release label (line_of_key, the fact store by default); None when none says,
+    and the note stays at the mh/releases/ root."""
     m = LINE_TITLE.search(props.get("title") or "")
     if m:
         return m.group(1)
+    m = LINE_NAME.search(re.sub(r"^\d{4}-\d{2}-\d{2}-", "", name or ""))
+    if m:
+        return f"{m.group(1)}.{m.group(2)}"
     keys = [k for k in KEY_RX.findall(str(props.get("keys") or "")) if not NOT_KEYS.match(k)]   # "MH-1 MH-2" or a list
     return (line_of_key or facts_line)(keys[0]) if keys else None
 
@@ -676,7 +685,7 @@ def home_for(rel, props, line_of_key=None):
         return CASES
     if kind in ("verify", "verify-plan") or (kind == "review" and (RELEASE_NAME.search(re.sub(r"^\d{4}-\d{2}-\d{2}-", "", name))
                                                                    or RELEASE_TITLE.search(props.get("title") or ""))):
-        line = release_line(props, line_of_key)
+        line = release_line(props, line_of_key, name)
         return f"{RELEASES}/{line}" if line else RELEASES
     if kind in ("plan", "decision", "review") and ELA_TARGET.search(props.get("target") or props.get("title") or ""):
         return HISTORY
@@ -3992,7 +4001,7 @@ def tidy_plan(vault, line_of_key=None):
             if folder == ARCHIVE:
                 to = home_for(f"{ARCHIVE}/{f}", props, line_of_key)
             else:                                          # filed as a release note already: only its line is read
-                line = release_line(props, line_of_key)
+                line = release_line(props, line_of_key, f[:-3])
                 to = f"{RELEASES}/{line}" if line else RELEASES
             if to != folder:
                 plan.append({"note": f"{folder}/{f}", "to": f"{to}/{f}", "blocked": []})
