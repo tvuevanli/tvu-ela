@@ -54,6 +54,13 @@ lane behind it, the dry-run bundle command. The line's promotion stays here, and
   `proven` counts for the lane; `same-build` (another lane at the same versions) is said as "on <lane> at <build>",
   never as the claimed lane; `other-lane` and `unproven` do not count, and the sentence is rewritten or dropped.
   A QA verdict stays QA's word on the ticket either way; its proof only says where and on which build it was seen.
+- **Every ticket is placed against the target lane before it is called new.** `placement.py`: per service part, the
+  Fixed In version against the version the target lane runs, and the commits in the range the key owns (a commit
+  scoped to another key, or citing it only in its body, cites it; docs/test/chore commits ship nothing). The ticket is
+  `new`, `on-target` (nothing new for users; at most what the citing commits add) or `partly-new` (which part). QA's
+  pass environment places a ticket only when nothing else does. The line's label brings in tickets with no commit in
+  the range, so the page cannot list as new what the target already runs (MH-3579, MH-3503, MH-3582, MH-3668 on
+  2026-11-09); every `on-target` and `partly-new` ticket is a note in the report.
 - **The to-lane is read live or declared unreadable.** Any lane ahead of the target (prod ahead of daily) is
   reported; a target lane ahead of the source stops the promotion until explained. A from-lane that is a QA lane may
   be QA's word (its report's environment block) or the release's (the thread, the `[Release Mediahub QA-AWS3]` mail)

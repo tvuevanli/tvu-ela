@@ -502,6 +502,18 @@ def collect_tickets(a, delta, gaps):
             gaps.append({"kind": "jira_reverse_lookup_failed", "detail": err})
     for k in reverse:
         keys.setdefault(k, {"commits": [], "services": set()})
+    # the line's label: tickets the release names with no commit in the range — placement says whether they are
+    # already on the target (MH-3579 on 2026-11-09: listed as new, on prod-3 since UR Caller 2.1.59)
+    labelled = set()
+    if label:
+        ok, d, err = l1("jira", "jql", f'labels = "{label}" AND updated >= -60d ORDER BY key', "--limit", "200", env_file=a.env_file, timeout=90)
+        if ok:
+            for it in d.get("issues") or []:
+                if it.get("key") and it["key"] not in keys:
+                    labelled.add(it["key"])
+                    keys.setdefault(it["key"], {"commits": [], "services": set()})
+        else:
+            gaps.append({"kind": "jira_label_lookup_failed", "detail": err})
     roster = load_roster()
     out = []
     say(f"jira: reading {len(keys)} ticket(s)")
@@ -528,6 +540,8 @@ def collect_tickets(a, delta, gaps):
             flags.append("referenced_by_docs_only")
         if k in reverse and not keys[k]["commits"]:
             flags.append("fixed_in_claims_delta_build_but_no_commit_names_it")
+        if k in labelled:
+            flags.append("labelled_only")
         # Fixed In vs carrier: every service with code commits should have a Fixed In entry inside the delta
         fi_by_slug = {e["slug"]: e for e in fi}
         carried = {c["service"] for c in code_commits}
@@ -1349,11 +1363,21 @@ def cmd_report(a):
     gate = a.purpose == "prod-deploy"
     bundles = collect_bundles(a, gaps) if a.scope == "all" or a.bundles or gate else None
     untracked = collect_untracked(a, delta, gaps) if gate else None
+    import placement as PL  # noqa: E402 — same skill
+    placed = PL.place_all(tickets, lanes, evidence)
     findings = assess(a, lanes, delta, tickets, evidence, bundles, gaps)
+    for k, p in sorted(placed.items()):
+        if p["placement"] == "on-target":
+            findings.append({"severity": "note", "kind": "already_on_target", "key": k,
+                             "what": f"{k} — {PL.words(p)}: not new in this promotion; list it only as what this release adds, if anything"})
+        elif p["placement"] == "partly-new":
+            findings.append({"severity": "note", "kind": "partly_new", "key": k, "what": f"{k} — {PL.words(p)}"})
     for t in tickets["tickets"]:
         t.pop("comments", None)
+        if t["key"] in placed:
+            t["placement"] = placed[t["key"]]
     res = {"generated_at": now(), "line": a.line, "from": lanes["from"], "to": lanes["to"], "purpose": a.purpose, "scope": a.scope,
-           "lanes": lanes, "delta": delta, "tickets": tickets, "evidence": evidence, "bundles": bundles, "untracked": untracked, "findings": findings, "gaps": gaps,
+           "lanes": lanes, "delta": delta, "tickets": tickets, "evidence": evidence, "placement": placed, "bundles": bundles, "untracked": untracked, "findings": findings, "gaps": gaps,
            "counts": {"commits": sum(len(s["commits"]) for s in delta["services"]), "tickets": len(tickets["tickets"]),
                       "findings": {k: sum(1 for f in findings if f["severity"] == k) for k in SEV}}}
     res["read_at"] = F.read_at()
