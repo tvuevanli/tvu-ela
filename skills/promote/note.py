@@ -17,7 +17,7 @@ Exit 0 clean, 1 lint findings, 2 usage.
 """
 import argparse, json, re, sys
 
-KEY_RE = re.compile(r"\b[A-Z][A-Z0-9]{1,5}-\d{2,6}\b")
+KEY_RE = re.compile(r"\b[A-Z][A-Z0-9]{1,5}-(?!0)\d{2,6}\b")   # a leading zero is an item id (MH-030), not a Jira key
 SHORT = re.compile(r"(?<![\w`/.\-])(mx|hub|FE|BE|mx-service|tvu-media-hub)(?![\w`/.\-])")
 PATH_RE = re.compile(r"(/home/|/mnt/|/Users/|[A-Z]:\\\\)")
 ADDR_RE = re.compile(r"\b(?:10(?:\.\d{1,3}){3}|192\.168(?:\.\d{1,3}){2}|172\.(?:1[6-9]|2\d|3[01])(?:\.\d{1,3}){2})(?::\d+)?\b(?!\.\d)")   # private hosts; 2.0.108.23 is a version

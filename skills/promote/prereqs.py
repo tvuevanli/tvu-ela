@@ -27,7 +27,7 @@ import argparse, datetime, json, os, re, subprocess, sys
 HERE = os.path.dirname(os.path.realpath(__file__))
 SKILLS = os.path.dirname(HERE)
 sys.path.insert(0, os.path.join(SKILLS, "release"))
-KEY_RE = re.compile(r"\b[A-Z][A-Z0-9]{1,5}-\d{2,6}\b")
+KEY_RE = re.compile(r"\b[A-Z][A-Z0-9]{1,5}-(?!0)\d{2,6}\b")   # a leading zero is an item id (MH-030), not a Jira key
 
 NEGATED = re.compile(r"(?i)(\bno\b|\bwithout\b|" + "|".join(["无", "不需", "没有", "零"]) + r")\s*(新\s*)?(DDL|config|配置|表结构|key)")
 RELEASE_CTX = re.compile(r"(?i)(deploy|release|prod\b|config[- ]?server|must|before|after|" +

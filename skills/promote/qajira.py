@@ -25,7 +25,7 @@ import argparse, json, os, re, subprocess, sys
 HERE = os.path.dirname(os.path.realpath(__file__))
 SKILLS = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
-KEY_RE = re.compile(r"\b[A-Z][A-Z0-9]{1,5}-\d{2,6}\b")
+KEY_RE = re.compile(r"\b[A-Z][A-Z0-9]{1,5}-(?!0)\d{2,6}\b")   # a leading zero is an item id (MH-030), not a Jira key
 
 PASS_W = re.compile(r"(?i)" + "|".join([r"已修复", r"已实现", r"验证通过", r"测试通过", r"全部通过", r"\bverified\b", r"\ball pass"]))
 PARTIAL_W = re.compile("|".join([r"⚠", r"遗漏", r"部分通过", r"部分修复", r"主功能通过但", r"partial"]))

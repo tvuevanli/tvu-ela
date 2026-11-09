@@ -44,7 +44,7 @@ import shipcheck as SC  # noqa: E402  — the release version against the source
 import facts as F  # noqa: E402  — the fact store's read times
 
 EX_USAGE, EX_LANE, EX_REMOTE = 2, 3, 5
-KEY_RE = re.compile(r"\b[A-Z][A-Z0-9]{1,5}-\d{2,6}\b")
+KEY_RE = re.compile(r"\b[A-Z][A-Z0-9]{1,5}-(?!0)\d{2,6}\b")   # MH-030 is a FloSports item id, never a Jira key
 ISO = "%Y-%m-%dT%H:%M:%SZ"
 
 
@@ -484,18 +484,20 @@ def collect_tickets(a, delta, gaps):
             for k in c["ref_keys"]:
                 refs.setdefault(k, []).append({"service": s["service"], "sha": c["sha"], "subject": c["subject"][:80], "by": c["owner_keys"]})
     # reverse: tickets whose Fixed In names a build inside the delta, and tickets carrying the line label updated in the window
-    versions = set()
+    versions = set()                      # (slug, version): Jira's text search finds "slug@2.1.84", never a bare "2.1.84"
+    in_delta = {}
     for s in delta["services"]:
         for b in s.get("builds_between") or []:
             if b.get("version"):
-                versions.add(b["version"])
+                versions.add((s["service"], b["version"]))
+                in_delta.setdefault(s["service"], set()).add(b["version"])
     reverse = {}
     fid = (R.rmap("fixed_in") or {}).get("field") or "customfield_11252"
     cf = re.sub(r"\D", "", fid)
     if versions:
         say(f"jira reverse lookup on {len(versions)} build label(s)")
-        clauses = " OR ".join(f'cf[{cf}] ~ "{v}"' for v in sorted(versions))
-        ok, d, err = l1("jira", "jql", f"({clauses}) ORDER BY key", "--limit", "100", env_file=a.env_file, timeout=90)
+        clauses = " OR ".join(f'cf[{cf}] ~ "{sl}@{v}"' for sl, v in sorted(versions))
+        ok, d, err = l1("jira", "jql", f"({clauses}) ORDER BY key", "--limit", "500", env_file=a.env_file, timeout=120)
         if ok:
             for it in d.get("issues") or []:
                 reverse[it.get("key")] = "fixed_in_names_a_delta_build"
@@ -507,7 +509,9 @@ def collect_tickets(a, delta, gaps):
     # already on the target (MH-3579 on 2026-11-09: listed as new, on prod-3 since UR Caller 2.1.59)
     labelled = set()
     if label:
-        ok, d, err = l1("jira", "jql", f'labels = "{label}" AND updated >= -60d ORDER BY key', "--limit", "200", env_file=a.env_file, timeout=90)
+        ok, d, err = l1("jira", "jql", f'labels = "{label}" AND updated >= -60d ORDER BY key', "--limit", "1000", env_file=a.env_file, timeout=180)
+        if ok and len(d.get("issues") or []) >= 1000:
+            gaps.append({"kind": "jira_label_lookup_truncated", "detail": f"{label}: 1000 rows; tickets past the last key are not read"})
         if ok:
             for it in d.get("issues") or []:
                 if it.get("key") and it["key"] not in keys:
@@ -527,6 +531,9 @@ def collect_tickets(a, delta, gaps):
         fi_raw = f.get(fid)
         fi_text = adf_text(fi_raw).strip() if fi_raw else ""
         fi = parse_fixed_in(fi_text)
+        if k in reverse and not keys[k]["commits"] and k not in labelled and not any(
+                e["parsed"] and vlabel(e["parsed"]).split("+")[0] in in_delta.get(e["slug"], ()) for e in fi):
+            continue                        # the text search matched loosely; its Fixed In names no build in the range
         svcs = sorted(keys[k]["services"])
         flags = []
         if label and label not in labels:
@@ -762,11 +769,18 @@ def collect_evidence(a, tickets, delta, gaps, since=None):
     for k, items in ev.items():
         qa = [i for i in items if i["verdict"] in ("pass", "partial", "accepted", "fail", "n-a", "not-scheduled") and i.get("area") == "qa"]
         qa.sort(key=lambda i: i.get("when") or "")
-        final = qa[-1]["verdict"] if qa else (
+        jq_items = [i for i in qa if i["source"] == "jira"]
+        # Jira's QA comment decides (counts, ⚠, environment block); a mail or Slack line is the second source and decides
+        # only where Jira has no QA comment. On 2026-11-09 a report mail's "PASS ⚠" line, newer than Jira's "11 Pass +
+        # 1 Fail", turned MH-3825 into a pass; MH-3831, MH-3857 and MH-3830 (accepted as-is) the same way.
+        decider = jq_items[-1] if jq_items else (qa[-1] if qa else None)
+        later_other = [i for i in qa if decider and i["source"] != "jira" and (i.get("when") or "") > (decider.get("when") or "") and i["verdict"] != decider["verdict"]] if jq_items else []
+        final = decider["verdict"] if decider else (
             "qa-comment-unclear" if any(i["verdict"] == "qa-comment-unclear" for i in items)
             else "dev-declared" if any(i["verdict"] == "dev-declared" for i in items) else "none")
         jq = qa_jira.get(k) or {}
-        summary[k] = {"verdict": final, "qa_items": len(qa), "items": items, "source": qa[-1]["source"] if qa else None,
+        summary[k] = {"verdict": final, "qa_items": len(qa), "items": items, "source": decider["source"] if decider else None,
+                      "other_sources_say": [f"{i['source']} {str(i.get('when'))[:10]} {i['verdict']}" for i in later_other][:3],
                       "jira_line": QJ.line(jq) if jq.get("latest") or jq.get("splits") else None, "splits": jq.get("splits") or [],
                       "status": jq.get("status")}
     return {"since": since, "keys": summary, "qa_people": sorted(qa_names)}
@@ -1534,7 +1548,7 @@ def render_md(r):
         L.append(f"| {s['service']} | {f} | {t} | {s['relation'] or '?'}{(' · ' + extra) if extra else ''} | {source_cell(s)} |")
     L.append("")
     c = r["counts"]
-    L.append(f"{c['commits']} commit(s) · {c['tickets']} ticket(s) · evidence read since {(r['evidence'] or {}).get('since')} · findings: " + ", ".join(f"{k} {v}" for k, v in c["findings"].items() if v))
+    L.append(f"{c['commits']} non-merge commit(s) · {c['tickets']} ticket(s) · evidence read since {(r['evidence'] or {}).get('since')} · findings: " + ", ".join(f"{k} {v}" for k, v in c["findings"].items() if v))
     L.append("")
     L.append("## Findings (ranked; first 20)")
     for f in r["findings"][:20]:
@@ -1582,7 +1596,7 @@ def render_gate(r):
     L.append("hosts read: " + ", ".join(f"{h} {host_read_word(ok)}" for h, ok in sorted(hosts.items()))
              + f" · evidence since {(r['evidence'] or {}).get('since')}")
     c = r["counts"]
-    L.append(f"{c['commits']} commit(s) · {c['tickets']} ticket(s) · findings: "
+    L.append(f"{c['commits']} non-merge commit(s) · {c['tickets']} ticket(s) · findings: "
              + (", ".join(f"{k} {v}" for k, v in c["findings"].items() if v) or "none"))
 
     L.append("")

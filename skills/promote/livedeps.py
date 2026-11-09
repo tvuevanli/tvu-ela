@@ -27,7 +27,7 @@ HERE = os.path.dirname(os.path.realpath(__file__))
 SKILLS = os.path.dirname(HERE)
 for d in ("release", "facts", "map"):
     sys.path.insert(0, os.path.join(SKILLS, d))
-KEY_RE = re.compile(r"\b[A-Z][A-Z0-9]{1,5}-\d{2,6}\b")
+KEY_RE = re.compile(r"\b[A-Z][A-Z0-9]{1,5}-(?!0)\d{2,6}\b")   # a leading zero is an item id (MH-030), not a Jira key
 DATE_RE = re.compile(r"(\d{4}-\d{2}-\d{2})")
 APP_OF = {"web/mx-service": "ur-caller", "web/tvu-media-hub": "mediahub-backend"}
 
