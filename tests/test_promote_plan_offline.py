@@ -46,7 +46,7 @@ with tempfile.TemporaryDirectory() as d:
     check("the newest QA build naming the key holds (✓)", lines[1] == "✓ QA build 81 names MH-1860")
     check("no QA report yet is a dot", lines[2] == "· no QA report on build 81 yet")
     check("the one-line form carries the day, the condition and the key with its merge state",
-          P.plan_line(rec) == "planned Fri 11-06 after QA's report on Thursday's build · carries MH-1860 (feature/MH-1860 not merged into release2.1 in 1 repo as of 11-04)")
+          P.plan_line(rec) == "planned Fri 11-06 after QA's report on Thursday's build · carries MH-1860 (feature/MH-1860 not merged into release2.1 in 1 repo as of " + str(rec["plan_checks"]["at"])[5:10] + ")")
     TL.report_mails = lambda env, days: {"qa-cn3": [{"build": "81", "at": "x", "summary": False, "text": "", "subject": ""}]}
     P.cmd_plan(types.SimpleNamespace(line="2.1", src="daily", dst="prod", on=None, after=None, carry=None, check=True, pending=pending, json=False, env_file=None))
     rec = json.load(open(pending))["2.1|daily-wed|prod-3"]
