@@ -47,6 +47,8 @@ import argparse, datetime, json, os, re, signal, sys, urllib.error, urllib.parse
 SKILLS = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 sys.path.insert(0, os.path.join(SKILLS, "release"))
 import release as R  # noqa: E402  — the person's TVU session: reader, refusal record, the login hint
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+from redact import _B, _DETECTOR, RED, scrub  # noqa: E402,F401 — embedded credentials cut out in place
 
 EX_USAGE, EX_NOTFOUND, EX_AUTH, EX_REMOTE = 2, 3, 4, 5
 BASE_DEFAULT = "https://configservice.tvunetworks.com/config-server"
@@ -68,23 +70,8 @@ KEY_WORDS = ("password", "passwd", "pwd", "secret", "token", "credential", "priv
 # such values carried credentials that no word above caught. The last segment only: `ob.subkey.*` are code lists.
 KEY_SUFFIX = "key"
 
-# The backend's own detector, util/ApiKeyDetector.java:78-172, anchors relaxed the way its unanchor() relaxes them.
-_B = "[A-Za-z0-9_-]"
-_DETECTOR = [
-    r"sk-proj-[A-Za-z0-9_-]{48,180}", r"sk-svcacct-[A-Za-z0-9_-]{48,180}", r"sk-admin-[A-Za-z0-9_-]{32,}",
-    r"sk-ant-api03-[A-Za-z0-9_-]{90,110}", r"sk-ant-oat01-[A-Za-z0-9_-]{32,}", r"AIzaSy[A-Za-z0-9_-]{33}",
-    r"GOCSPX-[A-Za-z0-9_-]{28,}", r"gsk_[A-Za-z0-9]{48,64}", r"pplx-[A-Za-z0-9]{48,}", r"xai-[A-Za-z0-9]{32,}",
-    r"sk-or-v1-[A-Za-z0-9]{64}", r"sk-cp-[A-Za-z0-9_-]{32,}", r"fw_[A-Za-z0-9]{32,}", r"tgp_v1_[A-Za-z0-9_-]{32,}",
-    r"hf_[A-Za-z0-9]{30,50}", r"r8_[A-Za-z0-9]{36,45}", r"[a-f0-9]{32}\.[A-Za-z0-9]{16,}", r"sk-sp-[A-Za-z0-9]{32,}",
-    r"LTAI[A-Za-z0-9]{12,20}", r"sk-[a-f0-9]{32}", r"co_[A-Za-z0-9]{40}", r"(?:mistr_|mistral_)[A-Za-z0-9]{32,}",
-    r"(?:A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z2-7]{16}", r"ATATT[A-Za-z0-9_-]{100,}=[A-F0-9]{8}",
-    r"gh[posu]_[A-Za-z0-9]{36,}", r"github_pat_[A-Za-z0-9_]{22,}", r"glpat-[A-Za-z0-9_-]{20,300}(?:\.[0-9a-z]{9})?",
-    r"gl(?:pt|rt|dt)-[A-Za-z0-9._-]{20,}", r"dckr_[po]at_[A-Za-z0-9_-]{27,32}", r"sq(?:u|p|a|co)_[A-Za-z0-9]{40}",
-    r"npm_[A-Za-z0-9]{36}", r"xox[bpe][.-][0-9A-Za-z_.-]{10,200}", r"xapp-[0-9]+-[A-Za-z0-9]+-[0-9]+-[A-Za-z0-9]+",
-    r"sntry[suo]_[A-Za-z0-9_-]{40,}", r"figd_[A-Za-z0-9_-]{40,}", r"cc(?:l|iprj)_[A-Za-z0-9_]{40}",
-    r"[sr]k_(?:live|test)_[A-Za-z0-9]{24,}", r"pk_(?:live|test)_[A-Za-z0-9]{24,}",
-    r"eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+", r"sk-[A-Za-z0-9]{32,64}",
-]
+# The backend's own detector (util/ApiKeyDetector.java) and the in-place cut live in redact.py beside this file, shared
+# with the other read senses; a value whose shape survives the cut is withheld whole.
 VALUE_SHAPES = [(re.compile(f"(?<!{_B}){p}(?!{_B})"), "credential pattern") for p in _DETECTOR] + [
     (re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"), "private key"),
     (re.compile(r"[a-z][a-z0-9+.-]*://[^\s:\"',;{}/?#@]+:[^\s@\"',;{}/?#]+@", re.I), "URI with credentials"),
@@ -97,37 +84,6 @@ VALUE_SHAPES = [(re.compile(f"(?<!{_B}){p}(?!{_B})"), "credential pattern") for 
     (re.compile(r"(?<![A-Za-z0-9+/_-])(?=[A-Za-z0-9+/_-]*\d)(?=[A-Za-z0-9+/_-]*[a-z])(?=[A-Za-z0-9+/_-]*[A-Z])"
                 r"[A-Za-z0-9+/_-]{32,}={0,2}"), "base64 blob"),
 ]
-
-
-# Credentials embedded inside an otherwise printable value: a route URL carrying an API key in its query, a header
-# map carrying a token. Each is cut out in place and replaced by `<redacted>`, so the rest of the value still reads.
-# The parameter names a credential sits under, in a query, a fragment, a header or a JSON/assignment pair.
-_P = (r"(?:x[-_]?)?api[-_]?key|key|[a-z0-9_-]*token|[a-z0-9_-]*secret|password|passwd|pwd|sig|signature"
-      r"|access[-_]?key(?:[-_]?id)?|secret[-_]?key|x-amz-(?:signature|credential|security-token)|authorization"
-      r"|client[-_]?secret|auth")
-RED = "<redacted>"
-_SCRUB = [
-    # ?key=… &x-api-key=… #access_token=… ;sig=…  (query, fragment, matrix parameters)
-    (re.compile(rf"([?&#;](?:{_P})=)(?!{RED})[^&#;\s\"'<>]+", re.I), r"\1" + RED),
-    # "x-api-key": "…"  'token'='…'  apiKey: …  (JSON, YAML, header maps, Java properties inside a value)
-    (re.compile(rf"([\"']?(?<![A-Za-z0-9])(?:{_P})[\"']?\s*[:=]\s*[\"']?)(?!{RED})(?!Bearer\b|Basic\b)"
-                r"[^\s\"',;&}<>]{3,}", re.I), r"\1" + RED),
-    # scheme://user:pass@host
-    (re.compile(r"([a-z][a-z0-9+.-]*://)[^\s:\"',;{}/?#@<>]+:[^\s@\"',;{}/?#<>]+@", re.I), r"\1" + RED + "@"),
-    # Authorization: Bearer … / Basic …
-    (re.compile(rf"\b(Bearer|Basic|Token)\s+(?!{RED})[A-Za-z0-9._~+/=-]{{8,}}", re.I), r"\1 " + RED),
-    # AWS AppSync API key
-    (re.compile(r"(?<![A-Za-z0-9_-])da2-[a-z0-9]{26}(?![A-Za-z0-9_-])"), RED),
-] + [(re.compile(f"(?<!{_B}){p}(?!{_B})"), RED) for p in _DETECTOR]
-
-
-def scrub(value):
-    """The value with each embedded credential replaced by `<redacted>`; non-strings pass through unchanged."""
-    if not isinstance(value, str):
-        return value
-    for rx, rep in _SCRUB:
-        value = rx.sub(rep, value)
-    return value
 
 
 def key_is_secret(key):
