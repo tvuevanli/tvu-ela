@@ -13,6 +13,7 @@ P="python3 ${CLAUDE_PLUGIN_ROOT}/skills/promote/promote.py --env-file <env>"    
 $P report 2.1 qa daily --purpose prod-staging --bundles --out <runtime>/promote   # everything, ranked; JSON + markdown
 $P report 2.1 qa prod --purpose prod-deploy --out <runtime>/promote                # the deploy gate: four fixed sections
 $P lanes|commits|tickets|evidence|bundles 2.1 qa daily                            # one step at a time when arguing with a finding
+$P proof text <file> --lane daily-wed | graph <id> --lane daily-wed               # the environment proof of one piece of test evidence
 $P constraints [--json]                                                            # the standing constraints, each pin read now; exit 3 when one is over
 $P plan 2.1 daily prod --on 2026-11-06 --after "QA's report on Thursday's build" --carry MH-1860   # a planned promotion, local file only
 $P close                                                                           # the pending promotion shipped or was dropped
@@ -39,6 +40,14 @@ lane behind it, the dry-run bundle command. The line's promotion stays here, and
 - **QA's own words decide.** The verdict is the latest QA statement about that key — a Jira comment by a QA
   person, a result line or the close/reopened list in a QA report mail, a QA Slack message — quoted with source
   and date. Never re-derive a pass rate; never infer a pass from silence.
+- **A test counts for a lane only when the lane is proven.** The gateway routes by the account, so "tested on Wed"
+  proves nothing by itself: on 2026-11-09 a volume test "on Wed" ran through prod-3's UR Caller. The verify skill's
+  rule applies to every piece of test evidence promote shows, and to any sentence of the page that says something
+  works on a lane: `$P proof text <file> --lane L` reads a version-panel block (a QA comment's 验证环境, a pasted panel),
+  `$P proof graph <id> --lane L` binds a graph to the UR Caller instance that created it (its trace in the java-log).
+  `proven` counts for the lane; `same-build` (another lane at the same versions) is said as "on <lane> at <build>",
+  never as the claimed lane; `other-lane` and `unproven` do not count, and the sentence is rewritten or dropped.
+  A QA verdict stays QA's word on the ticket either way; its proof only says where and on which build it was seen.
 - **The to-lane is read live or declared unreadable.** Any lane ahead of the target (prod ahead of daily) is
   reported; a target lane ahead of the source stops the promotion until explained. A from-lane that is a QA lane may
   be QA's word (its report's environment block) or the release's (the thread, the `[Release Mediahub QA-AWS3]` mail)

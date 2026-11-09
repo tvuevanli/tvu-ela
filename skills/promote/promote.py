@@ -1772,9 +1772,13 @@ def main():
     p = sub.add_parser("close", help="mark one pending promotion closed; the morning stops showing it as the next train")
     p.add_argument("--line", help="the line whose promotion closes (needed when several are open)"); p.add_argument("--to", help="its target lane")
     p.add_argument("--json", action="store_true")
+    p = sub.add_parser("proof", help="the environment proof of one piece of test evidence (envproof.py): text <file> | graph <id>, --lane L", add_help=False)
+    p.add_argument("rest", nargs=argparse.REMAINDER)
     p = sub.add_parser("constraints", help="the standing constraints in <elak>/blueprint/constraints.yaml, each pin read now; exit 3 when one is over"); p.add_argument("--json", action="store_true")
     a = ap.parse_args()
     global QUIET; QUIET = a.quiet
+    if a.cmd == "proof":
+        os.execvp("python3", ["python3", os.path.join(HERE, "envproof.py")] + (["--env-file", a.env_file] if a.env_file else []) + a.rest)
     {"close": cmd_close, "plan": cmd_plan, "constraints": cmd_constraints, "lanes": cmd_lanes, "commits": cmd_delta, "delta": cmd_delta, "tickets": cmd_tickets, "evidence": cmd_evidence, "bundles": cmd_bundles, "report": cmd_report, "compare-helm": cmd_compare_helm}[a.cmd](a)
 
 
