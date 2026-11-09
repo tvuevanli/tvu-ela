@@ -1566,16 +1566,61 @@ def opening(text):
     return re.split(r"\s+·\s+|:\s", plain(text).replace("`", ""), maxsplit=1)[0].strip().lower()
 
 
-def bare_keys(body):
+def is_jira_key(k, projects=None):
+    """A key-shaped word that is a Jira key: not a standard's or a codec's name, not a zero-led test id (MH-035), and
+    in the owner's projects when they are known."""
+    return not NOT_KEYS.match(k) and not k.split("-")[1].startswith("0") and (projects is None or k.split("-")[0] in projects)
+
+
+FENCE = re.compile(r"^[ \t]*(?:>[ \t]*)*(```+|~~~+)")
+
+
+def prose_parts(body):
+    """[(text, is_prose)]: the body cut at fenced code, a fence inside a callout (`> ~~~~`, a paste-ready Slack post)
+    included, so a fence's lines are never rewritten."""
+    parts, buf, inside, mark = [], [], False, ""
+    for line in (body or "").splitlines(keepends=True):
+        m = FENCE.match(line)
+        if m and (not inside or m.group(1)[0] == mark[0] and len(m.group(1)) >= len(mark)):
+            if not inside:
+                parts.append(("".join(buf), True)); buf = [line]; inside, mark = True, m.group(1)
+            else:
+                buf.append(line); parts.append(("".join(buf), False)); buf = []; inside = False
+            continue
+        buf.append(line)
+    parts.append(("".join(buf), not inside))
+    return [p for p in parts if p[0]]
+
+
+def bare_keys(body, projects=None):
     """Jira keys written as text, outside links and code: each should be a link."""
     found = []
-    for i, part in enumerate(SEGMENT.split(re.sub(r"^---\n.*?\n---\n", "", body or "", flags=re.S))):
-        if i % 2 == 0:
-            found += [k for k in KEY_RX.findall(part) if not NOT_KEYS.match(k) and not k.split("-")[1].startswith("0")]   # MH-035: a test id
+    for text, prose in prose_parts(re.sub(r"^---\n.*?\n---\n", "", body or "", flags=re.S)):
+        for i, part in enumerate(SEGMENT.split(text) if prose else []):
+            if i % 2 == 0:
+                found += [k for k in KEY_RX.findall(part) if is_jira_key(k, projects)]
     return list(dict.fromkeys(found))
 
 
-def spec_lint(rel, text, generated=False):
+def link_keys(body, jira_base, projects=None):
+    """(body, n): each bare Jira key made a link to its Jira page; code, links and existing links untouched, nothing
+    removed. The owner's standing rule: every key he reads is a link."""
+    if not jira_base:
+        return body, 0
+    out, n = [], 0
+
+    def one(m):
+        nonlocal n
+        if not is_jira_key(m.group(1), projects):
+            return m.group(0)
+        n += 1
+        return f"[{m.group(1)}]({jira_base}/browse/{m.group(1)})"
+    for text, prose in prose_parts(body):
+        out += [KEY_RX.sub(one, seg) if prose and i % 2 == 0 else seg for i, seg in enumerate(SEGMENT.split(text) if prose else [text])]
+    return "".join(out), n
+
+
+def spec_lint(rel, text, generated=False, projects=None):
     """The note's deviations from its type's spec, one line each; [] when it meets it or has no spec."""
     fl, body = split_front(text)
     props = props_of(fl)
@@ -1602,11 +1647,8 @@ def spec_lint(rel, text, generated=False):
             out.append("title not in English")
         elif not re.search(sp["title"][0], plain(title)):
             out.append(f"title: want {sp['title'][1]}")
-        try:
-            al = json.loads(next((l for l in fl if l.startswith("aliases:")), "aliases: []")[8:].strip() or "[]")
-        except ValueError:
-            al = []
-        if not isinstance(al, list) or plain(title) not in al:
+        al = list_prop(fl, "aliases")
+        if plain(title) not in al:
             out.append("the title is not among the aliases")
         head = h1(body)
         if head is None:
@@ -1646,13 +1688,13 @@ def spec_lint(rel, text, generated=False):
     cjk = len(CJK.findall(outside_folds(body)))
     if cjk // 2 > units / 3:
         out.append("body not in English")
-    keys = bare_keys(body) if not generated else []       # a generated note's keys are the renderer's, by its project list
+    keys = bare_keys(body, projects) if not generated else []       # a generated note's keys are the renderer's, by its project list
     if keys:
         out.append(f"{len(keys)} Jira key{'s' if len(keys) > 1 else ''} not linked ({', '.join(keys[:4])}{', …' if len(keys) > 4 else ''})")
     return out
 
 
-def lint_notes(vault):
+def lint_notes(vault, projects=None):
     """[(path, generated, [deviations])] for every note with a type, the hidden folders, attachments, the moves
     definitions and the retired folders left out; generated means the sync writes it (fix its generator or source)."""
     try:
@@ -1660,47 +1702,86 @@ def lint_notes(vault):
     except (OSError, ValueError):
         gen = set()
     out = []
+    for rel, text in vault_notes(vault):
+        found = spec_lint(rel, text, rel in gen, projects)
+        if found:
+            out.append((rel, rel in gen, found))
+    return out
+
+
+def vault_notes(vault):
+    """(path, text) of every note the standards cover: hidden folders, attachments, the moves definitions and the
+    retired folders left out."""
     for top_, dirs, fs in os.walk(vault):
         dirs[:] = sorted(d for d in dirs if not d.startswith(".") and os.path.relpath(os.path.join(top_, d), vault).replace(os.sep, "/")
                          not in (ATTACH, MOVE_SETS_DIR) + RETIRED)
         for f in sorted(fs):
-            if not f.endswith(".md"):
-                continue
-            rel = os.path.relpath(os.path.join(top_, f), vault).replace(os.sep, "/")
-            try:
-                text = open(os.path.join(top_, f), encoding="utf-8").read()
-            except OSError:
-                continue
-            found = spec_lint(rel, text, rel in gen)
-            if found:
-                out.append((rel, rel in gen, found))
-    return out
+            if f.endswith(".md"):
+                try:
+                    yield os.path.relpath(os.path.join(top_, f), vault).replace(os.sep, "/"), open(os.path.join(top_, f), encoding="utf-8").read()
+                except OSError:
+                    continue
+
+
+def front_span(fl, key):
+    """(start, end) of one key in the front-matter lines, its block-list items (`  - x`) included; None if absent."""
+    for i, l in enumerate(fl):
+        if re.match(rf"^{re.escape(key)}:", l):
+            j = i + 1
+            while j < len(fl) and re.match(r"^\s+\S|^-\s", fl[j]):
+                j += 1
+            return i, j
+    return None
+
+
+def list_prop(fl, key):
+    """A list property as written, inline (`["a"]`) or as a block (`  - a`), or both after a bad write: its items."""
+    sp = front_span(fl, key)
+    if not sp:
+        return []
+    head = fl[sp[0]].split(":", 1)[1].strip()
+    try:
+        items = json.loads(head) if head else []
+        items = items if isinstance(items, list) else [str(items)]
+    except ValueError:
+        items = [prop_text(head)]
+    items += [prop_text(re.sub(r"^\s*-\s*", "", l)) for l in fl[sp[0] + 1:sp[1]]]
+    return [x for x in dict.fromkeys(items) if x]
+
+
+def prop_text(v):
+    v = v.strip()
+    try:
+        d = json.loads(v) if v[:1] == '"' else v
+        return d if isinstance(d, str) else v
+    except ValueError:
+        return v.strip("'\"")
 
 
 def front_line(fl, key, value):
-    """The front-matter lines with one key's line replaced in place (or added after title), JSON-encoded."""
+    """The front-matter lines with one key replaced in place, block items included (or added after title), JSON-encoded."""
     line = f"{key}: {json.dumps(value, ensure_ascii=False)}"
-    for i, l in enumerate(fl):
-        if re.match(rf"^{re.escape(key)}:", l):
-            return fl[:i] + [line] + fl[i + 1:]
+    sp = front_span(fl, key)
+    if sp:
+        return fl[:sp[0]] + [line] + fl[sp[1]:]
     at = next((i + 1 for i, l in enumerate(fl) if l.startswith("title:")), 0)
     return fl[:at] + [line] + fl[at:]
 
 
-def normalise(text):
+def normalise(text, jira_base="", projects=None):
     """(text, fixes): the mechanical part of a note's spec — its title quoted, plain text, first among its aliases,
-    with any earlier spelling kept as an alias. Front matter only; the body is never touched."""
-    fl, body = split_front(text)
+    with any earlier spelling kept as an alias; and each bare Jira key in the body a link. Nothing is removed."""
+    fl, _ = split_front(text)
     raw = next((l for l in fl if l.startswith("title:")), None)
     if not raw or props_of(fl).get("type") not in SPECS:
         return text, []
+    rest, linked = link_keys(text[text.find("\n---", 4) + 4:], jira_base, projects)   # the body exactly as written
     title = props_of([raw])["title"]
-    want, fixes = plain(title), []
-    try:
-        al = json.loads(next((l for l in fl if l.startswith("aliases:")), "aliases: []")[8:].strip() or "[]")
-        al = al if isinstance(al, list) else [str(al)]
-    except ValueError:
-        al = []
+    want, fixes = plain(title), [f"{linked} Jira key{'s' if linked > 1 else ''} linked"] if linked else []
+    al = list_prop(fl, "aliases")
+    sp = front_span(fl, "aliases")
+    if sp and (sp[1] - sp[0] > 1 or not fl[sp[0]].split(":", 1)[1].strip().startswith("[")):
+        fixes.append("aliases written as one list")          # a block list, or a list left half-rewritten
     if not raw[6:].strip().startswith('"'):
         fixes.append("title quoted")
     if want != title:
@@ -1710,8 +1791,9 @@ def normalise(text):
         fixes.append("the title first among the aliases")
     if not fixes:
         return text, []
-    fl = front_line(front_line(fl, "title", want), "aliases", new_al)
-    return "---\n" + "\n".join(fl) + "\n---\n" + body, fixes
+    if new_al[:1] != al[:1] or want != title or not raw[6:].strip().startswith('"') or "aliases written as one list" in fixes:
+        fl = front_line(front_line(fl, "title", want), "aliases", new_al)
+    return "---\n" + "\n".join(fl) + "\n---" + rest, fixes
 
 
 def cmd_lint(a):
@@ -1719,6 +1801,10 @@ def cmd_lint(a):
     mechanical (front matter only), a dry run unless --apply. Exit 0 either way: a deviation is a lint line."""
     s = json.load(open(SITE))
     vault = s["vault"]
+    env = a.env_file or s.get("env")
+    jira_base = next((l.split("=", 1)[1].strip().rstrip("/") for l in open(env) if l.startswith("JIRA_BASE_URL=")), "") \
+        if env and os.path.isfile(env) else ""
+    projects = (project_keys(env, s.get("runtime")) or None) if jira_base else None
     fixed = []
     if a.fix:
         gen = set()
@@ -1726,17 +1812,16 @@ def cmd_lint(a):
             gen = set((json.load(open(os.path.join(vault, MANIFEST))).get("files") or {}))
         except (OSError, ValueError):
             pass
-        for rel, _, _ in lint_notes(vault):
+        for rel, text in list(vault_notes(vault)):
             if rel in gen:
                 continue                                   # the sync rewrites it: the fix belongs in its generator
             p = os.path.join(vault, rel)
-            text = open(p, encoding="utf-8").read()
-            new, fixes = normalise(text)
+            new, fixes = normalise(text, jira_base, projects)
             if fixes:
                 fixed.append({"note": rel, "fixes": fixes})
                 if a.apply:
                     atomic_write(p, new)
-    found = lint_notes(vault)
+    found = lint_notes(vault, projects)
     if a.json:
         print(json.dumps({"dry_run": a.fix and not a.apply, "fixed": fixed,
                           "lint": [{"note": r, "generated": g, "lines": l} for r, g, l in found]}, ensure_ascii=False)); return
@@ -3070,10 +3155,6 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since
     native_warn += [f"project: {x}" for x in (project_lint(n.path, n.props, s["vault"]) for n in notes + native) if x]
     native_warn += [f"asks: {x}" for x in (asks_lint(n) for n in notes + native) if x]
     native_warn += [f"layout: {x}" for x in folder_lint(s["vault"])]
-    spec = lint_notes(s["vault"])
-    if spec:                                               # one line here; each deviation is `vault.py lint`'s
-        native_warn.append(f"spec: {sum(len(l) for _, _, l in spec)} deviations from the note standards in {len(spec)} notes; "
-                           "`ela vault lint` lists them")
     ov = overview_note(s, s["vault"], today)
     if ov:
         notes.append(ov)
@@ -3095,6 +3176,10 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since
     for key, text in pages.items():                        # each project's page: its head as written, its tail from the notes
         notes.append(project_note(key, text, s["vault"], notes + native, today, jira_base))
     projects = project_keys(env, s.get("runtime")) if jira_base else set()
+    spec = lint_notes(s["vault"], projects or None)
+    if spec:                                               # one line here; each deviation is `vault.py lint`'s
+        native_warn.append(f"spec: {sum(len(l) for _, _, l in spec)} deviations from the note standards in {len(spec)} notes; "
+                           "`ela vault lint` lists them")
     warnings = native_warn + ([] if jira_base and projects else ["ticket keys are not linked: no Jira base URL or project list"])
     reps = {n.src_rel: n for n in notes if n.src_rel and n.props.get("type") in ("day", "review", "reader")}
     linker = Linker({n.src_rel: n for n in enotes}, titles, jira_base, projects, reports, reps)

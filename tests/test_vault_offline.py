@@ -1211,4 +1211,18 @@ check("normalise quotes the title, takes its links out, keeps the old spelling a
       'title: "MH-1: build 85 fixed"' in fl and json.loads(next(l for l in fl if l.startswith("aliases:"))[8:])
       == ["MH-1: build 85 fixed", "old", "[MH-1](https://j/browse/MH-1): build 85 fixed"]
       and V.split_front(new)[1] == V.split_front(bad)[1] and fixes and V.normalise(new)[1] == [] and V.normalise(good) == (good, []))
+body = "MH-1 and [MH-2](https://j/browse/MH-2), `MH-3`, [[mh-4-page]], WF-5 and MH-035.\n```\nMH-6\n```\n> [!note]- Slack\n> ~~~~\n> MH-7 ready to paste\n> ~~~~\n"
+new_b, n = V.link_keys(body, "https://j", {"MH"})
+check("link_keys links each bare key of a known project; code, links, other projects and test ids stay",
+      n == 1 and new_b.startswith("[MH-1](https://j/browse/MH-1) and [MH-2](https://j/browse/MH-2), `MH-3`")
+      and "WF-5" in new_b and "[MH-035]" not in new_b and "```\nMH-6\n```" in new_b and "> MH-7 ready" in new_b and V.link_keys(new_b, "https://j", {"MH"})[1] == 0)
+fixed_g, fx = V.normalise(good.replace("Text about [MH-2](https://j/browse/MH-2)", "Text about MH-2"), "https://j", {"MH"})
+check("lint --fix links bare keys and touches nothing else", fixed_g == good and fx == ["1 Jira key linked"])
+blk = '---\ntitle: MH-9 · PASS on qa\naliases:\n  - MH-9 · PASS on qa\ntype: "verify"\n---\n\n# MH-9 · PASS on qa\n\nMH-9 body.\n'
+nb, fx = V.normalise(blk, "https://j", {"MH"})
+check("normalise rewrites a block list of aliases whole and keeps the body's blank lines",
+      nb == '---\ntitle: "MH-9 · PASS on qa"\naliases: ["MH-9 · PASS on qa"]\ntype: "verify"\n---\n\n# [MH-9](https://j/browse/MH-9) · PASS on qa\n\n[MH-9](https://j/browse/MH-9) body.\n'
+      and "aliases written as one list" in fx)
+half = '---\ntitle: "MH-9 · PASS on qa"\naliases: ["MH-9 · PASS on qa"]\n  - MH-9 · PASS on qa\ntype: "verify"\n---\n\n# MH-9 · PASS on qa\n'
+check("a list left half-rewritten is repaired into one", V.normalise(half)[0] == '---\ntitle: "MH-9 · PASS on qa"\naliases: ["MH-9 · PASS on qa"]\ntype: "verify"\n---\n\n# MH-9 · PASS on qa\n')
 sys.exit(1 if failures else 0)
