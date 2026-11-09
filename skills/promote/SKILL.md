@@ -165,6 +165,10 @@ python3 "${CLAUDE_PLUGIN_ROOT}/skills/promote/note.py" claims <runtime>/promote/
   versions (`promote proof lane`), profile chains (`facts runtime show`, `configserver effective <app> <chain>`), code
   and branch state (git), live dependencies and the shipped versions. Each returns per claim: confirmed / wrong (with
   the first-hand reading) / unread (with why).
+- Every line of the Slack text and every list in the note is a claim of its own: a list is checked for what it
+  leaves out (call sites, versions a flag arrives in, the endpoints a call really uses), and a Slack line for the cause
+  it states. On the 2026-11-09 rerun, the misses were all of this shape (an incomplete list of gateway call sites, the
+  build a flag first arrives in, a Slack line naming the wrong cause).
 - A claim either checker cannot read is written as unread in the note, never kept as stated. A wrong claim is corrected
   in the note before it is shown, and the checker's reading is cited.
 - The note ends its body with `## Checked`: when, the two checkers, how many claims each confirmed, corrected and left
