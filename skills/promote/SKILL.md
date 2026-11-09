@@ -61,6 +61,13 @@ lane behind it, the dry-run bundle command. The line's promotion stays here, and
   pass environment places a ticket only when nothing else does. The line's label brings in tickets with no commit in
   the range, so the page cannot list as new what the target already runs (MH-3579, MH-3503, MH-3582, MH-3668 on
   2026-11-09); every `on-target` and `partly-new` ticket is a note in the report.
+- **What the deploy needs is read, not asked for.** `prereqs.py` scans the release's tickets (description, comments)
+  and the docs the range changes for deploy-time items (an SQL statement on a table, a one-off backfill call, a
+  发版待办 list, a key = value beside a release word), lists the release-branch commits after the promoted build, and
+  dry-runs every unmerged branch named after a release ticket with `git merge-tree` against the release branch and
+  against the other such branches. A deploy item is a high finding with its citation; an unbuilt commit or a conflict
+  is medium. On 2026-11-09 the MH-3891 DDL (two databases), its backfill call and the MH-3961 / MH-3966 conflict all
+  surfaced only when the owner asked.
 - **The to-lane is read live or declared unreadable.** Any lane ahead of the target (prod ahead of daily) is
   reported; a target lane ahead of the source stops the promotion until explained. A from-lane that is a QA lane may
   be QA's word (its report's environment block) or the release's (the thread, the `[Release Mediahub QA-AWS3]` mail)

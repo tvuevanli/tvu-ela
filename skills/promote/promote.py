@@ -563,7 +563,7 @@ def collect_tickets(a, delta, gaps):
         for c in d.get("comments") or []:
             who = c.get("author") if isinstance(c.get("author"), str) else (c.get("author") or {}).get("displayName")
             comments.append({"who": who, "area": person_area(roster, who), "when": (c.get("created") or "")[:10], "text": adf_text(c.get("body")).strip()})
-        out.append({"key": k, "exists": True, "summary": f.get("summary"), "status": st, "assignee": asg, "labels": labels, "fixed_in": fi_text, "fixed_in_entries": fi,
+        out.append({"key": k, "exists": True, "summary": f.get("summary"), "status": st, "description": adf_text(f.get("description")).strip()[:6000] if f.get("description") else "", "assignee": asg, "labels": labels, "fixed_in": fi_text, "fixed_in_entries": fi,
                     "services_in_delta": svcs, "commits": keys[k]["commits"], "reverse": reverse.get(k), "flags": flags, "comments": comments,
                     "url": d.get("url")})
     return {"line": a.line, "label": label, "tickets": out, "referenced_only": {k: v for k, v in refs.items() if k not in keys}}
@@ -1372,12 +1372,33 @@ def cmd_report(a):
                              "what": f"{k} — {PL.words(p)}: not new in this promotion; list it only as what this release adds, if anything"})
         elif p["placement"] == "partly-new":
             findings.append({"severity": "note", "kind": "partly_new", "key": k, "what": f"{k} — {PL.words(p)}"})
+    import prereqs as PR  # noqa: E402 — same skill
+    say("prerequisites: ticket text and the range's docs; release-branch commits after the build; unmerged ticket branches")
+    pre = PR.collect({"tickets": tickets, "delta": delta}, fetch=False)
+    for it in pre["items"]:
+        if it.get("release_doc") is False or it["category"] == "config":
+            continue
+        findings.append({"severity": "high", "kind": "deploy_prerequisite", "key": it.get("key"),
+                         "what": f"[{it['category']}] {it['line'][:140]} — {it['where']}" + (f" ({'; '.join(it['detail'][2:6])})" if it.get("detail") else "")})
+    for u in pre["unbuilt"]:
+        if u.get("commits"):
+            findings.append({"severity": "medium", "kind": "unbuilt_release_commits",
+                             "what": f"{u['service']}: {len(u['commits'])} commit(s) on {u['branch']} after build {u['build']} (refs fetched {u['fetched']}): "
+                                     + "; ".join(f"{c['sha']} {c['subject'][:50]}" for c in u["commits"][:4])})
+    for b in pre["branches"]:
+        m = b["against_release"]
+        sev = "medium" if (m.get("clean") is False or b["with_others"]) else "note"
+        findings.append({"severity": sev, "kind": "unmerged_branch", "key": (b["keys"] or [None])[0],
+                         "what": f"{b['repo']} {b['branch']} ({b['ahead']} ahead, {b['author']} {b['date']}): "
+                                 + ("merges clean" if m.get("clean") else "conflicts with the release branch in " + ", ".join(m.get("conflicts") or [])[:100] if m.get("clean") is False else "merge not tried")
+                                 + "".join(f"; conflicts with {o['branch']}" for o in b["with_others"])})
     for t in tickets["tickets"]:
         t.pop("comments", None)
+        t.pop("description", None)
         if t["key"] in placed:
             t["placement"] = placed[t["key"]]
     res = {"generated_at": now(), "line": a.line, "from": lanes["from"], "to": lanes["to"], "purpose": a.purpose, "scope": a.scope,
-           "lanes": lanes, "delta": delta, "tickets": tickets, "evidence": evidence, "placement": placed, "bundles": bundles, "untracked": untracked, "findings": findings, "gaps": gaps,
+           "lanes": lanes, "delta": delta, "tickets": tickets, "evidence": evidence, "placement": placed, "prereqs": pre, "bundles": bundles, "untracked": untracked, "findings": findings, "gaps": gaps,
            "counts": {"commits": sum(len(s["commits"]) for s in delta["services"]), "tickets": len(tickets["tickets"]),
                       "findings": {k: sum(1 for f in findings if f["severity"] == k) for k in SEV}}}
     res["read_at"] = F.read_at()

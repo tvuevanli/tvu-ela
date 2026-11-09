@@ -63,6 +63,7 @@ python3 tests/test_runtime_chain_offline.py || fail=1
 python3 tests/test_promote_envproof_offline.py || fail=1
 python3 tests/test_promote_qajira_offline.py || fail=1
 python3 tests/test_promote_placement_offline.py || fail=1
+python3 tests/test_promote_prereqs_offline.py || fail=1
 python3 tests/test_doctor_offline.py || fail=1
 python3 tests/test_promote_plan_offline.py || fail=1
 python3 tests/test_project_offline.py || fail=1
