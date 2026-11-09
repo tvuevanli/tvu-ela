@@ -10,7 +10,10 @@ x-api-key, token, secret, password, sig, signature, access_key, passphrase, stre
 name in a JSON, YAML, header or properties pair (a bare `key` or `auth` excepted there: `"key": "MH-1"` is a ticket);
 user:pass@ in a URL; a Bearer or Basic token; an AppSync key; and the shapes of config-server-backend's
 util/ApiKeyDetector.java:78-172 (JWT, AWS access key ids, provider keys), anchors relaxed the way its unanchor()
-relaxes them. Not cut, because no shape names it: a stream key carried as a bare path segment (rtmp://host/app/KEY).
+relaxes them. A stream key carried as a bare path segment is cut by position: the last path segment of an rtmp(s)
+push URL with an application before it (rtmp://host/app/KEY), any path's last segment of an srt:// URL and its
+streamid, the segment after a known push path in an http(s) URL (/live/, /live2/, /rtmp/, /push/, /publish/,
+/ingest/; a media extension kept: /live/<redacted>.m3u8), and YouTube's HLS ingest cid.
 """
 import re, sys
 
@@ -36,8 +39,21 @@ RED = "<redacted>"
 _NAMES = (r"(?:x[-_]?)?api[-_]?key|[a-z0-9_-]*token|[a-z0-9_-]*secret|password|passwd|pwd|passphrase|sig|signature"
           r"|access[-_]?key(?:[-_]?id)?|secret[-_]?key|stream[-_]?key|x-amz-(?:signature|credential|security-token)"
           r"|authorization|client[-_]?secret")
-_QUERY_NAMES = _NAMES + r"|key|auth"
+_QUERY_NAMES = _NAMES + r"|key|auth|streamid"
+_SEG = r"[^\s/?#\"'<>,;]+"            # one URL path segment
+_HOSTPART = r"[^\s/?#\"'<>]+"         # authority: host[:port], perhaps user:pass@
+_END = r"(?=$|[?#\s\"'<>,;])"           # the segment is the path's last
 _SCRUB = [
+    # rtmp://host/app/KEY, rtmps://host:443/rtmp/KEY: the last segment, when an application segment precedes it
+    (re.compile(rf"(\brtmp[set]?s?://{_HOSTPART}(?:/{_SEG})+/)(?!{RED}){_SEG}{_END}", re.I), r"\1" + RED),
+    # srt://host:port/KEY: SRT carries no application, so any last path segment
+    (re.compile(rf"(\bsrt://{_HOSTPART}(?:/{_SEG})*/)(?!{RED}){_SEG}{_END}", re.I), r"\1" + RED),
+    # https://host/…/live/KEY[.m3u8]: the segment after a known push path, its media extension kept
+    (re.compile(rf"(\bhttps?://{_HOSTPART}(?:/{_SEG})*?/(?:live2?|rtmp|push|publish|ingest)/)(?!{RED})"
+                r"[^\s/?#\"'<>,;.]+", re.I), r"\1" + RED),
+    # YouTube's HLS ingest: https://a.upload.youtube.com/http_upload_hls?cid=KEY&copy=0&file=
+    (re.compile(rf"(upload\.youtube\.com/http_upload_hls\?(?:[^\s#\"'<>]*&)?cid=)(?!{RED})[^&#\s\"'<>]+", re.I),
+     r"\1" + RED),
     # ?key=… &x-api-key=… #access_token=… ;sig=…  (query, fragment, matrix parameters)
     (re.compile(rf"([?&#;](?:{_QUERY_NAMES})=)(?!{RED})[^&#;\s\"'<>]+", re.I), r"\1" + RED),
     # "x-api-key": "…"  'token'='…'  apiKey: …  (JSON, YAML, header maps, properties)
