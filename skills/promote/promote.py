@@ -529,6 +529,15 @@ def collect_tickets(a, delta, gaps):
             out.append({"key": k, "exists": False, "commits": keys[k]["commits"], "flags": ["key_not_in_jira"]}); continue
         f = d.get("fields") or {}
         st = (f.get("status") or {}).get("name"); asg = (f.get("assignee") or {}).get("displayName"); labels = f.get("labels") or []
+        # a FloSports-style item id among the labels (MH-030 on MH-3891) is how the range's commits name the ticket
+        for alias in [l for l in labels if re.fullmatch(r"[A-Z][A-Z0-9]{1,5}-0\d{1,5}", l)]:
+            seen = {c["sha"] for c in keys[k]["commits"]}
+            for sd in delta["services"]:
+                for c in sd["commits"]:
+                    if c["sha"] not in seen and re.search(rf"(?<![\w-]){re.escape(alias)}(?!\d)", c["subject"]):
+                        keys[k]["commits"].append({"service": sd["service"], "sha": c["sha"], "kind": c["kind"], "only_in_body": False,
+                                                   "subject": c["subject"][:80], "via_alias": alias})
+                        keys[k]["services"].add(sd["service"])
         fi_raw = f.get(fid)
         fi_text = adf_text(fi_raw).strip() if fi_raw else ""
         fi = parse_fixed_in(fi_text)
@@ -1452,7 +1461,12 @@ def cmd_report(a):
     bundles = collect_bundles(a, gaps) if a.scope == "all" or a.bundles or gate else None
     untracked = collect_untracked(a, delta, gaps) if gate else None
     import placement as PL  # noqa: E402 — same skill
-    placed = PL.place_all(tickets, lanes, evidence)
+    history = {}
+    for s in delta["services"]:
+        path = repo_path(s["repo"]) if s.get("repo") else None
+        if path and (s.get("to_build") or {}).get("sha"):
+            history[s["service"]] = PL.history_keys(path, s["to_build"]["sha"])
+    placed = PL.place_all(tickets, lanes, evidence, history)
     findings = assess(a, lanes, delta, tickets, evidence, bundles, gaps)
     for k, p in sorted(placed.items()):
         if p["placement"] == "on-target":
@@ -1460,6 +1474,8 @@ def cmd_report(a):
                              "what": f"{k} — {PL.words(p)}: not new in this promotion; list it only as what this release adds, if anything"})
         elif p["placement"] == "partly-new":
             findings.append({"severity": "note", "kind": "partly_new", "key": k, "what": f"{k} — {PL.words(p)}"})
+        elif p["placement"] == "disputed" or p.get("disputed_parts"):
+            findings.append({"severity": "medium", "kind": "fixed_in_disagrees", "key": k, "what": f"{k} — {PL.words(p) if p['placement'] == 'disputed' else 'Fixed In disagrees with the commits for ' + ', '.join(p['disputed_parts'])}: for the owner, not listed as new"})
     import prereqs as PR  # noqa: E402 — same skill
     say("prerequisites: ticket text and the range's docs; release-branch commits after the build; unmerged ticket branches")
     pre = PR.collect({"tickets": tickets, "delta": delta}, fetch=False)

@@ -18,6 +18,13 @@ Per ticket and per service part, two first-hand facts, never the ticket's status
 The ticket is `new` (every part new), `on-target` (every part already there) or `partly-new` (the parts listed).
 - **QA's pass environment**, only when neither of the above places anything: the build QA passed the ticket on, at or
   below the target lane, puts it on the target (MH-3668: QA passed on MediaHub frontend 2.2.111; prod-3 runs a later build).
+- **The target build's own history**: a code commit naming the key in its subject, body or trailer that is already
+  an ancestor of the target lane's build puts that service's part on the target (MH-3668: its fix commits are in
+  MediaHub frontend 2.2.111's history; the range only carries a test citing it). A part also carried by a range commit
+  is new for that part.
+- **Fixed In against the commits**: a part Fixed In calls new while no commit in the range carries the key is
+  `disputed` ("Fixed In disagrees with the commits"), flagged for the owner, never `new` (MH-3886: Fixed In
+  unified-streaming@2.1.82, no range commit). A ticket with a disputed part and nothing new is `disputed`.
 A part whose service the target lane does not report is `unknown`, never assumed.
 """
 import argparse, json, os, re, sys
@@ -45,9 +52,28 @@ def target_versions(lanes):
     return out
 
 
-def place(ticket, target, qa_env=None):
+def history_keys(path, sha, since_days=240):
+    """{key: [sha, …]} of code commits naming a key (subject, body, trailer) in the history of `sha`; {} when unreadable."""
+    import subprocess
+    try:
+        out = subprocess.run(["git", "-C", path, "log", "--no-merges", f"--since={since_days} days ago", "--format=%h%x1f%s%x1f%b%x1e", sha],
+                             capture_output=True, text=True, timeout=60).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return {}
+    keys = {}
+    for rec in out.split("\x1e"):
+        h, subj, body = (rec.strip("\n").split("\x1f") + ["", ""])[:3]
+        if not h or re.match(r"^(docs|test|chore|style|ci)\b", subj):
+            continue
+        for k in set(re.findall(r"\b[A-Z][A-Z0-9]{1,5}-(?!0)\d{2,6}\b", subj + "\n" + body)):
+            keys.setdefault(k, []).append(h)
+    return keys
+
+
+def place(ticket, target, qa_env=None, in_target=None):
     """qa_env: {slug: version} of the build QA passed the ticket on (its environment block), used only when neither
-    Fixed In nor an owned commit places a part."""
+    Fixed In nor an owned commit places a part. in_target: {slug: [sha, …]} of code commits naming the key already in
+    the target build's history."""
     parts = {}
     for e in ticket.get("fixed_in_entries") or []:
         if e.get("docker"):
@@ -66,6 +92,15 @@ def place(ticket, target, qa_env=None):
             cites.setdefault(cm["service"], []).append(cm["sha"])      # another ticket's commit, or a follow-up citing it
         else:
             code.setdefault(cm["service"], []).append(cm["sha"])
+    for svc, shas in (in_target or {}).items():
+        if svc not in code and (svc not in parts or parts[svc]["state"] != "on-target"):
+            was = parts.get(svc, {}).get("state")
+            parts[svc] = {**parts.get(svc, {"fixed_in": None}), "state": "on-target", "target": (target.get(svc) or {}).get("version"),
+                          "history_commits": shas[:4],
+                          "why": "commits naming it are already in the target build" + (" (Fixed In names a later build)" if was == "new" else "")}
+    for svc, p in parts.items():
+        if p["state"] == "new" and svc not in code and ticket.get("commits") is not None:
+            p.update({"state": "disputed", "why": f"Fixed In names {p.get('fixed_in')}, but no commit in the range carries the key"})
     for svc, shas in code.items():
         p = parts.get(svc) or {"fixed_in": None, "target": (target.get(svc) or {}).get("version")}
         p.update({"state": "new", "commits": len(shas),
@@ -94,11 +129,14 @@ def place(ticket, target, qa_env=None):
         overall = "on-target"
     elif "new" in states:
         overall = "partly-new"
+    elif "disputed" in states:
+        overall = "disputed"
     else:
         overall = "unknown"
     return {"key": ticket["key"], "placement": overall, "parts": parts, "references_only_in": refs_only,
             "new_parts": sorted(s for s, p in parts.items() if p["state"] == "new"),
-            "on_target_parts": sorted(s for s, p in parts.items() if p["state"] == "on-target")}
+            "on_target_parts": sorted(s for s, p in parts.items() if p["state"] == "on-target"),
+            "disputed_parts": sorted(s for s, p in parts.items() if p["state"] == "disputed")}
 
 
 def qa_pass_env(evidence, key):
@@ -108,9 +146,12 @@ def qa_pass_env(evidence, key):
     return None
 
 
-def place_all(tickets, lanes, evidence=None):
+def place_all(tickets, lanes, evidence=None, history=None):
+    """history: {slug: {key: [sha, …]}} from history_keys on each service's target build."""
     target = target_versions(lanes)
-    return {t["key"]: place(t, target, qa_pass_env(evidence, t["key"])) for t in (tickets or {}).get("tickets") or [] if t.get("exists")}
+    return {t["key"]: place(t, target, qa_pass_env(evidence, t["key"]),
+                            {svc: h[t["key"]] for svc, h in (history or {}).items() if t["key"] in h})
+            for t in (tickets or {}).get("tickets") or [] if t.get("exists")}
 
 
 def words(p, names=None):
@@ -119,17 +160,23 @@ def words(p, names=None):
     return base + (f" (+{cited} later commit(s) cite it)" if cited else "")
 
 
+def _where(part):
+    return part.get("fixed_in") or ("commits " + ", ".join(part.get("history_commits") or []) + " in its build" if part.get("history_commits") else "?")
+
+
 def _words(p, names=None):
     """One phrase for the page: 'already on prod-3 (UR Caller 2.1.75)', 'new', 'partly new: MediaHub frontend'."""
     names = names or {}
     nm = lambda s: names.get(s, s)  # noqa: E731
     if p["placement"] == "on-target":
-        return "already on the target: " + ", ".join(f"{nm(s)} {p['parts'][s]['fixed_in']}" for s in p["on_target_parts"])
+        return "already on the target: " + ", ".join(f"{nm(s)} {_where(p['parts'][s])}" for s in p["on_target_parts"])
     if p["placement"] == "partly-new":
         return ("partly new: " + ", ".join(nm(s) for s in p["new_parts"]) + "; already on the target: " +
-                ", ".join(f"{nm(s)} {p['parts'][s]['fixed_in']}" for s in p["on_target_parts"]))
+                ", ".join(f"{nm(s)} {_where(p['parts'][s])}" for s in p["on_target_parts"]))
     if p["placement"] == "new":
         return "new: " + ", ".join(nm(s) for s in p["new_parts"])
+    if p["placement"] == "disputed":
+        return "Fixed In disagrees with the commits: " + "; ".join(f"{nm(s)} {p['parts'][s]['why']}" for s in p["disputed_parts"])
     return "placement unknown"
 
 

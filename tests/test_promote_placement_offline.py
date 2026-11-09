@@ -46,6 +46,20 @@ check("QA's build above the target says nothing: unknown, never new", p["placeme
 p = P.place({"key": "MH-8", "fixed_in_entries": [fi("unified-media-backend", "1.0.287", [1, 0, 287, 0, 0])], "commits": []}, TARGET)
 check("a service the target does not report is unknown", p["placement"] == "unknown")
 
+# #22 (2026-11-09 review): MH-3668's fix commits are in the target build's history; the range only carries a test citing it
+p = P.place({"key": "MH-3668", "fixed_in_entries": [], "commits": [cm("mediahub-frontend", "test", "test: stale assertions", body=True)]},
+            TARGET, None, {"mediahub-frontend": ["ab12", "cd34"]})
+check("a key whose commits are already in the target build is on the target", p["placement"] == "on-target" and p["parts"]["mediahub-frontend"]["history_commits"] == ["ab12", "cd34"])
+p = P.place({"key": "MH-7", "fixed_in_entries": [], "commits": [cm("mediahub-frontend", "fix", "fix(MH-7): again")]}, TARGET, None, {"mediahub-frontend": ["ab12"]})
+check("a part also carried by a range commit is new", p["placement"] == "new")
+# #23: MH-3886's Fixed In names 2.1.82, no commit in the range carries the key
+p = P.place({"key": "MH-3886", "fixed_in_entries": [fi("unified-streaming", "2.1.82", [2, 1, 82, 0, 0])], "commits": []}, TARGET)
+check("Fixed In above the target with no carrying commit is disputed, never new", p["placement"] == "disputed" and p["disputed_parts"] == ["unified-streaming"])
+check("the words say Fixed In disagrees with the commits", P.words(p).startswith("Fixed In disagrees with the commits: unified-streaming Fixed In names 2.1.82"))
+p = P.place({"key": "MH-6", "fixed_in_entries": [fi("unified-streaming", "2.1.82", [2, 1, 82, 0, 0]), fi("mediahub-frontend", "2.2.120", [2, 2, 120, 0, 0])],
+             "commits": [cm("mediahub-frontend", "fix", "fix(MH-6): x")]}, TARGET)
+check("a new part beside a disputed one keeps the disputed part", p["placement"] in ("new", "partly-new") and p["disputed_parts"] == ["unified-streaming"])
+
 if failures:
     print(f"placement: {len(failures)} failure(s)"); sys.exit(1)
 print("placement: all offline checks passed")
