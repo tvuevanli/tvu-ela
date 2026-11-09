@@ -59,6 +59,7 @@ flowchart LR
 | 在 Obsidian 里读 ela 给我的东西：当天的页、review、验收、决定与计划，票号直接链到 Jira；超出阅读预算的笔记顶部带警告，并在 Home 列为 ela 欠的改写 | `vault` | `ela vault sync` · `ela vault sync --dry-run` |
 | 一条待读笔记的生命周期：在笔记顶部的 next 里选一个动作（同意并实施、暂不、拒绝、归档……），同意后移到 `in-progress/`；等别人回复的放进 `parked/`（写明等谁、什么时候唤醒，可 resume 或 drop），ela 把进度写进笔记，做完等我验收再归档；任何 session 都能接手同一条笔记 | `note` | `ela note claim PATH` · `ela note progress PATH 文字` · `ela note built PATH 摘要` · `ela note move PATH --to in-progress\|parked\|archive\|to-read\|readings\|delete` · `--to parked --waits-on 谁 --wake 什么` |
 | 一个有截止日期、有外部相关方的项目（客户 PoC、试用、demo；MediaHub 本身是 program，不是 project）：vault 里一个文件夹 `projects/<key>/`，一页 `projects/<key>/<key>.md`，`## Where it stands` 以上是我写的事实（目标、截止日期、各方、已知、下一步），以下每次 sync 重写（等我定的事、各文件夹里属于它的笔记、它盯的票和 thread 的 Afterwards、离截止日期几天）；任何笔记写 `project: <key>` 就归它，票号在它 `keys` 里的笔记由 sync 推断；Home 的链接行列出每个项目还剩几天，截止不到 14 天且下一步逾期时第四行换成它 | `project` | `ela project list` · `ela project show <key>` · `ela project new <key> --deadline 2027-02-14 --title "…"` · `ela project keys <key> --add MH-xxxx` |
+| 重启电脑之后，或者怀疑哪里坏了：ela 的每一部分一次查完——site.json 的路径（vault 在 /mnt/d 上，没挂载会说）、env 文件权限、Slack runner 和 Helm 两个常驻服务、每个 ela-* timer 有没有下一次运行、上次是否失败、每个来源实时探一次（并行，有超时）、事实库是否过期或有缺口；每行 ✓ / ! / ✗，失败的给下一步；有 ✗ 退出 1；只读 | `doctor` | `ela doctor` · `ela doctor --only senses` · `ela doctor --json` |
 | 输入一个凭据（token）且不经过聊天：在自己的终端里运行，输入不回显，直接写入 ela 的 env 文件 | `setup` | `ela secret SLACK_BOT_TOKEN` |
 | 一个复杂需求进来，要拆成各层的活并派人 | `breakdown` | `/ela:breakdown MH-3568` |
 | 一张别人写的票落到你手上，先要看懂它才谈得上判断 | `explain` | `/ela:explain MH-3568` |

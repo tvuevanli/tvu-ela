@@ -131,4 +131,7 @@ ela browser env          # exit 0 and a panel with ENV lines = ready; exit 4 = c
 ```
 
 ## 4. Done when
+`ela doctor` runs §1–3c in one go (plus the user services, the timers and the fact store), read-only; on a repair,
+run it first and work through its ✗ lines, then again to show them gone.
+
 Every sense probes `ok` (optional keys may be absent — say which), `site.json` paths all resolve, `.env` is mode 600. Say so in one line.

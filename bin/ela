@@ -199,6 +199,8 @@
   ela slack join <channel>         the bot joins a public channel at once (its members see it); typing it is the confirm
 
 站点
+  ela doctor [--only S,…] [--json] does everything of ela work here? site · units · timers · senses · facts, one
+                                   line each (✓ ! ✗), the next action on a failure; exit 1 on any ✗; read-only
   ela login tvu|qa                 prod: a one-time HTTPS page collects the browser's SID;
                                    then --host prod on bundles, bundle, versions, drift
   ela site                         the site config: roots, host names, aliases, emails
@@ -230,7 +232,7 @@ VERBS = {
     "reports": ("reports", None), "api": ("apifox", None), "apifox": ("apifox", None), "publish": ("publish", None),
     "team": ("team", None), "who": ("team", "who"),
     "mail": ("mail", None), "login": ("release", "login"), "stream": ("stream", None),
-    "facts": ("facts", None),
+    "facts": ("facts", None), "doctor": ("doctor", None),
     "sentry": ("sentry", None),
     "promote": ("promote", None), "runtime": ("runtime", None),
     "recent": ("recent", None), "train": ("train", None), "docker": ("docker", None),
