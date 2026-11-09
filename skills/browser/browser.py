@@ -33,9 +33,10 @@ the same browser run; the gateway routes each service by per-user tag cookies, s
 lands on the default lane and the panel shows no ENV (MH-2570, 2026-10-21). Exit codes: 0 ok · 2 usage · 3 mismatch ·
 4 unproven (no ENV / no cookies) · 5 browser or network failure · 6 the fix is not on the panel's lane.
 """
-import argparse, json, os, re, subprocess, sys
+import argparse, datetime, json, os, re, subprocess, sys
 
 HERE = os.path.dirname(os.path.realpath(__file__))
+SKILLS = os.path.dirname(HERE)
 sys.path.insert(0, os.path.join(os.path.dirname(HERE), "release"))
 import release as R  # noqa: E402 — the release map, parse_version, vlabel, envs
 
@@ -291,6 +292,23 @@ def cmd_login(a):
     print(json.dumps(d) if a.json else f"qa session stored: {d.get('cookies')} cookies, landed {d.get('landed')}")
 
 
+def keep_initconfig(init, res, env_file):
+    """Hand the initConfig the session received to the fact store's runtime source (non-secret keys only), under the
+    lane the panel proved — a lane the panel does not prove keeps nothing, because the account may sit elsewhere."""
+    if not init or not str(res.get("verdict") or "").startswith("proven") or not res.get("lane"):
+        return None
+    import tempfile
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
+        json.dump({"initConfig": init, "panel_lane": res["lane"],
+                   "read_at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}, f)
+    try:
+        r = subprocess.run(["python3", os.path.join(SKILLS, "facts", "runtime.py"), "initconfig", "--lane", res["lane"],
+                            "--file", f.name], capture_output=True, text=True, timeout=30)
+        return res["lane"] if r.returncode == 0 else None
+    finally:
+        os.unlink(f.name)
+
+
 def cmd_env(a):
     host = host_of(a.lane, getattr(a, "host", None))
     lanes, gaps = fix_lanes(a.env_file, a.key) if a.key else ([], [])
@@ -330,6 +348,7 @@ def cmd_env(a):
     for s in res["sections"]:
         for svc in s["services"]:
             svc.pop("parsed", None)
+    res["initconfig_kept"] = keep_initconfig(d.get("initConfig"), res, a.env_file)
     if a.json:
         print(json.dumps(res, ensure_ascii=False))
     else:

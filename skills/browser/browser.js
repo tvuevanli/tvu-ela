@@ -106,15 +106,17 @@ async function gatewayVersions(p, gateway) {
     out(await login(url));
   } else if (cmd === "env") {
     const { b, p } = await open(); try {
-      let gateway = null;
+      let gateway = null, initConfig = null;
       p.on("response", async (res) => {
         if (gateway || !/\/base\/initConfig/.test(res.url())) return;
-        try { const j = await res.json(); const g = j && j.result && j.result.gatewayUrl; if (g) gateway = /^https?:/.test(g) ? g : new URL(url).protocol + "//" + g; } catch (e) {}
+        try { const j = await res.json(); initConfig = (j && j.result) || null; const g = initConfig && initConfig.gatewayUrl; if (g) gateway = /^https?:/.test(g) ? g : new URL(url).protocol + "//" + g; } catch (e) {}
       });
       const shot = arg("--shot");
       const text = await panel(p, url, shot);
       const services = gateway ? await gatewayVersions(p, gateway) : {};
-      out({ url, panel: text, clock: await clockOf(p), shot: shot || null, gateway_seen: !!gateway, services });
+      // initConfig is the backend's runtime config as this account receives it (the MediaHub backend's dynamicMap):
+      // handed to the fact store, which keeps keys and non-secret values only, under the lane the panel proves
+      out({ url, panel: text, clock: await clockOf(p), shot: shot || null, gateway_seen: !!gateway, services, initConfig });
     } finally { await b.close(); }
   } else if (cmd === "shot") {
     const { b, p } = await open(); try {

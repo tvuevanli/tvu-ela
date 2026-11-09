@@ -311,42 +311,64 @@ def cmd_get(a):
         print_items(rows, a)
 
 
+def profile_chain(spec):
+    """`a+b` or `a,b` → [default, a, b]: the order a service lists its active profiles, the later one winning per key
+    (Spring's rule for `spring.profiles.active=a,b`). `default` is always the base and never repeated."""
+    chain = [p.strip() for p in re.split(r"[+,]", spec or "") if p.strip() and p.strip() != DEFAULT_PROFILE]
+    return [DEFAULT_PROFILE] + list(dict.fromkeys(chain))
+
+
+def layer_chain(rows_by_layer, chain):
+    """Merge per-layer rows along the chain. Each key keeps the winning row, the layer it came from and every
+    earlier layer's value it shadows — a key set in two lane profiles is where a one-profile read goes wrong."""
+    merged = {}
+    for p in chain:
+        for r in rows_by_layer.get(p, []):
+            k = r["key"]
+            prev = merged.get(k)
+            shadowed = (prev["_shadowed"] + [{"layer": prev["_layer"], "value": prev.get("value")}]) if prev else []
+            merged[k] = {**safe_item(r), "_layer": p, "_shadowed": shadowed}
+    return merged
+
+
 def cmd_effective(a):
     cs = CS(a.env_file)
     search = a.key[0] if a.key and len(a.key) == 1 else ""
-    layers = [DEFAULT_PROFILE] + ([a.profile] if a.profile != DEFAULT_PROFILE else [])
-    got = {}
-    for p in layers:
-        got[p] = [r for r in key_filter(cs.items(a.app, p, search), a.key) if r.get("status") == 1]
-    merged, overrides = {}, []
-    for p in layers:
-        for r in got[p]:
-            if p != DEFAULT_PROFILE and r["key"] in merged:
-                overrides.append(r["key"])
-            merged[r["key"]] = {**safe_item(r), "_layer": p}
+    layers = profile_chain("+".join([a.profile] + (a.chain or [])))
+    got = {p: [r for r in key_filter(cs.items(a.app, p, search), a.key) if r.get("status") == 1] for p in layers}
+    merged = layer_chain(got, layers)
     rows = sorted(merged.values(), key=lambda r: str(r.get("key")))
-    searched = f"{a.app} / {a.profile} over {DEFAULT_PROFILE}" + (f", key ~ {' & '.join(a.key)}" if a.key else "")
+    chain_word = " over ".join(reversed(layers))
+    searched = f"{a.app} / {chain_word}" + (f", key ~ {' & '.join(a.key)}" if a.key else "")
     if not rows:
-        need_profile(cs, a.app, a.profile)
+        for p in layers[1:]:
+            need_profile(cs, a.app, p)
         die(f"no enabled items — searched {searched}. Absent here, the code's own default applies", EX_NOTFOUND)
-    from_profile = sum(1 for r in rows if r["_layer"] != DEFAULT_PROFILE)
-    summary = {"keys": len(rows), "from_profile": from_profile, "from_default": len(rows) - from_profile,
-               "profile_overrides_default": len(overrides)}
+    per_layer = {p: sum(1 for r in rows if r["_layer"] == p) for p in layers}
+    overrides = sorted(r["key"] for r in rows if r["_shadowed"])
+    lane_conflicts = sorted(r["key"] for r in rows
+                            if any(s["layer"] != DEFAULT_PROFILE for s in r["_shadowed"]) and r["_layer"] != DEFAULT_PROFILE)
+    summary = {"keys": len(rows), "per_layer": per_layer, "from_profile": len(rows) - per_layer[DEFAULT_PROFILE],
+               "from_default": per_layer[DEFAULT_PROFILE], "profile_overrides_default": len(overrides),
+               "set_in_two_profiles": len(lane_conflicts)}
     if a.json:
-        return emit_json({"application": a.app, "profile": a.profile, "searched": searched, "summary": summary,
-                          "overridden_keys": sorted(overrides),
-                          "items": [{**{k: v for k, v in r.items() if k != "_layer"}, "layer": r["_layer"]}
-                                    for r in rows]})
-    if a.profile == DEFAULT_PROFILE:
+        return emit_json({"application": a.app, "profile": a.profile, "chain": layers, "searched": searched,
+                          "precedence": "later profile wins (Spring's rule for a comma-separated active list); "
+                                        "the chain itself is the caller's claim, proven by runtime evidence",
+                          "summary": summary, "overridden_keys": overrides, "set_in_two_profiles": lane_conflicts,
+                          "items": [{**{k: v for k, v in r.items() if k not in ("_layer", "_shadowed")},
+                                     "layer": r["_layer"], "shadows": r["_shadowed"]} for r in rows]})
+    if len(layers) == 1:
         print(f"{a.app} / {DEFAULT_PROFILE} · {len(rows)} key(s), all from ({DEFAULT_PROFILE})")
     else:
-        print(f"{a.app} / {a.profile} · {len(rows)} key(s): {from_profile} from ({a.profile}), "
-              f"{len(rows) - from_profile} from ({DEFAULT_PROFILE}); ({a.profile}) overrides {len(overrides)} key(s) "
-              f"of ({DEFAULT_PROFILE})")
+        counts = ", ".join(f"{per_layer[p]} from ({p})" for p in reversed(layers))
+        print(f"{a.app} / {chain_word} · {len(rows)} key(s): {counts}; {len(overrides)} key(s) override an earlier layer"
+              + (f"; {len(lane_conflicts)} set in two lane profiles" if lane_conflicts else ""))
     for r in rows:
-        tag = f"({r['_layer']})"
-        over = "  overrides (default)" if r["_layer"] != DEFAULT_PROFILE and r["key"] in overrides else ""
-        print(f"{tag} {r['key']} = {one_line(r.get('value'), 0 if a.verbose else a.width)}")
+        over = ""
+        if r["_shadowed"]:
+            over = "  overrides " + ", ".join(f"({s['layer']}) = {one_line(s.get('value'), 40)}" for s in r["_shadowed"])
+        print(f"({r['_layer']}) {r['key']} = {one_line(r.get('value'), 0 if a.verbose else a.width)}")
         print(f"      id {r.get('id')} · v{r.get('version')} · updated {when(r.get('updateTime'))}{over}")
 
 
@@ -407,8 +429,9 @@ def main():
     p.add_argument("--key", action="append", help="keep keys containing this text (repeatable; all must match)")
     p.add_argument("--sort", choices=("time", "key"), default="time")
     p.add_argument("--all-status", action="store_true", help="include disabled items"); common(p)
-    p = sub.add_parser("effective", help="profile over default, per key, each value marked with its layer")
-    p.add_argument("app"); p.add_argument("profile")
+    p = sub.add_parser("effective", help="a profile chain over default, per key, each value marked with its layer")
+    p.add_argument("app"); p.add_argument("profile", help="one profile, or a chain in the service's own order: mx_service_wed+mx_service_test (the later wins)")
+    p.add_argument("--chain", action="append", help="another profile after PROFILE in the chain (repeatable), same as a+b")
     p.add_argument("--key", action="append", help="keep keys containing this text (repeatable; all must match)")
     common(p)
     p = sub.add_parser("search", help="items whose key or value contains a text, across applications")

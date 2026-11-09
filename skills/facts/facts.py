@@ -3,6 +3,7 @@
 
   facts.py [--env-file F] refresh [--source jira|slack|mail|lanes|builds]... [--fresh] [--json]
   facts.py status [--json]
+  facts.py runtime refresh|show|prove <graph>|initconfig …   lane runtime facts (runtime.py)
 
 The store is `<runtime>/facts/` (site.json `runtime`), one directory per source with a watermark file and the
 content, every entry stamped with the time it was read:
@@ -16,6 +17,8 @@ content, every entry stamped with the time it was read:
   mail/     index.json (the three standing searches over a rolling 21 days, ids newest first) · messages/<id>.json
             (fetched once per id; a message never changes) · threads/<id>.json · watermark.json
   lanes/    envs-<host>.json · gateway.json · watermark.json
+  runtime/  lanes.json (per followed lane and service: the profile chain, how it was proven, the keys a one-profile
+            read gets wrong) · proofs.json (a graph bound to its UR Caller instance and gateway) · initconfig-<lane>.json
   builds/   <job>.json (Jenkins, 80 builds) · bundles/<host>/<line>.json · bundles/detail/<id>.json · watermark.json
 
 `refresh` is incremental and idempotent: each source reads forward from its watermark; a second refresh in the same
@@ -36,7 +39,7 @@ import argparse, datetime, json, os, sys, time
 HERE = os.path.dirname(os.path.realpath(__file__))
 SKILLS = os.path.dirname(HERE)
 SITE = os.path.expanduser("~/.claude/ela/site.json")
-SOURCES = ("jira", "slack", "mail", "lanes", "builds")
+SOURCES = ("jira", "slack", "mail", "lanes", "builds", "runtime")
 EX_USAGE, EX_REMOTE = 2, 5
 JIRA_HORIZON_DAYS = 14          # how far back the Jira sweep keeps changed issues (recent's 7 days, Monday's 72 hours)
 SLACK_HORIZON_DAYS = 8          # the window of parents re-read each pass, so a reply to an older thread is seen
@@ -327,7 +330,26 @@ def refresh_builds(env_file, full):
     return f"builds: {len(jobs)} jobs, {got} builds, {len(wanted)} bundle lists ({bundles} bundles)" + (f" — gaps: {'; '.join(gaps)[:300]}" if gaps else "") + f", {time.time() - t0:.1f}s"
 
 
-REFRESH = {"jira": refresh_jira, "slack": refresh_slack, "mail": refresh_mail, "lanes": refresh_lanes, "builds": refresh_builds}
+def refresh_runtime(env_file, full):
+    """Per followed lane and config-server service: the profile chain runtime evidence proves and the keys a
+    one-profile read gets wrong (runtime.py). Read whole every pass: the chain is what runs now, not a history."""
+    sys.path.insert(0, HERE)
+    import runtime as RT  # noqa: E402
+    t0 = time.time()
+    out = RT.refresh(env_file or site().get("env"))
+    n = sum(len(v) for v in out["lanes"].values())
+    proven = sum(1 for v in out["lanes"].values() for r in v.values() if r.get("chain_status") == "proven")
+    set_watermark("runtime", at=now_iso(), seconds=round(time.time() - t0, 1))
+    if out["gaps"]:
+        set_gap("runtime", "; ".join(out["gaps"])[:300], partial=True)
+    else:
+        clear_gap("runtime")
+    return (f"runtime: {n} lane·service row(s), {proven} chain(s) proven by a graph"
+            + (f" — gaps: {'; '.join(out['gaps'])}" if out["gaps"] else "") + f", {time.time() - t0:.1f}s")
+
+
+REFRESH = {"jira": refresh_jira, "slack": refresh_slack, "mail": refresh_mail, "lanes": refresh_lanes, "builds": refresh_builds,
+           "runtime": refresh_runtime}
 
 
 def cmd_refresh(a):
@@ -387,6 +409,10 @@ def main():
     p = sub.add_parser("status", help="each source's read time, freshness, size and gap")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_status)
+    p = sub.add_parser("runtime", help="lane runtime facts: refresh|show|prove <graph>|initconfig (runtime.py)", add_help=False)
+    p.add_argument("rest", nargs=argparse.REMAINDER)
+    p.set_defaults(func=lambda a: os.execvp("python3", ["python3", os.path.join(HERE, "runtime.py")]
+                                            + (["--env-file", a.env_file] if a.env_file else []) + a.rest))
     a = ap.parse_args()
     a.func(a)
 

@@ -12,7 +12,8 @@ under the person's TVU session from `ela login tvu`; exit 4 names that command.
 ```bash
 ela configserver apps [--grep text]                      # application names this account can see
 ela configserver profiles <app>                          # its environments
-ela configserver effective <app> <profile> [--key k]…    # what the service receives, each value marked (default) or (<profile>)
+ela configserver effective <app> <p1>[+<p2>…] [--key k]… # what the service receives along its profile chain, each value marked
+                                                         # with its layer and the earlier layers it shadows
 ela configserver get <app> <profile|all> [--key k]…      # stored items, with id and updateTime
 ela configserver search <text>                           # key or value contains text, across all applications
 ela configserver history <app> <profile> <key>           # the last five versions, the current marked
@@ -49,6 +50,14 @@ The server is Spring Cloud Config over JDBC (`spring.profiles.active=jdbc`, the 
 `src/main/resources/application.properties:35,43`). A client asking for (app, profile) receives the
 profile's properties layered over the app's `default`, the profile winning per key — the framework's
 documented composition, applied by `effective` to the stored items, not read back from the server.
+A service may run **more than one profile**: `spring.profiles.active=a,b` layers `b` over `a` over `default`, the
+later winning per key. `effective <app> a+b` applies exactly that chain and reports each key's winning layer, the
+values it shadows and the keys set in two lane profiles. The chain is a claim, never a guess from the lane's name:
+on 2026-11-09 daily-wed's UR Caller ran `mx_service_wed` + `mx_service_test` (it logged as `ur-caller[test]`, its
+graphs were env test2, its mediabox calls crossed the test gateway), and reading `mx_service_wed` alone gave two wrong
+conclusions (`mediaBox.viaGateway` false, the HTML/YouTube whitelist missing). The proven chain per lane is the fact
+store's `runtime` source (`ela facts runtime`); pass that chain here, and say "single profile, chain unproven" when
+none is recorded.
 No shared `application` app exists in this server's list, but a service may load several
 applications: its `bootstrap.properties` `spring.cloud.config.name` lists them (MediaHub reads
 `command-center-plus,tvu-media-hub`). `effective` layers one application; read each named one, a

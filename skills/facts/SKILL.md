@@ -17,11 +17,18 @@ user-invocable: true
 | `mail` | the three standing searches over a rolling 21 days — `subject:Release`, `subject:("test report")`, `in:sent` — ids newest first, only the ids not yet stored fetched | `ela mail search` for any query inside one of those three; every other query lists ids live and fetches only unstored ids; `read` always; `thread` while fresh |
 | `lanes` | `release envs` on both hosts and `release gateway`, once | `ela release envs|gateway`, promote's host read, stage's lane signature, fixed-in's lanes |
 | `builds` | Jenkins, 80 builds per mapped job; the bundle lists per line on both hosts | `ela builds`, `ela bundles`, promote's build and bundle reads |
+| `runtime` | per followed lane (release.yaml lines, daily and prod) and per config-server service (each repo's own `bootstrap.properties`): the lane's profile (`elk.config.env` = the lane token), the instance the java-log shows running it, the profile chain a graph proved (`ela facts runtime prove <graph>`: its trace → the UR Caller instance that created it, its processes → the gateway that bridged them), and the keys whose value differs between the lane profile read alone and that chain; the initConfig the owner's browser session received (`ela browser env`, kept under the lane the version panel proved, keys and non-secret values only) | `ela facts runtime show`, promote's configuration section, `ela configserver effective <app> <chain>` |
 
 A verb serves the store while the source's watermark is younger than `ELA_FACTS_MAX_AGE` hours (default 6) and
 says so on stderr with the read time. A gap (a host that refused, Jenkins down) keeps the previous content and is
 recorded in the watermark; the serving verb then answers as the live read would (the lanes' exit 4, an empty
 list) and names the last good read. `ela facts status` prints each source's time, freshness, size and gap.
+
+A chain is proven only by a graph bound to its creator and its gateway; until one is, the row says "last layer
+proven, earlier layers unproven" and a reader states configuration as the lane profile's alone, unproven. Decision:
+the 2026-11-09 daily-wed → prod-3 promotion, where `mx_service_wed` read alone gave `mediaBox.viaGateway=false`
+while daily-wed's UR Caller ran `default → mx_service_test → mx_service_wed` (proven from graph
+`01M6ZB6FVC11PZRPB83KSFT0WG`: created by `ur-caller[wed]`, bridged by `mqtt_gateway_test1`).
 
 ## Invariants
 - **Staleness shown, never hidden.** Every result carries `read_at` (JSON) or a `facts: jira 11-04 08:02 · …`

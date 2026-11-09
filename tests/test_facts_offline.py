@@ -15,6 +15,8 @@ import jira as J  # noqa: E402
 import slack as S  # noqa: E402
 import mail as M  # noqa: E402
 import release as R  # noqa: E402
+import runtime as RT  # noqa: E402
+RT.refresh = lambda env_file, lanes=None: {"lanes": {"prod-3": {"ur-caller": {"chain_status": "proven"}}}, "gaps": []}
 
 failures = []
 def check(name, cond):

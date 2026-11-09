@@ -14,8 +14,9 @@
                                    files: a thread's images to disk; channels --all: every public
                                    channel, joined or not
   ela mail search|read|thread …    Gmail, read-only: QA test reports, deploy notices, approvals
+  ela facts runtime show|prove <graph>  a lane's real profile chain, proven by a graph's creator and gateway
   ela facts refresh|status         the fact store (<runtime>/facts/): every source read once per pass, dated; the read
-                                   verbs serve it while fresh and print its time; --source jira|slack|mail|lanes|builds,
+                                   verbs serve it while fresh and print its time; --source jira|slack|mail|lanes|builds|runtime,
                                    --fresh re-reads whole; a verb's own --fresh reads its source now
   ela wiki <verb> …                Confluence, read-only: spaces|tree|search|read|children;
                                    also ela confluence …; a page URL alone works
