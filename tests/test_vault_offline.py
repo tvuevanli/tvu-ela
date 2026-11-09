@@ -1259,4 +1259,39 @@ check("a review named mh2-1-…, untitled, closes into mh/releases/2.1 by the li
       and V.home_for("archive/2026-11-02-promote-2-1-daily-wed-to-prod-3.md", {"type": "review"}, lambda k: None)
       == "mh/releases/2.1")
 
+# a kept note is the record: the sync never writes it, a later source change is an Afterwards line and a lint line
+check("kept folders are archive/ and the subject homes at any depth",
+      V.is_kept("archive/x.md") and V.is_kept("mh/releases/2.1/x.md") and V.is_kept("cases/a/x.md")
+      and not V.is_kept("readings/x.md") and not V.is_kept("mh/x.md"))
+with tempfile.TemporaryDirectory() as t:
+    vlt, rep = os.path.join(t, "v"), os.path.join(t, "r")
+    os.makedirs(os.path.join(vlt, "mh/releases/2.1")); os.makedirs(os.path.join(rep, "ela"))
+    note = "mh/releases/2.1/2026-11-09-mh2-1-x.md"
+    body = '---\ntype: "review"\nstatus: "closed"\n---\n# X\n\n- [x] checked by him\n'
+    open(os.path.join(vlt, note), "w").write(body)
+    open(os.path.join(vlt, "mh/releases/2.1/2026-11-08-y.md"), "w").write(body)
+    src, src2 = os.path.join(rep, "ela", "2026-11-09-mh2.1-x.md"), os.path.join(rep, "ela", "2026-11-08-y.md")
+    open(src, "w").write("# X, rewritten\n"); open(src2, "w").write("# Y\n")
+    closed = datetime.datetime(2026, 11, 9, 14, 13, 32)
+    os.utime(src, (closed.timestamp() + 98, closed.timestamp() + 98))          # written after the close
+    os.utime(src2, (closed.timestamp() - 600, closed.timestamp() - 600))       # written before it
+    with open(os.path.join(rep, "ela", "vault-removed.jsonl"), "w") as fh:
+        for path, s_ in (("readings/2026-11-09-mh2-1-x.md", "ela/2026-11-09-mh2.1-x.md"),
+                         ("readings/2026-11-08-y.md", "ela/2026-11-08-y.md")):
+            fh.write(json.dumps({"at": closed.isoformat(timespec="seconds"), "path": path, "fate": "archived",
+                                 "by": "owner", "src": s_}) + "\n")
+    ch = V.source_changes(vlt, rep)
+    check("a source written after its note closed is found; one written before is not",
+          [c["note"] for c in ch] == [note] and ch[0]["src"] == "ela/2026-11-09-mh2.1-x.md")
+    V.append_source_changes(vlt, rep, dry_run=True)
+    check("a dry run leaves the kept note untouched", open(os.path.join(vlt, note)).read() == body)
+    V.append_source_changes(vlt, rep)
+    once = open(os.path.join(vlt, note)).read()
+    V.append_source_changes(vlt, rep)
+    twice = open(os.path.join(vlt, note)).read()
+    check("the change is one dated line under Afterwards, his text and ticks kept, a second pass adds nothing",
+          once.startswith(body.rstrip("\n")) and "## Afterwards" in once and once.count("ela/2026-11-09-mh2.1-x.md") == 1
+          and "- [x] checked by him" in once and once == twice)
+    check("the note closed before its source last changed is the only one touched",
+          open(os.path.join(vlt, "mh/releases/2.1/2026-11-08-y.md")).read() == body)
 sys.exit(1 if failures else 0)

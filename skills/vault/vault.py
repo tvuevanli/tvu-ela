@@ -57,7 +57,10 @@ as a rewrite ela owes. Nothing readable is withheld; nothing unreadable passes u
 Safety. A missing or unreadable source, or the notes as a whole shrinking by more than half since the last sync
 (counted from ten notes up), stops the sync before anything is written (--force overrides after a deliberate removal).
 The count is the vault's total, not each folder's as ADR 0008 first described: to-read empties by design as he reads.
-In archive/ and the subject homes ela never rewrites a note's text; it keeps its front matter's status current. Removal is limited to files
+In archive/ and the subject homes ela never rewrites a note's text; it keeps its front matter's status current. Once a
+note is there, the vault copy is the record (his ticks live only there): the sync never writes into a kept folder, a
+later change to the note's source is one dated line under its Afterwards, and lint names each such note until he has
+carried over by hand what should be kept. Removal is limited to files
 this script recorded in its manifest, and never reaches library/ or to-learn/, retired in layout 4: the pages left there
 are the owner's to move into elak. Writes are atomic and a lock serialises concurrent syncs.
 
@@ -336,6 +339,11 @@ chooses between its own knowledge in elak and the team's knowledge base (drafted
 Ask ela now and then to tidy the archive: `ela vault tidy` lists the archived notes that have a subject home, and the
 notes at the mh/releases root whose line can now be read, and `--apply` moves them; a move that would break a link
 (a link naming `archive/` or `mh/releases/` in its path, or a name another note shares) is held back and named.
+
+A closed note is the record. Once a note is in `archive/` or a subject home, the copy in the vault is the one that counts,
+your ticks included; the sync never writes it again. If its source page changes after you closed it, ela adds one
+dated line under its **Afterwards** saying so, and `ela vault lint` lists the note; carry over by hand what should
+be kept.
 
 The archive keeps listening. A note in `archive/`, a subject home (`cases/`, `mh/releases/`, `ela/history/`) or
 `in-progress/` that carries `posted` or `keys` is read at
@@ -1885,6 +1893,9 @@ def cmd_lint(a):
                 if a.apply:
                     atomic_write(p, new)
     found = lint_notes(vault, projects)
+    for c in source_changes(vault, s.get("reports") or "", s.get("elak")):   # the vault copy is the record
+        found.append((c["note"], False, [f"the source {c['src']} changed after the note closed ({c['closed']}, changed "
+                                         f"{c['changed']}); this copy is the record, carry over by hand what should be kept"]))
     if a.json:
         print(json.dumps({"dry_run": a.fix and not a.apply, "fixed": fixed,
                           "lint": [{"note": r, "generated": g, "lines": l} for r, g, l in found]}, ensure_ascii=False)); return
@@ -4217,6 +4228,9 @@ def cmd_sync(a):
             planned[rel] = place_lines(planned[rel], mine)
         planned[rel] = with_answers(planned[rel], rel, answers)   # each ask shows its answer under it
     for rel, text in planned.items():
+        if is_kept(rel):                                   # a kept note is the record: the sync never writes there
+            warnings.append(f"{rel}: planned into a kept folder, not written (the vault copy is the record)")
+            continue
         p = os.path.join(vault, rel)
         d, name = os.path.split(p)
         present = names_in(d)
@@ -4301,6 +4315,8 @@ def cmd_sync(a):
                     os.rmdir(os.path.join(vault, *parts[:i]))
                 except OSError:
                     break
+    for c in append_source_changes(vault, s.get("reports") or "", s.get("elak"), a.dry_run):
+        warnings.append(f"{c['note']}: its source {c['src']} changed after the note closed; noted under Afterwards")
     held = [{"note": n.path, "problems": n.held} for n in notes if n.held]
     in_archive = sum(len([f for f in fs if f.endswith(".md")]) for d in OWNER_FOLDERS for _, _, fs in os.walk(os.path.join(vault, d)))
     counts = {"generated": len(planned), "in_place": len(native_paths), "archived": in_archive}
@@ -4464,6 +4480,82 @@ def parse_at(s):
         except ValueError:
             continue
     return None
+
+
+def is_kept(rel):
+    """Whether a vault path lies in a kept folder (archive/ or a subject home, at any depth)."""
+    rel = rel.replace(os.sep, "/").strip("/")
+    return top(rel) == ARCHIVE or bool(subject_home(os.path.dirname(rel)))
+
+
+def kept_sources(vault, reports, elak=None):
+    """{kept note path: (source file, source as logged, closed at)} for each note the owner closed into a kept folder
+    whose generator had a source: the close log (<reports>/ela/vault-removed.jsonl) names the source and the moment,
+    the note is found by its file name under the kept folders. The latest close of a name wins; a restore undoes it."""
+    closes = {}
+    try:
+        for line in open(os.path.join(reports or "", "ela", "vault-removed.jsonl"), encoding="utf-8"):
+            try:
+                row = json.loads(line)
+            except ValueError:
+                continue
+            name = os.path.basename(str(row.get("path") or "")).lower()
+            if row.get("restored"):
+                closes.pop(name, None)
+            elif row.get("fate") == "archived" and row.get("src") and row.get("at"):
+                closes[name] = (row["src"], row["at"])
+    except OSError:
+        return {}
+    out = {}
+    for rel in (r for fo in OWNER_FOLDERS for r in notes_under(vault, fo)):
+        hit = closes.get(os.path.basename(rel).lower())
+        if not hit:
+            continue
+        src, at = hit
+        path = next((os.path.join(root, src) for root in (reports, elak) if root and os.path.isfile(os.path.join(root, src))),
+                    None)
+        if path:
+            out[rel] = (path, src, at)
+    return out
+
+
+def source_changes(vault, reports, elak=None):
+    """The kept notes whose source was written after the note closed: [{note, src, closed, changed}], times local.
+    Once a note is in a kept folder the vault copy is the record; a later source change is reported, never synced."""
+    out = []
+    for rel, (path, src, at) in sorted(kept_sources(vault, reports, elak).items()):
+        try:
+            closed = datetime.datetime.fromisoformat(at)
+            changed = datetime.datetime.fromtimestamp(os.path.getmtime(path))
+        except (OSError, ValueError):
+            continue
+        if closed.tzinfo:
+            closed = closed.astimezone().replace(tzinfo=None)
+        if changed > closed + datetime.timedelta(seconds=1):
+            out.append({"note": rel, "src": src, "closed": closed.isoformat(timespec="seconds"),
+                        "changed": changed.isoformat(timespec="seconds")})
+    return out
+
+
+def source_change_line(c):
+    """One Afterwards line for a source changed after its note closed: (ref, day, line), the day the source changed."""
+    day = c["changed"][:10]
+    return (c["src"], day, f"- {day[5:]} · the source `{c['src']}` changed at {c['changed'][11:16]}, after this note "
+                           f"closed ({c['closed'][5:16].replace('T', ' ')}); this copy stays the record: carry over by "
+                           "hand what should be kept")
+
+
+def append_source_changes(vault, reports, elak=None, dry_run=False):
+    """Append under Afterwards, in each kept note whose source changed after it closed, one line per changed day; the
+    note's text is otherwise untouched. Returns the changes found."""
+    found = source_changes(vault, reports, elak)
+    for c in found:
+        p = os.path.join(vault, c["note"])
+        text = open(p, encoding="utf-8").read()
+        new, _ = with_afterwards(text, [source_change_line(c)])
+        if new != text and not dry_run:
+            atomic_write(p, new)
+    return found
 
 
 def with_afterwards(text, lines):
