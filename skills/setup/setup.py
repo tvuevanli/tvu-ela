@@ -7,7 +7,8 @@ logged; only the key name and the outcome are reported. A token pasted into a co
 then entered here (the 2026-10-22 learning draft, E8).
 
 Usage:
-    setup.py secret NAME      in a terminal; the prompt does not echo
+    setup.py [--env-file PATH] secret NAME      in a terminal; the prompt does not echo. bin/ela passes the site's
+                                                env file; without it, site.json `env`, else ~/.claude/ela/.env
 
 Exit codes: 0 written · 2 usage (no terminal, a bad name, an empty value).
 """
@@ -16,7 +17,10 @@ import argparse, getpass, json, os, re, sys
 SITE = os.path.expanduser("~/.claude/ela/site.json")
 
 
-def env_path():
+def env_path(given=None):
+    """The env file to write: --env-file as bin/ela passes it, else site.json `env`, else the site default."""
+    if given:
+        return given
     try:
         return json.load(open(SITE)).get("env") or os.path.expanduser("~/.claude/ela/.env")
     except (OSError, ValueError):
@@ -32,7 +36,7 @@ def cmd_secret(a):
     value = getpass.getpass(f"{name} (not shown): ").strip()
     if not value:
         print("nothing entered; the file is unchanged", file=sys.stderr); sys.exit(2)
-    path = env_path()
+    path = env_path(a.env_file)
     lines = open(path, encoding="utf-8").read().splitlines() if os.path.isfile(path) else []
     replaced = False
     for i, line in enumerate(lines):
@@ -50,6 +54,7 @@ def cmd_secret(a):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--env-file", help="the env file to write (bin/ela passes the site's); default site.json `env`")
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("secret", help="enter a credential at a prompt that does not echo; written to the site env file")
     p.add_argument("name")

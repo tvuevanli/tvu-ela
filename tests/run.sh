@@ -13,6 +13,7 @@ python3 tests/test_manual_coverage.py || fail=1
 python3 tests/test_publish_stale.py || fail=1
 python3 tests/test_publish_redact.py || fail=1
 python3 tests/test_configserver_redact_offline.py || fail=1
+python3 tests/test_setup_secret_offline.py || fail=1
 python3 tests/test_mr_dryrun.py || fail=1
 python3 tests/test_fixedin_offline.py || fail=1
 python3 tests/test_fixedin_declared_offline.py || fail=1
