@@ -1392,13 +1392,23 @@ def cmd_report(a):
                          "what": f"{b['repo']} {b['branch']} ({b['ahead']} ahead, {b['author']} {b['date']}): "
                                  + ("merges clean" if m.get("clean") else "conflicts with the release branch in " + ", ".join(m.get("conflicts") or [])[:100] if m.get("clean") is False else "merge not tried")
                                  + "".join(f"; conflicts with {o['branch']}" for o in b["with_others"])})
+    live = None
+    if gate or str(lanes["to"]).startswith("prod"):
+        import livedeps as LD  # noqa: E402 — same skill
+        say(f"live dependencies: each fixed-URL client's URL on {lanes['to']}'s chain, its gateway route, each instance's /base/version")
+        deps = LD.collect({"to": lanes["to"], "tickets": tickets, "delta": delta})
+        live = {"deps": deps, "unread": dict(LD.UNREAD)}
+        for sev, what in LD.findings(deps, lanes["to"]):
+            findings.append({"severity": sev, "kind": "live_dependency", "what": what})
+        for src, why in LD.UNREAD.items():
+            gaps.append({"kind": "live_deps_unreadable", "source": src, "detail": why})
     for t in tickets["tickets"]:
         t.pop("comments", None)
         t.pop("description", None)
         if t["key"] in placed:
             t["placement"] = placed[t["key"]]
     res = {"generated_at": now(), "line": a.line, "from": lanes["from"], "to": lanes["to"], "purpose": a.purpose, "scope": a.scope,
-           "lanes": lanes, "delta": delta, "tickets": tickets, "evidence": evidence, "placement": placed, "prereqs": pre, "bundles": bundles, "untracked": untracked, "findings": findings, "gaps": gaps,
+           "lanes": lanes, "delta": delta, "tickets": tickets, "evidence": evidence, "placement": placed, "prereqs": pre, "live_deps": live, "bundles": bundles, "untracked": untracked, "findings": findings, "gaps": gaps,
            "counts": {"commits": sum(len(s["commits"]) for s in delta["services"]), "tickets": len(tickets["tickets"]),
                       "findings": {k: sum(1 for f in findings if f["severity"] == k) for k in SEV}}}
     res["read_at"] = F.read_at()

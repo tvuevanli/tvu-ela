@@ -68,6 +68,13 @@ lane behind it, the dry-run bundle command. The line's promotion stays here, and
   against the other such branches. A deploy item is a high finding with its citation; an unbuilt commit or a conflict
   is medium. On 2026-11-09 the MH-3891 DDL (two databases), its backfill call and the MH-3961 / MH-3966 conflict all
   surfaced only when the owner asked.
+- **What the release calls is read live on the target.** For a prod target, `livedeps.py` takes every fixed-URL Feign
+  client of a range repo from the dependency map, reads its URL key along the target lane's proven profile chain (a key
+  absent there falls to the code default, high when that default is a dev or test URL), finds the gateway route and,
+  for a version-controlled route, every instance behind it, and reads each one's `/base/version` now. An instance
+  built before a commit that names a release ticket is high. A config server or instance that cannot be read is
+  named as unread on every edge that needed it, never left out. On 2026-11-09 every audio-mixer instance predated the
+  mediabox mixer's gateway leg, and the route was version-controlled across prods; both surfaced only when asked.
 - **The to-lane is read live or declared unreadable.** Any lane ahead of the target (prod ahead of daily) is
   reported; a target lane ahead of the source stops the promotion until explained. A from-lane that is a QA lane may
   be QA's word (its report's environment block) or the release's (the thread, the `[Release Mediahub QA-AWS3]` mail)
