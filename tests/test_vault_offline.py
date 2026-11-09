@@ -1124,6 +1124,52 @@ with tempfile.TemporaryDirectory() as t:
               and sorted(os.listdir(os.path.join(v, "archive"))) == ["2026-10-28-deep-mh-1.md", "2026-11-03-deploy-b.md"])
     finally:
         V.SITE = old
+# release lines (mh/releases/<line>/): the line from the title, else the first key's release label, else the root
+L = {"MH-1": "2.1", "MH-2": None, "MH-5": "2.0"}.get
+check("a release note is filed by the line its title names first, else its first key's label, else the root",
+      H("readings/2026-11-02-promote-2-1-daily-wed-to-prod-3.md", {"type": "review", "title": "Promote MH 2.1 Wednesday to prod 3"}, L) == "mh/releases/2.1"
+      and H("readings/x-deploy-approvals.md", {"type": "review", "title": "Deploy approvals: MH 2.1 to prod 3, MH 2.0 hotfix to prod 8"}, L) == "mh/releases/2.1"
+      and H("readings/2026-10-28-mh-2-0-region-hotfix-review.md", {"type": "review", "title": "MH 2.0 hotfix: region"}, L) == "mh/releases/2.0"
+      and H("readings/2026-11-09-mh2-1-daily-wed-to-prod-3.md", {"type": "review", "title": "MH 2.1 · daily-wed → prod-3 · release note"}, L) == "mh/releases/2.1"
+      and H("to-read/2026-10-21-verify-mh-1.md", {"type": "verify", "title": "MH-1 · FAIL on prod-3", "keys": "MH-1"}, L) == "mh/releases/2.1"
+      and H("to-read/v.md", {"type": "verify", "title": "MH-5 · PASS", "keys": ["MH-5", "MH-1"]}, L) == "mh/releases/2.0"
+      and H("to-read/2026-10-29-verify-plan-mh-2.md", {"type": "verify-plan", "keys": "MH-2 MH-1"}, L) == "mh/releases"
+      and H("readings/x-promote.md", {"type": "review", "title": "Promote MediaHub 2.1.15 to prod"}, L) == "mh/releases"
+      and H("readings/2026-09-21-audio-mixer-mediabox.md", {"type": "review", "title": "Audio mixer on MediaBox"}, L) == "archive")
+check("a line folder counts as its home: status, lint, the close move's life",
+      V.subject_home("mh/releases/2.1") == "mh/releases" and V.folder_of("mh/releases/2.1/x.md") == "mh/releases"
+      and V.folder_of("mh/x.md") == "mh" and V.kept_home("mh/releases/2.1") == "mh/releases" and V.kept_home("mh") is None
+      and V.type_lint("mh/releases/2.1/x.md", "verify") is None and V.type_lint("mh/releases/2.1/p.md", "plan") is None
+      and V.type_lint("mh/p.md", "review") is None and V.type_lint("mh/v.md", "verify") is not None)
+with tempfile.TemporaryDirectory() as t:
+    v, rep = os.path.join(t, "v"), os.path.join(t, "r")
+    for d in ("to-read", "mh/releases/2.1", "archive", "days"):
+        os.makedirs(os.path.join(v, d))
+    os.makedirs(rep)
+    open(os.path.join(v, "to-read", "2026-11-06-promote-y.md"), "w").write('---\ntype: "review"\ntitle: "Promote MH 2.1 build 85"\n---\n# P\n')
+    to = V.move_note(v, rep, "to-read/2026-11-06-promote-y.md", "archive", next_="done")
+    c = open(os.path.join(v, to)).read()
+    row = [json.loads(l) for l in open(os.path.join(rep, "ela", "vault-removed.jsonl"))][-1]
+    check("the close move files a release review into its line's folder, closed, logged under mh/releases",
+          to == "mh/releases/2.1/2026-11-06-promote-y.md" and 'status: "closed"' in c and 'moves: "closed"' in c
+          and row["home"] == "mh/releases")
+    td = datetime.date.today()
+    open(os.path.join(v, "mh/releases/2.1", "s.md"), "w").write(f'---\ntype: "review"\ndate: "{td}"\nstatus: "proposed"\n---\n# S\n\nSee MH-7.\n')
+    check("a note in a line folder is stamped, settled and watched like one in its home",
+          "mh/releases/2.1/s.md" in V.stamp_archive(v, td, dry_run=True)
+          and any(x.startswith("mh/releases/2.1/s.md: status proposed → closed") for x in V.settle_statuses(v, dry_run=True)))
+    for f, title, keys in (("2026-11-03-promote-a.md", "Promote MH 2.0 to stage", ""), ("2026-10-21-verify-mh-1.md", "MH-1 · FAIL", "MH-1"),
+                           ("2026-10-29-verify-plan-mh-2.md", "MH-2 · plan", "MH-2"), ("2026-10-29-docker-ref.md", "Docker services: who calls them", ""),
+                           ("2026-11-01-promote-b.md", "Promote MH 2.1 again", "")):
+        open(os.path.join(v, "mh/releases", f), "w").write(f'---\ntype: "review"\ntitle: "{title}"\nkeys: "{keys}"\n---\n# x\n')
+    open(os.path.join(v, "days", "d.md"), "w").write("[[mh/releases/2026-11-01-promote-b|b]] and [[2026-11-03-promote-a]]\n")
+    plan = {x["note"]: x for x in V.tidy_plan(v, L)}
+    check("tidy files root release notes into their line; one with no readable line stays and is not listed; a path link holds one back",
+          sorted(plan) == ["mh/releases/2026-10-21-verify-mh-1.md", "mh/releases/2026-11-01-promote-b.md", "mh/releases/2026-11-03-promote-a.md"]
+          and plan["mh/releases/2026-11-03-promote-a.md"]["to"] == "mh/releases/2.0/2026-11-03-promote-a.md"
+          and plan["mh/releases/2026-10-21-verify-mh-1.md"]["to"] == "mh/releases/2.1/2026-10-21-verify-mh-1.md"
+          and plan["mh/releases/2026-11-01-promote-b.md"]["blocked"] == ["days/d.md links it by its mh/releases/ path"]
+          and plan["mh/releases/2026-11-03-promote-a.md"]["blocked"] == [])
 base = V.VIEWS["all-notes"]
 check("the all-notes base has a subject column and a Cases view; Archive lists every closed home",
       "subject: 'file.folder'" in base and "name: Cases" in base

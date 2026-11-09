@@ -39,7 +39,8 @@ its date, so a folder sorts by time. Folders carry no numbers: Home and the book
     parked/<name>.md                            a note that waits on others, with who and what brings it back
     archive/                                    what is done with, by date; where he drags a note to keep it
     cases/<date>-<slug>.md                      one note per customer support case (type case: open, answered, closed)
-    mh/releases/                                closed promotions, deploys, docker checks, release reviews, verifications
+    mh/releases/<line>/                         closed promotions, deploys, docker checks, release reviews, verifications,
+                                                one folder per release line, its record the way in; unplaced at the root
     ela/history/                                ela's own closed plans and reviews
     projects/<key>/<key>.md                     a project's page: the desk's head above the sync's first heading, the tail
                                                 below (Waiting for your word, Notes, Keys and threads, Afterwards, Deadline);
@@ -101,6 +102,13 @@ SUBJECT_HOMES = (CASES, RELEASES, HISTORY)
 CLOSED_FOLDERS = (ARCHIVE, RELEASES, HISTORY)   # a note there is closed, its outcome in next; a case keeps its own status
 OWNER_FOLDERS = (ARCHIVE,) + SUBJECT_HOMES   # kept notes: ela never rewrites their text, only status and appended Afterwards
 RELEASE_NAME = re.compile(r"(?:^|-)(promote|deploy|docker|release|hotfix)(?:-|$)")   # a review of a release, by its file name
+RELEASE_TITLE = re.compile(r"\b(promote|promotion|deploy|docker|release|hotfix)\b", re.I)   # … or by its title
+# mh/releases/ holds one folder per release line (mh/releases/2.1/, its record the way in); a note is filed by the line
+# its title names first ("MH 2.1", "Release 2.1"; a version such as 2.1.15 names no line), else by its first key's
+# release label on Jira (release:mh-2.1, the label the train rides on), else it stays at the mh/releases/ root
+LINE_TITLE = re.compile(r"\b(?:MH|MediaHub|release|line|train)\s*(\d+\.\d+)(?![\d.])", re.I)
+LINE_LABEL = re.compile(r"^release:mh-(\d+\.\d+)$")
+MH = "mh"   # the program's folder: a product reading (a review of the product, not a release event) may sit there
 ELA_TARGET = re.compile(r"(?<![\w-])(ela|ela-runner|elak|vault)(?![\w-])", re.I)   # a plan or review whose target is ela
 ATTACH = "ela/attachments"
 DELETABLE = (DAYS, TO_READ, READINGS)
@@ -121,7 +129,7 @@ TYPE_FAMILY = {"decision": "decision", "plan": "plan", "sprint": "plan",
                "report": "page", "project": "page", "services": "page",
                "day": "day", "reader": "day", "case": "case"}
 FAMILY_FOLDERS = {"decision": ("to-read", "in-progress", "parked", "archive", "ela/history"),
-                  "plan": ("to-read", "in-progress", "parked", "archive", "sprints", "ela/history"),
+                  "plan": ("to-read", "in-progress", "parked", "archive", "sprints", "ela/history", "mh/releases"),
                   "reading": ("readings", "to-read", "archive", "projects", "mh/releases", "ela/history"),
                   "case": ("cases", "projects")}   # a reading waits in to-read while it asks his word; a project keeps its own
 # a project: bounded work with a deadline and parties outside the program (a customer PoC, a trial), one folder
@@ -212,14 +220,16 @@ list and writing your `ela:` priority lines; the 09:30 or 10:00 pass then sends 
 | `mediahub-bot/` | MediaHub's product bot, not ela: its design, answer contract, knowledge pack, the files it will commit (`files/`), its eval set (`eval/`) and the evidence (`evidence/`); the source until its repositories exist, then pointers | rule the design; confirm eval cases |
 | `ela/review/` | the evening reader pages | read in the evening |
 | `cases/` | one note per customer support case, `cases/<date>-<slug>.md` (a folder `cases/<slug>/` only when a case outgrows one note): customer, HubSpot ticket, Slack thread, graph and box, the Jira keys it opened, status *open*, *answered* or *closed*; watched like the archive | look when support asks again; all notes, *Cases* |
-| `mh/releases/` | closed promotions, deploys, docker checks, release reviews and verifications, beside the release records | look back on a release |
+| `mh/releases/` | one folder per release line (`mh/releases/2.1/`, `mh/releases/2.0/`, a later line as it comes): its record, the way in, linking the line's notes in order (QA → daily → prod), and its closed promotions, deploys, docker checks, release reviews, test plans and verifications; a note whose line cannot be read waits at the root | look back on a release: open its line's record |
 | `ela/history/` | ela's own closed plans and reviews; what they ruled is in elak's decisions | rarely |
 | `archive/` | what is done with and has no subject home; ela adds to it and keeps its status current, never its text, except the Afterwards it appends | look back (all notes, *Archive*, with its *subject* column, lists every closed note); ask ela to tidy it |
 
 Folders are named for what you do with a note while it is live, and carry no numbers: Home and the bookmarks are the
 way in, and the file explorer is rarely needed. A closed note is the exception: it goes to its **subject home**
 (`cases/`, `mh/releases/`, `ela/history/`) when it has one, by its type: a `case` to cases; a verification, a
-verification plan, or a review of a release (a promotion, deploy, docker check or release review) to mh/releases;
+verification plan, or a review of a release (a promotion, deploy, docker check or release review) to its line's folder
+in mh/releases, the line read from the note's title (*MH 2.1*), else from its first key's release label on Jira, else
+the mh/releases root, listed for you, never guessed;
 a plan, decision or review whose target names ela, its runner, elak or the vault to ela/history; anything else to
 `archive/`. A note you put somewhere by hand stays where you put it.
 
@@ -258,8 +268,9 @@ a plan, decision or review whose target names ela, its runner, elak or the vault
   Keys and threads, Afterwards, Deadline). Day pages: `day`
   (brief, changes, week) and `reader`. A support case: `case`, in `cases/` (or a project's folder), its head in
   properties (`customer`, `hubspot`, `graph`, `box`, the thread in `channels`, `keys`) and its status *open*,
-  *answered* or *closed*. A closed plan or decision may also sit in `ela/history/`, a closed reading in
-  `mh/releases/` or `ela/history/`. A note outside the set, or a family outside its folders, is a lint line on
+  *answered* or *closed*. A closed plan or decision may also sit in `ela/history/`, a release line's test plan in
+  `mh/releases/`, a closed reading in `mh/releases/` or `ela/history/`, and a review of the product (not of a release)
+  in `mh/`. A note outside the set, or a family outside its folders, is a lint line on
   the sync, never a failure.
 - `to-read/` means "waits on your word", whatever the type. A reading that asks something puts its asks under one
   heading, **Waiting for your word**, one box each with ela's proposed answer. When every box there is ticked or
@@ -309,9 +320,9 @@ rewrite keeps your lines. Two minutes after you stop typing, a session takes the
 queued HH:MM · job …" shows under the last of them, and the answer replaces it there. A place can be named ("write this to the KB", "into elak"); without one, ela
 chooses between its own knowledge in elak and the team's knowledge base (drafted, published on your word).
 
-Ask ela now and then to tidy the archive: `ela vault tidy` lists the archived notes that have a subject home, and
-`--apply` moves them; a move that would break a link (a link naming `archive/` in its path, or a name another note
-shares) is held back and named.
+Ask ela now and then to tidy the archive: `ela vault tidy` lists the archived notes that have a subject home, and the
+notes at the mh/releases root whose line can now be read, and `--apply` moves them; a move that would break a link
+(a link naming `archive/` or `mh/releases/` in its path, or a name another note shares) is held back and named.
 
 The archive keeps listening. A note in `archive/`, a subject home (`cases/`, `mh/releases/`, `ela/history/`) or
 `in-progress/` that carries `posted` or `keys` is read at
@@ -553,17 +564,76 @@ def settled_status(folder, status, kind=None):
     return (s if s in STATUS_BY_FOLDER[TO_READ] else "proposed"), None, None   # any type there waits on his word
 
 
-def home_for(rel, props):
+def subject_home(path):
+    """The subject home a folder or note path lies in (a subfolder counts as its home: mh/releases/2.1 is
+    mh/releases), else None."""
+    path = path.replace(os.sep, "/").strip("/")
+    return next((h for h in SUBJECT_HOMES if path == h or path.startswith(h + "/")), None)
+
+
+def kept_home(folder):
+    """The owner folder a folder belongs to: archive/ or a subject home, a line folder counting as mh/releases; else
+    None."""
+    return folder if folder == ARCHIVE else subject_home(folder or "")
+
+
+def folder_of(rel):
+    """The lifecycle folder of a note path: the subject home it lies in, at any depth, else its top folder."""
+    return subject_home(os.path.dirname(rel)) or top(rel)
+
+
+def notes_under(vault, folder):
+    """The .md notes of a folder as vault paths: directly in it, and in its subfolders when it is a subject home
+    (a release line's folder, a case's own folder)."""
+    base = os.path.join(vault, folder)
+    if not os.path.isdir(base):
+        return []
+    if not subject_home(folder):
+        return [f"{folder}/{f}" for f in sorted(os.listdir(base)) if f.endswith(".md") and os.path.isfile(os.path.join(base, f))]
+    out = []
+    for top_, dirs, fs in os.walk(base):
+        dirs[:] = sorted(d for d in dirs if not d.startswith("."))
+        out += [os.path.relpath(os.path.join(top_, f), vault).replace(os.sep, "/") for f in sorted(fs) if f.endswith(".md")]
+    return out
+
+
+def facts_line(key):
+    """The release line of one Jira key from the fact store (<runtime>/facts/jira/issues/<KEY>.json): its
+    release:mh-<line> label, or None when the store has no reading of it or no such label."""
+    try:
+        runtime = json.load(open(SITE)).get("runtime") or ""
+        d = json.load(open(os.path.join(runtime, "facts", "jira", "issues", f"{key}.json"), encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    d = d[0] if isinstance(d, list) and d else d
+    labels = ((d or {}).get("fields") or {}).get("labels") or [] if isinstance(d, dict) else []
+    found = {m.group(1) for m in (LINE_LABEL.match(l) for l in labels) if m}
+    return found.pop() if len(found) == 1 else None
+
+
+def release_line(props, line_of_key=None):
+    """The release line a note belongs to: the first line its title names, else its first key's release label
+    (line_of_key, the fact store by default); None when neither says, and the note stays at the mh/releases/ root."""
+    m = LINE_TITLE.search(props.get("title") or "")
+    if m:
+        return m.group(1)
+    keys = [k for k in KEY_RX.findall(str(props.get("keys") or "")) if not NOT_KEYS.match(k)]   # "MH-1 MH-2" or a list
+    return (line_of_key or facts_line)(keys[0]) if keys else None
+
+
+def home_for(rel, props, line_of_key=None):
     """Where a closing note goes: its subject home by type, else archive/. A case → cases/; a verification, a
     verification plan, or a review of a release (a promotion, deploy, docker check or release review, by its file
-    name) → mh/releases/; a plan, decision or review whose target (else its title) names ela, its runner, elak or the
-    vault → ela/history/."""
+    name) → its line's folder mh/releases/<line>/ (release_line), else mh/releases/; a plan, decision or review whose
+    target (else its title) names ela, its runner, elak or the vault → ela/history/."""
     kind = (props.get("type") or "").strip()
     name = os.path.basename(rel)[:-3] if rel.endswith(".md") else os.path.basename(rel)
     if kind == "case":
         return CASES
-    if kind in ("verify", "verify-plan") or (kind == "review" and RELEASE_NAME.search(re.sub(r"^\d{4}-\d{2}-\d{2}-", "", name))):
-        return RELEASES
+    if kind in ("verify", "verify-plan") or (kind == "review" and (RELEASE_NAME.search(re.sub(r"^\d{4}-\d{2}-\d{2}-", "", name))
+                                                                   or RELEASE_TITLE.search(props.get("title") or ""))):
+        line = release_line(props, line_of_key)
+        return f"{RELEASES}/{line}" if line else RELEASES
     if kind in ("plan", "decision", "review") and ELA_TARGET.search(props.get("target") or props.get("title") or ""):
         return HISTORY
     return ARCHIVE
@@ -574,11 +644,8 @@ def settle_statuses(vault, dry_run=False):
     only (archive included: the body stays his). Returns one line per fix."""
     fixes = []
     for folder in tuple(STATUS_BY_FOLDER) + (READINGS,):
-        d = os.path.join(vault, folder)
-        for f in sorted(os.listdir(d)) if os.path.isdir(d) else []:
-            if not f.endswith(".md"):
-                continue
-            p = os.path.join(d, f)
+        for rel in notes_under(vault, folder):             # a subject home with its subfolders (a release line)
+            p = os.path.join(vault, rel)
             try:
                 text = open(p, encoding="utf-8").read()
             except OSError:
@@ -600,7 +667,7 @@ def settle_statuses(vault, dry_run=False):
                 changed["type"] = props.get("type")
             if not changed:
                 continue
-            fixes.append(f"{folder}/{f}: " + ", ".join(f"type quoted" if k == "type" and v == props.get(k) else f"{k} {props.get(k) or '—'} → {v or '—'}"
+            fixes.append(f"{rel}: " + ", ".join(f"type quoted" if k == "type" and v == props.get(k) else f"{k} {props.get(k) or '—'} → {v or '—'}"
                                                    for k, v in changed.items()))
             if not dry_run:
                 atomic_write(p, set_front(text, **changed))
@@ -1243,6 +1310,8 @@ def type_lint(path, kind):
     if not fam:
         return f"{path}: type {kind!r} is not in the closed set ({', '.join(sorted(set(TYPE_FAMILY.values())))})"
     folder = path.split("/", 1)[0] if "/" in path else ""
+    if kind == "review" and path.startswith(MH + "/"):     # a product reading kept with the program it reads
+        return None
     if fam in FAMILY_FOLDERS and not any(path.startswith(f + "/") for f in FAMILY_FOLDERS[fam]):
         return f"{path}: a {fam} belongs in {', '.join(FAMILY_FOLDERS[fam])}"
     if kind == "guide" and folder != ELA:                 # the ela page's type; a page elsewhere has its own
@@ -2667,8 +2736,8 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since
     for n in notes:
         if n.props.get("type") == "day" and n.props.get("kind") == "brief":
             n.body = with_recent_pointer(n.body, have_recent)
-        if top(n.path) in tuple(STATUS_BY_FOLDER) + (READINGS,):
-            st, result, _ = settled_status(top(n.path), note_status(n), n.props.get("type"))
+        if folder_of(n.path) in tuple(STATUS_BY_FOLDER) + (READINGS,):
+            st, result, _ = settled_status(folder_of(n.path), note_status(n), n.props.get("type"))
             n.props.update(status=st, result=n.props.get("result") or result)
             n.front_lines = [l for l in n.front_lines if not l.startswith("status:")]   # the source's own word is settled
         if top(n.path) == TO_READ:
@@ -2761,6 +2830,7 @@ def record_removed(path, rels, sources, now, archived=None, by="owner"):
         for r in rels:
             title = sentence(re.sub(r"^\d{4}-\d{2}-\d{2}-", "", os.path.basename(r)[:-3]).replace("-", " "))
             to = archived.get(os.path.basename(r).lower())
+            to = kept_home(to) or to                       # a release line's folder is mh/releases
             row = {"at": now.isoformat(timespec="seconds"), "path": r, "title": title,
                    "fate": "archived" if to in OWNER_FOLDERS else {IN_PROGRESS: "in-progress", PARKED: "parked",
                                                                    TO_READ: "to-read"}.get(to, "deleted"), "by": by}
@@ -3053,7 +3123,7 @@ def keep_choice(text, disk_lines, rel):
     if chosen and chosen != (planned.get(NEXT) or "") and chosen in move_props(kind, in_to_read=top(rel) == TO_READ):
         keep[NEXT] = chosen
     st = disk.get("status")
-    if st and st != planned.get("status") and st in STATUS_BY_FOLDER.get(top(rel), ()):
+    if st and st != planned.get("status") and st in STATUS_BY_FOLDER.get(folder_of(rel), ()):
         keep["status"] = st
     return set_front(text, **keep) if keep else text
 
@@ -3117,10 +3187,11 @@ def move_note(vault, reports, rel, to, status=None, waits_on=None, wake=None, ne
     kind = props_of(split_front(text)[0]).get("type")
     if folder == ARCHIVE:                                  # closing: its subject home when it has one
         folder = home_for(rel, props_of(split_front(text)[0]))
-    if folder == CASES:
+    life = kept_home(folder) or folder                     # a release line's folder lives as mh/releases
+    if life == CASES:
         status = "closed"
     text = clear_warn(PROP_RE.sub("", text))
-    st, result, nxt = settled_status(folder, status, kind)
+    st, result, nxt = settled_status(life, status, kind)
     nxt = next_ or nxt                                     # the move that ended it, as the runner names it
     if folder == PARKED:
         old = dict(m.groups() for m in (re.match(r"^([\w-]+):\s*['\"]?(.*?)['\"]?\s*$", l) for l in split_front(text)[0]) if m)
@@ -3130,11 +3201,11 @@ def move_note(vault, reports, rel, to, status=None, waits_on=None, wake=None, ne
             MOVE_SET: "parked", NEXT: ""})
     else:
         text = set_front(text, source="vault", status=st, claimed=None, **{"waits-on": None, "wake": None, "parked": None})
-        if folder in CLOSED_FOLDERS and next_ == "reopen":   # closed by ela, unruled: his one move is to reopen it
+        if life in CLOSED_FOLDERS and next_ == "reopen":   # closed by ela, unruled: his one move is to reopen it
             text = set_front(text, **{MOVE_SET: "reopen", NEXT: "", "closed-by": "ela"})
-        elif folder in CLOSED_FOLDERS:                     # the outcome stays in next; status says only that it is closed
+        elif life in CLOSED_FOLDERS:                       # the outcome stays in next; status says only that it is closed
             text = set_front(text, **{MOVE_SET: "closed", NEXT: nxt or ""})
-        elif folder == CASES:                              # a case closes in its home, its outcome in next
+        elif life == CASES:                              # a case closes in its home, its outcome in next
             text = set_front(text, **{MOVE_SET: "case", NEXT: nxt or ""})
         elif folder == IN_PROGRESS:
             text = set_front(text, **{MOVE_SET: "built", NEXT: "", "closed-by": None})
@@ -3274,8 +3345,7 @@ def apply_marks(vault, reports, dry_run=False):
     deleted it; every other move is reported for the runner, which acts and empties the field. A value that is not a
     move for that note runs nothing, and the note says so. Returns [(path, move)]."""
     out = []
-    found = [(folder, f"{folder}/{f}") for folder in (TO_READ, IN_PROGRESS, PARKED) + CLOSED_FOLDERS
-             for f in (sorted(os.listdir(os.path.join(vault, folder))) if os.path.isdir(os.path.join(vault, folder)) else [])]
+    found = [(folder, rel) for folder in (TO_READ, IN_PROGRESS, PARKED) + CLOSED_FOLDERS for rel in notes_under(vault, folder)]
     for folder, rel in found:
         f = os.path.basename(rel)
         if not f.endswith(".md"):
@@ -3374,7 +3444,7 @@ def finish(vault, reports, rel, to, move=None):
         dst = free_path(os.path.join(vault, folder), os.path.basename(rel))
         os.replace(p, dst)
         text = clear_warn(PROP_RE.sub("", open(dst, encoding="utf-8").read()))   # the boxes belong to to-read
-        if folder in OWNER_FOLDERS:                        # closed, and the move that closed it kept in next
+        if kept_home(folder):                              # closed, and the move that closed it kept in next
             text = set_front(text, status="closed", **{MOVE_SET: "case" if folder == CASES else "closed", NEXT: move or "done"})
         if links:
             fl, body = split_front(text)
@@ -3406,27 +3476,34 @@ def cmd_finish(a):
           + ("; other notes link it, so it was archived, not deleted" if a.to == "delete" and folder else ""))
 
 
-def tidy_plan(vault):
-    """Each note directly in archive/ that has a subject home, with what would keep it from moving: [{note, to,
-    blocked}]. A wikilink resolves by name, so a move breaks only a link that names archive/ in its path, or a name
-    that another note in the vault shares; a note he put elsewhere by hand is never read here."""
-    d = os.path.join(vault, ARCHIVE)
+def tidy_plan(vault, line_of_key=None):
+    """Each kept note not yet in its home, with what would keep it from moving: [{note, to, blocked}]. A note directly
+    in archive/ that has a subject home, and a note at the mh/releases/ root whose release line can be read
+    (release_line), go there. A wikilink resolves by name, so a move breaks only a link that names the note's old
+    folder in its path, or a name that another note in the vault shares; a note he put elsewhere by hand is never read
+    here."""
     plan = []
-    for f in sorted(os.listdir(d)) if os.path.isdir(d) else []:
-        p = os.path.join(d, f)
-        if not f.endswith(".md") or not os.path.isfile(p):
-            continue
-        try:
-            props = props_of(split_front(open(p, encoding="utf-8").read())[0])
-        except OSError:
-            continue
-        to = home_for(f"{ARCHIVE}/{f}", props)
-        if to != ARCHIVE:
-            plan.append({"note": f"{ARCHIVE}/{f}", "to": f"{to}/{f}", "blocked": []})
+    for folder in (ARCHIVE, RELEASES):
+        d = os.path.join(vault, folder)
+        for f in sorted(os.listdir(d)) if os.path.isdir(d) else []:
+            p = os.path.join(d, f)
+            if not f.endswith(".md") or not os.path.isfile(p):
+                continue
+            try:
+                props = props_of(split_front(open(p, encoding="utf-8").read())[0])
+            except OSError:
+                continue
+            if folder == ARCHIVE:
+                to = home_for(f"{ARCHIVE}/{f}", props, line_of_key)
+            else:                                          # filed as a release note already: only its line is read
+                line = release_line(props, line_of_key)
+                to = f"{RELEASES}/{line}" if line else RELEASES
+            if to != folder:
+                plan.append({"note": f"{folder}/{f}", "to": f"{to}/{f}", "blocked": []})
     if not plan:
         return plan
     stems = {os.path.basename(x["note"])[:-3].lower(): x for x in plan}
-    rx = re.compile(r"(?:\[\[|\]\()" + re.escape(ARCHIVE) + r"/([^\]|#)]+?)(?:\.md)?[\]|#)]", re.I)
+    rx = re.compile(r"(?:\[\[|\]\()(" + "|".join(re.escape(f) for f in (ARCHIVE, RELEASES)) + r")/([^\]|#)]+?)(?:\.md)?[\]|#)]", re.I)
     for top_, dirs, fs in os.walk(vault):
         dirs[:] = [x for x in dirs if not x.startswith(".")]
         for f in fs:
@@ -3440,9 +3517,9 @@ def tidy_plan(vault):
             except (OSError, UnicodeDecodeError):
                 continue
             for m in rx.finditer(text):
-                x = stems.get(m.group(1).lower())
-                if x:
-                    x["blocked"].append(f"{r} links it by its archive/ path")
+                x = stems.get(m.group(2).lower())
+                if x and x["note"].lower() == f"{m.group(1)}/{m.group(2)}.md".lower():
+                    x["blocked"].append(f"{r} links it by its {m.group(1)}/ path")
     for x in plan:
         if os.path.exists(os.path.join(vault, x["to"])):
             x["blocked"].append(f"{x['to']} exists")
@@ -3450,8 +3527,9 @@ def tidy_plan(vault):
 
 
 def cmd_tidy(a):
-    """Move the archived notes that have a subject home there (cases/, mh/releases/, ela/history/), by the rule a
-    closing note follows (home_for). A dry run unless --apply; a note whose move would break a link stays."""
+    """Move the archived notes that have a subject home there (cases/, mh/releases/, ela/history/), and the notes at the
+    mh/releases/ root into their release line's folder, by the rule a closing note follows (home_for). A dry run
+    unless --apply; a note whose move would break a link stays."""
     s = json.load(open(SITE))
     vault = s["vault"]
     plan = tidy_plan(vault)
@@ -3465,7 +3543,9 @@ def cmd_tidy(a):
             os.replace(os.path.join(vault, x["note"]), dst)
             moved.append(x)
     r = {"dry_run": not a.apply, "plan": plan, "moved": len(moved), "blocked": sum(1 for x in plan if x["blocked"]),
-         "by_home": {h: sum(1 for x in plan if x["to"].startswith(h + "/")) for h in SUBJECT_HOMES}}
+         "by_home": {h: sum(1 for x in plan if x["to"].startswith(h + "/")) for h in SUBJECT_HOMES},
+         "by_line": {l: sum(1 for x in plan if os.path.dirname(x["to"]) == f"{RELEASES}/{l}")
+                     for l in sorted({os.path.dirname(x["to"])[len(RELEASES) + 1:] for x in plan if kept_home(os.path.dirname(x["to"])) == RELEASES} - {""})}}
     if a.json:
         print(json.dumps(r, ensure_ascii=False)); return
     for x in plan:
@@ -3788,15 +3868,12 @@ def stamp_archive(vault, today, dry_run=False):
     script move or his drag in Obsidian. Returns {rel: stamp}; a dry run writes nothing and the caller reads the stamps
     as if written."""
     out = {}
-    for folder, f in ((fo, f) for fo in OWNER_FOLDERS for f in (sorted(os.listdir(os.path.join(vault, fo)))
-                                                                 if os.path.isdir(os.path.join(vault, fo)) else [])):
-        p = os.path.join(vault, folder, f)
-        if not f.endswith(".md") or not os.path.isfile(p):
-            continue
+    for rel in (r for fo in OWNER_FOLDERS for r in notes_under(vault, fo)):   # a release line's folder included
+        p = os.path.join(vault, rel)
         text = open(p, encoding="utf-8").read()
         stamp = archive_stamp(text, today)
         if stamp:
-            out[f"{folder}/{f}"] = stamp
+            out[rel] = stamp
             if not dry_run:
                 atomic_write(p, set_front(text, **stamp))
     return out
@@ -4032,7 +4109,7 @@ def main():
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_afterwards)
     p = sub.add_parser("tidy", help="move the archived notes that have a subject home (cases/, mh/releases/, ela/history/) "
-                                    "there; a dry run unless --apply")
+                                    "there, and mh/releases/ root notes into their line's folder; a dry run unless --apply")
     p.add_argument("--apply", action="store_true", help="move them; without it, list the moves and what holds any back")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_tidy)
