@@ -1,0 +1,28 @@
+{
+ "version": "0.0.0-fixture",
+ "environments": [
+  {
+   "value": "test2",
+   "label": "test2",
+   "category": "prod",
+   "scoreApiServer": "https://score.example.invalid",
+   "graphApiServer": "https://graph.example.invalid"
+  },
+  {
+   "value": "prod3",
+   "label": "prod3",
+   "category": "prod",
+   "scoreApiServer": "https://score.example.invalid"
+  },
+  {
+   "value": "qa",
+   "label": "qa",
+   "category": "qa",
+   "scoreApiServer": "https://score-qa.example.invalid"
+  }
+ ],
+ "productionEnvironments": [
+  "test2",
+  "prod3"
+ ]
+}

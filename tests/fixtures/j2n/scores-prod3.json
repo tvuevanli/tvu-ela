@@ -1,0 +1,56 @@
+[
+ {
+  "labels": {
+   "app.tvunetworks.com/subtype": "encoder"
+  },
+  "score": {
+   "Cpu": 400
+  }
+ },
+ {
+  "labels": {
+   "app.tvunetworks.com/subtype": "encoder",
+   "encoder.app.tvunetworks.com/resolution": "UHD"
+  },
+  "score": {
+   "Cpu": 1600
+  }
+ },
+ {
+  "labels": {
+   "app.tvunetworks.com/subtype": "encoder",
+   "box.app.tvunetworks.com/hardwareAcceleration": "Qsv"
+  },
+  "score": {
+   "Cpu": 150,
+   "QsvRender3D": 12,
+   "QsvVideo": 5
+  }
+ },
+ {
+  "labels": {
+   "app.tvunetworks.com/subtype": "headlessr_decoder"
+  },
+  "score": {
+   "Cpu": 400
+  }
+ },
+ {
+  "labels": {
+   "app.tvunetworks.com/subtype": "headlessr_decoder",
+   "decoder.app.tvunetworks.com/resolution": "UHD",
+   "selector.app.tvunetworks.com/strategy": "SpecifiedPoolOnly"
+  },
+  "score": {
+   "Cpu": 600
+  }
+ },
+ {
+  "labels": {
+   "app.tvunetworks.com/subtype": "MeshAdapterSender"
+  },
+  "score": {
+   "Cpu": 100
+  }
+ }
+]

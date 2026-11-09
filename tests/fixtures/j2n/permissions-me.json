@@ -1,0 +1,10 @@
+{
+ "access": {
+  "test2": "read",
+  "prod3": "read",
+  "qa": "write"
+ },
+ "uiAccess": {
+  "ui:score": "write"
+ }
+}

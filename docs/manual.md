@@ -68,6 +68,7 @@ flowchart LR
 | 这票该归谁：先把事实摆出来 | `route` | `ela route <KEY>` |
 | 线上报错，手里有 trace id 或时间点：哪个服务抛的、交给谁 | `route` · `logs` | `/ela:route <traceId>` → 交接卡 · `/ela:logs <traceId>` · `ela logs chain <traceId>` · `ela logs java --app <app> --at "<UTC 时间>"` |
 | 代码的判断取决于一个配置 key：它在 prod 是多少、来自哪一层 | `configserver` | `ela configserver effective <app> <profile> --key <key>` · profile 从日志的 env 反查：`ela configserver get <app> all --key elk.config.env` |
+| 一个 graph 为什么落在这台 box、UHD 编码是不是被调度扣分扣多了：J2N 每个环境给每种 app 实例记多少资源分（Cpu、Qsv…），和 pre-prod 差在哪 | `j2n` | `ela j2n scores prod3 --subtype encoder` · `ela j2n scores prod3 --labels resolution=UHD --diff test2` · `ela j2n envs`（J2N 环境名 prod3 对应 MediaHub prod-3 只是按名字推定） |
 | 光定人不够，要看代码找根因 | `probe` | `/ela:probe MH-3568` |
 | 「这个机制在代码里怎么跑的」 | `probe` | `/ela:probe how <mechanism>` |
 | 客户问「你们支持 X 吗，能不能做」 | `feasible` | `/ela:feasible <thread 链接>` |
@@ -154,6 +155,7 @@ flowchart TD
 | `release` | `ela bundles` GM bundle 列表 · `ela bundle <name>` 物料单 · `ela versions` 各 lane 版本 · `ela builds <job>` Jenkins 构建 · `ela drift` 漂移；prod 用 `ela login tvu` 拿你自己的会话；`ela login tvu --keepalive` 续期（不登录、不重试），装成 systemd 用户 timer 每 30 分钟跑一次，安装命令见 release 的 SKILL.md | 「这个修复上哪个环境了」 |
 | `team` | 花名册第一手：`who` · `areas` · `emails` · `check` 对照 Slack | 派票或 @ 人之前 |
 | `figma` | 设计文件结构、节点文本、评论、截图 | 设计稿贴进来的时候 |
+| `j2n` | J2N config UI 里的调度资源分，只读：`envs`（环境与你在每个环境的权限；qa/qa2 你有写权限，这个命令从不写）· `scores <env>`（`--subtype`、`--labels k=v` 过滤，`--diff <env>` 即 UI 的对比视图）；证书钉在 site 目录，用你自己的账号登录，token 存 `<runtime>`；qa/qa2 经代理是 404 | 「UHD 编码在 prod3 扣多少 Cpu」「prod 和 test2 的分差在哪」 |
 | `configserver` | Config Server 只读：`apps` · `profiles` · `get` · `effective`（profile 叠在 default 上，每个值标出来源层）· `search` · `history`；凭证类的值一律打码，没有开关；用 `ela login tvu` 的会话 | 「这个 key 在 prod 是多少」；java-log 的 `env` 是 `elk.config.env`，不是 profile 名，要反查 |
 
 ### 地图与发布
@@ -215,7 +217,7 @@ flowchart LR
 | 级别 | 含义 | 现在有哪些 |
 |---|---|---|
 | 🟢 **能用** | 跑过，结果可信 | 全部感官 · `map` · `publish` · `runtime` · `release`（含 prod，经你的登录）· `promote`（与 Helm 对比零差异）· `team` · `reports` · `setup` · 全部写原子（dry run） |
-| 🟡 **建好了，没验够** | 能跑，但还没证明判断是对的 | `probe`（3 个根因里成了 1 个）· `brief`（两周窗口没开始）· `digest` · `feasible` · `arch` · `ask`（API 凭证未申请）· `logs` 与 `route` 的日志步骤（一个 prod-3 案例跑通）· `configserver`（新建，还没在真实排障里用过） |
+| 🟡 **建好了，没验够** | 能跑，但还没证明判断是对的 | `probe`（3 个根因里成了 1 个）· `brief`（两周窗口没开始）· `digest` · `feasible` · `arch` · `ask`（API 凭证未申请）· `logs` 与 `route` 的日志步骤（一个 prod-3 案例跑通）· `configserver`（新建，还没在真实排障里用过）· `j2n`（新建，同上） |
 | 🔴 **写好了，没真跑过** | 拿它做决定要自己复核 | `explain`（形状在一张票上手工演过，技能本身没跑过）· `revisit`（形状取自 MH-1649 / MH-2798 两张票的手工裁决，技能本身没跑过）· `breakdown`（从没跑过真需求）· `task`（委派链路没实跑过） |
 
 **下一步最该做的一件事**：连续两周把 `/ela:brief` 当早上第一件事读，漏掉的记进 elak 的 `exit-evidence.md`。

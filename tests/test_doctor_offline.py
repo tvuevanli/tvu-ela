@@ -22,6 +22,7 @@ check("browser exit 4 fails with the login action", st == D.FAIL and "ela login 
 st, detail, action = D.classify("lanes", 4, "", "tvutest login failed: 0x80060018 not activated")
 check("lanes auth refusal fails and quotes the server", st == D.FAIL and "0x80060018" in detail and "tvutest" in action)
 check("slack auth refusal names its key", "SLACK_BOT_TOKEN" in D.classify("slack", 4, "", "invalid_auth")[2])
+check("j2n auth refusal names the owner's sign-in", "TVU_PASSWORD" in D.classify("j2n", 4, "", "sign-in refused")[2])
 check("a timeout is a failure", D.classify("kb", None, "", "", timeout=30)[0] == D.FAIL)
 check("exit 5 is a remote failure", D.classify("jenkins", 5, "", "HTTP 502")[0] == D.FAIL)
 value = "masked-value-0123456789"

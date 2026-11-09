@@ -47,6 +47,7 @@ SENSES = {
     "lanes":      ("release", ["envs", "--fresh"], {}, "TVUTEST_ACCOUNT"),   # QA lanes: the tvutest login
     "sentry":     ("sentry", ["projects"],
                    {4: (WARN, "no token yet (a state, not a fault)", "ela secret SENTRY_TOKEN")}, "SENTRY_TOKEN"),
+    "j2n":        ("j2n", ["envs"], {}, "TVU_PASSWORD"),        # the J2N config UI: the owner's sign-in
     "browser":    ("browser", ["env"],
                    {4: (FAIL, "cookies missing", "ela login tvu --force")}, ""),
 }

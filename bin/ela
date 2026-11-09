@@ -44,6 +44,10 @@
   ela logs loki --pid P            a media process's Loki lines; tvulog needs `ela login tvu`
   ela configserver <verb> …        Config Server, read-only, values redacted: apps|profiles|get|
                                    effective|search|history · effective <app> <profile> --key k
+  ela j2n scores <env> [--subtype S] [--labels k=v,…] [--diff <env>]
+                                   J2N's scheduling scores through the J2N config UI, read-only: what one app
+                                   instance costs a box (Cpu, Qsv…) per label set; --diff: the compare view
+  ela j2n envs                     its environments and the owner's access to each (write on qa/qa2: never used)
   ela browser env [--lane L] [--key K]  the version panel vs the release map, and the lanes carrying K's fix:
                                    the environment proof (exit 6: the fix is not on this lane)
   ela browser run <case.js>        one browser case as the owner's session; --phase create|observe --state F
@@ -247,6 +251,7 @@ VERBS = {
     "stage": ("stage", "queue"),
     "logs": ("logs", None),
     "configserver": ("configserver", None),
+    "j2n": ("j2n", None),
     "browser": ("browser", None),
     "testlist": ("testlist", "list"), "devlist": ("testlist", "dev"),
     "verify": ("verify", "report"), "verify-plan": ("verify", "plan"),
