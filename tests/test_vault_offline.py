@@ -1095,4 +1095,8 @@ with tempfile.TemporaryDirectory() as t:
           sorted(w["note"] for w in V.watched_notes(v, td)) == ["cases/c.md", "mh/releases/p.md"])
     open(os.path.join(v, "mh/releases", "s.md"), "w").write('---\ntype: "review"\n---\n# S\n\nSee MH-7 and https://x.slack.com/archives/C1/p1793000000000009\n')
     check("a note reaching a subject home is stamped like an archived one", "mh/releases/s.md" in V.stamp_archive(v, td, dry_run=True))
+base = V.VIEWS["all-notes"]
+check("the all-notes base has a subject column and a Cases view; Archive lists every closed home",
+      "subject: 'file.folder'" in base and "name: Cases" in base
+      and base.split("name: Archive", 1)[1].count("file.inFolder(") == 4 and "formula.subject" in base.split("name: Archive", 1)[1])
 sys.exit(1 if failures else 0)

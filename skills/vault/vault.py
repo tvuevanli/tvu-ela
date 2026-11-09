@@ -210,10 +210,10 @@ list and writing your `ela:` priority lines; the 09:30 or 10:00 pass then sends 
 | `ela/service-map` | the service map from the published map: every slug ela uses, what GM registers it as, its id, repo and Jenkins job, the Fixed In grammar; the docker table folded; its Review section yours, kept as written | review a row; write `ela:` under one that is wrong and ela corrects the map on your word |
 | `mediahub-bot/` | MediaHub's product bot, not ela: its design, answer contract, knowledge pack, the files it will commit (`files/`), its eval set (`eval/`) and the evidence (`evidence/`); the source until its repositories exist, then pointers | rule the design; confirm eval cases |
 | `ela/review/` | the evening reader pages | read in the evening |
-| `cases/` | one note per customer support case, `cases/<date>-<slug>.md` (a folder `cases/<slug>/` only when a case outgrows one note): customer, HubSpot ticket, Slack thread, graph and box, the Jira keys it opened, status *open*, *answered* or *closed*; watched like the archive | look when support asks again |
+| `cases/` | one note per customer support case, `cases/<date>-<slug>.md` (a folder `cases/<slug>/` only when a case outgrows one note): customer, HubSpot ticket, Slack thread, graph and box, the Jira keys it opened, status *open*, *answered* or *closed*; watched like the archive | look when support asks again; all notes, *Cases* |
 | `mh/releases/` | closed promotions, deploys, docker checks, release reviews and verifications, beside the release records | look back on a release |
 | `ela/history/` | ela's own closed plans and reviews; what they ruled is in elak's decisions | rarely |
-| `archive/` | what is done with and has no subject home; ela adds to it and keeps its status current, never its text, except the Afterwards it appends | look back (all notes, *Archive*); ask ela to tidy it |
+| `archive/` | what is done with and has no subject home; ela adds to it and keeps its status current, never its text, except the Afterwards it appends | look back (all notes, *Archive*, with its *subject* column, lists every closed note); ask ela to tidy it |
 
 Folders are named for what you do with a note while it is live, and carry no numbers: Home and the bookmarks are the
 way in, and the file explorer is rarely needed. A closed note is the exception: it goes to its **subject home**
@@ -370,9 +370,12 @@ machine.
 FORMULAS = """formulas:
   note: 'file.asLink(title)'
   loop: 'if(type == "ticket" || type == "verify", 1, 2)'
+  subject: 'file.folder'
 properties:
   formula.note:
     displayName: Note
+  formula.subject:
+    displayName: Subject
 """
 
 VIEWS = {
@@ -392,6 +395,9 @@ VIEWS = {
       and:
         - not:
             - file.inFolder("archive")
+            - file.inFolder("cases")
+            - file.inFolder("mh/releases")
+            - file.inFolder("ela/history")
         - or:
             - 'status == "built"'
             - 'status == "proposed"'
@@ -462,11 +468,23 @@ VIEWS = {
       - property: parked
         direction: DESC
   - type: table
-    name: Archive
+    name: Cases
     filters:
       and:
+        - file.inFolder("cases")
+    order: [date, formula.note, customer, hubspot, status, keys, last, watch]
+    sort:
+      - property: date
+        direction: DESC
+  - type: table
+    name: Archive
+    filters:
+      or:
         - file.inFolder("archive")
-    order: [date, formula.note, next, posted, last, watch]
+        - file.inFolder("cases")
+        - file.inFolder("mh/releases")
+        - file.inFolder("ela/history")
+    order: [date, formula.note, formula.subject, type, next, posted, last, watch]
     sort:
       - property: date
         direction: DESC
@@ -1760,6 +1778,7 @@ def home(today, now, notes, desk=None):
              ("projects: " + " · ".join(f"[[{f['path'][:-3]}|{f['key']}]] {days_words(f['days'])}" for f in projects)) if projects else None,
              f"[[{OVERVIEW[:-3]}|ela]]",
              f"[[{ELA}/all-notes.base|all notes]]" + (f" ({len(waiting)} wait for your word)" if waiting else ""),
+             f"[[{ELA}/all-notes.base#Cases|cases]]",
              f"[[{ELA}/all-notes.base#Archive|archive]]"]
     cons = next((n for n in notes if n.props.get("type") == "constraints"), None)
     held = getattr(cons, "counts", None) or {}
