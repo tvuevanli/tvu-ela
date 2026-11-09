@@ -147,20 +147,50 @@ A switch-path change in `unified-streaming` reaches orchestration → J2N → Li
 a Billing callback change reaches warning-service and Home; a tags change spans backend, mx-service and frontend.
 That reach, plus the lane's docker pin, is the risk sentence — not the commit count.
 
+## 1b — two checkers, before anything is shown
+Nothing from a run reaches the owner until two independent checkers have read it against first-hand sources (gap 8 on
+2026-11-09: two reviewers found about 45 errors only after he had read the note). `note.py claims <report.json>` lists
+every checkable claim with the read that settles it, split by checker:
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/skills/promote/note.py" claims <runtime>/promote/<stem>.json
+```
+
+- Spawn the **Jira checker** and the **system checker** in one message, in parallel, each a fresh agent given the draft
+  note, the report JSON's path and its own claim list only, never the drafting session's conclusions. The Jira checker reads
+  each ticket's QA comment, counts, environment block and splits, and each Fixed In; the system checker reads lane
+  versions (`promote proof lane`), profile chains (`facts runtime show`, `configserver effective <app> <chain>`), code
+  and branch state (git), live dependencies and the shipped versions. Each returns per claim: confirmed / wrong (with
+  the first-hand reading) / unread (with why).
+- A claim either checker cannot read is written as unread in the note, never kept as stated. A wrong claim is corrected
+  in the note before it is shown, and the checker's reading is cited.
+- The note ends its body with `## Checked`: when, the two checkers, how many claims each confirmed, corrected and left
+  unread, and each correction in one line. `note.py lint` refuses a note without it.
+
 ## 2 — output, in this order
+**One note per promotion** (gap 10). The note is the vault's `mh/releases/<line>/<date>-mh<line>-<from>-to-<to>.md`,
+created once and updated in place on every rerun; never a second note for the same train. Services carry their full
+names (UR Caller, MediaHub backend, MediaHub frontend, Unified Media backend / frontend: `shipcheck.NAMES` until the
+published catalogue carries them), never mx/hub/FE/BE; every Jira key is a link. The Slack text is two parts split by a
+line `---`: (1) what the release brings, for everyone, no ticket ids; (2) what we set for prod: the config table, the
+DDL, the deploy order. Slack `<url|key>` and Markdown links break when pasted, so it uses plain keys or full URLs.
+Before showing either:
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/skills/promote/note.py" lint <vault note> --slack <runtime>/promote/<stem>.post.md   # exit 1 = fix first
+```
+
 1. **The summary for Evan** — in the session's language (English unless he asked for Chinese); the lane table, then the ranked findings (≤12), each with the reach and the evidence
    source; then what could not be read. He decides here; this text is not posted. With `--purpose prod-deploy`
    the summary is already in the four-section order and is read as written; the Slack body and the backfills are
-   unchanged. The summary is also written as a review page to `<reports>/ela/<date>-promote-<line>-<from>-to-<to>.md`,
+   unchanged. The summary is the promotion's one note (above), written in place in the vault (`source: "vault"`),
    in the shape the vault's spec for a review sets (its readme, *Note standards*; `ela vault lint` checks it): the
    title and heading `MH <line> · <from> → <to> · <what>`, an *In short* paragraph, the findings, what could not be
    read, then `## What you should do` (the recommendation first, each action a box or a ready command, the
    alternative named) and, when something needs his word, `## Waiting for your word` after it; outputs 2 to 4
-   quoted beneath it, folded. The vault sync carries it into `readings/`, where he reviews it on his own machine (elak decision
-   2026-10-23, the owner reads ela in a generated Obsidian vault). Terminal text and runtime files are not readable
+   quoted beneath it, folded. He reviews it in the vault on his own machine (elak decision 2026-10-23). Terminal text and runtime files are not readable
    there. The page stays within the vault's review budget of 2,500 words and holds no machine paths; the raw report
-   is not copied, because its commit lists would fail that gate. A rerun for the same line and lanes on the same
-   day rewrites the page.
+   is not copied, because its commit lists would fail that gate. A rerun for the same line and lanes updates the same note.
    A decision the page touches (a standing constraint, a hold, a plan already in the vault) is linked, never
    restated: one decision, one note; the page says what changed since that note and when it read the bundles.
 2. **The Slack body** — English, in Slack mrkdwn (the slack skill's rules), written to
