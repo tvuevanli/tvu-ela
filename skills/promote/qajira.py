@@ -95,6 +95,15 @@ def parse(text, key=None):
     open_points = [l.strip()[:200] for l in t.splitlines() if OPEN_LINE.match(l.strip()) and OPEN_CTX.search(l)]
     if counts["pending"]:
         open_points.insert(0, f"{counts['pending']} case(s) 待确认")
+    if not any(counts.values()):                          # no "n Pass + m Fail": count the per-case marker lines instead
+        cases = [l.strip() for l in t.splitlines() if re.match(r"^\s*(✅|⚠️?|❌|⬜)\s*\S", l)]
+        bad = [l for l in cases if not l.startswith("✅")]
+        if cases:
+            counts = {"pass": len(cases) - len(bad), "fail": sum(1 for l in bad if l.startswith("❌")),
+                      "pending": sum(1 for l in bad if not l.startswith("❌"))}
+            open_points += [l[:200] for l in bad if l[:200] not in open_points]
+            if v == "pass" and counts["fail"]:
+                v = "partial"                             # MH-3579 (QA retest 2026-10-22): passed cases beside a warned and untested ones
     if v == "pass" and open_points:
         v = "partial"                                     # ⚠ is "pass with open points": the open points are QA's own words
     m = DATE.search(t)

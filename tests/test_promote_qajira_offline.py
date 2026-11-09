@@ -54,6 +54,11 @@ v = Q.verdict_of(issue, QA)
 check("the latest QA comment decides; the earlier one is history", v["verdict"] == "pass" and len(v["history"]) == 1)
 check("a Cloners link is a split to follow", v["links"][0]["split"])
 
+# MH-3579 shape (2026-10-22 retest): no count line; per-case markers, one warning and one untested among the passes
+p = Q.parse("QA 复验结果 — retest\nscope line\n✅ TC-A case one\n✅ TC-B case two\n⚠️ TC-C case three, threshold not reached\n✅ TC-D case four\n⬜ TC-E case five, not run\n")
+check("per-case markers are counted when no count line exists", p["counts"] == {"pass": 3, "fail": 0, "pending": 2})
+check("a warning or untested case beside passes is partial, with the cases as open points", p["verdict"] == "partial" and any("TC-C" in x for x in p["open_points"]))
+
 if failures:
     print(f"qajira: {len(failures)} failure(s)"); sys.exit(1)
 print("qajira: all offline checks passed")
