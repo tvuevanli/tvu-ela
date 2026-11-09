@@ -36,6 +36,23 @@ j = E.judge("daily-wed", g)
 check("a graph created by prod-3's UR Caller is not a Wed test", j["verdict"] == "other-lane" and not j["counts"])
 check("a graph with no creator line is unproven", E.judge("daily-wed", {"lane": None, "why": "no UR Caller line"})["verdict"] == "unproven")
 
+# ── the lane's versions come from the lane itself (2026-11-09: the note said 2.1.86, the lane answered 2.1.85) ──
+sys.path.insert(0, os.path.join(ROOT, "skills", "release"))
+import release as R  # noqa: E402
+R._MAP = dict(R._MAP or {}, gateway_versions={
+    "unified-streaming": {"path": "/mx-caller-{token}/base/version", "lanes": {"daily-wed": {"site_service": "gateway-test", "token": "wed"}}},
+    "mediahub-backend": {"path": "/media-hub-mx-{token}/base/version", "lanes": {"daily-wed": {"site_service": "gateway-test", "token": "wed"}}}})
+R.site = lambda: {"services": {"gateway-test": {"url": "https://gw.example"}}}
+ANSWERS = {"/mx-caller-wed/base/version": "v2.1.85 build375 2026-11-06 09:40:08", "/media-hub-mx-wed/base/version": "v2.1.42 build274 2026-11-06 09:40:16"}
+got, unread = E.lane_versions("daily-wed", get=lambda url: (200, ANSWERS[url.replace("https://gw.example", "")]))
+check("the lane's versions are read from its own /base/version", got.get("unified-streaming", "").startswith("v2.1.85"))
+j = E.judge("daily-wed", p, got)
+check("read live, daily-wed at 2.1.85 makes QA's qa-cn3 build-85 verdict same-build evidence", j["verdict"] == "same-build" and j["counts"])
+j = E.judge("daily-wed", p, None)
+check("a lane whose versions were not read cannot be compared: unproven, never inferred", j["verdict"] == "unproven" and not j["counts"])
+got, unread = E.lane_versions("daily-wed", get=lambda url: (404, ""))
+check("a route that does not answer is unread, with the reason", not got and all("404" in str(w) for w in unread.values()))
+
 if failures:
     print(f"envproof: {len(failures)} failure(s)"); sys.exit(1)
 print("envproof: all offline checks passed")

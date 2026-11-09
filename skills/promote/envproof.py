@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """The environment proof, as a gate on test evidence: a test counts for a lane only when the lane is proven.
 
-  envproof.py text <file|-> --lane L [--versions JSON] [--json]   a version-panel block (a QA comment's 验证环境,
-                                                                   a pasted panel): which lane, which versions
+  envproof.py text <file|-> --lane L [--json]     a version-panel block (a QA comment's 验证环境, a pasted panel):
+                                                  which lane, which versions, judged against L's own /base/version
+  envproof.py lane L [--json]                     the versions L's services answer on their own /base/version
   envproof.py graph <graph id> --lane L [--json]                  a graph: the UR Caller instance that created it
 
 The verify skill's rule, reused (its parser, `browser.parse_panel`, and the fact store's `runtime prove`): the API
@@ -15,6 +16,13 @@ the graph the test made was created by Wed's UR Caller (its trace in the java-lo
                 "on <lane> at <build>", never as "on <claimed lane>"
   other-lane    another lane at other versions: does not count for the claimed lane
   unproven      no panel ENV, no graph creator: does not count
+
+The claimed lane's versions are read from the lane itself — each service's /base/version through the API gateway,
+the routes the release map's `gateway_versions` names (`ela release gateway`) — never from a note, a ticket, the
+release map's lane table or a version panel reached through an account that may sit on another lane. A service the
+gateway does not answer for is unread, and a comparison that needs it is `unproven`. On 2026-11-09 this gate was first
+fed daily-wed's UR Caller as 2.1.86 from the promotion note; the lane itself answered v2.1.85 build375, so QA's
+build-85 verdicts on qa-cn3 were same-build evidence for daily-wed, not other-lane.
 
 Exit codes: 0 proven or same-build · 3 other-lane · 4 unproven · 2 usage.
 """
@@ -57,13 +65,25 @@ def same_version(a, b):
     return str(a or "").strip() == str(b or "").strip()
 
 
+def lane_versions(lane, get=None):
+    """{service: version} the lane's services answer on their own /base/version, read now (release gateway)."""
+    import release as R  # noqa: E402
+    rows = R.gateway_versions(lane=lane, fresh=True, get=get)
+    return {r["service"]: r["version"] for r in rows if r.get("status") == "read"}, \
+           {r["service"]: r.get("why") for r in rows if r.get("status") != "read"}
+
+
 def judge(claim_lane, proof, lane_versions=None):
-    """proof = panel() or graph() result. lane_versions = {slug: version} the claimed lane runs."""
+    """proof = panel() or graph() result. lane_versions = {slug: version} read from the claimed lane itself
+    (lane_versions()); None or empty means unread, and a comparison that needs it is unproven."""
     if not proof or not proof.get("lane"):
         return {"verdict": "unproven", "counts": False, "why": (proof or {}).get("why") or "no ENV or graph creator names a lane"}
     if proof["lane"] == claim_lane:
         return {"verdict": "proven", "counts": True, "lane": claim_lane, "why": f"the evidence names {claim_lane}"}
     vers = proof.get("versions") or {}
+    if vers and not lane_versions:
+        return {"verdict": "unproven", "counts": False, "lane": proof["lane"],
+                "why": f"observed on {proof['lane']}; {claim_lane}'s own /base/version was not read, so the build cannot be compared"}
     shared = [s for s in vers if s in (lane_versions or {})]
     if shared and all(same_version(vers[s], lane_versions[s]) for s in shared):
         return {"verdict": "same-build", "counts": True, "lane": proof["lane"],
@@ -91,16 +111,28 @@ def main():
     ap.add_argument("--env-file")
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("text", help="a version-panel block: which lane, which versions")
-    p.add_argument("file"); p.add_argument("--lane", required=True); p.add_argument("--versions", help='{"slug": "version"} the lane runs')
-    p.add_argument("--json", action="store_true")
+    p.add_argument("file"); p.add_argument("--lane", required=True); p.add_argument("--json", action="store_true")
+    p = sub.add_parser("lane", help="the versions a lane's services answer on their own /base/version")
+    p.add_argument("lane"); p.add_argument("--json", action="store_true")
     p = sub.add_parser("graph", help="a graph: the UR Caller instance that created it")
     p.add_argument("graph"); p.add_argument("--lane", required=True); p.add_argument("--json", action="store_true")
     a = ap.parse_args()
     env_file = a.env_file or os.environ.get("ELA_ENV_FILE")
+    if a.cmd == "lane":
+        got, unread = lane_versions(a.lane)
+        if a.json:
+            print(json.dumps({"lane": a.lane, "versions": got, "unread": unread}, ensure_ascii=False, indent=1))
+        else:
+            for k, v in got.items():
+                print(f"{k:<22} {v}")
+            for k, why in unread.items():
+                print(f"{k:<22} unread: {why}")
+        sys.exit(0 if got else EX_UNPROVEN)
     if a.cmd == "text":
         text = sys.stdin.read() if a.file == "-" else open(a.file).read()
         proof = panel(text)
-        verdict = judge(a.lane, proof, json.loads(a.versions) if a.versions else None)
+        lv = lane_versions(a.lane)[0] if proof and proof.get("lane") and proof["lane"] != a.lane else None
+        verdict = judge(a.lane, proof, lv)
     else:
         if not env_file:
             try:

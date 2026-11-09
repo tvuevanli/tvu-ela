@@ -13,7 +13,7 @@ P="python3 ${CLAUDE_PLUGIN_ROOT}/skills/promote/promote.py --env-file <env>"    
 $P report 2.1 qa daily --purpose prod-staging --bundles --out <runtime>/promote   # everything, ranked; JSON + markdown
 $P report 2.1 qa prod --purpose prod-deploy --out <runtime>/promote                # the deploy gate: four fixed sections
 $P lanes|commits|tickets|evidence|bundles 2.1 qa daily                            # one step at a time when arguing with a finding
-$P proof text <file> --lane daily-wed | graph <id> --lane daily-wed               # the environment proof of one piece of test evidence
+$P proof text <file> --lane daily-wed | graph <id> --lane L | lane L           # the environment proof; `lane` reads the lane's own /base/version
 $P constraints [--json]                                                            # the standing constraints, each pin read now; exit 3 when one is over
 $P plan 2.1 daily prod --on 2026-11-06 --after "QA's report on Thursday's build" --carry MH-1860   # a planned promotion, local file only
 $P close                                                                           # the pending promotion shipped or was dropped
