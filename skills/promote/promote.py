@@ -507,12 +507,13 @@ def collect_tickets(a, delta, gaps):
         keys.setdefault(k, {"commits": [], "services": set()})
     # the line's label: tickets the release names with no commit in the range — placement says whether they are
     # already on the target (MH-3579 on 2026-11-09: listed as new, on prod-3 since UR Caller 2.1.59)
-    labelled = set()
+    labelled, label_keys = set(), set()
     if label:
         ok, d, err = l1("jira", "jql", f'labels = "{label}" AND updated >= -60d ORDER BY key', "--limit", "1000", env_file=a.env_file, timeout=180)
         if ok and len(d.get("issues") or []) >= 1000:
             gaps.append({"kind": "jira_label_lookup_truncated", "detail": f"{label}: 1000 rows; tickets past the last key are not read"})
         if ok:
+            label_keys.update(it.get("key") for it in d.get("issues") or [] if it.get("key"))
             for it in d.get("issues") or []:
                 if it.get("key") and it["key"] not in keys:
                     labelled.add(it["key"])
@@ -531,7 +532,7 @@ def collect_tickets(a, delta, gaps):
         fi_raw = f.get(fid)
         fi_text = adf_text(fi_raw).strip() if fi_raw else ""
         fi = parse_fixed_in(fi_text)
-        if k in reverse and not keys[k]["commits"] and k not in labelled and not any(
+        if k in reverse and not keys[k]["commits"] and k not in label_keys and not any(
                 e["parsed"] and vlabel(e["parsed"]).split("+")[0] in in_delta.get(e["slug"], ()) for e in fi):
             continue                        # the text search matched loosely; its Fixed In names no build in the range
         svcs = sorted(keys[k]["services"])
@@ -548,7 +549,7 @@ def collect_tickets(a, delta, gaps):
             flags.append("referenced_by_docs_only")
         if k in reverse and not keys[k]["commits"]:
             flags.append("fixed_in_claims_delta_build_but_no_commit_names_it")
-        if k in labelled:
+        if k in labelled or (k in label_keys and not keys[k]["commits"]):
             flags.append("labelled_only")
         # Fixed In vs carrier: every service with code commits should have a Fixed In entry inside the delta
         fi_by_slug = {e["slug"]: e for e in fi}
