@@ -68,6 +68,12 @@ lane behind it, the dry-run bundle command. The line's promotion stays here, and
   against the other such branches. A deploy item is a high finding with its citation; an unbuilt commit or a conflict
   is medium. On 2026-11-09 the MH-3891 DDL (two databases), its backfill call and the MH-3961 / MH-3966 conflict all
   surfaced only when the owner asked.
+- **The shipped version is the one the source lane proves, or the gap is listed.** `--ship SERVICE=VERSION` (UR
+  Caller=2.1.87, or a build `#377`) names what the release ships; where that is not the source lane's build,
+  `shipcheck.py` lists the commits between with their tickets, and for each ticket the QA verdicts run on a build that
+  carries it. A ticket with none is high; a source-lane test or a verdict on the older build never covers it. Without
+  `--ship`, a newer successful build on the source build's branch is a note naming the flag. On 2026-11-09 UR Caller
+  2.1.87 was named for prod-3 while daily-wed ran 2.1.85, and MH-3961 and MH-3966 ×2 sat in between with no QA.
 - **What the release calls is read live on the target.** For a prod target, `livedeps.py` takes every fixed-URL Feign
   client of a range repo from the dependency map, reads its URL key along the target lane's proven profile chain (a key
   absent there falls to the code default, high when that default is a dev or test URL), finds the gateway route and,

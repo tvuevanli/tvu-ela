@@ -40,6 +40,7 @@ import release as R  # noqa: E402  — the release map, the userservice hosts, J
 sys.path.insert(0, os.path.join(SKILLS, "brief"))
 import brief as B  # noqa: E402  — the QA lanes' rows from QA's report mails and the release thread when the qa host is unreadable
 sys.path.insert(0, os.path.join(SKILLS, "facts"))
+import shipcheck as SC  # noqa: E402  — the release version against the source lane's build
 import facts as F  # noqa: E402  — the fact store's read times
 
 EX_USAGE, EX_LANE, EX_REMOTE = 2, 3, 5
@@ -1354,6 +1355,68 @@ def keep_last_report(a, res, lanes):
         pass
 
 
+def collect_ships(a, delta, evidence, gaps):
+    """--ship SERVICE=VERSION: the release's version per service against the source lane's build (shipcheck.py). Without
+    --ship, a newer successful build on the source build's branch is a note naming the flag."""
+    import shipcheck as SC  # noqa: E402 — same skill
+    by = {s["service"]: s for s in delta["services"]}
+    aliases = (R.rmap("fixed_in") or {}).get("slug_aliases") or {}
+    asked = {}
+    for item in getattr(a, "ship", None) or []:
+        svc, _, ver = item.partition("=")
+        slug = SC.resolve(svc, set(by), aliases)
+        if not slug or not ver.strip():
+            gaps.append({"kind": "ship_unresolved", "detail": f"--ship {item}: no service of this promotion by that name, or no version"}); continue
+        asked[slug] = ver.strip().lstrip("v")
+    out = []
+    for slug, s in by.items():
+        fb = s.get("from_build")
+        if slug not in asked:
+            newer = [b for b in s.get("newer_builds_on_neither_lane") or [] if fb and b.get("branch") == fb.get("branch")]
+            if newer:
+                top = max(newer, key=lambda b: b["build"])
+                out.append({"service": slug, "name": SC.name(slug), "newer": f"{SC.name(slug)}: build {top['build']} ({top['version']}, {top['time']}) on "
+                            f"{top['branch']} is newer than the source lane's {fb['version']}; if the release ships it, run again with --ship {slug}={top['version']}"})
+            continue
+        ver = asked[slug]
+        if not fb:
+            gaps.append({"kind": "ship_unplaced", "service": slug, "detail": "the source lane's build is not placed on Jenkins"}); continue
+        rows = jenkins_builds(s["job"]) if s.get("job") else None
+        m = re.match(r"#?(\d+)$", ver)
+        if rows is None:
+            gaps.append({"kind": "jenkins_unreadable", "job": s.get("job")}); continue
+        sb = next((r for r in rows if r.get("build") == int(m.group(1))), None) if m else \
+            next((r for r in sorted(rows, key=lambda r: -(r.get("build") or 0)) if r.get("version") == ver and r.get("result") == "SUCCESS"), None)
+        if not sb:
+            gaps.append({"kind": "ship_not_in_jenkins", "service": slug, "detail": f"{ver} is not a successful {s['job']} build in the window"}); continue
+        if sb["sha"] == fb["sha"]:
+            continue
+        path = repo_path(s["repo"]) if s.get("repo") else None
+        commits = []
+        if path:
+            rc, log, _ = git(path, "log", "--no-merges", "--format=%h%x1f%s%x1f%b%x1e", f"{fb['sha']}..{sb['sha']}")
+            for recd in log.split("\x1e"):
+                if recd.strip():
+                    h, subj, body = (recd.strip("\n").split("\x1f") + ["", ""])[:3]
+                    commits.append({"sha": h, "subject": subj, "keys": sorted(set(KEY_RE.findall(subj)) or set(KEY_RE.findall(body)))})
+        else:
+            gaps.append({"kind": "repo_missing", "service": slug, "repo": s.get("repo")})
+        qa = {k: v.get("items") or [] for k, v in (evidence.get("keys") or {}).items()}
+        missing = sorted({k for c in commits for k in c["keys"]} - set(qa))
+        if missing:
+            import qajira as QJ  # noqa: E402 — same skill
+            for k, v in QJ.read(missing, a.env_file).items():
+                lt = v.get("latest")
+                qa[k] = [{"area": "qa", "who": lt.get("who"), "when": iso_when(lt.get("when")), "verdict": lt["verdict"],
+                          "env_lane": (lt.get("env") or {}).get("lane"), "env_versions": (lt.get("env") or {}).get("versions")}] if lt else []
+        target = parse_version(f"{sb['version']}+{sb['build']}")
+
+        def at_least(text, slug=slug, target=target):
+            return SC.carries(text, target, parse_version, lambda x, y: cmp_versions(slug, x, y))
+        out.append(SC.gap(slug, {k: fb[k] for k in ("version", "build", "sha")}, {k: sb[k] for k in ("version", "build", "sha")}, commits, qa, at_least))
+    return out
+
+
 def cmd_report(a):
     gaps = []
     lanes = collect_lanes(a, gaps)
@@ -1392,6 +1455,13 @@ def cmd_report(a):
                          "what": f"{b['repo']} {b['branch']} ({b['ahead']} ahead, {b['author']} {b['date']}): "
                                  + ("merges clean" if m.get("clean") else "conflicts with the release branch in " + ", ".join(m.get("conflicts") or [])[:100] if m.get("clean") is False else "merge not tried")
                                  + "".join(f"; conflicts with {o['branch']}" for o in b["with_others"])})
+    ships = collect_ships(a, delta, evidence, gaps)
+    for g in ships:
+        if g.get("ship"):
+            findings.append({"severity": "high" if g["uncovered"] else "medium", "kind": "release_version_not_on_source",
+                             "service": g["service"], "keys": g["uncovered"], "what": SC.words(g, lanes["from"])})
+        elif g.get("newer"):
+            findings.append({"severity": "note", "kind": "newer_build_on_release_branch", "service": g["service"], "what": g["newer"]})
     live = None
     if gate or str(lanes["to"]).startswith("prod"):
         import livedeps as LD  # noqa: E402 — same skill
@@ -1408,7 +1478,7 @@ def cmd_report(a):
         if t["key"] in placed:
             t["placement"] = placed[t["key"]]
     res = {"generated_at": now(), "line": a.line, "from": lanes["from"], "to": lanes["to"], "purpose": a.purpose, "scope": a.scope,
-           "lanes": lanes, "delta": delta, "tickets": tickets, "evidence": evidence, "placement": placed, "prereqs": pre, "live_deps": live, "bundles": bundles, "untracked": untracked, "findings": findings, "gaps": gaps,
+           "lanes": lanes, "delta": delta, "tickets": tickets, "evidence": evidence, "placement": placed, "prereqs": pre, "ships": ships, "live_deps": live, "bundles": bundles, "untracked": untracked, "findings": findings, "gaps": gaps,
            "counts": {"commits": sum(len(s["commits"]) for s in delta["services"]), "tickets": len(tickets["tickets"]),
                       "findings": {k: sum(1 for f in findings if f["severity"] == k) for k in SEV}}}
     res["read_at"] = F.read_at()
@@ -1839,6 +1909,7 @@ def main():
     common(sub.add_parser("bundles"), scope=False)
     p = sub.add_parser("compare-helm", help="test only: Helm's release payload as the oracle; every difference classified"); common(p); p.add_argument("--helm-json", help="a saved oracle payload instead of running Helm"); p.add_argument("--out")
     p = sub.add_parser("report"); common(p); p.add_argument("--purpose", choices=("regular", "prod-staging", "prod-deploy", "demo"), default="regular"); p.add_argument("--since"); p.add_argument("--bundles", action="store_true", help="include the bundle diff even with --scope app"); p.add_argument("--out", help="directory for <date>-mh<line>-<from>-<to>.{json,md}")
+    p.add_argument("--ship", action="append", metavar="SERVICE=VERSION", help="the version the release ships for a service (UR Caller=2.1.87, unified-streaming=#377); checked against the source lane's build")
     p = sub.add_parser("plan", help="a planned promotion in the pending record: the day, the condition, the keys it carries; re-checked on every run; local file only")
     common(p, scope=False); p.add_argument("--on", help="the planned day, YYYY-MM-DD"); p.add_argument("--after", help="the condition in words")
     p.add_argument("--carry", nargs="*", help="ticket keys the train carries whose merge state is checked each pass")

@@ -67,6 +67,7 @@ python3 tests/test_promote_prereqs_offline.py || fail=1
 python3 tests/test_doctor_offline.py || fail=1
 python3 tests/test_promote_plan_offline.py || fail=1
 python3 tests/test_promote_livedeps_offline.py || fail=1
+python3 tests/test_promote_ship_offline.py || fail=1
 python3 tests/test_project_offline.py || fail=1
 python3 tests/test_docker_offline.py || fail=1
 python3 tests/test_j2n_offline.py || fail=1
