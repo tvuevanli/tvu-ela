@@ -60,7 +60,10 @@ lane behind it, the dry-run bundle command. The line's promotion stays here, and
   `new`, `on-target` (nothing new for users; at most what the citing commits add) or `partly-new` (which part). QA's
   pass environment places a ticket only when nothing else does. The line's label brings in tickets with no commit in
   the range, so the page cannot list as new what the target already runs (MH-3579, MH-3503, MH-3582, MH-3668 on
-  2026-11-09); every `on-target` and `partly-new` ticket is a note in the report.
+  2026-11-09); every `on-target` and `partly-new` ticket is a note in the report. A code commit naming the key (subject, body or
+  trailer) already in the target build's history places that part on the target (MH-3668); a part Fixed In calls new
+  with no carrying commit in the range is `disputed`, a medium finding for the owner, never new (MH-3886). A label
+  such as MH-030 is the item id the range's commits use for the ticket.
 - **What the deploy needs is read, not asked for.** `prereqs.py` scans the release's tickets (description, comments)
   and the docs the range changes for deploy-time items (an SQL statement on a table, a one-off backfill call, a
   发版待办 list, a key = value beside a release word), lists the release-branch commits after the promoted build, and
