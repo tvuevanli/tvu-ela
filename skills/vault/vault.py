@@ -12,6 +12,7 @@ Usage:
     vault.py restore <path>          bring back a note the owner deleted
     vault.py guidance [--all] [--json]   his `ela:` lines anywhere in the vault, each handled once
     vault.py finish <path> [--to delete|archive]   on his word: finish with a note as he would in Obsidian
+    vault.py tidy [--apply] [--json]   the archived notes to their subject homes; a dry run unless --apply
     vault.py setup                   apply the Obsidian settings kept in obsidian/ (after a reset or on a new machine)
 
 Layout, by what the owner does with a note (ela ADR 0010). Names are lowercase with hyphens and no spaces, taken
@@ -308,7 +309,9 @@ rewrite keeps your lines. Two minutes after you stop typing, a session takes the
 queued HH:MM · job …" shows under the last of them, and the answer replaces it there. A place can be named ("write this to the KB", "into elak"); without one, ela
 chooses between its own knowledge in elak and the team's knowledge base (drafted, published on your word).
 
-Ask ela now and then to tidy the archive.
+Ask ela now and then to tidy the archive: `ela vault tidy` lists the archived notes that have a subject home, and
+`--apply` moves them; a move that would break a link (a link naming `archive/` in its path, or a name another note
+shares) is held back and named.
 
 The archive keeps listening. A note in `archive/`, a subject home (`cases/`, `mh/releases/`, `ela/history/`) or
 `in-progress/` that carries `posted` or `keys` is read at
@@ -3403,6 +3406,74 @@ def cmd_finish(a):
           + ("; other notes link it, so it was archived, not deleted" if a.to == "delete" and folder else ""))
 
 
+def tidy_plan(vault):
+    """Each note directly in archive/ that has a subject home, with what would keep it from moving: [{note, to,
+    blocked}]. A wikilink resolves by name, so a move breaks only a link that names archive/ in its path, or a name
+    that another note in the vault shares; a note he put elsewhere by hand is never read here."""
+    d = os.path.join(vault, ARCHIVE)
+    plan = []
+    for f in sorted(os.listdir(d)) if os.path.isdir(d) else []:
+        p = os.path.join(d, f)
+        if not f.endswith(".md") or not os.path.isfile(p):
+            continue
+        try:
+            props = props_of(split_front(open(p, encoding="utf-8").read())[0])
+        except OSError:
+            continue
+        to = home_for(f"{ARCHIVE}/{f}", props)
+        if to != ARCHIVE:
+            plan.append({"note": f"{ARCHIVE}/{f}", "to": f"{to}/{f}", "blocked": []})
+    if not plan:
+        return plan
+    stems = {os.path.basename(x["note"])[:-3].lower(): x for x in plan}
+    rx = re.compile(r"(?:\[\[|\]\()" + re.escape(ARCHIVE) + r"/([^\]|#)]+?)(?:\.md)?[\]|#)]", re.I)
+    for top_, dirs, fs in os.walk(vault):
+        dirs[:] = [x for x in dirs if not x.startswith(".")]
+        for f in fs:
+            r = os.path.relpath(os.path.join(top_, f), vault).replace(os.sep, "/")
+            if f[:-3].lower() in stems and r != stems[f[:-3].lower()]["note"] and f.endswith(".md"):
+                stems[f[:-3].lower()]["blocked"].append(f"{r} has the same name")
+            if not f.endswith((".md", ".base", ".canvas")):
+                continue
+            try:
+                text = open(os.path.join(top_, f), encoding="utf-8").read()
+            except (OSError, UnicodeDecodeError):
+                continue
+            for m in rx.finditer(text):
+                x = stems.get(m.group(1).lower())
+                if x:
+                    x["blocked"].append(f"{r} links it by its archive/ path")
+    for x in plan:
+        if os.path.exists(os.path.join(vault, x["to"])):
+            x["blocked"].append(f"{x['to']} exists")
+    return plan
+
+
+def cmd_tidy(a):
+    """Move the archived notes that have a subject home there (cases/, mh/releases/, ela/history/), by the rule a
+    closing note follows (home_for). A dry run unless --apply; a note whose move would break a link stays."""
+    s = json.load(open(SITE))
+    vault = s["vault"]
+    plan = tidy_plan(vault)
+    moved = []
+    if a.apply:
+        for x in plan:
+            if x["blocked"]:
+                continue
+            dst = os.path.join(vault, x["to"])
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            os.replace(os.path.join(vault, x["note"]), dst)
+            moved.append(x)
+    r = {"dry_run": not a.apply, "plan": plan, "moved": len(moved), "blocked": sum(1 for x in plan if x["blocked"]),
+         "by_home": {h: sum(1 for x in plan if x["to"].startswith(h + "/")) for h in SUBJECT_HOMES}}
+    if a.json:
+        print(json.dumps(r, ensure_ascii=False)); return
+    for x in plan:
+        print(f"{x['note']} → {x['to']}" + (f"  (stays: {'; '.join(x['blocked'])})" if x["blocked"] else ""))
+    print(f"{'DRY RUN — ' if not a.apply else ''}tidy: {len(plan)} to their homes ("
+          + ", ".join(f"{h} {n}" for h, n in r["by_home"].items()) + f"), {r['blocked']} held, {len(moved)} moved")
+
+
 def cmd_restore(a):
     """Bring back a note the owner deleted: the next sync writes it again."""
     s = json.load(open(SITE))
@@ -3438,7 +3509,7 @@ def atomic_write(path, text):
     os.replace(tmp, path)
 
 
-WRITERS = ("sync", "marks", "finish", "note", "restore", "setup", "afterwards")   # guidance only reads
+WRITERS = ("sync", "marks", "finish", "note", "restore", "setup", "afterwards", "tidy")   # guidance only reads
 
 
 def vault_lock():
@@ -3960,6 +4031,11 @@ def main():
     p.add_argument("--dry-run", action="store_true", help="read and report; write nothing")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_afterwards)
+    p = sub.add_parser("tidy", help="move the archived notes that have a subject home (cases/, mh/releases/, ela/history/) "
+                                    "there; a dry run unless --apply")
+    p.add_argument("--apply", action="store_true", help="move them; without it, list the moves and what holds any back")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_tidy)
     p = sub.add_parser("restore", help="bring back a note the owner deleted in the vault")
     p.add_argument("path", help="the note's path in the vault, as the deletion log lists it")
     p.set_defaults(func=cmd_restore)

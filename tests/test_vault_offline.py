@@ -1095,6 +1095,35 @@ with tempfile.TemporaryDirectory() as t:
           sorted(w["note"] for w in V.watched_notes(v, td)) == ["cases/c.md", "mh/releases/p.md"])
     open(os.path.join(v, "mh/releases", "s.md"), "w").write('---\ntype: "review"\n---\n# S\n\nSee MH-7 and https://x.slack.com/archives/C1/p1793000000000009\n')
     check("a note reaching a subject home is stamped like an archived one", "mh/releases/s.md" in V.stamp_archive(v, td, dry_run=True))
+with tempfile.TemporaryDirectory() as t:
+    v = os.path.join(t, "v")
+    for d in ("archive", "days"):
+        os.makedirs(os.path.join(v, d))
+    for f, ty in (("2026-11-02-promote-a.md", "review"), ("2026-11-05-srt-timeline.md", "case"), ("2026-10-26-sys.md", "plan"),
+                  ("2026-10-28-deep-mh-1.md", "ticket"), ("2026-11-03-deploy-b.md", "review")):
+        open(os.path.join(v, "archive", f), "w").write(f'---\ntype: "{ty}"\ntarget: "ela"\n---\n# {f}\n')
+    open(os.path.join(v, "days", "d.md"), "w").write("[[2026-11-02-promote-a]] and [[archive/2026-11-03-deploy-b|b]]\n")
+    plan = {x["note"]: x for x in V.tidy_plan(v)}
+    check("tidy lists each archived note with a home, and holds back a move that would break a path link",
+          sorted(plan) == ["archive/2026-10-26-sys.md", "archive/2026-11-02-promote-a.md", "archive/2026-11-03-deploy-b.md",
+                           "archive/2026-11-05-srt-timeline.md"]
+          and plan["archive/2026-11-05-srt-timeline.md"]["to"] == "cases/2026-11-05-srt-timeline.md"
+          and plan["archive/2026-11-02-promote-a.md"]["blocked"] == []
+          and plan["archive/2026-11-03-deploy-b.md"]["blocked"] == ["days/d.md links it by its archive/ path"])
+    old = V.SITE
+    try:
+        V.SITE = os.path.join(t, "site.json"); json.dump({"vault": v}, open(V.SITE, "w"))
+        with contextlib.redirect_stdout(io.StringIO()):
+            V.cmd_tidy(types.SimpleNamespace(apply=False, json=True))
+        check("tidy without --apply moves nothing", len(os.listdir(os.path.join(v, "archive"))) == 5)
+        with contextlib.redirect_stdout(io.StringIO()):
+            V.cmd_tidy(types.SimpleNamespace(apply=True, json=True))
+        check("tidy --apply moves the free ones and leaves the held one",
+              os.path.exists(os.path.join(v, "mh/releases/2026-11-02-promote-a.md")) and os.path.exists(os.path.join(v, "ela/history/2026-10-26-sys.md"))
+              and os.path.exists(os.path.join(v, "cases/2026-11-05-srt-timeline.md"))
+              and sorted(os.listdir(os.path.join(v, "archive"))) == ["2026-10-28-deep-mh-1.md", "2026-11-03-deploy-b.md"])
+    finally:
+        V.SITE = old
 base = V.VIEWS["all-notes"]
 check("the all-notes base has a subject column and a Cases view; Archive lists every closed home",
       "subject: 'file.folder'" in base and "name: Cases" in base
