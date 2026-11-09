@@ -1294,4 +1294,9 @@ with tempfile.TemporaryDirectory() as t:
           and "- [x] checked by him" in once and once == twice)
     check("the note closed before its source last changed is the only one touched",
           open(os.path.join(vlt, "mh/releases/2.1/2026-11-08-y.md")).read() == body)
+    inplace = '---\ntype: "review"\nstatus: "closed"\nsource: "vault"\n---\n# X\n\n- [x] checked by him\n'
+    open(os.path.join(vlt, note), "w").write(inplace)
+    check("a note written in place (source vault) reports no source change and gains no Afterwards line",
+          V.source_changes(vlt, rep) == [] and V.append_source_changes(vlt, rep) == []
+          and open(os.path.join(vlt, note)).read() == inplace)
 sys.exit(1 if failures else 0)

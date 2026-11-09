@@ -4521,10 +4521,13 @@ def kept_sources(vault, reports, elak=None):
 
 def source_changes(vault, reports, elak=None):
     """The kept notes whose source was written after the note closed: [{note, src, closed, changed}], times local.
-    Once a note is in a kept folder the vault copy is the record; a later source change is reported, never synced."""
+    Once a note is in a kept folder the vault copy is the record; a later source change is reported, never synced. A
+    note whose front matter says `source: "vault"` is written in place: its old source is superseded, not a newer copy."""
     out = []
     for rel, (path, src, at) in sorted(kept_sources(vault, reports, elak).items()):
         try:
+            if props_of(split_front(open(os.path.join(vault, rel), encoding="utf-8").read())[0]).get("source") == "vault":
+                continue
             closed = datetime.datetime.fromisoformat(at)
             changed = datetime.datetime.fromtimestamp(os.path.getmtime(path))
         except (OSError, ValueError):
