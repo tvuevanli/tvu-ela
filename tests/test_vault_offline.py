@@ -275,8 +275,10 @@ with tempfile.TemporaryDirectory() as tmp:
           and "- [ ] apply 2" in open(bp).read())
     r7 = f"{vault}/to-read/{today[:4]}-05-01-decision-4.md"
     txt = open(r7).read(); open(r7, "w").write(txt.replace('next: ""', "next: drop"))
-    check("next: drop deletes it, logged as his", [x[1] for x in V.apply_marks(vault, reports)] == ["drop"] and not os.path.exists(r7)
-          and any(r.get("fate") == "deleted" and r["path"].endswith("decision-4.md") for r in rows()))
+    a7 = f"{vault}/archive/{today[:4]}-05-01-decision-4.md"
+    check("next: drop closes it into the archive, kept, next drop, logged as his", [x[1] for x in V.apply_marks(vault, reports)] == ["drop"]
+          and not os.path.exists(r7) and os.path.exists(a7) and 'next: "drop"' in open(a7).read() and 'status: "closed"' in open(a7).read()
+          and any(r.get("fate") == "archived" and r["path"].endswith("decision-4.md") for r in rows()))
     with open(f"{vault}/readings/{today[:4]}-09-11-review-1.md", "a") as fh:
         fh.write("\n- ela: write this to the KB\n")
     import io, contextlib
@@ -388,7 +390,7 @@ check("an answer is placed once", V.with_answers(page, "days/x.md", [row]) == pa
 check("an answer whose line is gone is not placed", V.with_answers("# Day\n", "days/x.md", [row]) == "# Day\n")
 page = V.with_moves("# Plan\n\nbody\n", "to-read/p.md", "plan")
 check("a plan ends in what each of its boxes does", "- **agree**: ela builds it" in page and "- **reject**: archived as rejected" in page
-      and "- **drop**: deleted" in page and "- [ ]" not in page and page.rstrip().endswith("`to-read/p.md`.*"))
+      and "- **drop**: closed and kept" in page and "- [ ]" not in page and page.rstrip().endswith("`to-read/p.md`.*"))
 check("next moves are replaced, not repeated", V.with_moves(page, "to-read/p.md", "plan").count(V.MOVES_HEAD) == 1)
 built = V.with_moves(page, "in-progress/p.md", "built", "10-26 15:20")
 check("a built note explains accept and not-done, not the to-read boxes", "- **accept**" in built and "- **not-done**" in built and "**drop**" not in built)
@@ -523,12 +525,11 @@ with tempfile.TemporaryDirectory() as t:
           and V.linked_from(v, "to-read/deep-2.md") == [])
     V.apply_marks(v, r)
     a1 = os.path.join(v, "archive", "deep-1.md")
-    check("drop on a linked reading archives it with one line naming what links it",
-          os.path.exists(a1) and "Archived, not deleted: [[days/2026/2026-10-29-brief]] link this note." in open(a1).read()
-          and 'status: "closed"' in open(a1).read())
-    check("drop on an unlinked reading deletes it; a linked plan is dropped as before",
-          not any(os.path.exists(os.path.join(v, d, "deep-2.md")) for d in ("to-read", "archive"))
-          and not any(os.path.exists(os.path.join(v, d, "plan-3.md")) for d in ("to-read", "archive")))
+    check("drop closes a reading into the archive, its text as it was, next drop",
+          os.path.exists(a1) and "# deep-1\n\nText." in open(a1).read() and 'status: "closed"' in open(a1).read() and 'next: "drop"' in open(a1).read())
+    check("drop deletes nothing, linked or not, reading or plan",
+          all(os.path.exists(os.path.join(v, "archive", n + ".md")) for n in ("deep-2", "plan-3"))
+          and not any(os.path.exists(os.path.join(v, "to-read", n + ".md")) for n in ("deep-1", "deep-2", "plan-3")))
 past = V.Note("days/2026/2026-10-28-brief.md", "b", "# B", {"type": "day", "kind": "brief", "date": "2026-10-28"}); past.held = ["too long"]
 now_ = V.Note("days/2026/2026-10-30-brief.md", "b", "# B", {"type": "day", "kind": "brief", "date": "2026-10-30"}); now_.held = ["too long"]
 rev = V.Note("readings/2026-10-28-r.md", "r", "# R", {"type": "review", "date": "2026-10-28"}); rev.held = ["too long"]

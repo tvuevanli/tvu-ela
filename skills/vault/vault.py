@@ -11,7 +11,7 @@ Usage:
     vault.py [--env-file F] sync [--dry-run] [--force] [--json]
     vault.py restore <path>          bring back a note the owner deleted
     vault.py guidance [--all] [--json]   his `ela:` lines anywhere in the vault, each handled once
-    vault.py finish <path> [--to delete|archive]   on his word: finish with a note as he would in Obsidian
+    vault.py finish <path> [--to drop|archive]   on his word: close a note into archive/ or its subject home, kept
     vault.py tidy [--apply] [--json]   the archived notes to their subject homes; a dry run unless --apply
     vault.py setup                   apply the Obsidian settings kept in obsidian/ (after a reset or on a new machine)
 
@@ -34,7 +34,7 @@ its date, so a folder sorts by time. Folders carry no numbers: Home and the book
     to-read/<date>-verify-<key>.md              a verification; leaves once its record is on the Jira ticket, or a pass
                                                 after 14 days
     readings/<date>-<slug>.md                   deep reads, release and docker-service reviews, promote checks, ticket
-                                                pages: no status and no moves; deleted when read, else kept
+                                                pages: no status and no moves; kept until he finishes with them
     in-progress/<name>.md                       a note he agreed to, while ela builds it and until he accepts it
     parked/<name>.md                            a note that waits on others, with who and what brings it back
     archive/                                    what is done with, by date; where he drags a note to keep it
@@ -117,7 +117,7 @@ PROPS = ("title", "aliases", "type", "date", "kind", "project", "deadline", "nex
          "status", "result", "target", "progress", "source",
          "moves", "next", "ela", "posted", "channels", "keys", "watch", "watched", "last")
 # the whole vocabulary; no tags (ADR 0010)
-MARKS = {"done": ARCHIVE, "drop": None}   # archive, delete; a drop of a reading something links archives it instead
+MARKS = {"done": ARCHIVE, "drop": ARCHIVE}   # both close the note and keep it; next says which (no data is lost)
 BUDGET = {"ticket": 700, "topic": 800, "guide": 1200, "board": 1000, "day": 1200, "review": 2500, "decision": 800, "plan": 800, "sprint": 800, "report": 1200,
           "recent": 1200, "train": 1200, "one-thing": 1200, "project": 1200, "services": 2500}
 # the closed set of note types, by family (the readme's Types): for his word, readings, living pages, day pages.
@@ -204,7 +204,7 @@ list and writing your `ela:` priority lines; the 09:30 or 10:00 pass then sends 
 | `constraints` | the standing constraints you confirmed: what each holds, whether its lane still keeps it, when it lifts | look when Home says one is over |
 | `days/<year>/` | the morning pages and what changed the day before, kept; the evening learning draft, 14 days | look back |
 | `to-read/` | whatever waits on your word, any type: plans and decisions to rule, verification results, and readings whose asks sit under *Waiting for your word*; newest first | rule, or tick or answer each ask |
-| `readings/` | deep reads, reviews of a release or the docker services, promote checks, ticket pages, with no ask left open; no status, no moves | read when an item links one; delete when done |
+| `readings/` | deep reads, reviews of a release or the docker services, promote checks, ticket pages, with no ask left open; no status, no moves | read when an item links one; leave it, or *drop* it into the archive, when done |
 | `in-progress/` | what you agreed to, while ela builds it, until you accept it | accept or say what is missing |
 | `parked/` | what waits on others, with who it waits on and what brings it back | resume or drop |
 | `lanes` | the lanes, what each carries that the next does not, two weeks of moves | look before a promotion |
@@ -292,13 +292,14 @@ it for 30 days as a rewrite ela owes; a past day page is the morning's record an
 |---|---|---|
 | what it says kept as knowledge | write `ela: keep this` in it | ela proposes the conclusion and where it goes in its own knowledge (elak), as a decision note in `to-read/` |
 | to keep it, nothing more | drag it into `archive/`, or its subject home | nothing: it is never written again, and the copy, with its screenshots, is yours |
-| it gone | delete it | nothing: its source stays in the reports and the backup |
+| it out of the way | choose *drop* | it is closed into `archive/` (or its subject home), kept, its `next` *drop*: the *Archive* view lists it as dropped. ela never deletes a note; one you delete by hand is your act, logged, and the nightly backup holds it |
 | nothing yet | leave it | it stays, or ela moves it on (below) |
 
-In `to-read/` the same moves are choices of the note's `next` field: `done` (archive, or the note's subject home) or `drop` (delete), and
-within a minute the note goes there; no session. A reading that a day page, a sprint or another note links is
-archived on `drop`, not deleted, with one line under its title naming what links it, so no link is left broken. A reading has no `next`: delete it when you are done, or answer it
-with `ela:` lines.
+In `to-read/` the same moves are choices of the note's `next` field: `done` or `drop`, and within a minute the note is
+closed into `archive/`, or the note's subject home, with status *closed* and the move in `next`; no session. Both keep
+the note: *drop* says you did not want it, not that it is gone, so no link is left broken and nothing is lost. A
+reading has no `next`: leave it when you are done, answer it with `ela:` lines, or ask ela to close it
+(`ela vault finish PATH --to drop`).
 
 Every note to read carries one field for its next move, **next**, at its top. The button beside it lists only
 that note's choices, by kind: a plan *agree*, *park*, *not-now*, *reject*; a decision *confirm*, *park*; a verification
@@ -3050,7 +3051,8 @@ MOVE_MEANING = {
     "seen": "archived: you have read where it stands",
     "resume": "back to `to-read/` as proposed, for your next decision",
     "reopen": "back to `in-progress/` as built, for your accept or not-done: ela closed it, and that was wrong",
-    "done": "archived, nothing more", "drop": "deleted; a reading another note links is archived instead",
+    "done": "archived, nothing more",
+    "drop": "closed and kept: archived (or its subject home) with next drop; nothing is deleted",
 }
 MOVES = MOVE_PROPS               # a kind with moves gets the section that explains them
 AGREEABLE = ("plan", "sprint")
@@ -3188,8 +3190,8 @@ def move_note(vault, reports, rel, to, status=None, waits_on=None, wake=None, ne
     carries who it waits on, since when and what brings it back, and offers only resume and drop; out of parked
     those go."""
     p = os.path.join(vault, rel)
-    if to == "delete":
-        return finish(vault, reports, rel, "delete") or None
+    if to in ("drop", "delete"):                           # closed as dropped and kept, never removed
+        return finish(vault, reports, rel, "drop")
     folder = {"in-progress": IN_PROGRESS, "archive": ARCHIVE, "to-read": TO_READ, "parked": PARKED, "readings": READINGS}[to]
     text = open(p, encoding="utf-8").read()
     kind = props_of(split_front(text)[0]).get("type")
@@ -3262,7 +3264,7 @@ def cmd_note(a):
         atomic_write(p, "---\n" + "\n".join(fl) + "\n---\n" + with_moves(body, rel, "built", stamp).lstrip("\n"))
         print(f"{rel}: built; waiting for the owner's acceptance")
     elif a.act == "move":
-        print(f"{rel} → {move_note(vault, reports, rel, a.to, a.status, a.waits_on, a.wake, a.next) or 'deleted'}")
+        print(f"{rel} → {move_note(vault, reports, rel, a.to, a.status, a.waits_on, a.wake, a.next)}")
 
 
 def ensure_native_moves(vault, dry_run=False):
@@ -3379,7 +3381,7 @@ def apply_marks(vault, reports, dry_run=False):
             continue
         out.append((rel, move))
         if move in tuple(MARKS) + ("seen",) and not dry_run:
-            finish(vault, reports, rel, {"done": "archive", "seen": "archive", "drop": "delete"}[move], move)
+            finish(vault, reports, rel, "archive", move)   # drop closes it too: kept, its next says drop
         elif move == "resume" and not dry_run:      # a script move: the note's next decision is his again
             move_note(vault, reports, rel, "to-read", "proposed")
         elif move == "reopen" and not dry_run:      # ela closed it wrongly: back to building's end, his to accept
@@ -3436,42 +3438,32 @@ def linked_from(vault, rel):
 
 
 def finish(vault, reports, rel, to, move=None):
+    """Close a note on the owner's word: into its subject home, else archive/, status closed and the move that closed
+    it in next. `to` "drop" (or the older "delete") closes it the same way with next drop: ela never deletes a note
+    (working preferences, *No data is lost*, 2026-11-09). Logged as his. Returns the folder."""
     p = os.path.realpath(os.path.join(vault, rel))
-    kind = props_of(split_front(open(p, encoding="utf-8").read())[0]).get("type") if os.path.isfile(p) else None
-    links = linked_from(vault, rel) if to == "delete" and TYPE_FAMILY.get(kind) == "reading" else []
-    if links:                                              # a deleted reading breaks the day pages and notes that cite it
-        to, move = "archive", "done"
+    if to in ("drop", "delete"):
+        move = "drop"
     try:
         src = (json.load(open(os.path.join(vault, MANIFEST))).get("sources") or {}).get(rel)
     except (OSError, ValueError):
         src = None
-    folder = {"archive": ARCHIVE}.get(to)
-    if folder:                                             # closing: its subject home when it has one, else archive/
-        folder = home_for(rel, props_of(split_front(open(p, encoding="utf-8").read())[0]))
-        os.makedirs(os.path.join(vault, folder), exist_ok=True)
-        dst = free_path(os.path.join(vault, folder), os.path.basename(rel))
-        os.replace(p, dst)
-        text = clear_warn(PROP_RE.sub("", open(dst, encoding="utf-8").read()))   # the boxes belong to to-read
-        if kept_home(folder):                              # closed, and the move that closed it kept in next
-            text = set_front(text, status="closed", **{MOVE_SET: "case" if folder == CASES else "closed", NEXT: move or "done"})
-        if links:
-            fl, body = split_front(text)
-            why = ("*Archived, not deleted: " + ", ".join(f"[[{l[:-3]}]]" for l in links[:5])
-                   + (f" and {len(links) - 5} more" if len(links) > 5 else "") + " link this note.*\n\n")
-            m = re.search(r"^#[ \t]+.*\n", body, re.M)
-            body = body[:m.end()] + "\n" + why + body[m.end():].lstrip("\n") if m else why + body
-            text = "---\n" + "\n".join(fl) + "\n---\n" + body if fl else body
-        open(dst, "w", encoding="utf-8").write(text)
-    else:
-        os.remove(p)
+    folder = home_for(rel, props_of(split_front(open(p, encoding="utf-8").read())[0]))
+    os.makedirs(os.path.join(vault, folder), exist_ok=True)
+    dst = free_path(os.path.join(vault, folder), os.path.basename(rel))
+    os.replace(p, dst)
+    text = clear_warn(PROP_RE.sub("", open(dst, encoding="utf-8").read()))   # the boxes belong to to-read
+    if kept_home(folder):                                  # closed, and the move that closed it kept in next
+        text = set_front(text, status="closed", **{MOVE_SET: "case" if folder == CASES else "closed", NEXT: move or "done"})
+    open(dst, "w", encoding="utf-8").write(text)
     record_removed(os.path.join(reports, "ela", "vault-removed.jsonl"), [rel], {rel: src} if src else {},
-                   datetime.datetime.now(), {os.path.basename(rel).lower(): folder} if folder else {}, by="owner")
+                   datetime.datetime.now(), {os.path.basename(rel).lower(): folder}, by="owner")
     return folder
 
 
 def cmd_finish(a):
-    """Finish with a note on the owner's word (an `ela:` line asking it): delete it, or move it into archive/, and log
-    it as his, exactly as if he had done it in Obsidian. Only a note in days/, to-read/ or readings/; a living
+    """Finish with a note on the owner's word (an `ela:` line asking it): close it into archive/ or its subject home,
+    as done or as dropped, kept either way, and log it as his. Only a note in days/, to-read/ or readings/; a living
     page is not his to finish, and his own folders are already his."""
     s = json.load(open(SITE))
     vault = s["vault"]
@@ -3480,8 +3472,7 @@ def cmd_finish(a):
     if not p.startswith(os.path.realpath(vault) + os.sep) or top(rel) not in DELETABLE or not rel.endswith(".md") or not os.path.isfile(p):
         print(f"not a note in days/, to-read/ or readings/: {a.path}", file=sys.stderr); sys.exit(2)
     folder = finish(vault, s.get("reports") or "", rel, a.to)
-    print(f"{rel}: {'moved to ' + folder + '/' if folder else 'deleted'}; logged as the owner's"
-          + ("; other notes link it, so it was archived, not deleted" if a.to == "delete" and folder else ""))
+    print(f"{rel}: closed into {folder}/ as {'dropped' if a.to in ('drop', 'delete') else 'done'}, kept; logged as the owner's")
 
 
 def tidy_plan(vault, line_of_key=None):
@@ -4094,15 +4085,15 @@ def main():
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_marks)
-    p = sub.add_parser("finish", help="on the owner's word: delete a note, or move it into archive/")
+    p = sub.add_parser("finish", help="on the owner's word: close a note into archive/ or its subject home, kept (drop or done)")
     p.add_argument("path", help="the note's path in the vault, e.g. to-read/2026-09-07-mh-review.md")
-    p.add_argument("--to", choices=("delete", "archive"), default="delete")
+    p.add_argument("--to", choices=("drop", "archive", "delete"), default="drop", help="delete: the older name of drop; nothing is deleted")
     p.set_defaults(func=cmd_finish)
-    p = sub.add_parser("note", help="a note's life: claim, release, progress TEXT, built TEXT, move --to in-progress|parked|archive|to-read|readings|delete")
+    p = sub.add_parser("note", help="a note's life: claim, release, progress TEXT, built TEXT, move --to in-progress|parked|archive|to-read|readings|drop")
     p.add_argument("act", choices=("claim", "release", "progress", "built", "move"))
     p.add_argument("path", help="the note's path in the vault, e.g. to-read/2026-10-26-system-plan.md")
     p.add_argument("text", nargs="*", help="progress or built: the line to record")
-    p.add_argument("--to", choices=("in-progress", "parked", "archive", "to-read", "readings", "delete"))
+    p.add_argument("--to", choices=("in-progress", "parked", "archive", "to-read", "readings", "drop", "delete"))
     p.add_argument("--status", help="move: the status the note carries after it, settled to its folder's own (an archived "
                                     "outcome such as accepted goes to next)")
     p.add_argument("--next", help="move --to archive: the move that ended the note (make-plan, nudge, draft-comment, …), "
