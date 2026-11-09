@@ -169,6 +169,10 @@ python3 "${CLAUDE_PLUGIN_ROOT}/skills/promote/note.py" claims <runtime>/promote/
   leaves out (call sites, versions a flag arrives in, the endpoints a call really uses), and a Slack line for the cause
   it states. On the 2026-11-09 rerun, the misses were all of this shape (an incomplete list of gateway call sites, the
   build a flag first arrives in, a Slack line naming the wrong cause).
+  Two shapes need the read spelled out, because a checker that verified the gate or the range still passed them
+  (the 2026-11-09 rerun): a list of call sites is checked by enumerating every caller of the mechanism (`git grep` the
+  method, every path), not by confirming the ones listed; a range claim ("206 → 208 adds …") is checked per item with
+  `git merge-base --is-ancestor <item commit> <each build>`, and the note names the build each item first arrives in.
 - A claim either checker cannot read is written as unread in the note, never kept as stated. A wrong claim is corrected
   in the note before it is shown, and the checker's reading is cited.
 - The note ends its body with `## Checked`: when, the two checkers, how many claims each confirmed, corrected and left
