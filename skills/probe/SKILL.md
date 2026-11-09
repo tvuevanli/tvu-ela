@@ -125,14 +125,16 @@ on 10-14; the contract change had never reached the mediahub-frontend team.
 4. **What the owner already did.** His comments, assignments and transitions on the ticket and the linked ones:
    the page reports them as done and never drafts them again.
 5. **The page**, in this shape, under 600 words, people by name (it is the owner's own page):
-   - `# <key>: <title> — <the real status in a few words>`;
+   - `# <key> · <title> — <the real status in a few words>` (the vault's spec for a ticket page, its readme's *Note
+     standards*);
    - **Real status**, one paragraph: what Jira says, what is true (*works*, *cannot work*, *blocked on <whom>*),
      and what, if anything, is the owner's to do;
    - **Timeline**, a table `| date | what happened | source | reading |`, oldest first, every layer's change dated (a
      commit, a build reaching the lane, a QA run, a comment, an assignment), including the days it sat unmoved;
      then one line on why it happened;
    - **Next**, who it waits on and since when, then the move after that; unread layers named as open;
-   - at most three `- [ ] <instruction to ela>` lines the owner can tick (a nudge on a date, a reading, a draft).
+   - at most three `- [ ] <instruction to ela>` lines the owner can tick (a nudge on a date, a reading, a draft);
+   - last, one **Do.** line: what the owner should do, the alternative if there is one, and the first step.
    File:line evidence stays out of the page; it goes in a draft only when the owner implements or asks. A service is
    named by its slug (mediahub-frontend, unified-media-frontend, …), never "the frontend" or "the backend": the
    product has more than one of each.

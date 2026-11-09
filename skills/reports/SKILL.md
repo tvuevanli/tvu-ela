@@ -35,8 +35,12 @@ $R build [name…]              # markdown → HTML (all when no name)
 Everything written for the owner reaches him through his Obsidian vault (`ela vault sync`, `skills/vault/vault.py`), and
 the sync marks a note a person should not have to read: no title heading, over its reading budget, more than a
 quarter code, or machine paths and raw records in the text. Such a note carries a warning under its title and is
-listed on the vault's Home for 30 days as a rewrite this skill owes. Budgets, in English words (two CJK characters count as one): day page 1,200 · review
-2,500 · decision 1,200 · plan 2,500 · sprint 800. Write to fit: the conclusion first, one idea per sentence,
+listed on the vault's Home for 30 days as a rewrite this skill owes. Each note type has one spec, kept in the vault's
+readme (*Note standards*, written from `skills/vault/vault.py` SPECS): file name, title, properties, sections, budget,
+language. Every note ends with what he should do and how, by default a `## What you should do` section (a ticket
+page and a day item: a **Do** line); `ela vault lint` lists what misses. Budgets, in English words (two CJK
+characters count as one): day page 1,200 · review 2,500 · decision 800 · plan 800 · sprint 800 · report 1,200 ·
+case 1,200 · draft 600. Write to fit: the conclusion first, one idea per sentence,
 numbers in a short table, file paths and code only where he must act on them, the full record linked, not
 pasted.
 
@@ -46,7 +50,7 @@ elak decision or plan with `reader: owner` and `status: proposed`, which the syn
 the status changes. A mermaid timeline's
 periods carry no colon (`6.30 am`, not `06:30`): the colon separates a period from its event.
 
-Where the owner drags a note states his intent: `archive/` (keep it) or the bin. What is worth keeping as
+Where the owner drags a note states his intent: `archive/` (keep it); *drop* closes it into the archive, kept. What is worth keeping as
 knowledge goes to elak, proposed as a decision note in `to-read/` and written on his word.
 
 ## What a report is now
