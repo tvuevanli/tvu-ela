@@ -116,7 +116,7 @@ DELETABLE = (DAYS, TO_READ, READINGS)
 KEEP_FOREVER = ("brief", "week", "changes")   # the morning pages are the record of what ela told the owner; the rest expires
 PROPS = ("title", "aliases", "type", "date", "kind", "project", "deadline", "next-step", "customer", "hubspot", "graph", "box",
          "status", "result", "target", "progress", "source",
-         "moves", "next", "ela", "posted", "channels", "keys", "watch", "watched", "last")
+         "moves", "next", "ela", "posted", "channels", "keys", "watch", "watched", "last", "language")
 # the whole vocabulary; no tags (ADR 0010)
 MARKS = {"done": ARCHIVE, "drop": ARCHIVE}   # both close the note and keep it; next says which (no data is lost)
 BUDGET = {"ticket": 700, "topic": 800, "guide": 1200, "board": 1000, "day": 1200, "review": 2500, "decision": 800, "plan": 800, "sprint": 800, "report": 1200,
@@ -248,7 +248,8 @@ a plan, decision or review whose target names ela, its runner, elak or the vault
   stops it), `watched` (when it was last read) and `last` (the date of its newest Afterwards line). A note that
   belongs to a project carries `project` (its key; the sync infers it when the note's `keys` are among the
   project's); a project page carries `deadline`, `next-step` (the step Home may name), `channels` (the threads it
-  watches) and the watch fields above. status is ela's, never
+  watches) and the watch fields above. A note written in Chinese for a Chinese-speaking audience carries `language`
+  ("zh"); every other note is English. status is ela's, never
   yours to set, and follows the folder: to-read *proposed* (waits on your word) or *blocked* (only you can unblock);
   in-progress *building*, *built* (waits on your accept), *waiting* (a loop that cannot finish; Progress says why) or
   *blocked*; parked *parked*; archive, mh/releases and ela/history *closed*, with the outcome in `next`; cases *open*, *answered* or *closed*. Home's *Waiting for your word* holds only
@@ -1545,7 +1546,9 @@ def spec_text():
     out = ["Every note: a lowercase file name, words joined by hyphens, a dated note starting with its date (its `date` "
            "property the same day). `title` is double-quoted plain text, without links, in English, and the first entry "
            "of `aliases`; the first heading is the title (it may link a ticket key). Durable text is English, and "
-           "every Jira key in it is a link. A note ends with what you should do and how, before the sections ela keeps "
+           "every Jira key in it is a link. The one exception is a note written for a Chinese-speaking audience (a test "
+           "plan for the China QA team): it keeps its body's language, says so with `language: \"zh\"`, and still carries "
+           "an English title, the Chinese one kept as an alias. A body is never translated in place. A note ends with what you should do and how, before the sections ela keeps "
            f"({', '.join(TAIL_ORDER[1:])}, in that order). A deviation is a lint line (`ela vault lint`), never a failure; "
            "an old name or title stays as an alias, so a link and the quick switcher still find the note.", ""]
     for kind, sp in SPECS.items():
@@ -1701,8 +1704,8 @@ def spec_lint(rel, text, generated=False, projects=None):
     if b and units > b * TOLERANCE:
         out.append(f"{units:,} words, budget {b:,} (lint only: nothing is cut)")
     cjk = len(CJK.findall(outside_folds(body)))
-    if cjk // 2 > units / 3:
-        out.append("body not in English")
+    if cjk // 2 > units / 3 and (props.get("language") or "en") == "en":   # a note for a Chinese-speaking audience says so
+        out.append("body not in English (a note written for a Chinese-speaking audience carries `language: \"zh\"`)")
     keys = bare_keys(body, projects) if not generated else []       # a generated note's keys are the renderer's, by its project list
     if keys:
         out.append(f"{len(keys)} Jira key{'s' if len(keys) > 1 else ''} not linked ({', '.join(keys[:4])}{', …' if len(keys) > 4 else ''})")

@@ -1199,7 +1199,8 @@ check("each deviation is one line: quoting, a link in the title, aliases, headin
                                                 "no **Do.** line", "1 Jira key not linked (MH-2)")))
 check("a generated note's keys are its renderer's, not linted", not any("not linked" in l for l in V.spec_lint("readings/2026-11-09-mh-1-build-84.md", bad, True)))
 cn = '---\ntitle: "MH 2.0 hotfix：区域收窄"\naliases: ["MH 2.0 hotfix：区域收窄"]\ntype: "review"\ndate: "2026-10-28"\n---\n# MH 2.0 hotfix：区域收窄\n\n' + "这是中文正文内容。" * 40 + "\n"
-check("a Chinese title or body is a lint line", {"title not in English", "body not in English"} <= set(V.spec_lint("mh/releases/2.0/2026-10-28-x-review.md", cn)))
+check("a Chinese title or body is a lint line", "title not in English" in V.spec_lint("mh/releases/2.0/2026-10-28-x-review.md", cn)
+      and any(l.startswith("body not in English") for l in V.spec_lint("mh/releases/2.0/2026-10-28-x-review.md", cn)))
 long_ = '---\ntitle: "MH 2.1 · a → b · checks"\naliases: ["MH 2.1 · a → b · checks"]\ntype: "review"\ndate: "2026-11-09"\n---\n# MH 2.1 · a → b · checks\n\n' + "word " * 3000 + "\n"
 check("a review over its budget is linted, never cut, and a closed one needs no closing now",
       V.spec_lint("mh/releases/2.1/2026-11-09-x.md", long_) == ["3,005 words, budget 2,500 (lint only: nothing is cut)"])
@@ -1228,4 +1229,9 @@ check("a list left half-rewritten is repaired into one", V.normalise(half)[0] ==
 check("a reader page is headed by its title; what the old heading said stays beneath",
       V.reader_heading("# Reader · morning page of Fri 2026-11-06\n\nx\n", "2026-11-06") == "# The reader · 2026-11-06\n\n*Morning page of Fri 2026-11-06*\n\nx\n"
       and V.reader_heading("# The reader · 2026-11-06\n", "2026-11-06") == "# The reader · 2026-11-06\n")
+zh = cn.replace('date: "2026-10-28"\n', 'date: "2026-10-28"\nlanguage: "zh"\n')
+check("a note for a Chinese-speaking audience keeps its body's language and still wants an English title",
+      "title not in English" in V.spec_lint("mh/releases/2.0/2026-10-28-x-review.md", zh)
+      and not any(l.startswith("body not in English") for l in V.spec_lint("mh/releases/2.0/2026-10-28-x-review.md", zh))
+      and "language" in V.PROPS and 'language: \\"zh\\"' not in V.spec_text() and '`language: "zh"`' in V.spec_text())
 sys.exit(1 if failures else 0)
