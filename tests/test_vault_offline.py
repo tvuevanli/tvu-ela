@@ -1225,4 +1225,7 @@ check("normalise rewrites a block list of aliases whole and keeps the body's bla
       and "aliases written as one list" in fx)
 half = '---\ntitle: "MH-9 · PASS on qa"\naliases: ["MH-9 · PASS on qa"]\n  - MH-9 · PASS on qa\ntype: "verify"\n---\n\n# MH-9 · PASS on qa\n'
 check("a list left half-rewritten is repaired into one", V.normalise(half)[0] == '---\ntitle: "MH-9 · PASS on qa"\naliases: ["MH-9 · PASS on qa"]\ntype: "verify"\n---\n\n# MH-9 · PASS on qa\n')
+check("a reader page is headed by its title; what the old heading said stays beneath",
+      V.reader_heading("# Reader · morning page of Fri 2026-11-06\n\nx\n", "2026-11-06") == "# The reader · 2026-11-06\n\n*Morning page of Fri 2026-11-06*\n\nx\n"
+      and V.reader_heading("# The reader · 2026-11-06\n", "2026-11-06") == "# The reader · 2026-11-06\n")
 sys.exit(1 if failures else 0)

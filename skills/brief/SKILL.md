@@ -875,7 +875,8 @@ owner noticing it himself. A reader that runs every evening catches the shape be
 
 **The file and its check.** `ela review reader --date D` prints what the session reads: the page, its numbered
 items, the day's actions, `<reports>/review/<D>-replay.json` and the page's lint failures. It also prints the keys
-that already carry a repeated verdict. The session writes one table, `| item | verdict | line |`, with one row per
+that already carry a repeated verdict. The session writes the heading `# The reader · <D>` (the vault's spec for a
+reader page), then one table, `| item | verdict | line |`, with one row per
 item: the item as `N. title`, a verdict from the five above, and its line. Under the table go the three page lines
 as `- **Read first:** …`, `- **Skipped:** …` and `- **Missing:** …`. `ela review reader --date D --check` verifies the
 file before the session ends: one verdict per item, each from the set and with its line, and the three page lines.

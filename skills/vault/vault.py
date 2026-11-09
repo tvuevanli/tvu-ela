@@ -876,6 +876,7 @@ def report_notes(reports, today):
         if not m or (today - datetime.date.fromisoformat(m.group(1))).days >= READER_DAYS:
             continue
         fl, body = split_front(open(os.path.join(rv, f), encoding="utf-8").read())
+        body = reader_heading(body, m.group(1))
         notes.append(Note(f"{ELA}/review/{f}", f"The reader · {m.group(1)}", body, {"type": "reader", "date": m.group(1)}, fl,
                           src_rel=f"review/{f}"))
     sp = os.path.join(reports, "system", "how-ela-runs.md")
@@ -905,6 +906,20 @@ def report_notes(reports, today):
             notes.append(Note(path, title, body, {"type": kind, "date": m.group(1) if m else None}, fl,
                               src_rel=f"{sub + '/' if sub else ''}{f}"))
     return notes
+
+
+def reader_heading(body, date):
+    """A reader page headed by its title (`# The reader · <date>`, its spec); what an older heading said beyond that,
+    such as which morning page it read, stays as the line beneath."""
+    want = f"The reader · {date}"
+    m = re.search(r"^#[ \t]+(.+?)[ \t]*$", body, re.M)
+    if not m:
+        return f"# {want}\n\n{body}"
+    if m.group(1) == want:
+        return body
+    rest = re.sub(r"^(?:The )?reader\s*·\s*", "", m.group(1), flags=re.I).strip()
+    sub = f"\n\n*{rest[:1].upper() + rest[1:]}*" if rest and rest != date else ""
+    return body[:m.start()] + f"# {want}{sub}" + body[m.end():]
 
 
 RECENT_POINTER = "*Every ticket of the week, placed by line and lane: [[recent|Recent · 7 days]]*"
