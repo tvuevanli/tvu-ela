@@ -388,6 +388,14 @@ check("an answer's own ela: line is defused", "> ela — not an ask" in page and
     m.group(1).strip() == "not an ask" for m in V.GUIDE.finditer(page)))
 check("an answer is placed once", V.with_answers(page, "days/x.md", [row]) == page)
 check("an answer whose line is gone is not placed", V.with_answers("# Day\n", "days/x.md", [row]) == "# Day\n")
+native = '---\ntitle: "Day"\nela: "what about apply 5?"\nsource: "vault"\n---\n\n# Day\n\nela: what about apply 5?\n'
+page = V.with_answers(native, "days/x.md", [row])
+check("an answer never lands in the front matter", V.split_front(page)[0] == V.split_front(native)[0]
+      and "ela: what about apply 5?\n\n> [!note]- ela answered" in page and V.front_breaks(V.split_front(page)[0]) == [])
+check("an ask only in the front matter draws no answer", V.with_answers(native.replace("\nela: what about apply 5?\n", "\n"), "days/x.md", [row])
+      == native.replace("\nela: what about apply 5?\n", "\n"))
+check("front matter broken by a fold is a lint line", V.front_breaks(['title: "Day"', 'ela: "x"', '', '> [!note]- ela answered · 11:50 · job J1', '> Leave it.'])
+      and V.front_breaks(['title: "Day', 'aliases:', '  - "Day"', 'keys: ["MH-1"]']) == ["front matter line 2: title does not parse"])
 page = V.with_moves("# Plan\n\nbody\n", "to-read/p.md", "plan")
 check("a plan ends in what each of its boxes does", "- **agree**: ela builds it" in page and "- **reject**: archived as rejected" in page
       and "- **drop**: closed and kept" in page and "- [ ]" not in page and page.rstrip().endswith("`to-read/p.md`.*"))

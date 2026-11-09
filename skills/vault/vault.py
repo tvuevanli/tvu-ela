@@ -532,6 +532,42 @@ def split_front(text):
     return [], text
 
 
+def body_start(text):
+    """The offset where a note's body begins, past its front matter: what is written there is the note's, never an
+    answer's place (an `ela:` property equal to an asked line once drew the fold into the properties)."""
+    if text.startswith("---\n"):
+        end = text.find("\n---", 4)
+        if end != -1:
+            nl = text.find("\n", end + 4)
+            return len(text) if nl == -1 else nl + 1
+    return 0
+
+
+def front_breaks(fl):
+    """The front-matter lines that do not read as the properties ela writes — `key: value` (a quoted value valid
+    JSON), a block-list item under a key, a comment — one line each; Obsidian shows such properties as broken."""
+    out, in_list = [], False
+    for i, l in enumerate(fl, 2):
+        if not l.strip() or l.lstrip().startswith("#"):
+            continue
+        if in_list and re.match(r"^\s*-\s", l):
+            continue
+        m = re.match(r"^([\w-]+):(?:\s+(.*))?$", l)
+        if not m:
+            out.append(f"front matter line {i} is not a property: {l.strip()[:60]!r}")
+            in_list = False
+            continue
+        v = (m.group(2) or "").strip()
+        in_list = not v
+        if v and v[0] in '"[{':
+            try:
+                json.loads(v)
+            except ValueError:
+                if v[:1] == '"' or not re.match(r"^\[[^\]]*\]$|^\{[^}]*\}$", v):
+                    out.append(f"front matter line {i}: {m.group(1)} does not parse")
+    return out
+
+
 def h1(body):
     m = re.search(r"^#\s+(.+?)\s*$", body, re.M)
     t = re.sub(r"(\*\*|__)(.+?)\1", r"\2", m.group(1)) if m else None
@@ -1721,7 +1757,7 @@ def lint_notes(vault, projects=None):
         gen = set()
     out = []
     for rel, text in vault_notes(vault):
-        found = spec_lint(rel, text, rel in gen, projects)
+        found = front_breaks(split_front(text)[0]) + spec_lint(rel, text, rel in gen, projects)
         if found:
             out.append((rel, rel in gen, found))
     return out
@@ -3455,7 +3491,7 @@ def with_answers(text, rel, answers):
                                                                      and r.get("job") not in answered]
     for row in (r for r in rows if r.get("note") == rel and r.get("job") and r["job"] not in text):
         says = {x.strip() for x in row.get("lines") or []}
-        hits = [m for m in GUIDE.finditer(text) if m.group(1).strip().strip('"').strip("'") in says]
+        hits = [m for m in GUIDE.finditer(text, body_start(text)) if m.group(1).strip().strip('"').strip("'") in says]
         if hits:
             at = hits[-1].end()
             text = text[:at] + "\n\n" + (pending_block(row) if row.get("status") in PENDING else answer_block(row)) + "\n" + text[at:]
