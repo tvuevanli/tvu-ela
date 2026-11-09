@@ -158,6 +158,8 @@
   ela vault setup                  apply the vault's Obsidian settings from ela's versioned copy, then restart Obsidian
   ela vault guidance [--json]      the owner's `ela:` lines and ticked boxes anywhere in the vault, each handled once
   ela vault finish PATH [--to drop|archive]   on your word: close a note into the archive, kept
+  ela vault lint [--fix [--apply]]  every note against its type's spec (the readme's Note standards), one line per
+                                   deviation; --fix normalises a title's quoting, links and alias, a dry run unless --apply
   ela note claim|release|progress|built|move PATH   a note's life from any session: claim it, record progress, mark it built, move it
   ela vault marks [--dry-run]      finish the to-read notes whose done or drop box you ticked
   ela vault afterwards [--since D] [--json]   what happened after a note left to-read (its posted threads' replies, its

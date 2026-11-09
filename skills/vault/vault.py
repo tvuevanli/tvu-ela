@@ -13,6 +13,7 @@ Usage:
     vault.py guidance [--all] [--json]   his `ela:` lines anywhere in the vault, each handled once
     vault.py finish <path> [--to drop|archive]   on his word: close a note into archive/ or its subject home, kept
     vault.py tidy [--apply] [--json]   the archived notes to their subject homes; a dry run unless --apply
+    vault.py lint [--fix [--apply]] [--json]   every note against its type's spec; --fix normalises front matter
     vault.py setup                   apply the Obsidian settings kept in obsidian/ (after a reset or on a new machine)
 
 Layout, by what the owner does with a note (ela ADR 0010). Names are lowercase with hyphens and no spaces, taken
@@ -127,11 +128,12 @@ TYPE_FAMILY = {"decision": "decision", "plan": "plan", "sprint": "plan",
                "home": "page", "board": "page", "lanes": "page", "recent": "page", "one-thing": "page", "test-list": "page", "dev-list": "page", "train": "page", "program": "page",
                "guide": "page", "vocabulary": "page", "system": "page", "constraints": "page", "readme": "page", "meeting": "page",
                "report": "page", "project": "page", "services": "page",
-               "day": "day", "reader": "day", "case": "case"}
+               "day": "day", "reader": "day", "case": "case", "draft": "draft"}
 FAMILY_FOLDERS = {"decision": ("to-read", "in-progress", "parked", "archive", "ela/history"),
                   "plan": ("to-read", "in-progress", "parked", "archive", "sprints", "ela/history", "mh/releases"),
                   "reading": ("readings", "to-read", "archive", "projects", "mh/releases", "ela/history"),
-                  "case": ("cases", "projects")}   # a reading waits in to-read while it asks his word; a project keeps its own
+                  "case": ("cases", "projects"),
+                  "draft": ("to-read", "parked", "archive", "projects")}   # a message he sends himself: waits on his send, then on replies   # a reading waits in to-read while it asks his word; a project keeps its own
 # a project: bounded work with a deadline and parties outside the program (a customer PoC, a trial), one folder
 # projects/<key>/ holding its page projects/<key>/<key>.md (type project, the living family) and what it keeps; any
 # note elsewhere names it with `project: <key>` (elak decisions/2026-11-04-projects-are-bounded-work-with-one-page-each.md)
@@ -266,7 +268,7 @@ a plan, decision or review whose target names ela, its runner, elak or the vault
   place with an `ela:` line (status proposed, decided or superseded), and `project`: a project's page,
   `projects/<key>/<key>.md`, its head yours above *Waiting for your word* and its tail the sync's from there (Notes,
   Keys and threads, Afterwards, Deadline). Day pages: `day`
-  (brief, changes, week) and `reader`. A support case: `case`, in `cases/` (or a project's folder), its head in
+  (brief, changes, week) and `reader`. A message you send under your own name: `draft` (a Slack post, a Jira comment, a mail), in to-read until you send it, then parked on the replies. A support case: `case`, in `cases/` (or a project's folder), its head in
   properties (`customer`, `hubspot`, `graph`, `box`, the thread in `channels`, `keys`) and its status *open*,
   *answered* or *closed*. A closed plan or decision may also sit in `ela/history/`, a release line's test plan in
   `mh/releases/`, a closed reading in `mh/releases/` or `ela/history/`, and a review of the product (not of a release)
@@ -281,10 +283,14 @@ a plan, decision or review whose target names ela, its runner, elak or the vault
 ## Reading budgets
 
 A note is written for a person: a title heading, within its budget (day page 1,200 words, review 2,500,
-sprint 800, a decision or a plan 800, a report 1,200, the recent page 1,200, a project page 1,200, the service map 2,500; the reader page's Learned five lines), mostly prose, no machine paths. The budget counts what stands open: a folded callout (`> [!note]- …`
+sprint 800, a decision or a plan 800, a report 1,200, a case 1,200, a draft 600, the recent page 1,200, a project page 1,200, the service map 2,500; the reader page's Learned five lines), mostly prose, no machine paths. The budget counts what stands open: a folded callout (`> [!note]- …`
 and the quoted lines under it) is read on demand and is not counted, for every type, so a page keeps its
 detail in folds and its weight above them. A note that misses is still here, under a warning, and Home lists
 it for 30 days as a rewrite ela owes; a past day page is the morning's record and is not listed.
+
+## Note standards
+
+<!-- note standards -->
 
 ## Finishing with a note
 
@@ -1393,6 +1399,354 @@ def report_lint(n):
     if n.props.get(MOVE_SET):
         out.append(f"{n.path}: moves {n.props[MOVE_SET]!r}: a report is ruled in place and offers no moves")
     return out
+
+
+# ── note standards ────────────────────────────────────────────────────────────────────────────────────
+# One written spec per note type (working preferences, *Notes of one kind follow one standard*, 2026-11-09), decided
+# by ela from his recorded preferences (English for durable content, every Jira key a link, each note ends with what
+# he should do and how, options keep his labels) and the vault's own rules (budgets, statuses by folder, Waiting for
+# your word), the best existing notes of each type as the model. The readme prints them (spec_text); `vault.py lint`
+# reports each deviation as one line, never a failure; `lint --fix` normalises what is mechanical (quoting, a title's
+# links, its alias), a dry run unless --apply, and never removes body text.
+WHAT_TO_DO = "What you should do"
+DATED = r"\d{4}-\d{2}-\d{2}-[a-z0-9]+(?:-[a-z0-9]+)*"
+SLUG = r"[a-z0-9]+(?:-[a-z0-9]+)*"
+KEY_TITLE = r"^[A-Z][A-Z0-9]+-\d+ · "
+TAIL_ORDER = (WHAT_TO_DO, ASKS_HEAD, "Progress", "Next moves", "Afterwards")   # the closing, then what ela keeps
+LIFE_PROPS = ("archived", "built", "claimed", "waits-on", "wake", "parked", "closed-by")   # set by a move, any type
+# kind: what the note is for; name: (regex on the path, as written); title: (regex, as written); required and
+# optional properties beyond title, aliases and type; sections: the headings in order (a trailing ? is optional);
+# closing: how it ends with what he should do; budget from BUDGET, or the rule that stands in for one
+SPECS = {
+    "decision": dict(
+        kind="a choice for your word: confirm or park",
+        name=(rf"^(?:to-read|in-progress|parked|archive|ela/history)/{DATED}\.md$", "`<date>-<slug>.md`, in to-read/ until ruled"),
+        title=(r".", "the choice as a sentence: what is decided, about what"),
+        required=("date",), optional=("source", "target", "keys", "posted", "watch", "project", "ela", "progress"),
+        sections=("The question?", "Options?", WHAT_TO_DO),
+        closing=f"## {WHAT_TO_DO}: the recommended option and the alternative, each with its first step; options you named keep your labels, your order and your definitions, the recommendation a separate line"),
+    "plan": dict(
+        kind="work for your word: agree, park, not now or reject",
+        name=(rf"^(?:to-read|in-progress|parked|archive|ela/history|mh/releases(?:/[\d.]+)?)/{DATED}\.md$|^mh/releases/[\d.]+/{SLUG}-test-plan\.md$",
+              "`<date>-<slug>.md`; a release line's test plan `mh/releases/<line>/<slug>-test-plan.md`"),
+        title=(r".", "what the plan builds, as a sentence"),
+        required=("date",), optional=("source", "target", "keys", "posted", "watch", "project", "ela", "progress", "branch"),
+        sections=("The problem?", WHAT_TO_DO, ASKS_HEAD + "?", "Progress?"),
+        closing=f"## {WHAT_TO_DO}: what agree starts and what each other move means; each ruling it needs listed with ela's proposed answer, no boxes. A plan for ela's own design asks nothing: its Gate is written as reasoning"),
+    "sprint": dict(
+        kind="a sprint: a plan with a start and an end",
+        name=(r"^sprints/\d{4}-S\d{2}\.md$", "`sprints/<year>-S<nn>.md`"),
+        title=(r"^Sprint \d+ · ", "`Sprint <n> · <start> – <end>`"),
+        required=("date", "start", "end"), optional=("source", "status"),
+        sections=("Sprint goals", "Committed", "Stretch?"),
+        closing="its goals are the ask; the sprint's end review says what landed"),
+    "review": dict(
+        kind="a reading of evidence: a release, a promotion, a docker check, a part of the product or of ela",
+        name=(rf"^(?:readings|to-read|archive|mh|ela/history|projects/{SLUG}|mh/releases(?:/[\d.]+)?)/{DATED}\.md$",
+              "`<date>-<slug>.md`; a review of a release names it in the slug (promote, deploy, docker, release or hotfix)"),
+        title=(r".", "a review of a release: `MH <line> · <from> → <to> · <what>`; any other: its finding as a sentence"),
+        required=("date",), optional=("source", "keys", "posted", "watch", "project", "target", "ela", "progress"),
+        sections=("What could not be read?", WHAT_TO_DO, ASKS_HEAD + "?"),
+        closing=f"## {WHAT_TO_DO}: each action a box or a ready command, the recommendation first; what could not be read is named as a gap above it"),
+    "ticket": dict(
+        kind="one ticket made judgeable: where it stands, what done is",
+        name=(rf"^(?:readings|to-read|archive|projects/{SLUG}|mh/releases(?:/[\d.]+)?)/\d{{4}}-\d{{2}}-\d{{2}}-(?:deep-)?[a-z]+-\d+(?:-{SLUG})?\.md$",
+              "`<date>-<key>-<slug>.md`, the key lowercase (`2026-10-30-mh-2406-timeline.md`)"),
+        title=(KEY_TITLE, "`<KEY> · <where it stands>`, the key as plain text (the heading may link it)"),
+        required=("date", "keys"), optional=("source", "posted", "watch", "project"),
+        sections=("Done when?", "Next?"),
+        closing="a **Do.** line: the move, who it waits on, and the first step"),
+    "verify": dict(
+        kind="a verification in a real browser on a named lane",
+        name=(r"^(?:to-read|readings|archive|mh/releases(?:/[\d.]+)?)/\d{4}-\d{2}-\d{2}-verify-[a-z]+-\d+(?:-[a-z0-9-]+)?\.md$",
+              "`<date>-verify-<key>[-<lane>].md`"),
+        title=(KEY_TITLE + r"(?:PASS|FAIL|BLOCKED) on \S+", "`<KEY> · PASS|FAIL|BLOCKED on <lane>`"),
+        required=("date", "result", "keys"), optional=("posted", "watch", "source"),
+        sections=("Checks", "What failed, seen?"),
+        closing="its moves: *draft-comment* puts the Jira record as `apply N`; the full record is the linked page"),
+    "verify-plan": dict(
+        kind="a verification run waiting for your word on its goals",
+        name=(r"^(?:to-read|archive|mh/releases(?:/[\d.]+)?)/\d{4}-\d{2}-\d{2}-verify-plan-[a-z]+-\d+\.md$", "`<date>-verify-plan-<key>.md`"),
+        title=(KEY_TITLE + r"verify plan$", "`<KEY> · verify plan`"),
+        required=("date", "keys"), optional=("posted", "watch"),
+        sections=(), closing="its moves: *run*, *not-now* or *drop*"),
+    "case": dict(
+        kind="one customer support case",
+        name=(rf"^(?:cases|projects/{SLUG})/{DATED}\.md$|^cases/{SLUG}/{DATED}\.md$", "`cases/<date>-<slug>.md`"),
+        title=(r" · ", "`<customer or stream> · <what happened>`"),
+        required=("date", "customer", "keys", "status"), optional=("hubspot", "graph", "box", "channels", "posted", "watch", "source", "progress", "project"),
+        sections=("Timeline?", "Findings?", "Open?", WHAT_TO_DO),
+        closing=f"## {WHAT_TO_DO}: the reply to support or the next check, and who acts"),
+    "report": dict(
+        kind="a standing review or design for your decision, ruled in place",
+        name=(rf"^(?:[a-z0-9.-]+/)*(?:{DATED}|{SLUG})\.md$", "`<slug>.md`, or `<date>-<slug>.md` when it is of a day"),
+        title=(r".", "what it settles, as a sentence"),
+        required=("date", "source", "status"), optional=("target", "progress", "ela", "keys", "posted", "watch", "project"),
+        sections=(WHAT_TO_DO, ASKS_HEAD + "?"),
+        closing=f"## {WHAT_TO_DO}: the recommendation, the alternative, the first step; status proposed, decided or superseded"),
+    "project": dict(
+        kind="bounded work with a deadline and parties outside the program",
+        name=(r"^projects/([^/]+)/\1\.md$", "`projects/<key>/<key>.md`"),
+        title=(r".", "the project's name"),
+        required=("date", "source", "deadline"), optional=("next-step", "channels", "keys", "posted", "watch", "customer", "hubspot"),
+        sections=("Goal", "Parties?", "Dates?", "What is known?", "Next step") + TAIL_HEADS,
+        closing="## Next step in the head (`next-step` is the line Home may name); the tail from Waiting for your word is the sync's"),
+    "meeting": dict(
+        kind="what you raise at one meeting, and what it ruled",
+        name=(rf"^(?:meetings/{SLUG}|archive/meetings-{SLUG}-\d{{4}}-\d{{2}}|archive/{SLUG})\.md$", "`meetings/<key>.md`; older months `archive/meetings-<key>-<yyyy-mm>.md`"),
+        title=(r" · |^Review list$", "`<meeting> · <days and time>`"),
+        required=(), optional=("date", "status", "keys", "source"),
+        sections=("To raise?", "Ruled"),
+        closing="the `- [ ] send` box at the top; each item under 140 characters: ticket link · question · who decides · since when"),
+    "day": dict(
+        kind="a morning page, what changed the day before, or the week",
+        name=(r"^days/\d{4}/\d{4}-\d{2}-\d{2}-(?:brief|changes|week|learn)\.md$", "`days/<year>/<date>-<kind>.md`, kind brief, changes or week"),
+        title=(r"^(?:Morning brief|What changed|The week|What the day taught) · ", "`Morning brief · <Dow> <date>`, `What changed · …`, `The week · …`"),
+        required=("date", "kind"), optional=(),
+        sections=(), closing="each item ends in a **Do:** line: an `apply N`, a `don't N`, or *your call: <recommended> over <alternative>*"),
+    "reader": dict(
+        kind="the evening reader's verdict on that morning's page",
+        name=(r"^ela/review/\d{4}-\d{2}-\d{2}-reader\.md$", "`ela/review/<date>-reader.md`"),
+        title=(r"^The reader · \d{4}-\d{2}-\d{2}$", "`The reader · <date>`"),
+        required=("date",), optional=(),
+        sections=("Learned",), closing=f"## Learned, at most {LEARNED_MAX} lines; more goes to a decision note"),
+    "draft": dict(
+        kind="a message you send under your own name: a Slack post or reply, a Jira comment, a mail",
+        name=(rf"^(?:to-read|parked|archive|projects/{SLUG})/{DATED}-(?:slack|jira|mail)-draft\.md$", "`<date>-<slug>-<slack|jira|mail>-draft.md`"),
+        title=(r"^(?:Slack|Jira|Mail) draft: ", "`Slack draft: <subject>` (or Jira, Mail)"),
+        required=("date", "source"), optional=("progress", "ela", "keys", "posted", "watch", "project", "channels"),
+        sections=("Root message", "Thread replies?", "Not for this post?"),
+        closing="the message paste-ready in a code block, English, mentions written for you to retype; parked once sent, `waits-on` naming who answers and `wake` what brings it back"),
+}
+BUDGET.update({"case": 1200, "draft": 600})
+PAGES_SPEC = ("home", "board", "lanes", "recent", "one-thing", "test-list", "dev-list", "train", "program", "guide",
+              "vocabulary", "system", "constraints", "readme", "services")   # living pages: each one's generator is its spec
+CJK = re.compile(r"[一-鿿　-〿＀-￯]")
+SPEC_MARK = "<!-- note standards -->"
+
+
+def spec_text():
+    """The readme's Note standards section, written from SPECS so the readme and the lint cannot disagree."""
+    out = ["Every note: a lowercase file name, words joined by hyphens, a dated note starting with its date (its `date` "
+           "property the same day). `title` is double-quoted plain text, without links, in English, and the first entry "
+           "of `aliases`; the first heading is the title (it may link a ticket key). Durable text is English, and "
+           "every Jira key in it is a link. A note ends with what you should do and how, before the sections ela keeps "
+           f"({', '.join(TAIL_ORDER[1:])}, in that order). A deviation is a lint line (`ela vault lint`), never a failure; "
+           "an old name or title stays as an alias, so a link and the quick switcher still find the note.", ""]
+    for kind, sp in SPECS.items():
+        b = BUDGET.get(kind)
+        secs = [s[:-1] + " (if any)" if s.endswith("?") else s for s in sp["sections"]]
+        out += [f"### {kind}", "",
+                f"- **What**: {sp['kind']}",
+                f"- **File**: {sp['name'][1]}",
+                f"- **Title**: {sp['title'][1]}",
+                "- **Properties**: " + (", ".join(f"`{p}`" for p in sp["required"]) or "none") + " required"
+                + (("; " + ", ".join(f"`{p}`" for p in sp["optional"]) + " when they apply") if sp["optional"] else "")
+                + "; status, next and moves by folder",
+                "- **Sections**: " + (" → ".join(secs) or "as its generator writes them"),
+                f"- **Ends with**: {sp['closing']}",
+                f"- **Budget**: {f'{b:,} words' if b else 'none; ' + ('the record is the linked page' if kind.startswith('verify') else 'its items are bounded instead')}"
+                " · **Language**: English", ""]
+    out += [f"Living pages ({', '.join(PAGES_SPEC)}) are written by their generators, which are their spec."]
+    return "\n".join(out)
+
+
+def headings(body):
+    return [h.strip() for h in re.findall(r"^##[ \t]+(.+?)[ \t]*$", re.sub(r"```.*?```", "", body or "", flags=re.S), re.M)]
+
+
+def plain(text):
+    """A title or heading as text: Markdown and wiki links reduced to what they show."""
+    t = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", text or "")
+    return re.sub(r"\[\[(?:[^\]|]*\|)?([^\]]*)\]\]", r"\1", t).strip()
+
+
+def opening(text):
+    """A title's or heading's opening, up to its first · or colon, as plain text without code marks."""
+    return re.split(r"\s+·\s+|:\s", plain(text).replace("`", ""), maxsplit=1)[0].strip().lower()
+
+
+def bare_keys(body):
+    """Jira keys written as text, outside links and code: each should be a link."""
+    found = []
+    for i, part in enumerate(SEGMENT.split(re.sub(r"^---\n.*?\n---\n", "", body or "", flags=re.S))):
+        if i % 2 == 0:
+            found += [k for k in KEY_RX.findall(part) if not NOT_KEYS.match(k) and not k.split("-")[1].startswith("0")]   # MH-035: a test id
+    return list(dict.fromkeys(found))
+
+
+def spec_lint(rel, text, generated=False):
+    """The note's deviations from its type's spec, one line each; [] when it meets it or has no spec."""
+    fl, body = split_front(text)
+    props = props_of(fl)
+    kind = props.get("type")
+    if kind not in SPECS:
+        return [] if kind in PAGES_SPEC or kind in TYPE_FAMILY or not fl else [f"type {kind!r} has no spec"]
+    sp, out = SPECS[kind], []
+    if not re.match(sp["name"][0], rel):
+        out.append(f"file name: want {sp['name'][1]}")
+    name = os.path.basename(rel)[:-3]
+    dm = re.match(r"^(\d{4}-\d{2}-\d{2})-", name)
+    if dm and props.get("date") and props["date"][:10] != dm.group(1):
+        out.append(f"date {props['date']} but the file name says {dm.group(1)}")
+    raw = next((l for l in fl if l.startswith("title:")), None)
+    title = props.get("title") or ""
+    if not raw:
+        out.append("no title property")
+    else:
+        if not raw[6:].strip().startswith('"'):
+            out.append("title not quoted")
+        if plain(title) != title:
+            out.append("title carries a link")
+        if CJK.search(title):
+            out.append("title not in English")
+        elif not re.search(sp["title"][0], plain(title)):
+            out.append(f"title: want {sp['title'][1]}")
+        try:
+            al = json.loads(next((l for l in fl if l.startswith("aliases:")), "aliases: []")[8:].strip() or "[]")
+        except ValueError:
+            al = []
+        if not isinstance(al, list) or plain(title) not in al:
+            out.append("the title is not among the aliases")
+        head = h1(body)
+        if head is None:
+            out.append("no title heading")
+        elif opening(head) != opening(title):             # a heading may add a subtitle or a time; it opens the same
+            out.append("the first heading is not the title")
+        stem = re.sub(r"^\d{4}-\d{2}-\d{2}-", "", name)
+        lost = [n for n in re.findall(r"(?<![\d.])\d{2,}(?![\d.])", stem.replace("-", " ")) if int(n) not in {int(d) for d in re.findall(r"\d+", title)}]
+        if lost:
+            out.append(f"the file name says {', '.join(lost)}, the title does not")
+    missing = [p for p in sp["required"] if not props.get(p)]
+    if missing:
+        out.append("missing " + ", ".join(missing))
+    known = set(PROPS) | set(LIFE_PROPS) | set(sp["required"]) | set(sp["optional"])
+    extra = [k for k in props if k not in known and k not in ALL_MOVE_PROPS + tuple(MARKS) + ("learn", "start", "end", "built")]
+    if extra:
+        out.append("properties outside the vocabulary: " + ", ".join(extra))
+    hs = [h.lower() for h in headings(body)]
+    def at(want):
+        w = want.rstrip("?").lower()
+        return next((i for i, h in enumerate(hs) if h == w or h.startswith(w)), None)
+    closed = folder_of(rel) in CLOSED_FOLDERS                # its outcome is in next: a closing would now be history
+    for want in sp["sections"]:
+        if not want.endswith("?") and at(want) is None and kind not in ("project",) and not (closed and want == WHAT_TO_DO):
+            out.append(f"no ## {want}")
+    order = [(at(t), t) for t in TAIL_ORDER if at(t) is not None]
+    if [t for _, t in sorted(order)] != [t for _, t in order]:
+        out.append("tail out of order: want " + " → ".join(t for _, t in order))
+    if kind in ("ticket",) and not re.search(r"\*\*Do[.:]\*\*", body):
+        out.append("no **Do.** line")
+    if kind == "day" and props.get("kind") == "brief" and not re.search(r"\*\*Do[.:]\*\*", body):
+        out.append("no **Do:** line")
+    b = BUDGET.get(kind)
+    units = reading_units(outside_folds(body))
+    if b and units > b * TOLERANCE:
+        out.append(f"{units:,} words, budget {b:,} (lint only: nothing is cut)")
+    cjk = len(CJK.findall(outside_folds(body)))
+    if cjk // 2 > units / 3:
+        out.append("body not in English")
+    keys = bare_keys(body) if not generated else []       # a generated note's keys are the renderer's, by its project list
+    if keys:
+        out.append(f"{len(keys)} Jira key{'s' if len(keys) > 1 else ''} not linked ({', '.join(keys[:4])}{', …' if len(keys) > 4 else ''})")
+    return out
+
+
+def lint_notes(vault):
+    """[(path, generated, [deviations])] for every note with a type, the hidden folders, attachments, the moves
+    definitions and the retired folders left out; generated means the sync writes it (fix its generator or source)."""
+    try:
+        gen = set((json.load(open(os.path.join(vault, MANIFEST))).get("files") or {}))
+    except (OSError, ValueError):
+        gen = set()
+    out = []
+    for top_, dirs, fs in os.walk(vault):
+        dirs[:] = sorted(d for d in dirs if not d.startswith(".") and os.path.relpath(os.path.join(top_, d), vault).replace(os.sep, "/")
+                         not in (ATTACH, MOVE_SETS_DIR) + RETIRED)
+        for f in sorted(fs):
+            if not f.endswith(".md"):
+                continue
+            rel = os.path.relpath(os.path.join(top_, f), vault).replace(os.sep, "/")
+            try:
+                text = open(os.path.join(top_, f), encoding="utf-8").read()
+            except OSError:
+                continue
+            found = spec_lint(rel, text, rel in gen)
+            if found:
+                out.append((rel, rel in gen, found))
+    return out
+
+
+def front_line(fl, key, value):
+    """The front-matter lines with one key's line replaced in place (or added after title), JSON-encoded."""
+    line = f"{key}: {json.dumps(value, ensure_ascii=False)}"
+    for i, l in enumerate(fl):
+        if re.match(rf"^{re.escape(key)}:", l):
+            return fl[:i] + [line] + fl[i + 1:]
+    at = next((i + 1 for i, l in enumerate(fl) if l.startswith("title:")), 0)
+    return fl[:at] + [line] + fl[at:]
+
+
+def normalise(text):
+    """(text, fixes): the mechanical part of a note's spec — its title quoted, plain text, first among its aliases,
+    with any earlier spelling kept as an alias. Front matter only; the body is never touched."""
+    fl, body = split_front(text)
+    raw = next((l for l in fl if l.startswith("title:")), None)
+    if not raw or props_of(fl).get("type") not in SPECS:
+        return text, []
+    title = props_of([raw])["title"]
+    want, fixes = plain(title), []
+    try:
+        al = json.loads(next((l for l in fl if l.startswith("aliases:")), "aliases: []")[8:].strip() or "[]")
+        al = al if isinstance(al, list) else [str(al)]
+    except ValueError:
+        al = []
+    if not raw[6:].strip().startswith('"'):
+        fixes.append("title quoted")
+    if want != title:
+        fixes.append("links taken out of the title, the old spelling kept as an alias")
+    new_al = [want] + [a for a in dict.fromkeys(al + ([title] if want != title else [])) if a != want]
+    if new_al[:1] != al[:1]:
+        fixes.append("the title first among the aliases")
+    if not fixes:
+        return text, []
+    fl = front_line(front_line(fl, "title", want), "aliases", new_al)
+    return "---\n" + "\n".join(fl) + "\n---\n" + body, fixes
+
+
+def cmd_lint(a):
+    """Lint the whole vault against the note standards, one line per deviation; with --fix, normalise what is
+    mechanical (front matter only), a dry run unless --apply. Exit 0 either way: a deviation is a lint line."""
+    s = json.load(open(SITE))
+    vault = s["vault"]
+    fixed = []
+    if a.fix:
+        gen = set()
+        try:
+            gen = set((json.load(open(os.path.join(vault, MANIFEST))).get("files") or {}))
+        except (OSError, ValueError):
+            pass
+        for rel, _, _ in lint_notes(vault):
+            if rel in gen:
+                continue                                   # the sync rewrites it: the fix belongs in its generator
+            p = os.path.join(vault, rel)
+            text = open(p, encoding="utf-8").read()
+            new, fixes = normalise(text)
+            if fixes:
+                fixed.append({"note": rel, "fixes": fixes})
+                if a.apply:
+                    atomic_write(p, new)
+    found = lint_notes(vault)
+    if a.json:
+        print(json.dumps({"dry_run": a.fix and not a.apply, "fixed": fixed,
+                          "lint": [{"note": r, "generated": g, "lines": l} for r, g, l in found]}, ensure_ascii=False)); return
+    for x in fixed:
+        print(f"{'would fix' if not a.apply else 'fixed'}: {x['note']}: {'; '.join(x['fixes'])}")
+    for rel, g, lines in found:
+        for l in lines:
+            print(f"{rel}{' (generated)' if g else ''}: {l}")
+    print(f"lint: {sum(len(l) for _, _, l in found)} deviations in {len(found)} notes"
+          + (f"; {len(fixed)} notes {'normalised' if a.apply else 'to normalise (dry run; --apply)'}" if a.fix else ""))
 
 
 def layout_folders():
@@ -2716,6 +3070,10 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since
     native_warn += [f"project: {x}" for x in (project_lint(n.path, n.props, s["vault"]) for n in notes + native) if x]
     native_warn += [f"asks: {x}" for x in (asks_lint(n) for n in notes + native) if x]
     native_warn += [f"layout: {x}" for x in folder_lint(s["vault"])]
+    spec = lint_notes(s["vault"])
+    if spec:                                               # one line here; each deviation is `vault.py lint`'s
+        native_warn.append(f"spec: {sum(len(l) for _, _, l in spec)} deviations from the note standards in {len(spec)} notes; "
+                           "`ela vault lint` lists them")
     ov = overview_note(s, s["vault"], today)
     if ov:
         notes.append(ov)
@@ -2763,7 +3121,7 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since
     planned["home.md"] = redact(front([], {"type": "home", "date": today.isoformat()}) + linker(home(today, now, notes + native, {
         "actions": week_actions(reports, today), "since": since, "program": program_next(s["vault"]), "ela": ela_line(s["vault"]),
         "hold": tier2_hold(reports, today.isoformat()), "lists": list_links(reports)})))
-    planned[f"{ELA}/about-this-vault.md"] = unwrap(README)
+    planned[f"{ELA}/about-this-vault.md"] = unwrap(README.replace(SPEC_MARK, spec_text()))
     for name, text in VIEWS.items():
         planned[f"{ELA}/{name}.base"] = text
     return planned, files, notes, warnings, {n.path for n in native}, inferred
@@ -3588,7 +3946,7 @@ def atomic_write(path, text):
     os.replace(tmp, path)
 
 
-WRITERS = ("sync", "marks", "finish", "note", "restore", "setup", "afterwards", "tidy")   # guidance only reads
+WRITERS = ("sync", "marks", "finish", "note", "restore", "setup", "afterwards", "tidy", "lint")   # guidance only reads; lint writes with --fix --apply
 
 
 def vault_lock():
@@ -4107,6 +4465,11 @@ def main():
     p.add_argument("--dry-run", action="store_true", help="read and report; write nothing")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_afterwards)
+    p = sub.add_parser("lint", help="every note against its type's spec (the readme's Note standards), one line per deviation")
+    p.add_argument("--fix", action="store_true", help="normalise what is mechanical: a title quoted, plain, first among its aliases")
+    p.add_argument("--apply", action="store_true", help="with --fix, write; without it, a dry run")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_lint)
     p = sub.add_parser("tidy", help="move the archived notes that have a subject home (cases/, mh/releases/, ela/history/) "
                                     "there, and mh/releases/ root notes into their line's folder; a dry run unless --apply")
     p.add_argument("--apply", action="store_true", help="move them; without it, list the moves and what holds any back")

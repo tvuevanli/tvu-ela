@@ -1181,4 +1181,34 @@ base = V.VIEWS["all-notes"]
 check("the all-notes base has a subject column and a Cases view; Archive lists every closed home",
       "subject: 'file.folder'" in base and "name: Cases" in base
       and base.split("name: Archive", 1)[1].count("file.inFolder(") == 4 and "formula.subject" in base.split("name: Archive", 1)[1])
+
+# the note standards: one spec per type, printed in the readme, linted one line per deviation, never a failure
+check("every type ela or a session authors has a spec, and the readme prints each one",
+      all(k in V.SPECS for k in ("decision", "plan", "sprint", "review", "ticket", "verify", "verify-plan", "case", "report",
+                                  "project", "meeting", "day", "reader", "draft"))
+      and all(f"### {k}" in V.spec_text() for k in V.SPECS) and V.SPEC_MARK in V.README and V.TYPE_FAMILY.get("draft") == "draft")
+good = ('---\ntitle: "MH-1 · fixed, on QA"\naliases: ["MH-1 · fixed, on QA"]\ntype: "ticket"\ndate: "2026-11-09"\nkeys: "MH-1"\n---\n'
+        "# [MH-1](https://j/browse/MH-1) · fixed, on QA\n\n## Next\n\nText about [MH-2](https://j/browse/MH-2).\n\n**Do.** Ask QA.\n")
+check("a note that meets its spec has no lint line", V.spec_lint("readings/2026-11-09-mh-1-fixed.md", good) == [])
+bad = ('---\ntitle: [MH-1](https://j/browse/MH-1): build 85 fixed\naliases: ["old"]\ntype: "ticket"\ndate: "2026-11-08"\n---\n'
+       "# Something else\n\nMH-2 is bare; MH-035 is a test id.\n")
+lines = V.spec_lint("readings/2026-11-09-mh-1-build-84.md", bad)
+check("each deviation is one line: quoting, a link in the title, aliases, heading, date, name, required, Do, bare keys",
+      all(any(x in l for l in lines) for x in ("title not quoted", "title carries a link", "not among the aliases",
+                                                "first heading", "file name says", "missing keys", "the file name says 84",
+                                                "no **Do.** line", "1 Jira key not linked (MH-2)")))
+check("a generated note's keys are its renderer's, not linted", not any("not linked" in l for l in V.spec_lint("readings/2026-11-09-mh-1-build-84.md", bad, True)))
+cn = '---\ntitle: "MH 2.0 hotfix：区域收窄"\naliases: ["MH 2.0 hotfix：区域收窄"]\ntype: "review"\ndate: "2026-10-28"\n---\n# MH 2.0 hotfix：区域收窄\n\n' + "这是中文正文内容。" * 40 + "\n"
+check("a Chinese title or body is a lint line", {"title not in English", "body not in English"} <= set(V.spec_lint("mh/releases/2.0/2026-10-28-x-review.md", cn)))
+long_ = '---\ntitle: "MH 2.1 · a → b · checks"\naliases: ["MH 2.1 · a → b · checks"]\ntype: "review"\ndate: "2026-11-09"\n---\n# MH 2.1 · a → b · checks\n\n' + "word " * 3000 + "\n"
+check("a review over its budget is linted, never cut, and a closed one needs no closing now",
+      V.spec_lint("mh/releases/2.1/2026-11-09-x.md", long_) == ["3,005 words, budget 2,500 (lint only: nothing is cut)"])
+check("a live review without its closing is linted", "no ## What you should do" in V.spec_lint("readings/2026-11-09-x.md", long_))
+check("a type outside the specs and the closed set is named", V.spec_lint("to-read/x.md", '---\ntype: "memo"\n---\n# x\n') == ["type 'memo' has no spec"])
+new, fixes = V.normalise(bad)
+fl = V.split_front(new)[0]
+check("normalise quotes the title, takes its links out, keeps the old spelling as an alias, and leaves the body",
+      'title: "MH-1: build 85 fixed"' in fl and json.loads(next(l for l in fl if l.startswith("aliases:"))[8:])
+      == ["MH-1: build 85 fixed", "old", "[MH-1](https://j/browse/MH-1): build 85 fixed"]
+      and V.split_front(new)[1] == V.split_front(bad)[1] and fixes and V.normalise(new)[1] == [] and V.normalise(good) == (good, []))
 sys.exit(1 if failures else 0)
