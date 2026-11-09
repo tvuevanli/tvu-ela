@@ -1158,6 +1158,12 @@ with tempfile.TemporaryDirectory() as t:
     check("a note in a line folder is stamped, settled and watched like one in its home",
           "mh/releases/2.1/s.md" in V.stamp_archive(v, td, dry_run=True)
           and any(x.startswith("mh/releases/2.1/s.md: status proposed → closed") for x in V.settle_statuses(v, dry_run=True)))
+    open(os.path.join(v, "mh/releases/2.1", "record.md"), "w").write('---\ntype: "report"\nstatus: "decided"\n---\n# R\n')
+    open(os.path.join(v, "mh/releases/2.1", "plan.md"), "w").write('---\ntype: "plan"\nstatus: "draft"\n---\n# P\n')
+    fixes = V.settle_statuses(v, dry_run=True)
+    check("a line's record and test plan keep their own status in mh/releases",
+          not any(x.startswith(("mh/releases/2.1/record.md", "mh/releases/2.1/plan.md")) for x in fixes)
+          and V.living_in_home("ela/history", "plan") is False and V.living_in_home("archive", "report") is False)
     for f, title, keys in (("2026-11-03-promote-a.md", "Promote MH 2.0 to stage", ""), ("2026-10-21-verify-mh-1.md", "MH-1 · FAIL", "MH-1"),
                            ("2026-10-29-verify-plan-mh-2.md", "MH-2 · plan", "MH-2"), ("2026-10-29-docker-ref.md", "Docker services: who calls them", ""),
                            ("2026-11-01-promote-b.md", "Promote MH 2.1 again", "")):

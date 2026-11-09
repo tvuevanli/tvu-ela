@@ -270,7 +270,7 @@ a plan, decision or review whose target names ela, its runner, elak or the vault
   properties (`customer`, `hubspot`, `graph`, `box`, the thread in `channels`, `keys`) and its status *open*,
   *answered* or *closed*. A closed plan or decision may also sit in `ela/history/`, a release line's test plan in
   `mh/releases/`, a closed reading in `mh/releases/` or `ela/history/`, and a review of the product (not of a release)
-  in `mh/`. A note outside the set, or a family outside its folders, is a lint line on
+  in `mh/`. A report, and a line's test plan, keep their own status in a subject home: they live there, not closed. A note outside the set, or a family outside its folders, is a lint line on
   the sync, never a failure.
 - `to-read/` means "waits on your word", whatever the type. A reading that asks something puts its asks under one
   heading, **Waiting for your word**, one box each with ela's proposed answer. When every box there is ticked or
@@ -639,6 +639,12 @@ def home_for(rel, props, line_of_key=None):
     return ARCHIVE
 
 
+def living_in_home(folder, kind):
+    """A page that lives filed in a subject home, which keeps the status its kind defines rather than the home's: a
+    report anywhere (proposed, decided, superseded), and in mh/releases a release line's test plan beside its record."""
+    return bool(subject_home(folder)) and (kind == "report" or (kind == "plan" and subject_home(folder) == RELEASES))
+
+
 def settle_statuses(vault, dry_run=False):
     """Bring every note in a lifecycle folder to its folder's statuses, and take status off readings, front matter
     only (archive included: the body stays his). Returns one line per fix."""
@@ -654,6 +660,8 @@ def settle_statuses(vault, dry_run=False):
             if not fl:
                 continue
             props = props_of(fl)
+            if living_in_home(folder, props.get("type")):
+                continue                                   # a line's record or test plan keeps its own status
             st, result, nxt = settled_status(folder, props.get("status"), props.get("type"))
             want = {"status": st, "result": result or props.get("result") or None}
             if nxt and not props.get(NEXT):
