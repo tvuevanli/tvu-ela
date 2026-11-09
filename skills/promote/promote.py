@@ -1355,11 +1355,14 @@ def keep_last_report(a, res, lanes):
         pass
 
 
-def collect_ships(a, delta, evidence, gaps):
+def collect_ships(a, delta, evidence, gaps, lanes=None, read_at=None, max_age_h=4, now_at=None):
     """--ship SERVICE=VERSION: the release's version per service against the source lane's build (shipcheck.py). Without
-    --ship, a newer successful build on the source build's branch is a note naming the flag."""
+    --ship, a newer successful build on the source build's branch is a note naming the flag. The source lane's version
+    carries its read time; a read older than max_age_h, or older than a newer build on the branch, is not judged
+    (daily-wed moved 2.1.85 → 2.1.87 within hours on 2026-11-09)."""
     import shipcheck as SC  # noqa: E402 — same skill
     by = {s["service"]: s for s in delta["services"]}
+    lane_at = {x["service"]: ((x.get("from") or {}).get("at") or read_at) for x in (lanes or {}).get("services") or []}
     aliases = (R.rmap("fixed_in") or {}).get("slug_aliases") or {}
     asked = {}
     for item in getattr(a, "ship", None) or []:
@@ -1391,6 +1394,11 @@ def collect_ships(a, delta, evidence, gaps):
             gaps.append({"kind": "ship_not_in_jenkins", "service": slug, "detail": f"{ver} is not a successful {s['job']} build in the window"}); continue
         if sb["sha"] == fb["sha"]:
             continue
+        stale = SC.stale(lane_at.get(slug) or read_at, [b.get("time") for b in rows if b.get("build") and b["build"] > fb["build"] and b.get("result") == "SUCCESS"],
+                         max_age_h, now_at)
+        if stale:
+            out.append({"service": slug, "name": SC.name(slug), "unread": f"{SC.name(slug)} on {delta['from']}: {fb['version']} read {lane_at.get(slug) or read_at or 'at an unknown time'}; {stale} — read the lane again before judging --ship {ver}"})
+            continue
         path = repo_path(s["repo"]) if s.get("repo") else None
         commits = []
         if path:
@@ -1413,7 +1421,9 @@ def collect_ships(a, delta, evidence, gaps):
 
         def at_least(text, slug=slug, target=target):
             return SC.carries(text, target, parse_version, lambda x, y: cmp_versions(slug, x, y))
-        out.append(SC.gap(slug, {k: fb[k] for k in ("version", "build", "sha")}, {k: sb[k] for k in ("version", "build", "sha")}, commits, qa, at_least))
+        g = SC.gap(slug, {k: fb[k] for k in ("version", "build", "sha")}, {k: sb[k] for k in ("version", "build", "sha")}, commits, qa, at_least)
+        g["source"]["read_at"] = lane_at.get(slug) or read_at
+        out.append(g)
     return out
 
 
@@ -1455,9 +1465,11 @@ def cmd_report(a):
                          "what": f"{b['repo']} {b['branch']} ({b['ahead']} ahead, {b['author']} {b['date']}): "
                                  + ("merges clean" if m.get("clean") else "conflicts with the release branch in " + ", ".join(m.get("conflicts") or [])[:100] if m.get("clean") is False else "merge not tried")
                                  + "".join(f"; conflicts with {o['branch']}" for o in b["with_others"])})
-    ships = collect_ships(a, delta, evidence, gaps)
+    ships = collect_ships(a, delta, evidence, gaps, lanes, read_at=now())
     for g in ships:
-        if g.get("ship"):
+        if g.get("unread"):
+            findings.append({"severity": "medium", "kind": "release_version_unread", "service": g["service"], "what": g["unread"]})
+        elif g.get("ship"):
             findings.append({"severity": "high" if g["uncovered"] else "medium", "kind": "release_version_not_on_source",
                              "service": g["service"], "keys": g["uncovered"], "what": SC.words(g, lanes["from"])})
         elif g.get("newer"):

@@ -35,6 +35,35 @@ def resolve(text, slugs, aliases=None):
     return s if s in slugs else None
 
 
+def _when(text):
+    import datetime
+    t = str(text or "").strip().replace("T", " ").replace("Z", "+00:00")
+    for f in ("%Y-%m-%d %H:%M:%S%z", "%Y-%m-%d %H:%M%z", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"):
+        try:
+            d = datetime.datetime.strptime(t[:25] if "%z" in f else t[:19 if f.endswith("%S") else 16], f)
+            return d if d.tzinfo else d.replace(tzinfo=datetime.timezone(datetime.timedelta(hours=8)))   # Jenkins times are local (UTC+8)
+        except ValueError:
+            continue
+    return None
+
+
+def stale(read_at, newer_build_times, max_age_h=4, now_at=None):
+    """Why a source-lane read cannot be judged, or None. A read with no time, older than max_age_h, or older than a
+    newer successful build on the branch (the lane may already run it) is stale."""
+    import datetime
+    r = _when(read_at)
+    if not r:
+        return "the read has no time"
+    now = _when(now_at) if now_at else datetime.datetime.now(datetime.timezone.utc)
+    age = (now - r).total_seconds() / 3600
+    if age > max_age_h:
+        return f"the read is {age:.1f} h old (limit {max_age_h} h)"
+    later = [t for t in (_when(x) for x in newer_build_times) if t and t > r]
+    if later:
+        return f"a newer build finished at {min(later):%Y-%m-%d %H:%M %z} after the read; the lane may run it"
+    return None
+
+
 def carries(text, target, parse, cmp):
     """True when a version text (a QA environment block's, a panel's) is at or past the ship build. A version written
     without its build compares on the label alone: QA's "2.1.87" is the 2.1.87 build."""
@@ -74,7 +103,7 @@ def gap(service, source, ship, commits, qa, at_least):
 def words(g, from_lane):
     """The finding's text: what ships, what the source lane proves, what lies between and who has tested it."""
     head = (f"{g['name']} ships {g['ship']['version']} (build {g['ship'].get('build')}) but {from_lane} runs "
-            f"{g['source']['version']} (build {g['source'].get('build')}): {g['commits']} commit(s) between no lane test on {from_lane} covers")
+            f"{g['source']['version']} (build {g['source'].get('build')}, read {g['source'].get('read_at') or '?'}): {g['commits']} commit(s) between no lane test on {from_lane} covers")
     parts = []
     for t in g["tickets"]:
         n = len(t["commits"])

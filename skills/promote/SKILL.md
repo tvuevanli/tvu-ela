@@ -74,6 +74,8 @@ lane behind it, the dry-run bundle command. The line's promotion stays here, and
   carries it. A ticket with none is high; a source-lane test or a verdict on the older build never covers it. Without
   `--ship`, a newer successful build on the source build's branch is a note naming the flag. On 2026-11-09 UR Caller
   2.1.87 was named for prod-3 while daily-wed ran 2.1.85, and MH-3961 and MH-3966 ×2 sat in between with no QA.
+  The source version carries its read time; a read older than four hours, or older than a newer successful build on
+  the branch (the lane may already run it), is unread, not judged: Wed itself moved to 2.1.87 that afternoon.
 - **What the release calls is read live on the target.** For a prod target, `livedeps.py` takes every fixed-URL Feign
   client of a range repo from the dependency map, reads its URL key along the target lane's proven profile chain (a key
   absent there falls to the code default, high when that default is a dev or test URL), finds the gateway route and,
