@@ -51,7 +51,14 @@ with tempfile.TemporaryDirectory() as t:
     os.makedirs(os.path.join(t, "parked"))
     open(os.path.join(t, "parked", "p.md"), "w").write('---\ntitle: "RVF for v3 Packs"\nstatus: "parked"\nwaits-on: "the Pack team, in its thread"\n'
                                                     'parked: "2026-10-22"\nwake: "a reply there, or FB-7 moving"\n---\n# RVF\n')
-    pn = B.parked_notes(t)
+    os.makedirs(os.path.join(t, "projects", "x"))
+    open(os.path.join(t, "projects", "x", "q.md"), "w").write('---\ntitle: "Q"\nstatus: "live"\nwaits-on: "QA"\nparked: "2026-10-23"\n---\n# Q\n')
+    open(os.path.join(t, "projects", "x", "d.md"), "w").write('---\ntitle: "D"\nstatus: "done"\nwaits-on: "QA"\n---\n# D\n')
+    open(os.path.join(t, "projects", "x", "l.md"), "w").write('---\ntitle: "L"\nstatus: "live"\n---\n# L\n')
+    pn_all = B.parked_notes(t)
+    pn = [x for x in pn_all if x["note"].startswith("parked/")]
+check("a live note waiting on others is parked wherever it lives; a done one and one waiting on nobody are not (ADR 0015)",
+      [x["note"] for x in pn_all] == ["projects/x/q.md", "parked/p.md"])
 check("a parked note is read from its front matter", pn == [{"note": "parked/p.md", "title": "RVF for v3 Packs", "waits_on": "the Pack team, in its thread",
                                                         "parked": "2026-10-22", "wake": "a reply there, or FB-7 moving"}])
 quiet = B.parked_row(pn[0], [], {}, "Owner", now)

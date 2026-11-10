@@ -331,7 +331,7 @@ never read as verified:** Review is the team's "on QA, waiting for QA" state, so
 assignee has been silent past the threshold is an F item for QA (2026-10-26: MH-3808, MH-3821 and MH-3825 sat in
 Review, moved there by their developers, with Fixed In set by Helm Lookout and no QA verdict yet).
 
-**A parked note** (`<vault>/parked/`, a row of kind `parked`) is a plan or draft the owner sent out and set aside
+**A parked note** (a live note carrying `waits-on`, wherever its thing lives; a row of kind `parked`) is a plan or draft the owner sent out and set aside
 until others answer; its `wake` names the ticket or Slack thread that brings it back, and the script reads those
 (`checked`). A row with `woke` is one class B item, *Parked note woke: <title>*: the facts line is what woke it
 (who, where, when), the action its `next` choices, *resume* or *drop*. A row that is `due` (three working days with

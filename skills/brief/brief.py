@@ -281,22 +281,33 @@ def lane_waiting(env, limit, now):
 PERMALINK_RX = re.compile(r"https://[\w.-]+\.slack\.com/archives/\S+?(?=[\s)>\]]|$)")
 
 
+PARKED_HOMES = ("projects", "releases", "cases", "reference", "ela/history", "parked")   # layout 5's homes; parked/ as input
+
+
 def parked_notes(vault):
-    """The vault's parked/ notes, front matter only: a parked note waits on others, and its body is the owner's."""
-    d = os.path.join(vault or "", "parked")
+    """The vault's parked notes, front matter only: a live note carrying `waits-on` wherever its thing lives (ela ADR
+    0015: a park is a state on the note, never a folder), a project page parked, and a note left in layout 4's parked/.
+    Its body is the owner's."""
     out = []
-    for f in sorted(os.listdir(d)) if os.path.isdir(d) else []:
-        if not f.endswith(".md"):
-            continue
-        try:
-            text = open(os.path.join(d, f), encoding="utf-8").read()
-        except OSError:
-            continue
-        m = re.match(r"^---\n(.*?)\n---\n?(.*)$", text, re.S)
-        props = {k: v.strip().strip("'\"") for k, v in re.findall(r"^([\w-]+):[ \t]*(.*)$", m.group(1) if m else "", re.M)}
-        h1 = re.search(r"^#[ \t]+(.+)$", m.group(2) if m else text, re.M)
-        out.append({"note": f"parked/{f}", "title": props.get("title") or (h1.group(1).strip() if h1 else f[:-3]),
-                    "waits_on": props.get("waits-on") or None, "parked": props.get("parked"), "wake": props.get("wake") or ""})
+    for home in PARKED_HOMES:
+        for top_, dirs, fs in os.walk(os.path.join(vault or "", home)):
+            dirs[:] = sorted(d for d in dirs if not d.startswith("."))
+            for f in sorted(fs):
+                if not f.endswith(".md"):
+                    continue
+                try:
+                    text = open(os.path.join(top_, f), encoding="utf-8").read()
+                except OSError:
+                    continue
+                m = re.match(r"^---\n(.*?)\n---\n?(.*)$", text, re.S)
+                props = {k: v.strip().strip("'\"") for k, v in re.findall(r"^([\w-]+):[ \t]*(.*)$", m.group(1) if m else "", re.M)}
+                status = (props.get("status") or "").lower()
+                if status in ("done", "closed") or not (props.get("waits-on") or status == "parked" or home == "parked"):
+                    continue
+                h1 = re.search(r"^#[ \t]+(.+)$", m.group(2) if m else text, re.M)
+                rel = os.path.relpath(os.path.join(top_, f), vault).replace(os.sep, "/")
+                out.append({"note": rel, "title": props.get("title") or (h1.group(1).strip() if h1 else f[:-3]),
+                            "waits_on": props.get("waits-on") or None, "parked": props.get("parked"), "wake": props.get("wake") or ""})
     return out
 
 
