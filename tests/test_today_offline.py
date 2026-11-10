@@ -48,5 +48,15 @@ check("the page: three boxes with what happens if he does nothing, the count of 
 dp = V.dropped_page(st)
 check("the dropped page lists each drop once with its dates", dp.count("comment MH-1") == 1 and f"{THU} · comment MH-1 · asked since {MON}" in dp)
 check("Home is a pointer to today until its date", "[[today]]" in V.home_pointer() and V.HOME_POINTER_UNTIL.isoformat() in V.home_pointer())
+check("a fact is a whole short sentence or nothing, never cut",
+      V.short_sentence("Prod 3 took 2.1 on 11-09. The rest is long.") == "Prod 3 took 2.1 on 11-09."
+      and V.short_sentence("x" * 200 + ". Short one.") == "Short one." and V.short_sentence("y" * 200 + ".") is None)
+check("an ask is cut at its first clause break", V.ask_words("MH-1: set Fixed In a@1; b@2 (one image)") == "MH-1: set Fixed In a@1")
+mt = types.SimpleNamespace(path="meetings/sync.md", title="MediaHub team sync · Thu 2026-11-12", props={"type": "meeting", "date": "2026-11-12"}, body="")
+pg = V.today_page(THU, [mt], {"meetings": [{"key": "scrum", "time": "10:00", "name": "Scrum"}]})
+check("the day's meeting note is listed under Today by its title", "- [[meetings/sync|MediaHub team sync · Thu 2026-11-12]]" in pg
+      and "Scrum" not in pg)
+check("a note's ask keeps its words outside the link", "→ [[to-read/x|the note]]" in V.today_page(THU, [], {}, [
+      {"id": "note:x", "text": "MH-1 · a plan", "link": "to-read/x", "first": THU.isoformat()}]))
 print("today: all offline checks passed" if not failures else f"today: {len(failures)} failed")
 sys.exit(1 if failures else 0)

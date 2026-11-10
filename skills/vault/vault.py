@@ -2775,9 +2775,16 @@ def drop_day(first, today):
     return d
 
 
-def first_sentence(text):
-    m = re.match(r"(.+?[.!?])(?:\s|$)", text or "")
-    return m.group(1) if m else (text or "")
+FACT_CHARS = 110
+
+
+def short_sentence(text, n=FACT_CHARS):
+    """The first whole sentence of `text` no longer than n characters, else None: a fact is never cut mid-sentence."""
+    for m in re.finditer(r"(.+?[.!?])(?=\s|$)", (text or "").strip()):
+        sent = m.group(1).strip()
+        if len(plain(sent)) <= n:
+            return sent
+    return None
 
 
 def action_id(a):
@@ -2865,11 +2872,19 @@ def fact_lines(notes, limit=4):
     out = []
     for head, text in sections(pages[0].body):
         if head in FACT_SECTIONS:
-            line = first_sentence(first_line(text))
+            line = short_sentence(first_line(text) or "")
             if line:
                 out.append((head, line))
     order = {h: i for i, h in enumerate(FACT_SECTIONS)}
     return pages[0], sorted(out, key=lambda x: order[x[0]])[:limit]
+
+
+def ask_words(text, n=80):
+    """An ask in a few words: the text up to its first clause break (`;`, ` (`, ` — `) when that is short enough, else
+    cut at a word with an ellipsis."""
+    text = " ".join((text or "").split())
+    head = re.split(r";\s| \(| — ", text, 1)[0]
+    return head if len(plain(head)) <= n else short(head, n)
 
 
 def short(text, n):
@@ -2890,14 +2905,20 @@ def today_page(today, notes, desk=None, shown=(), more=0, dropped=0):
     asks = []
     for c in shown:
         gone = drop_day(datetime.date.fromisoformat(c["first"]), today)
-        what = f"[[{c['link']}|{short(c['text'], 70)}]]" if c.get("link") else short(c["text"], 70)
+        # the words stay outside the wikilink: a ticket key inside a link's label would be linked again and break it
+        what = ask_words(c["text"]) + (f" → [[{c['link']}|{'its section' if '#' in c['link'] else 'the note'}]]" if c.get("link") else "")
         asks.append((f"- [ ] {c['box']} — " if c.get("box") else "- ") + what + f" · *if not: nothing; gone {gone:%a}*")
     acts = [a for a in desk.get("actions") or [] if a.get("day") == iso]
     soon = [a for a in acts if a.get("tier") == 2 and not (a.get("applied") or a.get("vetoed") or a.get("failed"))]
     send = [a for a in acts if a.get("send_box") and not (a.get("applied") or a.get("vetoed"))]
     hold = desk.get("hold")
     day = []
-    for m in desk.get("meetings") or []:
+    notes_today = sorted((n for n in notes if n.props.get("type") == "meeting" and (n.props.get("date") or "")[:10] == iso),
+                         key=lambda n: n.path)
+    for n in notes_today:                                  # the meeting's own note, dated today, by its title
+        day.append(f"- [[{n.path[:-3]}|{n.title}]]")
+    have = {os.path.basename(n.path)[:-3] for n in notes_today}
+    for m in [m for m in desk.get("meetings") or [] if m.get("key") not in have] if not notes_today else []:
         note = f"{MEETINGS}/{m['key']}" if m.get("key") else None
         day.append(f"- {m.get('time')} {m.get('name')}" + (f" → [[{note}|its list]]" if note else ""))
     projects = [n.facts for n in notes if n.props.get("type") == "project" and getattr(n, "facts", None)]
@@ -2910,24 +2931,20 @@ def today_page(today, notes, desk=None, shown=(), more=0, dropped=0):
         day += [] if hold else [f"  - [ ] don't {a['n']} — {short(a.get('text'), 90)}" for a in soon]
     day += [f"- {send_line(a, desk.get('lists'))}" for a in send]
 
-    def render(facts, n=90):
+    def render(facts):
         L = [f"# Today · {today:%a %Y-%m-%d}", "", "## Facts", ""]
-        L += [f"- **{FACT_LABEL.get(h, h)}:** {short(l, n)}" for h, l in facts] or ["- Nothing new was read since the last page."]
+        L += [f"- **{FACT_LABEL.get(h, h)}:** {l}" for h, l in facts] or ["- Nothing new was read since the last page."]
         L += ["", "## Needs you", ""] + (asks or ["Nothing only you can do."])
         if more:
-            L.append(f"*{more} more wait off this page*" + (f" → [[{brief.path[:-3]}|the morning page]]" if brief else ""))
+            L.append(f"*{more} more wait{'s' if more == 1 else ''} off this page*" + (f" → [[{brief.path[:-3]}|the morning page]]" if brief else ""))
         L += ["", "## Today", ""] + (day or ["No meeting and no deadline today."]) + [""]
         return L
     L = render(facts)
     def words(L):
         return len(plain("\n".join(L)).split())
-    while len(facts) > 3 and words(L) > TODAY_WORDS:
+    while facts and words(L) > TODAY_WORDS:              # whole facts leave from the end; none is shortened
         facts = facts[:-1]
         L = render(facts)
-    for n in (70, 60, 50):                                 # then shorter facts, never fewer than three
-        if words(L) <= TODAY_WORDS:
-            break
-        L = render(facts, n)
     links = [f"[[{changes.path[:-3]}|what changed]]" if changes else None,
              f"[[{brief.path[:-3]}|morning page]]" if brief else None,
              "[[lanes|lanes]]" if any(n.props.get("type") == "lanes" for n in notes) else None,
@@ -3551,7 +3568,7 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since
     planned[TODAY] = redact(front([], {"type": "today", "date": today.isoformat()}) + linker(today_page(today, notes + native, {
         "actions": week_actions(reports, today), "hold": tier2_hold(reports, today.isoformat()), "lists": list_links(reports),
         "meetings": meetings}, shown, more, dropped)))
-    planned[DROPPED] = front([], {"type": "dropped", "date": today.isoformat()}) + dropped_page(asks_state)
+    planned[DROPPED] = redact(front([], {"type": "dropped", "date": today.isoformat()}) + linker(dropped_page(asks_state)))
     if today <= HOME_POINTER_UNTIL:                        # Home points to today.md for two weeks, then is not written
         planned["home.md"] = front([], {"type": "home", "date": today.isoformat()}) + home_pointer()
     else:
