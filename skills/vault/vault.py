@@ -110,6 +110,9 @@ OWNER_FOLDERS = (ARCHIVE,) + SUBJECT_HOMES   # kept notes: ela never rewrites th
 LANE = r"(?:qa|daily|stage|test\d*|prod|cn)"
 RELEASE_NAME = re.compile(r"(?:^|-)(?:promote|deploy|docker|release|hotfix)(?:-|$)|(?:^|-)mh\d+-\d+(?:-|$)"
                           rf"|(?:^|-){LANE}(?:-[a-z0-9]+)?-to-{LANE}(?:-|\d|$)")
+# a review of a release in mh/releases/<line>/: <date>-<kind>-<what>, the line left to the folder (no 2-1 after the kind)
+RELEASE_KINDS = ("promote", "deploy", "docker", "hotfix", "review")
+RELEASE_REVIEW_NAME = r"\d{4}-\d{2}-\d{2}-(?:" + "|".join(RELEASE_KINDS) + r")-(?!\d+-\d+-)[a-z0-9]+(?:-[a-z0-9]+)*"
 LINE_NAME = re.compile(r"(?:^|-)(?:mh|promote|release)-?(\d{1,2})-(\d{1,2})(?:-|$)")   # mh2-1, promote-2-1 → 2.1
 RELEASE_TITLE = re.compile(r"\b(promote|promotion|deploy|docker|release|hotfix)\b", re.I)   # … or by its title
 # mh/releases/ holds one folder per release line (mh/releases/2.1/, its record the way in); a note is filed by the line
@@ -230,7 +233,7 @@ list and writing your `ela:` priority lines; the 09:30 or 10:00 pass then sends 
 | `mediahub-bot/` | MediaHub's product bot, not ela: its design, answer contract, knowledge pack, the files it will commit (`files/`), its eval set (`eval/`) and the evidence (`evidence/`); the source until its repositories exist, then pointers | rule the design; confirm eval cases |
 | `ela/review/` | the evening reader pages | read in the evening |
 | `cases/` | one note per customer support case, `cases/<date>-<slug>.md` (a folder `cases/<slug>/` only when a case outgrows one note): customer, HubSpot ticket, Slack thread, graph and box, the Jira keys it opened, status *open*, *answered* or *closed*; watched like the archive | look when support asks again; all notes, *Cases* |
-| `mh/releases/` | one folder per release line (`mh/releases/2.1/`, `mh/releases/2.0/`, a later line as it comes): its record, the way in, linking the line's notes in order (QA → daily → prod), and its closed promotions, deploys, docker checks, release reviews, test plans and verifications; a note whose line cannot be read waits at the root | look back on a release: open its line's record |
+| `mh/releases/` | one folder per release line (`mh/releases/2.1/`, `mh/releases/2.0/`, a later line as it comes): its record, the way in, linking the line's notes in order (QA → daily → prod), and its closed promotions, deploys, docker checks, release reviews, test plans and verifications; a review is named `<date>-<promote|deploy|docker|hotfix|review>-<what>.md`, the line left to the folder (`2026-11-09-deploy-daily-wed-to-prod-3.md`), a verification `<date>-verify-<key>`, the record `release-<line>-record.md`; a note whose line cannot be read waits at the root | look back on a release: open its line's record |
 | `ela/history/` | ela's own closed plans and reviews; what they ruled is in elak's decisions | rarely |
 | `archive/` | what is done with and has no subject home; ela adds to it and keeps its status current, never its text, except the Afterwards it appends | look back (all notes, *Archive*, with its *subject* column, lists every closed note); ask ela to tidy it |
 
@@ -1511,8 +1514,10 @@ SPECS = {
         closing="its goals are the ask; the sprint's end review says what landed"),
     "review": dict(
         kind="a reading of evidence: a release, a promotion, a docker check, a part of the product or of ela",
-        name=(rf"^(?:readings|to-read|archive|mh|ela/history|projects/{SLUG}|mh/releases(?:/[\d.]+)?)/{DATED}\.md$",
-              "`<date>-<slug>.md`; a review of a release names it in the slug (promote, deploy, docker, release or hotfix)"),
+        name=(rf"^(?:(?:readings|to-read|archive|mh|ela/history|projects/{SLUG})/{DATED}"
+              rf"|mh/releases(?:/[\d.]+)?/{RELEASE_REVIEW_NAME})\.md$",
+              "`<date>-<slug>.md`; in `mh/releases/<line>/` a review of a release is `<date>-<promote|deploy|docker|hotfix|review>-<what>.md`, "
+              "the line left to the folder (`2026-11-09-deploy-daily-wed-to-prod-3.md`)"),
         title=(r".", "a review of a release: `MH <line> · <from> → <to> · <what>`; any other: its finding as a sentence"),
         required=("date",), optional=("source", "keys", "posted", "watch", "project", "target", "ela", "progress"),
         sections=("What could not be read?", WHAT_TO_DO, ASKS_HEAD + "?"),

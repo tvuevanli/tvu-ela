@@ -1211,7 +1211,7 @@ check("a Chinese title or body is a lint line", "title not in English" in V.spec
       and any(l.startswith("body not in English") for l in V.spec_lint("mh/releases/2.0/2026-10-28-x-review.md", cn)))
 long_ = '---\ntitle: "MH 2.1 · a → b · checks"\naliases: ["MH 2.1 · a → b · checks"]\ntype: "review"\ndate: "2026-11-09"\n---\n# MH 2.1 · a → b · checks\n\n' + "word " * 3000 + "\n"
 check("a review over its budget is linted, never cut, and a closed one needs no closing now",
-      V.spec_lint("mh/releases/2.1/2026-11-09-x.md", long_) == ["3,005 words, budget 2,500 (lint only: nothing is cut)"])
+      V.spec_lint("mh/releases/2.1/2026-11-09-review-x.md", long_) == ["3,005 words, budget 2,500 (lint only: nothing is cut)"])
 check("a live review without its closing is linted", "no ## What you should do" in V.spec_lint("readings/2026-11-09-x.md", long_))
 check("a type outside the specs and the closed set is named", V.spec_lint("to-read/x.md", '---\ntype: "memo"\n---\n# x\n') == ["type 'memo' has no spec"])
 new, fixes = V.normalise(bad)
@@ -1253,6 +1253,18 @@ check("a lane hop and an mh<line> name match; a lane named in passing does not",
       V.RELEASE_NAME.search("mh2-1-notes") and V.RELEASE_NAME.search("daily-wed-to-prod-3")
       and V.RELEASE_NAME.search("qa-cn3-to-daily-wed") and not V.RELEASE_NAME.search("risk-html-input-on-prod3")
       and not V.RELEASE_NAME.search("steps-to-production") and not V.RELEASE_NAME.search("audio-mixer-mediabox"))
+# the names the desk gave the line's notes on 2026-11-10: the rule <date>-<kind>-<what>, the line left to the folder
+NEW_21 = ["2026-10-27-review-cannot-evaluate", "2026-10-30-promote-qa-cn3-to-daily-wed", "2026-11-02-deploy-approvals-prod-3-prod-8",
+          "2026-11-02-promote-daily-wed-to-prod-3", "2026-11-02-promote-qa-cn3-to-daily-wed", "2026-11-03-docker-daily-wed-to-prod-3",
+          "2026-11-04-promote-qa-cn3-to-daily-wed-with-overlay", "2026-11-06-promote-build-85-to-daily-wed",
+          "2026-11-09-deploy-daily-wed-to-prod-3"]
+rn = '---\ntitle: "MH 2.1 · a → b · checks"\naliases: ["MH 2.1 · a → b · checks"]\ntype: "review"\ndate: "{d}"\n---\n# MH 2.1 · a → b · checks\n'
+check("the new real names in mh/releases/2.1 pass spec_lint with no name line",
+      not [n for n in NEW_21 if any(l.startswith("file name") for l in V.spec_lint(f"mh/releases/2.1/{n}.md", rn.format(d=n[:10])))])
+check("an old real name writing the line (2-1, mh2-1) breaks the name rule in mh/releases/2.1; in readings/ it does not",
+      all(any(l.startswith("file name") for l in V.spec_lint(f"mh/releases/2.1/{n}.md", rn.format(d=n[:10]))) for n in REAL_21
+          if re.search(r"(?:^|-)(?:mh)?2-1-", n[11:]))
+      and not any(l.startswith("file name") for l in V.spec_lint(f"readings/{REAL_21[-1]}.md", rn.format(d=REAL_21[-1][:10]))))
 check("a ticket number in a name is not a line", V.release_line({}, lambda k: None, "2026-10-29-verify-mh-1084-2") is None)
 check("a review named mh2-1-…, untitled, closes into mh/releases/2.1 by the line its name writes",
       V.home_for("archive/2026-11-09-mh2-1-daily-wed-to-prod-3.md", {"type": "review"}, lambda k: None) == "mh/releases/2.1"
