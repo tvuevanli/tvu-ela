@@ -1,6 +1,6 @@
 # 0010 — The vault is laid out by what the owner does with a note
 
-Status: accepted, 2026-10-23. Supersedes the layout, naming and property rules of ADR 0008; the rest of 0008
+Status: accepted, 2026-10-23; superseded by ADR 0015 (2026-11-11). It superseded the layout, naming and property rules of ADR 0008; the rest of 0008
 (a generated, one-way vault; the reading gate; deletion as done) stands.
 
 ## Context
