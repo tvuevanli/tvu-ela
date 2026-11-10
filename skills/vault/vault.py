@@ -755,6 +755,18 @@ def short_status(v):
     return v if len(v) <= 40 else v[:40].rsplit(" ", 1)[0]
 
 
+def as_list(v):
+    """A property read back as the text of a list (`["https://…"]`) written as that list, not as a string of it."""
+    if isinstance(v, str) and v.startswith("[") and v.endswith("]"):
+        try:
+            d = json.loads(v)
+            if isinstance(d, list):
+                return d
+        except ValueError:
+            pass
+    return v
+
+
 def front(existing, props):
     """Properties from the fixed vocabulary only; a source's own status, decided or written date fills a gap."""
     src = {}
@@ -770,7 +782,7 @@ def front(existing, props):
         props["date"] = (src.get("decided") or src.get("written"))[:10]
     if props.get("title") and props.get("type") not in ("home", "readme"):
         props["aliases"] = [props["title"]]                # the quick switcher matches an alias, not a heading
-    lines = [f"{k}: {json.dumps(props[k], ensure_ascii=False)}" for k in PROPS if props.get(k) or props.get(k) is False
+    lines = [f"{k}: {json.dumps(as_list(props[k]) if k in ('channels', 'keys', 'posted') else props[k], ensure_ascii=False)}" for k in PROPS if props.get(k) or props.get(k) is False
              or (k == "next" and props.get(k) == "")]   # an empty next field, ready for his word
     return "---\n" + "\n".join(lines) + "\n---\n\n" if lines else ""
 
@@ -4070,9 +4082,23 @@ def free_path(folder, name, own=None):
     return cand
 
 
+def prop_value(v):
+    """One front-matter value as written: a double-quoted value decoded the way front() encoded it, so a read and a
+    write give back the same text (a stripped-quotes reading kept the escapes, and each pass doubled them)."""
+    v = v.strip()
+    if len(v) > 1 and v[0] == '"' and v[-1] == '"':
+        try:
+            d = json.loads(v)
+            if isinstance(d, str):
+                return d
+        except ValueError:
+            pass
+    return v.strip("'\"")
+
+
 def props_of(lines):
     """A note's front-matter lines → {key: value}, quotes taken off: the one reading every caller shares."""
-    return {m.group(1): m.group(2).strip().strip("'\"") for m in (re.match(r"^([\w-]+):\s*(.*)$", l) for l in lines) if m}
+    return {m.group(1): prop_value(m.group(2)) for m in (re.match(r"^([\w-]+):\s*(.*)$", l) for l in lines) if m}
 
 
 def set_front(text, **props):
