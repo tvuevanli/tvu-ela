@@ -45,5 +45,28 @@ with tempfile.TemporaryDirectory() as t:
     open(os.path.join(v, "projects", key + ".md"), "w").write(page)
     check("a note may name a single-page project", V.project_lint("x.md", {"project": key}, v) is None
           and V.project_lint("x.md", {"project": "nope"}, v) is not None)
+    check("a slug is two to four whole words, never a phrase cut mid-way",
+          V.project_slug("Encoding Level: Auto as the default option, all supported fixed levels (H.264/H.265)") == "encoding-level-auto"
+          and V.project_slug("Destination-side CSC, with and without mixer") == "destination-side-csc"
+          and V.project_slug("[UR] Start CSC loopback-only without auth token") == "start-csc-loopback-only")
+    check("a page is that ticket's when its keys lead with it", V.page_ticket_key('---\nkeys: "MH-1 MH-9"\n---\n# x\n') == "MH-1"
+          and V.page_ticket_key('---\ntype: "project"\n---\n# x\n') is None)
+    check("deadline is optional for a ticket project, required of outside work",
+          not any("deadline" in x for x in V.spec_lint(f"projects/{key}.md", page.replace('deadline: "2026-12-01"\n', "")))
+          and any("missing" in x and "deadline" in x for x in V.spec_lint("projects/sb/sb.md", '---\ntitle: "SB"\ntype: "project"\ndate: "2026-11-01"\nsource: "vault"\n---\n# SB\n')))
+    # the desk's hand-named page leads its keys with MH-1: the sync adopts it and makes no second page
+    open(os.path.join(v, "projects", key + ".md"), "w").write("")
+    os.remove(os.path.join(v, "projects", key + ".md"))
+    open(os.path.join(v, "projects", "mh-1-by-hand.md"), "w").write(page)
+    s = {"vault": v, "runtime": t, "reports": os.path.join(t, "r"), "elak": None}
+    os.makedirs(os.path.join(t, "r", "ela"))
+    pages = V.project_pages(v)
+    paged = {k for text in pages.values() for k in V.KEY_RX.findall(V.props_of(V.split_front(text)[0]).get("keys") or "")}
+    check("a hand-named page leading with the ticket is its page: no second one", "MH-1" in paged and list(pages) == ["mh-1-by-hand"])
+    asked = page.replace("None yet. Each is a box", "- [ ] Who carries it? · ela proposes: the app owner\n\nEach is a box")
+    pn = V.project_note("mh-1-by-hand", asked, v, [], today, "", tickets[0])
+    c = V.ask_candidates(today, [], [pn])
+    check("the page's open questions show on today.md as one line linking the page",
+          len(c) == 1 and c[0]["link"] == "projects/mh-1-by-hand" and c[0]["text"].startswith("1 open question on MH-1 "))
 print("project jira: all offline checks passed" if not failures else f"project jira: {len(failures)} failed")
 sys.exit(1 if failures else 0)

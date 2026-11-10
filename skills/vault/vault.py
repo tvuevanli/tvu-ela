@@ -125,7 +125,7 @@ ELA_TARGET = re.compile(r"(?<![\w-])(ela|ela-runner|elak|vault)(?![\w-])", re.I)
 ATTACH = "ela/attachments"
 DELETABLE = (DAYS, TO_READ, READINGS)
 KEEP_FOREVER = ("brief", "week", "changes")   # the morning pages are the record of what ela told the owner; the rest expires
-PROPS = ("title", "aliases", "type", "date", "kind", "project", "deadline", "next-step", "customer", "hubspot", "graph", "box",
+PROPS = ("title", "aliases", "type", "date", "kind", "project", "slug", "deadline", "next-step", "customer", "hubspot", "graph", "box",
          "status", "result", "target", "progress", "source",
          "moves", "next", "ela", "posted", "channels", "keys", "watch", "watched", "last", "language")
 # the whole vocabulary; no tags (ADR 0010)
@@ -1576,7 +1576,8 @@ SPECS = {
         kind="bounded work with a deadline and parties outside the program",
         name=(r"^projects/(?:([^/]+)/\1|[a-z0-9][a-z0-9-]*)\.md$", "`projects/<key>.md`, or `projects/<key>/<key>.md` once it has a folder"),
         title=(r".", "the project's name"),
-        required=("date", "source", "deadline"), optional=("next-step", "channels", "keys", "posted", "watch", "customer", "hubspot"),
+        # deadline: required of outside work (a PoC has a day), optional for a ticket project, whose page leads its keys
+        required=("date", "source", "deadline"), optional=("next-step", "channels", "keys", "posted", "watch", "customer", "hubspot", "slug"),
         sections=("Goal", "Parties?", "Dates?", "What is known?", "Next step") + TAIL_HEADS,
         closing="## Next step in the head (`next-step` is the line Home may name); the tail from Waiting for your word is the sync's"),
     "meeting": dict(
@@ -1749,7 +1750,8 @@ def spec_lint(rel, text, generated=False, projects=None):
         lost = [n for n in re.findall(r"(?<![\d.])\d{2,}(?![\d.])", stem.replace("-", " ")) if int(n) not in {int(d) for d in re.findall(r"\d+", title)}]
         if lost:
             out.append(f"the file name says {', '.join(lost)}, the title does not")
-    missing = [p for p in sp["required"] if not props.get(p)]
+    missing = [p for p in sp["required"] if not props.get(p)
+               and not (kind == "project" and p == "deadline" and page_ticket_key(text))]
     if missing:
         out.append("missing " + ", ".join(missing))
     known = set(PROPS) | set(LIFE_PROPS) | set(sp["required"]) | set(sp["optional"])
@@ -2164,15 +2166,39 @@ def jira_projects(runtime):
     return out
 
 
-def jira_project_key(t):
-    """The page key of a Jira project: the ticket key and a short slug of its title (`mh-3983-csc-control-from-http`)."""
-    words = slug(t["summary"]).split("-")
-    s, out = "", []
-    for w in words:
-        if len("-".join(out + [w])) > 32:
+SLUG_STOP = frozenset("a an and as at by for from in into of on or over the to via with without vs".split())
+
+
+def project_slug(summary):
+    """Two to four whole words of a summary: its words, a layer tag (`[UR]`) left out, up to the first function word
+    once two are taken, never more than four (`Encoding Level: Auto as the default …` → encoding-level-auto). A summary
+    cut at a character count mid-phrase (`encoding-level-auto-as-the`) is what this replaces."""
+    words = []
+    for w in slug(re.sub(r"\[[^\]]*\]", " ", summary or ""), 400).split("-"):
+        if not w or w == "untitled":
+            continue
+        if w in SLUG_STOP:
+            if len(words) >= 2:
+                break
+            if not words:
+                continue
+        words.append(w)
+        if len(words) == 4:
             break
-        out.append(w)
-    return f"{t['key'].lower()}-{'-'.join(out)}".rstrip("-")
+    return "-".join(words) or "project"
+
+
+def jira_project_key(t):
+    """The page name of a Jira project: the ticket key and two to four whole words of its title
+    (`mh-3982-encoding-level-auto`). A `slug` property on an existing page, or a rename by hand, wins: a page is found
+    by its key, never by its name."""
+    return f"{t['key'].lower()}-{project_slug(t['summary'])}"
+
+
+def page_ticket_key(text):
+    """The ticket a project page belongs to: the first key of its `keys` property, or None."""
+    keys = [k for k in KEY_RX.findall(props_of(split_front(text)[0]).get("keys") or "") if not NOT_KEYS.match(k)]
+    return keys[0] if keys else None
 
 
 def jira_project_page(t, today):
@@ -2223,7 +2249,15 @@ def project_facts(key, text, today, path=None, ticket=None):
     dm = re.search(r"\d{4}-\d{2}-\d{2}", props.get("deadline") or "")
     deadline = datetime.date.fromisoformat(dm.group(0)) if dm else None
     box = re.search(r"^[ \t]*[-*][ \t]+\[ \][ \t]+(\S.*?)[ \t]*$", head, re.M)
-    step = (props.get("next-step") or "").strip() or (box.group(1).strip() if box else None)
+    # the step: the property, else the Next step section's first box, else its first paragraph (an open question
+    # further down is not the step), else the head's first box
+    sec = re.search(r"^##[ \t]+Next step[ \t]*\n(.*?)(?=^##[ \t]|\Z)", head, re.M | re.S)
+    sec_box = HEAD_BOX.search(sec.group(1)) if sec else None
+    para = next((" ".join(p.split()) for p in re.split(r"\n\s*\n", sec.group(1)) if p.strip()), None) if sec else None
+    if para and (para.startswith(("Not written yet", "-", "*")) or sec_box):
+        para = None
+    step = ((props.get("next-step") or "").strip() or (sec_box.group(1).strip() if sec_box else None) or para
+            or (box.group(1).strip() if box else None))
     due = step_date(step, today) if step else None
     overdue = bool(step) and ((due < today) if due else (deadline is not None and deadline < today))
     keys = list(dict.fromkeys(k for k in KEY_RX.findall(props.get("keys") or "") if not NOT_KEYS.match(k)))
@@ -2303,22 +2337,20 @@ def stands_lines(t, jira_base=""):
 
 
 def project_tail(facts, rows, today, jira_base=""):
-    """The sync's half of a project page: TAIL_HEADS in their order. Waiting for your word lists the head's own
-    unticked boxes first (each links to its section), then the project's notes in to-read and in-progress."""
+    """The sync's half of a project page: TAIL_HEADS in their order. Waiting for your word lists only the asks that
+    live on other notes (the project's notes in to-read and in-progress); the head's own open questions are on the page
+    already and are not echoed (the desk's brief of 2026-11-11, A3). A label is plain text: a title carrying a Markdown
+    link would break the wikilink around it."""
     d = facts["deadline"]
     L = stands_lines(facts.get("ticket"), jira_base) + [f"## {ASKS_HEAD}", ""]
-    page = facts["path"][:-3]
-    mine = head_asks(facts["head"])
-    for sec, text in mine:
-        L.append(f"- [[{page}#{sec}|{plain(text).replace('|', '/')[:140]}]] · in the head" if sec else f"- {plain(text)[:140]} · in the head")
     asks = [r for r in rows if top(r["path"]) in (TO_READ, IN_PROGRESS)]
     for r in asks:
         bits = [r["type"], r["status"], f"next: {r['next']}" if r.get("next") else None]
-        L.append(f"- [[{r['path'][:-3]}|{r['title']}]] · " + " · ".join(b for b in bits if b))
-    L += ["Nothing waits on you for this project."] if not asks and not mine else []
+        L.append(f"- [[{r['path'][:-3]}|{label(r['title'])}]] · " + " · ".join(b for b in bits if b))
+    L += ["Nothing waits on you outside this page."] if not asks else []
     L += ["", "## Notes", ""]
     if not rows:
-        L.append(f"No note names this project yet: `project: {facts['key']}` in a note's properties, or a note in its folder.")
+        L += [f"No note names this project yet: `project: {facts['key']}` in a note's properties, or a note in its folder.", ""]
     groups = {}
     for r in rows:
         groups.setdefault("in this folder" if r["inside"] else top(r["path"]), []).append(r)
@@ -2328,7 +2360,7 @@ def project_tail(facts, rows, today, jira_base=""):
         L.append(f"**{g}**" + ("" if g == "in this folder" else "/"))
         for r in groups[g]:
             bits = [r["type"], r["date"], r["status"] if g not in (READINGS, "in this folder") else None]
-            L.append(f"- [[{r['path'][:-3]}|{r['title']}]] · " + " · ".join(b for b in bits if b))
+            L.append(f"- [[{r['path'][:-3]}|{label(r['title'])}]] · " + " · ".join(b for b in bits if b))
         L.append("")
     keys = [f"[{k}]({jira_base}/browse/{k})" if jira_base else k for k in facts["keys"]]
     links = facts["links"]
@@ -2340,7 +2372,8 @@ def project_tail(facts, rows, today, jira_base=""):
     L += [f"## {TAIL_HEADS[2]}", "", f"*{' · '.join(bits)}*"] + [f"- [thread]({l})" for l in links] + [""]
     L += [AFTERWARDS_HEAD, ""] + (facts["afterwards"] or ["*Nothing yet: the 13:00, 17:30 and 19:00 passes read its keys and threads.*"]) + [""]
     L += [f"## {TAIL_HEADS[4]}", ""]
-    L.append(f"*{d.isoformat()} · {days_words(facts['days'])}" if d else "*No deadline: write `deadline: YYYY-MM-DD` in the properties")
+    L.append(f"*{d.isoformat()} · {days_words(facts['days'])}" if d else "*No deadline" if facts["keys"]
+             else "*No deadline: write `deadline: YYYY-MM-DD` in the properties")
     if facts["step"]:
         L[-1] += f" · next step: {facts['step']}" + (" (**overdue**)" if facts["overdue"] else "")
     L[-1] += "*"
@@ -2424,8 +2457,14 @@ def infer_projects(vault, projects, notes=(), natives=(), dry_run=False):
 
 # ── home ──────────────────────────────────────────────────────────────────────────────────────────────
 
+def label(text):
+    """A wikilink's label: plain text, no `|` and no `]]`. A Markdown link inside a label (`[[…|[MH-3987](…) · …]]`)
+    breaks the wikilink, so a key in a title stays the plain key."""
+    return plain(text or "").replace("|", "/").replace("[[", "[").replace("]]", "]")
+
+
 def link(n):
-    return f"[[{n.path[:-3]}|{n.title}]]"
+    return f"[[{n.path[:-3]}|{label(n.title)}]]"
 
 
 def home(today, now, notes, desk=None):
@@ -2904,20 +2943,29 @@ def ask_candidates(today, actions, notes):
         i = action_id(a)
         out.append({"id": i, "box": f"apply {a['n']}", "text": a.get("text") or "", "sig": evidence_sig(a.get("evidence")),
                     "first": seen.get(i, iso)})
+    projects = {n.facts["key"]: n.facts for n in notes if n.props.get("type") == "project" and getattr(n, "facts", None)}
+    held = {}                                              # a project's asks, its notes' open boxes folded in: {key: [n]}
     for n in sorted(notes, key=lambda n: n.path):
         if top(n.path) != TO_READ:
             continue
         left, _ = open_asks(n.body)
-        if left:
+        if left and n.props.get("project") in projects:
+            held.setdefault(n.props["project"], []).append((left, n))
+        elif left:
             out.append({"id": f"note:{n.path}", "text": f"{n.title} ({left} open)", "link": n.path[:-3],
                         "sig": evidence_sig(n.body), "first": (n.props.get("date") or iso)[:10]})
-    for n in notes:
-        f = getattr(n, "facts", None)
-        if n.props.get("type") != "project" or not f:
+    for key, f in projects.items():                        # an ask on a thing shows once, as a line linking the thing
+        mine = head_asks(f["head"])
+        others = held.get(key, [])
+        count = len(mine) + sum(left for left, _ in others)
+        if not count:
             continue
-        for sec, text in head_asks(f["head"]):
-            out.append({"id": f"project:{f['key']}:{evidence_sig(text)}", "text": f"{f['key']}: {plain(text)}",
-                        "link": f"{f['path'][:-3]}#{sec}" if sec else f["path"][:-3], "sig": evidence_sig(text), "first": iso})
+        name = re.sub(r"^[A-Z][A-Z0-9]+-\d+ · ", "", plain(f["title"]))
+        first = min([(n.props.get("date") or iso)[:10] for _, n in others] + [iso])   # the state keeps the earliest seen
+        lead = (f["keys"] or [""])[0]
+        out.append({"id": f"project:{key}", "text": f"{count} open question{'s' if count != 1 else ''} on "
+                    f"{lead + ' ' if lead else ''}{name}", "link": f["path"][:-3],
+                    "sig": evidence_sig(" ".join(t for _, t in mine) + " ".join(n.path for _, n in others)), "first": first})
     return out
 
 
@@ -3032,10 +3080,16 @@ def today_page(today, notes, desk=None, shown=(), more=0, dropped=0):
              "[[lanes|lanes]]" if any(n.props.get("type") == "lanes" for n in notes) else None,
              "[[board|board]]" if any(n.props.get("type") == "board" for n in notes) else None,
              "[[recent|recent]]" if any(n.props.get("type") == "recent" for n in notes) else None,
-             ("projects: " + " · ".join(f"[[{f['path'][:-3]}|{f['key']}]]" for f in projects)) if projects else None,
+             ("projects: " + " · ".join(f"[[{f['path'][:-3]}|{project_label(f)}]]" for f in projects)) if projects else None,
              f"[[{DROPPED[:-3]}|dropped asks]]" + (f" ({dropped})" if dropped else ""),
              f"[[{OVERVIEW[:-3]}|ela]]"]
     return "\n".join(L + ["---", "", " · ".join(x for x in links if x), ""])
+
+
+def project_label(f):
+    """A project's short name in a list of links: its ticket key when the page is that ticket's, else its page key."""
+    lead = (f.get("keys") or [None])[0]
+    return lead if lead and f["key"].startswith(lead.lower() + "-") else f["key"]
 
 
 def dropped_page(state):
@@ -3587,9 +3641,9 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since
             n.props["project"] = props_of(n.front_lines)["project"]
     pages = project_pages(s["vault"])
     tickets = jira_projects(s.get("runtime"))
-    def ticket_of(text):
-        keys = set(KEY_RX.findall(props_of(split_front(text)[0]).get("keys") or ""))
-        return next((t for t in tickets if t["key"] in keys), None)
+    def ticket_of(text):                                   # a page belongs to the ticket its keys lead with
+        lead = page_ticket_key(text)
+        return next((t for t in tickets if t["key"] == lead), None)
     def watched(k, text):                                  # a Jira project's notes may name it or any of its sub-tasks
         t = ticket_of(text)
         return set(project_facts(k, text, today)["keys"]) | {x[0] for x in (t or {}).get("subtasks") or []}
@@ -3618,7 +3672,8 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since
         jira_base = next((l.split("=", 1)[1].strip().rstrip("/") for l in open(env) if l.startswith("JIRA_BASE_URL=")), "")
     for key, text in pages.items():                        # each project's page: its head as written, its tail from the notes
         notes.append(project_note(key, text, s["vault"], notes + native, today, jira_base, ticket_of(text)))
-    paged = {t["key"] for text in pages.values() for t in [ticket_of(text)] if t}
+    # a ticket a page leads with, or names among its keys (MH-3990 under the MH-3735 project), has its page: never a second
+    paged = {k for text in pages.values() for k in KEY_RX.findall(props_of(split_front(text)[0]).get("keys") or "")}
     for t in tickets:                                      # an open kind:project ticket with no page gets one, once
         if t["key"] not in paged:
             key = jira_project_key(t)

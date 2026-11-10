@@ -45,7 +45,7 @@ with tempfile.TemporaryDirectory() as t:
     check("the head is the skeleton, none of its headings the tail's, the tail a first render below it",
           body.startswith("# Super Bowl\n") and all(f"## {h}\n" in body for h in P.HEAD_SECTIONS) and not set(P.HEAD_SECTIONS) & set(V.TAIL_HEADS)
           and body.index("## Next step") < body.index("## Waiting for your word") < body.index("## Deadline")
-          and "Nothing waits on you for this project." in body and "no keys yet" in body)
+          and "Nothing waits on you outside this page." in body and "no keys yet" in body)
     check("new refuses an existing key, a bad key and a bad deadline",
           call(P.cmd_new, key="sb", deadline=dl)[0] == 3 and call(P.cmd_new, key="Bad Key", deadline=dl)[0] == 2
           and call(P.cmd_new, key="ok", deadline="next week")[0] == 2 and not os.path.exists(os.path.join(vault, "projects", "ok")))
@@ -57,9 +57,12 @@ with tempfile.TemporaryDirectory() as t:
     head = "# SB\n\n## Next step\n\n- [ ] ask one | two\n- [x] done one\n- [ ] ask three\n  ela: yes, go\n- [ ] ask four\n  ela: keep / drop —\n"
     f = {**V.project_facts("sb", '---\ntitle: "SB"\ntype: "project"\n---\n' + head, today), "head": head}
     tail = V.project_tail(f, [], today)
-    check("the head's own unticked boxes wait for his word, linked to their section; ticked or answered ones do not",
-          "- [[projects/sb/sb#Next step|ask one / two]] · in the head" in tail and "ask four" in tail
-          and "done one" not in tail.split("## Notes")[0] and "ask three" not in tail and "Nothing waits on you" not in tail)
+    check("the head's own boxes are not echoed in the tail: Waiting for your word lists only asks on other notes",
+          "in the head" not in tail and "ask one" not in tail.split("## Notes")[0] and "Nothing waits on you outside this page." in tail)
+    t2 = V.project_tail(f, [{"path": "to-read/x.md", "title": "[MH-3987](https://j/browse/MH-3987) · a plan", "type": "plan",
+                             "status": "proposed", "next": "", "date": "2026-11-10", "inside": False}], today)
+    check("a wikilink label carries the plain key, never a Markdown link",
+          "[[to-read/x|MH-3987 · a plan]]" in t2 and "|[MH-3987](" not in t2)
     open(os.path.join(vault, "to-read", "p.md"), "w").write('---\ntitle: "A plan"\ntype: "plan"\ndate: "2026-11-02"\nstatus: "proposed"\nnext: ""\nproject: "sb"\n---\n# A plan\n')
     rows = json.loads(call(P.cmd_list, json=True)[1])
     check("list gives each project's key, deadline, days left and open asks",

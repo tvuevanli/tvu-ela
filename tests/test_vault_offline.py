@@ -156,7 +156,7 @@ with tempfile.TemporaryDirectory() as tmp:
           and [h for h in re.findall(r"(?m)^## (.+)$", sbb) if h in V.TAIL_HEADS] == list(V.TAIL_HEADS) and sbb.count("## Waiting for your word") == 1)
     check("the tail says the days left and the overdue step, the keys watched, and lists the folder's reading and the inferred one",
           f"## Deadline\n\n*{SB_DEADLINE} · 30 days left · next step: wire the decoder by 2026-01-05 (**overdue**)*" in sbb
-          and "## Keys and threads\n\n*keys MH-5 · no threads · watched until" in sbb and "Nothing waits on you for this project." in sbb
+          and "## Keys and threads\n\n*keys MH-5 · no threads · watched until" in sbb and "Nothing waits on you outside this page." in sbb
           and "**in this folder**\n- [[projects/sb/glossary|Glossary]] · review · 2026-11-01" in sbb
           and f"**readings**/\n- [[readings/{today}-sb-read|A read for the project]] · review · {today}" in sbb
           and "*Nothing yet: the 13:00" in sbb)
