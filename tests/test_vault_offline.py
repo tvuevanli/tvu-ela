@@ -1265,6 +1265,39 @@ check("an old real name writing the line (2-1, mh2-1) breaks the name rule in mh
       all(any(l.startswith("file name") for l in V.spec_lint(f"mh/releases/2.1/{n}.md", rn.format(d=n[:10]))) for n in REAL_21
           if re.search(r"(?:^|-)(?:mh)?2-1-", n[11:]))
       and not any(l.startswith("file name") for l in V.spec_lint(f"readings/{REAL_21[-1]}.md", rn.format(d=REAL_21[-1][:10]))))
+check("a release review's name is mended to the rule; a name under it, or another kind, is left",
+      V.release_review_name("2026-11-09-mh2-1-daily-wed-to-prod-3.md") == "2026-11-09-review-daily-wed-to-prod-3.md"
+      and V.release_review_name("2026-11-02-promote-2-1-daily-wed-to-prod-3.md") == "2026-11-02-promote-daily-wed-to-prod-3.md"
+      and V.release_review_name("2026-10-27-release-2-1-cannot-evaluate.md") == "2026-10-27-review-cannot-evaluate.md"
+      and V.close_name("mh/releases/2.1", "review", "to-read/2026-11-09-deploy-daily-wed-to-prod-3.md") == "2026-11-09-deploy-daily-wed-to-prod-3.md"
+      and V.close_name("mh/releases/2.1", "verify", "to-read/2026-11-09-mh2-1-x.md") == "2026-11-09-mh2-1-x.md"
+      and V.close_name("archive", "review", "to-read/2026-11-09-mh2-1-x.md") == "2026-11-09-mh2-1-x.md")
+for how in ("finish", "move"):
+    with tempfile.TemporaryDirectory() as t:
+        vlt, rep = os.path.join(t, "v"), os.path.join(t, "r")
+        os.makedirs(os.path.join(vlt, "to-read")); os.makedirs(os.path.join(vlt, "mh/releases/2.1")); os.makedirs(os.path.join(rep, "ela"))
+        old = "2026-11-02-promote-2-1-daily-wed-to-prod-3"
+        open(os.path.join(vlt, "to-read", old + ".md"), "w").write(
+            '---\ntitle: "MH 2.1 · daily-wed → prod-3 · checks"\naliases: ["MH 2.1 · daily-wed → prod-3 · checks"]\ntype: "review"\n'
+            'date: "2026-11-02"\n---\n# MH 2.1 · daily-wed → prod-3 · checks\n')
+        open(os.path.join(vlt, "mh/releases/2.1/release-2-1-record.md"), "w").write(
+            f"- [[{old}|daily → prod]] and [[to-read/{old}#Asks]] and [x]({old}.md); [[{old}-2]] is another note\n")
+        if how == "finish":
+            V.finish(vlt, rep, f"to-read/{old}.md", "done")
+        else:
+            V.move_note(vlt, rep, f"to-read/{old}.md", "archive", "closed")
+        new = "mh/releases/2.1/2026-11-02-promote-daily-wed-to-prod-3.md"
+        rec = open(os.path.join(vlt, "mh/releases/2.1/release-2-1-record.md")).read()
+        row = json.loads(open(os.path.join(rep, "ela", "vault-removed.jsonl")).read().splitlines()[-1])
+        check(f"{how}: a release review closing into its line is renamed to the rule, its old name an alias, its links "
+              "rewritten, the close logged under the new path with renamed_from",
+              os.path.isfile(os.path.join(vlt, new)) and not os.path.exists(os.path.join(vlt, "to-read", old + ".md"))
+              and old in V.list_prop(V.split_front(open(os.path.join(vlt, new)).read())[0], "aliases")
+              and "[[2026-11-02-promote-daily-wed-to-prod-3|daily → prod]]" in rec
+              and "[[to-read/2026-11-02-promote-daily-wed-to-prod-3#Asks]]" in rec
+              and "(2026-11-02-promote-daily-wed-to-prod-3.md)" in rec and f"[[{old}-2]]" in rec
+              and row["path"] == new and row["renamed_from"] == f"to-read/{old}.md"
+              and f"to-read/{old}.md" in V.load_removed(os.path.join(rep, "ela", "vault-removed.jsonl"))[0])
 check("a ticket number in a name is not a line", V.release_line({}, lambda k: None, "2026-10-29-verify-mh-1084-2") is None)
 check("a review named mh2-1-…, untitled, closes into mh/releases/2.1 by the line its name writes",
       V.home_for("archive/2026-11-09-mh2-1-daily-wed-to-prod-3.md", {"type": "review"}, lambda k: None) == "mh/releases/2.1"

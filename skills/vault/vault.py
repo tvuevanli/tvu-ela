@@ -3317,6 +3317,8 @@ def load_removed(path):
                         src_of.pop(p, None)
                 elif not (row.get("by") == "ela" and str(row.get("src") or "").startswith("blueprint/")):
                     paths.add(row["path"])
+                    if row.get("renamed_from"):          # the old path is gone by the owner's close, not a deletion
+                        paths.add(row["renamed_from"])
                     if row.get("src"):
                         src_of[row["path"]] = row["src"]
             except (ValueError, KeyError):
@@ -3352,7 +3354,7 @@ def archive_refs(vault):
     return {r.rsplit("/img/", 1)[0] if "/img/" in r else os.path.dirname(r) for r in refs}
 
 
-def record_removed(path, rels, sources, now, archived=None, by="owner"):
+def record_removed(path, rels, sources, now, archived=None, by="owner", renamed=None):
     """Log each note the owner finished with: dragged into archive/ (keep it, nothing to do) or deleted (drop it). Each way he has read it, so it stays out of the generated folders. None is criticism or
     a verdict on a decision; feedback comes as a message (Slack `feedback`, a session)."""
     archived = archived or {}
@@ -3369,6 +3371,8 @@ def record_removed(path, rels, sources, now, archived=None, by="owner"):
                 row["home"] = to
             if sources.get(r):
                 row["src"] = sources[r]
+            if (renamed or {}).get(r):                     # closed under a new name: logged there, the old one kept
+                row["path"], row["renamed_from"] = renamed[r], r
             fh.write(json.dumps(row, ensure_ascii=False) + "\n")
 
 
@@ -3706,6 +3710,62 @@ def note_path(vault, path):
     return rel, p
 
 
+def release_review_name(name):
+    """A release review's file name under the rule (RELEASE_REVIEW_NAME): a leading mh<major>-<minor>- or
+    release-<major>-<minor>- and a <major>-<minor> after the kind word dropped, the line being the folder's; a name
+    with no kind word becomes review-<what>. Any other name is returned as it is."""
+    m = re.match(r"^(\d{4}-\d{2}-\d{2})-(.+)\.md$", name)
+    if not m:
+        return name
+    kinds = "|".join(RELEASE_KINDS)
+    rest = re.sub(r"^(?:mh-?|release-)\d+-\d+-", "", m.group(2))
+    rest = re.sub(rf"^({kinds})-\d+-\d+-", r"\1-", rest)
+    if not re.match(rf"^(?:{kinds})-", rest):
+        rest = "review-" + rest
+    return f"{m.group(1)}-{rest}.md"
+
+
+def close_name(folder, kind, rel):
+    """The name a note closes under in `folder`: its own, except a review of a release closing into mh/releases/,
+    renamed to the rule when its name breaks it."""
+    name = os.path.basename(rel)
+    if kind != "review" or kept_home(folder) != RELEASES or re.match(rf"^{RELEASE_REVIEW_NAME}\.md$", name):
+        return name
+    return release_review_name(name)
+
+
+def relink(vault, old, new):
+    """Rewrite each [[link]] (and each markdown link to <name>.md) naming the note `old` to `new` across the vault;
+    returns the files changed. A link resolves by name, so its folder path, heading and alias are kept."""
+    wiki = re.compile(r"(\[\[(?:[^\[\]|#]*/)?)" + re.escape(old) + r"(?=(?:\.md)?[\]|#])", re.I)
+    md = re.compile(r"(\]\((?:[^()\s]*/)?)" + re.escape(old) + r"(?=\.md[)#])", re.I)
+    changed = []
+    for top_, dirs, fs in os.walk(vault):
+        dirs[:] = [x for x in dirs if not x.startswith(".")]
+        for f in fs:
+            if not f.endswith((".md", ".base", ".canvas")):
+                continue
+            p = os.path.join(top_, f)
+            try:
+                text = open(p, encoding="utf-8").read()
+            except (OSError, UnicodeDecodeError):
+                continue
+            out = md.sub(lambda m: m.group(1) + new, wiki.sub(lambda m: m.group(1) + new, text))
+            if out != text:
+                atomic_write(p, out)
+                changed.append(os.path.relpath(p, vault).replace(os.sep, "/"))
+    return changed
+
+
+def with_alias(text, alias):
+    """The note with `alias` added to its aliases (after the title), so the quick switcher still finds an old name."""
+    fl, body = split_front(text)
+    al = list_prop(fl, "aliases")
+    if not fl or alias in al:
+        return text
+    return "---\n" + "\n".join(front_line(fl, "aliases", al + [alias])) + "\n---\n" + body.lstrip("\n")
+
+
 def move_note(vault, reports, rel, to, status=None, waits_on=None, wake=None, next_=None):
     """Move a note on the owner's word. Out of to-read it becomes a page whose source is the vault, so the sync
     never writes it again where it was nor overwrites it where it went; the move is logged as his. Into parked it
@@ -3743,7 +3803,10 @@ def move_note(vault, reports, rel, to, status=None, waits_on=None, wake=None, ne
             text = set_front(text, **{MOVE_SET: "built", NEXT: "", "closed-by": None})
         elif folder == READINGS:                           # a reading has no life: no status, no moves
             text = set_front(text, **{MOVE_SET: None, NEXT: None})
-    dst = free_path(os.path.join(vault, folder), os.path.basename(rel), own=p)
+    name = close_name(folder, kind, rel)
+    if name != os.path.basename(rel):                      # renamed to the rule: the old name stays findable
+        text = with_alias(text, os.path.basename(rel)[:-3])
+    dst = free_path(os.path.join(vault, folder), name, own=p)
     fl, body = split_front(text)
     body = with_moves(body, f"{folder}/{os.path.basename(dst)}", "parked" if folder == PARKED else kind if folder == TO_READ else None)
     text = "---\n" + "\n".join(fl) + "\n---\n" + body.lstrip("\n")
@@ -3755,8 +3818,12 @@ def move_note(vault, reports, rel, to, status=None, waits_on=None, wake=None, ne
             src = (json.load(open(os.path.join(vault, MANIFEST))).get("sources") or {}).get(rel)
         except (OSError, ValueError):
             src = None
+        new = f"{folder}/{os.path.basename(dst)}"
+        if name != os.path.basename(rel):
+            relink(vault, os.path.basename(rel)[:-3], os.path.basename(dst)[:-3])
         record_removed(os.path.join(reports, "ela", "vault-removed.jsonl"), [rel], {rel: src} if src else {},
-                       datetime.datetime.now(), {os.path.basename(rel).lower(): folder}, by="owner")
+                       datetime.datetime.now(), {os.path.basename(rel).lower(): folder}, by="owner",
+                       renamed={rel: new} if name != os.path.basename(rel) else None)
     return f"{folder}/{os.path.basename(dst)}"
 
 
@@ -3970,16 +4037,24 @@ def finish(vault, reports, rel, to, move=None):
         src = (json.load(open(os.path.join(vault, MANIFEST))).get("sources") or {}).get(rel)
     except (OSError, ValueError):
         src = None
-    folder = home_for(rel, props_of(split_front(open(p, encoding="utf-8").read())[0]))
+    props = props_of(split_front(open(p, encoding="utf-8").read())[0])
+    folder = home_for(rel, props)
     os.makedirs(os.path.join(vault, folder), exist_ok=True)
-    dst = free_path(os.path.join(vault, folder), os.path.basename(rel))
+    name = close_name(folder, props.get("type"), rel)
+    dst = free_path(os.path.join(vault, folder), name)
     os.replace(p, dst)
     text = clear_warn(PROP_RE.sub("", open(dst, encoding="utf-8").read()))   # the boxes belong to to-read
     if kept_home(folder):                                  # closed, and the move that closed it kept in next
         text = set_front(text, status="closed", **{MOVE_SET: "case" if folder == CASES else "closed", NEXT: move or "done"})
+    renamed = name != os.path.basename(rel)                # renamed to the rule: the old name an alias, its links follow
+    if renamed:
+        text = with_alias(text, os.path.basename(rel)[:-3])
     open(dst, "w", encoding="utf-8").write(text)
+    if renamed:
+        relink(vault, os.path.basename(rel)[:-3], os.path.basename(dst)[:-3])
     record_removed(os.path.join(reports, "ela", "vault-removed.jsonl"), [rel], {rel: src} if src else {},
-                   datetime.datetime.now(), {os.path.basename(rel).lower(): folder}, by="owner")
+                   datetime.datetime.now(), {os.path.basename(rel).lower(): folder}, by="owner",
+                   renamed={rel: f"{folder}/{os.path.basename(dst)}"} if renamed else None)
     return folder
 
 
