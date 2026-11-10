@@ -180,18 +180,18 @@ with tempfile.TemporaryDirectory() as tmp:
     r0 = open(f"{vault}/readings/{today[:4]}-09-10-review-0.md").read()
     check("a report is a reading: no status, no next, no moves", "\nstatus:" not in r0 and "next:" not in r0 and "moves:" not in r0
           and V.MOVES_HEAD not in r0 and not os.path.exists(f"{vault}/to-read/{today[:4]}-09-10-review-0.md"))
-    home = open(f"{vault}/home.md").read()
-    above = home.split("\n---\n")[1].split("\n---\n")[0] if home.startswith("---\n") else home
-    check("Home is five lines above a divider, then links and what ela owes",
-          all(x in above for x in ("**Done since you last looked:**", "**At 10:00 unless you tick:**", "**Only you:**", "**MediaHub:**", "**From ela:**"))
-          and f"[[days/{today[:4]}/{today}-brief|brief]]" in home and "ela owes a shorter version" in home
-          and "wait for your word)" in home and not V.GUIDE.search(home))
-    check("the changes page is a day page, linked from Home", os.path.exists(f"{vault}/days/{today[:4]}/{today}-changes.md")
-          and f"[[days/{today[:4]}/{today}-changes|changes]]" in home)
+    home = open(f"{vault}/{V.TODAY}").read()
+    above = home.split("---\n", 2)[2].split("\n---\n")[0]
+    check("today.md is the one page: facts, needs you, today, then one line of links; Home points to it",
+          all(f"## {x}" in above for x in ("Facts", "Needs you", "Today")) and f"[[days/{today[:4]}/{today}-brief|morning page]]" in home
+          and "[[reference/dropped|dropped asks]]" in home and not V.GUIDE.search(home) and len(V.plain(above).split()) <= V.TODAY_WORDS
+          and "[[today]]" in open(f"{vault}/home.md").read() and os.path.exists(f"{vault}/{V.DROPPED}"))
+    check("the changes page is a day page, linked from today.md", os.path.exists(f"{vault}/days/{today[:4]}/{today}-changes.md")
+          and f"[[days/{today[:4]}/{today}-changes|what changed]]" in home)
     rc = open(f"{vault}/recent.md").read()
     check("the recent page is a generated root page of its type, rendered from the newest result, with its refresh box",
           'type: "recent"' in rc and "# Recent · 7 days" in rc and "- [ ] refresh recent (last 09:00;" in rc and "## 2.1" in rc and "dev" in rc)
-    check("Home's footer links it beside lanes and board", "[[recent|recent]]" in home.split("\n---\n")[-1])
+    check("today.md's footer links it beside lanes and board", "[[recent|recent]]" in home.split("\n---\n")[-1])
     tr = open(f"{vault}/lanes/train-2.1.md").read()
     check("a line's train page lands under lanes as a generated page of its type", 'type: "train"' in tr and "# Train · 2.1" in tr and f'date: "{today}"' in tr)
     check("the morning page's New tickets points at it", V.RECENT_POINTER in open(f"{vault}/days/{today[:4]}/{today}-brief.md").read())
@@ -223,14 +223,15 @@ with tempfile.TemporaryDirectory() as tmp:
                {"n": 2, "tier": 2, "rule": "thread-reply", "text": "reply in the release thread"},
                {"n": 3, "tier": 3, "text": "close MH-3"}, {"n": 4, "text": "comment MH-4", "applied": soon}],
               open(f"{reports}/runner/{today}-actions.json", "w"))
-    hm = (sync(), open(f"{vault}/home.md").read())[1]
-    check("Home counts the tier-1 writes since he last opened it, lists the 10:00 ones and his own, each with its box",
-          "**Done since you last looked:**\n- 1 — label MH-1 applied" in hm and "- [ ] don't 2 — reply in the release thread" in hm
-          and "- [ ] apply 3 — close MH-3" in hm and "apply 4" not in hm)
-    tab("home.md")
-    check("and keeps the count while he has it open", sync() == 0 and "- 1 — label MH-1 applied" in open(f"{vault}/home.md").read())
+    hm = (sync(), open(f"{vault}/{V.TODAY}").read())[1]
+    check("today.md lists his own drafted action with its box and the 10:00 ones with don't; nothing applied",
+          "- [ ] don't 2 — reply in the release thread" in hm and "- [ ] apply 3 — close MH-3" in hm and "apply 4" not in hm
+          and "*if not: nothing; gone " in hm)
+    check("the ask is remembered with the day it was first asked", json.load(open(f"{reports}/ela/asks.json"))["keys:MH-3"]["first"] == today)
+    tab(V.TODAY)
+    check("opening today.md counts as looking", sync() == 0 and json.load(open(f"{vault}/{V.MANIFEST}"))["home"]["open"] is True)
     tab(f"readings/{today[:4]}-09-12-review-2.md")
-    check("once he has seen it, nothing is new", sync() == 0 and "**Done since you last looked:** nothing." in open(f"{vault}/home.md").read())
+    check("and closing it as not", sync() == 0 and json.load(open(f"{vault}/{V.MANIFEST}"))["home"]["open"] is False)
     os.remove(f"{reports}/runner/{today}-actions.json"); sync()
     m = json.load(open(f"{vault}/{V.MANIFEST}"))
     m["seen"][f"readings/{today[:4]}-09-13-review-3.md"] = "2000-01-01"
@@ -360,10 +361,8 @@ with tempfile.TemporaryDirectory() as tmp:
     check("its hand sections are kept as written, a missing one added, the desk's own kept",
           "- [ ] **Rule on the cadence** note" in o and "- One machine." in o and "## What changed for MediaHub this week\n\nNothing yet." in o
           and "## Extra\n\nKept." in o and "source:" not in o)
-    hm = open(f"{vault}/home.md").read()
-    check("Home's fourth line is the program's next step, its fifth the first decision on the ela page",
-          "**MediaHub:** Plan 4: ask for the fallback. → [[mh/engineering-management|the program]]" in hm
-          and "**From ela:** **Rule on the cadence** note → [[ela/overview|the ela page]]" in hm)
+    hm = open(f"{vault}/{V.TODAY}").read()
+    check("today.md carries no program or ela line: they are a link away", "**MediaHub:**" not in hm and "[[ela/overview|ela]]" in hm)
     check("and a sync after that writes the ela page no more", (lambda m: sync() == 0 and os.path.getmtime(ov) == m)(os.path.getmtime(ov)))
     os.makedirs(f"{vault}/library", exist_ok=True)
     topic = f"{vault}/library/topic-a.md"

@@ -19,7 +19,7 @@ Usage:
 Layout, by what the owner does with a note (ela ADR 0010). Names are lowercase with hyphens and no spaces, taken
 from the source's file name, never from its heading, so editing a title renames nothing; a dated name starts with
 its date, so a folder sorts by time. Folders carry no numbers: Home and the bookmarks are the way in.
-    home.md, board.md                           the entry point, five lines and links; the board's debt, one living page
+    today.md, board.md                          the one page: facts, at most three asks, today; the board's debt
     constraints.md                              the standing constraints, each pin read on its lane
     lanes.md                                    the lanes, what each carries that the next does not, two weeks of moves
     recent.md                                   the week's tickets placed by line and by lane (ela recent --write), a dashboard
@@ -136,7 +136,7 @@ BUDGET = {"ticket": 700, "topic": 800, "guide": 1200, "board": 1000, "day": 1200
 # A type outside it, or a family outside its folders, is a lint line on the sync, never a failure.
 TYPE_FAMILY = {"decision": "decision", "plan": "plan", "sprint": "plan",
                "ticket": "reading", "review": "reading", "verify": "reading", "verify-plan": "reading",
-               "home": "page", "board": "page", "lanes": "page", "recent": "page", "one-thing": "page", "test-list": "page", "dev-list": "page", "train": "page", "program": "page",
+               "home": "page", "today": "page", "dropped": "page", "board": "page", "lanes": "page", "recent": "page", "one-thing": "page", "test-list": "page", "dev-list": "page", "train": "page", "program": "page",
                "guide": "page", "vocabulary": "page", "system": "page", "constraints": "page", "readme": "page", "meeting": "page",
                "report": "page", "project": "page", "services": "page",
                "day": "day", "reader": "day", "case": "case", "draft": "draft"}
@@ -198,22 +198,19 @@ board every half hour on working days. An edit to a generated note is overwritte
 ticked boxes, which are kept. To change something, write an `ela:` line in the note or ask in a session. The exceptions are the pages ela writes in place, whose source is the vault itself: how ela works,
 plans for your decision.
 
-Start at [[home]]. Five lines: what ela did since you last looked, what leaves at 10:00 (or its own send time) unless you tick "don't",
-what only you can do (at most three `apply` boxes; the morning page folds the rest under "N more", where a tick
-still counts), the MediaHub program's next step, and one line from ela. Below
-the line, links: the morning page, lanes, board, recent, changes, the program, the ela page and all notes. A box ticked on
-Home is the same as on the morning page. Below the line, `projects` names each project with its days left, and the
-fourth line names a project's step instead of the program's only when its deadline is under 14 days away and the
-step is overdue. While you hold tier 2 (`ela-runner hold`), nothing leaves on its own: the
-block reads "held until DATE (dry run)", without boxes, and each action says what it would have posted. The QA day
-post never leaves on a timer: under "Send when you tick:" it waits as `send N` until you tick it, after reviewing the
-list and writing your `ela:` priority lines; the 09:30 or 10:00 pass then sends it, and the Done line lists it.
+Start at [[today]], the one page. *Facts*: a few lines of what changed. *Needs you*: at most three asks only you can
+answer, each saying what happens if you do nothing (nothing) and when it leaves. An ask you have not answered on three
+working mornings leaves the page and is written once to `reference/dropped.md`; it comes back only when its evidence
+changes. *Today*: your meetings, a near deadline, and what leaves at 10:00 unless you tick "don't". Then one line of
+links. A box ticked there is the same as on the morning page, and saying it in a session counts the same. While you
+hold tier 2 (`ela-runner hold`), nothing leaves on its own and the 10:00 line says so; the QA day post waits as
+`send N` until you tick it. Home is a pointer to today until 2026-11-25.
 
 ## Layout
 
 | folder | holds | what you do |
 |---|---|---|
-| `home`, `board` | five lines for today, and the board's debt | look at Home each morning |
+| `today`, `board` | the one page for today, and the board's debt | open today each morning |
 | `constraints` | the standing constraints you confirmed: what each holds, whether its lane still keeps it, when it lifts | look when Home says one is over |
 | `days/<year>/` | the morning pages and what changed the day before, kept; the evening learning draft, 14 days | look back |
 | `to-read/` | whatever waits on your word, any type: plans and decisions to rule, verification results, and readings whose asks sit under *Waiting for your word*; newest first | rule, or tick or answer each ask |
@@ -397,11 +394,11 @@ machine.
 
 - Notes open in reading view, without the file-name title, with their properties at the top, at a readable width; the
   `ela` style sheet tidies tables and callouts and hides the attachments folder.
-- Bookmarks: Home, the board, all notes as tables, how ela runs, this page.
+- Bookmarks: Today, the board, all notes as tables, how ela runs, this page.
 - Core plugins on: search, quick switcher, file explorer, backlinks, outgoing links, page preview, outline,
   bookmarks, properties, Bases, Web viewer (on request only). Off: everything made for writing, tags and the
   graph.
-- Three community plugins: **Homepage** opens `home` in reading view when Obsidian starts; **HTML Reader** opens a
+- Three community plugins: **Homepage** opens `today` in reading view when Obsidian starts; **HTML Reader** opens a
   verification's full record (a self-contained `.html`) in a tab; **Metadata Menu** makes a note's `next` field a
   list to choose from, by the button beside it in the properties. A web link opens the default browser;
   right-click it and choose *Open in web viewer* to read it inside Obsidian (Jira works there, Slack does not).
@@ -1597,7 +1594,7 @@ SPECS = {
         closing="the message paste-ready in a code block, English, mentions written for you to retype; parked once sent, `waits-on` naming who answers and `wake` what brings it back"),
 }
 BUDGET.update({"case": 1200, "draft": 600})
-PAGES_SPEC = ("home", "board", "lanes", "recent", "one-thing", "test-list", "dev-list", "train", "program", "guide",
+PAGES_SPEC = ("home", "today", "dropped", "board", "lanes", "recent", "one-thing", "test-list", "dev-list", "train", "program", "guide",
               "vocabulary", "system", "constraints", "readme", "services")   # living pages: each one's generator is its spec
 CJK = re.compile(r"[一-鿿　-〿＀-￯]")
 SPEC_MARK = "<!-- note standards -->"
@@ -2745,6 +2742,227 @@ def closed_by_ela(s, today, days=7):
     return rows or ["Nothing: every built note had your ruling."]
 
 
+# ── today.md: the one page ───────────────────────────────────────────────────────────────────────────────────
+# The vault as a control panel queued boxes faster than he could clear them (the 11-10 record: Home last opened 11-04,
+# items waiting up to eleven mornings). today.md is the one page to open: a few facts, at most three asks that only he
+# can answer, today's meetings and deadlines, then one line of links. An ask unanswered for three working mornings
+# leaves the page and is written once to reference/dropped.md; it comes back only when its evidence changes. Home is a
+# pointer to it for 14 days. Reasons: docs/adr/0014-today-is-the-one-page-and-asks-expire.md.
+TODAY, REF = "today.md", "reference"
+DROPPED = f"{REF}/dropped.md"
+ASK_CAP, ASK_MORNINGS, TODAY_WORDS = 3, 3, 150
+HOME_POINTER_UNTIL = datetime.date(2026, 11, 25)       # today.md took Home's place on 2026-11-11; the pointer stays 14 days
+FACT_SECTIONS = ("Releases and versions", "Docker services", "QA", "Tickets", "Code")
+FACT_LABEL = {"Releases and versions": "Releases", "Docker services": "Docker"}
+
+
+def working_mornings(first, today):
+    """The working mornings (Mon–Fri) from `first` through `today`, both counted."""
+    n, d = 0, first
+    while d <= today:
+        n += d.weekday() < 5
+        d += datetime.timedelta(days=1)
+    return n
+
+
+def drop_day(first, today):
+    """The working morning an ask first seen on `first` leaves the page: the one after its ASK_MORNINGS-th."""
+    d = today
+    while working_mornings(first, d) <= ASK_MORNINGS:
+        d += datetime.timedelta(days=1)
+    while d.weekday() >= 5:
+        d += datetime.timedelta(days=1)
+    return d
+
+
+def first_sentence(text):
+    m = re.match(r"(.+?[.!?])(?:\s|$)", text or "")
+    return m.group(1) if m else (text or "")
+
+
+def action_id(a):
+    """One drafted action's identity across mornings, whatever its number or its form that day: the tickets its command
+    acts on (MH-2406 was drafted as a comment, then an assignment, over eleven mornings: one ask), else its command."""
+    import hashlib
+    targets = re.split(r"\s--", a.get("command") or "", 1)[0]          # the positional targets, not a key in --text
+    keys = sorted(set(KEY_RX.findall(targets if a.get("command") else a.get("text") or "")))
+    if keys:
+        return "keys:" + ",".join(keys)
+    return "cmd:" + hashlib.sha256(" ".join((a.get("command") or a.get("text") or "").split()).encode()).hexdigest()[:12]
+
+
+def evidence_sig(text):
+    import hashlib
+    return hashlib.sha256(" ".join((text or "").split()).encode()).hexdigest()[:12]
+
+
+def ask_candidates(today, actions, notes):
+    """What only he can answer, in the morning page's order: today's tier-3 drafted actions not yet applied, handled or
+    vetoed (a send box is not an ask), then each note in to-read with an open box under Waiting for your word, then
+    each project head's unticked box. [{id, box, text, link, sig, first}]; `first` is the earliest day it was seen."""
+    iso = today.isoformat()
+    seen = {}
+    for a in actions:
+        if a.get("day"):
+            i = action_id(a)
+            seen[i] = min(seen.get(i, a["day"]), a["day"])
+    out = []
+    for a in sorted((a for a in actions if a.get("day") == iso), key=lambda a: int(a["n"])):
+        if a.get("tier", 3) != 3 or a.get("send_box") or a.get("applied") or a.get("by_owner") or a.get("vetoed"):
+            continue
+        i = action_id(a)
+        out.append({"id": i, "box": f"apply {a['n']}", "text": a.get("text") or "", "sig": evidence_sig(a.get("evidence")),
+                    "first": seen.get(i, iso)})
+    for n in sorted(notes, key=lambda n: n.path):
+        if top(n.path) != TO_READ:
+            continue
+        left, _ = open_asks(n.body)
+        if left:
+            out.append({"id": f"note:{n.path}", "text": f"{n.title} ({left} open)", "link": n.path[:-3],
+                        "sig": evidence_sig(n.body), "first": (n.props.get("date") or iso)[:10]})
+    for n in notes:
+        f = getattr(n, "facts", None)
+        if n.props.get("type") != "project" or not f:
+            continue
+        for sec, text in head_asks(f["head"]):
+            out.append({"id": f"project:{f['key']}:{evidence_sig(text)}", "text": f"{f['key']}: {plain(text)}",
+                        "link": f"{f['path'][:-3]}#{sec}" if sec else f["path"][:-3], "sig": evidence_sig(text), "first": iso})
+    return out
+
+
+def settle_asks(state, cands, today):
+    """(shown, dropped now, state): an ask seen on more than ASK_MORNINGS working mornings leaves the page, recorded
+    once in the state with the day it dropped; a dropped ask stays off until its evidence changes, when it starts
+    over. At most ASK_CAP are shown; the rest are counted, not listed. state: {id: {first, text, sig, dropped}}."""
+    iso = today.isoformat()
+    state = {k: dict(v) for k, v in (state or {}).items()}
+    live, dropped_now = [], []
+    for c in cands:
+        st = state.get(c["id"])
+        if st and st.get("dropped"):
+            if st.get("sig") == c["sig"]:
+                continue                                   # nothing changed since it dropped: it stays off the page
+            first = iso                                    # the world changed: it starts over today
+        else:
+            first = min(st["first"], c["first"]) if st else c["first"]
+        st = {"first": first, "text": c["text"], "sig": c["sig"], "dropped": None}
+        if working_mornings(datetime.date.fromisoformat(first), today) > ASK_MORNINGS:
+            st["dropped"] = iso
+            dropped_now.append(dict(c, first=first))
+        else:
+            live.append(dict(c, first=first))
+        state[c["id"]] = st
+    return live[:ASK_CAP], len(live) - min(len(live), ASK_CAP), dropped_now, state
+
+
+def fact_lines(notes, limit=4):
+    """The newest What-changed page's first line per section that changes the picture (releases, docker services, QA,
+    tickets, code): [(label, line)], with the page's date."""
+    pages = sorted((n for n in notes if n.props.get("type") == "day" and n.props.get("kind") == "changes"),
+                   key=lambda n: n.props.get("date") or "", reverse=True)
+    if not pages:
+        return None, []
+    out = []
+    for head, text in sections(pages[0].body):
+        if head in FACT_SECTIONS:
+            line = first_sentence(first_line(text))
+            if line:
+                out.append((head, line))
+    order = {h: i for i, h in enumerate(FACT_SECTIONS)}
+    return pages[0], sorted(out, key=lambda x: order[x[0]])[:limit]
+
+
+def short(text, n):
+    text = " ".join((text or "").split())
+    return text if len(text) <= n else text[:n].rsplit(" ", 1)[0] + " …"
+
+
+def today_page(today, notes, desk=None, shown=(), more=0, dropped=0):
+    """today.md: Facts (3–5 lines), Needs you (at most three asks, each with what happens if he does nothing and
+    when), Today (meetings, a near deadline, what leaves at 10:00), then one line of links. Above the line it keeps
+    within TODAY_WORDS words: facts are cut from the end until it does."""
+    desk = desk or {}
+    iso = today.isoformat()
+    changes, facts = fact_lines(notes)
+    briefs = sorted((n for n in notes if n.props.get("type") == "day" and n.props.get("kind") == "brief"),
+                    key=lambda n: n.props.get("date") or "", reverse=True)
+    brief = briefs[0] if briefs else None
+    asks = []
+    for c in shown:
+        gone = drop_day(datetime.date.fromisoformat(c["first"]), today)
+        what = f"[[{c['link']}|{short(c['text'], 70)}]]" if c.get("link") else short(c["text"], 70)
+        asks.append((f"- [ ] {c['box']} — " if c.get("box") else "- ") + what + f" · *if not: nothing; gone {gone:%a}*")
+    acts = [a for a in desk.get("actions") or [] if a.get("day") == iso]
+    soon = [a for a in acts if a.get("tier") == 2 and not (a.get("applied") or a.get("vetoed") or a.get("failed"))]
+    send = [a for a in acts if a.get("send_box") and not (a.get("applied") or a.get("vetoed"))]
+    hold = desk.get("hold")
+    day = []
+    for m in desk.get("meetings") or []:
+        note = f"{MEETINGS}/{m['key']}" if m.get("key") else None
+        day.append(f"- {m.get('time')} {m.get('name')}" + (f" → [[{note}|its list]]" if note else ""))
+    projects = [n.facts for n in notes if n.props.get("type") == "project" and getattr(n, "facts", None)]
+    for f in projects:
+        if f.get("days") is not None and 0 <= f["days"] <= PROJECT_SOON_DAYS:
+            day.append(f"- [[{f['path'][:-3]}|{f['key']}]]: {days_words(f['days'])} to {f['deadline'].isoformat()}")
+    if soon:
+        day.append(f"- At 10:00 ela does {len(soon)} drafted action{'s' if len(soon) != 1 else ''}"
+                   + (f", held until {hold['until']} (dry run)" if hold else "; tick `don't N` to stop one"))
+        day += [] if hold else [f"  - [ ] don't {a['n']} — {short(a.get('text'), 90)}" for a in soon]
+    day += [f"- {send_line(a, desk.get('lists'))}" for a in send]
+
+    def render(facts, n=90):
+        L = [f"# Today · {today:%a %Y-%m-%d}", "", "## Facts", ""]
+        L += [f"- **{FACT_LABEL.get(h, h)}:** {short(l, n)}" for h, l in facts] or ["- Nothing new was read since the last page."]
+        L += ["", "## Needs you", ""] + (asks or ["Nothing only you can do."])
+        if more:
+            L.append(f"*{more} more wait off this page*" + (f" → [[{brief.path[:-3]}|the morning page]]" if brief else ""))
+        L += ["", "## Today", ""] + (day or ["No meeting and no deadline today."]) + [""]
+        return L
+    L = render(facts)
+    def words(L):
+        return len(plain("\n".join(L)).split())
+    while len(facts) > 3 and words(L) > TODAY_WORDS:
+        facts = facts[:-1]
+        L = render(facts)
+    for n in (70, 60, 50):                                 # then shorter facts, never fewer than three
+        if words(L) <= TODAY_WORDS:
+            break
+        L = render(facts, n)
+    links = [f"[[{changes.path[:-3]}|what changed]]" if changes else None,
+             f"[[{brief.path[:-3]}|morning page]]" if brief else None,
+             "[[lanes|lanes]]" if any(n.props.get("type") == "lanes" for n in notes) else None,
+             "[[board|board]]" if any(n.props.get("type") == "board" for n in notes) else None,
+             "[[recent|recent]]" if any(n.props.get("type") == "recent" for n in notes) else None,
+             ("projects: " + " · ".join(f"[[{f['path'][:-3]}|{f['key']}]]" for f in projects)) if projects else None,
+             f"[[{DROPPED[:-3]}|dropped asks]]" + (f" ({dropped})" if dropped else ""),
+             f"[[{OVERVIEW[:-3]}|ela]]"]
+    return "\n".join(L + ["---", "", " · ".join(x for x in links if x), ""])
+
+
+def dropped_page(state):
+    """reference/dropped.md: every ask that left today.md unanswered, newest first, once each: the day it dropped, the ask,
+    and the day it was first asked. Written from the ask state, so a drop appears once and stays."""
+    rows = sorted(((v["dropped"], v.get("first") or "", v.get("text") or k) for k, v in (state or {}).items() if v.get("dropped")),
+                  reverse=True)
+    L = ["# Dropped asks", "", "Asks that left today's page after three working mornings without your word. Nothing was "
+         "done about them. One comes back only when its evidence changes; say the word in a session to act on one now.", ""]
+    L += [f"- {d} · {short(t, 160)} · asked since {f}" for d, f, t in rows] or ["Nothing has dropped yet."]
+    return "\n".join(L) + "\n"
+
+
+def home_pointer():
+    """home.md until HOME_POINTER_UNTIL: three lines pointing to today.md."""
+    return (f"# Home\n\nThe page to open is [[today]]: facts, at most three asks, today's meetings.\n\n"
+            f"This pointer goes on {HOME_POINTER_UNTIL.isoformat()}.\n")
+
+
+def load_asks(reports):
+    try:
+        return json.load(open(os.path.join(reports or "", "ela", "asks.json"), encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
 def home_open(vault):
     """Whether Home is open in a tab, read from Obsidian's own workspace file; False when it cannot be read."""
     def files(node):
@@ -2753,7 +2971,7 @@ def home_open(vault):
         for c in node.get("children") or []:
             yield from files(c)
     try:
-        return "home.md" in set(files(json.load(open(os.path.join(vault, ".obsidian", "workspace.json"), encoding="utf-8")).get("main") or {}))
+        return bool({"home.md", TODAY} & set(files(json.load(open(os.path.join(vault, ".obsidian", "workspace.json"), encoding="utf-8")).get("main") or {})))
     except (OSError, ValueError, AttributeError):
         return False
 
@@ -3318,6 +3536,26 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since
     planned["home.md"] = redact(front([], {"type": "home", "date": today.isoformat()}) + linker(home(today, now, notes + native, {
         "actions": week_actions(reports, today), "since": since, "program": program_next(s["vault"]), "ela": ela_line(s["vault"]),
         "hold": tier2_hold(reports, today.isoformat()), "lists": list_links(reports)})))
+    asks_state = load_asks(reports)
+    shown, more, _, asks_state = settle_asks(asks_state, ask_candidates(today, week_actions(reports, today), notes + native), today)
+    if not dry_run:
+        os.makedirs(os.path.join(reports, "ela"), exist_ok=True)
+        atomic_write(os.path.join(reports, "ela", "asks.json"), json.dumps(asks_state, indent=1, ensure_ascii=False))
+    try:
+        sys.path.insert(0, os.path.join(HERE, "..", "brief"))
+        import brief as B
+        meetings = B.day_plan(today)["meetings"]
+    except Exception:                                      # the day file is elak's; a bad one costs the meeting lines only
+        meetings = []
+    dropped = sum(1 for v in asks_state.values() if v.get("dropped"))
+    planned[TODAY] = redact(front([], {"type": "today", "date": today.isoformat()}) + linker(today_page(today, notes + native, {
+        "actions": week_actions(reports, today), "hold": tier2_hold(reports, today.isoformat()), "lists": list_links(reports),
+        "meetings": meetings}, shown, more, dropped)))
+    planned[DROPPED] = front([], {"type": "dropped", "date": today.isoformat()}) + dropped_page(asks_state)
+    if today <= HOME_POINTER_UNTIL:                        # Home points to today.md for two weeks, then is not written
+        planned["home.md"] = front([], {"type": "home", "date": today.isoformat()}) + home_pointer()
+    else:
+        planned.pop("home.md", None)
     planned[f"{ELA}/about-this-vault.md"] = unwrap(README.replace(SPEC_MARK, spec_text()))
     for name, text in VIEWS.items():
         planned[f"{ELA}/{name}.base"] = text
