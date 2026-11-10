@@ -497,7 +497,9 @@ check("an ask is open until ticked or answered by an ela: line under it", V.open
 check("an open ask on a done note is a lint line; on a live one it is not",
       "on a done note" in (V.asks_lint(V.Note("reference/r.md", "r", asks, {"type": "review", "status": "done"})) or "")
       and V.asks_lint(V.Note("reference/r.md", "r", asks, {"type": "review", "status": "live"})) is None
-      and V.asks_lint(V.Note("ela/r.md", "r", asks, {"type": "report"})) is None)
+      and V.asks_lint(V.Note("ela/r.md", "r", asks, {"type": "report"})) is None
+      and V.asks_lint(V.Note("ela/history/p.md", "p", asks, {"type": "plan", "status": "done"})) is None
+      and V.asks_lint(V.Note("archive/p.md", "p", asks, {"type": "plan", "status": "done"})) is None)
 with tempfile.TemporaryDirectory() as t:
     os.makedirs(os.path.join(t, "v", "reference")); os.makedirs(os.path.join(t, "r", "ela"))
     fm = '---\ntype: "{}"\nsource: "vault"\nstatus: "live"\nnext: ""\nmoves: "{}"\n---\n'

@@ -1213,9 +1213,10 @@ def open_asks(body):
 
 
 def asks_lint(n):
-    """One lint line when a done note still has an open box under Waiting for your word: an ask on a closed note
-    reaches nobody (today.md lists the asks of live notes only)."""
-    if family_of(n.props.get("type")) != "work" or not (is_done(n.props) or top(n.path) == ARCHIVE):
+    """One lint line when a done note in a thing's home still has an open box under Waiting for your word: an ask on
+    a closed note reaches nobody (today.md lists the asks of live notes only). The record folders, ela/history/ and
+    archive/, are not read: a plan agreed as a whole leaves its proposals' boxes unticked, and that is its history."""
+    if family_of(n.props.get("type")) != "work" or not is_done(n.props) or top(n.path) == ARCHIVE or n.path.startswith(HISTORY + "/"):
         return None
     left, _ = open_asks(n.body)
     return f"{n.path}: {left} open under {ASKS_HEAD} on a done note; mark it live to ask, or answer them" if left else None
