@@ -43,6 +43,13 @@ check("a wrapped paragraph becomes one line", "One line wrapped." in u)
 check("a wrapped list item joins, the next item stays", "- item continues\n- next" in u)
 check("tables and code keep their lines", "| a |\n|---|" in u and "code\nstays" in u)
 check("an empty ela: property is not read as the next line", [m.group(1) for m in V.GUIDE.finditer("ela:\n---\nela: go\n")] == ["go"])
+# ela's own lines are never his word (2026-11-09: five runner jobs fired on ela's stubs and a dated ela property)
+own = '---\nela: "2026-11-09: the asks carried no ruling"\n---\n- ela: keep / revert / commit —\n- ela: R1–R9 ...\nela: S1 map —\nela: keep / revert — revert\n- ela: 2026-11-09: in the body, his\n'
+check("a stub ela leaves and a dated ela property are skipped; words after the dash are his",
+      [m.group(1) for m in V.his_lines(own)] == ["keep / revert — revert", "2026-11-09: in the body, his"])
+check("each of ela's own lines is a lint line", len(V.own_lines_lint(own)) == 4 and "progress" in V.own_lines_lint(own)[0])
+check("a stub under a box does not answer it", V.open_asks("## Waiting for your word\n\n- [ ] keep it\n  ela: keep / drop —\n") == (1, 1)
+      and V.open_asks("## Waiting for your word\n\n- [ ] keep it\n  ela: keep / drop — keep\n") == (0, 1))
 check("a bold ela: label is not an ela: line; list and quote markers still are",
       [m.group(1) for m in V.GUIDE.finditer("- **ela:** 3 commits\n**ela:** x\n- ela: a\n* ela: b\n> ela: c\n- **the ela repo:** 3\n")] == ["a", "b", "c"])
 check("a status run under the title becomes a subtitle", V.tidy_title("# brief · Fri            9 items\n\nText.") == "# Brief · Fri\n\n*9 items*\n\nText.")

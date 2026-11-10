@@ -290,6 +290,9 @@ a plan, decision or review whose target names ela, its runner, elak or the vault
   heading, **Waiting for your word**, one box each with ela's proposed answer. When every box there is ticked or
   answered with an `ela:` line under it, the next sync moves the reading to `readings/`; a plan or decision goes on
   along its own life. A reading elsewhere with an open box under that heading is a lint line on the sync.
+- An `ela:` line is your word, never ela's. ela asks with a box, not an `ela:` line; a blank it leaves for your words
+  ends in a dash (`ela: keep / revert —`) and is read only once you write after it; a dated value in the `ela`
+  property (`2026-11-09: …`) is ela's record and belongs in `progress`. The watcher skips both; the lint names them.
 - A ticket key is a link to Jira, one click in reading mode.
 
 ## Reading budgets
@@ -1428,7 +1431,7 @@ def open_asks(body):
     sec = m.group(1) if m else ""
     boxes = list(BOX.finditer(sec))
     unanswered = sum(1 for i, b in enumerate(boxes) if b.group(1) == " "
-                     and not GUIDE.search(sec, b.end(), boxes[i + 1].start() if i + 1 < len(boxes) else len(sec)))
+                     and not his_lines(sec, b.end(), boxes[i + 1].start() if i + 1 < len(boxes) else len(sec)))
     return unanswered, len(boxes)
 
 
@@ -1779,9 +1782,22 @@ def lint_notes(vault, projects=None):
         gen = set()
     out = []
     for rel, text in vault_notes(vault):
-        found = front_breaks(split_front(text)[0]) + spec_lint(rel, text, rel in gen, projects)
+        found = front_breaks(split_front(text)[0]) + spec_lint(rel, text, rel in gen, projects) + own_lines_lint(text)
         if found:
             out.append((rel, rel in gen, found))
+    return out
+
+
+def own_lines_lint(text):
+    """One lint line per `ela:` line ela wrote for itself: a stub belongs as a box under Waiting for your word, a dated
+    record in `progress`; the watcher skips both, the lint says where they go."""
+    front = body_start(text)
+    out = []
+    for m in GUIDE.finditer(text):
+        if ela_own(m.group(1), m.start() < front):
+            where = "the ela property holds ela's record; it belongs in progress" if m.start() < front else \
+                "an ela: stub ela wrote; ask with a box under " + ASKS_HEAD + " instead"
+            out.append(f"{where} (skipped by the watcher): {m.group(1)[:60]}")
     return out
 
 
@@ -3442,6 +3458,24 @@ TICKED = re.compile(r"^[ \t]*" + QUOTE + r"[-*][ \t]+\[[xX]\][ \t]+(\S.*?)[ \t]*
 # `ela:` only list or quote markers, a list marker with its space, so a bold `**ela:**` is never his line
 GUIDE = re.compile(r"^[ \t]*(?:[-*+][ \t]+|>[ \t]*)*ela[ \t]*[:：][ \t]*(\S.*?)[ \t]*$", re.I | re.M)
 SECTION = re.compile(r"^##[ \t]+(.+?)[ \t]*$", re.M)
+# ela's own `ela:` lines, never his word: a blank ela leaves for his words ends in a dash or an ellipsis (`ela: keep /
+# revert —`) and is read only once he writes after it; a front-matter `ela` value in the dated progress form
+# (`ela: "2026-11-09: …"`) is ela's record. On 2026-11-09 five runner jobs fired on such lines (vault review 11-10).
+STUB_END = re.compile(r"(?:—|–|-{2,}|…|\.{3}|_{3,})$")
+DATED = re.compile(r"^\d{4}-\d{2}-\d{2}\s*[:：]\s")
+
+
+def ela_own(says, in_front=False):
+    """Whether the words of one `ela:` line are ela's own (a stub awaiting his words, or a dated record in the front
+    matter) rather than his instruction."""
+    says = (says or "").strip().strip('"').strip("'").strip()
+    return bool(STUB_END.search(says)) or (in_front and bool(DATED.match(says)))
+
+
+def his_lines(text, start=0, end=None):
+    """The `ela:` lines in text[start:end] that are his word: ela's own stubs and dated front-matter records left out."""
+    front = body_start(text)
+    return [m for m in GUIDE.finditer(text, start, len(text) if end is None else end) if not ela_own(m.group(1), m.start() < front)]
 
 
 def section_at(text, pos):
@@ -3920,7 +3954,7 @@ def cmd_guidance(a):
                 text = open(p, encoding="utf-8").read()
                 ticks = [x for x in TICKED.finditer(text) if x.group(1) not in source_ticks.get(rel, [])]
                 # kind tells a typed line, which a watcher lets settle before taking it up, from a ticked box, a click
-                found = [(x, "line") for x in GUIDE.finditer(text)] + [(x, "tick") for x in ticks]
+                found = [(x, "line") for x in his_lines(text)] + [(x, "tick") for x in ticks]
                 times = {}
                 for m, kind in ((x, k) for x, k in found if x.group(1).strip('"\' ')):
                     # the same words written again in the note are a new instruction: the nth repeat has its own id, the
