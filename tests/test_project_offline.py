@@ -54,6 +54,12 @@ with tempfile.TemporaryDirectory() as t:
           and "nothing new" in call(P.cmd_keys, key="sb", add=["MH-2"])[1] and call(P.cmd_keys, key="sb", add=["bogus"])[0] == 2
           and call(P.cmd_keys, key="nope", add=["MH-1"])[0] == 3)
     check("keys --json names what was added", json.loads(call(P.cmd_keys, key="sb", add=["MH-3"], json=True)[1]) == {"key": "sb", "keys": ["MH-1", "MH-2", "MH-3"], "added": ["MH-3"]})
+    head = "# SB\n\n## Next step\n\n- [ ] ask one | two\n- [x] done one\n- [ ] ask three\n  ela: yes, go\n- [ ] ask four\n  ela: keep / drop —\n"
+    f = {**V.project_facts("sb", '---\ntitle: "SB"\ntype: "project"\n---\n' + head, today), "head": head}
+    tail = V.project_tail(f, [], today)
+    check("the head's own unticked boxes wait for his word, linked to their section; ticked or answered ones do not",
+          "- [[projects/sb/sb#Next step|ask one / two]] · in the head" in tail and "ask four" in tail
+          and "done one" not in tail.split("## Notes")[0] and "ask three" not in tail and "Nothing waits on you" not in tail)
     open(os.path.join(vault, "to-read", "p.md"), "w").write('---\ntitle: "A plan"\ntype: "plan"\ndate: "2026-11-02"\nstatus: "proposed"\nnext: ""\nproject: "sb"\n---\n# A plan\n')
     rows = json.loads(call(P.cmd_list, json=True)[1])
     check("list gives each project's key, deadline, days left and open asks",

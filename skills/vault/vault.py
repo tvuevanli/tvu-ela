@@ -2098,8 +2098,8 @@ def constraints_note(data, today):
 
 # ── a project's page: the desk's head, the sync's tail ────────────────────────────────────────────────
 # projects/<key>/<key>.md. Above the first of TAIL_HEADS the desk's settled facts (goal, dates, parties, what is known,
-# the next step), kept as written. From there, written on every sync: what waits on his word (the project's notes in
-# to-read and in-progress), its notes by folder, its keys and threads, their Afterwards (the archive's watch, pointed
+# the next step), kept as written. From there, written on every sync: what waits on his word (the head's own unticked
+# boxes, then the project's notes in to-read and in-progress), its notes by folder, its keys and threads, their Afterwards (the archive's watch, pointed
 # at the page too), and the days to the deadline with the step. Reasons: elak
 # blueprint/decisions/2026-11-04-projects-are-bounded-work-with-one-page-each.md.
 STEP_DATE = re.compile(r"(?<![\d-])(\d{4}-\d{2}-\d{2}|\d{2}-\d{2})(?![\d-])")
@@ -2209,15 +2209,31 @@ def days_words(days):
     return f"{days} day{'s' if days != 1 else ''} left" if days > 0 else f"{-days} day{'s' if days != -1 else ''} past"
 
 
+HEAD_BOX = re.compile(r"^[ \t]*[-*][ \t]+\[ \][ \t]+(\S.*?)[ \t]*$", re.M)
+
+
+def head_asks(head):
+    """The head's own unticked boxes, each with the section it sits under: [(section, text)]. A box answered by an
+    `ela:` line of his before the next box is not open (as under a reading's Waiting for your word)."""
+    boxes = list(HEAD_BOX.finditer(head))
+    return [(section_at(head, b.start()), b.group(1)) for i, b in enumerate(boxes)
+            if not his_lines(head, b.end(), boxes[i + 1].start() if i + 1 < len(boxes) else len(head))]
+
+
 def project_tail(facts, rows, today, jira_base=""):
-    """The sync's half of a project page: TAIL_HEADS in their order."""
+    """The sync's half of a project page: TAIL_HEADS in their order. Waiting for your word lists the head's own
+    unticked boxes first (each links to its section), then the project's notes in to-read and in-progress."""
     d = facts["deadline"]
     L = [f"## {ASKS_HEAD}", ""]
+    page = facts["path"][:-3]
+    mine = head_asks(facts["head"])
+    for sec, text in mine:
+        L.append(f"- [[{page}#{sec}|{plain(text).replace('|', '/')[:140]}]] · in the head" if sec else f"- {plain(text)[:140]} · in the head")
     asks = [r for r in rows if top(r["path"]) in (TO_READ, IN_PROGRESS)]
     for r in asks:
         bits = [r["type"], r["status"], f"next: {r['next']}" if r.get("next") else None]
         L.append(f"- [[{r['path'][:-3]}|{r['title']}]] · " + " · ".join(b for b in bits if b))
-    L += ["Nothing waits on you for this project."] if not asks else []
+    L += ["Nothing waits on you for this project."] if not asks and not mine else []
     L += ["", "## Notes", ""]
     if not rows:
         L.append(f"No note names this project yet: `project: {facts['key']}` in a note's properties, or a note in its folder.")
