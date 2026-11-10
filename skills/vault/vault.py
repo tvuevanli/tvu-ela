@@ -4944,6 +4944,35 @@ def dated_name(name, kind):
     return f"{m.group(1)}-{word}-{rest}.md"
 
 
+def beside_name(name, props, project):
+    """A note's name in its project's folder: `<date>-<kind>-<what>`, the folder carrying the subject, so the project's
+    own key and the words of its name leave `what` (a sub-task's key stays: it is information). A `slug` property on
+    the note is its `what`, by hand."""
+    name = dated_name(name, props.get("type"))
+    kinds = sorted(KIND_WORDS, key=len, reverse=True)
+    m = next((re.match(rf"^(\d{{4}}-\d{{2}}-\d{{2}})-({k})-(.+)\.md$", name) for k in kinds
+              if re.match(rf"^\d{{4}}-\d{{2}}-\d{{2}}-{k}-", name)), None)
+    if not m:
+        return name
+    if props.get("slug") and re.fullmatch(SLUG, props["slug"]):
+        return f"{m.group(1)}-{m.group(2)}-{props['slug']}.md"
+    km = re.match(r"^([a-z][a-z0-9]*-\d+)-(.+)$", project)
+    what = m.group(3)
+    if km:
+        what = re.sub(rf"(?:^|-){re.escape(km.group(1))}(?=-|$)", "", what).strip("-")
+        subject = set(km.group(2).split("-"))
+        words = what.split("-")
+        kept, i = [], 0
+        while i < len(words):                              # a key is two tokens (mh-3987): kept whole
+            if i + 1 < len(words) and re.fullmatch(r"[a-z][a-z0-9]*", words[i]) and words[i + 1].isdigit():
+                kept += words[i:i + 2]; i += 2; continue
+            if words[i] not in subject:
+                kept.append(words[i])
+            i += 1
+        what = "-".join(kept) or what
+    return f"{m.group(1)}-{m.group(2)}-{what}.md"
+
+
 def old_project_key(key, summary):
     """The page name the first generator gave a Jira project: the key and the summary's slug cut at 32 characters,
     which is how a generated page is told from one the desk named by hand."""
@@ -4963,15 +4992,30 @@ def lane_lines():
         lines = R.rmap("lines") or {}
     except (Exception, SystemExit):
         return {}
-    return {lane: line for line, cfg in lines.items() for lane in ((cfg or {}).get("lanes") or {}).values() if lane}
+    out = {}
+    for line, cfg in lines.items():                        # the newest line that runs a lane (the map lists newest first)
+        for lane in ((cfg or {}).get("lanes") or {}).values():
+            if lane:
+                out.setdefault(lane, line)
+    try:
+        regions = R.rmap("regions") or {}
+    except (Exception, SystemExit):
+        regions = {}
+    for reg in regions.values():                           # a region's lane runs the line the map names, else its aligned lane's
+        for lane, cfg in ((reg or {}).get("lanes") or {}).items():
+            line = (cfg or {}).get("line") or out.get((reg or {}).get("aligns_with") or "")
+            if line and not (cfg or {}).get("retiring"):
+                out[lane] = line
+    return out
 
 
 def list_home(name, lanes=None):
-    """A line's list page in layout 5, from its layout-4 name in lanes/: train-<line> and dev-list-<line> → that
-    line's train.md and dev-list.md; test-list-<lane> → the folder of the line the lane carries, else releases/."""
+    """A line's list page in layout 5, from its layout-4 name in lanes/, the name kept so no two notes share one:
+    train-<line> and dev-list-<line> → that line's folder; test-list-<lane> → the folder of the line the lane carries
+    (a China lane's from the map's regions), else releases/."""
     m = re.match(r"^(train|dev-list)-(\d+\.\d+)\.md$", name)
-    if m:
-        return f"{RELEASES5}/{m.group(2)}/{m.group(1)}.md"
+    if m:                                                  # the line stays in the name: [[train-2.1]] resolves to one note
+        return f"{RELEASES5}/{m.group(2)}/{name}"
     m = re.match(r"^test-list-(.+)\.md$", name)
     if m:
         line = (lanes if lanes is not None else lane_lines()).get(m.group(1))
@@ -5083,7 +5127,7 @@ def migrate_plan(vault, slugs=None, lanes=None, runtime=None):
     for key, rs in beside.items():
         new = page_to[key]
         for r in rs:
-            move(r, f"{PROJECTS}/{new}/{dated_name(os.path.basename(r), props[r].get('type'))}", f"serves the {new} project")
+            move(r, f"{PROJECTS}/{new}/{beside_name(os.path.basename(r), props[r], new)}", f"serves the {new} project")
     for r in files:
         if r in moves:
             continue
@@ -5107,8 +5151,7 @@ def migrate_plan(vault, slugs=None, lanes=None, runtime=None):
         elif r.startswith("mh/releases/"):
             rest = r[len("mh/releases/"):]
             line_dir, _, base = rest.rpartition("/")
-            base = re.sub(r"^release-\d+-\d+-", "", base)       # the folder carries the line
-            if base.endswith(".md"):
+            if base.endswith(".md"):                       # release-2-1-record keeps its line: one record.md per line would collide
                 base = release_review_name(base) if re.match(r"^\d{4}-\d{2}-\d{2}-", base) and kind == "review" else base
             move(r, f"{RELEASES5}/{line_dir + '/' if line_dir else ''}{base}", "a release line's folder")
         elif t == "mh":
@@ -5120,6 +5163,10 @@ def migrate_plan(vault, slugs=None, lanes=None, runtime=None):
             stem = re.sub(r"^\d{4}-\d{2}-\d{2}-", "", name[:-3])
             move(r, f"{PROJECTS}/{stem}.md", "a parked plan is a project, status parked")
             prop_changes.setdefault(r, {}).update({"type": "project", "status": "parked", MOVE_SET: None, NEXT: None})
+        elif t == "sprints" and re.match(r"^\d{4}-[sS](\d+)\.md$", name):
+            day = (props[r].get("end") or props[r].get("date") or "")[:10]
+            n = int(re.match(r"^\d{4}-[sS](\d+)", name).group(1))
+            move(r, f"{ARCHIVE}/{day}-sprint-{n}.md" if day else f"{ARCHIVE}/{name.lower()}", "a closed sprint, dated by its end")
         elif t in ("sprints", "in-progress", "to-read", "readings") and r.endswith(".md"):
             home = home_for(r, props[r])
             folder = home.replace(f"{RELEASES}", RELEASES5, 1) if home.startswith(RELEASES) else REF if home == ARCHIVE and t != "sprints" else home
@@ -5142,8 +5189,15 @@ def migrate_plan(vault, slugs=None, lanes=None, runtime=None):
     gone_dirs = sorted({d for d in LAYOUT4_FOLDERS if os.path.isdir(os.path.join(vault, d))
                         and all(f in moves or f in {x["path"] for x in retire} for f in files if f.startswith(d + "/"))})
     out_moves = [{"from": r, "to": t, "why": w} for r, (t, w) in sorted(moves.items())]
+    gone = {x["path"] for x in retire}
+    names = {}
+    for r in files:                                        # a bare [[name]] must resolve to one note after the move
+        if r.endswith(".md") and r not in gone:
+            to = moves.get(r, (r,))[0]
+            names.setdefault(os.path.basename(to).lower(), []).append(to)
+    clashes = {n: sorted(v) for n, v in names.items() if len(v) > 1}
     return {"moves": out_moves, "retire": retire, "props": prop_changes, "aliases": aliases, "dirs": gone_dirs,
-            "layout": {"from": manifest.get("layout"), "to": LAYOUT5}}
+            "clashes": clashes, "layout": {"from": manifest.get("layout"), "to": LAYOUT5}}
 
 
 WIKI = re.compile(r"(!?\[\[)([^\]|#\n]+?)(\.md)?((?:#[^\]|\n]*)?(?:\|[^\]\n]*)?\]\])")
@@ -5355,6 +5409,8 @@ def cmd_migrate(a):
     print("\nLinks rewritten (after the moves):")
     for r, n in sorted(links.items()):
         print(f"  {r}: {n}")
+    print("\nNames two notes share after the move (a bare link to one is ambiguous): "
+          + ("none" if not plan["clashes"] else "; ".join(f"{n}: {', '.join(v)}" for n, v in sorted(plan["clashes"].items()))))
     if plan["dirs"]:
         print("\nFolders emptied and removed: " + ", ".join(f"{d}/" for d in plan["dirs"]))
     print("\n" + (f"applied: {applied} links rewritten; moves logged in <reports>/ela/{MIGRATE_LOG}; the manifest says layout 5"

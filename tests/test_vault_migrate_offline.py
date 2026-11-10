@@ -34,6 +34,7 @@ with tempfile.TemporaryDirectory() as t:
     note(v, "ela/review/2026-11-09-reader.md", {"type": "reader"}, "# The reader\n")
     note(v, "archive/2026-10-21-verify-mh-9.md", {"title": "MH-9 verify", "type": "verify", "status": "closed"}, "# MH-9\n")
     note(v, "cases/2026-11-05-sky-timeline.md", {"title": "Sky · x", "type": "case", "status": "closed"}, "# Sky\n")
+    note(v, "sprints/2026-S01.md", {"title": "Sprint 1", "type": "sprint", "status": "closed", "start": "2026-10-26", "end": "2026-11-06"}, "# Sprint 1\n")
     note(v, "parked/2026-10-27-v3-pack-rvf.md", {"title": "RVF", "type": "plan", "status": "parked", "moves": "parked", "next": ""}, "# RVF\n")
     note(v, "today.md", {"type": "today"}, "# Today\n\n[[to-read/2026-11-10-mh-2-app-plan|the plan]] · [[lanes|lanes]]\n")
     note(v, "lanes.md", {"type": "lanes"}, "# Lanes\n")
@@ -52,19 +53,24 @@ with tempfile.TemporaryDirectory() as t:
           and to.get("projects/mh-1-csc-control-from-http-to-mqtt.md") == "projects/mh-1-csc-over-mqtt/mh-1-csc-over-mqtt.md")
     check("a page named by hand keeps its name", "projects/mh-5-by-hand.md" not in to)
     check("a release line's notes to releases/<line>/, its record named record.md",
-          to.get("mh/releases/2.1/release-2-1-record.md") == "releases/2.1/record.md"
+          "mh/releases/2.1/release-2-1-record.md" in to and to["mh/releases/2.1/release-2-1-record.md"] == "releases/2.1/release-2-1-record.md"
           and to.get("mh/releases/2.1/2026-11-09-deploy-daily-wed-to-prod-3.md") == "releases/2.1/2026-11-09-deploy-daily-wed-to-prod-3.md")
     check("a line's lists to its folder; a lane no line carries to releases/",
-          to.get("lanes/train-2.1.md") == "releases/2.1/train.md" and to.get("lanes/test-list-qa-cn3.md") == "releases/2.1/test-list-qa-cn3.md"
+          to.get("lanes/train-2.1.md") == "releases/2.1/train-2.1.md" and to.get("lanes/test-list-qa-cn3.md") == "releases/2.1/test-list-qa-cn3.md"
           and to.get("lanes/test-list-elsewhere.md") == "releases/test-list-elsewhere.md" and to.get("lanes.md") == "releases/lanes.md")
     check("a review that serves no project to reference/, its kind first",
           to.get("mh/2026-11-05-jira-four-week-review.md") == "reference/2026-11-05-review-jira-four-week.md")
     check("the day pages to reference/days/; a parked plan becomes a project page",
           to.get("days/2026/2026-11-10-brief.md") == "reference/days/2026/2026-11-10-brief.md"
           and to.get("parked/2026-10-27-v3-pack-rvf.md") == "projects/v3-pack-rvf.md")
+    check("a sprint to archive/, dated by its end", to.get("sprints/2026-S01.md") == "archive/2026-11-06-sprint-1.md")
     check("the generated board and reader pages are retired; archive and cases stay",
           {x["path"] for x in plan["retire"]} == {"board.md", "ela/review/2026-11-09-reader.md"}
           and not any(r.startswith(("archive/", "cases/")) for r in to))
+    check("the dry run names no clash of names", plan["clashes"] == {})
+    check("beside its project a note drops the project's key and subject; a sub-task key stays",
+          V.beside_name("2026-11-10-mh-3987-csc-app-through-gateway.md", {"type": "plan"}, "mh-3983-csc-over-mqtt") == "2026-11-10-plan-mh-3987-app-through-gateway.md"
+          and V.beside_name("2026-11-10-mh-3984-destination-csc-app.md", {"type": "review", "slug": "app-layer"}, "mh-3984-destination-csc") == "2026-11-10-review-app-layer.md")
     check("statuses: live for what waited, done for what was closed; a case keeps its own",
           plan["props"]["to-read/2026-11-10-mh-2-app-plan.md"]["status"] == "live" and plan["props"]["archive/2026-10-21-verify-mh-9.md"]["status"] == "done"
           and "cases/2026-11-05-sky-timeline.md" not in plan["props"])
@@ -81,10 +87,10 @@ with tempfile.TemporaryDirectory() as t:
           "[[projects/mh-1-csc-over-mqtt/2026-11-10-plan-mh-2-app|the plan]]" in today and "[[lanes|lanes]]" in today
           and "[[2026-11-10-plan-mh-2-app]]" in open(os.path.join(v, "projects/mh-1-csc-over-mqtt/mh-1-csc-over-mqtt.md")).read())
     man = json.load(open(os.path.join(v, V.MANIFEST)))
-    check("a renamed note whose new name another shares is linked by its path",
-          "[[releases/2.1/record]]" in open(os.path.join(v, "releases/2.0/record.md")).read())
+    check("no two notes share a name after the move, so a bare link still resolves to one",
+          "[[release-2-1-record]]" in open(os.path.join(v, "releases/2.0/release-2-0-record.md")).read())
     check("the manifest says layout 5, keeps the moves for old paths, and follows the files",
-          man["layout"] == 5 and man["moved"]["lanes/train-2.1.md"] == "releases/2.1/train.md" and man["moved_until"] == "2026-11-25"
+          man["layout"] == 5 and man["moved"]["lanes/train-2.1.md"] == "releases/2.1/train-2.1.md" and man["moved_until"] == "2026-11-25"
           and "reference/days/2026/2026-11-10-brief.md" in man["files"] and "board.md" not in man["files"]
           and man["sources"] == {"reference/days/2026/2026-11-10-brief.md": "runner/2026-11-10-brief.md"})
     log = [json.loads(l) for l in open(os.path.join(reports, "ela", V.MIGRATE_LOG))]
