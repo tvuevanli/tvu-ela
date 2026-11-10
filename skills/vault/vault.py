@@ -2910,7 +2910,6 @@ def today_page(today, notes, desk=None, shown=(), more=0, dropped=0):
         asks.append((f"- [ ] {c['box']} — " if c.get("box") else "- ") + what + f" · *if not: nothing; gone {gone:%a}*")
     acts = [a for a in desk.get("actions") or [] if a.get("day") == iso]
     soon = [a for a in acts if a.get("tier") == 2 and not (a.get("applied") or a.get("vetoed") or a.get("failed"))]
-    send = [a for a in acts if a.get("send_box") and not (a.get("applied") or a.get("vetoed"))]
     hold = desk.get("hold")
     day = []
     notes_today = sorted((n for n in notes if n.props.get("type") == "meeting" and (n.props.get("date") or "")[:10] == iso),
@@ -2929,7 +2928,6 @@ def today_page(today, notes, desk=None, shown=(), more=0, dropped=0):
         day.append(f"- At 10:00 ela does {len(soon)} drafted action{'s' if len(soon) != 1 else ''}"
                    + (f", held until {hold['until']} (dry run)" if hold else "; tick `don't N` to stop one"))
         day += [] if hold else [f"  - [ ] don't {a['n']} — {short(a.get('text'), 90)}" for a in soon]
-    day += [f"- {send_line(a, desk.get('lists'))}" for a in send]
 
     def render(facts):
         L = [f"# Today · {today:%a %Y-%m-%d}", "", "## Facts", ""]

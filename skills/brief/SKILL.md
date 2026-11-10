@@ -415,38 +415,13 @@ he could tick became the page he stopped reading (from 2026-10-28).*
   speaking order turns them into recorded rulings the same day, and a meeting he adds or moves is one line of
   data, not a change to the brief.*
 
-**QA today** follows Needs you on a working day: `ela testlist --lane qa-cn3 --today --json` gives the day's plan
-(carried rows without a verdict, P1 first and oldest first; the newest build's new rows; interruptions: tickets
-assigned to QA in no build, asks to QA posted since the last evening run, 19:00 the previous working day), cut at
-ten, each row with the reason it is in. The section heads "goes when you tick send" and holds a line or two of
-prose only: what stands out in today's plan. The runner writes the rest of it from the same `--today` answer, one
-block per action: a folded `> [!note]- Copy to Slack` callout holding the post exactly as it goes (the json's `text`,
-in a fence, so it copies clean), then the plan as Markdown tables (the json's `table`), refreshed at each pass; the
-session never retypes the rows, and he never edits a file to shape the post (the owner's ruling of 2026-10-30, the
-reference text `<reports>/runner/actions/2026-10-30/slack-v2.md`). The Do line is the runner's too: it drafts the action (tier 3, `send_box: true`, rule `qa-today`, in the
-lane build's release thread or, when the build has none, as the day post) and adds its line, `- [ ] send N — QA today
-on <lane> (your ela: lines applied first)`. It is sent only when he ticks `send N` (read at 09:30 and 10:00) or says
-`apply N`, never by a timer; the 19:00 test-list post is retired, and the evening drafts the next morning's QA today
-instead. His `ela:` lines under it (`drop KEY`, `KEY first`, `add KEY`, `KEY P1`) are passed back as `--guidance FILE`
-before the send and the text that returns replaces the draft. Under the section one line: "Overnight: N posts read in <channels>, M
-asks placed above", naming a channel the bot cannot read as not read; an overnight post addressed to QA is a row
-above, one addressed to him is a Needs-you item. *Why: QA was handed builds, not a ranked day; the plan is cut from
-the list QA already keeps verdicts against (the 2026-10-29 test-list plan, Resolution A2).*
-
-**Dev today** sits beside QA today (un-parked as a dry run on 2026-10-30, the owner's ruling): `ela devlist --today --json` gives the developers' cut, at most
-twelve rows (asks to a developer since the last evening run, one per thread, from anyone but him or a bot; due today
-or overdue; blocked or on hold; moved since then; QA assigned on a secondary ticket; a build change with no ticket;
-Fixed In without a verdict). A ticket QA holds is placed under its commit's author. The post groups its rows under
-Overdue, Blocked, On hold and Needs a ticket (and Due today, Asks, Also when there are any). The section is written
-as QA today's: "goes when you tick send", a line or two of prose, and the runner's Copy to Slack callout and table
-under it. Its Do line is the runner's tier-3 send box (rule `dev-today`, `send_box: true`), `- [ ] send N — Dev
-today on 2.1 (your ela: lines applied first)`, sent at 10:00 only on his tick (13:00 for a late tick), never by a
-timer: the day post in the dev channel, `ela slack post #prj_dev_mediahub --file F --team-day-post`, the one
-top-level message ela makes there that day, which becomes the day's thread. QA today makes the day post in the QA release channel only when the day's build
-has no release thread (the json's `post`: "thread" or "day post"). *Why: a reply under someone else's message is
-invisible to the people the list is for; a standing thread goes stale (the desk's ruling of 2026-10-29, reviewed
-after a week of posts: if nobody replies under them, a standing thread instead).* His `ela:` lines apply as under QA today. A developer never reads QA rows, and QA never
-reads a developer's (Resolution B3).
+**QA today and Dev today are on demand** (the desk's from-zero brief, 2026-11-10: drafted every morning, they were
+not sent). The morning page has no QA today or Dev today section, and no send box for them. When the owner asks, in a
+session or a Slack DM to ela, the plan is built then: `ela testlist --lane <lane> --today --json` (QA's ranked day, cut
+at ten, with the post text and the table) or `ela devlist --today --json` (the developers' cut, at most twelve rows).
+His `ela:` lines (`drop KEY`, `KEY first`, `add KEY`, `KEY P1`) go back as `--guidance FILE`. The post is a dry run,
+`ela slack post … --team-day-post` for the day post or in the build's release thread (the json's `post`), and it
+leaves only on his word. A developer never reads QA rows, and QA never reads a developer's (Resolution B3).
 
 **Priority and due dates by rule** (the Jira plan of 2026-10-29, rules 1 and 2). Highest: a prod incident or a customer
 blocked, due today. High: needed on the next train, due the train's departure. Medium: this sprint or month. Low and
@@ -463,7 +438,7 @@ commitment) and "due this week: N · …" (`lanes.due_week`), then
 when the ticket is addressed to him or is a customer incident; the eight-item cap and Home's three stand. The
 findings file keeps every one for the ticket pages and the replay.
 
-**Every section written for him ends with what he does.** An item, QA today, Dev today and the
+**Every section written for him ends with what he does.** An item and the
 program's Next each end with a Do line (a meeting section's is its note's send box and rulings): an `apply N`, a `don't N`, or "your call: <recommended> over <alternative>
 because …". `ela review lint` names a section or an item without one. *Why: a description is not a deliverable; every
 answer ends with what he should do, what he can do, and how (working-with-evan.md, 2026-10-29).*
@@ -633,10 +608,10 @@ The page is read in Obsidian, so its form is fixed:
   10:00 unless he ticks "don't": `thread-reply` (a reply in a team channel's thread ela has read), `train-hold`,
   and `train-promote`, each an `ela slack post <thread permalink> …
   --team-thread`, which slack.py refuses outside the team channels. Tier 3 is everything else, on his word only
-  (`apply N`): customers, prod approvals, people, anything addressed to him, anything no closed rule admits. Two tier-3
-  rules carry a send box. `meeting`: a meeting's list, its box `- [ ] send` atop the meeting's note, not on the page,
-  posted at the meeting's time in that day's thread (above). `qa-today` and `dev-today` (QA today and Dev today, below), drafted by the runner and
-  sent when he ticks `send N` or says `apply N`; either may make the day post, `ela slack post #<team channel> … --team-day-post` (Dev today only that), which slack.py refuses when
+  (`apply N`): customers, prod approvals, people, anything addressed to him, anything no closed rule admits. One tier-3
+  rule carries a send box: `meeting`, a meeting's list, its box `- [ ] send` atop the meeting's note, not on the page,
+  posted at the meeting's time in that day's thread (above). `qa-today` and `dev-today` (QA today and Dev today, above)
+  are on demand, drafted only when he asks and sent on his word; either may make the day post, `ela slack post #<team channel> … --team-day-post` (Dev today only that), which slack.py refuses when
   ela already posted top level in that channel that day. `test-list` (the 19:00 post) is retired; page-check fails an
   action drafted under it (decisions/2026-10-29-writes-run-in-three-tiers.md, amendment 2026-10-30). A tier-1 or tier-2 action carries `evidence`, one
   line he can check; a train action's evidence names the verdict build and its QA report (`ela day --json`

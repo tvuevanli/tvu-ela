@@ -58,5 +58,7 @@ check("the day's meeting note is listed under Today by its title", "- [[meetings
       and "Scrum" not in pg)
 check("a note's ask keeps its words outside the link", "→ [[to-read/x|the note]]" in V.today_page(THU, [], {}, [
       {"id": "note:x", "text": "MH-1 · a plan", "link": "to-read/x", "first": THU.isoformat()}]))
+check("a send box (the Dev and QA day drafts) is not on today.md: those are made on demand",
+      "send 9" not in V.today_page(THU, [], {"actions": [{"n": 9, "tier": 3, "send_box": True, "rule": "dev-today", "day": THU.isoformat(), "text": "Dev today"}]}))
 print("today: all offline checks passed" if not failures else f"today: {len(failures)} failed")
 sys.exit(1 if failures else 0)
