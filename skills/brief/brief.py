@@ -19,7 +19,7 @@ Lanes (project MH) and the flags computed per row, UTC now:
              zombies (In Progress, updated > 14d ago): a count and the owners, never rows
              Blocked: always listed, with its age
   triage     created inside 2d, not Done, unassigned · hours_since_created: OVERDUE > 4h
-             prefix_ok per row: summary starts with [Infra|J2N|Media|App|UI|QA|Design|AI]
+             prefix_ok per row: summary starts with [Infra|UR|J2N|Media|App|UI|QA|Design|AI]
              hygiene: every row created inside 2d and not Done whose summary lacks the prefix
   breakdown  Epic/Task/Improvement, Highest/High, not Review/Done/Cancelled, created inside 30d, with no
              sub-tasks and no children by parent link (one `parent in (…)` query) · age_days
@@ -109,7 +109,7 @@ def pass_fresh(args):
 PROJECT = "project = MH AND "
 UMBRELLA = "MH-2342"
 RED_H, YELLOW_H, OVERDUE_H = 48, 24, 4
-PREFIX = re.compile(r"^\[(Infra|J2N|Media|App|UI|QA|Design|AI)\]")
+PREFIX = re.compile(r"^\[(Infra|UR|J2N|Media|App|UI|QA|Design|AI)\]")  # J2N: titles from before [UR] replaced it
 LANES = ("overdue", "due_week", "intake", "cadence", "triage", "breakdown", "incidents", "backlog", "yours", "waiting", "tracked", "carried")
 
 # JQL as SKILL.md §1 states it; `project = MH AND ` is prepended to each.

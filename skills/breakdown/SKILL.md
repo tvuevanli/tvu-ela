@@ -23,8 +23,8 @@ framing is first-class input — it often carries the decision the sources lack.
   subtasks only through §5's gate.
 - **Owners are read, not remembered.** Token → owner from the roster capability at run time; repo →
   owner from the map. A missing owner is `unknown`, never a guess.
-- **Closed vocabulary.** Every proposed subtask title is `[Infra] [J2N] [Media] [App] [UI] [QA]
-  [Design]` + action — one token each, no dash separator, cross-layer scope stays on the parent.
+- **Closed vocabulary.** Every proposed subtask title is `[Infra] [UR] [Media] [App] [UI] [QA]
+  [Design]` + action (`[UR]` is UR in the broad sense, J2N included) — one token each, no dash separator, cross-layer scope stays on the parent.
   (The jira capability enforces this again at create time; matching it here avoids a bounce.)
 - **An old ticket is judged before it is split.** A ticket whose plan was written against a
   superseded architecture is `/ela:revisit` first; splitting lanes for a problem that no longer

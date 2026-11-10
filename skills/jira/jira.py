@@ -53,7 +53,8 @@ OWNER_TTL_H = 24           # the owner-name JQL runs once a day
 
 # Closed vocabulary — one token, one owning layer. A title that does not start
 # with exactly one of these is invalid; no caller may create it.
-LAYER_TOKENS = ("[Infra]", "[J2N]", "[Media]", "[App]", "[UI]", "[QA]", "[Design]")
+# [UR] is UR in the broad sense, J2N included (the owner's word, 2026-11-10; it replaced [J2N]).
+LAYER_TOKENS = ("[Infra]", "[UR]", "[Media]", "[App]", "[UI]", "[QA]", "[Design]")
 
 # The MH "Fixed In" field (map/release.yaml fixed_in.field). Its value is a
 # '; '-separated union of <slug>@<version> entries, append-only by convention:
@@ -1878,6 +1879,29 @@ def cmd_attach(creds, args):
     _emit(args, r, [f"{key}: attached {name} (id {r['attachment_id']})" + (f", replacing id {r['replaced']}" if r.get("replaced") else "")])
 
 
+def cmd_detach(creds, args):
+    """Remove one attachment from one issue — the dry run names it; --apply deletes. Only an attachment uploaded by
+    this token's own account (ela writes as the owner), so a reporter's evidence is never removed. Already gone is a
+    no-op. Added 2026-11-10: a superseded copy of a report (MH-3983 carried the .md and the .pdf of one report)."""
+    key = extract_key(args.target)
+    f = _issue(creds, key, "summary,attachment")
+    att = next((a for a in f.get("attachment") or [] if str(a.get("id")) == str(args.id)), None)
+    r = {"key": key, "id": str(args.id), "dry_run": not args.apply, "removed": False}
+    if att is None:
+        _emit(args, r, [f"{key}: no attachment id {args.id} — nothing to remove"]); return
+    me = _request(creds, "/rest/api/3/myself") or {}
+    if (att.get("author") or {}).get("accountId") != me.get("accountId"):
+        sys.exit(f"detach: refused — attachment {args.id} ({att.get('filename')}) was uploaded by "
+                 f"{(att.get('author') or {}).get('displayName', '?')}, not by this account; it is theirs to remove")
+    r["file"] = att.get("filename")
+    if not args.apply:
+        _emit(args, r, [f"DRY RUN — remove {att.get('filename')} (id {args.id}, {att.get('size')} bytes, "
+                        f"{short_date(att.get('created'))}) from {key}  {f.get('summary','')}", "pass --apply to remove"]); return
+    _request(creds, f"/rest/api/3/attachment/{args.id}", method="DELETE")
+    r["removed"] = True
+    _emit(args, r, [f"{key}: removed {att.get('filename')} (id {args.id})"])
+
+
 # ── describe: the description, rewritten in the Markdown subset ──────────────
 
 def cmd_retitle(creds, args):
@@ -2158,6 +2182,9 @@ def main():
     p.add_argument("--replace", action="store_true", help="a same-named attachment is deleted first, then this file uploaded (default: same name = no-op)")
     p.add_argument("target"); p.add_argument("file"); p.add_argument("--apply", action="store_true"); p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_attach)
+    p = sub.add_parser("detach", help="remove one attachment this account uploaded — dry-run names it; --apply deletes; already gone is a no-op")
+    p.add_argument("target"); p.add_argument("--id", required=True); p.add_argument("--apply", action="store_true"); p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_detach)
 
     p = sub.add_parser("describe", help="replace an issue's description from a file in the Markdown subset — dry-run shows was/now and any link the new text drops; --apply writes")
     p.add_argument("target"); p.add_argument("--from-file", required=True); p.add_argument("--allow-dropped-links", action="store_true")

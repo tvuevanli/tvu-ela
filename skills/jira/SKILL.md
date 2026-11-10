@@ -101,7 +101,8 @@ never by rewriting what is there.
 
 **Safety gate (in the script, no caller can skip it):**
 - the title must start with exactly one of
-  `[Infra] [J2N] [Media] [App] [UI] [QA] [Design]` followed by the action —
+  `[Infra] [UR] [Media] [App] [UI] [QA] [Design]` followed by the action (`[UR]` is UR in the
+  broad sense, J2N included) —
   no dash separator, no invented tokens;
 - idempotent: an existing subtask with the same title is reported
   (`already exists: MH-XXXX`) and nothing is created — safe to retry;
@@ -118,7 +119,7 @@ parent ticket — a subtask carries exactly one token. **A ticket the owner asks
 sub-tasks and is assigned to him**: he routes it himself; a sub-task is created only when he names
 the lane and the person (2026-10-20, MH-3797; 2026-10-21).
 
-## comment · transition · label · link · fixed-in · retitle · close · priority · due · version — the field atoms, gated twice
+## comment · transition · label · link · fixed-in · attach · detach · retitle · close · priority · due · version — the field atoms, gated twice
 
 Each takes one or more keys (fan-out is one dry-run, one confirm), prints exactly what would change,
 and does nothing without `--apply`. Each is idempotent, so a re-run after a partial failure is safe:
@@ -131,6 +132,7 @@ and does nothing without `--apply`. Each is idempotent, so a re-run after a part
 | `link` | a link of that type already joins the pair in that direction | `--type` is a type name or a phrase (`blocks`, `is blocked by`, `relates to`, `contains`, `is contained in`, `implements`), resolved against the site's link types; the dry-run prints the sentence as Jira will show it |
 | `fixed-in` | every `--add` entry is already in the field | append-only union in the release map's grammar (`<slug>@<version>; …`): current entries keep their order, new ones follow; no entry is ever removed, because an older build stays a true record when a newer one is added. Each `--add` entry is checked against the map and refused with the reason: a slug the map does not know, a docker entry without its `<image>:<tag>`, an image name in the slug's place (the docker form is suggested); `--remove` is not checked. The value comes from `ela fixed-in <KEY>` (commit → carrying build), not from a developer's comment alone, and a docker entry always from `ela fixed-in` (its image index), never typed by hand; a value that disagrees with the rule is corrected by appending the right one and saying so in the comment |
 | `attach` | a file of the same name is already on the issue | uploads one local file; the dry run names the file and its size. Used by `/ela:verify` for the self-contained QA record; the comment beside it names the file, never a link |
+| `detach` | the attachment is already gone | removes one attachment by `--id`; only one this account uploaded (a reporter's evidence is refused). For a superseded copy of ela's own record — two formats of one report, an outdated version under another name |
 | `describe` | the description already reads so | replaces one issue's description from a file, in the Markdown subset; the dry run shows was / now and names every link the current description carries that the new text drops, and `--apply` refuses while any is dropped (the reporter's links are theirs). The caller writes the new text in the ticket's established shape (Problem / Steps / Cause / Change / QA verification) and keeps the reporter's paragraphs where they stand |
 | `retitle` | the summary already reads so | replaces one issue's summary; the dry run shows was / now. A sub-task's new title must still pass the layer-token gate of `create-subtask` |
 | `close` | each step's own no-op | **a proposal, never a status change**: `--fixed-in`, `--label`, the comment (`--text` / `--from-file`), `flag:closing` and the ticket assigned to the owner, shown together as one dry run and applied in that order; the status is then his own click in Jira. Refused without a comment (`--allow-no-comment` overrides): the assignee and the reporter must see why. On a partial failure the dry run says which steps are done; a re-run skips them |

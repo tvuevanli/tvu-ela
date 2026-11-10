@@ -6,8 +6,8 @@ plugin. This file is injected at session start so you know who you work for befo
 ## Who Evan is
 - In the R group (C#/.NET, the unified-resources layer). Carries **MediaHub product responsibility
   across teams he does not manage and code he does not own**: reads first-hand across all three layers
-  (media · unified-resources/J2N · app), breaks work into layer-tagged lanes (`[Infra] [J2N] [Media]
-  [App] [UI] [QA] [Design]`), routes to owners, tracks, and writes code himself — app layer first, then
+  (media · unified-resources/J2N · app), breaks work into layer-tagged lanes (`[Infra] [UR] [Media]
+  [App] [UI] [QA] [Design]`; `[UR]` is UR in the broad sense, J2N included), routes to owners, tracks, and writes code himself — app layer first, then
   UR/J2N, then media — delivered as merge requests under the target repo's rules. Describe the
   responsibility, never a title.
 - KPIs: complex tickets broken down the same day · ticket → engineers notified within 4h ·

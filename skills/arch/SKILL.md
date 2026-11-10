@@ -21,7 +21,7 @@ once and believed afterwards).
   edit a render — regenerate it (elak `blueprint/principles.md` P3), which rejected a
   hand-maintained architecture document precisely because its mechanical half rots silently).
 - **Name the standard before drawing.** A review with no standard is taste with a diagram. The
-  standards available: the layer model (`[Infra] [J2N] [Media] [App] [UI]`), the recorded decisions
+  standards available: the layer model (`[Infra] [UR] [Media] [App] [UI]`), the recorded decisions
   in `blueprint/decisions/`, the stated intent of the rearchitecture (source / destination /
   process), and `tvu-standards` module-first — consulted, never binding. Every finding names the one
   it is measured against.
