@@ -1700,43 +1700,70 @@ def _link_types(creds):
     return api_get(creds, "/rest/api/3/issueLinkType").get("issueLinkTypes") or []
 
 
-def _resolve_link(creds, phrase):
-    """'Blocks' | 'blocks' | 'is blocked by' | 'relates to' | 'contains' … → (type name, direction).
-    direction 'outward' means <key> <outward phrase> <other>; 'inward' the reverse."""
-    for t in _link_types(creds):
-        if _norm(phrase) == _norm(t["name"]) or _norm(phrase) == _norm(t["outward"]):
+def resolve_link(types, phrase):
+    """'blocks' | 'is blocked by' | 'contains' | 'is contained in' | a type name → (type, direction). The phrase
+    decides the direction for every type: 'outward' means <key> <outward phrase> <other>, 'inward' the reverse. A
+    phrase is matched before a type name, so a name that happens to equal one side's phrase cannot flip it."""
+    for t in types:
+        if _norm(phrase) == _norm(t["outward"]):
             return t, "outward"
         if _norm(phrase) == _norm(t["inward"]):
             return t, "inward"
-    names = ", ".join(f"{t['name']} ({t['outward']} / {t['inward']})" for t in _link_types(creds) if "WBSGantt" not in t["name"])
-    sys.exit(f"link: unknown type or phrase {phrase!r}; use one of: {names}")
+    for t in types:
+        if _norm(phrase) == _norm(t["name"]):
+            return t, "outward"
+    return None, None
 
 
-def cmd_link(creds, args):
-    """Link <key> to <other>: '<key> <phrase> <other>'. Idempotent per (type, pair)."""
-    key, other = extract_key(args.target), extract_key(args.other)
-    t, direction = _resolve_link(creds, args.type)
-    f = _issue(creds, key, "summary,issuelinks")
-    exists = None
-    for l in f.get("issuelinks") or []:
+def link_plan(t, direction, key, other):
+    """What one link writes and how Jira will show it. Jira's POST /issueLink reads 'inwardIssue <outward phrase>
+    outwardIssue' (the reverse of the issuelinks a GET returns, where an outwardIssue entry on X reads 'X <outward>
+    Y'): so <key> <outward> <other> posts key as inwardIssue. `reads` is the sentence on <key>, `target_reads` the
+    same link as <other> shows it."""
+    src, dst = (key, other) if direction == "outward" else (other, key)     # src <outward> dst
+    phrase = t["outward"] if direction == "outward" else t["inward"]
+    back = t["inward"] if direction == "outward" else t["outward"]
+    return {"payload": {"type": {"name": t["name"]}, "inwardIssue": {"key": src}, "outwardIssue": {"key": dst}},
+            "reads": f"{key} {phrase} {other}", "target_reads": f"{other} {back} {key}"}
+
+
+def link_exists(links, t, direction, other):
+    """The existing link of type t joining <key> to <other> in that direction, from <key>'s issuelinks (GET form)."""
+    for l in links or []:
         if (l.get("type") or {}).get("name") != t["name"]:
             continue
         o = (l.get("outwardIssue") or {}).get("key"); i = (l.get("inwardIssue") or {}).get("key")
         if (direction == "outward" and o == other) or (direction == "inward" and i == other):
-            exists = l; break
-    phrase = t["outward"] if direction == "outward" else t["inward"]
-    r = {"key": key, "other": other, "type": t["name"], "reads": f"{key} {phrase} {other}", "dry_run": not args.apply, "created": False,
-         "existing_link_id": (exists or {}).get("id")}
+            return l
+    return None
+
+
+def cmd_link(creds, args):
+    """Link <key> to <other>: '<key> <phrase> <other>'. Idempotent per (type, pair, direction)."""
+    key, other = extract_key(args.target), extract_key(args.other)
+    types = _link_types(creds)
+    t, direction = resolve_link(types, args.type)
+    if not t:
+        names = ", ".join(f"{x['name']} ({x['outward']} / {x['inward']})" for x in types
+                          if "WBSGantt" not in x["name"] or x["outward"] == "contains")
+        sys.exit(f"link: unknown type or phrase {args.type!r}; use one of: {names}")
+    f = _issue(creds, key, "summary,issuelinks")
+    exists = link_exists(f.get("issuelinks"), t, direction, other)
+    plan = link_plan(t, direction, key, other)
+    r = {"key": key, "other": other, "type": t["name"], "reads": plan["reads"], "target_reads": plan["target_reads"],
+         "dry_run": not args.apply, "created": False, "existing_link_id": (exists or {}).get("id")}
     if exists:
-        _emit(args, r, [f"{key} {phrase} {other}: link already exists"]); return
+        _emit(args, r, [f"{plan['reads']}: link already exists"]); return
     if not args.apply:
-        _emit(args, r, [f"DRY RUN — {key} {phrase} {other}  ({t['name']})", "pass --apply to link"]); return
-    payload = {"type": {"name": t["name"]},
-               "outwardIssue": {"key": key if direction == "outward" else other},
-               "inwardIssue": {"key": other if direction == "outward" else key}}
-    api_post(creds, "/rest/api/3/issueLink", payload)
+        _emit(args, r, [f"DRY RUN — {plan['reads']}  ({t['name']})",
+                        f"  on {other} Jira will show: {plan['target_reads']}", "pass --apply to link"]); return
+    api_post(creds, "/rest/api/3/issueLink", plan["payload"])
+    after = link_exists(_issue(creds, key, "issuelinks").get("issuelinks"), t, direction, other)
     r["created"] = True
-    _emit(args, r, [f"linked: {key} {phrase} {other}"])
+    if not after:                                       # read back: a reversed link is named, never reported as done
+        r["created"] = False; r["error"] = "the link Jira holds does not read as asked; check both issues"
+        _emit(args, r, [f"WRONG — Jira does not show {plan['reads']}; check {key} and {other}"]); sys.exit(1)
+    _emit(args, r, [f"linked: {plan['reads']} (on {other}: {plan['target_reads']})"])
 
 
 def fixed_in_entries(text):
