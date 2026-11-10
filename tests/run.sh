@@ -73,6 +73,7 @@ python3 tests/test_promote_livedeps_offline.py || fail=1
 python3 tests/test_promote_ship_offline.py || fail=1
 python3 tests/test_promote_note_offline.py || fail=1
 python3 tests/test_project_offline.py || fail=1
+python3 tests/test_project_jira_offline.py || fail=1
 python3 tests/test_docker_offline.py || fail=1
 python3 tests/test_j2n_offline.py || fail=1
 [ $fail -eq 0 ] && echo "ela: verification passed" || echo "ela: verification FAILED"

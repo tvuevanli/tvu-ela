@@ -149,12 +149,13 @@ FAMILY_FOLDERS = {"decision": ("to-read", "in-progress", "parked", "archive", "e
 # projects/<key>/ holding its page projects/<key>/<key>.md (type project, the living family) and what it keeps; any
 # note elsewhere names it with `project: <key>` (elak decisions/2026-11-04-projects-are-bounded-work-with-one-page-each.md)
 PROJECTS = "projects"
-PROJECT_PAGE = re.compile(r"^projects/([^/]+)/\1\.md$")
+PROJECT_PAGE = re.compile(r"^projects/(?:([^/]+)/\1|[a-z0-9][a-z0-9-]*)\.md$")   # projects/<key>/<key>.md, or one page projects/<key>.md
 # the sync's tail, these headings in this order; the head is everything above the first of them, the boundary
 # ela-runner's morning Projects section reads too, so a desk heading of these names would end the head early
 TAIL_HEADS = ("Waiting for your word", "Notes", "Keys and threads", "Afterwards", "Deadline")
 PROJECT_HEAD_END = "## " + TAIL_HEADS[0]
-TAIL_HEAD_RX = re.compile(r"^##[ \t]+(?:" + "|".join(re.escape(h) for h in TAIL_HEADS) + r")[ \t]*$", re.M)
+STANDS_HEAD = "Where it stands"          # a Jira project's state, from the fact store; the first of the sync's sections
+TAIL_HEAD_RX = re.compile(r"^##[ \t]+(?:" + "|".join(re.escape(h) for h in (STANDS_HEAD,) + TAIL_HEADS) + r")[ \t]*$", re.M)
 PROJECT_WATCH_DAYS = 14                   # the page's watch defaults to its deadline plus this
 PROJECT_SOON_DAYS = 14                    # Home names a project's step only with the deadline nearer than this and the step overdue
 # to-read means "waits on his word", whatever the type: a reading's asks sit under this heading, one box each
@@ -222,7 +223,7 @@ hold tier 2 (`ela-runner hold`), nothing leaves on its own and the 10:00 line sa
 | `lanes/` | the test list per lane, the dev list per release line, and the line's train (each fix, a cell per lane) | look before testing or a promotion |
 | `one-thing` | your One Thing rows not yet on the team's monthly sheet, one copy block, a `pasted` box per row; each day's row is drafted at 19:00 and sits on the next morning's changes page under *Your day* | paste weekly from here; tick `pasted`; reword a row with an `ela:` line under *Your day* on its changes page |
 | `mh/` | the MediaHub program and its evidence | look when Home names the program's next step |
-| `projects/` | one folder per project: bounded work with a deadline and parties outside the program (a customer PoC, a trial, a demo), holding its page `projects/<key>/<key>.md` and the readings and reports it keeps; a note elsewhere names its project with `project: <key>` and the page lists it wherever it is | look when Home lists a project's days left; keep the head's facts current, `ela: keep this` once they are settled |
+| `projects/` | one page per project, `projects/<key>.md`, a folder `projects/<key>/` once it outgrows the page: a requirement carried by one person (an open Jira ticket labelled `kind:project` gets its page `projects/<ticket>-<slug>.md` on the next sync, with *Where it stands* from Jira) or bounded work with outside parties (a customer PoC, a trial, a demo); a note elsewhere names its project with `project: <key>` and the page lists it wherever it is | look when Home lists a project's days left; keep the head's facts current, `ela: keep this` once they are settled |
 | `sprints/` | the sprints, each a plan | look at a sprint's start and end |
 | `meetings/` | one note per meeting: what you raise there, its send box, and what it ruled (30 days; older months in `archive/`) | look before the meeting; tick send, or answer an item with an `ela:` line after it |
 | `ela/` | the ela page (its measures, parts, schedule and week written by the sync; Waiting for your word, What changed for MediaHub this week and Known limits written by the desk), how ela runs, this page, the table view; attachments, hidden | rarely |
@@ -1404,7 +1405,7 @@ def type_lint(path, kind):
     if kind == "guide" and folder != ELA:                 # the ela page's type; a page elsewhere has its own
         return f"{path}: a guide is the ela page and belongs in {ELA}/"
     if kind == "project" and not PROJECT_PAGE.match(path):
-        return f"{path}: a project page is {PROJECTS}/<key>/<key>.md"
+        return f"{path}: a project page is {PROJECTS}/<key>.md, or {PROJECTS}/<key>/<key>.md once it has a folder"
     if kind == "services" and path != SERVICES_PAGE:
         return f"{path}: the service map is {SERVICES_PAGE}"
     return None
@@ -1413,7 +1414,7 @@ def type_lint(path, kind):
 def project_lint(path, props, vault):
     """One lint line when a note names a project (`project: <key>`) that has no folder projects/<key>/; else None."""
     key = (props.get("project") or "").strip()
-    if key and not os.path.isdir(os.path.join(vault, PROJECTS, key)):
+    if key and not os.path.isdir(os.path.join(vault, PROJECTS, key)) and not os.path.isfile(os.path.join(vault, PROJECTS, key + ".md")):
         return f"{path}: project {key!r} has no folder {PROJECTS}/{key}/"
     return None
 
@@ -1561,7 +1562,7 @@ SPECS = {
         closing=f"## {WHAT_TO_DO}: the recommendation, the alternative, the first step; status proposed, decided or superseded"),
     "project": dict(
         kind="bounded work with a deadline and parties outside the program",
-        name=(r"^projects/([^/]+)/\1\.md$", "`projects/<key>/<key>.md`"),
+        name=(r"^projects/(?:([^/]+)/\1|[a-z0-9][a-z0-9-]*)\.md$", "`projects/<key>.md`, or `projects/<key>/<key>.md` once it has a folder"),
         title=(r".", "the project's name"),
         required=("date", "source", "deadline"), optional=("next-step", "channels", "keys", "posted", "watch", "customer", "hubspot"),
         sections=("Goal", "Parties?", "Dates?", "What is known?", "Next step") + TAIL_HEADS,
@@ -2104,18 +2105,71 @@ STEP_DATE = re.compile(r"(?<![\d-])(\d{4}-\d{2}-\d{2}|\d{2}-\d{2})(?![\d-])")
 PROJECT_FOLDERS = ("in this folder", TO_READ, IN_PROGRESS, PARKED, READINGS, ARCHIVE)   # the Notes section's order
 
 
+def project_path(vault, key):
+    """A project's page as a vault path: projects/<key>/<key>.md when it has a folder, else the one page
+    projects/<key>.md (a project outgrows one page into a folder, never the reverse)."""
+    if os.path.isdir(os.path.join(vault or "", PROJECTS, key)):
+        return f"{PROJECTS}/{key}/{key}.md"
+    return f"{PROJECTS}/{key}.md"
+
+
 def project_pages(vault):
-    """{key: text} for every project page projects/<key>/<key>.md, by key."""
+    """{key: text} for every project page, projects/<key>/<key>.md or projects/<key>.md, by key."""
     out, d = {}, os.path.join(vault, PROJECTS)
-    for key in sorted(os.listdir(d)) if os.path.isdir(d) else []:
-        p = os.path.join(d, key, key + ".md")
-        if key.startswith(".") or not os.path.isfile(p):
+    for name in sorted(os.listdir(d)) if os.path.isdir(d) else []:
+        if name.startswith("."):
+            continue
+        key = name[:-3] if name.endswith(".md") else name
+        p = os.path.join(d, name) if name.endswith(".md") else os.path.join(d, name, name + ".md")
+        if not os.path.isfile(p) or key in out:
             continue
         try:
             out[key] = open(p, encoding="utf-8").read()
         except OSError:
             continue
     return out
+
+
+def jira_projects(runtime):
+    """The open Jira tickets labelled kind:project, from the fact store (<runtime>/facts/jira/issues/): [{key, summary,
+    owner, status, since, updated, read_at, due, subtasks: [(key, summary, status, owner)]}]. A requirement is a
+    project: one ticket, in principle one person (elak conventions, 2026-11-10)."""
+    d, out = os.path.join(runtime or "", "facts", "jira", "issues"), []
+    for f in sorted(os.listdir(d)) if os.path.isdir(d) else []:
+        try:
+            r = json.load(open(os.path.join(d, f), encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        fl = r.get("fields") or {}
+        if "kind:project" not in (fl.get("labels") or []) or ((fl.get("status") or {}).get("statusCategory") or {}).get("key") == "done":
+            continue
+        out.append({"key": r.get("key"), "summary": fl.get("summary") or "", "owner": (fl.get("assignee") or {}).get("displayName"),
+                    "status": (fl.get("status") or {}).get("name"), "since": (fl.get("statuscategorychangedate") or "")[:10],
+                    "updated": (r.get("updated") or fl.get("updated") or "")[:10], "read_at": (r.get("read_at") or "")[:16],
+                    "due": fl.get("duedate"),
+                    "subtasks": [(x.get("key"), (x.get("fields") or {}).get("summary") or "", ((x.get("fields") or {}).get("status") or {}).get("name"),
+                                  ((x.get("fields") or {}).get("assignee") or {}).get("displayName")) for x in fl.get("subtasks") or []]})
+    return out
+
+
+def jira_project_key(t):
+    """The page key of a Jira project: the ticket key and a short slug of its title (`mh-3983-csc-control-from-http`)."""
+    words = slug(t["summary"]).split("-")
+    s, out = "", []
+    for w in words:
+        if len("-".join(out + [w])) > 32:
+            break
+        out.append(w)
+    return f"{t['key'].lower()}-{'-'.join(out)}".rstrip("-")
+
+
+def jira_project_page(t, today):
+    """A new page for a Jira project: its properties, its title, and a head the owner and the carrier keep: the next
+    step and the open questions. Where it stands, and the rest, the sync writes below."""
+    title = f"{t['key']} · {t['summary']}"
+    fm = front([], {"title": title, "type": "project", "date": today.isoformat(), "source": "vault", "keys": t["key"]})
+    return (fm + f"# {title}\n\n## Next step\n\nNot written yet: one line, with its date.\n\n## Open questions\n\n"
+            "None yet. Each is a box with ela's proposed answer; tick it, or answer with an `ela:` line under it.\n")
 
 
 def project_head(body):
@@ -2147,7 +2201,7 @@ def step_date(text, today):
     return d
 
 
-def project_facts(key, text, today):
+def project_facts(key, text, today, path=None, ticket=None):
     """A project page as data: its title, deadline and the days to it, its step (the `next-step` property, else the
     first unticked box in the head) with its date and whether it is overdue (its date passed; with no date, the
     deadline passed), its keys, the threads it watches (`posted` and `channels`), the head and the Afterwards rows."""
@@ -2162,16 +2216,18 @@ def project_facts(key, text, today):
     overdue = bool(step) and ((due < today) if due else (deadline is not None and deadline < today))
     keys = list(dict.fromkeys(k for k in KEY_RX.findall(props.get("keys") or "") if not NOT_KEYS.match(k)))
     links = list(dict.fromkeys(l.rstrip(".") for l in PERMALINK.findall((props.get("posted") or "") + " " + (props.get("channels") or ""))))
-    return {"key": key, "path": f"{PROJECTS}/{key}/{key}.md", "title": props.get("title") or h1(body) or key, "deadline": deadline,
+    if deadline is None and (ticket or {}).get("due"):     # a Jira project's due date, until the page names its own
+        deadline = datetime.date.fromisoformat(ticket["due"][:10])
+    return {"key": key, "path": path or f"{PROJECTS}/{key}/{key}.md", "title": props.get("title") or h1(body) or key, "deadline": deadline,
             "days": (deadline - today).days if deadline else None, "step": step, "step_due": due, "overdue": overdue,
-            "keys": keys, "links": links, "props": props, "front": fl, "head": head, "afterwards": after}
+            "keys": keys, "links": links, "props": props, "front": fl, "head": head, "afterwards": after, "ticket": ticket}
 
 
-def project_rows(vault, key, notes=()):
+def project_rows(vault, key, notes=(), page=None):
     """The notes of project `key`: every note carrying `project: <key>`, the vault on disk overlaid with the notes this
     sync writes, plus every note inside projects/<key>/ but the page: [{path, title, type, date, status, next, inside}],
     newest first."""
-    page, folder, rows = f"{PROJECTS}/{key}/{key}.md", f"{PROJECTS}/{key}/", {}
+    page, folder, rows = page or f"{PROJECTS}/{key}/{key}.md", f"{PROJECTS}/{key}/", {}
     for top_, dirs, fs in os.walk(vault):
         dirs[:] = [d for d in dirs if not d.startswith(".") and os.path.relpath(os.path.join(top_, d), vault).replace(os.sep, "/")
                    not in (ATTACH,) + RETIRED]
@@ -2218,11 +2274,27 @@ def head_asks(head):
             if not his_lines(head, b.end(), boxes[i + 1].start() if i + 1 < len(boxes) else len(head))]
 
 
+def stands_lines(t, jira_base=""):
+    """A Jira project's Where it stands, from the fact store: who carries it, its status and since when, its sub-tasks
+    each with its status and person, and when Jira was read. [] for a project with no ticket."""
+    if not t:
+        return []
+    def k(x):
+        return f"[{x}]({jira_base}/browse/{x})" if jira_base else x
+    L = [f"## {STANDS_HEAD}", "", f"Carried by {t.get('owner') or 'nobody yet'} · {t.get('status')}"
+         + (f" since {t['since']}" if t.get("since") else "") + (f" · last changed {t['updated']}" if t.get("updated") else "")]
+    if t.get("subtasks"):
+        L += ["", "Sub-tasks, each under the carrier's ownership:"]
+        L += [f"- {k(sk)} {summ} · {st}" + (f" · {who}" if who else "") for sk, summ, st, who in t["subtasks"]]
+    L += ["", f"*Read from Jira {t.get('read_at') or 'at the last pass'}.*", ""]
+    return L
+
+
 def project_tail(facts, rows, today, jira_base=""):
     """The sync's half of a project page: TAIL_HEADS in their order. Waiting for your word lists the head's own
     unticked boxes first (each links to its section), then the project's notes in to-read and in-progress."""
     d = facts["deadline"]
-    L = [f"## {ASKS_HEAD}", ""]
+    L = stands_lines(facts.get("ticket"), jira_base) + [f"## {ASKS_HEAD}", ""]
     page = facts["path"][:-3]
     mine = head_asks(facts["head"])
     for sec, text in mine:
@@ -2264,11 +2336,11 @@ def project_tail(facts, rows, today, jira_base=""):
     return "\n".join(L)
 
 
-def project_note(key, text, vault, notes, today, jira_base=""):
+def project_note(key, text, vault, notes, today, jira_base="", ticket=None):
     """The page as the sync writes it: its properties settled (type project, watch defaulting to the deadline plus 14
     days, every other line kept), the head as written, the tail generated. The Note carries front_text, head and tail
     apart, so the head is never linked, unwrapped or retitled."""
-    facts = project_facts(key, text, today)
+    facts = project_facts(key, text, today, project_path(vault, key), ticket)
     props = facts["props"]
     want = {"title": facts["title"], "type": "project", "date": props.get("date") or today.isoformat(), "deadline": props.get("deadline"),
             "next-step": props.get("next-step"), "source": "vault", "posted": props.get("posted"), "channels": props.get("channels"),
@@ -2283,7 +2355,7 @@ def project_note(key, text, vault, notes, today, jira_base=""):
     keep = [l for l in facts["front"] if re.match(r"^([\w-]+):", l) and re.match(r"^([\w-]+):", l).group(1) not in tuple(want) + ("aliases",)]
     if keep:
         fm = fm[:-len("---\n\n")] + "\n".join(keep) + "\n---\n\n"
-    rows = project_rows(vault, key, notes)
+    rows = project_rows(vault, key, notes, facts["path"])
     tail = project_tail(facts, rows, today, jira_base)
     n = Note(facts["path"], facts["title"], facts["head"] + "\n" + tail, {"type": "project", "date": want["date"], "deadline": want["deadline"]})
     n.front_text, n.head, n.tail, n.facts, n.rows = fm, facts["head"] + "\n", tail, facts, rows
@@ -3495,7 +3567,14 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since
         if not n.props.get("project") and props_of(n.front_lines).get("project"):
             n.props["project"] = props_of(n.front_lines)["project"]
     pages = project_pages(s["vault"])
-    inferred = infer_projects(s["vault"], {k: set(project_facts(k, t, today)["keys"]) for k, t in pages.items()}, notes, native, dry_run)
+    tickets = jira_projects(s.get("runtime"))
+    def ticket_of(text):
+        keys = set(KEY_RX.findall(props_of(split_front(text)[0]).get("keys") or ""))
+        return next((t for t in tickets if t["key"] in keys), None)
+    def watched(k, text):                                  # a Jira project's notes may name it or any of its sub-tasks
+        t = ticket_of(text)
+        return set(project_facts(k, text, today)["keys"]) | {x[0] for x in (t or {}).get("subtasks") or []}
+    inferred = infer_projects(s["vault"], {k: watched(k, t) for k, t in pages.items()}, notes, native, dry_run)
     native_warn += [f"type: {x}" for x in (type_lint(n.path, n.props.get("type")) for n in notes + native) if x]
     native_warn += [f"project: {x}" for x in (project_lint(n.path, n.props, s["vault"]) for n in notes + native) if x]
     native_warn += [f"asks: {x}" for x in (asks_lint(n) for n in notes + native) if x]
@@ -3519,7 +3598,13 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since
     if env and os.path.isfile(env):
         jira_base = next((l.split("=", 1)[1].strip().rstrip("/") for l in open(env) if l.startswith("JIRA_BASE_URL=")), "")
     for key, text in pages.items():                        # each project's page: its head as written, its tail from the notes
-        notes.append(project_note(key, text, s["vault"], notes + native, today, jira_base))
+        notes.append(project_note(key, text, s["vault"], notes + native, today, jira_base, ticket_of(text)))
+    paged = {t["key"] for text in pages.values() for t in [ticket_of(text)] if t}
+    for t in tickets:                                      # an open kind:project ticket with no page gets one, once
+        if t["key"] not in paged:
+            key = jira_project_key(t)
+            fresh = jira_project_page(t, today)
+            notes.append(project_note(key, fresh, s["vault"], notes + native, today, jira_base, t))
     projects = project_keys(env, s.get("runtime")) if jira_base else set()
     spec = lint_notes(s["vault"], projects or None)
     if spec:                                               # one line here; each deviation is `vault.py lint`'s

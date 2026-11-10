@@ -45,7 +45,7 @@ def jira_base(env):
 
 
 def page_path(vault, key):
-    return os.path.join(vault, V.PROJECTS, key, key + ".md")
+    return os.path.join(vault, V.project_path(vault, key))
 
 
 def one(vault, key, today):
@@ -54,8 +54,8 @@ def one(vault, key, today):
     if key not in pages:
         print(f"no project {key!r}: " + (", ".join(sorted(pages)) if pages else "none yet; `ela project new <key> --deadline YYYY-MM-DD`"),
               file=sys.stderr); sys.exit(3)
-    facts = V.project_facts(key, pages[key], today)
-    return facts, V.project_rows(vault, key)
+    facts = V.project_facts(key, pages[key], today, V.project_path(vault, key))
+    return facts, V.project_rows(vault, key, page=facts["path"])
 
 
 def asks_of(rows):
@@ -76,8 +76,8 @@ def cmd_list(a):
     today = datetime.date.today()
     out = []
     for key, text in V.project_pages(s["vault"]).items():
-        facts = V.project_facts(key, text, today)
-        out.append(as_json(facts, V.project_rows(s["vault"], key)))
+        facts = V.project_facts(key, text, today, V.project_path(s["vault"], key))
+        out.append(as_json(facts, V.project_rows(s["vault"], key, page=facts["path"])))
     out.sort(key=lambda f: (f["days"] is None, f["days"] if f["days"] is not None else 0, f["key"]))
     if a.json:
         print(json.dumps(out, ensure_ascii=False)); return

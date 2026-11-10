@@ -52,7 +52,8 @@ Exit codes: 0 ok · 2 usage or site · 3 no such project (or it exists already, 
 
 - Infers `project: <key>` on a note that has none when its `keys` (or, for a verification, its ticket) are among
   exactly one project's `keys`; written into the note's front matter, nothing else of it touched.
-- Lints: a `project` page outside `projects/<key>/<key>.md`; a `project: <key>` whose folder does not exist.
+- **A requirement is a project too.** An open Jira ticket labelled `kind:project` gets one page, `projects/<ticket>-<slug>.md`, on the next vault sync. Its head (Next step, Open questions) is kept as written. Below it the sync writes *Where it stands* from the fact store: the carrier, the status and since when, and each sub-task. A note naming the ticket or a sub-task belongs to it.
+- Lints: a `project` page outside `projects/<key>.md` or `projects/<key>/<key>.md`; a `project: <key>` with no such page.
 
 ## Judgment
 
