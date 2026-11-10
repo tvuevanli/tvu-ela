@@ -3397,9 +3397,8 @@ def cmd_meeting(args):
         print(f"meeting: site.json `vault` is not a folder: {vault}", file=sys.stderr); sys.exit(3)
     time_ = str(m.get("time") or "").strip()
     name, channel = m.get("name") or args.key, str(m.get("channel") or "").lstrip("#") or None
-    title = f"{name} · {' '.join(flow_list(m.get('weekdays')))} {time_ or 'not scheduled yet'}".replace("  ", " ")
-    send_text = (f"the list goes to #{channel} at {time_} on your tick" if channel
-                 else f"no channel set yet: copy the list from this note (`ela meeting --key {args.key} --slack`)")
+    send_text = (f"the list goes to #{channel} at {time_} when this box is ticked" if channel
+                 else f"no channel set yet: the list is copied from this note (`ela meeting --key {args.key} --slack`)")
     nxt = next(meeting_slots(m, doc, d, 1), None)
     if nxt == d and time_ and now.date() == d and now.strftime("%H:%M") >= time_:
         nxt = next(meeting_slots(m, doc, d + datetime.timedelta(days=1), 1), None)
@@ -3412,6 +3411,10 @@ def cmd_meeting(args):
     except OSError:
         text = ""
     n = V.meeting_parse(text)
+    # the note is shown to the team: its title names the meeting and its next date (`MediaHub team sync · Wed
+    # 2026-11-11`); a name written by hand on the note is kept, the date moves with the meeting (2026-11-10)
+    hand = (V.props_of(n["front"]).get("title") or "").split(" · ")[0].strip()
+    title = f"{hand or name} · {(nxt or d):%a %Y-%m-%d}"
     jira = ""
     env = site.get("env")
     if env and os.path.isfile(env):

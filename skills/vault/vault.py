@@ -3152,6 +3152,13 @@ def meeting_render(n, title, send_text, today):
     any section he added, kept unchanged."""
     keep = [l for l in n["front"] if not re.match(r"^(title|aliases|type|date|source):", l)]
     props = front([], {"title": title, "type": "meeting", "date": today.isoformat(), "source": "vault"})
+    old = list_prop(n["front"], "aliases") + [props_of(n["front"]).get("title") or ""]
+    names = {title.split(" · ")[0]: title}                # a renamed note keeps each old name once; a date is not a name
+    for a in old:
+        if a and a.split(" · ")[0] not in names:
+            names[a.split(" · ")[0]] = a
+    aliases = list(names.values())
+    props = re.sub(r"(?m)^aliases: .*$", lambda _: f"aliases: {json.dumps(aliases, ensure_ascii=False)}", props, 1)
     if keep:
         props = props[:-len("---\n\n")] + "\n".join(keep) + "\n---\n\n"
     box = "x" if n["send"] and n["send"]["ticked"] else " "
@@ -3182,7 +3189,7 @@ def meeting_item(subject, question, since, decides=None, proposed=False, jira=""
         subject = f"[{subject}]({jira.rstrip('/')}/browse/{subject})"
     parts = [f"{subject} — {question.strip()}" if subject else question.strip()]
     parts += [decides.strip()] if (decides or "").strip() else []
-    parts += [f"since {since:%m-%d}"] + (["ela proposes"] if proposed else [])
+    parts += [f"since {since:%m-%d}"]                     # no "ela proposes": the note is shown to the team (2026-11-10)
     return " · ".join(parts)
 
 

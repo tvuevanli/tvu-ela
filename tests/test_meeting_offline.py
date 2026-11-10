@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """ela meeting, offline: the meeting note's shape, the 140-character lint, the 30-day roll, and each verb flag
 (--raise, --propose, --rule, --slack, --json, --dry-run) against a throwaway vault and meetings file."""
-import contextlib, datetime, io, json, os, sys, tempfile
+import re, contextlib, datetime, io, json, os, sys, tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "skills", "brief"))
@@ -110,7 +110,8 @@ with tempfile.TemporaryDirectory() as t:
     check("--raise makes the note in shape and adds the item, the key a Jira link, since today, its detail folded",
           c == 0 and V.meeting_lint("meetings/scrum-pm.md", text) == []
           and "- [ ] [MH-2406](https://j.example/browse/MH-2406) — friendly notice for 0x81004009 too? · you decide with the PM · since 10-29" in text
-          and "  - the pool has no usable box" in text and "- [ ] send — the list goes to #prj_dev_mediahub at 10:00 on your tick" in text)
+          and "  - the pool has no usable box" in text and "- [ ] send — the list goes to #prj_dev_mediahub at 10:00 when this box is ticked" in text
+          and 'title: "Scrum with the PM · Fri 2026-10-30"' in text)
     run("--raise", "MH-2406 — friendly notice for 0x81004009 too?", "--now", "2026-10-30T08:00")
     check("--raise again is idempotent", open(note).read().count("friendly notice") == 1)
     o, e, c = run("--raise", "MH-1 — " + "y" * 150, "--now", "2026-10-30T08:00")
@@ -121,7 +122,8 @@ with tempfile.TemporaryDirectory() as t:
     o, _, c = run("--propose", "MH-3820 — ship on build 79 or hold for QA?", "--now", "2026-10-30T08:00", "--dry-run")
     check("--dry-run reports and writes nothing", c == 0 and "DRY RUN" in o and open(note).read() == before)
     run("--propose", "MH-3820 — ship on build 79 or hold for QA?", "--now", "2026-10-30T08:00")
-    check("--propose adds an item marked ela proposes", "ship on build 79 or hold for QA? · since 10-30 · ela proposes" in open(note).read())
+    check("--propose adds an item, unmarked: the note is shown to the team", "ship on build 79 or hold for QA? · since 10-30" in open(note).read()
+          and "ela proposes" not in open(note).read())
 
     # --json: what the runner needs; the pointer line and today's new items
     o, _, c = run("--json", "--now", "2026-10-30T08:00")
@@ -132,8 +134,8 @@ with tempfile.TemporaryDirectory() as t:
           and len(j["new"]) == 1 and "MH-3820" in j["new"][0] and j["lint"] == [])
 
     # --slack: the unticked items, a 'first' line on top, ela's mark off, links as Slack writes them
-    t2 = open(note).read().replace("ship on build 79 or hold for QA? · since 10-30 · ela proposes",
-                                   "ship on build 79 or hold for QA? · since 10-30 · ela proposes\n  ela: first")
+    t2 = open(note).read().replace("ship on build 79 or hold for QA? · since 10-30",
+                                   "ship on build 79 or hold for QA? · since 10-30\n  ela: first")
     open(note, "w").write(t2)
     o, _, c = run("--slack", "--now", "2026-10-30T08:00")
     lines = o.strip().splitlines()
@@ -175,6 +177,16 @@ with tempfile.TemporaryDirectory() as t:
           and "### 2026-09-15" in open(arch).read() and "MH-9 — old" in open(arch).read()
           and "2026-09-15" not in open(note).read() and "### 2026-10-30" in open(note).read())
     check("a second roll moves nothing", V.meeting_roll(vault, datetime.date(2026, 10, 30)) == [])
+
+    # a name written by hand is kept; the date moves with the meeting; the old title stays an alias
+    t1 = open(note).read()
+    cur = re.search(r'^title: "([^"]+)"', t1, re.M).group(1)
+    open(note, "w").write(t1.replace(f'title: "{cur}"', 'title: "MediaHub team sync · Fri 2026-10-30"'))
+    run("--raise", "MH-7 — a hand-titled note", "--now", "2026-11-02T11:00")
+    t1 = open(note).read()
+    check("a name written by hand is kept, the date moves to the next meeting, the old title stays an alias",
+          'title: "MediaHub team sync · Wed 2026-11-04"' in t1 and "Scrum with the PM" in t1.split("---")[1]
+          and t1.split("---")[1].count("MediaHub team sync") == 2)
 
     # an unknown key is exit 3
     sys.argv = ["brief.py", "meeting", "--key", "nope"]
