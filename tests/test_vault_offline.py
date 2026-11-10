@@ -42,6 +42,10 @@ u = V.unwrap("# T\n\nOne line\nwrapped.\n\n- item\n  continues\n- next\n\n| a |\
 check("a wrapped paragraph becomes one line", "One line wrapped." in u)
 check("a wrapped list item joins, the next item stays", "- item continues\n- next" in u)
 check("tables and code keep their lines", "| a |\n|---|" in u and "code\nstays" in u)
+CASE = '---\ntitle: "Fox · black frames"\ntype: "case"\ndate: "2026-11-05"\n{}status: "open"\n---\n# Fox · black frames\n'
+check("a case without a Jira key is not a lint line for it; its customer still is",
+      not any("keys" in x for x in V.spec_lint("cases/2026-11-05-fox-black-frames.md", CASE.format('customer: "Fox"\n')))
+      and "missing customer" in V.spec_lint("cases/2026-11-05-fox-black-frames.md", CASE.format("")))
 check("an empty ela: property is not read as the next line", [m.group(1) for m in V.GUIDE.finditer("ela:\n---\nela: go\n")] == ["go"])
 # ela's own lines are never his word (2026-11-09: five runner jobs fired on ela's stubs and a dated ela property)
 own = '---\nela: "2026-11-09: the asks carried no ruling"\n---\n- ela: keep / revert / commit —\n- ela: R1–R9 ...\nela: S1 map —\nela: keep / revert — revert\n- ela: 2026-11-09: in the body, his\n'

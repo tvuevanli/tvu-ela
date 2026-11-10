@@ -1551,7 +1551,8 @@ SPECS = {
         kind="one customer support case",
         name=(rf"^(?:cases|projects/{SLUG})/{DATED}\.md$|^cases/{SLUG}/{DATED}\.md$", "`cases/<date>-<slug>.md`"),
         title=(r" · ", "`<customer or stream> · <what happened>`"),
-        required=("date", "customer", "keys", "status"), optional=("hubspot", "graph", "box", "channels", "posted", "watch", "source", "progress", "project"),
+        # keys optional: a support case often has no Jira ticket, and one without was a lint line for ever (review 11-10)
+        required=("date", "customer", "status"), optional=("keys", "hubspot", "graph", "box", "channels", "posted", "watch", "source", "progress", "project"),
         sections=("Timeline?", "Findings?", "Open?", WHAT_TO_DO),
         closing=f"## {WHAT_TO_DO}: the reply to support or the next check, and who acts"),
     "report": dict(
