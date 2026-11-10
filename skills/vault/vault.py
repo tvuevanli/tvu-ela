@@ -102,6 +102,7 @@ CLOSED_NEXT = {"accepted": "accept", "rejected": "reject", "not now": "not-now",
 # promotions, deploys, docker checks, release reviews and verifications in mh/releases/, ela's own closed plans and
 # reviews in ela/history/
 CASES, RELEASES, HISTORY = "cases", "mh/releases", "ela/history"
+LAYOUT5, RELEASES5 = 5, "releases"   # ADR 0015: the layout  brings the vault to
 SUBJECT_HOMES = (CASES, RELEASES, HISTORY)
 CLOSED_FOLDERS = (ARCHIVE, RELEASES, HISTORY)   # a note there is closed, its outcome in next; a case keeps its own status
 OWNER_FOLDERS = (ARCHIVE,) + SUBJECT_HOMES   # kept notes: ela never rewrites their text, only status and appended Afterwards
@@ -4662,7 +4663,7 @@ def atomic_write(path, text):
     os.replace(tmp, path)
 
 
-WRITERS = ("sync", "marks", "finish", "note", "restore", "setup", "afterwards", "tidy", "lint")   # guidance only reads; lint writes with --fix --apply
+WRITERS = ("sync", "marks", "finish", "note", "restore", "setup", "afterwards", "tidy", "lint", "migrate")   # guidance only reads; lint writes with --fix --apply
 
 
 def vault_lock():
@@ -4695,6 +4696,8 @@ def cmd_sync(a):
             old_home = m.get("home") or {}
         except (ValueError, KeyError):
             print("vault: the manifest is unreadable; not synced (remove it deliberately to start over)", file=sys.stderr); sys.exit(3)
+    if old_layout and old_layout > LAYOUT:                 # a newer layout on disk: this sync would write the old one into it
+        print(f"vault: not synced — the vault is in layout {old_layout}, this ela writes layout {LAYOUT}", file=sys.stderr); sys.exit(3)
     # a note the sync wrote that is gone from disk was deleted by the owner: that is feedback, and it stays deleted
     removed_path = os.path.join(s.get("reports") or "", "ela", "vault-removed.jsonl")
     marked = [] if a.dry_run else apply_marks(vault, s.get("reports") or "")   # ticked boxes first: they are his moves
@@ -4909,6 +4912,453 @@ def cmd_sync(a):
         print(f"  warning {h['note']}: {'; '.join(h['problems'])}")
     for w in warnings:
         print(f"  note: {w}", file=sys.stderr)
+
+
+# ── the migration to layout 5: things and angles (ADR 0015) ────────────────────────────────────────────
+# One pass, on the owner's word: every note of layout 4 to its thing's home, old names kept as aliases, links
+# rewritten, statuses brought to live and done. A dry run by default; the sync never runs it, and refuses to write a
+# vault still in layout 4. The moves are kept in the manifest, so for OLD_PATHS_DAYS an old path given to a verb is
+# read as its new one, and logged one row each in <reports>/ela/vault-migrated.jsonl (not the removal log, whose
+# every row is a deletion the sync honours).
+ROOTS5 = ("today.md", "meetings", "projects", "releases", "cases", "reference", "ela", "archive")
+OLD_PATHS_DAYS = 14
+LAYOUT4_FOLDERS = ("to-read", "in-progress", "parked", "readings", "days", "lanes", "mh", "sprints", "mediahub-bot", "library", "to-learn")
+RETIRED_ANGLES = ("board.md", "recent.md", "constraints.md")   # generated daily, consumed by nobody (ADR 0015)
+KIND_WORDS = ("decision", "plan", "sprint", "review", "verify", "verify-plan", "deep", "draft", "timeline", "case",
+              "glossary", "record") + RELEASE_KINDS
+KIND_OF_TYPE = {"decision": "decision", "plan": "plan", "sprint": "sprint", "review": "review", "ticket": "deep",
+                "verify": "verify", "verify-plan": "verify-plan", "draft": "draft", "report": "review"}
+LIVE_STATUSES = ("proposed", "blocked", "building", "built", "waiting", "parked")
+WORK_TYPES = ("decision", "plan", "sprint", "review", "ticket", "verify", "verify-plan", "draft")
+MIGRATE_LOG = "vault-migrated.jsonl"
+
+
+def dated_name(name, kind):
+    """`<date>-<kind>-<what>.md`: a dated name whose first word after the date is not a kind gets its type's kind
+    word inserted; an undated name, or one already under the rule, is returned as it is."""
+    m = re.match(r"^(\d{4}-\d{2}-\d{2})-(.+)\.md$", name)
+    word = KIND_OF_TYPE.get(kind or "")
+    if not m or not word or any(m.group(2) == k or m.group(2).startswith(k + "-") for k in KIND_WORDS):
+        return name
+    rest = re.sub(rf"-{re.escape(word)}$", "", m.group(2))   # jira-four-week-review → review-jira-four-week
+    return f"{m.group(1)}-{word}-{rest}.md"
+
+
+def old_project_key(key, summary):
+    """The page name the first generator gave a Jira project: the key and the summary's slug cut at 32 characters,
+    which is how a generated page is told from one the desk named by hand."""
+    out = []
+    for w in slug(summary).split("-"):
+        if len("-".join(out + [w])) > 32:
+            break
+        out.append(w)
+    return f"{key.lower()}-{'-'.join(out)}".rstrip("-")
+
+
+def lane_lines():
+    """{lane: line} from the release map's lines (each line's qa, daily and prod lanes); {} when it cannot be read."""
+    try:
+        sys.path.insert(0, os.path.join(HERE, "..", "release"))
+        import release as R  # noqa: E402
+        lines = R.rmap("lines") or {}
+    except (Exception, SystemExit):
+        return {}
+    return {lane: line for line, cfg in lines.items() for lane in ((cfg or {}).get("lanes") or {}).values() if lane}
+
+
+def list_home(name, lanes=None):
+    """A line's list page in layout 5, from its layout-4 name in lanes/: train-<line> and dev-list-<line> → that
+    line's train.md and dev-list.md; test-list-<lane> → the folder of the line the lane carries, else releases/."""
+    m = re.match(r"^(train|dev-list)-(\d+\.\d+)\.md$", name)
+    if m:
+        return f"{RELEASES5}/{m.group(2)}/{m.group(1)}.md"
+    m = re.match(r"^test-list-(.+)\.md$", name)
+    if m:
+        line = (lanes if lanes is not None else lane_lines()).get(m.group(1))
+        return f"{RELEASES5}/{line}/{name}" if line else f"{RELEASES5}/{name}"
+    return f"{RELEASES5}/{name}"
+
+
+def thing_of(props, pages, subtasks):
+    """The project page key a note serves: its own `project:`, else the one page whose keys (and their tickets'
+    sub-tasks) take in the note's keys; None when none or more than one does."""
+    if props.get("project") and props["project"] in pages:
+        return props["project"]
+    keys = {k for k in KEY_RX.findall(str(props.get("keys") or "") + " " + str(props.get("title") or "")) if not NOT_KEYS.match(k)}
+    hits = set()
+    for key, ks in pages.items():
+        own = set(ks) | {s for k in ks for s in subtasks.get(k, ())}
+        if keys & own:
+            hits.add(key)
+    return hits.pop() if len(hits) == 1 else None
+
+
+def status5(kind, status, old_top):
+    """A note's status in layout 5: a work note live or done; a case, a report and a project keep their own."""
+    s = (status or "").strip().lower()
+    if kind in ("case", "report", "project", "meeting") or kind not in WORK_TYPES:
+        return status or None
+    if s in ("closed", "done") or old_top in ("archive", "sprints") or (old_top == "mh" and s == "closed"):
+        return "done"
+    if s in LIVE_STATUSES or s == "live" or old_top in ("to-read", "in-progress", "parked"):
+        return "live"
+    return status or None
+
+
+def migrate_plan(vault, slugs=None, lanes=None, runtime=None):
+    """Every change the migration makes, nothing written: {moves: [{from, to, why}], retire: [{path, why}], props:
+    {path: {key: value}}, aliases: {new path: old name}, keep: [path], dirs: [dir], layout}. A move's `to` is the
+    note's place in layout 5; a page renamed keeps its old name as an alias. `slugs`: {KEY: words} naming a project
+    page by hand (`--slug MH-3983=csc-over-mqtt`), as a `slug` property on the page does."""
+    slugs = {k.upper(): v for k, v in (slugs or {}).items()}
+    lanes = lane_lines() if lanes is None else lanes
+    try:
+        manifest = json.load(open(os.path.join(vault, MANIFEST)))
+    except (OSError, ValueError):
+        manifest = {}
+    generated = set(manifest.get("files") or [])
+    files = []
+    for top_, dirs, fs in os.walk(vault):
+        dirs[:] = sorted(d for d in dirs if not d.startswith("."))
+        files += [os.path.relpath(os.path.join(top_, f), vault).replace(os.sep, "/") for f in sorted(fs) if not f.startswith(".")]
+    text_of, props = {}, {}
+    for r in files:
+        if r.endswith(".md"):
+            try:
+                text_of[r] = open(os.path.join(vault, r), encoding="utf-8").read()
+            except (OSError, UnicodeDecodeError):
+                text_of[r] = ""
+            props[r] = props_of(split_front(text_of[r])[0])
+    # the project pages, by key, and the keys each one's notes may name
+    pages = {}
+    for r in files:
+        m = PROJECT_PAGE.match(r)
+        if m and r.endswith(".md"):
+            pages[os.path.basename(r)[:-3]] = r
+    page_keys = {k: [x for x in KEY_RX.findall(props[r].get("keys") or "") if not NOT_KEYS.match(x)] for k, r in pages.items()}
+    subtasks = {t["key"]: [x[0] for x in t["subtasks"]] for t in jira_projects(runtime)} if runtime else {}
+    moves, retire, prop_changes = {}, [], {}
+
+    def move(r, to, why):
+        if to != r:
+            moves[r] = (to, why)
+
+    # a project page: renamed to its slug (the --slug word, its `slug` property, else the rule for a generated page)
+    page_to = {}
+    for key, r in pages.items():
+        lead = (page_keys.get(key) or [None])[0]
+        words = slugs.get(lead or "") or props[r].get("slug")
+        title = re.sub(r"^[A-Z][A-Z0-9]+-\d+ · ", "", props[r].get("title") or "")
+        if not words and lead and title and key == old_project_key(lead, title):   # named by the old cut, not by hand
+            words = project_slug(title)
+        new = f"{lead.lower()}-{words}" if lead and words else key
+        page_to[key] = new
+    # notes that serve a project go beside its page, and the page into its folder
+    beside = {}
+    for r in files:
+        t = top(r)
+        if not r.endswith(".md") or t not in ("to-read", "in-progress", "parked", "readings", "mh") or r.startswith("mh/releases/"):
+            continue
+        if props[r].get("type") in ("program",):
+            continue
+        k = thing_of(props[r], page_keys, subtasks)
+        if not k:                                          # linked from exactly one project page: it serves that one
+            stem = os.path.basename(r)[:-3].lower()
+            hits = [pk for pk, pr in pages.items() if re.search(r"\[\[(?:[^\]|#]*/)?" + re.escape(stem) + r"(?:\.md)?[\]|#]", text_of[pr].lower())]
+            k = hits[0] if len(hits) == 1 else None
+        if k:
+            beside.setdefault(k, []).append(r)
+    for key, r in pages.items():
+        new = page_to[key]
+        if r.count("/") == 2:                              # already a folder: the page and its folder follow the name
+            if new != key:
+                for f in files:
+                    if f.startswith(f"{PROJECTS}/{key}/"):
+                        rest = f[len(f"{PROJECTS}/{key}/"):]
+                        move(f, f"{PROJECTS}/{new}/" + (f"{new}.md" if rest == f"{key}.md" else rest), "the project's name")
+        elif beside.get(key) or os.path.isdir(os.path.join(vault, PROJECTS, key)):
+            move(r, f"{PROJECTS}/{new}/{new}.md", "its notes sit beside it: the page into the project's folder")
+        else:
+            move(r, f"{PROJECTS}/{new}.md", "the project's name: its key and two to four whole words")
+    for key, rs in beside.items():
+        new = page_to[key]
+        for r in rs:
+            move(r, f"{PROJECTS}/{new}/{dated_name(os.path.basename(r), props[r].get('type'))}", f"serves the {new} project")
+    for r in files:
+        if r in moves:
+            continue
+        t, name, kind = top(r), os.path.basename(r), (props.get(r) or {}).get("type")
+        if r in RETIRED_ANGLES:
+            if r in generated:
+                retire.append({"path": r, "why": "an angle nothing consumes; its source stays under the reports root"})
+            else:
+                move(r, f"{ARCHIVE}/{name}", "an angle nothing consumes, kept")
+        elif r == "one-thing.md":
+            move(r, f"{REF}/one-thing.md", "One Thing rows: the runner reads its pasted ticks")
+        elif r == "lanes.md":
+            move(r, f"{RELEASES5}/lanes.md", "the overview across release lines")
+        elif t == "lanes":
+            move(r, list_home(name, lanes), "a line's list lives with the line")
+        elif t == "days":
+            move(r, f"{REF}/{r}", "the day pages, kept as the record of what ela said")
+        elif r.startswith(f"{ELA}/review/") and re.match(r"^\d{4}-\d{2}-\d{2}-reader\.md$", name):
+            if r in generated:
+                retire.append({"path": r, "why": "a reader page nothing consumes; its source stays under <reports>/review/"})
+        elif r.startswith("mh/releases/"):
+            rest = r[len("mh/releases/"):]
+            line_dir, _, base = rest.rpartition("/")
+            base = re.sub(r"^release-\d+-\d+-", "", base)       # the folder carries the line
+            if base.endswith(".md"):
+                base = release_review_name(base) if re.match(r"^\d{4}-\d{2}-\d{2}-", base) and kind == "review" else base
+            move(r, f"{RELEASES5}/{line_dir + '/' if line_dir else ''}{base}", "a release line's folder")
+        elif t == "mh":
+            to = f"{REF}/{dated_name(name, kind) if r.endswith('.md') else name}"
+            move(r, to, "a product reading that serves no project" if kind != "program" else "the program's page")
+        elif t == "mediahub-bot":
+            move(r, f"{PROJECTS}/{r}", "bounded outside work: a project")
+        elif t == "parked" and r.endswith(".md"):
+            stem = re.sub(r"^\d{4}-\d{2}-\d{2}-", "", name[:-3])
+            move(r, f"{PROJECTS}/{stem}.md", "a parked plan is a project, status parked")
+            prop_changes.setdefault(r, {}).update({"type": "project", "status": "parked", MOVE_SET: None, NEXT: None})
+        elif t in ("sprints", "in-progress", "to-read", "readings") and r.endswith(".md"):
+            home = home_for(r, props[r])
+            folder = home.replace(f"{RELEASES}", RELEASES5, 1) if home.startswith(RELEASES) else REF if home == ARCHIVE and t != "sprints" else home
+            move(r, f"{folder}/{dated_name(name, kind)}", "its thing's home" if folder != REF else "serves no project")
+    # statuses: a work note live or done, wherever it now sits
+    for r, p in props.items():
+        old_top = top(r)
+        want = status5(p.get("type"), p.get("status"), old_top)
+        ch = prop_changes.setdefault(r, {})
+        if want and want != p.get("status") and "status" not in ch:
+            ch["status"] = want
+        if p.get("type") == "readme" and moves.get(r, ("",))[0].startswith(f"{PROJECTS}/") and PROJECT_PAGE.match(moves[r][0]):
+            ch["type"] = "project"                         # a folder's readme that becomes its project page
+        if not ch:
+            prop_changes.pop(r)
+    aliases = {}
+    for r, (to, _) in moves.items():
+        if r.endswith(".md") and os.path.basename(r) != os.path.basename(to):
+            aliases[to] = os.path.basename(r)[:-3]
+    gone_dirs = sorted({d for d in LAYOUT4_FOLDERS if os.path.isdir(os.path.join(vault, d))
+                        and all(f in moves or f in {x["path"] for x in retire} for f in files if f.startswith(d + "/"))})
+    out_moves = [{"from": r, "to": t, "why": w} for r, (t, w) in sorted(moves.items())]
+    return {"moves": out_moves, "retire": retire, "props": prop_changes, "aliases": aliases, "dirs": gone_dirs,
+            "layout": {"from": manifest.get("layout"), "to": LAYOUT5}}
+
+
+WIKI = re.compile(r"(!?\[\[)([^\]|#\n]+?)(\.md)?((?:#[^\]|\n]*)?(?:\|[^\]\n]*)?\]\])")
+MDLINK = re.compile(r"(\]\()([^)\s#]+?\.md)((?:#[^)\s]*)?\))")
+
+
+def rewrite_links(text, by_path, by_name):
+    """The text with every wikilink and markdown link to a moved note pointed at its new place: a link with a folder
+    path gets the new path, a bare name the new name when it changed. → (text, count)."""
+    n = [0]
+
+    def wiki(m):
+        target = m.group(2).strip()
+        low = target.lower()
+        new = by_path.get(low) if "/" in target else by_name.get(low)
+        if not new:
+            return m.group(0)
+        n[0] += 1
+        return m.group(1) + new + m.group(4)
+
+    def md(m):
+        t = m.group(2)
+        new = by_path.get(t[:-3].lower())
+        if not new:
+            return m.group(0)
+        n[0] += 1
+        return m.group(1) + new + ".md" + m.group(3)
+    return MDLINK.sub(md, WIKI.sub(wiki, text)), n[0]
+
+
+def link_maps(moves, vault=None):
+    """({old path: new path}, {old name: new link target}) without .md, lowercase keys. A bare name link to a renamed
+    note gets the new name, or the new path when the new name is not unique after the move (each line's record.md); a
+    name two moved notes shared is left to the alias, never guessed."""
+    by_path = {m["from"][:-3].lower(): m["to"][:-3] for m in moves if m["from"].endswith(".md")}
+    where = {m["from"]: m["to"] for m in moves}
+    count = {}
+    if vault:
+        for top_, dirs, fs in os.walk(vault):
+            dirs[:] = [d for d in dirs if not d.startswith(".")]
+            for f in fs:
+                if f.endswith(".md"):
+                    r = os.path.relpath(os.path.join(top_, f), vault).replace(os.sep, "/")
+                    n = os.path.basename(where.get(r, r))[:-3].lower()
+                    count[n] = count.get(n, 0) + 1
+    names = {}
+    for m in moves:
+        if m["from"].endswith(".md"):
+            o, nw = os.path.basename(m["from"])[:-3], os.path.basename(m["to"])[:-3]
+            if o != nw:
+                names.setdefault(o.lower(), set()).add(m["to"][:-3] if count.get(nw.lower(), 1) > 1 else nw)
+    return by_path, {o: next(iter(v)) for o, v in names.items() if len(v) == 1}
+
+
+def link_changes(vault, plan):
+    """{path after the move: links rewritten} for every note the rewrite touches; read only."""
+    by_path, by_name = link_maps(plan["moves"], vault)
+    where = {m["from"]: m["to"] for m in plan["moves"]}
+    gone = {x["path"] for x in plan["retire"]}
+    out = {}
+    for top_, dirs, fs in os.walk(vault):
+        dirs[:] = [d for d in dirs if not d.startswith(".")]
+        for f in fs:
+            if not f.endswith((".md", ".base", ".canvas")):
+                continue
+            r = os.path.relpath(os.path.join(top_, f), vault).replace(os.sep, "/")
+            if r in gone:
+                continue
+            try:
+                _, n = rewrite_links(open(os.path.join(top_, f), encoding="utf-8").read(), by_path, by_name)
+            except (OSError, UnicodeDecodeError):
+                continue
+            if n:
+                out[where.get(r, r)] = n
+    return out
+
+
+def migrate_apply(vault, reports, plan, today):
+    """Carry out a plan from migrate_plan under the vault lock (the caller holds it): moves, aliases and statuses, the
+    retired angles removed, links rewritten, emptied folders removed, the bookmarks and the manifest brought to layout
+    5, each move logged. → the number of links rewritten."""
+    by_path, by_name = link_maps(plan["moves"], vault)              # read before anything moves
+    now = datetime.datetime.now().astimezone().isoformat(timespec="seconds")
+    log = os.path.join(reports or vault, "ela", MIGRATE_LOG)
+    os.makedirs(os.path.dirname(log), exist_ok=True)
+    with open(log, "a", encoding="utf-8") as fh:
+        for m in plan["moves"]:
+            src, dst = os.path.join(vault, m["from"]), os.path.join(vault, m["to"])
+            if not os.path.exists(src):
+                continue
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            if os.path.exists(dst) and os.path.realpath(dst) != os.path.realpath(src):
+                dst = free_path(os.path.dirname(dst), os.path.basename(dst))
+                m["to"] = os.path.relpath(dst, vault).replace(os.sep, "/")
+            if m["from"].endswith(".md"):
+                text = open(src, encoding="utf-8").read()
+                ch = plan["props"].get(m["from"]) or {}
+                if ch:
+                    text = set_front(text, **ch)
+                if plan["aliases"].get(m["to"]):
+                    text = with_alias(text, plan["aliases"][m["to"]])
+                atomic_write(dst, text)
+                if os.path.realpath(dst) != os.path.realpath(src):
+                    os.remove(src)
+            else:
+                os.replace(src, dst)
+            fh.write(json.dumps({"at": now, "path": m["to"], "renamed_from": m["from"], "why": m["why"], "by": "migrate"},
+                                ensure_ascii=False) + "\n")
+        for x in plan["retire"]:
+            try:
+                os.remove(os.path.join(vault, x["path"]))
+            except OSError:
+                continue
+            fh.write(json.dumps({"at": now, "path": x["path"], "retired": True, "why": x["why"], "by": "migrate"}, ensure_ascii=False) + "\n")
+    moved = {m["from"] for m in plan["moves"]}
+    for r, ch in plan["props"].items():                   # statuses of the notes that stay where they are
+        p = os.path.join(vault, r)
+        if r not in moved and os.path.isfile(p):
+            atomic_write(p, set_front(open(p, encoding="utf-8").read(), **ch))
+    links = 0
+    for top_, dirs, fs in os.walk(vault):
+        dirs[:] = [d for d in dirs if not d.startswith(".")]
+        for f in fs:
+            if f.endswith((".md", ".base", ".canvas")):
+                p = os.path.join(top_, f)
+                try:
+                    text = open(p, encoding="utf-8").read()
+                except (OSError, UnicodeDecodeError):
+                    continue
+                new, n = rewrite_links(text, by_path, by_name)
+                if n:
+                    atomic_write(p, new)
+                    links += n
+    for d in sorted({os.path.dirname(m["from"]) for m in plan["moves"]} | set(plan["dirs"]), key=lambda x: -x.count("/")):
+        parts = d.split("/") if d else []
+        for i in range(len(parts), 0, -1):
+            try:
+                os.rmdir(os.path.join(vault, *parts[:i]))
+            except OSError:
+                break
+    bm = os.path.join(vault, ".obsidian", "bookmarks.json")
+    try:
+        items = json.load(open(bm)).get("items") or []
+        where = {m["from"]: m["to"] for m in plan["moves"]}
+        gone = {x["path"] for x in plan["retire"]}
+        keep = []
+        for b in items:
+            p = b.get("path") if isinstance(b, dict) else None
+            if p in gone or (p and top(p) in RETIRED) or (p and not os.path.exists(os.path.join(vault, where.get(p, p)))):
+                continue
+            keep.append(dict(b, path=where.get(p, p)) if p else b)
+        atomic_write(bm, json.dumps({"items": keep}, indent=2))
+    except (OSError, ValueError):
+        pass
+    mpath = os.path.join(vault, MANIFEST)
+    try:
+        man = json.load(open(mpath))
+    except (OSError, ValueError):
+        man = {}
+    where = {m["from"]: m["to"] for m in plan["moves"]}
+    gone = {x["path"] for x in plan["retire"]}
+    unmanaged = {m["from"] for m in plan["moves"] if re.search(r"-week\.md$", m["from"])}   # the week is no longer written
+    man["files"] = sorted(where.get(r, r) for r in man.get("files") or [] if r not in gone and r not in unmanaged)
+    man["sources"] = {where.get(r, r): s_ for r, s_ in (man.get("sources") or {}).items() if r not in gone and r not in unmanaged}
+    man["seen"] = {where.get(r, r): d for r, d in (man.get("seen") or {}).items() if r not in gone and r not in unmanaged}
+    man["source_ticks"] = {where.get(r, r): t for r, t in (man.get("source_ticks") or {}).items() if r not in gone}
+    man["layout"] = LAYOUT5
+    man["moved"] = {**(man.get("moved") or {}), **where}
+    man["moved_until"] = (today + datetime.timedelta(days=OLD_PATHS_DAYS)).isoformat()
+    atomic_write(mpath, json.dumps(man, indent=0))
+    return links
+
+
+def cmd_migrate(a):
+    """`ela vault migrate [--apply] [--slug KEY=WORDS]`: the one pass from layout 4 to layout 5 (ADR 0015)."""
+    s = json.load(open(SITE))
+    vault = s.get("vault")
+    if not vault or not os.path.isdir(vault):
+        print(f"site.json `vault` is not a folder: {vault}", file=sys.stderr); sys.exit(2)
+    slugs = {}
+    for x in a.slug or []:
+        k, _, v = x.partition("=")
+        if not KEY_RX.fullmatch(k.upper()) or not re.fullmatch(SLUG, v or ""):
+            print(f"--slug takes KEY=words-joined-by-hyphens, not {x!r}", file=sys.stderr); sys.exit(2)
+        slugs[k.upper()] = v
+    plan = migrate_plan(vault, slugs, runtime=s.get("runtime"))
+    links = link_changes(vault, plan)
+    if plan["layout"]["from"] == LAYOUT5 and not plan["moves"] and not plan["retire"]:
+        print("vault: already in layout 5; nothing to migrate"); return
+    applied = None
+    if a.apply:
+        applied = migrate_apply(vault, s.get("reports") or "", plan, datetime.date.today())
+    r = {**plan, "links": links, "applied": a.apply, "links_rewritten": applied}
+    if a.json:
+        print(json.dumps(r, ensure_ascii=False, indent=1)); return
+    print(f"{'' if a.apply else 'DRY RUN — '}vault migrate: layout {plan['layout']['from']} → {plan['layout']['to']} · "
+          f"{len(plan['moves'])} moves ({len(plan['aliases'])} renamed, old names kept as aliases) · {len(plan['retire'])} retired · "
+          f"{sum(1 for v in plan['props'].values() if 'status' in v)} statuses · {sum(links.values())} links in {len(links)} notes")
+    print("\nMoves:")
+    for m in plan["moves"]:
+        print(f"  {m['from']} → {m['to']}" + (f"  (alias {plan['aliases'][m['to']]})" if m["to"] in plan["aliases"] else "") + f"  · {m['why']}")
+    if plan["retire"]:
+        print("\nRetired from the vault (not generated any more; the source stays):")
+        for x in plan["retire"]:
+            print(f"  {x['path']}  · {x['why']}")
+    print("\nProperties:")
+    for r, ch in sorted(plan["props"].items()):
+        print(f"  {r}: " + ", ".join(f"{k} → {v if v is not None else '—'}" for k, v in ch.items()))
+    print("\nLinks rewritten (after the moves):")
+    for r, n in sorted(links.items()):
+        print(f"  {r}: {n}")
+    if plan["dirs"]:
+        print("\nFolders emptied and removed: " + ", ".join(f"{d}/" for d in plan["dirs"]))
+    print("\n" + (f"applied: {applied} links rewritten; moves logged in <reports>/ela/{MIGRATE_LOG}; the manifest says layout 5"
+                  if a.apply else "Nothing written. `ela vault migrate --apply` carries this out under the vault lock."))
 
 
 # ── the archive keeps listening: Afterwards ───────────────────────────────────────────────────────────
@@ -5275,6 +5725,12 @@ def main():
     p.add_argument("--apply", action="store_true", help="move them; without it, list the moves and what holds any back")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_tidy)
+    p = sub.add_parser("migrate", help="the one pass to layout 5, things and angles (ADR 0015): every move, rename, link "
+                                       "rewrite and alias; a dry run unless --apply")
+    p.add_argument("--apply", action="store_true", help="carry it out under the vault lock; without it, list it")
+    p.add_argument("--slug", action="append", metavar="KEY=WORDS", help="name a project page by hand: MH-3983=csc-over-mqtt")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_migrate)
     p = sub.add_parser("restore", help="bring back a note the owner deleted in the vault")
     p.add_argument("path", help="the note's path in the vault, as the deletion log lists it")
     p.set_defaults(func=cmd_restore)
