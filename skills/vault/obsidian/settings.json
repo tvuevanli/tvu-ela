@@ -45,12 +45,8 @@
       "title": "Today"
     },
     {
-      "path": "board.md",
-      "title": "Board"
-    },
-    {
-      "path": "library/library.md",
-      "title": "Library"
+      "path": "releases/lanes.md",
+      "title": "Lanes"
     },
     {
       "path": "ela/all-notes.base",

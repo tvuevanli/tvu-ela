@@ -33,7 +33,7 @@ with tempfile.TemporaryDirectory() as t:
     n = V.project_note(key, V.jira_project_page(tickets[0], today), v, [], today, "https://jira.example", tickets[0])
     page = n.front_text + n.head + n.tail
     check("the head is kept: next step and open questions, above Where it stands",
-          page.index("## Next step") < page.index("## Open questions") < page.index("## Where it stands") < page.index("## Waiting for your word"))
+          page.index("## Next step") < page.index("## Open questions") < page.index("## Where it stands") < page.index("## Notes"))
     check("Where it stands: the carrier, the status and since when, each sub-task linked, when Jira was read",
           "Carried by Carrier One · In Progress since 2026-11-10" in page and "[MH-2](https://jira.example/browse/MH-2) [UR] loopback · Backlog" in page
           and "*Read from Jira 2026-11-10T17:12.*" in page)

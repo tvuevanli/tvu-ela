@@ -11,44 +11,37 @@ Usage:
     vault.py [--env-file F] sync [--dry-run] [--force] [--json]
     vault.py restore <path>          bring back a note the owner deleted
     vault.py guidance [--all] [--json]   his `ela:` lines anywhere in the vault, each handled once
-    vault.py finish <path> [--to drop|archive]   on his word: close a note into archive/ or its subject home, kept
-    vault.py tidy [--apply] [--json]   the archived notes to their subject homes; a dry run unless --apply
+    vault.py finish <path> [--to drop|archive]   on his word: a note done where it is, kept
+    vault.py migrate [--apply] [--slug KEY=WORDS] [--json]   the one pass to layout 5; a dry run unless --apply
     vault.py lint [--fix [--apply]] [--json]   every note against its type's spec; --fix normalises front matter
     vault.py setup                   apply the Obsidian settings kept in obsidian/ (after a reset or on a new machine)
 
-Layout, by what the owner does with a note (ela ADR 0010). Names are lowercase with hyphens and no spaces, taken
-from the source's file name, never from its heading, so editing a title renames nothing; a dated name starts with
-its date, so a folder sorts by time. Folders carry no numbers: Home and the bookmarks are the way in.
-    today.md, board.md                          the one page: facts, at most three asks, today; the board's debt
-    constraints.md                              the standing constraints, each pin read on its lane
-    lanes.md                                    the lanes, what each carries that the next does not, two weeks of moves
-    recent.md                                   the week's tickets placed by line and by lane (ela recent --write), a dashboard
-    one-thing.md                                his One Thing rows not yet on the team's sheet, one copy block (the store
-                                                <reports>/onething/, skills/onething); each day's row sits on its changes page
-    lanes/test-list-<lane>.md                   what QA should verify on the lane, ranked (ela testlist --page)
-    lanes/train-<line>.md                       the line's train: each fix with a cell per lane (ela train --page), a preview
-    lanes/dev-list-<line>.md                    the line's tickets in development and their gaps (ela devlist --page)
-    ela/review/<date>-reader.md                 the evening reader's verdict on each item of that morning's page, 30 days
-    days/<year>/<date>-brief.md                 the morning page, kept, with -changes (what changed); what the day taught
-                                                is the reader page's ## Learned (ela/review/), five lines at most
-    to-read/<date>-<slug>.md                    a decision or plan from elak while it waits for his ruling
-    to-read/<date>-verify-<key>.md              a verification; leaves once its record is on the Jira ticket, or a pass
-                                                after 14 days
-    readings/<date>-<slug>.md                   deep reads, release and docker-service reviews, promote checks, ticket
-                                                pages: no status and no moves; kept until he finishes with them
-    in-progress/<name>.md                       a note he agreed to, while ela builds it and until he accepts it
-    parked/<name>.md                            a note that waits on others, with who and what brings it back
-    archive/                                    what is done with, by date; where he drags a note to keep it
-    cases/<date>-<slug>.md                      one note per customer support case (type case: open, answered, closed)
-    mh/releases/<line>/                         closed promotions, deploys, docker checks, release reviews, verifications,
-                                                one folder per release line, its record the way in; unplaced at the root
-    ela/history/                                ela's own closed plans and reviews
-    projects/<key>/<key>.md                     a project's page: the desk's head above the sync's first heading, the tail
-                                                below (Waiting for your word, Notes, Keys and threads, Afterwards, Deadline);
-                                                the folder keeps its readings and reports; `ela project list|show|new|keys`
-    ela/                                        about this vault, the ela page (overview.md: generated, three sections
-                                                the desk's), how ela runs, the table view, the Jira vocabulary, and
-    ela/attachments/verify/<year-month>/<record>/   each verification record copied whole, hidden in the explorer
+Layout 5, things and angles (ela ADR 0015). The vault holds things (what the owner tracks, one home each, everything
+about a thing in that home) and angles (the same things told for one reader at one moment, storing nothing of their
+own). Eight roots, full lowercase nouns; a dated note is <date>-<kind>-<what>.md and its folder carries the subject.
+A work note (decision, plan, sprint, review, ticket, verify, verify-plan, draft) is `live` or `done`, a property: a
+move sets it, never the folder. A vault in another layout is not synced: `vault.py migrate` lists the one pass, and
+`--apply` makes it; for 14 days an old path given to a verb is read as its new one.
+    today.md                                    the one page: facts, at most three asks, today (ADR 0014); home.md
+                                                points to it until 2026-11-25
+    meetings/<audience>.md                      one page per meeting, team-facing
+    projects/<key>-<slug>.md                    a project's page: the desk's head above the sync's first heading, the
+                                                tail below (Where it stands, Notes, Keys and threads, Afterwards,
+                                                Deadline); projects/<key>-<slug>/ holds the page and its notes once
+                                                they sit beside it; `ela project list|show|new|keys`
+    releases/lanes.md                           the lanes across lines (ela matrix --page)
+    releases/<line>/                            a release line: release-<line>-record.md the way in, each promote,
+                                                deploy, docker check and hotfix, verifications, and the line's
+                                                train-<line>.md, dev-list-<line>.md and test-list-<lane>.md
+    cases/<date>-<customer>-<what>.md           one note per customer case (open, answered, closed)
+    reference/                                  what serves no single thing: a product review, engineering management,
+                                                the day pages (reference/days/<year>/<date>-brief|changes.md, kept),
+                                                one-thing.md (his rows to paste), dropped.md (asks that left today)
+    ela/                                        ela's own: about this vault, the ela page, how ela runs, the service map,
+                                                the Jira vocabulary, the table view, history/, moves/, attachments/
+    archive/                                    what he put away; ela never rewrites its text
+The board, recent, the constraints page, the week and the reader pages are not written into the vault: nothing
+consumed them there; their verbs render them on demand and their sources stay under the reports root.
 
 The reading gate. The vault is how ela reports to the owner, so a note over its reading budget, mostly code, or
 carrying machine paths is still written, under a warning that names the problem, and Home lists it for 30 days
@@ -56,13 +49,12 @@ as a rewrite ela owes. Nothing readable is withheld; nothing unreadable passes u
 
 Safety. A missing or unreadable source, or the notes as a whole shrinking by more than half since the last sync
 (counted from ten notes up), stops the sync before anything is written (--force overrides after a deliberate removal).
-The count is the vault's total, not each folder's as ADR 0008 first described: to-read empties by design as he reads.
-In archive/ and the subject homes ela never rewrites a note's text; it keeps its front matter's status current. Once a
-note is there, the vault copy is the record (his ticks live only there): the sync never writes into a kept folder, a
-later change to the note's source is one dated line under its Afterwards, and lint names each such note until he has
-carried over by hand what should be kept. Removal is limited to files
-this script recorded in its manifest, and never reaches library/ or to-learn/, retired in layout 4: the pages left there
-are the owner's to move into elak. Writes are atomic and a lock serialises concurrent syncs.
+The count is the vault's total, not each folder's as ADR 0008 first described. In archive/ ela never rewrites a note's
+text, and a done note anywhere is the record the same way (his ticks live only there): the sync never writes it, keeps
+only its status current, a later change to its source is one dated line under its Afterwards, and lint names each such
+note until he has carried over by hand what should be kept. Removal is limited to files this script recorded in its
+manifest, never a done note, and never reaches a folder of an earlier layout (library/, to-learn/, layout 4's to-read/
+and the rest): what is left there is the owner's. Writes are atomic and a lock serialises concurrent syncs.
 
 Exit codes: 0 ok · 2 usage or site · 3 a source could not be read or shrank (nothing written).
 """
@@ -76,24 +68,23 @@ MANIFEST = ".ela-sync.json"
 DAYS_KEPT, HELD_LISTED_DAYS, NEW_DAYS, MASS_DELETE = 14, 30, 7, 8
 READER_DAYS = 30                                    # a reader page is evidence for the review of ela itself, then expires
 CONSTRAINTS_FRESH = 1800    # seconds a read of the pins stands; each read asks the lane hosts, and the sync runs every minute
-LAYOUT = 4                  # the manifest records it; a sync across a change of layout guards the total, not each folder
-DAYS, TO_READ, READINGS, ELA, ARCHIVE = "days", "to-read", "readings", "ela", "archive"
+LAYOUT = 5                  # the manifest records it; a vault in another layout is migrated first (`ela vault migrate`)
+# layout 5, things and angles (ADR 0015): eight roots; a work note lives in its thing's folder, live or done
+DAYS, ELA, ARCHIVE, REF = "reference/days", "ela", "archive", "reference"
+# the lifecycle folders of layout 4, read as input only (an old path given to a verb, a leftover note): never written
+TO_READ, READINGS, IN_PROGRESS, PARKED = "to-read", "readings", "in-progress", "parked"
 # folders of earlier layouts: the sync reads nothing there and removes nothing there; what is left is the owner's
-RETIRED = ("library", "to-learn")
-IN_PROGRESS = "in-progress"   # a note he agreed to, while ela builds it and until he accepts the result
-PARKED = "parked"             # a live note nobody in ela works on: it waits on others (a draft he sent out, an answer pending)
-# status is ela's field and the folder says the lifecycle, so each lifecycle folder allows only its own values;
-# the owner sets `next`, never status. A note elsewhere (a sprint) keeps the status its kind defines; a reading has none.
-STATUS_BY_FOLDER = {
-    TO_READ: ("proposed", "blocked"),                       # waits on his word; only he can unblock
-    IN_PROGRESS: ("building", "built", "waiting", "blocked"),   # waiting: an unattended loop that cannot finish
-    PARKED: ("parked",),
-    ARCHIVE: ("closed",),                                   # the outcome is in `next`, not repeated here
-    "cases": ("open", "answered", "closed"),               # a support case: reported, the customer answered, done
-    "mh/releases": ("closed",),
-    "ela/history": ("closed",),
-}
-STATUSES = tuple(dict.fromkeys(v for vs in STATUS_BY_FOLDER.values() for v in vs))
+RETIRED = ("library", "to-learn", TO_READ, READINGS, IN_PROGRESS, PARKED, "days", "lanes", "mh", "sprints", "mediahub-bot")
+# a work note's two states, a property on the note in its thing's folder; a move sets it, never moves the file.
+# What a live note waits for is said by its other properties: open boxes (his word), `built` (his accept),
+# `waits-on` (others). A case keeps its own life; a report the state of his ruling.
+LIVE, DONE = "live", "done"
+WORK_TYPES = ("decision", "plan", "sprint", "review", "ticket", "verify", "verify-plan", "draft")
+STATUS_BY_KIND = {"work": (LIVE, DONE), "case": ("open", "answered", "closed"), "report": ("proposed", "decided", "superseded"),
+                  "project": (LIVE, "parked", DONE)}
+LEGACY_LIVE = ("proposed", "blocked", "building", "built", "waiting", "parked")   # layout 4's statuses of a live note
+# any note's statuses but a report's (proposed, decided, superseded are a ruling's), layout 4's read as input
+STATUSES = tuple(dict.fromkeys(STATUS_BY_KIND["work"] + STATUS_BY_KIND["case"] + STATUS_BY_KIND["project"] + LEGACY_LIVE + ("closed",)))
 CLOSED_NEXT = {"accepted": "accept", "rejected": "reject", "not now": "not-now", "not-now": "not-now", "parked": "not-now",
                "confirmed": "confirm", "planned": "make-plan", "nudged": "nudge", "drafted": "draft-comment"}
 # an archived note's old outcome status, as the move that made it; the runner names the move itself with --next
@@ -101,11 +92,12 @@ CLOSED_NEXT = {"accepted": "accept", "rejected": "reject", "not now": "not-now",
 # in-progress/2026-11-09-kept-notes-by-subject-cases-and-archive.md): one note per customer support case in cases/,
 # promotions, deploys, docker checks, release reviews and verifications in mh/releases/, ela's own closed plans and
 # reviews in ela/history/
-CASES, RELEASES, HISTORY = "cases", "mh/releases", "ela/history"
-LAYOUT5, RELEASES5 = 5, "releases"   # ADR 0015: the layout  brings the vault to
-SUBJECT_HOMES = (CASES, RELEASES, HISTORY)
-CLOSED_FOLDERS = (ARCHIVE, RELEASES, HISTORY)   # a note there is closed, its outcome in next; a case keeps its own status
-OWNER_FOLDERS = (ARCHIVE,) + SUBJECT_HOMES   # kept notes: ela never rewrites their text, only status and appended Afterwards
+CASES, RELEASES, HISTORY = "cases", "releases", "ela/history"
+LAYOUT5, RELEASES5 = 5, RELEASES     # ADR 0015: the layout `ela vault migrate` brings the vault to
+LEGACY_RELEASES = "mh/releases"      # layout 4's release folder, read as input only
+SUBJECT_HOMES = (CASES, RELEASES, HISTORY, "projects", REF)   # the things' homes: a note's folder by what it serves
+CLOSED_FOLDERS = (ARCHIVE,)          # a note there is done whatever it says; elsewhere its status says
+OWNER_FOLDERS = (ARCHIVE,)           # kept by folder; a done note anywhere is kept by its status (is_kept)
 # a review of a release, by its file name: a release word, a line written mh<major>-<minor> (mh2-1), or a lane hop
 # <lane>-to-<lane> (daily-wed-to-prod-3, qa-cn3-to-daily-wed)
 LANE = r"(?:qa|daily|stage|test\d*|prod|cn)"
@@ -124,13 +116,13 @@ LINE_LABEL = re.compile(r"^release:mh-(\d+\.\d+)$")
 MH = "mh"   # the program's folder: a product reading (a review of the product, not a release event) may sit there
 ELA_TARGET = re.compile(r"(?<![\w-])(ela|ela-runner|elak|vault)(?![\w-])", re.I)   # a plan or review whose target is ela
 ATTACH = "ela/attachments"
-DELETABLE = (DAYS, TO_READ, READINGS)
+DELETABLE = ("projects", RELEASES, CASES, REF, HISTORY, TO_READ, READINGS, "days")   # a generated dated note in these: his to delete
 KEEP_FOREVER = ("brief", "week", "changes")   # the morning pages are the record of what ela told the owner; the rest expires
 PROPS = ("title", "aliases", "type", "date", "kind", "project", "slug", "deadline", "next-step", "customer", "hubspot", "graph", "box",
          "status", "result", "target", "progress", "source",
          "moves", "next", "ela", "posted", "channels", "keys", "watch", "watched", "last", "language")
 # the whole vocabulary; no tags (ADR 0010)
-MARKS = {"done": ARCHIVE, "drop": ARCHIVE}   # both close the note and keep it; next says which (no data is lost)
+MARKS = {"done": DONE, "drop": DONE}   # both close the note where it is and keep it; next says which (no data is lost)
 BUDGET = {"ticket": 700, "topic": 800, "guide": 1200, "board": 1000, "day": 1200, "review": 2500, "decision": 800, "plan": 800, "sprint": 800, "report": 1200,
           "recent": 1200, "train": 1200, "one-thing": 1200, "project": 1200, "services": 2500}
 # the closed set of note types, by family (the readme's Types): for his word, readings, living pages, day pages.
@@ -141,11 +133,9 @@ TYPE_FAMILY = {"decision": "decision", "plan": "plan", "sprint": "plan",
                "guide": "page", "vocabulary": "page", "system": "page", "constraints": "page", "readme": "page", "meeting": "page",
                "report": "page", "project": "page", "services": "page",
                "day": "day", "reader": "day", "case": "case", "draft": "draft"}
-FAMILY_FOLDERS = {"decision": ("to-read", "in-progress", "parked", "archive", "ela/history"),
-                  "plan": ("to-read", "in-progress", "parked", "archive", "sprints", "ela/history", "mh/releases"),
-                  "reading": ("readings", "to-read", "archive", "projects", "mh/releases", "ela/history"),
-                  "case": ("cases", "projects"),
-                  "draft": ("to-read", "parked", "archive", "projects")}   # a message he sends himself: waits on his send, then on replies   # a reading waits in to-read while it asks his word; a project keeps its own
+THING_FOLDERS = ("projects", RELEASES, CASES, REF, ELA, ARCHIVE)   # ela/ includes ela/history/   # where a work note lives: its thing's home
+FAMILY_FOLDERS = {"decision": THING_FOLDERS, "plan": THING_FOLDERS, "reading": THING_FOLDERS,
+                  "case": (CASES, "projects", ARCHIVE), "draft": THING_FOLDERS}   # a message he sends himself: waits on his send, then on replies   # a reading waits in to-read while it asks his word; a project keeps its own
 # a project: bounded work with a deadline and parties outside the program (a customer PoC, a trial), one folder
 # projects/<key>/ holding its page projects/<key>/<key>.md (type project, the living family) and what it keeps; any
 # note elsewhere names it with `project: <key>` (elak decisions/2026-11-04-projects-are-bounded-work-with-one-page-each.md)
@@ -153,10 +143,13 @@ PROJECTS = "projects"
 PROJECT_PAGE = re.compile(r"^projects/(?:([^/]+)/\1|[a-z0-9][a-z0-9-]*)\.md$")   # projects/<key>/<key>.md, or one page projects/<key>.md
 # the sync's tail, these headings in this order; the head is everything above the first of them, the boundary
 # ela-runner's morning Projects section reads too, so a desk heading of these names would end the head early
-TAIL_HEADS = ("Waiting for your word", "Notes", "Keys and threads", "Afterwards", "Deadline")
+# Waiting for your word is gone from the tail (ADR 0015): an ask is stored once, on the note that holds it, and shows on
+# today.md by a link; the heading still ends the head on a page written before
+TAIL_HEADS = ("Notes", "Keys and threads", "Afterwards", "Deadline")
+LEGACY_TAIL_HEAD = "Waiting for your word"
 PROJECT_HEAD_END = "## " + TAIL_HEADS[0]
 STANDS_HEAD = "Where it stands"          # a Jira project's state, from the fact store; the first of the sync's sections
-TAIL_HEAD_RX = re.compile(r"^##[ \t]+(?:" + "|".join(re.escape(h) for h in (STANDS_HEAD,) + TAIL_HEADS) + r")[ \t]*$", re.M)
+TAIL_HEAD_RX = re.compile(r"^##[ \t]+(?:" + "|".join(re.escape(h) for h in (STANDS_HEAD, LEGACY_TAIL_HEAD) + TAIL_HEADS) + r")[ \t]*$", re.M)
 PROJECT_WATCH_DAYS = 14                   # the page's watch defaults to its deadline plus this
 PROJECT_SOON_DAYS = 14                    # Home names a project's step only with the deadline nearer than this and the step overdue
 # to-read means "waits on his word", whatever the type: a reading's asks sit under this heading, one box each
@@ -194,216 +187,39 @@ type: "readme"
 
 # About this vault
 
-ela writes this vault for Evan to read and to act from. Every generated note comes from a first-hand source and is
-rewritten on each sync: after the morning and evening runs, within a minute of a tick or an answer, and with the
-board every half hour on working days. An edit to a generated note is overwritten, except your `ela:` lines and
-ticked boxes, which are kept. To change something, write an `ela:` line in the note or ask in a session. The exceptions are the pages ela writes in place, whose source is the vault itself: how ela works,
-plans for your decision.
+ela writes this vault from first-hand sources, and it holds things and angles (ela ADR 0015).
 
-Start at [[today]], the one page. *Facts*: a few lines of what changed. *Needs you*: at most three asks only you can
-answer, each saying what happens if you do nothing (nothing) and when it leaves. An ask you have not answered on three
-working mornings leaves the page and is written once to `reference/dropped.md`; it comes back only when its evidence
-changes. *Today*: your meetings, a near deadline, and what leaves at 10:00 unless you tick "don't". Then one line of
-links. A box ticked there is the same as on the morning page, and saying it in a session counts the same. While you
-hold tier 2 (`ela-runner hold`), nothing leaves on its own and the 10:00 line says so; the QA day post waits as
-`send N` until you tick it. Home is a pointer to today until 2026-11-25.
+- A **thing** is what you track: a project, a release line, a customer case. It has one home, and everything about
+  it sits there, its open questions included.
+- An **angle** is the same things told for one reader at one moment: [[today]] for you, a meeting page for a team.
+  It stores nothing of its own.
+- A work note (a plan, a review, a verification, a draft) is `live` or `done`, a property. Choosing its `next`
+  changes that, never its folder; a done note is the record and is never written again.
+- An ask lives once, on its thing. today.md links at most three; one unanswered on three working mornings leaves
+  for `reference/dropped.md`.
+- Your `ela:` lines and ticked boxes survive every rewrite. Ask in a session for anything else.
 
 ## Layout
 
-| folder | holds | what you do |
-|---|---|---|
-| `today`, `board` | the one page for today, and the board's debt | open today each morning |
-| `constraints` | the standing constraints you confirmed: what each holds, whether its lane still keeps it, when it lifts | look when Home says one is over |
-| `days/<year>/` | the morning pages and what changed the day before, kept; the evening learning draft, 14 days | look back |
-| `to-read/` | whatever waits on your word, any type: plans and decisions to rule, verification results, and readings whose asks sit under *Waiting for your word*; newest first | rule, or tick or answer each ask |
-| `readings/` | deep reads, reviews of a release or the docker services, promote checks, ticket pages, with no ask left open; no status, no moves | read when an item links one; leave it, or *drop* it into the archive, when done |
-| `in-progress/` | what you agreed to, while ela builds it, until you accept it | accept or say what is missing |
-| `parked/` | what waits on others, with who it waits on and what brings it back | resume or drop |
-| `lanes` | the lanes, what each carries that the next does not, two weeks of moves | look before a promotion |
-| `recent` | the week's MediaHub tickets placed: by release line with the line's train, where each fix stands, what QA said and what moved; by lane, what arrived, what is under test, what was reported from it; tickets with no line and the label ela would infer | look when a ticket moved and you want its place; tick *refresh recent* for the moment |
-| `lanes/` | the test list per lane, the dev list per release line, and the line's train (each fix, a cell per lane) | look before testing or a promotion |
-| `one-thing` | your One Thing rows not yet on the team's monthly sheet, one copy block, a `pasted` box per row; each day's row is drafted at 19:00 and sits on the next morning's changes page under *Your day* | paste weekly from here; tick `pasted`; reword a row with an `ela:` line under *Your day* on its changes page |
-| `mh/` | the MediaHub program and its evidence | look when Home names the program's next step |
-| `projects/` | one page per project, `projects/<key>.md`, a folder `projects/<key>/` once it outgrows the page: a requirement carried by one person (an open Jira ticket labelled `kind:project` gets its page `projects/<ticket>-<slug>.md` on the next sync, with *Where it stands* from Jira) or bounded work with outside parties (a customer PoC, a trial, a demo); a note elsewhere names its project with `project: <key>` and the page lists it wherever it is | look when Home lists a project's days left; keep the head's facts current, `ela: keep this` once they are settled |
-| `sprints/` | the sprints, each a plan | look at a sprint's start and end |
-| `meetings/` | one note per meeting: what you raise there, its send box, and what it ruled (30 days; older months in `archive/`) | look before the meeting; tick send, or answer an item with an `ela:` line after it |
-| `ela/` | the ela page (its measures, parts, schedule and week written by the sync; Waiting for your word, What changed for MediaHub this week and Known limits written by the desk), how ela runs, this page, the table view; attachments, hidden | rarely |
-| `ela/service-map` | the service map from the published map: every slug ela uses, what GM registers it as, its id, repo and Jenkins job, the Fixed In grammar; the docker table folded; its Review section yours, kept as written | review a row; write `ela:` under one that is wrong and ela corrects the map on your word |
-| `mediahub-bot/` | MediaHub's product bot, not ela: its design, answer contract, knowledge pack, the files it will commit (`files/`), its eval set (`eval/`) and the evidence (`evidence/`); the source until its repositories exist, then pointers | rule the design; confirm eval cases |
-| `ela/review/` | the evening reader pages | read in the evening |
-| `cases/` | one note per customer support case, `cases/<date>-<slug>.md` (a folder `cases/<slug>/` only when a case outgrows one note): customer, HubSpot ticket, Slack thread, graph and box, the Jira keys it opened, status *open*, *answered* or *closed*; watched like the archive | look when support asks again; all notes, *Cases* |
-| `mh/releases/` | one folder per release line (`mh/releases/2.1/`, `mh/releases/2.0/`, a later line as it comes): its record, the way in, linking the line's notes in order (QA → daily → prod), and its closed promotions, deploys, docker checks, release reviews, test plans and verifications; a review is named `<date>-<promote|deploy|docker|hotfix|review>-<what>.md`, the line left to the folder (`2026-11-09-deploy-daily-wed-to-prod-3.md`), a verification `<date>-verify-<key>`, the record `release-<line>-record.md`; a note whose line cannot be read waits at the root | look back on a release: open its line's record |
-| `ela/history/` | ela's own closed plans and reviews; what they ruled is in elak's decisions | rarely |
-| `archive/` | what is done with and has no subject home; ela adds to it and keeps its status current, never its text, except the Afterwards it appends | look back (all notes, *Archive*, with its *subject* column, lists every closed note); ask ela to tidy it |
+| entry | holds |
+|---|---|
+| `today.md` | the one page: facts, at most three asks, today |
+| `meetings/` | one page per meeting, worded for the team |
+| `projects/` | one page per project, `<key>-<slug>.md`; a folder `<key>-<slug>/` once notes sit beside the page |
+| `releases/` | a folder per line: its record, train, dev and test lists, each promote, deploy and docker check; `lanes.md` across lines |
+| `cases/` | one note per customer case |
+| `reference/` | what serves no single thing: product reviews, the day pages, One Thing, dropped asks |
+| `ela/` | ela's own pages and history |
+| `archive/` | what you put away |
 
-Folders are named for what you do with a note while it is live, and carry no numbers: Home and the bookmarks are the
-way in, and the file explorer is rarely needed. A closed note is the exception: it goes to its **subject home**
-(`cases/`, `mh/releases/`, `ela/history/`) when it has one, by its type: a `case` to cases; a verification, a
-verification plan, or a review of a release (a promotion, deploy, docker check or release review) to its line's folder
-in mh/releases, the line read from the note's title (*MH 2.1*), else from its first key's release label on Jira, else
-the mh/releases root, listed for you, never guessed;
-a plan, decision or review whose target names ela, its runner, elak or the vault to ela/history; anything else to
-`archive/`. A note you put somewhere by hand stays where you put it.
+## Names
 
-## Names and properties
+Lowercase nouns joined by hyphens. A dated note is `<date>-<kind>-<what>.md` (plan, review, decision, verify, deep,
+promote, deploy, docker, hotfix, draft); its folder carries the subject, so the name does not repeat it. An old name
+stays an alias, so links and the quick switcher still find the note.
 
-- Names are lowercase, words joined by hyphens, taken from the source file's name; a dated note starts with its
-  date. The readable title is the note's first heading, and an alias, so the quick switcher (Ctrl+O) finds a
-  note by its title.
-- Properties are `title`, `aliases` and `type`, plus `date`, `kind` on a day page, `status`, and `result` on a
-  verification (pass or fail). A page ela writes in place also carries `source` ("vault": ela writes the note in
-  place), `target` (what the note changes), `progress` (the desk's last state line) and `ela` (the generated or
-  hand line the desk leaves for you). A note that sent something out or follows tickets carries `posted` (the
-  permalinks of what went out from it), `keys` (the Jira keys to watch), `watch` (until when it is watched; empty
-  stops it), `watched` (when it was last read) and `last` (the date of its newest Afterwards line). A note that
-  belongs to a project carries `project` (its key; the sync infers it when the note's `keys` are among the
-  project's); a project page carries `deadline`, `next-step` (the step Home may name), `channels` (the threads it
-  watches) and the watch fields above. A note written in Chinese for a Chinese-speaking audience carries `language`
-  ("zh"); every other note is English. status is ela's, never
-  yours to set, and follows the folder: to-read *proposed* (waits on your word) or *blocked* (only you can unblock);
-  in-progress *building*, *built* (waits on your accept), *waiting* (a loop that cannot finish; Progress says why) or
-  *blocked*; parked *parked*; archive, mh/releases and ela/history *closed*, with the outcome in `next`; cases *open*, *answered* or *closed*. Home's *Waiting for your word* holds only
-  what blocks something until you answer: a plan or decision proposed, a build to accept, something blocked, a failed
-  verification, a verification plan, the evening's learnings, and any note in to-read (a review there is *proposed*
-  like a plan). In readings a note carries no status.
-  They feed the tables and show at the top of each note: a status to read, and `next`, the move you choose. A
-  hidden `moves` property names the note's set of moves, so the chooser lists only those.
-- No tags: a keyword-guessed tag would be wrong often enough to cost trust.
-- Types are a closed set, in four families. For your word: `decision`, `plan` (a sprint is a plan), in to-read,
-  in-progress, parked or archive. Readings: `ticket`, `review`, `verify` and `verify-plan` (checks), in readings,
-  or in to-read while one asks your word (a verification waiting for its record on Jira, a review with open
-  asks). Pages that live: home, board, lanes, recent, one-thing, test-list,
-  dev-list, train, program, the ela page (`guide`), vocabulary, system, constraints, readme, meeting, `services` (the
-  service map, `ela/service-map`, from the published map, its Review section yours), `report`: a
-  standing review or design for your decision that does not move, in any folder, its evidence in folds, ruled in
-  place with an `ela:` line (status proposed, decided or superseded), and `project`: a project's page,
-  `projects/<key>/<key>.md`, its head yours above *Waiting for your word* and its tail the sync's from there (Notes,
-  Keys and threads, Afterwards, Deadline). Day pages: `day`
-  (brief, changes, week) and `reader`. A message you send under your own name: `draft` (a Slack post, a Jira comment, a mail), in to-read until you send it, then parked on the replies. A support case: `case`, in `cases/` (or a project's folder), its head in
-  properties (`customer`, `hubspot`, `graph`, `box`, the thread in `channels`, `keys`) and its status *open*,
-  *answered* or *closed*. A closed plan or decision may also sit in `ela/history/`, a release line's test plan in
-  `mh/releases/`, a closed reading in `mh/releases/` or `ela/history/`, and a review of the product (not of a release)
-  in `mh/`. A report, and a line's test plan, keep their own status in a subject home: they live there, not closed. A note outside the set, or a family outside its folders, is a lint line on
-  the sync, never a failure.
-- `to-read/` means "waits on your word", whatever the type. A reading that asks something puts its asks under one
-  heading, **Waiting for your word**, one box each with ela's proposed answer. When every box there is ticked or
-  answered with an `ela:` line under it, the next sync moves the reading to `readings/`; a plan or decision goes on
-  along its own life. A reading elsewhere with an open box under that heading is a lint line on the sync.
-- An `ela:` line is your word, never ela's. ela asks with a box, not an `ela:` line; a blank it leaves for your words
-  ends in a dash (`ela: keep / revert —`) and is read only once you write after it; a dated value in the `ela`
-  property (`2026-11-09: …`) is ela's record and belongs in `progress`. The watcher skips both; the lint names them.
-- A ticket key is a link to Jira, one click in reading mode.
-
-## Reading budgets
-
-A note is written for a person: a title heading, within its budget (day page 1,200 words, review 2,500,
-sprint 800, a decision or a plan 800, a report 1,200, a case 1,200, a draft 600, the recent page 1,200, a project page 1,200, the service map 2,500; the reader page's Learned five lines), mostly prose, no machine paths. The budget counts what stands open: a folded callout (`> [!note]- …`
-and the quoted lines under it) is read on demand and is not counted, for every type, so a page keeps its
-detail in folds and its weight above them. A note that misses is still here, under a warning, and Home lists
-it for 30 days as a rewrite ela owes; a past day page is the morning's record and is not listed.
-
-## Note standards
-
+> [!note]- Note standards
 <!-- note standards -->
-
-## Finishing with a note
-
-| you want | do | ela does |
-|---|---|---|
-| what it says kept as knowledge | write `ela: keep this` in it | ela proposes the conclusion and where it goes in its own knowledge (elak), as a decision note in `to-read/` |
-| to keep it, nothing more | drag it into `archive/`, or its subject home | nothing: it is never written again, and the copy, with its screenshots, is yours |
-| it out of the way | choose *drop* | it is closed into `archive/` (or its subject home), kept, its `next` *drop*: the *Archive* view lists it as dropped. ela never deletes a note; one you delete by hand is your act, logged, and the nightly backup holds it |
-| nothing yet | leave it | it stays, or ela moves it on (below) |
-
-In `to-read/` the same moves are choices of the note's `next` field: `done` or `drop`, and within a minute the note is
-closed into `archive/`, or the note's subject home, with status *closed* and the move in `next`; no session. Both keep
-the note: *drop* says you did not want it, not that it is gone, so no link is left broken and nothing is lost. A
-reading has no `next`: leave it when you are done, answer it with `ela:` lines, or ask ela to close it
-(`ela vault finish PATH --to drop`).
-
-Every note to read carries one field for its next move, **next**, at its top. The button beside it lists only
-that note's choices, by kind: a plan *agree*, *park*, *not-now*, *reject*; a decision *confirm*, *park*; a verification
-*draft-comment*; all of them *done*, *drop*. A verification plan (a run waiting for your word on its goals) offers only
-*run*, *not-now* and *drop*. The note's **Next moves** section says what each does. Choose one, and it is done
-within a minute; ela empties the field once it has acted, and a value that is not a move for the note runs nothing
-and is pointed out under the title. An agreed note moves to `in-progress/`, ela writes each step under its Progress
-heading, and when it is built the note offers *accept* or *not-done*. A plan lists each ruling it needs with ela's
-proposed answer and no boxes: *agree* accepts them as proposed, and to differ on one you write an `ela:` line under
-it. Beside that life (to-read → in-progress → archive) sits `parked/`: a plan or decision you *park* waits
-on others, with who (`waits-on`) and what brings it back (`wake`); ela watches the wake each morning, and the note
-offers *resume* or *drop*. You can also answer a note with `ela:` lines,
-or continue it in any Claude session by naming its path; a session that claims a note keeps it, and records its
-conclusions there.
-
-To tell ela what you want of a note, or to answer what it waits for, write a line starting `ela:` into the note,
-below its properties (the end is easiest: Ctrl+E, Ctrl+End, write, Ctrl+E), in your own words. Any note: a
-rewrite keeps your lines. Two minutes after you stop typing, a session takes the lines up: at once a fold "on it ·
-queued HH:MM · job …" shows under the last of them, and the answer replaces it there. A place can be named ("write this to the KB", "into elak"); without one, ela
-chooses between its own knowledge in elak and the team's knowledge base (drafted, published on your word).
-
-Ask ela now and then to tidy the archive: `ela vault tidy` lists the archived notes that have a subject home, and the
-notes at the mh/releases root whose line can now be read, and `--apply` moves them; a move that would break a link
-(a link naming `archive/` or `mh/releases/` in its path, or a name another note shares) is held back and named.
-
-A closed note is the record. Once a note is in `archive/` or a subject home, the copy in the vault is the one that counts,
-your ticks included; the sync never writes it again. If its source page changes after you closed it, ela adds one
-dated line under its **Afterwards** saying so, and `ela vault lint` lists the note; carry over by hand what should
-be kept.
-
-The archive keeps listening. A note in `archive/`, a subject home (`cases/`, `mh/releases/`, `ela/history/`) or
-`in-progress/` that carries `posted` or `keys` is read at
-13:00, 17:30 and 19:00 for a window after it leaves to-read: a promote or release review, a decision or plan, a
-meeting note 14 days from its date; a verification, ticket page or case 30; anything else 10 working days; or until its
-`watch` date. What happened since (a reply in a thread it posted, a key moving, a comment) becomes one dated line per
-source per day under its own **Afterwards** heading, in ela's words with the link, never a colleague's verbatim, at
-most 40 lines a note. That section is the one exception to "ela never rewrites an archived note": it is only
-appended, and nothing else there changes. Clear `watch` to stop it; a note with neither `posted` nor `keys` is left
-exactly as you left it. The *Archive* view of all notes lists them, newest first. A project page is watched the same
-way through its `keys`, `posted` and `channels`, until its deadline plus 14 days unless its `watch` says otherwise.
-
-Do it on the desktop; the laptop only receives. A living page (Home, the board, the lanes, how ela runs) is
-written again whatever happens to it. Finishing is never a verdict: deleting a decision does not revoke it; to
-change one, tell ela. `ela vault restore <path>` brings back a generated note; a page ela writes in place comes
-back from the nightly backup.
-
-## What ela moves on by itself
-
-What ela knows was acted on, it archives: a verification once its record is on the Jira ticket, a decision or plan
-once you have ruled on it (what it settled is written into elak or a living page in `ela/`). What merely expired, it
-removes: a passed verification nobody posted, after 14 days. A reading stays until you delete it: it is linked from
-the item or ticket it serves, not a pile to work down. What waits for your word (a failed verification, a plan to
-rule on) stays until you give it, and the morning page reminds you; the evening's draft of what the day taught
-expires after 14 days.
-
-## Standing constraints
-
-A ruling that holds a lane back (a service kept at or below a version until a condition is met) is a standing
-constraint once you confirm the note that proposes it; `ela promote` then refuses a promotion that would break it.
-The `constraints` page lists each one: what it says, every pin with the version its lane runs now and whether that
-is held or over, when it ends or lifts, and the note it came from. One that ended stays for seven days, marked
-expired, so a lapse is seen. Home says how many there are and how many are over.
-
-## What is not here
-
-ela's own knowledge, status table and working rules, which are written for ela; Helm's team reports, which stay
-in Slack and Helm. Internal addresses and credentials are redacted from the text; screenshots are copied as they
-are.
-
-## How Obsidian is set up
-
-Set by ela; the sync never changes these settings. `ela vault setup` reapplies them after a reset or on another
-machine.
-
-- Notes open in reading view, without the file-name title, with their properties at the top, at a readable width; the
-  `ela` style sheet tidies tables and callouts and hides the attachments folder.
-- Bookmarks: Today, the board, all notes as tables, how ela runs, this page.
-- Core plugins on: search, quick switcher, file explorer, backlinks, outgoing links, page preview, outline,
-  bookmarks, properties, Bases, Web viewer (on request only). Off: everything made for writing, tags and the
-  graph.
-- Three community plugins: **Homepage** opens `today` in reading view when Obsidian starts; **HTML Reader** opens a
-  verification's full record (a self-contained `.html`) in a tab; **Metadata Menu** makes a note's `next` field a
-  list to choose from, by the button beside it in the properties. A web link opens the default browser;
-  right-click it and choose *Open in web viewer* to read it inside Obsidian (Jira works there, Slack does not).
 """
 
 # `loop` orders Home's tables: the tickets loop (a ticket page, a verification) before ela's own changes and reviews
@@ -430,59 +246,18 @@ VIEWS = {
     - 'type != "readme"'
 """ + FORMULAS + """views:
   - type: table
-    name: Waiting for your word
+    name: Live
     filters:
       and:
         - not:
             - file.inFolder("archive")
-            - file.inFolder("cases")
-            - file.inFolder("mh/releases")
-            - file.inFolder("ela/history")
         - or:
-            - 'status == "built"'
-            - 'status == "proposed"'
+            - 'status == "live"'
             - 'result == "fail"'
-            - 'status == "blocked"'
-    order: [date, formula.note, type, project, status, next]
+    order: [date, formula.note, formula.subject, type, project, progress, waits-on, next]
     sort:
       - property: formula.loop
         direction: ASC
-      - property: date
-        direction: DESC
-  - type: table
-    name: To read
-    filters:
-      and:
-        - file.inFolder("to-read")
-        - 'result != "fail"'
-        - 'status != "blocked"'
-        - 'status != "proposed"'
-    order: [date, formula.note, type, next]
-    limit: 5
-    sort:
-      - property: formula.loop
-        direction: ASC
-      - property: date
-        direction: DESC
-  - type: table
-    name: Readings
-    filters:
-      and:
-        - file.inFolder("readings")
-    order: [date, formula.note, type]
-    limit: 5
-    sort:
-      - property: formula.loop
-        direction: ASC
-      - property: date
-        direction: DESC
-  - type: table
-    name: In progress
-    filters:
-      and:
-        - file.inFolder("in-progress")
-    order: [date, formula.note, project, status, progress, built, next, claimed]
-    sort:
       - property: date
         direction: DESC
   - type: table
@@ -502,7 +277,8 @@ VIEWS = {
     name: Parked
     filters:
       and:
-        - file.inFolder("parked")
+        - file.hasProperty("waits-on")
+        - 'status == "live"'
     order: [date, formula.note, waits-on, parked, next]
     sort:
       - property: parked
@@ -517,13 +293,12 @@ VIEWS = {
       - property: date
         direction: DESC
   - type: table
-    name: Archive
+    name: Done
     filters:
       or:
         - file.inFolder("archive")
-        - file.inFolder("cases")
-        - file.inFolder("mh/releases")
-        - file.inFolder("ela/history")
+        - 'status == "done"'
+        - 'status == "closed"'
     order: [date, formula.note, formula.subject, type, next, posted, last, watch]
     sort:
       - property: date
@@ -604,59 +379,66 @@ def verdict_props(verdict):
             "status": "proposed" if v == "fail" else "blocked" if v == "blocked" else None}
 
 
+def family_of(kind):
+    """The life a type has: work (live, done), case, report, project; None for a page."""
+    kind = (kind or "").strip()
+    return "work" if kind in WORK_TYPES else kind if kind in ("case", "report", "project") else None
+
+
 def settled_status(folder, status, kind=None):
-    """(status, result, next) a note in a lifecycle folder carries, from whatever status it had: the folder's own
-    value, a verdict moved to result, an archived outcome moved to next. Outside those folders, as it was."""
+    """(status, result, next) a note carries, from whatever status it had (layout 4's included): a work note live or
+    done, a verdict moved to result, an old outcome (accepted, rejected …) moved to next; in archive/ a work note is
+    done and a case closed. A case, a report and a project keep their own states; a page as it was."""
     s = (status or "").strip().strip("'\"").lower()
     result = s if kind == "verify" and s in ("pass", "fail") else None
-    if folder == READINGS:                                 # a reading is reference, not a step in a life
-        return None, None, None
-    if folder not in STATUS_BY_FOLDER:
+    fam = family_of(kind)
+    if fam is None:
         return status, None, None
-    if folder in CLOSED_FOLDERS:
-        return "closed", result, CLOSED_NEXT.get(s)
-    if folder == CASES:                                    # a case's own life: open, answered, closed
-        return s if s in STATUS_BY_FOLDER[CASES] else "open", result, None
-    if folder == PARKED:
-        return "parked", result, None
-    if folder == IN_PROGRESS:
-        return s if s in STATUS_BY_FOLDER[IN_PROGRESS] else "building", result, None
-    if result:
-        return ("proposed" if result == "fail" else None), result, None
-    return (s if s in STATUS_BY_FOLDER[TO_READ] else "proposed"), None, None   # any type there waits on his word
+    archived = folder in CLOSED_FOLDERS
+    if fam == "case":
+        return ("closed" if archived else s if s in STATUS_BY_KIND["case"] else "open"), result, None
+    if fam == "report":
+        return (s if s in STATUS_BY_KIND["report"] else status), None, None
+    if fam == "project":
+        return (s if s in STATUS_BY_KIND["project"] else None), None, None
+    if archived or s in (DONE, "closed") or (s in CLOSED_NEXT and s not in LEGACY_LIVE):   # parked outside archive/ is live
+        return DONE, result, CLOSED_NEXT.get(s)
+    return LIVE, result, None
 
 
 def subject_home(path):
-    """The subject home a folder or note path lies in (a subfolder counts as its home: mh/releases/2.1 is
-    mh/releases), else None."""
+    """The thing's home a folder or note path lies in, at any depth (releases/2.1 is releases, projects/x/ is
+    projects), else None."""
     path = path.replace(os.sep, "/").strip("/")
     return next((h for h in SUBJECT_HOMES if path == h or path.startswith(h + "/")), None)
 
 
 def kept_home(folder):
-    """The owner folder a folder belongs to: archive/ or a subject home, a line folder counting as mh/releases; else
-    None."""
+    """archive/ or the thing's home a folder lies in; else None."""
     return folder if folder == ARCHIVE else subject_home(folder or "")
 
 
 def folder_of(rel):
-    """The lifecycle folder of a note path: the subject home it lies in, at any depth, else its top folder."""
+    """The home of a note path: the thing's home it lies in, at any depth, else its top folder."""
     return subject_home(os.path.dirname(rel)) or top(rel)
 
 
 def notes_under(vault, folder):
-    """The .md notes of a folder as vault paths: directly in it, and in its subfolders when it is a subject home
-    (a release line's folder, a case's own folder)."""
+    """The .md notes of a folder as vault paths, its subfolders included (a release line's folder, a project's)."""
     base = os.path.join(vault, folder)
     if not os.path.isdir(base):
         return []
-    if not subject_home(folder):
-        return [f"{folder}/{f}" for f in sorted(os.listdir(base)) if f.endswith(".md") and os.path.isfile(os.path.join(base, f))]
     out = []
     for top_, dirs, fs in os.walk(base):
-        dirs[:] = sorted(d for d in dirs if not d.startswith("."))
+        dirs[:] = sorted(d for d in dirs if not d.startswith(".") and os.path.relpath(os.path.join(top_, d), vault).replace(os.sep, "/") != ATTACH)
         out += [os.path.relpath(os.path.join(top_, f), vault).replace(os.sep, "/") for f in sorted(fs) if f.endswith(".md")]
     return out
+
+
+def is_done(props):
+    """A note that is the record: status done, or a case closed. The sync never rewrites it."""
+    st = (props.get("status") or "").strip().lower()
+    return st == DONE or st == "closed"                   # closed: a case's end, and layout 4's word for done
 
 
 def facts_line(key):
@@ -688,10 +470,11 @@ def release_line(props, line_of_key=None, name=""):
 
 
 def home_for(rel, props, line_of_key=None):
-    """Where a closing note goes: its subject home by type, else archive/. A case → cases/; a verification, a
-    verification plan, or a review of a release (a promotion, deploy, docker check or release review, by its file
-    name) → its line's folder mh/releases/<line>/ (release_line), else mh/releases/; a plan, decision or review whose
-    target (else its title) names ela, its runner, elak or the vault → ela/history/."""
+    """The thing's home of a work note that names no project: a case → cases/; a verification, a verification plan,
+    or a review of a release (a promotion, deploy, docker check or release review, by its file name or title) → its
+    line's folder releases/<line>/ (release_line), else releases/; a plan, decision or review whose target (else its
+    title) names ela, its runner, elak or the vault → ela/ (live; ela/history/ keeps what was closed before layout 5);
+    anything else → reference/."""
     kind = (props.get("type") or "").strip()
     name = os.path.basename(rel)[:-3] if rel.endswith(".md") else os.path.basename(rel)
     if kind == "case":
@@ -701,22 +484,16 @@ def home_for(rel, props, line_of_key=None):
         line = release_line(props, line_of_key, name)
         return f"{RELEASES}/{line}" if line else RELEASES
     if kind in ("plan", "decision", "review") and ELA_TARGET.search(props.get("target") or props.get("title") or ""):
-        return HISTORY
-    return ARCHIVE
-
-
-def living_in_home(folder, kind):
-    """A page that lives filed in a subject home, which keeps the status its kind defines rather than the home's: a
-    report anywhere (proposed, decided, superseded), and in mh/releases a release line's test plan beside its record."""
-    return bool(subject_home(folder)) and (kind == "report" or (kind == "plan" and subject_home(folder) == RELEASES))
+        return ELA
+    return REF
 
 
 def settle_statuses(vault, dry_run=False):
-    """Bring every note in a lifecycle folder to its folder's statuses, and take status off readings, front matter
-    only (archive included: the body stays his). Returns one line per fix."""
+    """Bring every note in the things' homes and the archive to its type's states (a work note live or done, layout 4's
+    statuses read as the state they meant), front matter only: the body stays his. Returns one line per fix."""
     fixes = []
-    for folder in tuple(STATUS_BY_FOLDER) + (READINGS,):
-        for rel in notes_under(vault, folder):             # a subject home with its subfolders (a release line)
+    for folder in THING_FOLDERS:
+        for rel in notes_under(vault, folder):
             p = os.path.join(vault, rel)
             try:
                 text = open(p, encoding="utf-8").read()
@@ -726,15 +503,16 @@ def settle_statuses(vault, dry_run=False):
             if not fl:
                 continue
             props = props_of(fl)
-            if living_in_home(folder, props.get("type")):
-                continue                                   # a line's record or test plan keeps its own status
-            st, result, nxt = settled_status(folder, props.get("status"), props.get("type"))
+            if not family_of(props.get("type")) or PROJECT_PAGE.match(rel):
+                continue
+            st, result, nxt = settled_status(folder_of(rel), props.get("status"), props.get("type"))
             want = {"status": st, "result": result or props.get("result") or None}
             if nxt and not props.get(NEXT):
                 want[NEXT] = nxt
-            if folder in (IN_PROGRESS, CASES) + CLOSED_FOLDERS:   # the set its status chooser lists
-                want[MOVE_SET] = (props.get(MOVE_SET) if props.get(MOVE_SET) == "reopen" else "closed") if folder in CLOSED_FOLDERS \
-                    else "case" if folder == CASES else props.get(MOVE_SET) or "built"
+            if props.get("type") == "case":
+                want[MOVE_SET] = "case"
+            elif st == DONE and family_of(props.get("type")) == "work":
+                want[MOVE_SET] = "reopen" if props.get(MOVE_SET) == "reopen" else "closed"
             changed = {k: v for k, v in want.items() if (v or None) != (props.get(k) or None)}
             raw = next((l for l in fl if re.match(r"^type:\s*\S", l)), None)
             if raw and not re.match(r"^type:\s*[\"']", raw):   # one spelling of type everywhere: quoted
@@ -878,7 +656,7 @@ def elak_notes(elak):
         sp = re.match(r"^(\d{4})-[sS](\d{2})$", base)
         dm = re.match(r"^(\d{4}-\d{2}-\d{2})-(.+)$", base)
         if sp:
-            path, date = f"{DAYS}/{sp.group(1)}/{sp.group(1)}-s{sp.group(2)}.md", None
+            path, date = f"{REF}/{sp.group(1)}-sprint-{int(sp.group(2))}.md", None
         elif dm:
             path, date = f"{TO_READ}/{dm.group(1)}-{slug(dm.group(2))}.md", dm.group(1)
         else:
@@ -906,7 +684,9 @@ def report_notes(reports, today):
     rd = os.path.join(reports, "runner")
     lists = list_links(reports)
     for f in sorted(os.listdir(rd)) if os.path.isdir(rd) else []:
-        m = re.match(r"^(\d{4}-\d{2}-\d{2})-(brief|week|changes)\.md$", f)   # the day's learning is the reader page's ## Learned
+        # the morning page and what changed: today.md reads them, the runner reads their ticks; the week is not written
+        # into the vault any more (ADR 0015: nothing consumed it), its source stays
+        m = re.match(r"^(\d{4}-\d{2}-\d{2})-(brief|changes)\.md$", f)
         if not m or (m.group(2) not in KEEP_FOREVER and (today - datetime.date.fromisoformat(m.group(1))).days >= DAYS_KEPT):
             continue
         d = datetime.date.fromisoformat(m.group(1))
@@ -916,40 +696,26 @@ def report_notes(reports, today):
         label = {"brief": "Morning brief", "week": "The week", "changes": "What changed"}[m.group(2)]
         notes.append(Note(f"{DAYS}/{m.group(1)[:4]}/{m.group(1)}-{m.group(2)}.md", f"{label} · {d:%a} {m.group(1)}", body,
                           {"type": "day", "date": m.group(1), "kind": m.group(2)}, fl, src_rel=f"runner/{f}"))
-    bp = os.path.join(reports, "board", "board.md")
-    if os.path.isfile(bp):                                 # the board's debt, one living page, rewritten each morning
-        fl, body = split_front(open(bp, encoding="utf-8").read())
-        dm = re.search(r"\*(\d{4}-\d{2}-\d{2})", body)
-        notes.append(Note("board.md", "The board's debt", body,
-                          {"type": "board", "date": dm.group(1) if dm else None}, fl, src_rel="board/board.md"))
+    # the board, recent and the constraints page are angles nothing consumed: their verbs render them on demand, their
+    # sources stay under the reports root, and the vault no longer carries them (ADR 0015)
     lp = os.path.join(reports, "lanes", "lanes.md")
     if os.path.isfile(lp):                                 # the lanes, their differences and two weeks of moves, rewritten each pass
         fl, body = split_front(open(lp, encoding="utf-8").read())
         dm = re.search(r"\*(\d{4}-\d{2}-\d{2})", body)
-        notes.append(Note("lanes.md", "The lanes", body, {"type": "lanes", "date": dm.group(1) if dm else None}, fl, src_rel="lanes/lanes.md"))
-    rn = recent_note(reports)
-    if rn:                                                 # the week's tickets placed, a dashboard rewritten from the newest result
-        notes.append(rn)
+        notes.append(Note(LANES_PAGE, "The lanes", body, {"type": "lanes", "date": dm.group(1) if dm else None}, fl, src_rel="lanes/lanes.md"))
     on = onething_note(reports, today)
     if on:                                                 # his One Thing rows not yet pasted, rendered from the store each sync
         notes.append(on)
     ld = os.path.join(reports, "lanes")
+    lanes = lane_lines()
     for f in sorted(os.listdir(ld)) if os.path.isdir(ld) else []:   # what QA verifies per lane, what is in development per line
         m = re.match(r"^(test-list|dev-list|train)-(.+)\.md$", f)
         if m:
             fl, body = split_front(open(os.path.join(ld, f), encoding="utf-8").read())
             dm = re.search(r"\*(\d{4}-\d{2}-\d{2})", body)
             title = {"test-list": "Test list · ", "dev-list": "Dev list · ", "train": "Train · "}[m.group(1)] + m.group(2)
-            notes.append(Note(f"lanes/{f}", title, body, {"type": m.group(1), "date": dm.group(1) if dm else None}, fl, src_rel=f"lanes/{f}"))
-    rv = os.path.join(reports, "review")
-    for f in sorted(os.listdir(rv)) if os.path.isdir(rv) else []:   # the evening reader's verdicts on a morning page
-        m = re.match(r"^(\d{4}-\d{2}-\d{2})-reader\.md$", f)
-        if not m or (today - datetime.date.fromisoformat(m.group(1))).days >= READER_DAYS:
-            continue
-        fl, body = split_front(open(os.path.join(rv, f), encoding="utf-8").read())
-        body = reader_heading(body, m.group(1))
-        notes.append(Note(f"{ELA}/review/{f}", f"The reader · {m.group(1)}", body, {"type": "reader", "date": m.group(1)}, fl,
-                          src_rel=f"review/{f}"))
+            notes.append(Note(list_home(f, lanes), title, body, {"type": m.group(1), "date": dm.group(1) if dm else None}, fl, src_rel=f"lanes/{f}"))
+    # the evening reader's pages are not written into the vault any more (ADR 0015): nothing read the vault copy
     sp = os.path.join(reports, "system", "how-ela-runs.md")
     if os.path.isfile(sp):                                 # what is scheduled where, read from the machines
         fl, body = split_front(open(sp, encoding="utf-8").read())
@@ -993,6 +759,7 @@ def reader_heading(body, date):
     return body[:m.start()] + f"# {want}{sub}" + body[m.end():]
 
 
+LANES_PAGE, ONE_THING = f"{RELEASES}/lanes.md", f"{REF}/one-thing.md"
 RECENT_POINTER = "*Every ticket of the week, placed by line and lane: [[recent|Recent · 7 days]]*"
 
 
@@ -1009,7 +776,7 @@ def recent_note(reports):
     except Exception as e:                                 # a result an older recent wrote, or an import problem: no page, said once
         print(f"recent: not rendered — {str(e)[:120]}", file=sys.stderr)
         return None
-    return Note("recent.md", RC.TITLE, body, {"type": "recent", "date": (data.get("at") or "")[:10] or None}, [],
+    return Note(f"{REF}/recent.md", RC.TITLE, body, {"type": "recent", "date": (data.get("at") or "")[:10] or None}, [],
                 src_rel=f"recent/{os.path.basename(path)}")
 
 
@@ -1029,7 +796,7 @@ def onething_note(reports, today):
         return None
     if body is None:
         return None
-    n = Note("one-thing.md", OT.PAGE_TITLE.format(month=today.isoformat()[:7]), body,
+    n = Note(ONE_THING, OT.PAGE_TITLE.format(month=today.isoformat()[:7]), body,
              {"type": "one-thing", "date": today.isoformat()}, [], src_rel=f"onething/{today.isoformat()[:7]}.json")
     n.count = count
     return n
@@ -1048,16 +815,17 @@ SEND_BOX = re.compile(r"^([ \t]*" + QUOTE + r"[-*][ \t]+)\[[ xX]\]([ \t]+send[ \
 DONE_LINE = re.compile(r"^([ \t]*" + QUOTE + r"[-*][ \t]+done[ \t]+(\d+)\b.*?)[ \t]*$", re.M)          # tier 1: ela did it
 # what follows an open send box, replaced by the outcome once it has one: the runner's "unticked: stays as apply N",
 # or ela's list link, channel and "untouched: not sent"
-SEND_TAIL = re.compile(r"[ \t]*·[ \t]*(?:unticked: stays as apply \d+|\[\[lanes/[^\]]*\]\](?: → #[\w-]+)?|→ #[\w-]+|untouched: not sent)[ \t]*$")
+SEND_TAIL = re.compile(r"[ \t]*·[ \t]*(?:unticked: stays as apply \d+|\[\[(?:lanes|releases)/[^\]]*\]\](?: → #[\w-]+)?|→ #[\w-]+|untouched: not sent)[ \t]*$")
 LIST_COUNTS = {"qa-today": ("test-list", re.compile(r"(\d+) open(?: · P1 (\d+))?"), "P1"),
                "dev-today": ("dev-list", re.compile(r"(\d+) ticket\(s\)(?: · (\d+) with a gap)?"), "with a gap")}
 
 
 def list_links(reports):
     """{(rule, lane or line): wikilink} for each lane list on disk, the page a send box would send: QA today's test list
-    as [[lanes/test-list-<lane>|N rows, M P1]], Dev today's dev list as [[lanes/dev-list-<line>|N rows, M with a gap]],
-    the counts read from the page's own count line."""
+    as [[releases/<line>/test-list-<lane>|N rows, M P1]], Dev today's dev list as [[releases/<line>/dev-list-<line>|N
+    rows, M with a gap]], the counts read from the page's own count line."""
     out, d = {}, os.path.join(reports or "", "lanes")
+    lanes = lane_lines() if os.path.isdir(d) else {}
     for f in sorted(os.listdir(d)) if os.path.isdir(d) else []:
         m = re.match(r"^(test-list|dev-list)-(.+)\.md$", f)
         if not m:
@@ -1068,7 +836,7 @@ def list_links(reports):
         except OSError:
             continue
         label = f"{c.group(1)} rows, {c.group(2) or 0} {LIST_COUNTS[rule][2]}" if c else "the list"
-        out[(rule, m.group(2))] = f"[[lanes/{f[:-3]}|{label}]]"
+        out[(rule, m.group(2))] = f"[[{list_home(f, lanes)[:-3]}|{label}]]"
     return out
 
 
@@ -1078,7 +846,7 @@ def send_tail(a, lists=None):
     scope = a.get("scope") or []
     where = scope[1] if len(scope) > 1 and scope[0] in ("--lane", "--line") else None
     kind = LIST_COUNTS.get(a.get("rule"), (None,))[0]
-    link = (lists or {}).get((a.get("rule"), where)) or (f"[[lanes/{kind}-{where}|the list]]" if kind and where else None)
+    link = (lists or {}).get((a.get("rule"), where)) or (f"[[{kind}-{where}|the list]]" if kind and where else None)
     chan = str(a.get("channel") or "").lstrip("#") or next(iter(re.findall(r"#([\w-]+)", str(a.get("command") or ""))), None)
     head = " ".join(x for x in (link, f"→ #{chan}" if chan else None) if x)
     return (f" · {head}" if head else "") + " · untouched: not sent"
@@ -1411,8 +1179,6 @@ def type_lint(path, kind):
     if not fam:
         return f"{path}: type {kind!r} is not in the closed set ({', '.join(sorted(set(TYPE_FAMILY.values())))})"
     folder = path.split("/", 1)[0] if "/" in path else ""
-    if kind == "review" and path.startswith(MH + "/"):     # a product reading kept with the program it reads
-        return None
     if fam in FAMILY_FOLDERS and not any(path.startswith(f + "/") for f in FAMILY_FOLDERS[fam]):
         return f"{path}: a {fam} belongs in {', '.join(FAMILY_FOLDERS[fam])}"
     if kind == "guide" and folder != ELA:                 # the ela page's type; a page elsewhere has its own
@@ -1447,31 +1213,29 @@ def open_asks(body):
 
 
 def asks_lint(n):
-    """One lint line when a reading outside to-read still has an open box under Waiting for your word: its asks
-    belong where he looks for what waits on him."""
-    if TYPE_FAMILY.get(n.props.get("type")) != "reading" or top(n.path) == TO_READ:
+    """One lint line when a done note still has an open box under Waiting for your word: an ask on a closed note
+    reaches nobody (today.md lists the asks of live notes only)."""
+    if family_of(n.props.get("type")) != "work" or not (is_done(n.props) or top(n.path) == ARCHIVE):
         return None
     left, _ = open_asks(n.body)
-    return f"{n.path}: {left} open under {ASKS_HEAD}; a reading that asks belongs in {TO_READ}/" if left else None
+    return f"{n.path}: {left} open under {ASKS_HEAD} on a done note; mark it live to ask, or answer them" if left else None
 
 
 def answered_readings(vault, reports, dry_run=False):
-    """A reading ela wrote in place in to-read whose every box under Waiting for your word is ticked or answered with
-    an `ela:` line moves to readings/; a plan or decision keeps its own life. Returns [(from, to)]."""
-    out, d = [], os.path.join(vault, TO_READ)
-    for f in sorted(os.listdir(d)) if os.path.isdir(d) else []:
-        if not f.endswith(".md"):
-            continue
+    """A reading ela wrote in place, live, whose every box under Waiting for your word is ticked or answered with an
+    `ela:` line is done where it is; a plan or decision keeps its own life. Returns [(path, path)]."""
+    out = []
+    for rel in (r for fo in THING_FOLDERS if fo != ARCHIVE for r in notes_under(vault, fo)):
         try:
-            fl, body = split_front(open(os.path.join(d, f), encoding="utf-8").read())
+            fl, body = split_front(open(os.path.join(vault, rel), encoding="utf-8").read())
         except OSError:
             continue
         props = props_of(fl)
-        if props.get("source") != "vault" or TYPE_FAMILY.get(props.get("type")) != "reading":
+        if props.get("source") != "vault" or TYPE_FAMILY.get(props.get("type")) != "reading" or is_done(props):
             continue
         left, total = open_asks(body)
         if total and not left:
-            out.append((f"{TO_READ}/{f}", None if dry_run else move_note(vault, reports, f"{TO_READ}/{f}", "readings")))
+            out.append((rel, None if dry_run else move_note(vault, reports, rel, "readings")))
     return out
 
 
@@ -1503,33 +1267,36 @@ LIFE_PROPS = ("archived", "built", "claimed", "waits-on", "wake", "parked", "clo
 # kind: what the note is for; name: (regex on the path, as written); title: (regex, as written); required and
 # optional properties beyond title, aliases and type; sections: the headings in order (a trailing ? is optional);
 # closing: how it ends with what he should do; budget from BUDGET, or the rule that stands in for one
+# a work note's home: a project's folder, a release line's, a case's, reference, ela's history, the archive (ADR 0015)
+THING = rf"(?:projects/{SLUG}|releases(?:/[\d.]+)?|cases(?:/{SLUG})?|reference|ela(?:/history)?|archive)"
+THING_NOT_RELEASES = rf"(?:projects/{SLUG}|cases(?:/{SLUG})?|reference|ela(?:/history)?|archive)"   # a review there follows its own rule
+THING_NAME = "`<date>-<kind>-<what>.md` in its thing's folder"
 SPECS = {
     "decision": dict(
         kind="a choice for your word: confirm or park",
-        name=(rf"^(?:to-read|in-progress|parked|archive|ela/history)/{DATED}\.md$", "`<date>-<slug>.md`, in to-read/ until ruled"),
+        name=(rf"^{THING}/{DATED}\.md$", THING_NAME),
         title=(r".", "the choice as a sentence: what is decided, about what"),
         required=("date",), optional=("source", "target", "keys", "posted", "watch", "project", "ela", "progress"),
         sections=("The question?", "Options?", WHAT_TO_DO),
         closing=f"## {WHAT_TO_DO}: the recommended option and the alternative, each with its first step; options you named keep your labels, your order and your definitions, the recommendation a separate line"),
     "plan": dict(
         kind="work for your word: agree, park, not now or reject",
-        name=(rf"^(?:to-read|in-progress|parked|archive|ela/history|mh/releases(?:/[\d.]+)?)/{DATED}\.md$|^mh/releases/[\d.]+/{SLUG}-test-plan\.md$",
-              "`<date>-<slug>.md`; a release line's test plan `mh/releases/<line>/<slug>-test-plan.md`"),
+        name=(rf"^{THING}/{DATED}\.md$|^releases/[\d.]+/{SLUG}-test-plan\.md$",
+              THING_NAME + "; a release line's test plan `releases/<line>/release-<line>-<what>-test-plan.md`"),
         title=(r".", "what the plan builds, as a sentence"),
         required=("date",), optional=("source", "target", "keys", "posted", "watch", "project", "ela", "progress", "branch"),
         sections=("The problem?", WHAT_TO_DO, ASKS_HEAD + "?", "Progress?"),
         closing=f"## {WHAT_TO_DO}: what agree starts and what each other move means; each ruling it needs listed with ela's proposed answer, no boxes. A plan for ela's own design asks nothing: its Gate is written as reasoning"),
     "sprint": dict(
         kind="a sprint: a plan with a start and an end",
-        name=(r"^sprints/\d{4}-S\d{2}\.md$", "`sprints/<year>-S<nn>.md`"),
+        name=(r"^(?:archive|reference)/(?:\d{4}-\d{2}-\d{2}|\d{4})-sprint-\d+\.md$", "`<end date>-sprint-<n>.md`, in reference/ while it runs"),
         title=(r"^Sprint \d+ · ", "`Sprint <n> · <start> – <end>`"),
         required=("date", "start", "end"), optional=("source", "status"),
         sections=("Sprint goals", "Committed", "Stretch?"),
         closing="its goals are the ask; the sprint's end review says what landed"),
     "review": dict(
         kind="a reading of evidence: a release, a promotion, a docker check, a part of the product or of ela",
-        name=(rf"^(?:(?:readings|to-read|archive|mh|ela/history|projects/{SLUG})/{DATED}"
-              rf"|mh/releases(?:/[\d.]+)?/{RELEASE_REVIEW_NAME})\.md$",
+        name=(rf"^(?:{THING_NOT_RELEASES}/{DATED}|releases(?:/[\d.]+)?/{RELEASE_REVIEW_NAME})\.md$",
               "`<date>-<slug>.md`; in `mh/releases/<line>/` a review of a release is `<date>-<promote|deploy|docker|hotfix|review>-<what>.md`, "
               "the line left to the folder (`2026-11-09-deploy-daily-wed-to-prod-3.md`)"),
         title=(r".", "a review of a release: `MH <line> · <from> → <to> · <what>`; any other: its finding as a sentence"),
@@ -1538,7 +1305,7 @@ SPECS = {
         closing=f"## {WHAT_TO_DO}: each action a box or a ready command, the recommendation first; what could not be read is named as a gap above it"),
     "ticket": dict(
         kind="one ticket made judgeable: where it stands, what done is",
-        name=(rf"^(?:readings|to-read|archive|projects/{SLUG}|mh/releases(?:/[\d.]+)?)/\d{{4}}-\d{{2}}-\d{{2}}-(?:deep-)?[a-z]+-\d+(?:-{SLUG})?\.md$",
+        name=(rf"^{THING}/\d{{4}}-\d{{2}}-\d{{2}}-(?:deep-)?[a-z]+-\d+(?:-{SLUG})?\.md$",
               "`<date>-<key>-<slug>.md`, the key lowercase (`2026-10-30-mh-2406-timeline.md`)"),
         title=(KEY_TITLE, "`<KEY> · <where it stands>`, the key as plain text (the heading may link it)"),
         required=("date", "keys"), optional=("source", "posted", "watch", "project"),
@@ -1546,7 +1313,7 @@ SPECS = {
         closing="a **Do.** line: the move, who it waits on, and the first step"),
     "verify": dict(
         kind="a verification in a real browser on a named lane",
-        name=(r"^(?:to-read|readings|archive|mh/releases(?:/[\d.]+)?)/\d{4}-\d{2}-\d{2}-verify-[a-z]+-\d+(?:-[a-z0-9-]+)?\.md$",
+        name=(rf"^{THING}/\d{{4}}-\d{{2}}-\d{{2}}-verify-[a-z]+-\d+(?:-[a-z0-9-]+)?\.md$",
               "`<date>-verify-<key>[-<lane>].md`"),
         title=(KEY_TITLE + r"(?:PASS|FAIL|BLOCKED) on \S+", "`<KEY> · PASS|FAIL|BLOCKED on <lane>`"),
         required=("date", "result", "keys"), optional=("posted", "watch", "source"),
@@ -1554,7 +1321,7 @@ SPECS = {
         closing="its moves: *draft-comment* puts the Jira record as `apply N`; the full record is the linked page"),
     "verify-plan": dict(
         kind="a verification run waiting for your word on its goals",
-        name=(r"^(?:to-read|archive|mh/releases(?:/[\d.]+)?)/\d{4}-\d{2}-\d{2}-verify-plan-[a-z]+-\d+\.md$", "`<date>-verify-plan-<key>.md`"),
+        name=(rf"^{THING}/\d{{4}}-\d{{2}}-\d{{2}}-verify-plan-[a-z]+-\d+\.md$", "`<date>-verify-plan-<key>.md`"),
         title=(KEY_TITLE + r"verify plan$", "`<KEY> · verify plan`"),
         required=("date", "keys"), optional=("posted", "watch"),
         sections=(), closing="its moves: *run*, *not-now* or *drop*"),
@@ -1578,7 +1345,7 @@ SPECS = {
         name=(r"^projects/(?:([^/]+)/\1|[a-z0-9][a-z0-9-]*)\.md$", "`projects/<key>.md`, or `projects/<key>/<key>.md` once it has a folder"),
         title=(r".", "the project's name"),
         # deadline: required of outside work (a PoC has a day), optional for a ticket project, whose page leads its keys
-        required=("date", "source", "deadline"), optional=("next-step", "channels", "keys", "posted", "watch", "customer", "hubspot", "slug"),
+        required=("date", "source", "deadline"), optional=("next-step", "channels", "keys", "posted", "watch", "customer", "hubspot", "slug", "status"),
         sections=("Goal", "Parties?", "Dates?", "What is known?", "Next step") + TAIL_HEADS,
         closing="## Next step in the head (`next-step` is the line Home may name); the tail from Waiting for your word is the sync's"),
     "meeting": dict(
@@ -1590,7 +1357,7 @@ SPECS = {
         closing="the `- [ ] send` box at the top; each item under 140 characters: ticket link · question · who decides · since when"),
     "day": dict(
         kind="a morning page, what changed the day before, or the week",
-        name=(r"^days/\d{4}/\d{4}-\d{2}-\d{2}-(?:brief|changes|week|learn)\.md$", "`days/<year>/<date>-<kind>.md`, kind brief, changes or week"),
+        name=(r"^reference/days/\d{4}/\d{4}-\d{2}-\d{2}-(?:brief|changes|week|learn)\.md$", "`reference/days/<year>/<date>-<kind>.md`, kind brief or changes"),
         title=(r"^(?:Morning brief|What changed|The week|What the day taught) · ", "`Morning brief · <Dow> <date>`, `What changed · …`, `The week · …`"),
         required=("date", "kind"), optional=(),
         sections=(), closing="each item ends in a **Do:** line: an `apply N`, a `don't N`, or *your call: <recommended> over <alternative>*"),
@@ -1602,7 +1369,7 @@ SPECS = {
         sections=("Learned",), closing=f"## Learned, at most {LEARNED_MAX} lines; more goes to a decision note"),
     "draft": dict(
         kind="a message you send under your own name: a Slack post or reply, a Jira comment, a mail",
-        name=(rf"^(?:to-read|parked|archive|projects/{SLUG})/{DATED}-(?:slack|jira|mail)-draft\.md$", "`<date>-<slug>-<slack|jira|mail>-draft.md`"),
+        name=(rf"^{THING}/{DATED}-(?:slack|jira|mail)-draft\.md$", "`<date>-<slug>-<slack|jira|mail>-draft.md` in its thing's folder"),
         title=(r"^(?:Slack|Jira|Mail) draft: ", "`Slack draft: <subject>` (or Jira, Mail)"),
         required=("date", "source"), optional=("progress", "ela", "keys", "posted", "watch", "project", "channels"),
         sections=("Root message", "Thread replies?", "Not for this post?"),
@@ -1634,7 +1401,7 @@ def spec_text():
                 f"- **Title**: {sp['title'][1]}",
                 "- **Properties**: " + (", ".join(f"`{p}`" for p in sp["required"]) or "none") + " required"
                 + (("; " + ", ".join(f"`{p}`" for p in sp["optional"]) + " when they apply") if sp["optional"] else "")
-                + "; status, next and moves by folder",
+                + "; status (live or done), next and moves by type",
                 "- **Sections**: " + (" → ".join(secs) or "as its generator writes them"),
                 f"- **Ends with**: {sp['closing']}",
                 f"- **Budget**: {f'{b:,} words' if b else 'none; ' + ('the record is the linked page' if kind.startswith('verify') else 'its items are bounded instead')}"
@@ -1724,7 +1491,7 @@ def spec_lint(rel, text, generated=False, projects=None):
         out.append(f"file name: want {sp['name'][1]}")
     name = os.path.basename(rel)[:-3]
     dm = re.match(r"^(\d{4}-\d{2}-\d{2})-", name)
-    if dm and props.get("date") and props["date"][:10] != dm.group(1):
+    if dm and props.get("date") and props["date"][:10] != dm.group(1) and (props.get("end") or "")[:10] != dm.group(1):   # a sprint is named by its end
         out.append(f"date {props['date']} but the file name says {dm.group(1)}")
     raw = next((l for l in fl if l.startswith("title:")), None)
     title = props.get("title") or ""
@@ -1763,7 +1530,7 @@ def spec_lint(rel, text, generated=False, projects=None):
     def at(want):
         w = want.rstrip("?").lower()
         return next((i for i, h in enumerate(hs) if h == w or h.startswith(w)), None)
-    closed = folder_of(rel) in CLOSED_FOLDERS                # its outcome is in next: a closing would now be history
+    closed = folder_of(rel) in CLOSED_FOLDERS or is_done(props)   # its outcome is in next: a closing would now be history
     for want in sp["sections"]:
         if not want.endswith("?") and at(want) is None and kind not in ("project",) and not (closed and want == WHAT_TO_DO):
             out.append(f"no ## {want}")
@@ -2015,11 +1782,16 @@ def tidy_title(body):
     return body[:m.start()] + line + body[m.end():]
 
 
+WARNING_RX = re.compile(r"^> \[!warning\] Not yet fit to read: .*\n\n?", re.M)
+
+
 def with_warning(body, problems):
-    """The warning sits under the note's title, where a reader starts."""
+    """The warning sits under the note's title, where a reader starts; one only, whatever the body already carried (a
+    project page's head is read back from disk with the last sync's warning in it)."""
+    body = WARNING_RX.sub("", body)
     warn = f"> [!warning] Not yet fit to read: {'; '.join(problems)}. ela owes a shorter version.\n"
     m = re.search(r"^#[ \t]+.*$", body, re.M)
-    return body[:m.end()] + "\n\n" + warn + body[m.end():] if m else warn + "\n" + body
+    return body[:m.end()] + "\n\n" + warn + "\n" + body[m.end():].lstrip("\n") if m else warn + "\n" + body
 
 
 def standing_constraints(s, env):
@@ -2117,13 +1889,14 @@ def constraints_note(data, today):
 # at the page too), and the days to the deadline with the step. Reasons: elak
 # blueprint/decisions/2026-11-04-projects-are-bounded-work-with-one-page-each.md.
 STEP_DATE = re.compile(r"(?<![\d-])(\d{4}-\d{2}-\d{2}|\d{2}-\d{2})(?![\d-])")
-PROJECT_FOLDERS = ("in this folder", TO_READ, IN_PROGRESS, PARKED, READINGS, ARCHIVE)   # the Notes section's order
+PROJECT_FOLDERS = ("in this folder", "projects", RELEASES, CASES, REF, HISTORY, ARCHIVE)   # the Notes section's order
 
 
 def project_path(vault, key):
-    """A project's page as a vault path: projects/<key>/<key>.md when it has a folder, else the one page
-    projects/<key>.md (a project outgrows one page into a folder, never the reverse)."""
-    if os.path.isdir(os.path.join(vault or "", PROJECTS, key)):
+    """A project's page as a vault path: projects/<key>/<key>.md when its folder holds the page, else the one page
+    projects/<key>.md, which a folder of its notes may sit beside until `ela vault migrate` or he moves the page in."""
+    if os.path.isfile(os.path.join(vault or "", PROJECTS, key, key + ".md")) or (
+            os.path.isdir(os.path.join(vault or "", PROJECTS, key)) and not os.path.isfile(os.path.join(vault or "", PROJECTS, key + ".md"))):
         return f"{PROJECTS}/{key}/{key}.md"
     return f"{PROJECTS}/{key}.md"
 
@@ -2217,7 +1990,7 @@ def project_head(body):
     m = re.search(r"^" + re.escape(AFTERWARDS_HEAD) + r"[ \t]*\n(.*?)(?=^#{1,2}[ \t]|\Z)", body, re.M | re.S)
     rows = [l for l in (m.group(1) if m else "").splitlines() if l.startswith("- ")]
     cut = TAIL_HEAD_RX.search(body)
-    head = body[:cut.start()] if cut else body
+    head = WARNING_RX.sub("", body[:cut.start()] if cut else body)   # the reading gate's warning is the sync's, not the head's
     return head.rstrip("\n") + "\n", rows
 
 
@@ -2338,18 +2111,12 @@ def stands_lines(t, jira_base=""):
 
 
 def project_tail(facts, rows, today, jira_base=""):
-    """The sync's half of a project page: TAIL_HEADS in their order. Waiting for your word lists only the asks that
-    live on other notes (the project's notes in to-read and in-progress); the head's own open questions are on the page
-    already and are not echoed (the desk's brief of 2026-11-11, A3). A label is plain text: a title carrying a Markdown
-    link would break the wikilink around it."""
+    """The sync's half of a project page: TAIL_HEADS in their order. No Waiting for your word: the page's own open
+    questions are on the page, a note beside it holds its own asks, and today.md links each once (ADR 0015). A label
+    is plain text: a title carrying a Markdown link would break the wikilink around it."""
     d = facts["deadline"]
-    L = stands_lines(facts.get("ticket"), jira_base) + [f"## {ASKS_HEAD}", ""]
-    asks = [r for r in rows if top(r["path"]) in (TO_READ, IN_PROGRESS)]
-    for r in asks:
-        bits = [r["type"], r["status"], f"next: {r['next']}" if r.get("next") else None]
-        L.append(f"- [[{r['path'][:-3]}|{label(r['title'])}]] · " + " · ".join(b for b in bits if b))
-    L += ["Nothing waits on you outside this page."] if not asks else []
-    L += ["", "## Notes", ""]
+    L = stands_lines(facts.get("ticket"), jira_base)
+    L += ["## Notes", ""]
     if not rows:
         L += [f"No note names this project yet: `project: {facts['key']}` in a note's properties, or a note in its folder.", ""]
     groups = {}
@@ -2360,7 +2127,7 @@ def project_tail(facts, rows, today, jira_base=""):
             continue
         L.append(f"**{g}**" + ("" if g == "in this folder" else "/"))
         for r in groups[g]:
-            bits = [r["type"], r["date"], r["status"] if g not in (READINGS, "in this folder") else None]
+            bits = [r["type"], r["date"], r["status"]]
             L.append(f"- [[{r['path'][:-3]}|{label(r['title'])}]] · " + " · ".join(b for b in bits if b))
         L.append("")
     keys = [f"[{k}]({jira_base}/browse/{k})" if jira_base else k for k in facts["keys"]]
@@ -2370,9 +2137,9 @@ def project_tail(facts, rows, today, jira_base=""):
     bits = [f"keys {', '.join(keys)}" if keys else "no keys yet (`ela project keys <key> --add MH-…`)",
             f"{len(links)} thread{'s' if len(links) != 1 else ''}" if links else "no threads",
             f"watched until {watch}" if watch else "not watched"]
-    L += [f"## {TAIL_HEADS[2]}", "", f"*{' · '.join(bits)}*"] + [f"- [thread]({l})" for l in links] + [""]
+    L += [f"## {TAIL_HEADS[1]}", "", f"*{' · '.join(bits)}*"] + [f"- [thread]({l})" for l in links] + [""]
     L += [AFTERWARDS_HEAD, ""] + (facts["afterwards"] or ["*Nothing yet: the 13:00, 17:30 and 19:00 passes read its keys and threads.*"]) + [""]
-    L += [f"## {TAIL_HEADS[4]}", ""]
+    L += [f"## {TAIL_HEADS[3]}", ""]
     L.append(f"*{d.isoformat()} · {days_words(facts['days'])}" if d else "*No deadline" if facts["keys"]
              else "*No deadline: write `deadline: YYYY-MM-DD` in the properties")
     if facts["step"]:
@@ -2532,7 +2299,7 @@ def home(today, now, notes, desk=None):
              f"[[{OVERVIEW[:-3]}|ela]]",
              f"[[{ELA}/all-notes.base|all notes]]" + (f" ({len(waiting)} wait for your word)" if waiting else ""),
              f"[[{ELA}/all-notes.base#Cases|cases]]",
-             f"[[{ELA}/all-notes.base#Archive|archive]]"]
+             f"[[{ELA}/all-notes.base#Done|done]]"]
     cons = next((n for n in notes if n.props.get("type") == "constraints"), None)
     held = getattr(cons, "counts", None) or {}
     if held.get("active") or held.get("expired"):
@@ -2929,8 +2696,9 @@ def evidence_sig(text):
 
 def ask_candidates(today, actions, notes):
     """What only he can answer, in the morning page's order: today's tier-3 drafted actions not yet applied, handled or
-    vetoed (a send box is not an ask), then each note in to-read with an open box under Waiting for your word, then
-    each project head's unticked box. [{id, box, text, link, sig, first}]; `first` is the earliest day it was seen."""
+    vetoed (a send box is not an ask), then each live note with an open box under Waiting for your word, then each
+    project: its head's open questions and its notes' open boxes as one line linking the page.
+    [{id, box, text, link, sig, first}]; `first` is the earliest day it was seen."""
     iso = today.isoformat()
     seen = {}
     for a in actions:
@@ -2946,10 +2714,14 @@ def ask_candidates(today, actions, notes):
                     "first": seen.get(i, iso)})
     projects = {n.facts["key"]: n.facts for n in notes if n.props.get("type") == "project" and getattr(n, "facts", None)}
     held = {}                                              # a project's asks, its notes' open boxes folded in: {key: [n]}
+    in_folder = {f["path"].rsplit("/", 1)[0] + "/": k for k, f in projects.items() if f["path"].count("/") == 2}
     for n in sorted(notes, key=lambda n: n.path):
-        if top(n.path) != TO_READ:
+        if (n.props.get("status") or "").lower() not in (LIVE,) + LEGACY_LIVE or n.props.get("type") == "project":
             continue
         left, _ = open_asks(n.body)
+        if left and not n.props.get("project"):            # a note in a project's folder belongs to it
+            n.props["project"] = next((k for d, k in in_folder.items() if n.path.startswith(d)), None) or \
+                next((k for k in projects if n.path.startswith(f"{PROJECTS}/{k}/")), None)
         if left and n.props.get("project") in projects:
             held.setdefault(n.props["project"], []).append((left, n))
         elif left:
@@ -3078,9 +2850,7 @@ def today_page(today, notes, desk=None, shown=(), more=0, dropped=0):
         L = render(facts)
     links = [f"[[{changes.path[:-3]}|what changed]]" if changes else None,
              f"[[{brief.path[:-3]}|morning page]]" if brief else None,
-             "[[lanes|lanes]]" if any(n.props.get("type") == "lanes" for n in notes) else None,
-             "[[board|board]]" if any(n.props.get("type") == "board" for n in notes) else None,
-             "[[recent|recent]]" if any(n.props.get("type") == "recent" for n in notes) else None,
+             f"[[{LANES_PAGE[:-3]}|lanes]]" if any(n.props.get("type") == "lanes" for n in notes) else None,
              ("projects: " + " · ".join(f"[[{f['path'][:-3]}|{project_label(f)}]]" for f in projects)) if projects else None,
              f"[[{DROPPED[:-3]}|dropped asks]]" + (f" ({dropped})" if dropped else ""),
              f"[[{OVERVIEW[:-3]}|ela]]"]
@@ -3622,7 +3392,7 @@ def services_note(s, vault, today):
 def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since=None, dry_run=False):
     reports = s.get("reports")
     enotes, titles = elak_notes(s.get("elak"))
-    notes = report_notes(reports, today) + enotes + [constraints_note(standing_constraints(s, env), today)]
+    notes = report_notes(reports, today) + enotes      # the constraints page is retired (ADR 0015); `ela promote` reads the pins
     vnotes, files = verify_notes(reports, today)
     notes += vnotes + verify_plan_notes(reports, vnotes)
     # what the owner deleted is not written, linked or listed; matched by source too, so a new layout keeps it deleted
@@ -3649,6 +3419,10 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since
         t = ticket_of(text)
         return set(project_facts(k, text, today)["keys"]) | {x[0] for x in (t or {}).get("subtasks") or []}
     inferred = infer_projects(s["vault"], {k: watched(k, t) for k, t in pages.items()}, notes, native, dry_run)
+    for n in notes:                                        # each work note in its thing's home (ADR 0015), live
+        n.path = place(n, pages)
+        if family_of(n.props.get("type")) == "work":
+            n.props["status"] = LIVE
     native_warn += [f"type: {x}" for x in (type_lint(n.path, n.props.get("type")) for n in notes + native) if x]
     native_warn += [f"project: {x}" for x in (project_lint(n.path, n.props, s["vault"]) for n in notes + native) if x]
     native_warn += [f"asks: {x}" for x in (asks_lint(n) for n in notes + native) if x]
@@ -3693,24 +3467,19 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since
     for n in notes:
         if n.props.get("type") == "day" and n.props.get("kind") == "brief":
             n.body = with_recent_pointer(n.body, have_recent)
-        if folder_of(n.path) in tuple(STATUS_BY_FOLDER) + (READINGS,):
-            st, result, _ = settled_status(folder_of(n.path), note_status(n), n.props.get("type"))
-            n.props.update(status=st, result=n.props.get("result") or result)
+        if family_of(n.props.get("type")) == "work":       # a generated work note is live: done is his word, kept on disk
+            _, result, _ = settled_status(folder_of(n.path), note_status(n), n.props.get("type"))
+            n.props.update(status=LIVE, result=n.props.get("result") or result, **{NEXT: "", MOVE_SET: move_set(n.props.get("type"))})
             n.front_lines = [l for l in n.front_lines if not l.startswith("status:")]   # the source's own word is settled
-        if top(n.path) == TO_READ:
-            n.props.update({NEXT: "", MOVE_SET: move_set(n.props.get("type"))})
         n.held = reading_gate(n)
         if getattr(n, "front_text", None):                 # a project page: the head as the desk wrote it, the tail linked
             body = n.head + linker(n.tail)
             planned[n.path] = redact(n.front_text + (with_warning(body, n.held) if n.held else body))
             continue
         body = linker(unwrap(callouts(meta_line(Note(n.path, n.title, tidy_title(n.body), n.props, n.front_lines)))))
-        if top(n.path) == TO_READ:
+        if family_of(n.props.get("type")) == "work":
             body = with_moves(body, n.path, n.props.get("type"))
         planned[n.path] = redact(front(n.front_lines, dict(n.props, title=n.title)) + (with_warning(body, n.held) if n.held else body))
-    planned["home.md"] = redact(front([], {"type": "home", "date": today.isoformat()}) + linker(home(today, now, notes + native, {
-        "actions": week_actions(reports, today), "since": since, "program": program_next(s["vault"]), "ela": ela_line(s["vault"]),
-        "hold": tier2_hold(reports, today.isoformat()), "lists": list_links(reports)})))
     asks_state = load_asks(reports)
     shown, more, _, asks_state = settle_asks(asks_state, ask_candidates(today, week_actions(reports, today), notes + native), today)
     if not dry_run:
@@ -3731,10 +3500,23 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since
         planned["home.md"] = front([], {"type": "home", "date": today.isoformat()}) + home_pointer()
     else:
         planned.pop("home.md", None)
-    planned[f"{ELA}/about-this-vault.md"] = unwrap(README.replace(SPEC_MARK, spec_text()))
+    planned[f"{ELA}/about-this-vault.md"] = README.replace(SPEC_MARK, "\n".join(("> " + l).rstrip() for l in spec_text().splitlines()))
     for name, text in VIEWS.items():
         planned[f"{ELA}/{name}.base"] = text
     return planned, files, notes, warnings, {n.path for n in native}, inferred
+
+
+def place(n, pages=None):
+    """A generated work note's path in layout 5 (ADR 0015): beside its project's page in projects/<key>/ when it names
+    one (`project:`, set or inferred), else its thing's home (home_for: a case, a release line, ela's history, or
+    reference/), named `<date>-<kind>-<what>.md`. A page, a day page and a note already in a thing's home stay."""
+    if family_of(n.props.get("type")) != "work" or subject_home(os.path.dirname(n.path)) or top(n.path) == ELA:
+        return n.path
+    name = os.path.basename(n.path)
+    key = n.props.get("project")
+    if key and (pages is None or key in pages):
+        return f"{PROJECTS}/{key}/{beside_name(name, dict(n.props, title=n.title), key)}"
+    return f"{home_for(n.path, dict(n.props, title=n.title))}/{dated_name(name, n.props.get('type'))}"
 
 
 def ruled(elak, src):
@@ -3788,14 +3570,12 @@ def archive_refs(vault):
     """Attachments the archived notes embed or link (a verification's screenshots and record), kept on disk so an
     archived note still shows them; they leave the manifest and are the owner's from then on."""
     refs = set()
-    for top_, _, fs in (w for folder in OWNER_FOLDERS for w in os.walk(os.path.join(vault, folder))):
-        for f in fs:
-            if f.endswith(".md"):
-                try:
-                    text = open(os.path.join(top_, f), encoding="utf-8").read()
-                except OSError:
-                    continue
-                refs |= {m.lower() for m in re.findall(r"\[\[(" + re.escape(ATTACH) + r"/[^\]|#]+)", text)}
+    for rel in kept_notes(vault):                         # archive/ and every done note
+        try:
+            text = open(os.path.join(vault, rel), encoding="utf-8").read()
+        except OSError:
+            continue
+        refs |= {m.lower() for m in re.findall(r"\[\[(" + re.escape(ATTACH) + r"/[^\]|#]+)", text)}
     # a record's page sits beside its images: keep the whole record folder of anything referenced
     return {r.rsplit("/img/", 1)[0] if "/img/" in r else os.path.dirname(r) for r in refs}
 
@@ -3809,12 +3589,14 @@ def record_removed(path, rels, sources, now, archived=None, by="owner", renamed=
         for r in rels:
             title = sentence(re.sub(r"^\d{4}-\d{2}-\d{2}-", "", os.path.basename(r)[:-3]).replace("-", " "))
             to = archived.get(os.path.basename(r).lower())
-            to = kept_home(to) or to                       # a release line's folder is mh/releases
+            to = kept_home(to) or to                       # a release line's folder is releases
             row = {"at": now.isoformat(timespec="seconds"), "path": r, "title": title,
-                   "fate": "archived" if to in OWNER_FOLDERS else {IN_PROGRESS: "in-progress", PARKED: "parked",
-                                                                   TO_READ: "to-read"}.get(to, "deleted"), "by": by}
+                   "fate": "archived" if to in OWNER_FOLDERS + (DONE,) + SUBJECT_HOMES else {IN_PROGRESS: "in-progress", PARKED: "parked",
+                                                                                   TO_READ: "to-read"}.get(to, "deleted"), "by": by}
             if to in SUBJECT_HOMES:                        # kept by subject: the home it went to
                 row["home"] = to
+            elif to == DONE:                               # done where it is
+                row["home"] = folder_of(r)
             if sources.get(r):
                 row["src"] = sources[r]
             if (renamed or {}).get(r):                     # closed under a new name: logged there, the old one kept
@@ -4029,20 +3811,20 @@ OUT_OF_TO_READ = ("built", "parked", "reopen")       # kinds whose moves are the
 ALL_MOVE_PROPS = ("agree", "park", "not-now", "reject", "make-plan", "draft-comment", "confirm", "accept", "not-done", "nudge", "go-deep",
                   "seen", "resume", "run", "reopen")   # run: the retired verify-plan gate's box, still stripped from old notes
 MOVE_MEANING = {
-    "agree": "ela builds it: the note moves to `in-progress/` and each step is written under Progress",
+    "agree": "ela builds it: the note stays here, live, and each step is written under Progress",
     "park": "parked: it waits on others; comes back when `wake` happens",
-    "not-now": "archived: not now", "reject": "archived as rejected",
-    "make-plan": "ela writes a plan from the findings as a new note to read; this one is archived",
+    "not-now": "done: not now", "reject": "done, as rejected",
+    "make-plan": "ela writes a plan from the findings as a new note beside this one; this one is done",
     "draft-comment": "ela drafts the short Jira comment as `apply N`; nothing is posted",
-    "confirm": "archived as confirmed", "accept": "archived as accepted",
+    "confirm": "done, as confirmed", "accept": "done, as accepted",
     "not-done": "ela carries on; write what is missing as `ela:` lines first",
     "nudge": "ela drafts a short nudge to whoever the ticket waits on, as `apply N`; nothing is posted",
     "go-deep": "ela reads the ticket to its root cause in the code (`ela probe`) and writes what it finds under this page",
-    "seen": "archived: you have read where it stands",
-    "resume": "back to `to-read/` as proposed, for your next decision",
-    "reopen": "back to `in-progress/` as built, for your accept or not-done: ela closed it, and that was wrong",
-    "done": "archived, nothing more",
-    "drop": "closed and kept: archived (or its subject home) with next drop; nothing is deleted",
+    "seen": "done: you have read where it stands",
+    "resume": "live again, for your next decision",
+    "reopen": "live again as built, for your accept or not-done: ela closed it, and that was wrong",
+    "done": "done, nothing more; it stays where it is",
+    "drop": "done and kept where it is, with next drop; nothing is deleted",
 }
 MOVES = MOVE_PROPS               # a kind with moves gets the section that explains them
 AGREEABLE = ("plan", "sprint")
@@ -4071,14 +3853,14 @@ def move_set(kind, in_to_read=True):
 
 def write_move_sets(vault):
     """One Metadata Menu field definition per set of moves, so a note's `next` chooser lists its moves and no other,
-    and its `status` chooser the statuses of the folder that set lives in (STATUS_BY_FOLDER)."""
+    and its `status` chooser its type's states (STATUS_BY_KIND): live or done, a case's own."""
     d = os.path.join(vault, MOVE_SETS_DIR)
     os.makedirs(d, exist_ok=True)
     sets = {k: move_props(k, in_to_read=k not in OUT_OF_TO_READ) for k in MOVE_PROPS}
     sets["read"] = list(MARKS)
     sets["closed"] = []                                    # an archived note: its status only, its next already written
     sets["case"] = []                                      # a case: its status only (open, answered, closed)
-    folder_of = {"built": IN_PROGRESS, "parked": PARKED, "closed": ARCHIVE, "reopen": ARCHIVE, "case": CASES}
+
 
     def field(name, values):
         vals = "".join(f'\n        "{i}": {m}' for i, m in enumerate(values, 1))
@@ -4086,7 +3868,7 @@ def write_move_sets(vault):
                 f"      sourceType: ValuesList\n      valuesList:{vals}\n")
     for name, moves in sets.items():
         text = ("---\nfields:\n" + (field("next", moves) if moves else "")
-                + field("status", STATUS_BY_FOLDER[folder_of.get(name, TO_READ)]) + "---\n")
+                + field("status", STATUS_BY_KIND["case" if name == "case" else "work"]) + "---\n")
         p = os.path.join(d, f"{name}.md")
         if not os.path.isfile(p) or open(p, encoding="utf-8").read() != text:
             atomic_write(p, text)
@@ -4117,13 +3899,13 @@ def keep_choice(text, disk_lines, rel):
     fl, _ = split_front(text)
     planned = props_of(fl)
     disk = props_of(disk_lines)
-    kind = "built" if planned.get("status") == "built" else planned.get("type")
+    kind = move_kind(rel, planned)
     keep = {}
     chosen = (disk.get(NEXT) or "").lower()
-    if chosen and chosen != (planned.get(NEXT) or "") and chosen in move_props(kind, in_to_read=top(rel) == TO_READ):
+    if chosen and chosen != (planned.get(NEXT) or "") and chosen in move_props(kind, in_to_read=kind not in OUT_OF_TO_READ):
         keep[NEXT] = chosen
     st = disk.get("status")
-    if st and st != planned.get("status") and st in STATUS_BY_FOLDER.get(folder_of(rel), ()):
+    if st and st != planned.get("status") and st in STATUS_BY_KIND.get("case" if planned.get("type") == "case" else "work", ()):
         keep["status"] = st
     return set_front(text, **keep) if keep else text
 
@@ -4180,8 +3962,16 @@ def progress_line(text, line):
 
 
 def note_path(vault, path):
+    """(vault path, file path) of a note named by its path, or exit 2. An old path (layout 4) is read as the note's new
+    one while the migration's map lasts in the manifest (ADR 0015: 14 days)."""
     rel = os.path.relpath(os.path.realpath(path), os.path.realpath(vault)) if os.path.isabs(path) else path
     rel = rel.replace(os.sep, "/")
+    if not os.path.isfile(os.path.join(vault, rel)):
+        try:
+            m = json.load(open(os.path.join(vault, MANIFEST)))
+            rel = moved_paths({"map": m.get("moved"), "until": m.get("moved_until")}, datetime.date.today()).get(rel, rel)
+        except (OSError, ValueError):
+            pass
     p = os.path.join(vault, rel)
     if rel.startswith("..") or not rel.endswith(".md") or not os.path.isfile(p):
         print(f"not a note in the vault: {path}", file=sys.stderr); sys.exit(2)
@@ -4244,65 +4034,56 @@ def with_alias(text, alias):
     return "---\n" + "\n".join(front_line(fl, "aliases", al + [alias])) + "\n---\n" + body.lstrip("\n")
 
 
+MOVE_TO = {"in-progress": "building", "parked": "parked", "archive": DONE, "to-read": "ask", "readings": DONE,
+           "live": "ask", "done": DONE, "building": "building"}   # layout 4's folder words, kept as input (ADR 0015)
+
+
 def move_note(vault, reports, rel, to, status=None, waits_on=None, wake=None, next_=None):
-    """Move a note on the owner's word. Out of to-read it becomes a page whose source is the vault, so the sync
-    never writes it again where it was nor overwrites it where it went; the move is logged as his. Into parked it
-    carries who it waits on, since when and what brings it back, and offers only resume and drop; out of parked
-    those go."""
+    """A move on the owner's word, made where the note is (ADR 0015): the note's state changes, never its folder.
+    building (he agreed: ela builds it, its acceptance moves follow), parked (it waits on others: who, since when, what
+    brings it back), done (closed and kept, the move that ended it in next), ask (live again, waiting for his word). A
+    note becomes a page whose source is the vault, so the sync never writes it again. Layout 4's folder words
+    (in-progress, parked, archive, to-read, readings) are read as these. Returns the note's path."""
     p = os.path.join(vault, rel)
     if to in ("drop", "delete"):                           # closed as dropped and kept, never removed
         return finish(vault, reports, rel, "drop")
-    folder = {"in-progress": IN_PROGRESS, "archive": ARCHIVE, "to-read": TO_READ, "parked": PARKED, "readings": READINGS}[to]
+    life = MOVE_TO[to]
     text = open(p, encoding="utf-8").read()
     kind = props_of(split_front(text)[0]).get("type")
-    if folder == ARCHIVE:                                  # closing: its subject home when it has one
-        folder = home_for(rel, props_of(split_front(text)[0]))
-    life = kept_home(folder) or folder                     # a release line's folder lives as mh/releases
-    if life == CASES:
-        status = "closed"
     text = clear_warn(PROP_RE.sub("", text))
-    st, result, nxt = settled_status(life, status, kind)
-    nxt = next_ or nxt                                     # the move that ended it, as the runner names it
-    if folder == PARKED:
-        old = dict(m.groups() for m in (re.match(r"^([\w-]+):\s*['\"]?(.*?)['\"]?\s*$", l) for l in split_front(text)[0]) if m)
-        text = set_front(text, source="vault", status=st, claimed=None, **{
+    if kind == "case":
+        text = set_front(text, source="vault", status="closed" if life == DONE else (status or "open"),
+                         **{MOVE_SET: "case", NEXT: next_ or ""})
+    elif life == "parked":
+        old = props_of(split_front(text)[0])
+        text = set_front(text, source="vault", status=LIVE, claimed=None, **{
             "waits-on": waits_on or old.get("waits-on") or "", "wake": wake or old.get("wake") or "",
-            "parked": old.get("parked") if top(rel) == PARKED and old.get("parked") else datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
-            MOVE_SET: "parked", NEXT: ""})
-    else:
-        text = set_front(text, source="vault", status=st, claimed=None, **{"waits-on": None, "wake": None, "parked": None})
-        if life in CLOSED_FOLDERS and next_ == "reopen":   # closed by ela, unruled: his one move is to reopen it
-            text = set_front(text, **{MOVE_SET: "reopen", NEXT: "", "closed-by": "ela"})
-        elif life in CLOSED_FOLDERS:                       # the outcome stays in next; status says only that it is closed
-            text = set_front(text, **{MOVE_SET: "closed", NEXT: nxt or ""})
-        elif life == CASES:                              # a case closes in its home, its outcome in next
-            text = set_front(text, **{MOVE_SET: "case", NEXT: nxt or ""})
-        elif folder == IN_PROGRESS:
-            text = set_front(text, **{MOVE_SET: "built", NEXT: "", "closed-by": None})
-        elif folder == READINGS:                           # a reading has no life: no status, no moves
-            text = set_front(text, **{MOVE_SET: None, NEXT: None})
-    name = close_name(folder, kind, rel)
-    if name != os.path.basename(rel):                      # renamed to the rule: the old name stays findable
-        text = with_alias(text, os.path.basename(rel)[:-3])
-    dst = free_path(os.path.join(vault, folder), name, own=p)
+            "parked": old.get("parked") or datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), MOVE_SET: "parked", NEXT: ""})
+    elif life == DONE:
+        _, _, nxt = settled_status(folder_of(rel), status, kind)
+        text = set_front(text, source="vault", status=DONE, claimed=None, **{"waits-on": None, "wake": None, "parked": None,
+                         MOVE_SET: "reopen" if next_ == "reopen" else "closed", NEXT: "" if next_ == "reopen" else (next_ or nxt or ""),
+                         "closed-by": "ela" if next_ == "reopen" else None})
+    elif life == "building":
+        text = set_front(text, source="vault", status=LIVE, **{"waits-on": None, "wake": None, "parked": None,
+                         MOVE_SET: "built", NEXT: "", "closed-by": None,
+                         "built": None if (status or "") != "built" else props_of(split_front(text)[0]).get("built") or
+                         datetime.datetime.now().strftime("%m-%d %H:%M")})
+    else:                                                  # live again, its next decision his
+        text = set_front(text, source="vault", status=LIVE, claimed=None, **{"waits-on": None, "wake": None, "parked": None,
+                         MOVE_SET: move_set(kind), NEXT: "", "closed-by": None})
     fl, body = split_front(text)
-    body = with_moves(body, f"{folder}/{os.path.basename(dst)}", "parked" if folder == PARKED else kind if folder == TO_READ else None)
-    text = "---\n" + "\n".join(fl) + "\n---\n" + body.lstrip("\n")
-    os.makedirs(os.path.dirname(dst), exist_ok=True)
-    atomic_write(dst, text)
-    if os.path.realpath(dst) != os.path.realpath(p):
-        os.remove(p)
+    moves_kind = None if life == DONE else "parked" if life == "parked" else "built" if life == "building" else kind
+    body = with_moves(body, rel, moves_kind) if moves_kind and MOVE_PROPS.get(moves_kind) else body
+    atomic_write(p, "---\n" + "\n".join(fl) + "\n---\n" + body.lstrip("\n"))
+    if life == DONE:
         try:
             src = (json.load(open(os.path.join(vault, MANIFEST))).get("sources") or {}).get(rel)
         except (OSError, ValueError):
             src = None
-        new = f"{folder}/{os.path.basename(dst)}"
-        if name != os.path.basename(rel):
-            relink(vault, os.path.basename(rel)[:-3], os.path.basename(dst)[:-3])
         record_removed(os.path.join(reports, "ela", "vault-removed.jsonl"), [rel], {rel: src} if src else {},
-                       datetime.datetime.now(), {os.path.basename(rel).lower(): folder}, by="owner",
-                       renamed={rel: new} if name != os.path.basename(rel) else None)
-    return f"{folder}/{os.path.basename(dst)}"
+                       datetime.datetime.now(), {os.path.basename(rel).lower(): DONE}, by="owner")
+    return rel
 
 
 def cmd_note(a):
@@ -4322,7 +4103,7 @@ def cmd_note(a):
         atomic_write(p, progress_line(set_front(text, progress=line[:120]), line)); print(f"{rel}: progress noted")
     elif a.act == "built":
         stamp = datetime.datetime.now().strftime("%m-%d %H:%M")
-        text = progress_line(set_front(text, status="built", claimed=None, built=stamp, progress=" ".join(a.text)[:120]),
+        text = progress_line(set_front(text, status=LIVE, claimed=None, built=stamp, progress=" ".join(a.text)[:120]),
                              "built: " + " ".join(a.text))
         text = PROP_RE.sub("", text)
         fl0, b0 = split_front(text)
@@ -4335,34 +4116,29 @@ def cmd_note(a):
 
 
 def ensure_native_moves(vault, dry_run=False):
-    """A page ela wrote in place in to-read gets its next moves once, by kind, if it has none. A note in parked/ gets
-    only the fields its `next` chooser needs; its body is never rewritten there."""
-    d = os.path.join(vault, PARKED)
-    for f in sorted(os.listdir(d)) if os.path.isdir(d) and not dry_run else []:
-        p = os.path.join(d, f)
-        if f.endswith(".md"):
-            fl, body = split_front(open(p, encoding="utf-8").read())
-            missing = [w for w in (f'{MOVE_SET}: "parked"', f'{NEXT}: ""') if not any(l.startswith(w.split(":")[0] + ":") for l in fl)]
-            if fl and missing:
-                atomic_write(p, "---\n" + "\n".join(fl + missing) + "\n---\n" + body)
-    d = os.path.join(vault, TO_READ)
-    for f in sorted(os.listdir(d)) if os.path.isdir(d) else []:
-        p = os.path.join(d, f)
-        if not f.endswith(".md"):
+    """A live work note ela wrote in place (source: vault) gets its next moves once, by kind, if it has none: the
+    fields its `next` chooser needs and the section that explains them. A parked one gets only its fields."""
+    for rel in (r for fo in THING_FOLDERS if fo != ARCHIVE for r in notes_under(vault, fo)):
+        p = os.path.join(vault, rel)
+        try:
+            text = open(p, encoding="utf-8").read()
+        except OSError:
             continue
-        text = open(p, encoding="utf-8").read()
         fl, body = split_front(text)
-        if not any(re.match(r"^source:\s*['\"]?vault['\"]?\s*$", l) for l in fl):
+        props = props_of(fl)
+        if props.get("source") != "vault" or family_of(props.get("type")) != "work" or is_done(props) or PROJECT_PAGE.match(rel):
             continue
-        kind = props_of(fl).get("type")
-        has_moves = re.search(r"^" + re.escape(MOVES_HEAD), body, re.M)
-        # the same table properties a generated note to read carries, so its Home row has working boxes
-        wanted = [f'{MOVE_SET}: "{move_set(kind)}"', f'{NEXT}: ""']
+        kind = move_kind(rel, props)
+        wanted = [f'{MOVE_SET}: "{move_set(kind) if kind not in OUT_OF_TO_READ else kind}"', f'{NEXT}: ""']
         missing = [w for w in wanted if not any(l.startswith(w.split(":")[0] + ":") for l in fl)]
+        has_moves = re.search(r"^" + re.escape(MOVES_HEAD), body, re.M)
+        if kind == "parked":                               # its body is never rewritten: the fields only
+            if fl and missing and not dry_run:
+                atomic_write(p, "---\n" + "\n".join(fl + missing) + "\n---\n" + body)
+            continue
         if MOVES.get(kind) and (not has_moves or missing) and not dry_run:
-            fl = fl + missing
-            body = body if has_moves else with_moves(body, f"{TO_READ}/{f}", kind)
-            atomic_write(p, "---\n" + "\n".join(fl) + "\n---\n" + body.lstrip("\n"))
+            body = body if has_moves else with_moves(body, rel, kind)
+            atomic_write(p, "---\n" + "\n".join(fl + missing) + "\n---\n" + body.lstrip("\n"))
 
 
 def guidance_id(name, says, nth=1):
@@ -4418,25 +4194,25 @@ def cmd_guidance(a):
 
 
 def apply_marks(vault, reports, dry_run=False):
-    """The move he chose in a note's `next` field. done and drop finish the note here, as if he had dragged or
-    deleted it; every other move is reported for the runner, which acts and empties the field. A value that is not a
-    move for that note runs nothing, and the note says so. Returns [(path, move)]."""
+    """The move he chose in a note's `next` field. done and drop finish the note where it is; every other move is
+    reported for the runner, which acts and empties the field. A value that is not a move for that note runs nothing,
+    and the note says so. Returns [(path, move)]."""
     out = []
-    found = [(folder, rel) for folder in (TO_READ, IN_PROGRESS, PARKED) + CLOSED_FOLDERS for rel in notes_under(vault, folder)]
-    for folder, rel in found:
-        f = os.path.basename(rel)
-        if not f.endswith(".md"):
-            continue
+    found = [r for fo in THING_FOLDERS + (TO_READ, IN_PROGRESS, PARKED) for r in notes_under(vault, fo)]
+    for rel in found:
         p = os.path.join(vault, rel)
         try:
             fl, _ = split_front(open(p, encoding="utf-8").read())
         except OSError:
             continue
         props = props_of(fl)
-        if folder in CLOSED_FOLDERS and props.get(MOVE_SET) != "reopen":
-            continue                                        # the owner's archive: only a note ela closed offers a move
-        kind = "reopen" if folder in CLOSED_FOLDERS else "parked" if folder == PARKED else "built" if props.get("status") == "built" else props.get("type")
-        allowed = move_props(kind, in_to_read=folder == TO_READ)
+        if family_of(props.get("type")) != "work" and props.get(MOVE_SET) not in ("built", "parked", "reopen"):
+            continue
+        done = is_done(props) or top(rel) == ARCHIVE
+        if done and props.get(MOVE_SET) != "reopen":
+            continue                                        # the record: only a note ela closed offers a move back
+        kind = move_kind(rel, props)
+        allowed = move_props(kind, in_to_read=kind not in OUT_OF_TO_READ)
         # the earlier checkbox form, while a note still carries it
         boxes = [k for k in tuple(MARKS) + ALL_MOVE_PROPS if props.get(k, "").lower() == "true"]
         move = (props.get(NEXT) or "").strip().lower() or (boxes[0] if len(boxes) == 1 else "")
@@ -4450,10 +4226,20 @@ def apply_marks(vault, reports, dry_run=False):
         if move in tuple(MARKS) + ("seen",) and not dry_run:
             finish(vault, reports, rel, "archive", move)   # drop closes it too: kept, its next says drop
         elif move == "resume" and not dry_run:      # a script move: the note's next decision is his again
-            move_note(vault, reports, rel, "to-read", "proposed")
+            move_note(vault, reports, rel, "live")
         elif move == "reopen" and not dry_run:      # ela closed it wrongly: back to building's end, his to accept
-            move_note(vault, reports, rel, "in-progress", "built")
+            move_note(vault, reports, rel, "building", "built")
     return out
+
+
+def move_kind(rel, props):
+    """The set of moves a note offers: reopen (done by ela), parked (it waits on others), built (built, his to accept),
+    else its type's."""
+    if is_done(props) or top(rel) == ARCHIVE:
+        return "reopen"
+    if props.get(MOVE_SET) in ("parked", "built") or top(rel) in (PARKED, IN_PROGRESS):
+        return props.get(MOVE_SET) if props.get(MOVE_SET) in ("parked", "built") else "parked" if top(rel) == PARKED else "built"
+    return props.get("type")
 
 
 MOVE_WARN = "> [!warning] Not a move for this note"
@@ -4505,9 +4291,9 @@ def linked_from(vault, rel):
 
 
 def finish(vault, reports, rel, to, move=None):
-    """Close a note on the owner's word: into its subject home, else archive/, status closed and the move that closed
+    """Close a note on the owner's word, where it is (ADR 0015): status done (a case closed) and the move that closed
     it in next. `to` "drop" (or the older "delete") closes it the same way with next drop: ela never deletes a note
-    (working preferences, *No data is lost*, 2026-11-09). Logged as his. Returns the folder."""
+    (working preferences, *No data is lost*, 2026-11-09). Logged as his. Returns the note's folder."""
     p = os.path.realpath(os.path.join(vault, rel))
     if to in ("drop", "delete"):
         move = "drop"
@@ -4515,39 +4301,30 @@ def finish(vault, reports, rel, to, move=None):
         src = (json.load(open(os.path.join(vault, MANIFEST))).get("sources") or {}).get(rel)
     except (OSError, ValueError):
         src = None
-    props = props_of(split_front(open(p, encoding="utf-8").read())[0])
-    folder = home_for(rel, props)
-    os.makedirs(os.path.join(vault, folder), exist_ok=True)
-    name = close_name(folder, props.get("type"), rel)
-    dst = free_path(os.path.join(vault, folder), name)
-    os.replace(p, dst)
-    text = clear_warn(PROP_RE.sub("", open(dst, encoding="utf-8").read()))   # the boxes belong to to-read
-    if kept_home(folder):                                  # closed, and the move that closed it kept in next
-        text = set_front(text, status="closed", **{MOVE_SET: "case" if folder == CASES else "closed", NEXT: move or "done"})
-    renamed = name != os.path.basename(rel)                # renamed to the rule: the old name an alias, its links follow
-    if renamed:
-        text = with_alias(text, os.path.basename(rel)[:-3])
-    open(dst, "w", encoding="utf-8").write(text)
-    if renamed:
-        relink(vault, os.path.basename(rel)[:-3], os.path.basename(dst)[:-3])
+    text = clear_warn(PROP_RE.sub("", open(p, encoding="utf-8").read()))   # the move fields belong to a live note
+    kind = props_of(split_front(text)[0]).get("type")
+    text = set_front(text, source="vault", status="closed" if kind == "case" else DONE,
+                     **{MOVE_SET: "case" if kind == "case" else "closed", NEXT: move or "done"})
+    fl, body = split_front(text)
+    body = re.split(r"^" + re.escape(MOVES_HEAD) + r"[ \t]*$", body, maxsplit=1, flags=re.M)[0].rstrip("\n") + "\n"
+    atomic_write(p, "---\n" + "\n".join(fl) + "\n---\n" + body.lstrip("\n"))
     record_removed(os.path.join(reports, "ela", "vault-removed.jsonl"), [rel], {rel: src} if src else {},
-                   datetime.datetime.now(), {os.path.basename(rel).lower(): folder}, by="owner",
-                   renamed={rel: f"{folder}/{os.path.basename(dst)}"} if renamed else None)
-    return folder
+                   datetime.datetime.now(), {os.path.basename(rel).lower(): DONE}, by="owner")
+    return folder_of(rel)
 
 
 def cmd_finish(a):
     """Finish with a note on the owner's word (an `ela:` line asking it): close it into archive/ or its subject home,
-    as done or as dropped, kept either way, and log it as his. Only a note in days/, to-read/ or readings/; a living
-    page is not his to finish, and his own folders are already his."""
+    as done or as dropped, kept where it is, and log it as his. Only a work note or a case; a living page is not his to
+    finish, and the archive is already his. An old path (layout 4) is read as its new one for 14 days."""
     s = json.load(open(SITE))
     vault = s["vault"]
-    rel = a.path.replace("\\", "/").lstrip("/")
-    p = os.path.realpath(os.path.join(vault, rel))
-    if not p.startswith(os.path.realpath(vault) + os.sep) or top(rel) not in DELETABLE or not rel.endswith(".md") or not os.path.isfile(p):
-        print(f"not a note in days/, to-read/ or readings/: {a.path}", file=sys.stderr); sys.exit(2)
+    rel, p = note_path(vault, a.path.replace("\\", "/").lstrip("/"))
+    kind = props_of(split_front(open(p, encoding="utf-8").read())[0]).get("type")
+    if top(rel) == ARCHIVE or not (family_of(kind) in ("work", "case") or deletable(rel)):
+        print(f"not a note to finish (a work note or a case outside archive/): {a.path}", file=sys.stderr); sys.exit(2)
     folder = finish(vault, s.get("reports") or "", rel, a.to)
-    print(f"{rel}: closed into {folder}/ as {'dropped' if a.to in ('drop', 'delete') else 'done'}, kept; logged as the owner's")
+    print(f"{rel}: done in {folder}/ as {'dropped' if a.to in ('drop', 'delete') else 'done'}, kept; logged as the owner's")
 
 
 def tidy_plan(vault, line_of_key=None):
@@ -4601,31 +4378,10 @@ def tidy_plan(vault, line_of_key=None):
 
 
 def cmd_tidy(a):
-    """Move the archived notes that have a subject home there (cases/, mh/releases/, ela/history/), and the notes at the
-    mh/releases/ root into their release line's folder, by the rule a closing note follows (home_for). A dry run
-    unless --apply; a note whose move would break a link stays."""
-    s = json.load(open(SITE))
-    vault = s["vault"]
-    plan = tidy_plan(vault)
-    moved = []
-    if a.apply:
-        for x in plan:
-            if x["blocked"]:
-                continue
-            dst = os.path.join(vault, x["to"])
-            os.makedirs(os.path.dirname(dst), exist_ok=True)
-            os.replace(os.path.join(vault, x["note"]), dst)
-            moved.append(x)
-    r = {"dry_run": not a.apply, "plan": plan, "moved": len(moved), "blocked": sum(1 for x in plan if x["blocked"]),
-         "by_home": {h: sum(1 for x in plan if x["to"].startswith(h + "/")) for h in SUBJECT_HOMES},
-         "by_line": {l: sum(1 for x in plan if os.path.dirname(x["to"]) == f"{RELEASES}/{l}")
-                     for l in sorted({os.path.dirname(x["to"])[len(RELEASES) + 1:] for x in plan if kept_home(os.path.dirname(x["to"])) == RELEASES} - {""})}}
-    if a.json:
-        print(json.dumps(r, ensure_ascii=False)); return
-    for x in plan:
-        print(f"{x['note']} → {x['to']}" + (f"  (stays: {'; '.join(x['blocked'])})" if x["blocked"] else ""))
-    print(f"{'DRY RUN — ' if not a.apply else ''}tidy: {len(plan)} to their homes ("
-          + ", ".join(f"{h} {n}" for h, n in r["by_home"].items()) + f"), {r['blocked']} held, {len(moved)} moved")
+    """Layout 5 moves nothing on closing (ADR 0015): a done note stays in its thing's home. What tidy did once is the
+    migration's: `ela vault migrate` lists every note out of place."""
+    print("tidy: nothing to do in layout 5, a done note stays where its thing lives; `ela vault migrate` lists any note "
+          "out of place")
 
 
 def cmd_restore(a):
@@ -4649,6 +4405,23 @@ def cmd_restore(a):
 
 def top(rel):
     return rel.split("/")[0]
+
+
+LIVING = re.compile(r"^(?:today|home)\.md$|^reference/(?:dropped|one-thing)\.md$|^releases/(?:lanes|[^/]+/(?:train|dev-list|test-list)-[^/]+)\.md$"
+                    r"|^releases/test-list-[^/]+\.md$")
+
+
+def moved_paths(old_moved, today):
+    """The migration's {old path: new path}, kept in the manifest while old paths are accepted (OLD_PATHS_DAYS), then
+    dropped."""
+    until = old_moved.get("until")
+    return old_moved.get("map") or {} if until and today.isoformat() <= until else {}
+
+
+def deletable(rel):
+    """A generated note the owner may finish by deleting it: a dated note in a thing's home or the day pages, not a
+    living page (today, the lists, a project's page), which is written again whatever happens to it."""
+    return top(rel) in DELETABLE and not LIVING.match(rel) and not PROJECT_PAGE.match(rel)
 
 
 def digest(text):
@@ -4688,16 +4461,21 @@ def cmd_sync(a):
     today, now = datetime.date.today(), datetime.datetime.now()
     mpath = os.path.join(vault, MANIFEST)
     old, old_src, old_layout, old_gen, old_seen, old_home = [], {}, None, {}, {}, {}
+    old_moved = {"map": {}, "until": None}
     if os.path.exists(mpath):
         try:
             m = json.load(open(mpath))
             old, old_src, old_layout, old_gen, old_seen = (m["files"], m.get("sources") or {}, m.get("layout"), m.get("generated") or {},
                                                            m.get("seen") or {})
             old_home = m.get("home") or {}
+            old_moved = {"map": m.get("moved") or {}, "until": m.get("moved_until")}
         except (ValueError, KeyError):
             print("vault: the manifest is unreadable; not synced (remove it deliberately to start over)", file=sys.stderr); sys.exit(3)
     if old_layout and old_layout > LAYOUT:                 # a newer layout on disk: this sync would write the old one into it
         print(f"vault: not synced — the vault is in layout {old_layout}, this ela writes layout {LAYOUT}", file=sys.stderr); sys.exit(3)
+    if old_layout and old_layout < LAYOUT and old:         # ADR 0015: the move is one pass on the owner's word, never the sync's
+        print(f"vault: not synced — the vault is in layout {old_layout}, this ela writes layout {LAYOUT}: "
+              "`ela vault migrate` lists the moves, `--apply` makes them", file=sys.stderr); sys.exit(3)
     # a note the sync wrote that is gone from disk was deleted by the owner: that is feedback, and it stays deleted
     removed_path = os.path.join(s.get("reports") or "", "ela", "vault-removed.jsonl")
     marked = [] if a.dry_run else apply_marks(vault, s.get("reports") or "")   # ticked boxes first: they are his moves
@@ -4710,7 +4488,7 @@ def cmd_sync(a):
     removed, removed_src = load_removed(removed_path)
     # only a dated note in a reading folder can be done with; a living page (Home, the board, the library index, how
     # ela runs) is rewritten whatever happens to it
-    newly = sorted(r for r in old if r.endswith(".md") and r not in removed and top(r) in DELETABLE
+    newly = sorted(r for r in old if r.endswith(".md") and r not in removed and deletable(r)
                    and not os.path.exists(os.path.join(vault, r)))
     archived = archive_names(vault)
     kept = [r for r in newly if os.path.basename(r).lower() in archived]
@@ -4769,12 +4547,16 @@ def cmd_sync(a):
     ensure_native_moves(vault, a.dry_run)
     # a task its source already ticked is not his choice; recorded so the guidance verb tells the two apart
     source_ticks = {r: [m.group(1) for m in TICKED.finditer(t)] for r, t in planned.items() if r.endswith(".md") and TICKED.search(t)}
+    done_on_disk = set()
     for rel in [r for r in planned if r.endswith(".md")]:  # his `ela:` lines in a generated note outlive its rewrite
         try:
             disk = open(os.path.join(vault, rel), encoding="utf-8").read()
         except OSError:
             continue
         dfl, dbody = split_front(disk)
+        if is_done(props_of(dfl)):                         # he marked it done: the copy on disk is the record
+            done_on_disk.add(rel)
+            continue
         planned[rel] = keep_choice(planned[rel], dfl, rel)   # the move he chose waits for the watcher, not for this rewrite
         for m in TICKED.finditer(dbody):                   # a choice he ticked stays ticked when the page is rewritten
             planned[rel] = re.sub(r"^(\s*" + QUOTE + r"[-*]\s+)\[ \](\s+" + re.escape(m.group(1)) + r"\s*)$", r"\1[x]\2", planned[rel], count=1, flags=re.M)
@@ -4788,6 +4570,8 @@ def cmd_sync(a):
             planned[rel] = place_lines(planned[rel], mine)
         planned[rel] = with_answers(planned[rel], rel, answers)   # each ask shows its answer under it
     for rel, text in planned.items():
+        if rel in done_on_disk:                            # done: the record, never written again, not ela's any more
+            continue
         if is_kept(rel):                                   # a kept note is the record: the sync never writes there
             warnings.append(f"{rel}: planned into a kept folder, not written (the vault copy is the record)")
             continue
@@ -4836,32 +4620,29 @@ def cmd_sync(a):
         if key[1]:
             return any(at[:10] >= key[2] for at in posted.get(key[1], []))
         return src.startswith("blueprint/") and ruled(s.get("elak"), src)
-    to_archive = sorted(r for r in set(old) - now_files if r.endswith(".md") and top(r) == TO_READ and acted(r)
-                        and os.path.exists(os.path.join(vault, r)))
-    homes = {}                                             # each to its subject home, else archive/
-    for r in to_archive:
-        try:
-            homes[r] = home_for(r, props_of(split_front(open(os.path.join(vault, r), encoding="utf-8").read())[0]))
-        except OSError:
-            homes[r] = ARCHIVE
+    # acted on: done where it is (ADR 0015), the record from now on, outside the manifest
+    to_archive = sorted(r for r in set(old) - now_files if r.endswith(".md") and deletable(r) and acted(r)
+                        and os.path.exists(os.path.join(vault, r)) and not is_kept(r, vault))
     if to_archive and not a.dry_run:
         for r in to_archive:
-            os.makedirs(os.path.join(vault, homes[r]), exist_ok=True)
-            os.replace(os.path.join(vault, r), free_path(os.path.join(vault, homes[r]), os.path.basename(r)))
-        record_removed(removed_path, to_archive, old_src, now, {os.path.basename(r).lower(): homes[r] for r in to_archive}, by="ela")
+            p = os.path.join(vault, r)
+            atomic_write(p, set_front(open(p, encoding="utf-8").read(), status=DONE, **{MOVE_SET: "closed", NEXT: "done", "closed-by": "ela"}))
+        record_removed(removed_path, to_archive, old_src, now, {os.path.basename(r).lower(): DONE for r in to_archive}, by="ela")
     keep_dirs = archive_refs(vault)
     gone = sorted(r for r in set(old) - now_files if not r.startswith(".obsidian") and r.lower() not in lower
                   and r.lower() not in native_lower and not any(r.lower().startswith(d + "/") for d in keep_dirs)
-                  and top(r) not in RETIRED and r not in {f for f, _ in moved})
+                  and top(r) not in RETIRED and r not in {f for f, _ in moved} and r not in to_archive
+                  and not is_kept(r, vault))               # a done note is the record: his, never removed
     left = sorted(r for r in set(old) - now_files if top(r) in RETIRED)   # the owner's now; never removed by the sync
     if not a.dry_run:
         # the manifest first: a crash before the removals leaves files it no longer lists, never removals it would
         # later read as the owner's deletions
-        atomic_write(mpath, json.dumps({"synced": now.isoformat(timespec="seconds"), "layout": LAYOUT, "files": sorted(now_files),
+        atomic_write(mpath, json.dumps({"synced": now.isoformat(timespec="seconds"), "layout": LAYOUT, "files": sorted(now_files - done_on_disk),
                                         "sources": {n.path: n.src_rel for n in notes if n.src_rel},
                                         "generated": {r: digest(t) for r, t in planned.items() if r.endswith(".base")},
                                         "seen": {r: d for r, d in seen.items() if r in planned},
                                         "home": {"open": is_open, "looked": looked, "before": before},
+                                        "moved": moved_paths(old_moved, today), "moved_until": old_moved.get("until"),
                                         "source_ticks": source_ticks}, indent=0))
         for rel in gone:
             try:
@@ -4878,7 +4659,7 @@ def cmd_sync(a):
     for c in append_source_changes(vault, s.get("reports") or "", s.get("elak"), a.dry_run):
         warnings.append(f"{c['note']}: its source {c['src']} changed after the note closed; noted under Afterwards")
     held = [{"note": n.path, "problems": n.held} for n in notes if n.held]
-    in_archive = sum(len([f for f in fs if f.endswith(".md")]) for d in OWNER_FOLDERS for _, _, fs in os.walk(os.path.join(vault, d)))
+    in_archive = len(kept_notes(vault))
     counts = {"generated": len(planned), "in_place": len(native_paths), "archived": in_archive}
     r = {**counts, "dry_run": a.dry_run, "deleted_by_owner": newly, "archived_by_ela": to_archive, "moved": [{"from": f, "to": t} for f, t in moved],
          "answered": [{"from": f, "to": t} for f, t in answered],
@@ -4901,7 +4682,7 @@ def cmd_sync(a):
     for f, t in answered:
         print(f"  every ask answered, moved to readings: {f}" + (f" → {t}" if t else ""))
     for d in to_archive:
-        print(f"  acted on, archived by ela: {d}")
+        print(f"  acted on, done by ela where it is: {d}")
     for f, d, t in rolled:
         print(f"  ruled {d}, over {MEETING_RULED_DAYS} days: {f} → {t}")
     for d in newly:
@@ -5169,13 +4950,15 @@ def migrate_plan(vault, slugs=None, lanes=None, runtime=None):
             move(r, f"{ARCHIVE}/{day}-sprint-{n}.md" if day else f"{ARCHIVE}/{name.lower()}", "a closed sprint, dated by its end")
         elif t in ("sprints", "in-progress", "to-read", "readings") and r.endswith(".md"):
             home = home_for(r, props[r])
-            folder = home.replace(f"{RELEASES}", RELEASES5, 1) if home.startswith(RELEASES) else REF if home == ARCHIVE and t != "sprints" else home
+            folder = ARCHIVE if t == "sprints" else home
             move(r, f"{folder}/{dated_name(name, kind)}", "its thing's home" if folder != REF else "serves no project")
-    # statuses: a work note live or done, wherever it now sits
+    # statuses: a work note live or done, wherever it now sits; a `project:` follows its page's new name
     for r, p in props.items():
         old_top = top(r)
         want = status5(p.get("type"), p.get("status"), old_top)
         ch = prop_changes.setdefault(r, {})
+        if p.get("project") in page_to and page_to[p["project"]] != p["project"]:
+            ch["project"] = page_to[p["project"]]
         if want and want != p.get("status") and "status" not in ch:
             ch["status"] = want
         if p.get("type") == "readme" and moves.get(r, ("",))[0].startswith(f"{PROJECTS}/") and PROJECT_PAGE.match(moves[r][0]):
@@ -5423,7 +5206,7 @@ def cmd_migrate(a):
 # per source per day under its own `## Afterwards`, append-only; nothing else in the note is rewritten (vault
 # to-read/2026-10-30-vault-workflow-review.md, proposal 5). The reading is brief.py's parked watcher, pointed here.
 AFTERWARDS_HEAD = "## Afterwards"
-WATCH_FOLDERS = OWNER_FOLDERS + (IN_PROGRESS, PROJECTS)   # a project page, and what its folder keeps, carries keys and threads too
+WATCH_FOLDERS = THING_FOLDERS    # a done note, a note written in place, a project page: whatever carries keys and threads
 WATCH_DAYS = {"review": 14, "decision": 14, "plan": 14, "meeting": 14, "verify": 30, "ticket": 30, "case": 30}   # calendar days from archived, else its date
 WATCH_WORKDAYS = 10              # any other type: working days, counted the same way
 WATCH_NOTES, WATCH_LINES = 40, 40   # at most 40 notes a pass, oldest window first; at most 40 lines a note
@@ -5452,7 +5235,7 @@ def stamp_archive(vault, today, dry_run=False):
     script move or his drag in Obsidian. Returns {rel: stamp}; a dry run writes nothing and the caller reads the stamps
     as if written."""
     out = {}
-    for rel in (r for fo in OWNER_FOLDERS for r in notes_under(vault, fo)):   # a release line's folder included
+    for rel in kept_notes(vault):                         # archive/, and a done note wherever its thing lives
         p = os.path.join(vault, rel)
         text = open(p, encoding="utf-8").read()
         stamp = archive_stamp(text, today)
@@ -5491,6 +5274,10 @@ def watched_notes(vault, today, stamps=None):
     """The notes in archive/, the subject homes, in-progress/ and projects/ carrying `posted:` or `keys:` whose window is open today, oldest window
     first, at most WATCH_NOTES: [{note, props, keys, links, until}]. `stamps` are a dry run's unwritten archive stamps."""
     out = []
+    try:
+        generated = set(json.load(open(os.path.join(vault, MANIFEST))).get("files") or [])
+    except (OSError, ValueError):
+        generated = set()
     for folder in WATCH_FOLDERS:
         for top_, dirs, fs in os.walk(os.path.join(vault, folder)):
             dirs[:] = [d for d in dirs if not d.startswith(".")]
@@ -5502,6 +5289,8 @@ def watched_notes(vault, today, stamps=None):
                 except OSError:
                     continue
                 rel = os.path.relpath(os.path.join(top_, f), vault).replace(os.sep, "/")
+                if rel in generated and not (is_done(props) or props.get("type") == "project"):
+                    continue                               # a generated live note is rewritten each sync: nothing to append to
                 props.update({k: v for k, v in ((stamps or {}).get(rel) or {}).items() if v is not None})
                 keys = sorted({k for k in KEY_RX.findall(props.get("keys") or "") if not NOT_KEYS.match(k)})
                 links = sorted(set(PERMALINK.findall((props.get("posted") or "") + " " + (props.get("channels") or ""))))
@@ -5545,10 +5334,28 @@ def parse_at(s):
     return None
 
 
-def is_kept(rel):
-    """Whether a vault path lies in a kept folder (archive/ or a subject home, at any depth)."""
+def is_kept(rel, vault=None):
+    """Whether a vault path is the record: in archive/, or (read from disk when `vault` is given) a note marked done or
+    a case closed. The sync never writes there."""
     rel = rel.replace(os.sep, "/").strip("/")
-    return top(rel) == ARCHIVE or bool(subject_home(os.path.dirname(rel)))
+    if top(rel) == ARCHIVE:
+        return True
+    if not vault or not rel.endswith(".md"):
+        return False
+    try:
+        return is_done(props_of(split_front(open(os.path.join(vault, rel), encoding="utf-8").read(4000))[0]))
+    except OSError:
+        return False
+
+
+def kept_notes(vault):
+    """Every kept note's vault path: archive/, and each done note in the things' homes."""
+    out = []
+    for fo in THING_FOLDERS:
+        for r in notes_under(vault, fo):
+            if fo == ARCHIVE or is_kept(r, vault):
+                out.append(r)
+    return out
 
 
 def kept_sources(vault, reports, elak=None):
@@ -5570,7 +5377,7 @@ def kept_sources(vault, reports, elak=None):
     except OSError:
         return {}
     out = {}
-    for rel in (r for fo in OWNER_FOLDERS for r in notes_under(vault, fo)):
+    for rel in kept_notes(vault):
         hit = closes.get(os.path.basename(rel).lower())
         if not hit:
             continue
@@ -5749,15 +5556,16 @@ def main():
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_marks)
-    p = sub.add_parser("finish", help="on the owner's word: close a note into archive/ or its subject home, kept (drop or done)")
-    p.add_argument("path", help="the note's path in the vault, e.g. to-read/2026-09-07-mh-review.md")
+    p = sub.add_parser("finish", help="on the owner's word: a note done where it is, kept (drop or done)")
+    p.add_argument("path", help="the note's path in the vault, e.g. reference/2026-11-05-review-jira-four-week.md")
     p.add_argument("--to", choices=("drop", "archive", "delete"), default="drop", help="delete: the older name of drop; nothing is deleted")
     p.set_defaults(func=cmd_finish)
-    p = sub.add_parser("note", help="a note's life: claim, release, progress TEXT, built TEXT, move --to in-progress|parked|archive|to-read|readings|drop")
+    p = sub.add_parser("note", help="a note's life: claim, release, progress TEXT, built TEXT, move --to building|parked|done|live|drop")
     p.add_argument("act", choices=("claim", "release", "progress", "built", "move"))
-    p.add_argument("path", help="the note's path in the vault, e.g. to-read/2026-10-26-system-plan.md")
+    p.add_argument("path", help="the note's path in the vault, e.g. projects/mh-3983-csc-over-mqtt/2026-11-10-plan-mh-3987-app-through-gateway.md")
     p.add_argument("text", nargs="*", help="progress or built: the line to record")
-    p.add_argument("--to", choices=("in-progress", "parked", "archive", "to-read", "readings", "drop", "delete"))
+    p.add_argument("--to", choices=("building", "parked", "done", "live", "drop", "in-progress", "archive", "to-read", "readings", "delete"),
+                   help="the note's new state, where it is: building, parked, done, live, drop (layout 4's folder words read as these)")
     p.add_argument("--status", help="move: the status the note carries after it, settled to its folder's own (an archived "
                                     "outcome such as accepted goes to next)")
     p.add_argument("--next", help="move --to archive: the move that ended the note (make-plan, nudge, draft-comment, …), "
@@ -5776,8 +5584,7 @@ def main():
     p.add_argument("--apply", action="store_true", help="with --fix, write; without it, a dry run")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_lint)
-    p = sub.add_parser("tidy", help="move the archived notes that have a subject home (cases/, mh/releases/, ela/history/) "
-                                    "there, and mh/releases/ root notes into their line's folder; a dry run unless --apply")
+    p = sub.add_parser("tidy", help="retired with layout 5 (a done note stays where its thing lives); see migrate")
     p.add_argument("--apply", action="store_true", help="move them; without it, list the moves and what holds any back")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_tidy)

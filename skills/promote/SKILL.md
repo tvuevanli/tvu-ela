@@ -179,7 +179,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/skills/promote/note.py" claims <runtime>/promote/
   unread, and each correction in one line. `note.py lint` refuses a note without it.
 
 ## 2 — output, in this order
-**One note per promotion** (gap 10). The note is the vault's `mh/releases/<line>/<date>-mh<line>-<from>-to-<to>.md`,
+**One note per promotion** (gap 10). The note is the vault's `releases/<line>/<date>-promote-<from>-to-<to>.md` (the line is the folder's),
 created once and updated in place on every rerun; never a second note for the same train. Services carry their full
 names (UR Caller, MediaHub backend, MediaHub frontend, Unified Media backend / frontend: `shipcheck.NAMES` until the
 published catalogue carries them), never mx/hub/FE/BE; every Jira key is a link. The Slack text is two parts split by a

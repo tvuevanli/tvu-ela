@@ -5,6 +5,7 @@ import contextlib, datetime, io, json, os, re, subprocess, sys, tempfile, types
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "skills", "vault"))
 import vault as V  # noqa: E402
+V.lane_lines = lambda: {"qa-cn3": "2.1", "daily-wed": "2.1", "prod-3": "2.1"}   # the release map, fixed for the test
 
 failures = []
 def check(name, cond):
@@ -151,60 +152,58 @@ with tempfile.TemporaryDirectory() as tmp:
     check("a project page is written in place: its properties settled, the desk's lines kept, watch from the deadline",
           'type: "project"' in sbp and f'deadline: "{SB_DEADLINE}"' in sbp and 'customer: "Hearst"' in sbp and 'aliases: ["Super Bowl"]' in sbp
           and f'watch: "{(datetime.date.today() + datetime.timedelta(days=44)).isoformat()}"' in sbp and f'date: "{today}"' in sbp)
-    check("its head stands as written above the tail's first heading, the tail's five headings in the runner's order",
-          sbb.startswith("# Super Bowl\n\n## Goal\n\nProve the chain.\n\n## Next step\n\n- [ ] wire the decoder by 2026-01-05\n\nela: keep the head\n\n## Waiting for your word\n")
-          and [h for h in re.findall(r"(?m)^## (.+)$", sbb) if h in V.TAIL_HEADS] == list(V.TAIL_HEADS) and sbb.count("## Waiting for your word") == 1)
+    check("its head stands as written above the tail's first heading, the tail's headings in the runner's order",
+          sbb.startswith("# Super Bowl\n\n## Goal\n\nProve the chain.\n\n## Next step\n\n- [ ] wire the decoder by 2026-01-05\n\nela: keep the head\n\n## Notes\n")
+          and [h for h in re.findall(r"(?m)^## (.+)$", sbb) if h in V.TAIL_HEADS] == list(V.TAIL_HEADS) and "## Waiting for your word" not in sbb)
     check("the tail says the days left and the overdue step, the keys watched, and lists the folder's reading and the inferred one",
           f"## Deadline\n\n*{SB_DEADLINE} · 30 days left · next step: wire the decoder by 2026-01-05 (**overdue**)*" in sbb
-          and "## Keys and threads\n\n*keys MH-5 · no threads · watched until" in sbb and "Nothing waits on you outside this page." in sbb
-          and "**in this folder**\n- [[projects/sb/glossary|Glossary]] · review · 2026-11-01" in sbb
-          and f"**readings**/\n- [[readings/{today}-sb-read|A read for the project]] · review · {today}" in sbb
+          and "## Keys and threads\n\n*keys MH-5 · no threads · watched until" in sbb
+          and "**in this folder**\n" in sbb and "- [[projects/sb/glossary|Glossary]] · review · 2026-11-01" in sbb
+          and f"- [[projects/sb/{today}-review-sb-read|A read for the project]] · review · {today} · live" in sbb
           and "*Nothing yet: the 13:00" in sbb)
-    check("the read with the project's key carries the inferred property, and the sync says so",
-          'project: "sb"' in open(f"{vault}/readings/{today}-sb-read.md").read()
+    check("the read with the project's key goes beside its page, carries the inferred property, and the sync says so",
+          'project: "sb"' in open(f"{vault}/projects/sb/{today}-review-sb-read.md").read()
           and {"note": f"readings/{today}-sb-read.md", "project": "sb"} in json.loads(bufj.getvalue())["projects"])
     check("a reading's own project: line is carried into the vault, and a project with no folder is a lint line",
-          'project: "ghost"' in open(f"{vault}/readings/{today}-ghost.md").read()
+          'project: "ghost"' in open(f"{vault}/reference/{today}-review-ghost.md").read()
           and any("project 'ghost' has no folder projects/ghost/" in w for w in json.loads(bufj.getvalue())["warnings"]))
-    check("with no constraints file the page says none is confirmed, and Home is silent",
-          "No standing constraint has been confirmed yet" in open(f"{vault}/constraints.md").read()
-          and "standing constraint" not in open(f"{vault}/home.md").read())
+    check("the retired angles are not written: no constraints page, no board, no recent (ADR 0015)",
+          not any(os.path.exists(f"{vault}/{x}") for x in ("constraints.md", "board.md", "recent.md", "reference/recent.md")))
+    check("the root holds only layout 5's entries", set(x for x in os.listdir(vault) if not x.startswith(".")) <= set(V.ROOTS5) | {"home.md", "mine.md"})
     stamp = {f: os.path.getmtime(os.path.join(dp, f)) for dp, _, fs in os.walk(vault) for f in fs if f.endswith(".md")}
     check("a second sync with nothing new writes nothing", sync() == 0 and
           all(os.path.getmtime(os.path.join(dp, f)) == stamp.get(f) for dp, _, fs in os.walk(vault) for f in fs if f.endswith(".md")))
-    dec0 = f"{vault}/to-read/{today[:4]}-01-01-decision-0.md"
-    check("a decision waiting for his ruling is in to-read", os.path.exists(dec0))
-    check("one not written for him stays out", not os.path.exists(f"{vault}/to-read/{today[:4]}-01-02-internal.md"))
-    check("one already ruled on stays out", not os.path.exists(f"{vault}/to-read/{today[:4]}-01-03-ruled.md"))
-    check("a long review is written, under a warning", "[!warning]" in open(f"{vault}/readings/{today}-long.md").read())
-    r0 = open(f"{vault}/readings/{today[:4]}-09-10-review-0.md").read()
-    check("a report is a reading: no status, no next, no moves", "\nstatus:" not in r0 and "next:" not in r0 and "moves:" not in r0
-          and V.MOVES_HEAD not in r0 and not os.path.exists(f"{vault}/to-read/{today[:4]}-09-10-review-0.md"))
+    dec0 = f"{vault}/reference/{today[:4]}-01-01-decision-0.md"
+    check("a decision waiting for his ruling is live in its thing's home (reference/ when it serves none)",
+          os.path.exists(dec0) and 'status: "live"' in open(dec0).read())
+    check("one not written for him stays out", not os.path.exists(f"{vault}/reference/{today[:4]}-01-02-decision-internal.md"))
+    check("one already ruled on stays out", not os.path.exists(f"{vault}/reference/{today[:4]}-01-03-decision-ruled.md"))
+    check("a long review is written, under a warning", "[!warning]" in open(f"{vault}/reference/{today}-review-long.md").read())
+    r0 = open(f"{vault}/reference/{today[:4]}-09-10-review-0.md").read()
+    check("a report is a work note: live, with its next and moves, until marked done", 'status: "live"' in r0 and "next:" in r0
+          and "moves:" in r0 and V.MOVES_HEAD in r0)
     home = open(f"{vault}/{V.TODAY}").read()
     above = home.split("---\n", 2)[2].split("\n---\n")[0]
     check("today.md is the one page: facts, needs you, today, then one line of links; Home points to it",
-          all(f"## {x}" in above for x in ("Facts", "Needs you", "Today")) and f"[[days/{today[:4]}/{today}-brief|morning page]]" in home
+          all(f"## {x}" in above for x in ("Facts", "Needs you", "Today")) and f"[[reference/days/{today[:4]}/{today}-brief|morning page]]" in home
           and "[[reference/dropped|dropped asks]]" in home and not V.GUIDE.search(home) and len(V.plain(above).split()) <= V.TODAY_WORDS
           and "[[today]]" in open(f"{vault}/home.md").read() and os.path.exists(f"{vault}/{V.DROPPED}"))
-    check("the changes page is a day page, linked from today.md", os.path.exists(f"{vault}/days/{today[:4]}/{today}-changes.md")
-          and f"[[days/{today[:4]}/{today}-changes|what changed]]" in home)
-    rc = open(f"{vault}/recent.md").read()
-    check("the recent page is a generated root page of its type, rendered from the newest result, with its refresh box",
-          'type: "recent"' in rc and "# Recent · 7 days" in rc and "- [ ] refresh recent (last 09:00;" in rc and "## 2.1" in rc and "dev" in rc)
-    check("today.md's footer links it beside lanes and board", "[[recent|recent]]" in home.split("\n---\n")[-1])
-    tr = open(f"{vault}/lanes/train-2.1.md").read()
-    check("a line's train page lands under lanes as a generated page of its type", 'type: "train"' in tr and "# Train · 2.1" in tr and f'date: "{today}"' in tr)
-    check("the morning page's New tickets points at it", V.RECENT_POINTER in open(f"{vault}/days/{today[:4]}/{today}-brief.md").read())
+    check("the changes page is a day page in reference/days/, linked from today.md", os.path.exists(f"{vault}/reference/days/{today[:4]}/{today}-changes.md")
+          and f"[[reference/days/{today[:4]}/{today}-changes|what changed]]" in home)
+    check("today.md's footer links neither the board nor recent, retired angles", "[[recent" not in home and "[[board" not in home)
+    tr = open(f"{vault}/releases/2.1/train-2.1.md").read()
+    check("a line's train page lands in its line's folder as a generated page of its type", 'type: "train"' in tr and "# Train · 2.1" in tr and f'date: "{today}"' in tr)
+    check("the morning page points at no recent page", V.RECENT_POINTER not in open(f"{vault}/reference/days/{today[:4]}/{today}-brief.md").read())
     check("a decision carries its title as an alias and a meta line", 'aliases: ["Decision 0"]' in open(dec0).read() and "*decision · " in open(dec0).read())
     os.remove(dec0)
     check("a note the owner deleted is not written again", sync() == 0 and not os.path.exists(dec0))
     check("and it is recorded as deleted by him", any(r.get("fate") == "deleted" and r.get("by") == "owner" and r["path"].endswith("decision-0.md") for r in rows()))
     os.makedirs(f"{vault}/archive", exist_ok=True)
-    os.rename(f"{vault}/readings/{today[:4]}-09-10-review-0.md", f"{vault}/archive/{today[:4]}-09-10-review-0.md")
-    check("a note he dragged into the archive is not written again", sync() == 0 and not os.path.exists(f"{vault}/readings/{today[:4]}-09-10-review-0.md"))
+    os.rename(f"{vault}/reference/{today[:4]}-09-10-review-0.md", f"{vault}/archive/{today[:4]}-09-10-review-0.md")
+    check("a note he dragged into the archive is not written again", sync() == 0 and not os.path.exists(f"{vault}/reference/{today[:4]}-09-10-review-0.md"))
     check("and stays in the archive, recorded as archived", os.path.exists(f"{vault}/archive/{today[:4]}-09-10-review-0.md")
           and any(r.get("fate") == "archived" and r["path"].endswith("review-0.md") for r in rows()))
-    rv = f"{vault}/readings/{today[:4]}-09-12-review-2.md"
+    rv = f"{vault}/reference/{today[:4]}-09-12-review-2.md"
     with open(rv, "a") as fh:
         fh.write("\nela: post this to Jira\n")
     check("his ela: line in a generated note survives its rewrite", sync() == 0 and "ela: post this to Jira" in open(rv).read())
@@ -230,49 +229,50 @@ with tempfile.TemporaryDirectory() as tmp:
     check("the ask is remembered with the day it was first asked", json.load(open(f"{reports}/ela/asks.json"))["keys:MH-3"]["first"] == today)
     tab(V.TODAY)
     check("opening today.md counts as looking", sync() == 0 and json.load(open(f"{vault}/{V.MANIFEST}"))["home"]["open"] is True)
-    tab(f"readings/{today[:4]}-09-12-review-2.md")
+    tab(f"reference/{today[:4]}-09-12-review-2.md")
     check("and closing it as not", sync() == 0 and json.load(open(f"{vault}/{V.MANIFEST}"))["home"]["open"] is False)
     os.remove(f"{reports}/runner/{today}-actions.json"); sync()
     m = json.load(open(f"{vault}/{V.MANIFEST}"))
-    m["seen"][f"readings/{today[:4]}-09-13-review-3.md"] = "2000-01-01"
+    m["seen"][f"reference/{today[:4]}-09-13-review-3.md"] = "2000-01-01"
     json.dump(m, open(f"{vault}/{V.MANIFEST}", "w"))
     check("a reading untouched for months stays where it is", sync() == 0
-          and os.path.exists(f"{vault}/readings/{today[:4]}-09-13-review-3.md") and not os.path.exists(f"{vault}/archive/{today[:4]}-09-13-review-3.md"))
-    # a note of layout 3 (a review in to-read) moves to readings with his lines
+          and os.path.exists(f"{vault}/reference/{today[:4]}-09-13-review-3.md") and not os.path.exists(f"{vault}/archive/{today[:4]}-09-13-review-3.md"))
+    # a generated note found where an earlier placement put it moves to its thing's home, his lines with it
     r3 = f"{today[:4]}-09-13-review-3.md"
-    os.rename(f"{vault}/readings/{r3}", f"{vault}/to-read/{r3}")
-    with open(f"{vault}/to-read/{r3}", "a") as fh:
+    os.makedirs(f"{vault}/cases", exist_ok=True)
+    os.rename(f"{vault}/reference/{r3}", f"{vault}/cases/{r3}")
+    with open(f"{vault}/cases/{r3}", "a") as fh:
         fh.write("\nela: keep an eye on this\n")
     m = json.load(open(f"{vault}/{V.MANIFEST}"))
-    m["files"] = [f"to-read/{r3}" if f == f"readings/{r3}" else f for f in m["files"]]
-    m["sources"][f"to-read/{r3}"] = m["sources"].pop(f"readings/{r3}")
+    m["files"] = [f"cases/{r3}" if f == f"reference/{r3}" else f for f in m["files"]]
+    m["sources"][f"cases/{r3}"] = m["sources"].pop(f"reference/{r3}")
     json.dump(m, open(f"{vault}/{V.MANIFEST}", "w"))
     dry = types.SimpleNamespace(env_file=os.path.join(tmp, "none.env"), dry_run=True, force=False, json=True)
     buf0 = __import__("io").StringIO()
     with __import__("contextlib").redirect_stdout(buf0):
         V.cmd_sync(dry)
-    check("a dry run shows the move and makes none", {"from": f"to-read/{r3}", "to": f"readings/{r3}"} in json.loads(buf0.getvalue())["moved"]
-          and os.path.exists(f"{vault}/to-read/{r3}"))
-    check("a sync moves a to-read review of the old layout to readings, his line with it", sync() == 0
-          and not os.path.exists(f"{vault}/to-read/{r3}") and "ela: keep an eye on this" in open(f"{vault}/readings/{r3}").read()
-          and not any(r["path"] == f"to-read/{r3}" for r in rows()))
-    V.cmd_finish(types.SimpleNamespace(path=f"readings/{today[:4]}-09-14-review-4.md", to="archive"))
-    check("finish moves a note into the archive on his word, logged as his", os.path.exists(f"{vault}/archive/{today[:4]}-09-14-review-4.md")
-          and sync() == 0 and not os.path.exists(f"{vault}/readings/{today[:4]}-09-14-review-4.md")
+    check("a dry run shows the move and makes none", {"from": f"cases/{r3}", "to": f"reference/{r3}"} in json.loads(buf0.getvalue())["moved"]
+          and os.path.exists(f"{vault}/cases/{r3}"))
+    check("a sync moves a note placed elsewhere to its home, his line with it", sync() == 0
+          and not os.path.exists(f"{vault}/cases/{r3}") and "ela: keep an eye on this" in open(f"{vault}/reference/{r3}").read()
+          and not any(r["path"] == f"cases/{r3}" for r in rows()))
+    r4 = f"{vault}/reference/{today[:4]}-09-14-review-4.md"
+    V.cmd_finish(types.SimpleNamespace(path=f"reference/{today[:4]}-09-14-review-4.md", to="archive"))
+    check("finish marks a note done where it is on his word, logged as his; the sync keeps it and never rewrites it",
+          'status: "done"' in open(r4).read() and (lambda m: sync() == 0 and os.path.exists(r4) and os.path.getmtime(r4) == m)(os.path.getmtime(r4))
           and any(r.get("by") == "owner" and r.get("fate") == "archived" and r["path"].endswith("review-4.md") for r in rows()))
     try:
         V.cmd_finish(types.SimpleNamespace(path="home.md", to="delete")); refused = False
     except SystemExit:
         refused = True
     check("finish refuses a living page", refused and os.path.exists(f"{vault}/home.md"))
-    r6 = f"{vault}/to-read/{today[:4]}-03-01-decision-2.md"
-    check("a to-read note carries an empty next field", 'next: ""' in open(r6).read() and "done:" not in open(r6).read())
+    r6 = f"{vault}/reference/{today[:4]}-03-01-decision-2.md"
+    check("a live note carries an empty next field", 'next: ""' in open(r6).read() and "done:" not in open(r6).read())
     txt = open(r6).read(); open(r6, "w").write(txt.replace('next: ""', 'next: "done"'))
-    a6 = f"{vault}/archive/{today[:4]}-03-01-decision-2.md"
-    check("next: done archives the note at the next sync, closed, the move kept in next", sync() == 0
-          and os.path.exists(a6) and not os.path.exists(r6)
-          and 'next: "done"' in open(a6).read() and 'status: "closed"' in open(a6).read() and 'moves: "closed"' in open(a6).read())
-    r9 = f"{vault}/to-read/{today[:4]}-04-01-decision-3.md"
+    check("next: done makes the note done where it is at the next sync, the move kept in next", sync() == 0
+          and os.path.exists(r6) and not os.path.exists(f"{vault}/archive/{today[:4]}-03-01-decision-2.md")
+          and 'next: "done"' in open(r6).read() and 'status: "done"' in open(r6).read() and 'moves: "closed"' in open(r6).read())
+    r9 = f"{vault}/reference/{today[:4]}-04-01-decision-3.md"
     check("a note to read carries no ela property for the tables", "\nela:" not in open(r9).read().split("\n---", 1)[0])
     txt = open(r9).read(); open(r9, "w").write(txt.replace('next: ""', 'next: ""\nela: "1A, post it"'))
     check("a word typed in the old ela property stays, as a line in the note", sync() == 0
@@ -281,17 +281,16 @@ with tempfile.TemporaryDirectory() as tmp:
     check("the move he chose survives a sync before the watcher acts on it", sync() == 0 and 'next: "confirm"' in open(r9).read())
     txt = open(r9).read(); open(r9, "w").write(txt.replace('next: "confirm"', 'next: "agree"'))
     check("a value the note does not offer is not kept by the rewrite", sync() == 0 and 'next: "agree"' not in open(r9).read().split("\n---", 1)[0])
-    bp = f"{vault}/days/{today[:4]}/{today}-brief.md"
+    bp = f"{vault}/reference/days/{today[:4]}/{today}-brief.md"
     txt = open(bp).read(); open(bp, "w").write(txt.replace("- [ ] probe MH-1", "- [x] probe MH-1"))
     check("a choice he ticks stays ticked through the rewrite", sync() == 0 and "- [x] probe MH-1 from the replay" in open(bp).read()
           and "- [ ] apply 2" in open(bp).read())
-    r7 = f"{vault}/to-read/{today[:4]}-05-01-decision-4.md"
+    r7 = f"{vault}/reference/{today[:4]}-05-01-decision-4.md"
     txt = open(r7).read(); open(r7, "w").write(txt.replace('next: ""', "next: drop"))
-    a7 = f"{vault}/archive/{today[:4]}-05-01-decision-4.md"
-    check("next: drop closes it into the archive, kept, next drop, logged as his", [x[1] for x in V.apply_marks(vault, reports)] == ["drop"]
-          and not os.path.exists(r7) and os.path.exists(a7) and 'next: "drop"' in open(a7).read() and 'status: "closed"' in open(a7).read()
+    check("next: drop makes it done where it is, kept, next drop, logged as his", [x[1] for x in V.apply_marks(vault, reports)] == ["drop"]
+          and os.path.exists(r7) and 'next: "drop"' in open(r7).read() and 'status: "done"' in open(r7).read()
           and any(r.get("fate") == "archived" and r["path"].endswith("decision-4.md") for r in rows()))
-    with open(f"{vault}/readings/{today[:4]}-09-11-review-1.md", "a") as fh:
+    with open(f"{vault}/reference/{today[:4]}-09-11-review-1.md", "a") as fh:
         fh.write("\n- ela: write this to the KB\n")
     import io, contextlib
     buf = io.StringIO()
@@ -304,8 +303,9 @@ with tempfile.TemporaryDirectory() as tmp:
     p1 = f"{ELAK}/blueprint/decisions/{today[:4]}-02-01-decision-1.md"
     open(p1, "w").write(open(p1).read().replace("status: proposed", "status: decided"))
     git("add", "-A"); git(SAVE, "-qm", "ruled")
-    check("a decision he ruled on is archived by ela", sync() == 0 and os.path.exists(f"{vault}/archive/{today[:4]}-02-01-decision-1.md")
-          and not os.path.exists(f"{vault}/to-read/{today[:4]}-02-01-decision-1.md")
+    d1 = f"{vault}/reference/{today[:4]}-02-01-decision-1.md"
+    check("a decision he ruled on is done by ela where it is, kept", sync() == 0 and os.path.exists(d1)
+          and 'status: "done"' in open(d1).read() and 'closed-by: "ela"' in open(d1).read()
           and any(r.get("by") == "ela" and r.get("fate") == "archived" for r in rows()))
     V.cmd_restore(types.SimpleNamespace(path=os.path.relpath(dec0, vault)))
     check("restore brings a deleted note back on the next sync", sync() == 0 and os.path.exists(dec0))
@@ -318,7 +318,7 @@ with tempfile.TemporaryDirectory() as tmp:
     for i in range(10, 20):
         os.remove(f"{reports}/{today[:4]}-09-{i + 10}-review-{i}.md")
     check("the notes halving at once stops the sync", sync() == 3)
-    check("--force applies a deliberate removal", sync(force=True) == 0 and not os.path.exists(f"{vault}/readings/{today[:4]}-09-28-review-18.md"))
+    check("--force applies a deliberate removal", sync(force=True) == 0 and not os.path.exists(f"{vault}/reference/{today[:4]}-09-28-review-18.md"))
     for i in range(10, 20):
         open(f"{reports}/{today[:4]}-09-{i + 10}-review-{i}.md", "w").write(f"# Review {i}\n\nText.\n")
     for f in BATCH:
@@ -326,9 +326,9 @@ with tempfile.TemporaryDirectory() as tmp:
     sync(force=True)
     before = len(rows())
     for i in range(10, 20):
-        os.remove(f"{vault}/readings/{today[:4]}-09-{i + 10}-review-{i}.md")
+        os.remove(f"{vault}/reference/{today[:4]}-09-{i + 10}-review-{i}.md")
     check("a mass disappearance is written again, not recorded as read", sync() == 0
-          and os.path.exists(f"{vault}/readings/{today[:4]}-09-25-review-15.md") and len(rows()) == before)
+          and os.path.exists(f"{vault}/reference/{today[:4]}-09-25-review-15.md") and len(rows()) == before)
     check("a file the sync never wrote is never removed", os.path.exists(f"{vault}/mine.md"))
     native = f"{vault}/ela/workflow.md"
     open(native, "w").write('---\ntitle: "Workflow"\ntype: "guide"\nsource: "vault"\n---\n\n# Workflow\n\nIt stands well.\n')
@@ -406,12 +406,12 @@ check("an ask only in the front matter draws no answer", V.with_answers(native.r
       == native.replace("\nela: what about apply 5?\n", "\n"))
 check("front matter broken by a fold is a lint line", V.front_breaks(['title: "Day"', 'ela: "x"', '', '> [!note]- ela answered · 11:50 · job J1', '> Leave it.'])
       and V.front_breaks(['title: "Day', 'aliases:', '  - "Day"', 'keys: ["MH-1"]']) == ["front matter line 2: title does not parse"])
-page = V.with_moves("# Plan\n\nbody\n", "to-read/p.md", "plan")
-check("a plan ends in what each of its boxes does", "- **agree**: ela builds it" in page and "- **reject**: archived as rejected" in page
-      and "- **drop**: closed and kept" in page and "- [ ]" not in page and page.rstrip().endswith("`to-read/p.md`.*"))
-check("next moves are replaced, not repeated", V.with_moves(page, "to-read/p.md", "plan").count(V.MOVES_HEAD) == 1)
-built = V.with_moves(page, "in-progress/p.md", "built", "10-26 15:20")
-check("a built note explains accept and not-done, not the to-read boxes", "- **accept**" in built and "- **not-done**" in built and "**drop**" not in built)
+page = V.with_moves("# Plan\n\nbody\n", "projects/x/p.md", "plan")
+check("a plan ends in what each of its boxes does", "- **agree**: ela builds it" in page and "- **reject**: done, as rejected" in page
+      and "- **drop**: done and kept where it is" in page and "- [ ]" not in page and page.rstrip().endswith("`projects/x/p.md`.*"))
+check("next moves are replaced, not repeated", V.with_moves(page, "projects/x/p.md", "plan").count(V.MOVES_HEAD) == 1)
+built = V.with_moves(page, "projects/x/p.md", "built", "10-26 15:20")
+check("a built note explains accept and not-done, not the ask's boxes", "- **accept**" in built and "- **not-done**" in built and "**drop**" not in built)
 check("a kind without moves gets none", V.MOVES_HEAD not in V.with_moves(page, "x.md", "day"))
 prog = V.progress_line(page, "step one")
 check("progress goes above the next moves", prog.index("## Progress") < prog.index(V.MOVES_HEAD) and "· step one" in prog)
@@ -420,98 +420,99 @@ check("front matter keys are set and removed", V.set_front('---\ntype: "plan"\nc
       == '---\ntype: "plan"\nstatus: "built"\n---\nbody')
 with tempfile.TemporaryDirectory() as t:
     vlt, rep = os.path.join(t, "v"), os.path.join(t, "r")
-    os.makedirs(os.path.join(vlt, "to-read")); os.makedirs(rep)
-    open(os.path.join(vlt, "to-read", "p.md"), "w").write('---\ntype: "plan"\nstatus: "proposed"\ndone: false\n---\n' + page)
-    to = V.move_note(vlt, rep, "to-read/p.md", "in-progress", "in progress")
+    os.makedirs(os.path.join(vlt, "projects", "x")); os.makedirs(rep)
+    open(os.path.join(vlt, "projects", "x", "p.md"), "w").write('---\ntype: "plan"\nstatus: "live"\ndone: false\n---\n' + page)
+    to = V.move_note(vlt, rep, "projects/x/p.md", "in-progress", "in progress")
     moved = open(os.path.join(vlt, to)).read()
-    check("an agreed note moves to in-progress as the vault's own page", to == "in-progress/p.md" and 'source: "vault"' in moved
-          and 'status: "building"' in moved and 'moves: "built"' in moved and "done:" not in moved and V.MOVES_HEAD not in moved)
-    check("the move is logged as his", '"fate": "in-progress"' in open(os.path.join(rep, "ela", "vault-removed.jsonl")).read())
+    check("an agreed note stays where it is, live and building, the vault's own page (in-progress read as building)",
+          to == "projects/x/p.md" and 'source: "vault"' in moved and 'status: "live"' in moved and 'moves: "built"' in moved
+          and "done:" not in moved and "- **accept**" in moved and not os.path.exists(os.path.join(vlt, "in-progress")))
 with tempfile.TemporaryDirectory() as t:
     vlt, rep = os.path.join(t, "v"), os.path.join(t, "r")
-    os.makedirs(os.path.join(vlt, "to-read")); os.makedirs(rep)
-    open(os.path.join(vlt, "to-read", "a.md"), "w").write('---\ntype: "plan"\nagree: true\ndone: false\n---\n# A\n')
+    os.makedirs(os.path.join(vlt, "reference")); os.makedirs(rep)
+    open(os.path.join(vlt, "reference", "a.md"), "w").write('---\ntype: "plan"\nstatus: "live"\nagree: true\ndone: false\n---\n# A\n')
     got = V.apply_marks(vlt, rep)
-    check("a ticked agree box is reported for the runner and left in place", got == [("to-read/a.md", "agree")]
-          and os.path.exists(os.path.join(vlt, "to-read", "a.md")))
-    os.makedirs(os.path.join(vlt, "in-progress"))
-    open(os.path.join(vlt, "in-progress", "b.md"), "w").write('---\ntype: "plan"\nstatus: "built"\naccept: true\n---\n# B\n')
-    check("a ticked accept box on a built note is reported too", ("in-progress/b.md", "accept") in V.apply_marks(vlt, rep, dry_run=True))
-    open(os.path.join(vlt, "to-read", "n.md"), "w").write('---\ntype: "plan"\nsource: "vault"\n---\n# N\n\n## Next moves\n\n- [ ] Agree, build it\n')
+    check("a ticked agree box is reported for the runner and left in place", got == [("reference/a.md", "agree")]
+          and os.path.exists(os.path.join(vlt, "reference", "a.md")))
+    open(os.path.join(vlt, "reference", "b.md"), "w").write('---\ntype: "plan"\nstatus: "live"\nmoves: "built"\naccept: true\n---\n# B\n')
+    check("a ticked accept box on a built note is reported too", ("reference/b.md", "accept") in V.apply_marks(vlt, rep, dry_run=True))
+    open(os.path.join(vlt, "reference", "n.md"), "w").write('---\ntype: "plan"\nsource: "vault"\nstatus: "live"\n---\n# N\n\n## Next moves\n\n- [ ] Agree, build it\n')
     V.ensure_native_moves(vlt)
-    n = open(os.path.join(vlt, "to-read", "n.md")).read()
+    n = open(os.path.join(vlt, "reference", "n.md")).read()
     check("a plan written in the vault gains its next field, its section kept once", 'next: ""' in n and n.count(V.MOVES_HEAD) == 1)
 with tempfile.TemporaryDirectory() as t:
     vlt, rep = os.path.join(t, "v"), os.path.join(t, "r")
-    os.makedirs(os.path.join(vlt, "to-read")); os.makedirs(rep)
-    two = os.path.join(vlt, "to-read", "two.md")
-    open(two, "w").write('---\ntype: "review"\nnext: "agree"\n---\n# Two\n\nbody\n')
+    os.makedirs(os.path.join(vlt, "reference")); os.makedirs(rep)
+    two = os.path.join(vlt, "reference", "two.md")
+    open(two, "w").write('---\ntype: "review"\nstatus: "live"\nnext: "agree"\n---\n# Two\n\nbody\n')
     check("a move the note does not offer runs nothing", V.apply_marks(vlt, rep) == [] and os.path.exists(two))
     w = open(two).read()
     check("the note names the value and its choices, once", w.count(V.MOVE_WARN) == 1 and "`agree`" in w and "make-plan" in w)
     V.apply_marks(vlt, rep)
     check("the warning is not repeated", open(two).read().count(V.MOVE_WARN) == 1)
     open(two, "w").write(w.replace('next: "agree"', 'next: "make-plan"'))
-    check("a move it offers runs", V.apply_marks(vlt, rep, dry_run=True) == [("to-read/two.md", "make-plan")])
+    check("a move it offers runs", V.apply_marks(vlt, rep, dry_run=True) == [("reference/two.md", "make-plan")])
     open(two, "w").write(open(two).read().replace('next: "make-plan"', 'next: "noted"'))
 
 with tempfile.TemporaryDirectory() as t:
     vlt, rep = os.path.join(t, "v"), os.path.join(t, "r")
-    os.makedirs(os.path.join(vlt, "to-read")); os.makedirs(rep)
-    open(os.path.join(vlt, "to-read", "q.md"), "w").write('---\ntype: "plan"\nmoves: "plan"\nnext: "park"\n---\n# Q\n\nbody\n\n## Next moves\n\n- **agree**: x\n')
-    check("a plan offers park, and park is the runner's", V.apply_marks(vlt, rep, dry_run=True) == [("to-read/q.md", "park")])
-    to = V.move_note(vlt, rep, "to-read/q.md", "parked", waits_on="the Pack team, in its thread", wake="FB-1 moving")
+    os.makedirs(os.path.join(vlt, "projects", "x")); os.makedirs(rep)
+    open(os.path.join(vlt, "projects", "x", "q.md"), "w").write('---\ntype: "plan"\nstatus: "live"\nmoves: "plan"\nnext: "park"\n---\n# Q\n\nbody\n\n## Next moves\n\n- **agree**: x\n')
+    check("a plan offers park, and park is the runner's", V.apply_marks(vlt, rep, dry_run=True) == [("projects/x/q.md", "park")])
+    to = V.move_note(vlt, rep, "projects/x/q.md", "parked", waits_on="the Pack team, in its thread", wake="FB-1 moving")
     q = open(os.path.join(vlt, to)).read()
-    check("a parked note says who it waits on, since when and what wakes it, and offers resume and drop only",
-          to == "parked/q.md" and 'status: "parked"' in q and 'waits-on: "the Pack team, in its thread"' in q and 'wake: "FB-1 moving"' in q
+    check("a parked note stays where it is, live, saying who it waits on, since when and what wakes it, offering resume and drop only",
+          to == "projects/x/q.md" and 'status: "live"' in q and 'waits-on: "the Pack team, in its thread"' in q and 'wake: "FB-1 moving"' in q
           and 'parked: "' in q and 'moves: "parked"' in q and "**resume**" in q and "**drop**" in q and "**agree**" not in q
           and "**done**" not in q)
-    check("the move to parked is logged as his", '"fate": "parked"' in open(os.path.join(rep, "ela", "vault-removed.jsonl")).read())
-    open(os.path.join(vlt, "parked", "h.md"), "w").write('---\ntype: "plan"\nstatus: "parked"\nwake: "FB-2"\n---\n# H\n\nhis body\n')
+    open(os.path.join(vlt, "projects", "x", "h.md"), "w").write('---\ntype: "plan"\nstatus: "live"\nsource: "vault"\nwaits-on: "QA"\nmoves: "parked"\n---\n# H\n\nhis body\n')
     V.ensure_native_moves(vlt)
-    h = open(os.path.join(vlt, "parked", "h.md")).read()
+    h = open(os.path.join(vlt, "projects", "x", "h.md")).read()
     check("a note parked by hand gains its chooser fields, its body untouched", 'moves: "parked"' in h and 'next: ""' in h and h.endswith("# H\n\nhis body\n"))
-    open(os.path.join(vlt, "parked", "h.md"), "w").write(h.replace('next: ""', 'next: "agree"'))
-    check("a parked note runs only resume or drop", V.apply_marks(vlt, rep) == [])
-    open(os.path.join(vlt, "parked", "q.md"), "w").write(q.replace('next: ""', 'next: "resume"'))
+    open(os.path.join(vlt, "projects", "x", "h.md"), "w").write(h.replace('next: ""', 'next: "agree"'))
+    check("a parked note runs only resume or drop", ("projects/x/h.md", "agree") not in V.apply_marks(vlt, rep))
+    open(os.path.join(vlt, "projects", "x", "q.md"), "w").write(q.replace('next: ""', 'next: "resume"'))
     V.apply_marks(vlt, rep)
-    r = open(os.path.join(vlt, "to-read", "q.md")).read()
-    check("resume brings it back to to-read as proposed, its parked fields gone",
-          'status: "proposed"' in V.split_front(r)[0] and not any(l.startswith(("wake:", "waits-on:", "parked:")) for l in V.split_front(r)[0])
-          and "**agree**" in r
-          and not os.path.exists(os.path.join(vlt, "parked", "q.md")))
+    r = open(os.path.join(vlt, "projects", "x", "q.md")).read()
+    check("resume makes it live for his word again, its parked fields gone",
+          'status: "live"' in V.split_front(r)[0] and not any(l.startswith(("wake:", "waits-on:", "parked:")) for l in V.split_front(r)[0])
+          and "**agree**" in r)
     check("the parked moves are a set of their own", V.move_props("parked", in_to_read=False) == ["resume", "drop"] and V.move_set("parked") == "parked")
 
 S = V.settled_status
-check("each lifecycle folder settles its status", S("in-progress", "in progress") == ("building", None, None)
-      and S("in-progress", "waiting") == ("waiting", None, None) and S("parked", "proposed") == ("parked", None, None)
-      and S("to-read", "decided") == ("proposed", None, None) and S("to-read", "active") == ("proposed", None, None)
-      and S("to-read", None, "review") == ("proposed", None, None) and S("to-read", "blocked") == ("blocked", None, None))
-check("an archived outcome moves to next", S("archive", "accepted") == ("closed", None, "accept") and S("archive", "planned") == ("closed", None, "make-plan")
-      and S("archive", "not now") == ("closed", None, "not-now"))
-check("a verdict is a result: a fail waits on his word, a pass is read", S("to-read", "fail", "verify") == ("proposed", "fail", None)
-      and S("to-read", "pass", "verify") == (None, "pass", None) and S("archive", "pass", "verify") == ("closed", "pass", None))
+check("a work note settles to live or done, layout 4's statuses read as the state they meant",
+      S("projects", "in progress", "plan") == ("live", None, None) and S("reference", "waiting", "plan") == ("live", None, None)
+      and S("reference", "parked", "decision") == ("live", None, None) and S("reference", "proposed", "review") == ("live", None, None)
+      and S("releases", "closed", "review") == ("done", None, None) and S("reference", None, "review") == ("live", None, None))
+check("an old outcome moves to next, and archive/ is done", S("archive", "accepted", "plan") == ("done", None, "accept")
+      and S("reference", "planned", "review") == ("done", None, "make-plan") and S("archive", "not now", "plan") == ("done", None, "not-now"))
+check("a verdict is a result", S("releases", "fail", "verify") == ("live", "fail", None)
+      and S("archive", "pass", "verify") == ("done", "pass", None))
+check("a case keeps its own states, closed in the archive; a page keeps what it had",
+      S("cases", "answered", "case") == ("answered", None, None) and S("archive", "open", "case") == ("closed", None, None)
+      and S("ela", "whatever", "guide") == ("whatever", None, None))
 asks = "# R\n\n## Waiting for your word\n\n- [x] one\n- [ ] two\n  ela: no, keep it\n- [ ] three\n\n## Next\n\n- [ ] not an ask\n"
 check("an ask is open until ticked or answered by an ela: line under it", V.open_asks(asks) == (1, 3)
       and V.open_asks(asks.replace("- [ ] three", "- [x] three")) == (0, 3) and V.open_asks("# R\n\n- [ ] x\n") == (0, 0))
-check("a reading with an open ask outside to-read is a lint line, in to-read it is not",
-      "belongs in to-read/" in (V.asks_lint(V.Note("readings/r.md", "r", asks, {"type": "review"})) or "")
-      and V.asks_lint(V.Note("to-read/r.md", "r", asks, {"type": "review"})) is None
+check("an open ask on a done note is a lint line; on a live one it is not",
+      "on a done note" in (V.asks_lint(V.Note("reference/r.md", "r", asks, {"type": "review", "status": "done"})) or "")
+      and V.asks_lint(V.Note("reference/r.md", "r", asks, {"type": "review", "status": "live"})) is None
       and V.asks_lint(V.Note("ela/r.md", "r", asks, {"type": "report"})) is None)
 with tempfile.TemporaryDirectory() as t:
-    os.makedirs(os.path.join(t, "v", "to-read")); os.makedirs(os.path.join(t, "r", "ela"))
-    fm = '---\ntype: "{}"\nsource: "vault"\nstatus: "proposed"\nnext: ""\nmoves: "{}"\n---\n'
-    open(os.path.join(t, "v", "to-read", "a.md"), "w").write(fm.format("review", "review") + asks.replace("- [ ] three", "- [x] three"))
-    open(os.path.join(t, "v", "to-read", "b.md"), "w").write(fm.format("review", "review") + asks)
-    open(os.path.join(t, "v", "to-read", "p.md"), "w").write(fm.format("plan", "plan") + asks.replace("- [ ] three", "- [x] three"))
-    check("a dry run names the answered reading and moves nothing",
-          V.answered_readings(os.path.join(t, "v"), os.path.join(t, "r"), dry_run=True) == [("to-read/a.md", None)]
-          and os.path.exists(os.path.join(t, "v", "to-read", "a.md")))
+    os.makedirs(os.path.join(t, "v", "reference")); os.makedirs(os.path.join(t, "r", "ela"))
+    fm = '---\ntype: "{}"\nsource: "vault"\nstatus: "live"\nnext: ""\nmoves: "{}"\n---\n'
+    open(os.path.join(t, "v", "reference", "a.md"), "w").write(fm.format("review", "review") + asks.replace("- [ ] three", "- [x] three"))
+    open(os.path.join(t, "v", "reference", "b.md"), "w").write(fm.format("review", "review") + asks)
+    open(os.path.join(t, "v", "reference", "p.md"), "w").write(fm.format("plan", "plan") + asks.replace("- [ ] three", "- [x] three"))
+    check("a dry run names the answered reading and changes nothing",
+          V.answered_readings(os.path.join(t, "v"), os.path.join(t, "r"), dry_run=True) == [("reference/a.md", None)]
+          and 'status: "live"' in open(os.path.join(t, "v", "reference", "a.md")).read())
     moved = V.answered_readings(os.path.join(t, "v"), os.path.join(t, "r"))
-    ra = open(os.path.join(t, "v", "readings", "a.md")).read()
-    check("a reading whose every ask is answered moves to readings, no status, no moves; one with an open ask and a plan stay",
-          moved == [("to-read/a.md", "readings/a.md")] and "status:" not in ra and "moves:" not in ra and V.MOVES_HEAD not in ra
-          and os.path.exists(os.path.join(t, "v", "to-read", "b.md")) and os.path.exists(os.path.join(t, "v", "to-read", "p.md")))
+    ra = open(os.path.join(t, "v", "reference", "a.md")).read()
+    check("a reading whose every ask is answered is done where it is; one with an open ask and a plan stay live",
+          moved == [("reference/a.md", "reference/a.md")] and 'status: "done"' in ra and V.MOVES_HEAD not in ra
+          and 'status: "live"' in open(os.path.join(t, "v", "reference", "b.md")).read()
+          and 'status: "live"' in open(os.path.join(t, "v", "reference", "p.md")).read())
 with tempfile.TemporaryDirectory() as t:
     os.makedirs(os.path.join(t, "runner", "jobs"))
     def job(jid, status, kind="vault", note="readings/n.md"):
@@ -531,23 +532,23 @@ with tempfile.TemporaryDirectory() as t:
     check("a running job says since when", "running since 15:33" in V.pending_block(pend[1]))
 with tempfile.TemporaryDirectory() as t:
     v, r = os.path.join(t, "v"), os.path.join(t, "r")
-    for d in ("to-read", "days/2026", "sprints"):
+    for d in ("reference", "reference/days/2026"):
         os.makedirs(os.path.join(v, d))
     os.makedirs(os.path.join(r, "ela"))
-    fm = '---\ntype: "{}"\nsource: "vault"\nstatus: "proposed"\nnext: "drop"\nmoves: "review"\n---\n# {}\n\nText.\n'
+    fm = '---\ntype: "{}"\nsource: "vault"\nstatus: "live"\nnext: "drop"\nmoves: "review"\n---\n# {}\n\nText.\n'
     for n, k in (("deep-1", "review"), ("deep-2", "review"), ("plan-3", "plan")):
-        open(os.path.join(v, "to-read", n + ".md"), "w").write(fm.format(k, n))
-    open(os.path.join(v, "days/2026", "2026-10-29-brief.md"), "w").write("see [[deep-1|the deep read]] and [[to-read/plan-3]]\n")
+        open(os.path.join(v, "reference", n + ".md"), "w").write(fm.format(k, n))
+    open(os.path.join(v, "reference/days/2026", "2026-10-29-brief.md"), "w").write("see [[deep-1|the deep read]] and [[reference/plan-3]]\n")
     open(os.path.join(v, "home.md"), "w").write("[[deep-2]]\n")
-    check("what links a note: day pages and notes, never Home", V.linked_from(v, "to-read/deep-1.md") == ["days/2026/2026-10-29-brief.md"]
-          and V.linked_from(v, "to-read/deep-2.md") == [])
+    check("what links a note: day pages and notes, never Home", V.linked_from(v, "reference/deep-1.md") == ["reference/days/2026/2026-10-29-brief.md"]
+          and V.linked_from(v, "reference/deep-2.md") == [])
     V.apply_marks(v, r)
-    a1 = os.path.join(v, "archive", "deep-1.md")
-    check("drop closes a reading into the archive, its text as it was, next drop",
-          os.path.exists(a1) and "# deep-1\n\nText." in open(a1).read() and 'status: "closed"' in open(a1).read() and 'next: "drop"' in open(a1).read())
-    check("drop deletes nothing, linked or not, reading or plan",
-          all(os.path.exists(os.path.join(v, "archive", n + ".md")) for n in ("deep-2", "plan-3"))
-          and not any(os.path.exists(os.path.join(v, "to-read", n + ".md")) for n in ("deep-1", "deep-2", "plan-3")))
+    a1 = os.path.join(v, "reference", "deep-1.md")
+    check("drop makes a reading done where it is, its text as it was, next drop",
+          "# deep-1\n\nText." in open(a1).read() and 'status: "done"' in open(a1).read() and 'next: "drop"' in open(a1).read())
+    check("drop deletes nothing and moves nothing, linked or not, reading or plan",
+          all('status: "done"' in open(os.path.join(v, "reference", n + ".md")).read() for n in ("deep-1", "deep-2", "plan-3"))
+          and not os.path.exists(os.path.join(v, "archive")))
 past = V.Note("days/2026/2026-10-28-brief.md", "b", "# B", {"type": "day", "kind": "brief", "date": "2026-10-28"}); past.held = ["too long"]
 now_ = V.Note("days/2026/2026-10-30-brief.md", "b", "# B", {"type": "day", "kind": "brief", "date": "2026-10-30"}); now_.held = ["too long"]
 rev = V.Note("readings/2026-10-28-r.md", "r", "# R", {"type": "review", "date": "2026-10-28"}); rev.held = ["too long"]
@@ -644,8 +645,8 @@ nt2, new2 = V.with_afterwards(nt, [("MH-1", "2026-10-31", "- 10-31 · MH-1: A �
 check("a day's line is brought up to date in place", new2 == [] and "A → C" in nt2 and "A → B" not in nt2)
 full = V.with_afterwards("# N\n", [(f"MH-{i}", "2026-10-31", f"- 10-31 · MH-{i}: x") for i in range(45)])[0]
 check("at most 40 lines a note", full.count("\n- 10-31") == 40)
-check("the all-notes base has an Archive view, and Home links it", "name: Archive" in V.VIEWS["all-notes"]
-      and "[[ela/all-notes.base#Archive|archive]]" in V.home(datetime.date(2026, 10, 30), datetime.datetime(2026, 10, 30, 9), []))
+check("the all-notes base has Live and Done views, and Home links Done", "name: Done" in V.VIEWS["all-notes"] and "name: Live" in V.VIEWS["all-notes"]
+      and "[[ela/all-notes.base#Done|done]]" in V.home(datetime.date(2026, 10, 30), datetime.datetime(2026, 10, 30, 9), []))
 one = V.Note("one-thing.md", "One Thing · 2026-11", "# One Thing · 2026-11\n", {"type": "one-thing", "date": "2026-11-03"})
 one.count = 14
 hm1 = V.home(datetime.date(2026, 11, 3), datetime.datetime(2026, 11, 3, 9), [one])
@@ -658,40 +659,38 @@ check("Home links the One Thing page without a count when every row is pasted",
 check("Home has no One Thing link when the vault has no One Thing page",
       "One Thing" not in V.home(datetime.date(2026, 11, 2), datetime.datetime(2026, 11, 2, 9), []))
 check("the One Thing page is a living page of the page family", V.TYPE_FAMILY.get("one-thing") == "page" and "one-thing" in V.BUDGET)
-check("a sprint keeps its own status; a reading carries none", S("sprints", "active") == ("active", None, None) and S("readings", "decided") == (None, None, None))
-with tempfile.TemporaryDirectory() as t:
-    os.makedirs(os.path.join(t, "readings"))
-    open(os.path.join(t, "readings", "l.md"), "w").write('---\ntype: "review"\nstatus: "decided"\nsource: "vault"\n---\n# L\n')
-    check("sync takes status off a reading", len(V.settle_statuses(t)) == 1 and "status:" not in open(os.path.join(t, "readings", "l.md")).read())
+check("a sprint is a work note, live until done; a reading too", S("reference", "active", "sprint") == ("live", None, None)
+      and S("reference", "decided", "review") == ("live", None, None))
 with tempfile.TemporaryDirectory() as t:
     vlt, rep = os.path.join(t, "v"), os.path.join(t, "r")
-    os.makedirs(os.path.join(vlt, "to-read")); os.makedirs(rep)
-    open(os.path.join(vlt, "to-read", "r.md"), "w").write('---\ntype: "review"\n---\n# R\n')
-    to = V.move_note(vlt, rep, "to-read/r.md", "archive", "in a session", next_="make-plan")
+    os.makedirs(os.path.join(vlt, "reference")); os.makedirs(rep)
+    open(os.path.join(vlt, "reference", "r.md"), "w").write('---\ntype: "review"\nstatus: "live"\n---\n# R\n')
+    to = V.move_note(vlt, rep, "reference/r.md", "archive", "in a session", next_="make-plan")
     r = open(os.path.join(vlt, to)).read()
-    check("a move into archive with --next keeps that word as next, status closed", 'next: "make-plan"' in r and 'status: "closed"' in r)
-check("the statuses are nine: a case adds open and answered",
-      V.STATUSES == ("proposed", "blocked", "building", "built", "waiting", "parked", "closed", "open", "answered"))
+    check("a move to done with --next keeps that word as next, status done, where it is",
+          to == "reference/r.md" and 'next: "make-plan"' in r and 'status: "done"' in r)
+check("the statuses: live and done, a case's, a project's parked, layout 4's read as input; never a report's ruling",
+      V.STATUSES[:5] == ("live", "done", "open", "answered", "closed") and "parked" in V.STATUSES and "decided" not in V.STATUSES)
 with tempfile.TemporaryDirectory() as t:
-    for d in ("archive", "in-progress", "sprints"):
+    for d in ("archive", "projects/x", "reference"):
         os.makedirs(os.path.join(t, d))
     open(os.path.join(t, "archive", "a.md"), "w").write('---\ntype: "plan"\nstatus: "accepted"\n---\n# A\n\nhis body\n')
     open(os.path.join(t, "archive", "v.md"), "w").write('---\ntype: verify\nstatus: pass\n---\n# V\n')
-    open(os.path.join(t, "in-progress", "b.md"), "w").write('---\ntype: "plan"\nstatus: "in-progress"\n---\n# B\n')
-    open(os.path.join(t, "sprints", "s.md"), "w").write('---\ntype: "sprint"\nstatus: "active"\n---\n# S\n')
+    open(os.path.join(t, "projects", "x", "b.md"), "w").write('---\ntype: "plan"\nstatus: "in-progress"\n---\n# B\n')
+    open(os.path.join(t, "reference", "s.md"), "w").write('---\ntype: "sprint"\nstatus: "active"\n---\n# S\n')
     fixes = V.settle_statuses(t)
     a = open(os.path.join(t, "archive", "a.md")).read()
-    check("sync settles a native note's front matter, one line per fix, its body untouched", len(fixes) == 3
-          and 'status: "closed"' in a and 'next: "accept"' in a and 'moves: "closed"' in a and a.endswith("# A\n\nhis body\n")
+    check("sync settles a native note's front matter, one line per fix, its body untouched", len(fixes) == 4
+          and 'status: "done"' in a and 'next: "accept"' in a and 'moves: "closed"' in a and a.endswith("# A\n\nhis body\n")
           and 'result: "pass"' in open(os.path.join(t, "archive", "v.md")).read()
-          and 'status: "building"' in open(os.path.join(t, "in-progress", "b.md")).read()
-          and 'status: "active"' in open(os.path.join(t, "sprints", "s.md")).read())
+          and 'status: "live"' in open(os.path.join(t, "projects", "x", "b.md")).read()
+          and 'status: "live"' in open(os.path.join(t, "reference", "s.md")).read())
     check("a second pass has nothing to fix", V.settle_statuses(t) == [])
     V.write_move_sets(t)
-    ms = {n: open(os.path.join(t, "ela", "moves", n + ".md")).read() for n in ("plan", "built", "parked", "closed")}
-    check("each move set lists only its folder's statuses", "proposed" in ms["plan"] and "building" not in ms["plan"]
-          and "waiting" in ms["built"] and "accept" in ms["built"] and "name: next" not in ms["closed"] and "closed" in ms["closed"]
-          and "- name: status" in ms["parked"] and "proposed" not in ms["parked"])
+    ms = {n: open(os.path.join(t, "ela", "moves", n + ".md")).read() for n in ("plan", "built", "parked", "closed", "case")}
+    check("each move set lists its moves and its type's states", "live" in ms["plan"] and "done" in ms["plan"] and "proposed" not in ms["plan"]
+          and "accept" in ms["built"] and "name: next" not in ms["closed"] and "done" in ms["closed"]
+          and "- name: status" in ms["parked"] and "answered" in ms["case"] and "live" not in ms["case"])
 
 with tempfile.TemporaryDirectory() as t:
     os.makedirs(os.path.join(t, "verify", "plans"))
@@ -736,12 +735,13 @@ with tempfile.TemporaryDirectory() as t:
 
 with tempfile.TemporaryDirectory() as t:
     vlt, rep = os.path.join(t, "v"), os.path.join(t, "r")
-    os.makedirs(os.path.join(vlt, "to-read")); os.makedirs(os.path.join(vlt, "archive")); os.makedirs(rep)
+    os.makedirs(os.path.join(vlt, "reference")); os.makedirs(os.path.join(vlt, "archive")); os.makedirs(rep)
     open(os.path.join(vlt, "archive", "same.md"), "w").write("# kept\n")
-    open(os.path.join(vlt, "to-read", "same.md"), "w").write('---\ntype: "plan"\n---\n# new\n')
-    to = V.move_note(vlt, rep, "to-read/same.md", "archive", "rejected")
-    check("a move into archive never overwrites a note of the same name", to == "archive/same-2.md"
-          and open(os.path.join(vlt, "archive", "same.md")).read() == "# kept\n" and "# new" in open(os.path.join(vlt, to)).read())
+    open(os.path.join(vlt, "reference", "same.md"), "w").write('---\ntype: "plan"\nstatus: "live"\n---\n# new\n')
+    to = V.move_note(vlt, rep, "reference/same.md", "archive", "rejected")
+    check("a move to done stays where it is and touches no namesake", to == "reference/same.md"
+          and open(os.path.join(vlt, "archive", "same.md")).read() == "# kept\n" and 'status: "done"' in open(os.path.join(vlt, to)).read()
+          and 'next: "reject"' in open(os.path.join(vlt, to)).read())
     check("a note kept in its own folder keeps its name", V.free_path(os.path.join(vlt, "archive"), "same.md", own=os.path.join(vlt, "archive", "same.md"))
           == os.path.join(vlt, "archive", "same.md"))
 
@@ -756,12 +756,12 @@ with tempfile.TemporaryDirectory() as t:
     open(lp, "w").write('---\ntype: "day"\nkind: "learned"\nmoves: "learned"\nnext: "learn"\n---\n# What the day taught\n')
     check("the evening's learned page is a day page: no moves, nothing taken from it",
           "learned" not in V.MOVE_PROPS and V.apply_marks(vlt, rep) == [] and os.path.exists(lp) and not os.path.exists(os.path.join(vlt, "to-learn")))
-    os.makedirs(os.path.join(vlt, "to-read"))
-    open(os.path.join(vlt, "to-read", "r.md"), "w").write('---\ntype: "review"\nsource: "vault"\nstatus: "proposed"\nmoves: "review"\nnext: ""\n---\n# R\n')
-    to = V.move_note(vlt, rep, "to-read/r.md", "readings")
+    os.makedirs(os.path.join(vlt, "reference"))
+    open(os.path.join(vlt, "reference", "r.md"), "w").write('---\ntype: "review"\nsource: "vault"\nstatus: "live"\nmoves: "review"\nnext: ""\n---\n# R\n')
+    to = V.move_note(vlt, rep, "reference/r.md", "readings")
     r = open(os.path.join(vlt, to)).read()
-    check("a review written in place moves to readings on his word, without status or moves", to == "readings/r.md"
-          and "status:" not in r and "moves:" not in r and "next:" not in r and 'source: "vault"' in r)
+    check("a review written in place is done on his word (readings read as done), where it is", to == "reference/r.md"
+          and 'status: "done"' in r and 'moves: "closed"' in r and 'source: "vault"' in r and V.MOVES_HEAD not in r)
 
 day = datetime.date(2026, 10, 26)
 cons = {"exists": True, "error": None, "today": day.isoformat(), "gaps": [{"kind": "host_unreadable", "host": "qa", "detail": "qa login failed"}],
@@ -813,19 +813,19 @@ box = [dict(sb, n=4), dict(sb, n=5, scope=["--lane", "qa-us1"], send_ticked={"at
 hm = V.home(day, datetime.datetime(2026, 10, 28, 9), [], {"actions": box, "hold": {"until": "2026-11-05"}})
 check("Home lists a send box between the tier-2 block and his own, in the form the runner reads, a ticked one with its time",
       hm.index("unless you tick" if "unless you tick" in hm else "held until") < hm.index("**Send when you tick:**") < hm.index("**Only you:**")
-      and "- [ ] send 4 — QA today on qa-cn3 (your ela: lines applied first) · [[lanes/test-list-qa-cn3|the list]] · untouched: not sent" in hm
+      and "- [ ] send 4 — QA today on qa-cn3 (your ela: lines applied first) · [[test-list-qa-cn3|the list]] · untouched: not sent" in hm
       and "- [x] send 5 — QA today on qa-us1 (your ela: lines applied first) · ticked 09:12" in hm
       and "send 6" not in hm and "apply 4" not in hm and "**Only you:** nothing today." in hm)
 RUNNER_TICK = r"(?m)^[ \t]*(?:>[ \t]*)*[-*][ \t]+\[[xX]\][ \t]+send[ \t]+(\d+)\b"   # ela-runner's `ticked()` regex, as it stands
 check("a send box ticked on Home is what the runner reads, the decorated open one is not", re.findall(RUNNER_TICK, hm) == ["5"]
       and re.findall(r"(?m)^[ \t]*[-*][ \t]+\[[ xX]\][ \t]+send[ \t]+(\d+) — ", hm) == ["4", "5"])
-lists = {("qa-today", "qa-cn3"): "[[lanes/test-list-qa-cn3|19 rows, 2 P1]]", ("dev-today", "2.1"): "[[lanes/dev-list-2.1|78 rows, 19 with a gap]]"}
+lists = {("qa-today", "qa-cn3"): "[[releases/2.1/test-list-qa-cn3|19 rows, 2 P1]]", ("dev-today", "2.1"): "[[releases/2.1/dev-list-2.1|78 rows, 19 with a gap]]"}
 dev = dict(sb, n=9, rule="dev-today", scope=["--line", "2.1"], channel="prj_dev_mediahub", command="ela slack post #prj_dev_mediahub --file f --team-day-post")
 hm = V.home(day, datetime.datetime(2026, 10, 28, 9), [], {"actions": [dict(sb, n=4, channel="mediahub-qa-release"), dev,
                                                                        dict(sb, n=8, scope=["--lane", "qa-us1"], unsent={"at": "x", "final": True})], "lists": lists})
 check("an open send line links the list it would send with its counts, names the channel and ends untouched: not sent",
-      "- [ ] send 4 — QA today on qa-cn3 (your ela: lines applied first) · [[lanes/test-list-qa-cn3|19 rows, 2 P1]] → #mediahub-qa-release · untouched: not sent" in hm
-      and "- [ ] send 9 — Dev today on 2.1 (your ela: lines applied first) · [[lanes/dev-list-2.1|78 rows, 19 with a gap]] → #prj_dev_mediahub · untouched: not sent" in hm)
+      "- [ ] send 4 — QA today on qa-cn3 (your ela: lines applied first) · [[releases/2.1/test-list-qa-cn3|19 rows, 2 P1]] → #mediahub-qa-release · untouched: not sent" in hm
+      and "- [ ] send 9 — Dev today on 2.1 (your ela: lines applied first) · [[releases/2.1/dev-list-2.1|78 rows, 19 with a gap]] → #prj_dev_mediahub · untouched: not sent" in hm)
 check("one the runner gave up on at its last pass has no box and says so", "- send 8 — QA today on qa-us1 (your ela: lines applied first) · not sent: no tick · stays as apply 8" in hm
       and re.findall(RUNNER_TICK, hm) == [])
 with tempfile.TemporaryDirectory() as t:
@@ -845,7 +845,7 @@ with tempfile.TemporaryDirectory() as t:
     pg = "## QA today\n\n- [ ] send 4 — QA today on qa-cn3 (your ela: lines applied first) · unticked: stays as apply 4\n" \
          "- [ ] send 5 — b · unticked: stays as apply 5\n- [x] send 6 — c\n- [x] send 7 — d\n- [x] send 6 — c · sent 09:30 · [link](https://x/p6)"
     check("the morning page's send box under QA today: open with the list, channel and untouched: not sent; ticked, sent with its link, not sent",
-          V.action_states(pg, ap, lists) == "## QA today\n\n- [ ] send 4 — QA today on qa-cn3 (your ela: lines applied first) · [[lanes/test-list-qa-cn3|19 rows, 2 P1]] · untouched: not sent\n"
+          V.action_states(pg, ap, lists) == "## QA today\n\n- [ ] send 4 — QA today on qa-cn3 (your ela: lines applied first) · [[releases/2.1/test-list-qa-cn3|19 rows, 2 P1]] · untouched: not sent\n"
           "- [x] send 5 — b · ticked 09:12\n- [x] send 6 — c · applied 09:30 (trigger not recorded) · [link](https://x/p6)\n- [x] send 7 — d · not sent: slack 500\n"
           "- [x] send 6 — c · sent 09:30 · [link](https://x/p6)")
     check("a decorated line is decorated once", V.action_states(V.action_states(pg, ap, lists), ap, lists) == V.action_states(pg, ap, lists))
@@ -873,8 +873,7 @@ with tempfile.TemporaryDirectory() as t:
         open(os.path.join(t, "review", f"{d}-reader.md"), "w").write("| item | verdict | line |\n|---|---|---|\n| 1. x | tickable | y |\n")
     open(os.path.join(t, "review", "2026-10-28-replay.json"), "w").write("{}")
     rn = [n for n in V.report_notes(t, datetime.date(2026, 10, 28)) if n.props.get("type") == "reader"]
-    check("a reader page is carried to ela/review/, typed reader, no status, and leaves after 30 days",
-          [n.path for n in rn] == ["ela/review/2026-10-28-reader.md"] and "status" not in rn[0].props and rn[0].src_rel == "review/2026-10-28-reader.md")
+    check("a reader page is not carried into the vault any more (ADR 0015: nothing read it there)", rn == [])
 big = "# A plan\n\n" + "word " * 700 + "\n\n> [!note]- Drafts\n> " + "more " * 3000 + "\n"
 check("a plan's budget counts only outside its folds", V.reading_gate(V.Note("in-progress/p.md", "p", big, {"type": "plan"})) == [])
 check("a plan over 800 open words is held",
@@ -883,18 +882,18 @@ rd = "# The reader\n\n## Learned\n\n" + "".join(f"- a lesson {i} — origin\n" f
 check("a reader page with more than five Learned lines is held", "7 Learned lines" in " ".join(V.reading_gate(V.Note("ela/review/r.md", "r", rd, {"type": "reader"}))))
 with tempfile.TemporaryDirectory() as t:
     vault, reports = os.path.join(t, "v"), os.path.join(t, "r")
-    os.makedirs(os.path.join(vault, "in-progress")); os.makedirs(os.path.join(reports, "ela"))
-    open(os.path.join(vault, "in-progress", "p.md"), "w").write('---\ntype: "plan"\nstatus: "built"\nmoves: "built"\n---\n# P\n')
-    got = V.move_note(vault, reports, "in-progress/p.md", "archive", next_="reopen")
+    os.makedirs(os.path.join(vault, "projects", "x")); os.makedirs(os.path.join(reports, "ela"))
+    open(os.path.join(vault, "projects", "x", "p.md"), "w").write('---\ntype: "plan"\nstatus: "live"\nmoves: "built"\n---\n# P\n')
+    got = V.move_note(vault, reports, "projects/x/p.md", "archive", next_="reopen")
     fm = V.props_of(V.split_front(open(os.path.join(vault, got)).read())[0])
-    check("archived by ela after three working days: closed, offering reopen", got == "archive/p.md" and fm.get("status") == "closed"
+    check("done by ela after three working days, where it is, offering reopen", got == "projects/x/p.md" and fm.get("status") == "done"
           and fm.get("moves") == "reopen" and fm.get("closed-by") == "ela")
     check("the status pass leaves its reopen set alone", not any("moves" in x for x in V.settle_statuses(vault)))
     txt = open(os.path.join(vault, got)).read()
     open(os.path.join(vault, got), "w").write(txt.replace('next: ""', 'next: "reopen"'))
-    check("his reopen is a move", V.apply_marks(vault, reports) == [("archive/p.md", "reopen")])
-    fm = V.props_of(V.split_front(open(os.path.join(vault, "in-progress", "p.md")).read())[0])
-    check("reopen brings it back to in-progress as built", fm.get("status") == "built" and fm.get("moves") == "built" and not fm.get("closed-by"))
+    check("his reopen is a move", V.apply_marks(vault, reports) == [("projects/x/p.md", "reopen")])
+    fm = V.props_of(V.split_front(open(os.path.join(vault, "projects", "x", "p.md")).read())[0])
+    check("reopen makes it live again as built, for his accept", fm.get("status") == "live" and fm.get("moves") == "built" and not fm.get("closed-by"))
 with tempfile.TemporaryDirectory() as t:
     os.makedirs(os.path.join(t, "ela"))
     with open(os.path.join(t, "ela", "closed-by-ela.jsonl"), "w") as fh:
@@ -906,7 +905,8 @@ check("nothing closed says so", V.closed_by_ela({"reports": "/nonexistent"}, dat
 check("a type outside the closed set is a lint line", "not in the closed set" in V.type_lint("to-read/x.md", "memo"))
 check("a decision outside its folders is a lint line", "belongs in" in V.type_lint("readings/x.md", "decision"))
 check("a report is a page, in any folder", V.type_lint("ela/bot/x.md", "report") is None and V.type_lint("x.md", "report") is None)
-check("a verification waiting in to-read is in place", V.type_lint("to-read/2026-10-29-verify-mh-1.md", "verify") is None)
+check("a verification in its line's folder is in place; in to-read/ it is not", V.type_lint("releases/2.1/2026-10-29-verify-mh-1.md", "verify") is None
+      and V.type_lint("to-read/2026-10-29-verify-mh-1.md", "verify") is not None)
 check("a guide outside ela/ is a lint line", "belongs in ela/" in (V.type_lint("meetings/review-list.md", "guide") or ""))
 check("the ela page is a guide in place", V.type_lint("ela/overview.md", "guide") is None)
 with tempfile.TemporaryDirectory() as t:
@@ -920,12 +920,12 @@ with tempfile.TemporaryDirectory() as t:
     for d in ("to-read", "mh", "ela", "library", ".obsidian"):
         os.makedirs(os.path.join(t, d))
     open(os.path.join(t, "home.md"), "w").write("# H\n")
-    check("the readme's layout names its folders", {"to-read", "mh", "lanes", "ela", "board"} <= V.layout_folders() and "library" not in V.layout_folders())
+    check("the readme's layout names the eight entries", V.layout_folders() == set(V.ROOTS5))
     check("a top folder the readme does not name is a lint line, hidden ones and files are not",
-          V.folder_lint(t) == ["library/: a top folder the readme's layout does not name"])
+          V.folder_lint(t) == [f"{d}/: a top folder the readme's layout does not name" for d in ("library", "mh", "to-read")])
 with tempfile.TemporaryDirectory() as t:
     os.makedirs(os.path.join(t, "archive"))
-    open(os.path.join(t, "archive", "a.md"), "w").write("---\ntype: verify\nstatus: \"closed\"\nmoves: \"closed\"\n---\n# A\n")
+    open(os.path.join(t, "archive", "a.md"), "w").write("---\ntype: verify\nstatus: \"done\"\nmoves: \"closed\"\n---\n# A\n")
     fixes = V.settle_statuses(t)
     check("an unquoted type in archive is quoted, the body untouched", fixes == ["archive/a.md: type quoted"]
           and 'type: "verify"' in open(os.path.join(t, "archive", "a.md")).read())
@@ -995,12 +995,12 @@ check("a project with its deadline under 14 days and its step overdue takes the 
 check("no project, no projects link", "projects:" not in V.home(td, datetime.datetime(2026, 11, 4, 9), []))
 check("the readme's layout names projects/, the base has a Projects view and a project column",
       "projects" in V.layout_folders() and "name: Projects" in V.VIEWS["all-notes"] and 'file.hasProperty("project")' in V.VIEWS["all-notes"]
-      and "order: [date, formula.note, type, project, status, next]" in V.VIEWS["all-notes"] and "project" in V.PROPS)
+      and "order: [project, date, formula.note, type, status, next]" in V.VIEWS["all-notes"] and "project" in V.PROPS)
 
 # the service map: one living page from the published map (site.json `map`), its Review section the owner's
 check("the service map is a living page of the page family with a 2,500-word budget, and lives only at ela/service-map.md",
       V.TYPE_FAMILY.get("services") == "page" and V.BUDGET.get("services") == 2500 and V.type_lint(V.SERVICES_PAGE, "services") is None
-      and V.type_lint("to-read/service-map.md", "services") is not None and "`ela/service-map`" in V.README)
+      and V.type_lint("to-read/service-map.md", "services") is not None)
 with tempfile.TemporaryDirectory() as tmp:
     ELAK, reports, vault, runtime = (os.path.join(tmp, d) for d in ("elak", "reports", "vault", "runtime"))
     for d in (ELAK + "/blueprint/decisions", reports + "/runner", reports + "/ela", vault + "/ela", runtime):
@@ -1060,145 +1060,102 @@ with tempfile.TemporaryDirectory() as tmp:
 
 # closed notes by subject (vault in-progress/2026-11-09-kept-notes-by-subject-cases-and-archive.md)
 H = V.home_for
-check("a closing note goes to its subject home by type, else archive",
+check("a work note that serves no project has its thing's home by type, else reference",
       H("to-read/2026-11-05-x-timeline.md", {"type": "case"}) == "cases"
-      and H("to-read/2026-10-21-verify-mh-1.md", {"type": "verify"}) == "mh/releases"
-      and H("to-read/2026-10-29-verify-plan-mh-2.md", {"type": "verify-plan"}) == "mh/releases"
-      and H("readings/2026-11-02-promote-2-1-daily-wed-to-prod-3.md", {"type": "review"}) == "mh/releases/2.1"
-      and H("readings/2026-11-03-promote-wed-to-prod-3-docker-check.md", {"type": "review"}) == "mh/releases"
-      and H("readings/2026-10-28-mh-2-0-region-hotfix-review.md", {"type": "review"}) == "mh/releases/2.0"
-      and H("in-progress/2026-10-27-a.md", {"type": "plan", "target": "ela-runner"}) == "ela/history"
-      and H("in-progress/2026-11-04-b.md", {"type": "plan", "target": "the vault's layout and lint"}) == "ela/history"
-      and H("to-read/2026-10-26-c.md", {"type": "review", "title": "System review: ela, the runner"}) == "ela/history"
-      and H("to-read/2026-10-27-d.md", {"type": "plan", "target": "helm"}) == "archive"
-      and H("readings/2026-09-21-audio-mixer-mediabox.md", {"type": "review"}) == "archive"
-      and H("readings/2026-10-28-deep-mh-3829.md", {"type": "ticket"}) == "archive"
-      and H("to-read/2026-11-02-one-thing.md", {"type": "report", "target": "ela"}) == "archive"
-      and H("x/2026-10-01-elastic-plan.md", {"type": "plan", "target": "elastic search"}) == "archive")
-check("a case is its own family, in cases/; a closed plan may sit in ela/history, a closed verification in mh/releases",
-      V.type_lint("cases/2026-11-05-x.md", "case") is None and V.type_lint("archive/x.md", "case") is not None
-      and V.type_lint("ela/history/x.md", "plan") is None and V.type_lint("mh/releases/x.md", "verify") is None
+      and H("to-read/2026-10-21-verify-mh-1.md", {"type": "verify"}) == "releases"
+      and H("to-read/2026-10-29-verify-plan-mh-2.md", {"type": "verify-plan"}) == "releases"
+      and H("readings/2026-11-02-promote-2-1-daily-wed-to-prod-3.md", {"type": "review"}) == "releases/2.1"
+      and H("readings/2026-11-03-promote-wed-to-prod-3-docker-check.md", {"type": "review"}) == "releases"
+      and H("readings/2026-10-28-mh-2-0-region-hotfix-review.md", {"type": "review"}) == "releases/2.0"
+      and H("in-progress/2026-10-27-a.md", {"type": "plan", "target": "ela-runner"}) == "ela"
+      and H("in-progress/2026-11-04-b.md", {"type": "plan", "target": "the vault's layout and lint"}) == "ela"
+      and H("to-read/2026-10-26-c.md", {"type": "review", "title": "System review: ela, the runner"}) == "ela"
+      and H("to-read/2026-10-27-d.md", {"type": "plan", "target": "helm"}) == "reference"
+      and H("readings/2026-09-21-audio-mixer-mediabox.md", {"type": "review"}) == "reference"
+      and H("readings/2026-10-28-deep-mh-3829.md", {"type": "ticket"}) == "reference"
+      and H("x/2026-10-01-elastic-plan.md", {"type": "plan", "target": "elastic search"}) == "reference")
+check("a case is its own family, in cases/ or the archive; a plan may sit in ela/history, a verification in releases",
+      V.type_lint("cases/2026-11-05-x.md", "case") is None and V.type_lint("reference/x.md", "case") is not None
+      and V.type_lint("ela/history/x.md", "plan") is None and V.type_lint("releases/x.md", "verify") is None
       and V.type_lint("mh/x.md", "verify") is not None)
-check("a closed home settles to closed; a case keeps open, answered or closed",
-      S("mh/releases", "accepted") == ("closed", None, "accept") and S("ela/history", "proposed")[0] == "closed"
-      and S("cases", "answered") == ("answered", None, None) and S("cases", "weird")[0] == "open")
+check("a work note settles to live or done wherever it lives; a case keeps open, answered or closed",
+      S("releases", "accepted", "review") == ("done", None, "accept") and S("ela/history", "proposed", "plan")[0] == "live"
+      and S("cases", "answered", "case") == ("answered", None, None) and S("cases", "weird", "case")[0] == "open")
 with tempfile.TemporaryDirectory() as t:
-    vlt, rep = os.path.join(t, "v"), os.path.join(t, "r")
-    os.makedirs(os.path.join(vlt, "to-read")); os.makedirs(os.path.join(vlt, "readings")); os.makedirs(rep)
-    open(os.path.join(vlt, "to-read", "2026-11-02-promote-x.md"), "w").write('---\ntype: "review"\n---\n# P\n')
-    open(os.path.join(vlt, "to-read", "2026-11-05-case-x.md"), "w").write('---\ntype: "case"\nstatus: "answered"\n---\n# C\n')
-    open(os.path.join(vlt, "to-read", "2026-11-04-plan-x.md"), "w").write('---\ntype: "plan"\ntarget: "ela"\n---\n# Pl\n')
-    open(os.path.join(vlt, "readings", "2026-11-04-plain.md"), "w").write('---\ntype: "review"\n---\n# R\n')
-    to1 = V.move_note(vlt, rep, "to-read/2026-11-02-promote-x.md", "archive", next_="done")
-    to2 = V.move_note(vlt, rep, "to-read/2026-11-05-case-x.md", "archive", next_="done")
+    vlt, rep_ = os.path.join(t, "v"), os.path.join(t, "r")
+    os.makedirs(os.path.join(vlt, "releases")); os.makedirs(os.path.join(vlt, "cases")); os.makedirs(rep_)
+    open(os.path.join(vlt, "releases", "2026-11-02-promote-x.md"), "w").write('---\ntype: "review"\nstatus: "live"\n---\n# P\n')
+    open(os.path.join(vlt, "cases", "2026-11-05-case-x.md"), "w").write('---\ntype: "case"\nstatus: "answered"\n---\n# C\n')
+    to1 = V.move_note(vlt, rep_, "releases/2026-11-02-promote-x.md", "archive", next_="done")
     with contextlib.redirect_stdout(io.StringIO()):
-        f3 = V.finish(vlt, rep, "to-read/2026-11-04-plan-x.md", "archive", "done")
-        f4 = V.finish(vlt, rep, "readings/2026-11-04-plain.md", "archive", "done")
-    c = open(os.path.join(vlt, to2)).read()
-    check("the close move files a release review, a case and an ela plan in their homes, the rest in archive",
-          to1 == "mh/releases/2026-11-02-promote-x.md" and to2 == "cases/2026-11-05-case-x.md"
-          and f3 == "ela/history" and os.path.exists(os.path.join(vlt, "ela/history/2026-11-04-plan-x.md"))
-          and f4 == "archive" and os.path.exists(os.path.join(vlt, "archive/2026-11-04-plain.md"))
-          and 'status: "closed"' in c and 'moves: "case"' in c)
-    rows = [json.loads(l) for l in open(os.path.join(rep, "ela", "vault-removed.jsonl"))]
-    check("the log records a kept note as archived, naming its home",
-          all(x["fate"] == "archived" for x in rows) and {x.get("home") for x in rows} == {"mh/releases", "cases", "ela/history", None})
+        f2 = V.finish(vlt, rep_, "cases/2026-11-05-case-x.md", "archive", "done")
+    c = open(os.path.join(vlt, "cases", "2026-11-05-case-x.md")).read()
+    check("closing marks a release review done and a case closed, each where it lives",
+          to1 == "releases/2026-11-02-promote-x.md" and 'status: "done"' in open(os.path.join(vlt, to1)).read()
+          and f2 == "cases" and 'status: "closed"' in c and 'moves: "case"' in c and not os.path.exists(os.path.join(vlt, "archive")))
+    rows = [json.loads(l) for l in open(os.path.join(rep_, "ela", "vault-removed.jsonl"))]
+    check("the log records a closed note as archived, naming the home it stays in",
+          all(x["fate"] == "archived" for x in rows) and {x.get("home") for x in rows} == {"releases", "cases"})
 with tempfile.TemporaryDirectory() as t:
     v = os.path.join(t, "v")
-    for d in ("archive", "cases", "mh/releases"):
+    for d in ("archive", "cases", "releases"):
         os.makedirs(os.path.join(v, d))
     td = datetime.date.today()
     open(os.path.join(v, "cases", "c.md"), "w").write(f'---\ntype: "case"\ndate: "{td}"\nstatus: "open"\nkeys: "MH-9"\n---\n# C\n')
-    open(os.path.join(v, "mh/releases", "p.md"), "w").write(f'---\ntype: "review"\ndate: "{td}"\nkeys: "MH-8"\n---\n# P\n')
-    check("the afterwards watch covers cases and the other subject homes",
-          sorted(w["note"] for w in V.watched_notes(v, td)) == ["cases/c.md", "mh/releases/p.md"])
-    open(os.path.join(v, "mh/releases", "s.md"), "w").write('---\ntype: "review"\n---\n# S\n\nSee MH-7 and https://x.slack.com/archives/C1/p1793000000000009\n')
-    check("a note reaching a subject home is stamped like an archived one", "mh/releases/s.md" in V.stamp_archive(v, td, dry_run=True))
+    open(os.path.join(v, "releases", "p.md"), "w").write(f'---\ntype: "review"\ndate: "{td}"\nstatus: "done"\nkeys: "MH-8"\n---\n# P\n')
+    open(os.path.join(v, "releases", "g.md"), "w").write(f'---\ntype: "review"\ndate: "{td}"\nstatus: "live"\nkeys: "MH-7"\n---\n# G\n')
+    json.dump({"layout": 5, "files": ["releases/g.md"]}, open(os.path.join(v, V.MANIFEST), "w"))
+    check("the afterwards watch covers a case and a done note anywhere, never a generated live one",
+          sorted(w["note"] for w in V.watched_notes(v, td)) == ["cases/c.md", "releases/p.md"])
+    open(os.path.join(v, "releases", "s.md"), "w").write('---\ntype: "review"\nstatus: "done"\n---\n# S\n\nSee MH-7 and https://x.slack.com/archives/C1/p1793000000000009\n')
+    check("a done note is stamped like an archived one", "releases/s.md" in V.stamp_archive(v, td, dry_run=True))
 with tempfile.TemporaryDirectory() as t:
-    v = os.path.join(t, "v")
-    for d in ("archive", "days"):
-        os.makedirs(os.path.join(v, d))
-    for f, ty in (("2026-11-02-promote-a.md", "review"), ("2026-11-05-srt-timeline.md", "case"), ("2026-10-26-sys.md", "plan"),
-                  ("2026-10-28-deep-mh-1.md", "ticket"), ("2026-11-03-deploy-b.md", "review")):
-        open(os.path.join(v, "archive", f), "w").write(f'---\ntype: "{ty}"\ntarget: "ela"\n---\n# {f}\n')
-    open(os.path.join(v, "days", "d.md"), "w").write("[[2026-11-02-promote-a]] and [[archive/2026-11-03-deploy-b|b]]\n")
-    plan = {x["note"]: x for x in V.tidy_plan(v)}
-    check("tidy lists each archived note with a home, and holds back a move that would break a path link",
-          sorted(plan) == ["archive/2026-10-26-sys.md", "archive/2026-11-02-promote-a.md", "archive/2026-11-03-deploy-b.md",
-                           "archive/2026-11-05-srt-timeline.md"]
-          and plan["archive/2026-11-05-srt-timeline.md"]["to"] == "cases/2026-11-05-srt-timeline.md"
-          and plan["archive/2026-11-02-promote-a.md"]["blocked"] == []
-          and plan["archive/2026-11-03-deploy-b.md"]["blocked"] == ["days/d.md links it by its archive/ path"])
-    old = V.SITE
-    try:
-        V.SITE = os.path.join(t, "site.json"); json.dump({"vault": v}, open(V.SITE, "w"))
-        with contextlib.redirect_stdout(io.StringIO()):
-            V.cmd_tidy(types.SimpleNamespace(apply=False, json=True))
-        check("tidy without --apply moves nothing", len(os.listdir(os.path.join(v, "archive"))) == 5)
-        with contextlib.redirect_stdout(io.StringIO()):
-            V.cmd_tidy(types.SimpleNamespace(apply=True, json=True))
-        check("tidy --apply moves the free ones and leaves the held one",
-              os.path.exists(os.path.join(v, "mh/releases/2026-11-02-promote-a.md")) and os.path.exists(os.path.join(v, "ela/history/2026-10-26-sys.md"))
-              and os.path.exists(os.path.join(v, "cases/2026-11-05-srt-timeline.md"))
-              and sorted(os.listdir(os.path.join(v, "archive"))) == ["2026-10-28-deep-mh-1.md", "2026-11-03-deploy-b.md"])
-    finally:
-        V.SITE = old
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        V.cmd_tidy(types.SimpleNamespace(apply=True, json=False))
+    check("tidy is retired with layout 5 and points to migrate", "migrate" in buf.getvalue())
 # release lines (mh/releases/<line>/): the line from the title, else the first key's release label, else the root
 L = {"MH-1": "2.1", "MH-2": None, "MH-5": "2.0"}.get
 check("a release note is filed by the line its title names first, else its first key's label, else the root",
-      H("readings/2026-11-02-promote-2-1-daily-wed-to-prod-3.md", {"type": "review", "title": "Promote MH 2.1 Wednesday to prod 3"}, L) == "mh/releases/2.1"
-      and H("readings/x-deploy-approvals.md", {"type": "review", "title": "Deploy approvals: MH 2.1 to prod 3, MH 2.0 hotfix to prod 8"}, L) == "mh/releases/2.1"
-      and H("readings/2026-10-28-mh-2-0-region-hotfix-review.md", {"type": "review", "title": "MH 2.0 hotfix: region"}, L) == "mh/releases/2.0"
-      and H("readings/2026-11-09-mh2-1-daily-wed-to-prod-3.md", {"type": "review", "title": "MH 2.1 · daily-wed → prod-3 · release note"}, L) == "mh/releases/2.1"
-      and H("to-read/2026-10-21-verify-mh-1.md", {"type": "verify", "title": "MH-1 · FAIL on prod-3", "keys": "MH-1"}, L) == "mh/releases/2.1"
-      and H("to-read/v.md", {"type": "verify", "title": "MH-5 · PASS", "keys": ["MH-5", "MH-1"]}, L) == "mh/releases/2.0"
-      and H("to-read/2026-10-29-verify-plan-mh-2.md", {"type": "verify-plan", "keys": "MH-2 MH-1"}, L) == "mh/releases"
-      and H("readings/x-promote.md", {"type": "review", "title": "Promote MediaHub 2.1.15 to prod"}, L) == "mh/releases"
-      and H("readings/2026-09-21-audio-mixer-mediabox.md", {"type": "review", "title": "Audio mixer on MediaBox"}, L) == "archive")
-check("a line folder counts as its home: status, lint, the close move's life",
-      V.subject_home("mh/releases/2.1") == "mh/releases" and V.folder_of("mh/releases/2.1/x.md") == "mh/releases"
-      and V.folder_of("mh/x.md") == "mh" and V.kept_home("mh/releases/2.1") == "mh/releases" and V.kept_home("mh") is None
-      and V.type_lint("mh/releases/2.1/x.md", "verify") is None and V.type_lint("mh/releases/2.1/p.md", "plan") is None
-      and V.type_lint("mh/p.md", "review") is None and V.type_lint("mh/v.md", "verify") is not None)
+      H("readings/2026-11-02-promote-2-1-daily-wed-to-prod-3.md", {"type": "review", "title": "Promote MH 2.1 Wednesday to prod 3"}, L) == "releases/2.1"
+      and H("readings/x-deploy-approvals.md", {"type": "review", "title": "Deploy approvals: MH 2.1 to prod 3, MH 2.0 hotfix to prod 8"}, L) == "releases/2.1"
+      and H("readings/2026-10-28-mh-2-0-region-hotfix-review.md", {"type": "review", "title": "MH 2.0 hotfix: region"}, L) == "releases/2.0"
+      and H("readings/2026-11-09-mh2-1-daily-wed-to-prod-3.md", {"type": "review", "title": "MH 2.1 · daily-wed → prod-3 · release note"}, L) == "releases/2.1"
+      and H("to-read/2026-10-21-verify-mh-1.md", {"type": "verify", "title": "MH-1 · FAIL on prod-3", "keys": "MH-1"}, L) == "releases/2.1"
+      and H("to-read/v.md", {"type": "verify", "title": "MH-5 · PASS", "keys": ["MH-5", "MH-1"]}, L) == "releases/2.0"
+      and H("to-read/2026-10-29-verify-plan-mh-2.md", {"type": "verify-plan", "keys": "MH-2 MH-1"}, L) == "releases"
+      and H("readings/x-promote.md", {"type": "review", "title": "Promote MediaHub 2.1.15 to prod"}, L) == "releases"
+      and H("readings/2026-09-21-audio-mixer-mediabox.md", {"type": "review", "title": "Audio mixer on MediaBox"}, L) == "reference")
+check("a line folder counts as its home: status, lint, folder",
+      V.subject_home("releases/2.1") == "releases" and V.folder_of("releases/2.1/x.md") == "releases"
+      and V.folder_of("mh/x.md") == "mh" and V.kept_home("releases/2.1") == "releases" and V.kept_home("mh") is None
+      and V.type_lint("releases/2.1/x.md", "verify") is None and V.type_lint("releases/2.1/p.md", "plan") is None
+      and V.type_lint("mh/p.md", "review") is not None and V.type_lint("mh/v.md", "verify") is not None)
 with tempfile.TemporaryDirectory() as t:
     v, rep = os.path.join(t, "v"), os.path.join(t, "r")
-    for d in ("to-read", "mh/releases/2.1", "archive", "days"):
+    for d in ("releases/2.1", "archive"):
         os.makedirs(os.path.join(v, d))
     os.makedirs(rep)
-    open(os.path.join(v, "to-read", "2026-11-06-promote-y.md"), "w").write('---\ntype: "review"\ntitle: "Promote MH 2.1 build 85"\n---\n# P\n')
-    to = V.move_note(v, rep, "to-read/2026-11-06-promote-y.md", "archive", next_="done")
+    open(os.path.join(v, "releases/2.1", "2026-11-06-promote-y.md"), "w").write('---\ntype: "review"\ntitle: "Promote MH 2.1 build 85"\nstatus: "live"\n---\n# P\n')
+    to = V.move_note(v, rep, "releases/2.1/2026-11-06-promote-y.md", "archive", next_="done")
     c = open(os.path.join(v, to)).read()
     row = [json.loads(l) for l in open(os.path.join(rep, "ela", "vault-removed.jsonl"))][-1]
-    check("the close move files a release review into its line's folder, closed, logged under mh/releases",
-          to == "mh/releases/2.1/2026-11-06-promote-y.md" and 'status: "closed"' in c and 'moves: "closed"' in c
-          and row["home"] == "mh/releases")
+    check("closing a release review marks it done in its line's folder, logged under releases",
+          to == "releases/2.1/2026-11-06-promote-y.md" and 'status: "done"' in c and 'moves: "closed"' in c and row["home"] == "releases")
     td = datetime.date.today()
-    open(os.path.join(v, "mh/releases/2.1", "s.md"), "w").write(f'---\ntype: "review"\ndate: "{td}"\nstatus: "proposed"\n---\n# S\n\nSee MH-7.\n')
-    check("a note in a line folder is stamped, settled and watched like one in its home",
-          "mh/releases/2.1/s.md" in V.stamp_archive(v, td, dry_run=True)
-          and any(x.startswith("mh/releases/2.1/s.md: status proposed → closed") for x in V.settle_statuses(v, dry_run=True)))
-    open(os.path.join(v, "mh/releases/2.1", "record.md"), "w").write('---\ntype: "report"\nstatus: "decided"\n---\n# R\n')
-    open(os.path.join(v, "mh/releases/2.1", "plan.md"), "w").write('---\ntype: "plan"\nstatus: "draft"\n---\n# P\n')
+    open(os.path.join(v, "releases/2.1", "s.md"), "w").write(f'---\ntype: "review"\ndate: "{td}"\nstatus: "closed"\n---\n# S\n\nSee MH-7.\n')
+    check("a note in a line folder is settled like one anywhere: closed reads as done, and a done note is stamped",
+          any(x.startswith("releases/2.1/s.md: status closed → done") for x in V.settle_statuses(v, dry_run=True)))
+    open(os.path.join(v, "releases/2.1", "record.md"), "w").write('---\ntype: "report"\nstatus: "decided"\n---\n# R\n')
+    open(os.path.join(v, "releases/2.1", "plan.md"), "w").write('---\ntype: "plan"\nstatus: "draft"\n---\n# P\n')
     fixes = V.settle_statuses(v, dry_run=True)
-    check("a line's record and test plan keep their own status in mh/releases",
-          not any(x.startswith(("mh/releases/2.1/record.md", "mh/releases/2.1/plan.md")) for x in fixes)
-          and V.living_in_home("ela/history", "plan") is False and V.living_in_home("archive", "report") is False)
-    for f, title, keys in (("2026-11-03-promote-a.md", "Promote MH 2.0 to stage", ""), ("2026-10-21-verify-mh-1.md", "MH-1 · FAIL", "MH-1"),
-                           ("2026-10-29-verify-plan-mh-2.md", "MH-2 · plan", "MH-2"), ("2026-10-29-docker-ref.md", "Docker services: who calls them", ""),
-                           ("2026-11-01-promote-b.md", "Promote MH 2.1 again", "")):
-        open(os.path.join(v, "mh/releases", f), "w").write(f'---\ntype: "review"\ntitle: "{title}"\nkeys: "{keys}"\n---\n# x\n')
-    open(os.path.join(v, "days", "d.md"), "w").write("[[mh/releases/2026-11-01-promote-b|b]] and [[2026-11-03-promote-a]]\n")
-    plan = {x["note"]: x for x in V.tidy_plan(v, L)}
-    check("tidy files root release notes into their line; one with no readable line stays and is not listed; a path link holds one back",
-          sorted(plan) == ["mh/releases/2026-10-21-verify-mh-1.md", "mh/releases/2026-11-01-promote-b.md", "mh/releases/2026-11-03-promote-a.md"]
-          and plan["mh/releases/2026-11-03-promote-a.md"]["to"] == "mh/releases/2.0/2026-11-03-promote-a.md"
-          and plan["mh/releases/2026-10-21-verify-mh-1.md"]["to"] == "mh/releases/2.1/2026-10-21-verify-mh-1.md"
-          and plan["mh/releases/2026-11-01-promote-b.md"]["blocked"] == ["days/d.md links it by its mh/releases/ path"]
-          and plan["mh/releases/2026-11-03-promote-a.md"]["blocked"] == [])
+    check("a line's record keeps its ruling; its test plan is a work note, live",
+          not any(x.startswith("releases/2.1/record.md") for x in fixes) and any(x.startswith("releases/2.1/plan.md: status draft → live") for x in fixes))
 base = V.VIEWS["all-notes"]
-check("the all-notes base has a subject column and a Cases view; Archive lists every closed home",
+check("the all-notes base has a subject column and a Cases view; Done lists the archive and every done note",
       "subject: 'file.folder'" in base and "name: Cases" in base
-      and base.split("name: Archive", 1)[1].count("file.inFolder(") == 4 and "formula.subject" in base.split("name: Archive", 1)[1])
+      and base.split("name: Done", 1)[1].count("file.inFolder(") == 1 and 'status == "done"' in base.split("name: Done", 1)[1]
+      and "formula.subject" in base.split("name: Done", 1)[1])
 
 # the note standards: one spec per type, printed in the readme, linted one line per deviation, never a failure
 check("every type ela or a session authors has a spec, and the readme prints each one",
@@ -1207,22 +1164,23 @@ check("every type ela or a session authors has a spec, and the readme prints eac
       and all(f"### {k}" in V.spec_text() for k in V.SPECS) and V.SPEC_MARK in V.README and V.TYPE_FAMILY.get("draft") == "draft")
 good = ('---\ntitle: "MH-1 · fixed, on QA"\naliases: ["MH-1 · fixed, on QA"]\ntype: "ticket"\ndate: "2026-11-09"\nkeys: "MH-1"\n---\n'
         "# [MH-1](https://j/browse/MH-1) · fixed, on QA\n\n## Next\n\nText about [MH-2](https://j/browse/MH-2).\n\n**Do.** Ask QA.\n")
-check("a note that meets its spec has no lint line", V.spec_lint("readings/2026-11-09-mh-1-fixed.md", good) == [])
+check("a note that meets its spec has no lint line", V.spec_lint("reference/2026-11-09-mh-1-fixed.md", good) == [])
 bad = ('---\ntitle: [MH-1](https://j/browse/MH-1): build 85 fixed\naliases: ["old"]\ntype: "ticket"\ndate: "2026-11-08"\n---\n'
        "# Something else\n\nMH-2 is bare; MH-035 is a test id.\n")
-lines = V.spec_lint("readings/2026-11-09-mh-1-build-84.md", bad)
+lines = V.spec_lint("reference/2026-11-09-mh-1-build-84.md", bad)
 check("each deviation is one line: quoting, a link in the title, aliases, heading, date, name, required, Do, bare keys",
       all(any(x in l for l in lines) for x in ("title not quoted", "title carries a link", "not among the aliases",
                                                 "first heading", "file name says", "missing keys", "the file name says 84",
                                                 "no **Do.** line", "1 Jira key not linked (MH-2)")))
-check("a generated note's keys are its renderer's, not linted", not any("not linked" in l for l in V.spec_lint("readings/2026-11-09-mh-1-build-84.md", bad, True)))
+check("a generated note's keys are its renderer's, not linted", not any("not linked" in l for l in V.spec_lint("reference/2026-11-09-mh-1-build-84.md", bad, True)))
 cn = '---\ntitle: "MH 2.0 hotfix：区域收窄"\naliases: ["MH 2.0 hotfix：区域收窄"]\ntype: "review"\ndate: "2026-10-28"\n---\n# MH 2.0 hotfix：区域收窄\n\n' + "这是中文正文内容。" * 40 + "\n"
-check("a Chinese title or body is a lint line", "title not in English" in V.spec_lint("mh/releases/2.0/2026-10-28-x-review.md", cn)
-      and any(l.startswith("body not in English") for l in V.spec_lint("mh/releases/2.0/2026-10-28-x-review.md", cn)))
+check("a Chinese title or body is a lint line", "title not in English" in V.spec_lint("releases/2.0/2026-10-28-x-review.md", cn)
+      and any(l.startswith("body not in English") for l in V.spec_lint("releases/2.0/2026-10-28-x-review.md", cn)))
 long_ = '---\ntitle: "MH 2.1 · a → b · checks"\naliases: ["MH 2.1 · a → b · checks"]\ntype: "review"\ndate: "2026-11-09"\n---\n# MH 2.1 · a → b · checks\n\n' + "word " * 3000 + "\n"
-check("a review over its budget is linted, never cut, and a closed one needs no closing now",
-      V.spec_lint("mh/releases/2.1/2026-11-09-review-x.md", long_) == ["3,005 words, budget 2,500 (lint only: nothing is cut)"])
-check("a live review without its closing is linted", "no ## What you should do" in V.spec_lint("readings/2026-11-09-x.md", long_))
+check("a review over its budget is linted, never cut, and a done one needs no closing now",
+      V.spec_lint("releases/2.1/2026-11-09-review-x.md", long_.replace('type: "review"', 'type: "review"\nstatus: "done"'))
+      == ["3,005 words, budget 2,500 (lint only: nothing is cut)"])
+check("a live review without its closing is linted", "no ## What you should do" in V.spec_lint("reference/2026-11-09-x.md", long_))
 check("a type outside the specs and the closed set is named", V.spec_lint("to-read/x.md", '---\ntype: "memo"\n---\n# x\n') == ["type 'memo' has no spec"])
 new, fixes = V.normalise(bad)
 fl = V.split_front(new)[0]
@@ -1269,62 +1227,46 @@ NEW_21 = ["2026-10-27-review-cannot-evaluate", "2026-10-30-promote-qa-cn3-to-dai
           "2026-11-04-promote-qa-cn3-to-daily-wed-with-overlay", "2026-11-06-promote-build-85-to-daily-wed",
           "2026-11-09-deploy-daily-wed-to-prod-3"]
 rn = '---\ntitle: "MH 2.1 · a → b · checks"\naliases: ["MH 2.1 · a → b · checks"]\ntype: "review"\ndate: "{d}"\n---\n# MH 2.1 · a → b · checks\n'
-check("the new real names in mh/releases/2.1 pass spec_lint with no name line",
-      not [n for n in NEW_21 if any(l.startswith("file name") for l in V.spec_lint(f"mh/releases/2.1/{n}.md", rn.format(d=n[:10])))])
-check("an old real name writing the line (2-1, mh2-1) breaks the name rule in mh/releases/2.1; in readings/ it does not",
-      all(any(l.startswith("file name") for l in V.spec_lint(f"mh/releases/2.1/{n}.md", rn.format(d=n[:10]))) for n in REAL_21
+check("the new real names in releases/2.1 pass spec_lint with no name line",
+      not [n for n in NEW_21 if any(l.startswith("file name") for l in V.spec_lint(f"releases/2.1/{n}.md", rn.format(d=n[:10])))])
+check("an old real name writing the line (2-1, mh2-1) breaks the name rule in releases/2.1; in reference/ it does not",
+      all(any(l.startswith("file name") for l in V.spec_lint(f"releases/2.1/{n}.md", rn.format(d=n[:10]))) for n in REAL_21
           if re.search(r"(?:^|-)(?:mh)?2-1-", n[11:]))
-      and not any(l.startswith("file name") for l in V.spec_lint(f"readings/{REAL_21[-1]}.md", rn.format(d=REAL_21[-1][:10]))))
-check("a release review's name is mended to the rule; a name under it, or another kind, is left",
+      and not any(l.startswith("file name") for l in V.spec_lint(f"reference/{REAL_21[-1]}.md", rn.format(d=REAL_21[-1][:10]))))
+check("a release review's name is mended to the rule (migrate uses it); a name under it is left",
       V.release_review_name("2026-11-09-mh2-1-daily-wed-to-prod-3.md") == "2026-11-09-review-daily-wed-to-prod-3.md"
       and V.release_review_name("2026-11-02-promote-2-1-daily-wed-to-prod-3.md") == "2026-11-02-promote-daily-wed-to-prod-3.md"
       and V.release_review_name("2026-10-27-release-2-1-cannot-evaluate.md") == "2026-10-27-review-cannot-evaluate.md"
-      and V.close_name("mh/releases/2.1", "review", "to-read/2026-11-09-deploy-daily-wed-to-prod-3.md") == "2026-11-09-deploy-daily-wed-to-prod-3.md"
-      and V.close_name("mh/releases/2.1", "verify", "to-read/2026-11-09-mh2-1-x.md") == "2026-11-09-mh2-1-x.md"
-      and V.close_name("archive", "review", "to-read/2026-11-09-mh2-1-x.md") == "2026-11-09-mh2-1-x.md")
-for how in ("finish", "move"):
-    with tempfile.TemporaryDirectory() as t:
-        vlt, rep = os.path.join(t, "v"), os.path.join(t, "r")
-        os.makedirs(os.path.join(vlt, "to-read")); os.makedirs(os.path.join(vlt, "mh/releases/2.1")); os.makedirs(os.path.join(rep, "ela"))
-        old = "2026-11-02-promote-2-1-daily-wed-to-prod-3"
-        open(os.path.join(vlt, "to-read", old + ".md"), "w").write(
-            '---\ntitle: "MH 2.1 · daily-wed → prod-3 · checks"\naliases: ["MH 2.1 · daily-wed → prod-3 · checks"]\ntype: "review"\n'
-            'date: "2026-11-02"\n---\n# MH 2.1 · daily-wed → prod-3 · checks\n')
-        open(os.path.join(vlt, "mh/releases/2.1/release-2-1-record.md"), "w").write(
-            f"- [[{old}|daily → prod]] and [[to-read/{old}#Asks]] and [x]({old}.md); [[{old}-2]] is another note\n")
-        if how == "finish":
-            V.finish(vlt, rep, f"to-read/{old}.md", "done")
-        else:
-            V.move_note(vlt, rep, f"to-read/{old}.md", "archive", "closed")
-        new = "mh/releases/2.1/2026-11-02-promote-daily-wed-to-prod-3.md"
-        rec = open(os.path.join(vlt, "mh/releases/2.1/release-2-1-record.md")).read()
-        row = json.loads(open(os.path.join(rep, "ela", "vault-removed.jsonl")).read().splitlines()[-1])
-        check(f"{how}: a release review closing into its line is renamed to the rule, its old name an alias, its links "
-              "rewritten, the close logged under the new path with renamed_from",
-              os.path.isfile(os.path.join(vlt, new)) and not os.path.exists(os.path.join(vlt, "to-read", old + ".md"))
-              and old in V.list_prop(V.split_front(open(os.path.join(vlt, new)).read())[0], "aliases")
-              and "[[2026-11-02-promote-daily-wed-to-prod-3|daily → prod]]" in rec
-              and "[[to-read/2026-11-02-promote-daily-wed-to-prod-3#Asks]]" in rec
-              and "(2026-11-02-promote-daily-wed-to-prod-3.md)" in rec and f"[[{old}-2]]" in rec
-              and row["path"] == new and row["renamed_from"] == f"to-read/{old}.md"
-              and f"to-read/{old}.md" in V.load_removed(os.path.join(rep, "ela", "vault-removed.jsonl"))[0])
-check("a ticket number in a name is not a line", V.release_line({}, lambda k: None, "2026-10-29-verify-mh-1084-2") is None)
-check("a review named mh2-1-…, untitled, closes into mh/releases/2.1 by the line its name writes",
-      V.home_for("archive/2026-11-09-mh2-1-daily-wed-to-prod-3.md", {"type": "review"}, lambda k: None) == "mh/releases/2.1"
-      and V.home_for("archive/2026-11-02-promote-2-1-daily-wed-to-prod-3.md", {"type": "review"}, lambda k: None)
-      == "mh/releases/2.1")
-
-# a kept note is the record: the sync never writes it, a later source change is an Afterwards line and a lint line
-check("kept folders are archive/ and the subject homes at any depth",
-      V.is_kept("archive/x.md") and V.is_kept("mh/releases/2.1/x.md") and V.is_kept("cases/a/x.md")
-      and not V.is_kept("readings/x.md") and not V.is_kept("mh/x.md"))
+      and V.release_review_name("2026-11-09-deploy-daily-wed-to-prod-3.md") == "2026-11-09-deploy-daily-wed-to-prod-3.md")
 with tempfile.TemporaryDirectory() as t:
     vlt, rep = os.path.join(t, "v"), os.path.join(t, "r")
-    os.makedirs(os.path.join(vlt, "mh/releases/2.1")); os.makedirs(os.path.join(rep, "ela"))
-    note = "mh/releases/2.1/2026-11-09-mh2-1-x.md"
+    os.makedirs(os.path.join(vlt, "releases/2.1")); os.makedirs(os.path.join(rep, "ela"))
+    old = "2026-11-02-promote-daily-wed-to-prod-3"
+    open(os.path.join(vlt, "releases/2.1", old + ".md"), "w").write('---\ntype: "review"\nstatus: "live"\n---\n# R\n')
+    V.finish(vlt, rep, f"releases/2.1/{old}.md", "done")
+    check("finish closes a release review where it is, under its own name", os.path.isfile(os.path.join(vlt, "releases/2.1", old + ".md"))
+          and 'status: "done"' in open(os.path.join(vlt, "releases/2.1", old + ".md")).read())
+check("a ticket number in a name is not a line", V.release_line({}, lambda k: None, "2026-10-29-verify-mh-1084-2") is None)
+check("a review named mh2-1-…, untitled, is placed in releases/2.1 by the line its name writes",
+      V.home_for("archive/2026-11-09-mh2-1-daily-wed-to-prod-3.md", {"type": "review"}, lambda k: None) == "releases/2.1"
+      and V.home_for("archive/2026-11-02-promote-2-1-daily-wed-to-prod-3.md", {"type": "review"}, lambda k: None)
+      == "releases/2.1")
+
+# a kept note is the record: the sync never writes it, a later source change is an Afterwards line and a lint line
+with tempfile.TemporaryDirectory() as t:
+    vlt = os.path.join(t, "v"); os.makedirs(os.path.join(vlt, "releases/2.1"))
+    open(os.path.join(vlt, "releases/2.1/d.md"), "w").write('---\ntype: "review"\nstatus: "done"\n---\n# D\n')
+    open(os.path.join(vlt, "releases/2.1/l.md"), "w").write('---\ntype: "review"\nstatus: "live"\n---\n# L\n')
+    check("kept is archive/, and a done note wherever it lives",
+          V.is_kept("archive/x.md") and V.is_kept("releases/2.1/d.md", vlt) and not V.is_kept("releases/2.1/l.md", vlt)
+          and not V.is_kept("releases/2.1/d.md") and V.kept_notes(vlt) == ["releases/2.1/d.md"])
+with tempfile.TemporaryDirectory() as t:
+    vlt, rep = os.path.join(t, "v"), os.path.join(t, "r")
+    os.makedirs(os.path.join(vlt, "releases/2.1")); os.makedirs(os.path.join(rep, "ela"))
+    note = "releases/2.1/2026-11-09-mh2-1-x.md"
     body = '---\ntype: "review"\nstatus: "closed"\n---\n# X\n\n- [x] checked by him\n'
     open(os.path.join(vlt, note), "w").write(body)
-    open(os.path.join(vlt, "mh/releases/2.1/2026-11-08-y.md"), "w").write(body)
+    open(os.path.join(vlt, "releases/2.1/2026-11-08-y.md"), "w").write(body)
     src, src2 = os.path.join(rep, "ela", "2026-11-09-mh2.1-x.md"), os.path.join(rep, "ela", "2026-11-08-y.md")
     open(src, "w").write("# X, rewritten\n"); open(src2, "w").write("# Y\n")
     closed = datetime.datetime(2026, 11, 9, 14, 13, 32)
@@ -1348,7 +1290,7 @@ with tempfile.TemporaryDirectory() as t:
           once.startswith(body.rstrip("\n")) and "## Afterwards" in once and once.count("ela/2026-11-09-mh2.1-x.md") == 1
           and "- [x] checked by him" in once and once == twice)
     check("the note closed before its source last changed is the only one touched",
-          open(os.path.join(vlt, "mh/releases/2.1/2026-11-08-y.md")).read() == body)
+          open(os.path.join(vlt, "releases/2.1/2026-11-08-y.md")).read() == body)
     inplace = '---\ntype: "review"\nstatus: "closed"\nsource: "vault"\n---\n# X\n\n- [x] checked by him\n'
     open(os.path.join(vlt, note), "w").write(inplace)
     check("a note written in place (source vault) reports no source change and gains no Afterwards line",

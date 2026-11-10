@@ -22,7 +22,8 @@ with tempfile.TemporaryDirectory() as t:
     note(v, "projects/mh-1-csc-control-from-http-to-mqtt.md", {"title": "MH-1 · CSC control from HTTP to MQTT via mqtt-gateway", "type": "project", "keys": "MH-1"},
          "# MH-1 · CSC control\n\n## Open questions\n\n- [ ] the plan's questions: [[2026-11-10-mh-2-app-plan]]\n")
     note(v, "projects/mh-5-by-hand.md", {"title": "MH-5 · Something long enough to be cut by the old rule", "type": "project", "keys": "MH-5"}, "# MH-5\n")
-    note(v, "to-read/2026-11-10-mh-2-app-plan.md", {"title": "MH-2 · the app plan", "type": "plan", "status": "proposed", "keys": "MH-2"}, "# MH-2 · the app plan\n")
+    note(v, "to-read/2026-11-10-mh-2-app-plan.md", {"title": "MH-2 · the app plan", "type": "plan", "status": "proposed", "keys": "MH-2",
+                                                    "project": "mh-1-csc-control-from-http-to-mqtt"}, "# MH-2 · the app plan\n")
     note(v, "mh/releases/2.1/release-2-1-record.md", {"title": "Release 2.1", "type": "report", "status": "decided"}, "# Release 2.1\n\nSee [[mh/releases/2.1/2026-11-09-deploy-daily-wed-to-prod-3|the deploy]].\n")
     note(v, "mh/releases/2.1/2026-11-09-deploy-daily-wed-to-prod-3.md", {"title": "Deploy", "type": "review", "status": "closed"}, "# Deploy\n")
     note(v, "mh/2026-11-05-jira-four-week-review.md", {"title": "Jira review", "type": "review", "status": "closed"}, "# Jira review\n")
@@ -45,6 +46,15 @@ with tempfile.TemporaryDirectory() as t:
                                       "ela/review/2026-11-09-reader.md", "projects/mh-1-csc-control-from-http-to-mqtt.md", "today.md"],
                "sources": {"days/2026/2026-11-10-brief.md": "runner/2026-11-10-brief.md"}, "seen": {}}, open(os.path.join(v, V.MANIFEST), "w"))
     before = sorted(os.listdir(v))
+    import types
+    V.SITE = os.path.join(t, "site.json")
+    json.dump({"vault": v, "reports": reports, "runtime": t}, open(V.SITE, "w"))
+    try:
+        with redirect_stdout(io.StringIO()):
+            V.cmd_sync(types.SimpleNamespace(env_file=None, dry_run=False, force=False, json=True)); refused = None
+    except SystemExit as e:
+        refused = e.code
+    check("the sync refuses a vault still in layout 4 and writes nothing: the move is migrate's", refused == 3 and sorted(os.listdir(v)) == before)
     plan = V.migrate_plan(v, {"MH-1": "csc-over-mqtt"}, lanes={"qa-cn3": "2.1"}, runtime=None)
     to = {m["from"]: m["to"] for m in plan["moves"]}
     check("the dry run writes nothing", sorted(os.listdir(v)) == before)
@@ -81,7 +91,8 @@ with tempfile.TemporaryDirectory() as t:
     check("after --apply the root holds only layout 5's entries", set(roots) <= set(V.ROOTS5) | {"home.md"} and "to-read" not in roots)
     moved_plan = open(os.path.join(v, "projects/mh-1-csc-over-mqtt/2026-11-10-plan-mh-2-app.md")).read()
     check("a renamed note keeps its old name as an alias and its status is live",
-          "2026-11-10-mh-2-app-plan" in moved_plan.split("---")[1] and 'status: "live"' in moved_plan)
+          "2026-11-10-mh-2-app-plan" in moved_plan.split("---")[1] and 'status: "live"' in moved_plan
+          and 'project: "mh-1-csc-over-mqtt"' in moved_plan)
     today = open(os.path.join(v, "today.md")).read()
     check("links follow: a path link gets the new path, a name link the new name",
           "[[projects/mh-1-csc-over-mqtt/2026-11-10-plan-mh-2-app|the plan]]" in today and "[[lanes|lanes]]" in today

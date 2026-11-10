@@ -15,18 +15,20 @@ property `project: <key>` and keeps its own life and folder; the page lists it. 
 
 ## The page
 
-Two halves. The boundary is the first of the sync's five `##` headings, in this order: *Waiting for your word*,
-*Notes*, *Keys and threads*, *Afterwards*, *Deadline* (ela-runner's morning Projects section reads the same
-boundary, so the head never uses one of those five names).
+Two halves. The boundary is the first of the sync's `##` headings, in this order: *Where it stands* (a Jira
+project), *Notes*, *Keys and threads*, *Afterwards*, *Deadline*; a page written before ela ADR 0015 may still carry
+*Waiting for your word*, which ends the head too (ela-runner's morning Projects section reads the same boundary, so
+the head never uses one of those names).
 
 - **The head**, above it, is the desk's: goal, dates, parties and roles, what is known, the next step (the first
   unticked box there, or the `next-step` property; a box whose line carries a date is an ask the morning page can
   see). The sync keeps it as written. Once the owner writes `ela: keep this`, its settled facts go to elak
   `knowledge/projects/<key>/<key>.md` and the head is rendered from that copy; until then the page says the head is
   the desk's.
-- **The tail** is written on every `ela vault sync`: *Waiting for your word* (the project's notes in `to-read/` and
-  `in-progress/`, with status and `next`); *Notes* by folder, newest first (every note carrying `project: <key>`,
-  plus what the folder keeps); *Keys and threads* (what is watched, until when); *Afterwards*; *Deadline* (the days
+- **The tail** is written on every `ela vault sync`: *Notes*, the notes beside the page first, then by folder,
+  newest first (every note carrying `project: <key>`, plus what the folder keeps), each with its status, `live` or
+  `done`; no *Waiting for your word*: an ask is stored once, on the head or on the note beside the page that holds
+  it, and today.md links the project once for all of them; *Keys and threads* (what is watched, until when); *Afterwards*; *Deadline* (the days
   to it and the step, marked overdue when its date has passed, or, with no date, when the deadline has).
 - **Properties**: `deadline`, `next-step`, and the archive's watch fields: `keys` (the Jira keys to follow),
   `posted` and `channels` (Slack permalinks), `watch` (defaults to the deadline plus 14 days; empty stops it),

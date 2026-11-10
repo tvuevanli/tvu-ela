@@ -44,14 +44,15 @@ case 1,200 · draft 600. Write to fit: the conclusion first, one idea per senten
 numbers in a short table, file paths and code only where he must act on them, the full record linked, not
 pasted.
 
-A report in the reports root is a reading: the sync puts it in the vault's `readings/`, with no status and no
-moves, and the morning item or the ticket it serves links it. A plan or proposal that waits for his ruling is an
-elak decision or plan with `reader: owner` and `status: proposed`, which the sync carries into `to-read/` until
-the status changes. A mermaid timeline's
+A report in the reports root is a work note: the sync puts it in its thing's home (beside the project page it
+serves, its release line's folder, else `reference/`), `live` until the owner marks it done, and the morning item or
+the ticket it serves links it (ela ADR 0015). A plan or proposal that waits for his ruling is an elak decision or
+plan with `reader: owner` and `status: proposed`, which the sync carries into the vault, live, until the status
+changes. A mermaid timeline's
 periods carry no colon (`6.30 am`, not `06:30`): the colon separates a period from its event.
 
-Where the owner drags a note states his intent: `archive/` (keep it); *drop* closes it into the archive, kept. What is worth keeping as
-knowledge goes to elak, proposed as a decision note in `to-read/` and written on his word.
+Where the owner drags a note states his intent: `archive/` (keep it); *drop* marks it done where it is, kept. What is worth keeping as
+knowledge goes to elak, proposed as a decision note in the vault and written on his word.
 
 ## What a report is now
 

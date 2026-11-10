@@ -59,7 +59,7 @@ def one(vault, key, today):
 
 
 def asks_of(rows):
-    return [r for r in rows if V.top(r["path"]) in (V.TO_READ, V.IN_PROGRESS)]
+    return [r for r in rows if (r.get("status") or "").lower() in (V.LIVE,) + V.LEGACY_LIVE]
 
 
 def as_json(facts, rows):
