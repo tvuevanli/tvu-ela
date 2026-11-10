@@ -72,7 +72,7 @@ its reason are in elak `knowledge/products/mediahub/jira/conventions.md` § Desc
 |---|---|---|
 | Bug | Problem · Steps to reproduce · QA verification (or Done when) | Cause · Change · Evidence |
 | Sub-task | Scope · Done when (or QA verification) | Goal · Related |
-| Task, Story, Improvement, New Feature, Epic, Project, Initiative | Goal · Scope · Done when (or QA verification) | Background · Not in scope · Related |
+| Task, Story, Improvement, New Feature, Epic, Project, Initiative | Goal · Scope · Done when (or QA verification) | Owner · Background · Not in scope · Related |
 
 - **Problem** says what was seen, where (lane, build, account) and what should happen instead, in the
   reporter's words first. **Goal** says why the work exists and for whom. **Scope** is what changes, one
@@ -97,6 +97,24 @@ drops one). When ela works such a ticket (verify, close, breakdown) and it has n
 criterion is added as a `### Done when` section appended after the author's text, on the owner's word,
 never by rewriting what is there.
 
+## A requirement is a project
+
+One requirement is one ticket, carried in principle by one person from start to finish, who also owns its
+coordination and its approach (the owner's word, 2026-11-10; elak `knowledge/products/mediahub/jira/conventions.md`
+§ Description standard). Drafting a requirement with `create`:
+
+- **One ticket, this level only.** The owner creates the requirement's ticket and nothing beneath it. ela does
+  not break it into sub-tasks on its own; a sub-task is created only when the owner or the person carrying the
+  ticket asks for it, with its lane and its person (MH-3983's `[UR]` and `[App]` sub-tasks, 2026-11-10).
+  Sub-tasks do not move ownership off the parent: the carrier still answers for the whole.
+- **Assigned to the carrier.** Once the person is named, the ticket is assigned to them. Until then it is assigned
+  to the owner, and the description's `### Owner` section says *to be decided*.
+- **The approach is a suggestion, attributed.** An approach in the description is written as a suggestion and
+  names who made it ("Suggested by …"). The carrier has the final call, so the description never prescribes the
+  method as scope.
+- **Done when states the observable result, never the method.** Each numbered criterion is a step and what is
+  seen, checkable on a lane without knowing how it was built.
+
 ## create-subtask — gated twice
 
 **Safety gate (in the script, no caller can skip it):**
@@ -116,8 +134,9 @@ nothing later.
 
 Assignee defaults to the token's own account (the owner). Cross-layer scope belongs on the
 parent ticket — a subtask carries exactly one token. **A ticket the owner asks for carries no
-sub-tasks and is assigned to him**: he routes it himself; a sub-task is created only when he names
-the lane and the person (2026-10-20, MH-3797; 2026-10-21).
+sub-tasks and is assigned to him**: he routes it himself; a sub-task is created only when he, or the
+person carrying the requirement, names the lane and the person (2026-10-20, MH-3797; 2026-10-21; § A
+requirement is a project).
 
 ## comment · transition · label · link · fixed-in · attach · detach · retitle · close · priority · due · version — the field atoms, gated twice
 
