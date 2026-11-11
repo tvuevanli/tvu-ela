@@ -46,6 +46,13 @@ with tempfile.TemporaryDirectory() as tmp:
     check("today.md: the Releases fact is build 90, four service lines, linking its note",
           "QA-AWS3 took build 90 ([[releases/2.1/2026-11-10-build-90-to-qa-aws3|release note]])" in facts and len(rows) == 4
           and "Prod 3 caught up" not in facts)
+    full = types.SimpleNamespace(path="reference/days/2026/2026-11-11-changes.md", title="x", props={"type": "day", "kind": "changes", "date": "2026-11-11"},
+                                 body="## Releases and versions\n\nProd 3 caught up.\n\n## Docker services\n\nQA's 1.0.26 report clears tvu_live_transmit.\n\n"
+                                      "## QA\n\nBuild 85 is the verdict build.\n\n## Tickets\n\nTwo new tickets came in.\n")
+    asks = [{"id": f"keys:MH-{i}", "box": f"apply {i}", "text": f"MH-{i}: " + " ".join(["word"] * 17) + ".", "first": "2026-11-11"} for i in (1, 2, 3)]
+    crowded = V.today_page(WED, [day("2026-11-10"), full], {"builds": recs}, asks).split("## Needs you")[0]
+    check("with the build block and three asks the page keeps three facts, each one line, the build first",
+          crowded.count("\n- **") == 3 and "- **Releases:** QA-AWS3 took build 90" in crowded and "- **Docker:**" in crowded)
     later = V.today_page(datetime.date(2026, 11, 13), [day("2026-11-12"), day("2026-11-13")], {"builds": recs})
     check("a build before the last page is not shown again", "took build" not in later)
     env = dict(os.environ)

@@ -2743,6 +2743,7 @@ def drop_day(first, today):
 
 
 FACT_CHARS = 110
+FACTS_MIN = 3                                           # ADR 0014: facts are cut first, never below three
 
 
 def short_sentence(text, n=FACT_CHARS):
@@ -2993,7 +2994,7 @@ def today_page(today, notes, desk=None, shown=(), more=0, dropped=0):
     L = render(facts)
     def words(L):
         return len(plain("\n".join(L)).split())
-    while len(facts) > (1 if block else 0) and words(L) > TODAY_WORDS:   # whole facts leave from the end; the build stays
+    while len(facts) > FACTS_MIN and words(L) > TODAY_WORDS:   # whole facts leave from the end, never below three
         facts = facts[:-1]
         L = render(facts)
     links = [f"[[{changes.path[:-3]}|what changed]]" if changes else None,
