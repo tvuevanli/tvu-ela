@@ -1337,6 +1337,6 @@ with tempfile.TemporaryDirectory() as rt:
     check("the deep reading: a plain title among its aliases, its key set; the docker page placed in releases/",
           deep is not None and deep.title.startswith("MH-3993 · Graphics") and deep.props["keys"] == ["MH-3993"]
           and V.spec_lint("reference/2026-11-11-deep-mh-3993.md", page) == []
-          and "releases/docker.md" in got)
+          and "releases/docker.md" in got and not V.type_lint("releases/docker.md", "docker"))
 
 sys.exit(1 if failures else 0)

@@ -129,7 +129,7 @@ BUDGET = {"ticket": 700, "topic": 800, "guide": 1200, "board": 1000, "day": 1200
 # A type outside it, or a family outside its folders, is a lint line on the sync, never a failure.
 TYPE_FAMILY = {"decision": "decision", "plan": "plan", "sprint": "plan",
                "ticket": "reading", "review": "reading", "verify": "reading", "verify-plan": "reading",
-               "home": "page", "today": "page", "dropped": "page", "board": "page", "lanes": "page", "recent": "page", "one-thing": "page", "test-list": "page", "dev-list": "page", "train": "page", "program": "page",
+               "home": "page", "today": "page", "dropped": "page", "board": "page", "lanes": "page", "docker": "page", "recent": "page", "one-thing": "page", "test-list": "page", "dev-list": "page", "train": "page", "program": "page",
                "guide": "page", "vocabulary": "page", "system": "page", "constraints": "page", "readme": "page", "meeting": "page",
                "report": "page", "project": "page", "services": "page",
                "day": "day", "reader": "day", "case": "case", "draft": "draft"}
