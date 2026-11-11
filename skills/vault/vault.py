@@ -4791,11 +4791,26 @@ def digest(text):
     return hashlib.sha256(text.encode()).hexdigest()[:16]
 
 
+def tmp_path(path):
+    """The temporary file beside `path`, dot-prefixed: Obsidian does not list it in recent files or search."""
+    d, name = os.path.split(path)
+    return os.path.join(d, f".{name}.ela-tmp")
+
+
 def atomic_write(path, text):
-    tmp = path + ".ela-tmp"
-    with open(tmp, "w", encoding="utf-8") as fh:
+    """Write `text` to `path` through a dot-prefixed temporary file, only when the bytes change: the vault is
+    file-synced to another machine and an unchanged note keeps its modification time. → whether it was written."""
+    try:
+        with open(path, encoding="utf-8", newline="") as fh:
+            if fh.read() == text:
+                return False
+    except (OSError, UnicodeDecodeError):
+        pass
+    tmp = tmp_path(path)
+    with open(tmp, "w", encoding="utf-8", newline="") as fh:
         fh.write(text)
     os.replace(tmp, path)
+    return True
 
 
 WRITERS = ("sync", "marks", "finish", "note", "restore", "setup", "afterwards", "tidy", "lint", "migrate")   # guidance only reads; lint writes with --fix --apply
@@ -4972,7 +4987,7 @@ def cmd_sync(a):
         copied += 1
         if not a.dry_run:
             os.makedirs(os.path.dirname(dst), exist_ok=True)
-            shutil.copy2(src, dst + ".ela-tmp"); os.replace(dst + ".ela-tmp", dst)
+            shutil.copy2(src, tmp_path(dst)); os.replace(tmp_path(dst), dst)
     lower = {r.lower() for r in now_files}
     native_lower = {p.lower() for p in native_paths}
     # a note that leaves because it was acted on (its verification record went up to Jira, its plan or decision was
@@ -5876,10 +5891,11 @@ def cmd_afterwards(a):
         p = os.path.join(vault, w["note"])
         text = open(p, encoding="utf-8").read()
         new_text, _ = with_afterwards(text, lines)
-        stamp = {"watched": now.strftime("%Y-%m-%d %H:%M")}
-        if lines:
-            stamp["last"] = max(d for _, d, _ in lines)
-        new_text = set_front(new_text, **stamp)
+        if new_text != text:                               # a note that gained nothing is not touched: no new mtime
+            stamp = {"watched": now.strftime("%Y-%m-%d %H:%M")}
+            if lines:
+                stamp["last"] = max(d for _, d, _ in lines)
+            new_text = set_front(new_text, **stamp)
         for ref, day, line in lines:
             out_lines.append({"note": w["note"], "ref": ref, "date": day, "line": line})
             if (w["note"], ref, day) not in logged:

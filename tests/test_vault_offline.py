@@ -174,6 +174,15 @@ with tempfile.TemporaryDirectory() as tmp:
     stamp = {f: os.path.getmtime(os.path.join(dp, f)) for dp, _, fs in os.walk(vault) for f in fs if f.endswith(".md")}
     check("a second sync with nothing new writes nothing", sync() == 0 and
           all(os.path.getmtime(os.path.join(dp, f)) == stamp.get(f) for dp, _, fs in os.walk(vault) for f in fs if f.endswith(".md")))
+    q = f"{vault}/reference/quiet.md"
+    first, again = V.atomic_write(q, "x\n"), None
+    t0 = os.path.getmtime(q)
+    os.utime(q, (t0 - 100, t0 - 100))
+    again = V.atomic_write(q, "x\n")
+    check("a note is written only when its bytes change; the temporary file is dot-prefixed, never left",
+          first and not again and os.path.getmtime(q) == t0 - 100 and V.tmp_path(q).endswith("/reference/.quiet.md.ela-tmp")
+          and not [f for _, _, fs in os.walk(vault) for f in fs if f.endswith(".ela-tmp")])
+    os.remove(q)
     dec0 = f"{vault}/reference/{today[:4]}-01-01-decision-0.md"
     check("a decision waiting for his ruling is live in its thing's home (reference/ when it serves none)",
           os.path.exists(dec0) and 'status: "live"' in open(dec0).read())
