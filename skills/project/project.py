@@ -157,7 +157,7 @@ def cmd_keys(a):
         print(f"not a ticket key: {', '.join(bad)}", file=sys.stderr); sys.exit(2)
     keys = list(dict.fromkeys(have + [k.upper() for k in a.add]))
     if keys != have:
-        V.atomic_write(p, V.set_front(text, keys=" ".join(keys)))
+        V.atomic_write(p, V.set_front(text, keys=keys))      # a list, as every page's keys
     if a.json:
         print(json.dumps({"key": a.key, "keys": keys, "added": [k for k in keys if k not in have]})); return
     print(f"{a.key}: keys {' '.join(keys)}" + ("" if keys != have else " (nothing new)"))

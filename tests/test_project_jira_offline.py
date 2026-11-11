@@ -33,7 +33,7 @@ with tempfile.TemporaryDirectory() as t:
     n = V.project_note(key, V.jira_project_page(tickets[0], today), v, [], today, "https://jira.example", tickets[0])
     page = n.front_text + n.head + n.tail
     check("the head is kept: next step and open questions, above Where it stands",
-          page.index("## Next step") < page.index("## Open questions") < page.index("## Where it stands") < page.index("## Notes"))
+          page.index("## Next step") < page.index("## Open questions") < page.index("## Where it stands") < page.index("## Deadline"))
     check("Where it stands: the carrier, the status and since when, each sub-task linked, when Jira was read",
           "Carried by Carrier One · In Progress since 2026-11-10" in page and "[MH-2](https://jira.example/browse/MH-2) [UR] loopback · Backlog" in page
           and "*Read from Jira 2026-11-10T17:12.*" in page)
@@ -51,9 +51,9 @@ with tempfile.TemporaryDirectory() as t:
           and V.project_slug("[UR] Start CSC loopback-only without auth token") == "start-csc-loopback-only")
     check("a page is that ticket's when its keys lead with it", V.page_ticket_key('---\nkeys: "MH-1 MH-9"\n---\n# x\n') == "MH-1"
           and V.page_ticket_key('---\ntype: "project"\n---\n# x\n') is None)
-    check("deadline is optional for a ticket project, required of outside work",
+    check("deadline is optional for every project",
           not any("deadline" in x for x in V.spec_lint(f"projects/{key}.md", page.replace('deadline: "2026-12-01"\n', "")))
-          and any("missing" in x and "deadline" in x for x in V.spec_lint("projects/sb/sb.md", '---\ntitle: "SB"\ntype: "project"\ndate: "2026-11-01"\nsource: "vault"\n---\n# SB\n')))
+          and not any("deadline" in x for x in V.spec_lint("projects/sb/sb.md", '---\ntitle: "SB"\ntype: "project"\ndate: "2026-11-01"\nsource: "vault"\n---\n# SB\n')))
     # the desk's hand-named page leads its keys with MH-1: the sync adopts it and makes no second page
     open(os.path.join(v, "projects", key + ".md"), "w").write("")
     os.remove(os.path.join(v, "projects", key + ".md"))

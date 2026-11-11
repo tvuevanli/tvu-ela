@@ -154,13 +154,14 @@ with tempfile.TemporaryDirectory() as tmp:
           and f'watch: "{(datetime.date.today() + datetime.timedelta(days=44)).isoformat()}"' in sbp and f'date: "{today}"' in sbp)
     check("its head stands as written above the tail's first heading, the tail's headings in the runner's order",
           sbb.startswith("# Super Bowl\n\n## Goal\n\nProve the chain.\n\n## Next step\n\n- [ ] wire the decoder by 2026-01-05\n\nela: keep the head\n\n## Notes\n")
-          and [h for h in re.findall(r"(?m)^## (.+)$", sbb) if h in V.TAIL_HEADS] == list(V.TAIL_HEADS) and "## Waiting for your word" not in sbb)
+          and [h for h in re.findall(r"(?m)^## (.+)$", sbb) if h in V.TAIL_HEADS] == ["Notes", "Keys and threads", "Deadline"]
+          and "## Waiting for your word" not in sbb)
     check("the tail says the days left and the overdue step, the keys watched, and lists the folder's reading and the inferred one",
-          f"## Deadline\n\n*{SB_DEADLINE} · 30 days left · next step: wire the decoder by 2026-01-05 (**overdue**)*" in sbb
-          and "## Keys and threads\n\n*keys MH-5 · no threads · watched until" in sbb
+          f"## Deadline\n\n*{SB_DEADLINE} · 30 days left*" in sbb and sbb.count("wire the decoder") == 1
+          and "## Keys and threads\n\n*keys MH-5 · watched until" in sbb
           and "**in this folder**\n" in sbb and "- [[projects/sb/glossary|Glossary]] · review · 2026-11-01" in sbb
           and f"- [[projects/sb/{today}-review-sb-read|A read for the project]] · review · {today} · live" in sbb
-          and "*Nothing yet: the 13:00" in sbb)
+          and "Nothing yet" not in sbb and "Afterwards" not in sbb)
     check("the read with the project's key goes beside its page, carries the inferred property, and the sync says so",
           'project: "sb"' in open(f"{vault}/projects/sb/{today}-review-sb-read.md").read()
           and {"note": f"readings/{today}-sb-read.md", "project": "sb"} in json.loads(bufj.getvalue())["projects"])

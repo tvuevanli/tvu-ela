@@ -536,6 +536,15 @@ def short_status(v):
     return v if len(v) <= 40 else v[:40].rsplit(" ", 1)[0]
 
 
+def keys_list(v):
+    """A `keys` property as a list whatever form it was written in: a list, a list's text, or a string of keys."""
+    v = as_list(v)
+    if isinstance(v, str):
+        found = KEY_RX.findall(v)
+        return list(dict.fromkeys(found)) if found else [x for x in re.split(r"[\s,;]+", v) if x]
+    return v if isinstance(v, list) else ([] if v is None else [v])
+
+
 def as_list(v):
     """A property read back as the text of a list (`["https://…"]`) written as that list, not as a string of it."""
     if isinstance(v, str) and v.startswith("[") and v.endswith("]"):
@@ -563,7 +572,8 @@ def front(existing, props):
         props["date"] = (src.get("decided") or src.get("written"))[:10]
     if props.get("title") and props.get("type") not in ("home", "readme"):
         props["aliases"] = [props["title"]]                # the quick switcher matches an alias, not a heading
-    lines = [f"{k}: {json.dumps(as_list(props[k]) if k in ('channels', 'keys', 'posted') else props[k], ensure_ascii=False)}" for k in PROPS if props.get(k) or props.get(k) is False
+    lines = [f"{k}: {json.dumps(keys_list(props[k]) if k == 'keys' else as_list(props[k]) if k in ('channels', 'posted') else props[k], ensure_ascii=False)}"
+             for k in PROPS if props.get(k) or props.get(k) is False
              or (k == "next" and props.get(k) == "")]   # an empty next field, ready for his word
     return "---\n" + "\n".join(lines) + "\n---\n\n" if lines else ""
 
@@ -1368,8 +1378,8 @@ SPECS = {
         kind="bounded work with a deadline and parties outside the program",
         name=(r"^projects/(?:([^/]+)/\1|[a-z0-9][a-z0-9-]*)\.md$", "`projects/<key>.md`, or `projects/<key>/<key>.md` once it has a folder"),
         title=(r".", "the project's name"),
-        # deadline: required of outside work (a PoC has a day), optional for a ticket project, whose page leads its keys
-        required=("date", "source", "deadline"), optional=("next-step", "channels", "keys", "posted", "watch", "customer", "hubspot", "slug", "status"),
+        # deadline optional for every project: a page without one says nothing of it (review of 2026-11-11)
+        required=("date", "source"), optional=("deadline", "next-step", "channels", "keys", "posted", "watch", "customer", "hubspot", "slug", "status"),
         sections=("Goal", "Parties?", "Dates?", "What is known?", "Next step") + TAIL_HEADS,
         closing="## Next step in the head (`next-step` is the line Home may name); the tail from Waiting for your word is the sync's"),
     "meeting": dict(
@@ -1542,8 +1552,7 @@ def spec_lint(rel, text, generated=False, projects=None):
         lost = [n for n in re.findall(r"(?<![\d.])\d{2,}(?![\d.])", stem.replace("-", " ")) if int(n) not in {int(d) for d in re.findall(r"\d+", title)}]
         if lost:
             out.append(f"the file name says {', '.join(lost)}, the title does not")
-    missing = [p for p in sp["required"] if not props.get(p)
-               and not (kind == "project" and p == "deadline" and page_ticket_key(text))]
+    missing = [p for p in sp["required"] if not props.get(p)]
     if missing:
         out.append("missing " + ", ".join(missing))
     known = set(PROPS) | set(LIFE_PROPS) | set(sp["required"]) | set(sp["optional"])
@@ -2154,43 +2163,40 @@ def meeting_outcomes(notes, keys, today, days=30):
 
 
 def project_tail(facts, rows, today, jira_base="", met=()):
-    """The sync's half of a project page: TAIL_HEADS in their order. No Waiting for your word: the page's own open
-    questions are on the page, a note beside it holds its own asks, and today.md links each once (ADR 0015). A label
-    is plain text: a title carrying a Markdown link would break the wikilink around it."""
+    """The sync's half of a project page: TAIL_HEADS in their order, each printed only when it has something to say
+    (the hand-kept head is what he reads; the review of 2026-11-11 found the tail a third of the page saying nothing).
+    No Waiting for your word: the page's own open questions are on the page, a note beside it holds its own asks, and
+    today.md links each once (ADR 0015). The next step is the head's and is not repeated. A label is plain text: a
+    title carrying a Markdown link would break the wikilink around it."""
     d = facts["deadline"]
     L = stands_lines(facts.get("ticket"), jira_base)
-    L += ["## Notes", ""]
-    if not rows:
-        L += [f"No note names this project yet: `project: {facts['key']}` in a note's properties, or a note in its folder.", ""]
-    groups = {}
-    for r in rows:
-        groups.setdefault("in this folder" if r["inside"] else top(r["path"]), []).append(r)
-    for g in list(PROJECT_FOLDERS) + sorted(k for k in groups if k not in PROJECT_FOLDERS):
-        if g not in groups:
-            continue
-        L.append(f"**{g}**" + ("" if g == "in this folder" else "/"))
-        for r in groups[g]:
-            bits = [r["type"], r["date"], r["status"]]
-            L.append(f"- [[{r['path'][:-3]}|{label(r['title'])}]] · " + " · ".join(b for b in bits if b))
-        L.append("")
+    if rows:
+        L += ["## Notes", ""]
+        groups = {}
+        for r in rows:
+            groups.setdefault("in this folder" if r["inside"] else top(r["path"]), []).append(r)
+        for g in list(PROJECT_FOLDERS) + sorted(k for k in groups if k not in PROJECT_FOLDERS):
+            if g not in groups:
+                continue
+            L.append(f"**{g}**" + ("" if g == "in this folder" else "/"))
+            for r in groups[g]:
+                bits = [r["type"], r["date"], r["status"]]
+                L.append(f"- [[{r['path'][:-3]}|{label(r['title'])}]] · " + " · ".join(b for b in bits if b))
+            L.append("")
     if met:
-        L += [f"## {MEETINGS_HEAD}", ""] + [f"- {d[5:]} · [[{p[:-3]}|{label(name)}]]: {line}" for d, p, name, line in met] + [""]
+        L += [f"## {MEETINGS_HEAD}", ""] + [f"- {d_[5:]} · [[{p[:-3]}|{label(name)}]]: {line}" for d_, p, name, line in met] + [""]
     keys = [f"[{k}]({jira_base}/browse/{k})" if jira_base else k for k in facts["keys"]]
     links = facts["links"]
     wp = facts["props"]
     watch = wp.get("watch") if "watch" in wp else ((d + datetime.timedelta(days=PROJECT_WATCH_DAYS)).isoformat() if d else None)
-    bits = [f"keys {', '.join(keys)}" if keys else "no keys yet (`ela project keys <key> --add MH-…`)",
-            f"{len(links)} thread{'s' if len(links) != 1 else ''}" if links else "no threads",
-            f"watched until {watch}" if watch else "not watched"]
-    L += [f"## {TAIL_HEADS[1]}", "", f"*{' · '.join(bits)}*"] + [f"- [thread]({l})" for l in links] + [""]
-    L += [AFTERWARDS_HEAD, ""] + (facts["afterwards"] or ["*Nothing yet: the 13:00, 17:30 and 19:00 passes read its keys and threads.*"]) + [""]
-    L += [f"## {TAIL_HEADS[3]}", ""]
-    L.append(f"*{d.isoformat()} · {days_words(facts['days'])}" if d else "*No deadline" if facts["keys"]
-             else "*No deadline: write `deadline: YYYY-MM-DD` in the properties")
-    if facts["step"]:
-        L[-1] += f" · next step: {facts['step']}" + (" (**overdue**)" if facts["overdue"] else "")
-    L[-1] += "*"
-    L.append("")
+    bits = ([f"keys {', '.join(keys)}"] if keys else []) + \
+           ([f"{len(links)} thread{'s' if len(links) != 1 else ''}"] if links else []) + ([f"watched until {watch}"] if watch else [])
+    if bits or links:
+        L += [f"## {TAIL_HEADS[1]}", "", f"*{' · '.join(bits)}*"] + [f"- [thread]({l})" for l in links] + [""]
+    if facts["afterwards"]:
+        L += [AFTERWARDS_HEAD, ""] + facts["afterwards"] + [""]
+    if d:
+        L += [f"## {TAIL_HEADS[3]}", "", f"*{d.isoformat()} · {days_words(facts['days'])}*", ""]
     return "\n".join(L)
 
 
@@ -4294,7 +4300,7 @@ def set_front(text, **props):
     """Set or remove (None) front-matter keys in a note's text, keeping the rest as written."""
     fl, body = split_front(text)
     fl = [l for l in fl if not any(re.match(rf"^{k}:", l) for k in props)]
-    fl += [f'{k}: "{v}"' for k, v in props.items() if v is not None]
+    fl += [f"{k}: {json.dumps(v, ensure_ascii=False)}" if isinstance(v, list) else f'{k}: "{v}"' for k, v in props.items() if v is not None]
     return "---\n" + "\n".join(fl) + "\n---\n" + body.lstrip("\n") if fl else body
 
 
