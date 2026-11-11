@@ -3440,7 +3440,7 @@ def cmd_meeting(args):
         if V.meeting_add(n, line, args.detail):
             added.append(line)
     if args.rule:
-        ruled = V.meeting_rule(n, d, last)
+        ruled = V.meeting_rule(n, d, last, raised_for=V.meeting_day(n["title"] or ""))
         if n["send"] and n["send"]["ticked"] and last == d and now.date() == d:
             n["send"]["ticked"] = False                     # his tick was for this meeting; the next one needs its own
     changed = not text or added or ruled or (args.rule and V.meeting_parse(text)["send"] != n["send"])
@@ -3457,7 +3457,8 @@ def cmd_meeting(args):
     when = nxt or d
     slack = f"*{name} · {when:%a %m-%d} {time_}*\n" + "\n".join(("• " + l[2:]) if l.startswith("- ") else l for l in slack_form(body).splitlines())
     today_mmdd = f"{d:%m-%d}"
-    new = [it["text"] for it in n["items"] if V.meeting_fields(it["text"])["since"] == today_mmdd]
+    # new: raised today, or raised for this meeting (an item shows no `since` on the day it is for)
+    new = [it["text"] for it in n["items"] if V.meeting_fields(it["text"])["since"] in (today_mmdd, None)]
     count = len(n["items"])
     pointer = (f"{name} at {time_} · {count} item{'s' if count != 1 else ''} on [[meetings/{args.key}]]"
                + (f" · {len(new)} new today" if new else ""))

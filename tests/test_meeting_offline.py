@@ -37,8 +37,6 @@ source: "vault"
 ---
 # Scrum with the PM · Mon Wed Fri 10:00
 
-- [x] send — the list goes to #prj_dev_mediahub at 10:00 on your tick
-
 ## To raise
 
 - [ ] [MH-2406](https://j.example/browse/MH-2406) — notice for 0x81004009 too? · you decide with the PM · since 10-29
@@ -58,16 +56,33 @@ source: "vault"
 ## Notes
 
 his own section
+
+## Where things stand
+
+- Prod 3 on 2.1.42
 """
 n = V.meeting_parse(NOTE)
-check("the note parses: send ticked, two items, a detail under the first, two ruled dates, his section",
-      n["send"]["ticked"] and len(n["items"]) == 2 and n["items"][0]["under"] == ["  - detail folded"]
+check("the note parses: two items, a detail under the first, two ruled dates, his section",
+      not n["send"] and len(n["items"]) == 2 and n["items"][0]["under"] == ["  - detail folded"]
       and [d for d, _ in n["ruled"]] == ["2026-09-01", "2026-10-28"] and n["others"][0][0] == "Notes")
 out = V.meeting_render(n, "Scrum with the PM · Mon Wed Fri 10:00", "the list goes to #prj_dev_mediahub at 10:00 on your tick",
                        datetime.date(2026, 10, 30))
 check("a render keeps every line and puts Ruled newest first",
-      all(x in out for x in ("- [x] send", "  - detail folded", "his own section", "ela proposes"))
+      all(x in out for x in ("  - detail folded", "his own section", "ela proposes"))
       and out.index("### 2026-10-28") < out.index("### 2026-09-01") and 'source: "vault"' in out)
+check("the page shown to the team: Where things stand first, then To raise, Ruled, his sections; no send line",
+      out.index("## Where things stand") < out.index("## To raise") < out.index("## Ruled") < out.index("## Notes")
+      and "send" not in out.split("## Where")[0])
+legacy = NOTE.replace(
+    "# Scrum with the PM · Mon Wed Fri 10:00\n", "# Scrum with the PM · Mon Wed Fri 10:00\n\n- [x] send — on your tick\n", 1)
+check("a send line left on a note is a lint line, and the render drops it",
+      any("send line" in x for x in V.meeting_lint("m.md", legacy))
+      and "- [x] send" not in V.meeting_render(V.meeting_parse(legacy), "Scrum with the PM · Fri 2026-10-30", None, datetime.date(2026, 10, 30)))
+day_note = V.meeting_render(V.meeting_parse(NOTE.replace("since 10-29", "since 10-30")), "Scrum with the PM · Fri 2026-10-30", None,
+                            datetime.date(2026, 10, 30))
+check("since only when older than the meeting day; aliases hold only the title",
+      "notice for 0x81004009 too? · you decide with the PM\n" in day_note and "since 10-26" in day_note
+      and 'aliases: ["Scrum with the PM · Fri 2026-10-30"]' in day_note)
 check("parse ∘ render is stable", V.meeting_render(V.meeting_parse(out), "Scrum with the PM · Mon Wed Fri 10:00",
                                                    "the list goes to #prj_dev_mediahub at 10:00 on your tick", datetime.date(2026, 10, 30)) == out)
 f = V.meeting_fields(n["items"][0]["text"])
@@ -79,7 +94,7 @@ check("a note in shape has no lint", V.meeting_lint("meetings/scrum-pm.md", NOTE
 long_ = NOTE.replace("notice for 0x81004009 too?", "x" * 120)
 check("an item over 140 characters is a lint line; the link's URL is not counted",
       any("item 1 is" in x and "over 140" in x for x in V.meeting_lint("m.md", long_)) and len(V.visible(n["items"][0]["text"])) < 140)
-check("no send box, no Ruled: two lint lines", len(V.meeting_lint("m.md", "# M\n\n## To raise\n")) == 2)
+check("no Ruled: one lint line", len(V.meeting_lint("m.md", "# M\n\n## To raise\n")) == 1)
 
 with tempfile.TemporaryDirectory() as t:
     vault, elak, reports = (os.path.join(t, x) for x in ("vault", "elak", "reports"))
@@ -110,7 +125,7 @@ with tempfile.TemporaryDirectory() as t:
     check("--raise makes the note in shape and adds the item, the key a Jira link, since today, its detail folded",
           c == 0 and V.meeting_lint("meetings/scrum-pm.md", text) == []
           and "- [ ] [MH-2406](https://j.example/browse/MH-2406) — friendly notice for 0x81004009 too? · you decide with the PM · since 10-29" in text
-          and "  - the pool has no usable box" in text and "- [ ] send — the list goes to #prj_dev_mediahub at 10:00 when this box is ticked" in text
+          and "  - the pool has no usable box" in text and "send" not in text
           and 'title: "Scrum with the PM · Fri 2026-10-30"' in text)
     run("--raise", "MH-2406 — friendly notice for 0x81004009 too?", "--now", "2026-10-30T08:00")
     check("--raise again is idempotent", open(note).read().count("friendly notice") == 1)
@@ -122,7 +137,8 @@ with tempfile.TemporaryDirectory() as t:
     o, _, c = run("--propose", "MH-3820 — ship on build 79 or hold for QA?", "--now", "2026-10-30T08:00", "--dry-run")
     check("--dry-run reports and writes nothing", c == 0 and "DRY RUN" in o and open(note).read() == before)
     run("--propose", "MH-3820 — ship on build 79 or hold for QA?", "--now", "2026-10-30T08:00")
-    check("--propose adds an item, unmarked: the note is shown to the team", "ship on build 79 or hold for QA? · since 10-30" in open(note).read()
+    check("--propose adds an item, unmarked, no age on its own meeting day: the note is shown to the team",
+          "ship on build 79 or hold for QA?\n" in open(note).read() and "since 10-30" not in open(note).read()
           and "ela proposes" not in open(note).read())
 
     # --json: what the runner needs; the pointer line and today's new items
@@ -134,8 +150,7 @@ with tempfile.TemporaryDirectory() as t:
           and len(j["new"]) == 1 and "MH-3820" in j["new"][0] and j["lint"] == [])
 
     # --slack: the unticked items, a 'first' line on top, ela's mark off, links as Slack writes them
-    t2 = open(note).read().replace("ship on build 79 or hold for QA? · since 10-30",
-                                   "ship on build 79 or hold for QA? · since 10-30\n  ela: first")
+    t2 = open(note).read().replace("ship on build 79 or hold for QA?\n", "ship on build 79 or hold for QA?\n  ela: first\n")
     open(note, "w").write(t2)
     o, _, c = run("--slack", "--now", "2026-10-30T08:00")
     lines = o.strip().splitlines()
@@ -146,13 +161,12 @@ with tempfile.TemporaryDirectory() as t:
     # --rule before the meeting: a ticked proposal is dropped; an ela: line waits for the meeting
     t3 = open(note).read().replace("- [ ] [MH-3820]", "- [x] [MH-3820]").replace(
         "  - the pool has no usable box", "  - the pool has no usable box\n  ela: ruled — yes, same notice")
-    t3 = t3.replace("- [ ] send", "- [x] send")
     open(note, "w").write(t3)
     o, _, c = run("--rule", "--json", "--now", "2026-10-30T09:00")
     j = json.loads(o)
-    check("--rule before the meeting: a proposal he ticked is dropped; his ruling line waits; the send tick stays",
+    check("--rule before the meeting: a proposal he ticked is dropped; his ruling line waits",
           [r["outcome"] for r in j["ruled"]] == ["dropped"] and "MH-3820" in j["ruled"][0]["key"]
-          and "### 2026-10-30" in open(note).read() and "· dropped" in open(note).read() and len(j["items"]) == 1 and j["send_ticked"])
+          and "### 2026-10-30" in open(note).read() and "· dropped" in open(note).read() and len(j["items"]) == 1)
 
     # --rule after it: his ela: line rules the item, with a follow-up draft; the send box is unticked for the next one
     o, _, c = run("--rule", "--json", "--now", "2026-10-30T11:00")
@@ -162,8 +176,8 @@ with tempfile.TemporaryDirectory() as t:
           [r["outcome"] for r in j["ruled"]] == ["ruled"] and j["ruled"][0]["words"] == "yes, same notice"
           and j["follow_ups"] == [{"key": "MH-2406", "tier": 3, "draft": "Scrum with the PM, 2026-10-30: yes, same notice"}]
           and "· ruled: yes, same notice" in text and "since 10-29 · ruled" not in text and j["items"] == [])
-    check("after the meeting the send box is unticked and the next meeting is Monday",
-          not j["send_ticked"] and "- [ ] send" in text and j["date"] == "2026-11-02")
+    check("after the meeting no send line is written and the next meeting is Monday",
+          not j["send_ticked"] and "send" not in text and j["date"] == "2026-11-02")
     check("a ruled item's detail stays folded under it; his ela: line does not", "  - the pool has no usable box" in text
           and "ela: ruled" not in text)
 
@@ -184,9 +198,9 @@ with tempfile.TemporaryDirectory() as t:
     open(note, "w").write(t1.replace(f'title: "{cur}"', 'title: "MediaHub team sync · Fri 2026-10-30"'))
     run("--raise", "MH-7 — a hand-titled note", "--now", "2026-11-02T11:00")
     t1 = open(note).read()
-    check("a name written by hand is kept, the date moves to the next meeting, the old title stays an alias",
-          'title: "MediaHub team sync · Wed 2026-11-04"' in t1 and "Scrum with the PM" in t1.split("---")[1]
-          and t1.split("---")[1].count("MediaHub team sync") == 2)
+    check("a name written by hand is kept, the date moves to the next meeting, aliases hold only the title",
+          'title: "MediaHub team sync · Wed 2026-11-04"' in t1 and "Scrum with the PM" not in t1.split("---")[1]
+          and 'aliases: ["MediaHub team sync · Wed 2026-11-04"]' in t1)
 
     # an unknown key is exit 3
     sys.argv = ["brief.py", "meeting", "--key", "nope"]
@@ -196,5 +210,81 @@ with tempfile.TemporaryDirectory() as t:
         except SystemExit as e:
             code = e.code
     check("a key meetings.yaml does not name is exit 3", code == 3)
+
+# a meeting closed by ela, after its end, without a tick: the record of 2026-11-11 (MH-3568 split the same day)
+with tempfile.TemporaryDirectory() as t:
+    vault, reports, facts = (os.path.join(t, x) for x in ("vault", "reports", "facts"))
+    os.makedirs(os.path.join(vault, "meetings")); os.makedirs(os.path.join(facts, "jira", "issues")); os.makedirs(os.path.join(reports, "ela"))
+    def issue(key, created, links=(), status="Review", who="Evan Li", comments=()):
+        json.dump({"key": key, "fields": {"created": created, "status": {"name": status}, "assignee": {"displayName": who},
+                   "statuscategorychangedate": "2026-11-01T10:00:00.000+0800",
+                   "issuelinks": [{"type": {"name": "Relates"}, "inwardIssue": {"key": k}} for k in links]},
+                   "comments": list(comments)}, open(os.path.join(facts, "jira", "issues", f"{key}.json"), "w"))
+    issue("MH-3568", "2026-09-01T10:00:00.000+0800", links=["MH-3998", "MH-3997", "SEC-1"])
+    issue("MH-3998", "2026-11-10T19:20:19.107-0800"); issue("MH-3997", "2026-11-10T19:19:12.169-0800"); issue("SEC-1", "2026-01-01T00:00:00.000+0800")
+    issue("MH-3990", "2026-11-01T10:00:00.000+0800")
+    issue("MH-3993", "2026-11-10T10:00:00.000+0800", who="Fujian Fang", comments=[{"author": {"displayName": "Summer Chen"}, "created": "2026-11-11T15:00:00.000+0800"}])
+    note = os.path.join(vault, "meetings", "sync.md")
+    open(note, "w").write("""---
+title: "MediaHub team sync · Wed 2026-11-11"
+aliases: ["MediaHub team sync · Wed 2026-11-11", "Engineering + QA + UX sync · Tue Thu not scheduled yet"]
+type: "meeting"
+date: "2026-11-11"
+source: "vault"
+---
+
+# MediaHub team sync · Wed 2026-11-11
+
+- [ ] send — no channel set yet
+
+## To raise
+
+- [ ] [MH-3568](https://j/browse/MH-3568) — optional SCTE-35: owners? · the team · since 11-11
+  - rule: passthrough keeps SCTE-35
+- [ ] [MH-3990](https://j/browse/MH-3990) — Black frame to MQTT: who? · Gabriel Liu · since 11-11
+- [ ] [MH-3993](https://j/browse/MH-3993) — 4K overlay crash: mx or libshmmedia? · Summer Chen · since 11-11
+- [ ] This week's deploy — what goes in? · Erin Zhang · since 11-11
+
+## Ruled
+
+## Where things stand
+
+- Prod 3 on 2.1.42
+""")
+    meet = {"key": "sync", "name": "MediaHub team sync", "time": "", "enabled": False}
+    tz = datetime.datetime.now().astimezone().tzinfo
+    before = V.meeting_close(vault, reports, facts, datetime.datetime(2026, 11, 11, 8, 0, tzinfo=tz), [meet])
+    snap = json.load(open(os.path.join(reports, "ela", "meetings.json")))
+    check("before the meeting nothing is closed; each ticket's status and assignee is kept",
+          before == [] and snap["sync@2026-11-11"]["MH-3993"] == {"status": "Review", "assignee": "Fujian Fang"})
+    snap["sync@2026-11-11"]["MH-3993"]["assignee"] = "Evan Li"           # as it was when the meeting began
+    json.dump(snap, open(os.path.join(reports, "ela", "meetings.json"), "w"))
+    during = V.meeting_close(vault, reports, facts, datetime.datetime(2026, 11, 11, 12, 0, tzinfo=tz), [meet])
+    check("during the meeting nothing is closed", during == [])
+    nxt = lambda m, d: datetime.date(2026, 11, 13)  # noqa: E731
+    r = V.meeting_close(vault, reports, facts, datetime.datetime(2026, 11, 11, 18, 30, tzinfo=tz), [meet], nxt)
+    text = open(note).read()
+    ruled = text.split("## Ruled")[1]
+    check("after its end, outcomes under Ruled without a tick: split, assigned and commented, no change",
+          "MH-3568](https://j/browse/MH-3568) — optional SCTE-35: owners? · the team · split into MH-3997 and MH-3998" in ruled
+          and "assigned to Fujian Fang; comment by Summer Chen" in ruled and "  - rule: passthrough keeps SCTE-35" in ruled
+          and "Black frame to MQTT: who? · Gabriel Liu · no change: raised again next meeting" in ruled
+          and "This week's deploy — what goes in? · Erin Zhang · no ticket to read: raised again next meeting" in ruled
+          and len(r) == 1 and len(r[0]["outcome"]) == 2 and len(r[0]["rolled"]) == 2)
+    raise_ = text.split("## To raise")[1].split("## Ruled")[0]
+    check("the unchanged items roll to the next meeting, their age shown; the note is titled for it, no send line",
+          'title: "MediaHub team sync · Fri 2026-11-13"' in text and "Black frame to MQTT: who? · Gabriel Liu · since 11-11" in raise_
+          and "MH-3568" not in raise_ and "send" not in text and "not scheduled yet" not in text)
+    check("a second pass the same evening closes nothing again",
+          V.meeting_close(vault, reports, facts, datetime.datetime(2026, 11, 11, 19, 0, tzinfo=tz), [meet], nxt) == [])
+    r2 = V.meeting_close(vault, reports, facts, datetime.datetime(2026, 11, 13, 19, 0, tzinfo=tz), [meet], nxt)
+    asks = json.load(open(os.path.join(reports, "ela", "asks.json")))
+    check("no change at the second meeting: it leaves the list for the dropped asks",
+          len(r2[0]["dropped"]) == 2 and "## To raise\n\n## Ruled" in open(note).read()
+          and any(k.startswith("meeting:sync:") and v["dropped"] == "2026-11-13" for k, v in asks.items()))
+    mt = V.Note("meetings/sync.md", "MediaHub team sync", V.split_front(open(note).read())[1], {"type": "meeting"}, [])
+    got = V.meeting_outcomes([mt], ["MH-3568"], datetime.date(2026, 11, 13))
+    check("a project's page shows what its meetings ruled on its keys",
+          len(got) == 1 and got[0][0] == "2026-11-11" and "split into MH-3997 and MH-3998" in got[0][3])
 
 sys.exit(1 if failures else 0)

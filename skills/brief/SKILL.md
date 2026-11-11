@@ -402,12 +402,17 @@ he could tick became the page he stopped reading (from 2026-10-28).*
   5. **What he needs from each group today**, one line per group with an ask, written as the question he will ask.
   6. **What he commits to**, one line.
 
-  **Sending the list.** The note opens with `- [ ] send`. Ticked, the runner posts `ela meeting --key K --slack` to
-  the meeting's `channel` at its time, in that day's thread, as a tier-3 send-box action under rule `meeting`
-  (his tick is the confirm; no channel set: he copies the list from the note). The page carries no box for it.
-  **After a meeting** he writes one `ela:` line under an item (`ela: ruled — hold for QA; PM agrees`) or ticks it.
-  Each pass runs `ela meeting --key K --rule --json`: a ruled item moves under `## Ruled` / `### <date>` with his
-  words, an item he ticked before any meeting saw it is dropped, and the send box is unticked for the next meeting.
+  **Sending the list.** The note is shown to the team on screen, so it carries no send line and no ela command:
+  sending is the verb's. With a `channel` set, the list is a tier-3 action under rule `meeting` (`apply N`, his word
+  is the confirm) that posts `ela meeting --key K --slack` in that day's thread; with none, he copies it from that
+  verb. The note reads Where things stand first, then To raise, then Ruled.
+  **After a meeting** ela closes the note itself: the first vault sync after the meeting's end (meetings.yaml `time`
+  plus `minutes`, default 60; a meeting without a time ends at 18:00) reads each item's ticket in the fact store, and
+  the thread an item links, for what changed since the meeting began, and writes the outcome under `## Ruled` /
+  `### <date>` ("split into MH-3997 and MH-3998", "assigned to …", "no change"). An item with no change rolls to the
+  next meeting once and then leaves for `reference/dropped.md`. His ticks and `ela:` lines still rule an item when
+  he writes them (`ela meeting --key K --rule --json` applies them, and the close applies them first); nothing
+  requires them. A ruling on a key shows on its project page under *At meetings*.
   Each of its `follow_ups` (a ruling that names a key) becomes a drafted action that day, rewritten in the ticket's
   genre (a Jira comment, a priority change), tier 3 unless a closed rule admits it. Ruled keeps 30 days; the vault
   sync moves older dates to `archive/meetings-<key>-<yyyy-mm>.md` and lints an item over 140 characters.
@@ -610,8 +615,8 @@ The page is read in Obsidian, so its form is fixed:
   and `train-promote`, each an `ela slack post <thread permalink> …
   --team-thread`, which slack.py refuses outside the team channels. Tier 3 is everything else, on his word only
   (`apply N`): customers, prod approvals, people, anything addressed to him, anything no closed rule admits. One tier-3
-  rule carries a send box: `meeting`, a meeting's list, its box `- [ ] send` atop the meeting's note, not on the page,
-  posted at the meeting's time in that day's thread (above). `qa-today` and `dev-today` (QA today and Dev today, above)
+  rule is a meeting's list, `meeting`: an `apply N` that posts it in that day's thread (above); the meeting's note
+  carries no box for it. `qa-today` and `dev-today` (QA today and Dev today, above)
   are on demand, drafted only when he asks and sent on his word; either may make the day post, `ela slack post #<team channel> … --team-day-post` (Dev today only that), which slack.py refuses when
   ela already posted top level in that channel that day. `test-list` (the 19:00 post) is retired; page-check fails an
   action drafted under it (decisions/2026-10-29-writes-run-in-three-tiers.md, amendment 2026-10-30). A tier-1 or tier-2 action carries `evidence`, one

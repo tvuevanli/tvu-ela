@@ -149,7 +149,9 @@ TAIL_HEADS = ("Notes", "Keys and threads", "Afterwards", "Deadline")
 LEGACY_TAIL_HEAD = "Waiting for your word"
 PROJECT_HEAD_END = "## " + TAIL_HEADS[0]
 STANDS_HEAD = "Where it stands"          # a Jira project's state, from the fact store; the first of the sync's sections
-TAIL_HEAD_RX = re.compile(r"^##[ \t]+(?:" + "|".join(re.escape(h) for h in (STANDS_HEAD, LEGACY_TAIL_HEAD) + TAIL_HEADS) + r")[ \t]*$", re.M)
+MEETINGS_HEAD = "At meetings"            # what its meetings ruled on its keys, after Notes, so the head still ends at Notes
+TAIL_HEAD_RX = re.compile(r"^##[ \t]+(?:" + "|".join(re.escape(h) for h in (STANDS_HEAD, LEGACY_TAIL_HEAD, MEETINGS_HEAD) + TAIL_HEADS)
+                          + r")[ \t]*$", re.M)
 PROJECT_WATCH_DAYS = 14                   # the page's watch defaults to its deadline plus this
 PROJECT_SOON_DAYS = 14                    # Home names a project's step only with the deadline nearer than this and the step overdue
 # to-read means "waits on his word", whatever the type: a reading's asks sit under this heading, one box each
@@ -2132,7 +2134,26 @@ def stands_lines(t, jira_base=""):
     return L
 
 
-def project_tail(facts, rows, today, jira_base=""):
+def meeting_outcomes(notes, keys, today, days=30):
+    """What the meeting notes ruled on any of `keys` in the last `days`: [(date, meeting note path, meeting name, line)],
+    newest first. A meeting note holds the outcome; the project page shows it (an angle, nothing stored twice)."""
+    out, cut = [], (today - datetime.timedelta(days=days)).isoformat()
+    want = set(keys or [])
+    for n in notes:
+        if n.props.get("type") != "meeting" or top(n.path) != MEETINGS or not want:
+            continue
+        m = meeting_parse("---\n---\n" + n.body)
+        name = (m["title"] or n.title or "").split(" · ")[0]
+        for d, lines in m["ruled"]:
+            if d < cut:
+                continue
+            for l in lines:
+                if l.startswith("- ") and want & set(KEY_RX.findall(l)):
+                    out.append((d, n.path, name, l[2:].strip()))
+    return sorted(out, key=lambda x: x[0], reverse=True)
+
+
+def project_tail(facts, rows, today, jira_base="", met=()):
     """The sync's half of a project page: TAIL_HEADS in their order. No Waiting for your word: the page's own open
     questions are on the page, a note beside it holds its own asks, and today.md links each once (ADR 0015). A label
     is plain text: a title carrying a Markdown link would break the wikilink around it."""
@@ -2152,6 +2173,8 @@ def project_tail(facts, rows, today, jira_base=""):
             bits = [r["type"], r["date"], r["status"]]
             L.append(f"- [[{r['path'][:-3]}|{label(r['title'])}]] · " + " · ".join(b for b in bits if b))
         L.append("")
+    if met:
+        L += [f"## {MEETINGS_HEAD}", ""] + [f"- {d[5:]} · [[{p[:-3]}|{label(name)}]]: {line}" for d, p, name, line in met] + [""]
     keys = [f"[{k}]({jira_base}/browse/{k})" if jira_base else k for k in facts["keys"]]
     links = facts["links"]
     wp = facts["props"]
@@ -2191,7 +2214,7 @@ def project_note(key, text, vault, notes, today, jira_base="", ticket=None):
     if keep:
         fm = fm[:-len("---\n\n")] + "\n".join(keep) + "\n---\n\n"
     rows = project_rows(vault, key, notes, facts["path"])
-    tail = project_tail(facts, rows, today, jira_base)
+    tail = project_tail(facts, rows, today, jira_base, meeting_outcomes(notes, facts["keys"], today))
     n = Note(facts["path"], facts["title"], facts["head"] + "\n" + tail, {"type": "project", "date": want["date"], "deadline": want["deadline"]})
     n.front_text, n.head, n.tail, n.facts, n.rows = fm, facts["head"] + "\n", tail, facts, rows
     return n
@@ -3013,8 +3036,8 @@ def meta_line(n):
 
 
 # ── a meeting's note: what he raises there and what it ruled ──────────────────────────────────────────
-# One note per meeting, meetings/<key>.md, written in place by `ela meeting`: a send box, To raise (one line an item,
-# its detail folded under it) and Ruled by date, newest first. The sync rolls a Ruled date older than 30 days into
+# One note per meeting, meetings/<key>.md, written in place by `ela meeting` and shown to the team: Where things stand,
+# To raise (one line an item, its detail folded under it) and Ruled by date, newest first; no send line. The sync rolls a Ruled date older than 30 days into
 # archive/meetings-<key>-<yyyy-mm>.md and lints an item over 140 characters (vault
 # in-progress/2026-10-30-review-list-redesign.md).
 MEETINGS = "meetings"
@@ -3078,35 +3101,51 @@ def meeting_parse(text):
     return n
 
 
-def meeting_render(n, title, send_text, today):
-    """The note written back: its properties, the title, the send box, To raise, Ruled by date (newest first), then
-    any section he added, kept unchanged."""
+MEETING_STAND = "Where things stand"
+SINCE_TAG = re.compile(r"[ \t]*·[ \t]*since[ \t]+(\d{2}-\d{2})\b")
+
+
+def meeting_day(title):
+    """The meeting day a note's title names (`… · Wed 2026-11-11`), else None."""
+    m = re.search(r"(\d{4}-\d{2}-\d{2})\s*$", title or "")
+    try:
+        return datetime.date.fromisoformat(m.group(1)) if m else None
+    except ValueError:
+        return None
+
+
+def meeting_render(n, title, send_text=None, today=None):
+    """The note written back, as it is shown to the team: its properties (aliases hold only the title), the title,
+    Where things stand, To raise, Ruled by date (newest first), then any other section he added, kept unchanged. No send
+    line and no ela command: sending is the verb's (`ela meeting --key K --slack`). An item says `since <date>` only
+    when it is older than the meeting day; the date is kept on the item otherwise and comes back when it rolls."""
     keep = [l for l in n["front"] if not re.match(r"^(title|aliases|type|date|source):", l)]
-    props = front([], {"title": title, "type": "meeting", "date": today.isoformat(), "source": "vault"})
-    old = list_prop(n["front"], "aliases") + [props_of(n["front"]).get("title") or ""]
-    names = {title.split(" · ")[0]: title}                # a renamed note keeps each old name once; a date is not a name
-    for a in old:
-        if a and a.split(" · ")[0] not in names:
-            names[a.split(" · ")[0]] = a
-    aliases = list(names.values())
-    props = re.sub(r"(?m)^aliases: .*$", lambda _: f"aliases: {json.dumps(aliases, ensure_ascii=False)}", props, 1)
+    props = front([], {"title": title, "type": "meeting", "date": (today or datetime.date.today()).isoformat(), "source": "vault"})
     if keep:
         props = props[:-len("---\n\n")] + "\n".join(keep) + "\n---\n\n"
-    box = "x" if n["send"] and n["send"]["ticked"] else " "
+    day = meeting_day(title)
     intro = "\n".join(n["intro"]).strip("\n")
     out = [f"# {title}", ""] + ([intro, ""] if intro else [])
-    out += [f"- [{box}] send — {send_text}", "", f"## {MEETING_RAISE}", ""]
+    others = list(n["others"])
+    for h, lines in [x for x in others if x[0] == MEETING_STAND]:   # what stands is read before what is raised
+        body = "\n".join(lines).strip("\n")
+        out += [f"## {h}", ""] + ([body, ""] if body else [])
+    out += [f"## {MEETING_RAISE}", ""]
     head = "\n".join(n["head"]).strip("\n")
     out += ([head, ""] if head else [])
     for it in n["items"]:
-        out += [f"- [{'x' if it['ticked'] else ' '}] {it['text']}"] + it["under"]
+        text = it["text"]
+        since = meeting_fields(text)["since"]
+        if day and since and meeting_since(since, day) == day:
+            text = SINCE_TAG.sub("", text)                  # raised for this meeting: no age to show
+        out += [f"- [{'x' if it['ticked'] else ' '}] {text}"] + it["under"]
     out += ([""] if n["items"] else []) + [f"## {MEETING_RULED}", ""]
     rh = "\n".join(n["ruled_head"]).strip("\n")
     out += ([rh, ""] if rh else [])
     for d, lines in sorted(n["ruled"], key=lambda x: x[0], reverse=True):
         body = "\n".join(lines).strip("\n")
         out += [f"### {d}", ""] + ([body, ""] if body else [])
-    for h, lines in n["others"]:
+    for h, lines in [x for x in others if x[0] != MEETING_STAND]:
         body = "\n".join(lines).strip("\n")
         out += [f"## {h}", ""] + ([body, ""] if body else [])
     return props + "\n".join(out).rstrip("\n") + "\n"
@@ -3153,17 +3192,18 @@ def meeting_since(mmdd, today):
     return d if d <= today else d.replace(year=today.year - 1)
 
 
-def meeting_rule(n, today, last_meeting):
+def meeting_rule(n, today, last_meeting, raised_for=None):
     """His ticks and `ela:` lines applied. An item that was on the list at a meeting held (since on or before
     `last_meeting`, a date or None) is ruled by an `ela:` line under it (its words) or a tick with none; one ticked
     before any meeting saw it is dropped, and `ela: drop` drops either. Each leaves To raise for `### <today>` under
-    Ruled, its plain detail folded under it. → [{key, text, outcome: ruled|dropped, words}]."""
+    Ruled, its plain detail folded under it. An item without its `since` was raised for the meeting the title names
+    (`raised_for`). → [{key, text, outcome: ruled|dropped, words}]."""
     out, stay, lines = [], [], []
     for it in n["items"]:
         f = meeting_fields(it["text"])
         guides = [g.group(1).strip() for g in (GUIDE.match(l) for l in it["under"]) if g]
         words = [g for g in guides if not MEETING_DROP.match(g) and not MEETING_ORDER.match(g)]
-        since = meeting_since(f["since"], today) if f["since"] else None
+        since = meeting_since(f["since"], today) if f["since"] else raised_for
         seen = last_meeting is not None and (since is None or since <= last_meeting)
         if any(MEETING_DROP.match(g) for g in guides) or (it["ticked"] and not seen):
             outcome = "dropped"
@@ -3190,11 +3230,11 @@ def meeting_rule(n, today, last_meeting):
 
 
 def meeting_lint(path, text):
-    """Lint lines for a meeting note: an item over 140 characters as reading mode shows it, a missing send box or
-    section."""
+    """Lint lines for a meeting note: an item over 140 characters as reading mode shows it, a send line left on it, a
+    missing section."""
     n, out = meeting_parse(text), []
-    if not n["send"]:
-        out.append(f"{path}: no `- [ ] send` box above {MEETING_RAISE}")
+    if n["send"]:
+        out.append(f"{path}: a send line on a page shown to the team; sending is `ela meeting --key <key> --slack`")
     for want in (MEETING_RAISE, MEETING_RULED):
         if not re.search(r"^##[ \t]+" + re.escape(want) + r"[ \t]*$", split_front(text)[1], re.M):
             out.append(f"{path}: no ## {want} section")
@@ -3241,6 +3281,218 @@ def meeting_roll(vault, today, dry_run=False):
             send = re.sub(r"^[-*][ \t]+\[[ xX]\][ \t]+send[ \t]*—?[ \t]*", "", n["send"]["text"]) if n["send"] else "copy the list from below"
             atomic_write(p, meeting_render(n, title, send, today))
     return moved
+
+
+# ── a meeting closed by ela: what changed on each item's ticket after the meeting began ───────────────
+# His ticks and `ela:` lines rule an item when he writes them; nothing requires them. After the meeting's end, the
+# next sync reads each item's ticket in the fact store (<runtime>/facts/jira/issues/) and its thread, if the item links
+# one (<runtime>/facts/slack/), for what changed since the meeting began, and writes the outcome under Ruled itself. An
+# item with no change rolls to the next meeting once, then leaves for reference/dropped.md like any ask. Reason: the
+# review of the vault's first day on layout 5 (<runtime>/drafts/2026-11-12-vault-two-day-review-brief.md, change 4).
+MEETING_HOURS = 1                                       # a meeting's length when meetings.yaml gives no `minutes`
+SLACK_LINK = re.compile(r"/archives/([A-Z0-9]+)/p(\d{10})(\d{6})")
+
+
+def facts_issue(facts, key):
+    try:
+        return json.load(open(os.path.join(facts, "jira", "issues", f"{key}.json"), encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return None
+
+
+def jira_time(v):
+    """A Jira or ISO timestamp → an aware datetime, None when it does not parse."""
+    try:
+        return datetime.datetime.fromisoformat(re.sub(r"([+-]\d{2})(\d{2})$", r"\1:\2", str(v or "").replace("Z", "+00:00")))
+    except ValueError:
+        return None
+
+
+def and_list(xs):
+    xs = list(xs)
+    return xs[0] if len(xs) == 1 else ", ".join(xs[:-1]) + " and " + xs[-1]
+
+
+BOT_AUTHOR = re.compile(r"^(?:Automation\b|Slack$|Jira$|GitLab|GitHub|Jenkins)", re.I)   # an integration's comment is not a person's
+
+
+def ticket_outcome(facts, key, start, before=None):
+    """What changed on `key` after `start` (aware), read from the fact store: the tickets it was split into (linked
+    tickets created since), a status it moved to, a new assignee (against `before`, the item's ticket as the pass
+    before the meeting saw it: {status, assignee}), who commented. → (words or None when nothing changed, read)."""
+    d = facts_issue(facts, key)
+    if not d:
+        return None, False
+    f = d.get("fields") or {}
+    bits = []
+    linked = sorted({(l.get("outwardIssue") or l.get("inwardIssue") or {}).get("key") for l in f.get("issuelinks") or []}
+                    | {x.get("key") for x in f.get("subtasks") or []} - {None})
+    new = []
+    for k in linked:
+        o = facts_issue(facts, k) if k else None
+        t = jira_time(((o or {}).get("fields") or {}).get("created"))
+        if t and t >= start:
+            new.append(k)
+    if new:
+        bits.append(("split into " if len(new) > 1 else "opened ") + and_list(new))
+    status = (f.get("status") or {}).get("name")
+    moved = jira_time(f.get("statuscategorychangedate"))
+    if status and ((before or {}).get("status") and before["status"] != status or not before and moved and moved >= start):
+        bits.append(f"moved to {status}")
+    who = (f.get("assignee") or {}).get("displayName")
+    if before and who and before.get("assignee") != who:
+        bits.append(f"assigned to {who}")
+    authors = []
+    for c in d.get("comments") or ((f.get("comment") or {}).get("comments") or []):
+        a = (c.get("author") or {}).get("displayName") or ""
+        t = jira_time(c.get("created"))
+        if t and t >= start and a and not BOT_AUTHOR.match(a) and a not in authors:
+            authors.append(a)
+    if authors:
+        bits.append("comment by " + and_list(authors))
+    return ("; ".join(bits) or None), True
+
+
+def thread_outcome(facts, text, start):
+    """Replies after `start` in the Slack thread an item links, from the fact store: 'N replies in its thread' or None."""
+    m = SLACK_LINK.search(text or "")
+    if not m:
+        return None
+    try:
+        doc = json.load(open(os.path.join(facts, "slack", f"{m.group(1)}.json"), encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    ts = f"{m.group(2)}.{m.group(3)}"
+    replies = (doc.get("replies") or {}).get(ts) or []
+    n = sum(1 for r in replies if r.get("ts") != ts and float(r.get("ts") or 0) >= start.timestamp())
+    return f"{n} repl{'y' if n == 1 else 'ies'} in its thread" if n else None
+
+
+def meeting_window(meeting, day):
+    """(start, end) of the meeting on `day`, aware, from meetings.yaml (`time`, `minutes`); a meeting without a time
+    is taken as the working day (09:00–18:00)."""
+    tz = datetime.datetime.now().astimezone().tzinfo
+    t = str((meeting or {}).get("time") or "").strip()
+    if re.fullmatch(r"\d{1,2}:\d{2}", t):
+        start = datetime.datetime.combine(day, datetime.time(*map(int, t.split(":"))), tz)
+        mins = int((meeting or {}).get("minutes") or MEETING_HOURS * 60)
+        return start, start + datetime.timedelta(minutes=mins)
+    return datetime.datetime.combine(day, datetime.time(9), tz), datetime.datetime.combine(day, datetime.time(18), tz)
+
+
+def meeting_book():
+    """(meetings.yaml's meetings, next_day): read through the brief, which owns the owner's day; ([], None) when it
+    cannot be read, so a sync never fails on it."""
+    try:
+        sys.path.insert(0, os.path.join(HERE, "..", "brief"))
+        import brief as B
+        doc = B.owner_day()
+        return doc.get("meetings") or [], lambda m, day: next(B.meeting_slots(m, doc, day + datetime.timedelta(days=1), 1), None)
+    except Exception:
+        return [], None
+
+
+def meeting_snapshot_path(reports):
+    return os.path.join(reports or "", "ela", "meetings.json")
+
+
+def meeting_close(vault, reports, facts, now, meetings, next_day=None, dry_run=False):
+    """Each meeting note whose meeting has ended and is not yet closed: his ticks and `ela:` lines applied first, then
+    each item left is read for what changed since the meeting began; a change is its outcome under `### <day>` in
+    Ruled, the rest roll once (their `since` kept) and leave for reference/dropped.md the second time. Before a meeting
+    begins, its tickets' status and assignee are kept (<reports>/ela/meetings.json) so an assignment can be told
+    after. `meetings`: meetings.yaml's list; `next_day(meeting, day)`: the meeting's next date after `day`, or None.
+    → [{note, day, outcome: [(text, words)], rolled: [text], dropped: [text]}]."""
+    out, d = [], os.path.join(vault, MEETINGS)
+    snap_path = meeting_snapshot_path(reports)
+    try:
+        snaps = json.load(open(snap_path, encoding="utf-8"))
+    except (OSError, ValueError):
+        snaps = {}
+    snaps_changed = False
+    drops = []
+    for f in sorted(os.listdir(d)) if os.path.isdir(d) else []:
+        p = os.path.join(d, f)
+        if not f.endswith(".md"):
+            continue
+        text = open(p, encoding="utf-8").read()
+        fl, _ = split_front(text)
+        if not any(re.match(r"^type:\s*['\"]?meeting['\"]?\s*$", l) for l in fl):
+            continue
+        n = meeting_parse(text)
+        key, title = f[:-3], n["title"] or f[:-3]
+        day = meeting_day(title)
+        m = next((x for x in meetings or [] if isinstance(x, dict) and x.get("key") == key), None)
+        if not day:
+            continue
+        start, end = meeting_window(m, day)
+        sk = f"{key}@{day.isoformat()}"
+        if now < start:                                    # before it: keep what each ticket is now
+            cur = {}
+            for it in n["items"]:
+                k = meeting_fields(it["text"])["key"]
+                fx = facts_issue(facts, k) if k else None
+                if fx:
+                    fs = fx.get("fields") or {}
+                    cur[k] = {"status": (fs.get("status") or {}).get("name"), "assignee": (fs.get("assignee") or {}).get("displayName")}
+            if cur and snaps.get(sk) != cur:
+                snaps[sk] = cur; snaps_changed = True
+            continue
+        if now < end or any(x[0] == day.isoformat() for x in n["ruled"]) and not n["items"]:
+            continue
+        if (snaps.get("closed") or {}).get(sk):
+            continue                                       # closed once; what he adds after is the next meeting's
+        meeting_rule(n, day, day, raised_for=day)          # his ticks and words first, as the meeting's own
+        before = snaps.get(sk) or {}
+        stay, lines, res = [], [], {"note": f"{MEETINGS}/{f}", "day": day.isoformat(), "outcome": [], "rolled": [], "dropped": []}
+        for it in n["items"]:
+            fld = meeting_fields(it["text"])
+            words, read = (ticket_outcome(facts, fld["key"], start, before.get(fld["key"])) if fld["key"] else (None, False))
+            thread = thread_outcome(facts, it["text"] + "\n" + "\n".join(it["under"]), start)
+            words = "; ".join(x for x in (words, thread) if x) or None
+            bare = re.sub(r"[ \t]*·[ \t]*(?:since[ \t]+\d{2}-\d{2}|ela proposes)\b", "", it["text"])
+            if words:
+                detail = [l for l in it["under"] if not GUIDE.match(l) and not l.lstrip().startswith(">")]
+                lines += [f"- {bare} · {words}"] + detail
+                res["outcome"].append((bare, words))
+                continue
+            since = meeting_since(fld["since"], day) if fld["since"] else day
+            gone = "no ticket to read" if not fld["key"] else ("not read" if not read else "no change")
+            if since < day:                                # rolled once already: it leaves the list
+                lines.append(f"- {bare} · {gone}, second meeting: left the list")
+                res["dropped"].append(bare)
+                drops.append({"id": f"meeting:{key}:{fld['gist']}", "text": f"{visible(bare)} ({title.split(' · ')[0]})",
+                              "first": since.isoformat(), "dropped": day.isoformat()})
+                continue
+            if not fld["since"]:                           # it keeps the day it was raised for, shown from the next meeting on
+                it["text"] = it["text"].rstrip() + f" · since {day:%m-%d}"
+            lines.append(f"- {bare} · {gone}: raised again next meeting")
+            res["rolled"].append(bare)
+            stay.append(it)
+        n["items"] = stay
+        if lines:
+            ruled = next((x for x in n["ruled"] if x[0] == day.isoformat()), None)
+            if ruled is None:
+                ruled = (day.isoformat(), []); n["ruled"].append(ruled)
+            while ruled[1] and not ruled[1][-1].strip():
+                ruled[1].pop()
+            ruled[1].extend(lines)
+        nxt = next_day(m, day) if next_day and m else None
+        new_title = f"{title.rsplit(' · ', 1)[0]} · {nxt:%a %Y-%m-%d}" if nxt else title
+        snaps.setdefault("closed", {})[sk] = now.isoformat(timespec="seconds"); snaps_changed = True
+        out.append(res)
+        if not dry_run:
+            atomic_write(p, meeting_render(n, new_title, None, now.date()))
+    if not dry_run and snaps_changed:
+        os.makedirs(os.path.dirname(snap_path), exist_ok=True)
+        atomic_write(snap_path, json.dumps(snaps, indent=1, ensure_ascii=False))
+    if drops and not dry_run:                              # like any ask: once on reference/dropped.md
+        state = load_asks(reports)
+        for x in drops:
+            if not (state.get(x["id"]) or {}).get("dropped"):
+                state[x["id"]] = {"first": x["first"], "text": x["text"], "sig": "", "dropped": x["dropped"]}
+        atomic_write(os.path.join(reports, "ela", "asks.json"), json.dumps(state, indent=1, ensure_ascii=False))
+    return out
 
 
 # ── the sync ──────────────────────────────────────────────────────────────────────────────────────────
@@ -4585,6 +4837,8 @@ def cmd_sync(a):
     marked = [] if a.dry_run else apply_marks(vault, s.get("reports") or "")   # ticked boxes first: they are his moves
     answered = answered_readings(vault, s.get("reports") or "", a.dry_run)
     rolled = meeting_roll(vault, today, a.dry_run)
+    closed = meeting_close(vault, s.get("reports") or "", os.path.join(s.get("runtime") or "", "facts"),
+                           datetime.datetime.now().astimezone(), *meeting_book(), dry_run=a.dry_run)
     for fix in settle_statuses(vault, a.dry_run):
         print(f"status: {fix}", file=sys.stderr)
     if not a.dry_run:
@@ -4767,7 +5021,7 @@ def cmd_sync(a):
     counts = {"generated": len(planned), "in_place": len(native_paths), "archived": in_archive}
     r = {**counts, "dry_run": a.dry_run, "deleted_by_owner": newly, "archived_by_ela": to_archive, "moved": [{"from": f, "to": t} for f, t in moved],
          "answered": [{"from": f, "to": t} for f, t in answered],
-         "rolled": [{"note": f, "date": d, "to": t} for f, d, t in rolled],
+         "rolled": [{"note": f, "date": d, "to": t} for f, d, t in rolled], "closed": closed,
          "left_in_retired": left, "notes": len(planned), "written": len(wrote), "unchanged": same, "files_copied": copied,
          "removed": gone, "held": held, "warnings": warnings, "projects": [{"note": p, "project": k} for p, k in inferred]}
     if a.json:
@@ -4789,6 +5043,8 @@ def cmd_sync(a):
         print(f"  acted on, done by ela where it is: {d}")
     for f, d, t in rolled:
         print(f"  ruled {d}, over {MEETING_RULED_DAYS} days: {f} → {t}")
+    for c in closed:
+        print(f"  closed {c['note']} ({c['day']}): {len(c['outcome'])} outcomes, {len(c['rolled'])} rolled, {len(c['dropped'])} left the list")
     for d in newly:
         print(f"  deleted by the owner, recorded as read: {d}")
     for p_, k in inferred:
