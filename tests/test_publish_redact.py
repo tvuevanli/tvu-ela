@@ -44,6 +44,36 @@ check([w for _, w, _ in publish.guard_flags('{"title": "' + cjk(14) + '",', "dev
       "a lanes json that does not parse is read as text")
 check(bool(publish.LANE_PAGE.match("test-list-qa-cn3.json")) and not publish.LANE_PAGE.match("notes.md"),
       "only the lanes page and the lists are published from <reports>/lanes/")
+# the record of 2026-11-11: MH-3962's Jira title quotes a Chinese error message; the tickets pass failed twice on it
+import tempfile, io, contextlib, argparse  # noqa: E402
+title = "[cn2] Resource-pool allocation failure shows an unclear error prompt (0x81004009 / " + chr(34) + cjk(12) + chr(34) + ")"
+doc = publish.json.dumps({"lane": "qa-cn3", "left": {"MH-3962": {"ticket": "MH-3962", "title": title,
+                          "why": "QA said " + q(cjk(10))}}}, ensure_ascii=False, indent=1)
+facts = {title}
+check([p for p, _, _ in publish.guard_flags(doc, "test-list-qa-cn3.json", facts)] == ["$.left.MH-3962.why"],
+      "a quotation inside a Jira title passes the guard; the same words elsewhere do not")
+check(publish.guard_flags("- [MH-3962](u) " + title + " — in progress", "lanes.md", facts) == [],
+      "the lanes page citing that title passes")
+with tempfile.TemporaryDirectory() as tmp:
+    src, pub = os.path.join(tmp, "reports", "lanes"), os.path.join(tmp, "published")
+    os.makedirs(src); os.makedirs(pub)
+    open(os.path.join(src, "test-list-qa-cn3.json"), "w", encoding="utf-8").write(doc)
+    open(os.path.join(src, "lanes.md"), "w", encoding="utf-8").write("- [MH-3962](u) " + title + "\n")
+    publish.site = lambda: {"reports": os.path.join(tmp, "reports")}
+    publish.roots = lambda: (tmp, pub)
+    out, code = io.StringIO(), 0
+    with contextlib.redirect_stdout(out):
+        try:
+            publish.cmd_lanes(argparse.Namespace(sync=False, json=True))
+        except SystemExit as e:
+            code = e.code or 0
+    r = publish.json.loads(out.getvalue())
+    got = publish.json.load(open(os.path.join(pub, "lanes", "test-list-qa-cn3.json"), encoding="utf-8"))
+    check(code == 0 and sorted(r["published"]) == ["lanes.md", "test-list-qa-cn3.json"] and r["refused"] == [],
+          "the lanes pass completes with MH-3962 in the data, exit 0")
+    check(got["left"]["MH-3962"]["title"] == title and got["left"]["MH-3962"]["why"] == "QA said " + publish.QUOTE_CUT
+          and r["cut"][0]["file"] == "test-list-qa-cn3.json",
+          "the title is kept whole; a quoted sentence in another field is cut out and reported")
 if failures:
     print(f"publish redact: {len(failures)} failed"); sys.exit(1)
 print("publish redact: all cases pass")

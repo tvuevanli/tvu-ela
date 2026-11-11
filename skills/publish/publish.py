@@ -596,10 +596,11 @@ GUARD = [(re.compile(r"xox[abpe]-[A-Za-z0-9-]{10,}"), "Slack token"), (re.compil
          (re.compile(r"[\"“«「『]([^\"”»」』\n]{0,80}[\u4e00-\u9fff][^\"”»」』\n]{0,80})[\"”»」』]"), "a quoted CJK sentence")]
 
 
-def guard_flags(text, name=""):
+def guard_flags(text, name="", facts=()):
     """The content guard's rules a published page must pass (hooks/content-guard.sh): a credential anywhere, a quoted
     sentence of eight or more CJK characters. A `.json` file's quotes are syntax, so there the quoted-sentence rule reads
-    its decoded string values and names the key path; a json that does not parse is read as text.
+    its decoded string values and names the key path; a json that does not parse is read as text. A quotation that is
+    part of one of `facts` (the Jira titles the lists carry) is a field with a source, not a person's words, and passes.
     → [(line number or key path, why, line)]."""
     values = None
     if name.endswith(".json"):
@@ -610,23 +611,78 @@ def guard_flags(text, name=""):
     out = []
     for n, line in enumerate(text.splitlines(), 1):
         for rx, why in GUARD:
-            if values is not None and why == "a quoted CJK sentence":
+            if values is not None and why == QUOTED:
                 continue
             m = rx.search(line)
-            if m and quoted_cjk_ok(why, m):
+            if m and quoted_cjk_ok(why, m) and not (why == QUOTED and is_fact(m, facts)):
                 out.append((n, why, line.strip()[:100]))
     for path, v in values or []:
         rx, why = GUARD[-1]
         for line in v.splitlines():
             m = rx.search(line)
-            if m and quoted_cjk_ok(why, m):
+            if m and quoted_cjk_ok(why, m) and not is_fact(m, facts):
                 out.append((path, why, line.strip()[:100]))
     return out
 
 
+QUOTED = "a quoted CJK sentence"
+QUOTE_CUT = "(quoted text left out)"
+
+
+def is_fact(m, facts):
+    """True when the quotation `m` matched sits inside one of `facts` — a Jira field the page cites."""
+    return any(m.group(0) in f for f in facts)
+
+
+def lane_titles(src, names):
+    """Every `title` value in the lanes' json files: the Jira summaries the lists and the lanes page carry."""
+    out = set()
+    for f in names:
+        if not f.endswith(".json"):
+            continue
+        try:
+            doc = json.load(open(os.path.join(src, f), encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        out |= {v for path, v in json_strings(doc) if path.endswith(".title") and isinstance(v, str)}
+    return out
+
+
+def cut_quotes(text, name, facts):
+    """`text` with every flagged quotation replaced by QUOTE_CUT, credentials untouched → (text, cut count). A json
+    file is cut in its decoded values and dumped again in the list writer's form (indent 1, CJK kept)."""
+    rx = GUARD[-1][0]
+    n = [0]
+
+    def cut(s):
+        def one(m):
+            if quoted_cjk_ok(QUOTED, m) and not is_fact(m, facts):
+                n[0] += 1
+                return QUOTE_CUT
+            return m.group(0)
+        return rx.sub(one, s)
+    if name.endswith(".json"):
+        try:
+            doc = json.loads(text)
+        except ValueError:
+            doc = None
+        if doc is not None:
+            def walk(v):
+                if isinstance(v, str):
+                    return cut(v)
+                if isinstance(v, dict):
+                    return {k: walk(x) for k, x in v.items()}
+                if isinstance(v, list):
+                    return [walk(x) for x in v]
+                return v
+            out = walk(doc)
+            return (json.dumps(out, ensure_ascii=False, indent=1) + "\n" if n[0] else text), n[0]
+    return "\n".join(cut(line) for line in text.split("\n")), n[0]
+
+
 def quoted_cjk_ok(why, m):
     """True when a match counts: any credential, or a quotation holding eight or more CJK characters."""
-    return why != "a quoted CJK sentence" or len(re.findall(r"[\u4e00-\u9fff]", m.group(1))) >= 8
+    return why != QUOTED or len(re.findall(r"[\u4e00-\u9fff]", m.group(1))) >= 8
 
 
 def json_strings(v, path="$"):
@@ -642,19 +698,25 @@ def json_strings(v, path="$"):
 
 
 def cmd_lanes(a):
-    """The lanes page and the test and dev lists, copied through `redact` into <published>/lanes/; a file the guard
-    flags is refused, the published copy left as it was."""
+    """The lanes page and the test and dev lists, copied through `redact` into <published>/lanes/. A Jira title is a
+    fact and passes the guard; any other quoted sentence is cut out and the file published with the cut reported; a file
+    that carries a credential is refused, the published copy left as it was. Only a credential exits non-zero: one row's
+    words never fail the pass."""
     s = site()
     src = os.path.join(s.get("reports") or os.path.join(s.get("projects", ""), "reports"), "lanes")
     _, published = roots()
     dst = os.path.join(published, "lanes")
     names = sorted(f for f in os.listdir(src) if LANE_PAGE.match(f)) if os.path.isdir(src) else []
-    done, refused = [], []
+    facts = lane_titles(src, names)
+    done, refused, cut = [], [], []
     for f in names:
         text = redact(open(os.path.join(src, f), encoding="utf-8").read())
-        flags = guard_flags(text, f)
-        if flags:
+        flags = guard_flags(text, f, facts)
+        if any(why != QUOTED for _, why, _ in flags):
             refused.append({"file": f, "flags": [f"{n}: {why}: {line}" for n, why, line in flags[:5]]}); continue
+        if flags:
+            text, k = cut_quotes(text, f, facts)
+            cut.append({"file": f, "cut": k, "rows": [f"{n}: {line}" for n, _, line in flags[:5]]})
         os.makedirs(dst, exist_ok=True)
         tmp = os.path.join(dst, f + ".tmp"); open(tmp, "w", encoding="utf-8").write(text); os.replace(tmp, os.path.join(dst, f))
         done.append(f)
@@ -662,9 +724,12 @@ def cmd_lanes(a):
     if a.sync:
         synced = sync_lanes(dst)
     if a.json:
-        print(json.dumps({"destination": dst, "published": done, "refused": refused, "synced": synced}, ensure_ascii=False))
+        print(json.dumps({"destination": dst, "published": done, "refused": refused, "cut": cut, "synced": synced},
+                         ensure_ascii=False))
     else:
         print(f"published lanes/ ({', '.join(done) or 'nothing'}) → {dst}")
+        for c in cut:
+            print(f"published {c['file']} with {c['cut']} quotation(s) left out:\n  " + "\n  ".join(c["rows"]))
         for r in refused:
             print(f"refused {r['file']}:\n  " + "\n  ".join(r["flags"]))
         if synced is not None:
