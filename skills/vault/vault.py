@@ -3428,12 +3428,13 @@ def meeting_snapshot_path(reports):
     return os.path.join(reports or "", "ela", "meetings.json")
 
 
-def meeting_close(vault, reports, facts, now, meetings, next_day=None, dry_run=False):
+def meeting_close(vault, reports, facts, now, meetings, next_day=None, dry_run=False, jira=""):
     """Each meeting note whose meeting has ended and is not yet closed: his ticks and `ela:` lines applied first, then
     each item left is read for what changed since the meeting began; a change is its outcome under `### <day>` in
     Ruled, the rest roll once (their `since` kept) and leave for reference/dropped.md the second time. Before a meeting
     begins, its tickets' status and assignee are kept (<reports>/ela/meetings.json) so an assignment can be told
-    after. `meetings`: meetings.yaml's list; `next_day(meeting, day)`: the meeting's next date after `day`, or None.
+    after. `meetings`: meetings.yaml's list; `next_day(meeting, day)`: the meeting's next date after `day`, or None;
+    `jira`: the base URL the outcome's ticket keys are linked to.
     → [{note, day, outcome: [(text, words)], rolled: [text], dropped: [text]}]."""
     out, d = [], os.path.join(vault, MEETINGS)
     snap_path = meeting_snapshot_path(reports)
@@ -3482,6 +3483,8 @@ def meeting_close(vault, reports, facts, now, meetings, next_day=None, dry_run=F
             words, read = (ticket_outcome(facts, fld["key"], start, before.get(fld["key"])) if fld["key"] else (None, False))
             thread = thread_outcome(facts, it["text"] + "\n" + "\n".join(it["under"]), start)
             words = "; ".join(x for x in (words, thread) if x) or None
+            if words and jira:                             # the note is read on screen: every key a link
+                words = KEY_RX.sub(lambda k: f"[{k.group(1)}]({jira.rstrip('/')}/browse/{k.group(1)})", words)
             bare = re.sub(r"[ \t]*·[ \t]*(?:since[ \t]+\d{2}-\d{2}|ela proposes)\b", "", it["text"])
             if words:
                 detail = [l for l in it["under"] if not GUIDE.match(l) and not l.lstrip().startswith(">")]
@@ -4884,8 +4887,10 @@ def cmd_sync(a):
     marked = [] if a.dry_run else apply_marks(vault, s.get("reports") or "")   # ticked boxes first: they are his moves
     answered = answered_readings(vault, s.get("reports") or "", a.dry_run)
     rolled = meeting_roll(vault, today, a.dry_run)
+    jira_url = next((l.split("=", 1)[1].strip() for l in open(env) if l.startswith("JIRA_BASE_URL=")), "") \
+        if env and os.path.isfile(env) else ""
     closed = meeting_close(vault, s.get("reports") or "", os.path.join(s.get("runtime") or "", "facts"),
-                           datetime.datetime.now().astimezone(), *meeting_book(), dry_run=a.dry_run)
+                           datetime.datetime.now().astimezone(), *meeting_book(), dry_run=a.dry_run, jira=jira_url)
     for fix in settle_statuses(vault, a.dry_run):
         print(f"status: {fix}", file=sys.stderr)
     if not a.dry_run:

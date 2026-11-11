@@ -262,11 +262,11 @@ source: "vault"
     during = V.meeting_close(vault, reports, facts, datetime.datetime(2026, 11, 11, 12, 0, tzinfo=tz), [meet])
     check("during the meeting nothing is closed", during == [])
     nxt = lambda m, d: datetime.date(2026, 11, 13)  # noqa: E731
-    r = V.meeting_close(vault, reports, facts, datetime.datetime(2026, 11, 11, 18, 30, tzinfo=tz), [meet], nxt)
+    r = V.meeting_close(vault, reports, facts, datetime.datetime(2026, 11, 11, 18, 30, tzinfo=tz), [meet], nxt, jira="https://j")
     text = open(note).read()
     ruled = text.split("## Ruled")[1]
     check("after its end, outcomes under Ruled without a tick: split, assigned and commented, no change",
-          "MH-3568](https://j/browse/MH-3568) — optional SCTE-35: owners? · the team · split into MH-3997 and MH-3998" in ruled
+          "MH-3568](https://j/browse/MH-3568) — optional SCTE-35: owners? · the team · split into [MH-3997](https://j/browse/MH-3997) and [MH-3998](https://j/browse/MH-3998)" in ruled
           and "assigned to Fujian Fang; comment by Summer Chen" in ruled and "  - rule: passthrough keeps SCTE-35" in ruled
           and "Black frame to MQTT: who? · Gabriel Liu · no change: raised again next meeting" in ruled
           and "This week's deploy — what goes in? · Erin Zhang · no ticket to read: raised again next meeting" in ruled
@@ -285,6 +285,6 @@ source: "vault"
     mt = V.Note("meetings/sync.md", "MediaHub team sync", V.split_front(open(note).read())[1], {"type": "meeting"}, [])
     got = V.meeting_outcomes([mt], ["MH-3568"], datetime.date(2026, 11, 13))
     check("a project's page shows what its meetings ruled on its keys",
-          len(got) == 1 and got[0][0] == "2026-11-11" and "split into MH-3997 and MH-3998" in got[0][3])
+          len(got) == 1 and got[0][0] == "2026-11-11" and "split into [MH-3997](https://j/browse/MH-3997)" in got[0][3])
 
 sys.exit(1 if failures else 0)
