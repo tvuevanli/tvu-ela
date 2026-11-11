@@ -273,7 +273,7 @@ source: "vault"
           and len(r) == 1 and len(r[0]["outcome"]) == 2 and len(r[0]["rolled"]) == 2)
     raise_ = text.split("## To raise")[1].split("## Ruled")[0]
     check("the unchanged items roll to the next meeting, their age shown; the note is titled for it, no send line",
-          'title: "MediaHub team sync · Fri 2026-11-13"' in text and "Black frame to MQTT: who? · Gabriel Liu · since 11-11" in raise_
+          'title: "MediaHub team sync · Fri 2026-11-13"' in text and 'date: "2026-11-13"' in text and "Black frame to MQTT: who? · Gabriel Liu · since 11-11" in raise_
           and "MH-3568" not in raise_ and "send" not in text and "not scheduled yet" not in text)
     check("a second pass the same evening closes nothing again",
           V.meeting_close(vault, reports, facts, datetime.datetime(2026, 11, 11, 19, 0, tzinfo=tz), [meet], nxt) == [])

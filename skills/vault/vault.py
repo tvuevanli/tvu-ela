@@ -3152,10 +3152,10 @@ def meeting_render(n, title, send_text=None, today=None):
     line and no ela command: sending is the verb's (`ela meeting --key K --slack`). An item says `since <date>` only
     when it is older than the meeting day; the date is kept on the item otherwise and comes back when it rolls."""
     keep = [l for l in n["front"] if not re.match(r"^(title|aliases|type|date|source):", l)]
-    props = front([], {"title": title, "type": "meeting", "date": (today or datetime.date.today()).isoformat(), "source": "vault"})
+    day = meeting_day(title)                               # its date is the meeting's: today.md lists it on that day only
+    props = front([], {"title": title, "type": "meeting", "date": (day or today or datetime.date.today()).isoformat(), "source": "vault"})
     if keep:
         props = props[:-len("---\n\n")] + "\n".join(keep) + "\n---\n\n"
-    day = meeting_day(title)
     intro = "\n".join(n["intro"]).strip("\n")
     out = [f"# {title}", ""] + ([intro, ""] if intro else [])
     others = list(n["others"])
