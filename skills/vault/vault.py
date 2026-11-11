@@ -2727,13 +2727,21 @@ def ask_candidates(today, actions, notes):
         if a.get("day"):
             i = action_id(a)
             seen[i] = min(seen.get(i, a["day"]), a["day"])
-    out = []
+    out, by_id = [], {}
     for a in sorted((a for a in actions if a.get("day") == iso), key=lambda a: int(a["n"])):
         if a.get("tier", 3) != 3 or a.get("send_box") or a.get("applied") or a.get("by_owner") or a.get("vetoed"):
             continue
         i = action_id(a)
-        out.append({"id": i, "box": f"apply {a['n']}", "text": a.get("text") or "", "sig": evidence_sig(a.get("evidence")),
-                    "first": seen.get(i, iso)})
+        if i in by_id:                                     # a second write on the same tickets is the same decision
+            c = by_id[i]
+            c["ns"].append(int(a["n"]))
+            c["box"] = "apply " + ", ".join(str(n) for n in c["ns"])
+            c["sig"] = evidence_sig(c["sig"] + (a.get("evidence") or ""))
+            continue
+        c = {"id": i, "box": f"apply {a['n']}", "ns": [int(a["n"])], "text": a.get("text") or "",
+             "sig": evidence_sig(a.get("evidence")), "first": seen.get(i, iso)}
+        by_id[i] = c
+        out.append(c)
     projects = {n.facts["key"]: n.facts for n in notes if n.props.get("type") == "project" and getattr(n, "facts", None)}
     held = {}                                              # a project's asks, its notes' open boxes folded in: {key: [n]}
     in_folder = {f["path"].rsplit("/", 1)[0] + "/": k for k, f in projects.items() if f["path"].count("/") == 2}
@@ -2765,28 +2773,38 @@ def ask_candidates(today, actions, notes):
 
 
 def settle_asks(state, cands, today):
-    """(shown, dropped now, state): an ask seen on more than ASK_MORNINGS working mornings leaves the page, recorded
-    once in the state with the day it dropped; a dropped ask stays off until its evidence changes, when it starts
-    over. At most ASK_CAP are shown; the rest are counted, not listed. state: {id: {first, text, sig, dropped}}."""
+    """(shown, more, dropped now, state): an ask shown on more than ASK_MORNINGS working mornings leaves the page,
+    recorded once in the state with the day it dropped; a dropped ask stays off until its evidence changes, when it
+    starts over. At most ASK_CAP are shown. An ask is aged from the first morning it is shown: what waits below the cap
+    is not counted, not aged and not stored (`more` says how many, for the caller's own use only).
+    state: {id: {first, text, sig, dropped}}."""
     iso = today.isoformat()
     state = {k: dict(v) for k, v in (state or {}).items()}
-    live, dropped_now = [], []
+    live, dropped_now, waiting = [], [], 0
     for c in cands:
         st = state.get(c["id"])
         if st and st.get("dropped"):
             if st.get("sig") == c["sig"]:
                 continue                                   # nothing changed since it dropped: it stays off the page
             first = iso                                    # the world changed: it starts over today
+        elif st:
+            first = st["first"]
+        elif len(live) >= ASK_CAP:
+            waiting += 1                                   # below the cap: an also-noticed line, not an ask yet
+            continue
         else:
-            first = min(st["first"], c["first"]) if st else c["first"]
+            first = iso                                    # first shown today: its mornings start now
         st = {"first": first, "text": c["text"], "sig": c["sig"], "dropped": None}
         if working_mornings(datetime.date.fromisoformat(first), today) > ASK_MORNINGS:
             st["dropped"] = iso
             dropped_now.append(dict(c, first=first))
-        else:
+        elif len(live) < ASK_CAP:
             live.append(dict(c, first=first))
+        else:
+            waiting += 1                                   # shown before, pushed below the cap today: it keeps its age
+            continue
         state[c["id"]] = st
-    return live[:ASK_CAP], len(live) - min(len(live), ASK_CAP), dropped_now, state
+    return live, waiting, dropped_now, state
 
 
 def fact_lines(notes, limit=4):
@@ -2804,6 +2822,29 @@ def fact_lines(notes, limit=4):
                 out.append((head, line))
     order = {h: i for i, h in enumerate(FACT_SECTIONS)}
     return pages[0], sorted(out, key=lambda x: order[x[0]])[:limit]
+
+
+HANDLED_BOX = re.compile(r"^[ \t]*" + QUOTE + r"[-*][ \t]+\[[ xX]\][ \t]+I handled it myself — not apply[ \t]+(\d+)\b.*$")
+MORE_FOLD = re.compile(r"^(>[ \t]*\[!note\]-[ \t]*)\d+ more[ \t]*$")
+
+
+def also_noticed(text, hidden):
+    """The morning page with a box and a number only on the apply actions today.md shows as asks: each open apply box
+    in `hidden` (the drafted asks below the cap, numbers) becomes a plain line, its "handled it myself" box goes, and
+    the `N more` fold is titled Also noticed. A box already ticked or settled is left as it is."""
+    out = []
+    for line in text.split("\n"):
+        h = HANDLED_BOX.match(line)
+        if h and int(h.group(1)) in hidden and "[ ]" in line:
+            continue
+        m = re.match(r"^([ \t]*" + QUOTE + r"[-*][ \t]+)\[ \][ \t]+apply[ \t]+(\d+)\b[ \t]*(?:—[ \t]*)?(.*)$", line)
+        if m and int(m.group(2)) in hidden:
+            line = m.group(1) + m.group(3)
+        f = MORE_FOLD.match(line)
+        if f:
+            line = f.group(1) + "Also noticed"
+        out.append(line)
+    return "\n".join(out)
 
 
 def build_block(notes, builds, today):
@@ -2831,12 +2872,17 @@ def build_block(notes, builds, today):
     return "; ".join(heads) + ".\n" + "\n".join(rows)
 
 
-def ask_words(text, n=80):
-    """An ask in a few words: the text up to its first clause break (`;`, ` (`, ` — `) when that is short enough, else
-    cut at a word with an ellipsis."""
+ASK_WORDS = 20
+
+
+def ask_words(text, n=ASK_WORDS):
+    """An ask as one whole sentence of at most n words: the text when it fits, else its first clause (up to `;`, ` (`
+    or ` — `) when that fits, else the whole text: an ask is never cut mid-phrase. It ends with a full stop."""
     text = " ".join((text or "").split())
     head = re.split(r";\s| \(| — ", text, 1)[0]
-    return head if len(plain(head)) <= n else short(head, n)
+    out = text if len(plain(text).split()) <= n or len(plain(head).split()) > n else head
+    out = out.rstrip(" ,;:")
+    return out if re.search(r"[.!?]$", out) else out + "."
 
 
 def short(text, n):
@@ -2888,8 +2934,6 @@ def today_page(today, notes, desk=None, shown=(), more=0, dropped=0):
         L = [f"# Today · {today:%a %Y-%m-%d}", "", "## Facts", ""]
         L += [f"- **{FACT_LABEL.get(h, h)}:** {l}" for h, l in facts] or ["- Nothing new was read since the last page."]
         L += ["", "## Needs you", ""] + (asks or ["Nothing only you can do."])
-        if more:
-            L.append(f"*{more} more wait{'s' if more == 1 else ''} off this page*" + (f" → [[{brief.path[:-3]}|the morning page]]" if brief else ""))
         L += ["", "## Today", ""] + (day or ["No meeting and no deadline today."]) + [""]
         return L
     L = render(facts)
@@ -3531,7 +3575,8 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since
             body = with_moves(body, n.path, n.props.get("type"))
         planned[n.path] = redact(front(n.front_lines, dict(n.props, title=n.title)) + (with_warning(body, n.held) if n.held else body))
     asks_state = load_asks(reports)
-    shown, more, _, asks_state = settle_asks(asks_state, ask_candidates(today, week_actions(reports, today), notes + native), today)
+    cands = ask_candidates(today, week_actions(reports, today), notes + native)
+    shown, more, _, asks_state = settle_asks(asks_state, cands, today)
     if not dry_run:
         os.makedirs(os.path.join(reports, "ela"), exist_ok=True)
         atomic_write(os.path.join(reports, "ela", "asks.json"), json.dumps(asks_state, indent=1, ensure_ascii=False))
@@ -3542,6 +3587,10 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since
     except Exception:                                      # the day file is elak's; a bad one costs the meeting lines only
         meetings = []
     dropped = sum(1 for v in asks_state.values() if v.get("dropped"))
+    day_brief = f"{DAYS}/{today:%Y}/{today.isoformat()}-brief.md"
+    if day_brief in planned:                               # the morning page: boxes only on the asks today.md shows
+        planned[day_brief] = also_noticed(planned[day_brief], {n for c in cands for n in c.get("ns") or []}
+                                          - {n for c in shown for n in c.get("ns") or []})
     planned[TODAY] = redact(front([], {"type": "today", "date": today.isoformat()}) + linker(today_page(today, notes + native, {
         "actions": week_actions(reports, today), "hold": tier2_hold(reports, today.isoformat()), "lists": list_links(reports),
         "meetings": meetings, "builds": build_records(reports)}, shown, more, dropped)))
@@ -4231,9 +4280,14 @@ def cmd_guidance(a):
                     # first keeps the id it always had, so nothing already handled comes back
                     times[m.group(1)] = times.get(m.group(1), 0) + 1
                     gid = guidance_id(f, m.group(1), times[m.group(1)])
-                    if a.all or gid not in done:
-                        lines.append({"id": gid, "note": rel, "kind": kind, "says": m.group(1).strip().strip('"').strip("'"),
-                                      "section": section_at(text, m.start())})
+                    says = m.group(1).strip().strip('"').strip("'")
+                    many = re.match(r"^apply[ \t]+(\d+(?:[ \t]*,[ \t]*\d+)+)\b(.*)$", says) if kind == "tick" else None
+                    # an ask on today.md that is several drafted writes on one ticket: the tick is his word on each
+                    parts = ([(gid if i == 0 else f"{gid}-{n}", f"apply {n}{many.group(2)}")
+                              for i, n in enumerate(re.findall(r"\d+", many.group(1)))] if many else [(gid, says)])
+                    for pid, psays in parts:
+                        if a.all or pid not in done:
+                            lines.append({"id": pid, "note": rel, "kind": kind, "says": psays, "section": section_at(text, m.start())})
     r = {"guidance": lines,
          "handled_log": os.path.join(reports, "ela", "guidance-handled.jsonl")}
     if a.json:

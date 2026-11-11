@@ -300,6 +300,15 @@ with tempfile.TemporaryDirectory() as tmp:
     check("ela: lines anywhere in the vault are read as his guidance", sorted(x["says"] for x in g["guidance"])
           == ["1A, post it", "keep an eye on this", "keep the head", "post this to Jira", "probe MH-1 from the replay", "write this to the KB"]
           and "to_learn" not in g)
+    with open(f"{vault}/reference/{today[:4]}-09-11-review-1.md", "a") as fh:
+        fh.write("\n- [x] apply 7, 8 — MH-9: hand it over and assign\n")
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        V.cmd_guidance(types.SimpleNamespace(all=False, json=True))
+    g2 = [x for x in json.loads(buf.getvalue())["guidance"] if x["says"].startswith("apply")]
+    check("one tick on an ask of two writes is his word on each, each with its own id",
+          [x["says"] for x in g2] == ["apply 7 — MH-9: hand it over and assign", "apply 8 — MH-9: hand it over and assign"]
+          and len({x["id"] for x in g2}) == 2)
     p1 = f"{ELAK}/blueprint/decisions/{today[:4]}-02-01-decision-1.md"
     open(p1, "w").write(open(p1).read().replace("status: proposed", "status: decided"))
     git("add", "-A"); git(SAVE, "-qm", "ruled")

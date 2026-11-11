@@ -346,7 +346,8 @@ top. *Why: on 2026-10-27 the HTML input pin was spread over three notes. One nam
 q26/d44 while the lanes page showed q28/d45, and two said "older" and "newer" about QA's media, each against a
 different baseline.*
 
-**The morning count.** Each item's facts line ends with the number of mornings it has been carried ("3rd morning"),
+**The morning count.** Each item above the fold (below it, the vault titles the fold *Also noticed*, takes the boxes
+off the writes today.md does not show, and nothing is counted or aged) ends its facts line with the number of mornings it has been carried ("3rd morning"),
 read from `lanes.carried` (`ela brief --lane carried`): the earlier brief pages, by key, or by heading for an item with
 no key. A sentence elsewhere on the page that counts carried items ("three drafts are on their fifth morning") reads
 the same count, and page-check flags one the facts lines do not bear out (2026-10-29: the summary said four on the
@@ -729,6 +730,9 @@ ela-runner starts this skill headless every weekday morning after it wrote the f
 - `<reports>/runner/<date>-actions.json` — the drafted actions as a list, in the page's order:
   `[{"n": 1, "text": "<the one line the page shows>", "command": "<the exact ela command, dry run as written>", "kind": "comment|assign|label|transition|close|slack|fixed-in",
   "tier": 1|2|3, "rule": "<a closed rule, or null at tier 3>", "evidence": "<one line; tier 1 and 2>", "channel": "<tier 2: the team channel's name>"}]`.
+  `text` is the decision as today.md shows it: one whole sentence of at most 20 words, never cut, naming the ticket and
+  what the write does. Two writes on one ticket that serve one decision (a hand-over comment and the assignment)
+  share that sentence: today.md shows them as one ask whose box applies both.
   The runner adds what it did: `applied` (a time), `vetoed` (the time he ticked "don't"), `failed` (`{at, error}`).
   A command is one of ela's own write verbs — `ela jira comment|assign|label|fixed-in|close …`, `ela slack
   post …` — complete with its key and text (a `--from-file` under `<reports>/runner/actions/<date>/`), and
