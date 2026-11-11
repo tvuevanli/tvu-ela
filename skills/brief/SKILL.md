@@ -740,6 +740,15 @@ ela-runner starts this skill headless every weekday morning after it wrote the f
   `ELA_NO_APPLY`).
 - `<reports>/runner/<date>-deep.json` — the day's deep picks, at most two:
   `[{"key": "MH-2406", "lane": "prod-3", "why": "<one line: what was claimed and what doubts it>"}]`; `[]` when none.
+- `<reports>/releases/<line>/<date>-build-<n>-to-<lane>.json` — **once per build a lane took in the window**, when no
+  record for that build exists yet (`ela release changes <lane> --json`): what the build changed, by service and
+  purpose. `{"line", "lane", "lane_name" (as the team says it: QA-AWS3), "build", "date", "at", "source", "services":
+  [{"service", "from", "to", "for", "keys"}], "notes"}`. `for` is what the change is for, at most 15 words, whole,
+  composed from the tickets and commits the build carries and grouped ("FloSports public API: six endpoints", not
+  six titles); the ticket keys go in `keys`, never in the words. Services in the order that matters to him; today.md
+  shows four lines. `ela release changes --check <file>` must say ok before the run ends. today.md's Releases fact and
+  the line's release note in the vault are rendered from it; the Changes page keeps its own evidence table.
+  *Why: the owner asked which services changed and what for, one line per service (2026-11-11 record).*
 - `<reports>/runner/<date>-changes.md` — the Changes page, from §2b's changes facts: a review of the day for the
   owner, not a list of what moved. The vault shows it as a day page beside the brief. Under **900 words**, in §3's
   form (a `#` title with the date, tables rather than code blocks, ticket keys bare, lanes in plain words):

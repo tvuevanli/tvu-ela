@@ -1404,6 +1404,125 @@ def cmd_login(a):
     print(json.dumps({"TVUTEST_SID": sid}) if a.json else f"TVUTEST_SID={sid}\n(put it in the env file; it expires in 2h)")
 
 
+# ── a build a lane took: one line per service and what for ───────────────────────────────────────────
+# When a lane's versions move, the morning session writes one record per build, once:
+# <reports>/releases/<line>/<date>-build-<n>-to-<lane>.json. The service lines are its judgment (the tickets and
+# commits the build carries, grouped: "FloSports public API: six endpoints", never six titles); everything else reads
+# the record: today.md's Releases fact, the release note in the vault, `ela release changes <lane>`. Reason: the
+# review of the vault's first day on layout 5 (<runtime>/drafts/2026-11-12-vault-two-day-review-brief.md, change 2).
+BUILD_FILE = re.compile(r"^(\d{4}-\d{2}-\d{2})-build-([\w.]+)-to-([a-z0-9-]+)\.json$")
+BUILD_LINES, BUILD_WORDS = 4, 15
+KEY_IN = re.compile(r"\b[A-Z][A-Z0-9]+-\d+\b")
+
+
+def lane_slug(name):
+    return re.sub(r"[^a-z0-9]+", "-", str(name or "").lower()).strip("-")
+
+
+def build_name(rec):
+    """The record's file stem, also its release note's: `<date>-build-<n>-to-<lane as the team names it>`."""
+    return f"{rec['date']}-build-{rec['build']}-to-{lane_slug(rec.get('lane_name') or rec['lane'])}"
+
+
+def build_check(rec, name=None):
+    """Problems with a build record, [] when it is whole: who it is (line, lane, build, date), at least one service,
+    each with from, to and a purpose of at most BUILD_WORDS words, whole (no ellipsis), its ticket keys in `keys`
+    rather than in the words."""
+    out = [f"missing {k}" for k in ("line", "lane", "build", "date") if not rec.get(k)]
+    svcs = rec.get("services") or []
+    if not svcs:
+        out.append("no service")
+    for i, v in enumerate(svcs):
+        what = " ".join(str(v.get("for") or "").split())
+        who = v.get("service") or f"service {i + 1}"
+        out += [f"{who}: missing {k}" for k in ("service", "to", "for") if not v.get(k)]
+        if len(what.split()) > BUILD_WORDS:
+            out.append(f"{who}: what for is {len(what.split())} words, at most {BUILD_WORDS}")
+        if "…" in what or "..." in what:
+            out.append(f"{who}: what for is cut; write it whole")
+        if KEY_IN.search(what):
+            out.append(f"{who}: a ticket key in the words; put it in keys")
+    if name and not out and name != build_name(rec) + ".json":
+        out.append(f"named {name}, expected {build_name(rec)}.json")
+    return out
+
+
+def build_records(reports):
+    """Every whole build record under <reports>/releases/, newest first → [rec with `name`]; a broken one is skipped."""
+    root = os.path.join(reports or "", "releases")
+    out = []
+    for line in sorted(os.listdir(root)) if os.path.isdir(root) else []:
+        d = os.path.join(root, line)
+        for f in sorted(os.listdir(d)) if os.path.isdir(d) else []:
+            if not BUILD_FILE.match(f):
+                continue
+            try:
+                rec = json.load(open(os.path.join(d, f), encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            if isinstance(rec, dict) and not build_check(rec):
+                out.append(dict(rec, name=f[:-5]))
+    return sorted(out, key=lambda r: (r.get("at") or r["date"], r["name"]), reverse=True)
+
+
+def build_lines(rec, cap=BUILD_LINES):
+    """One line per changed service, at most `cap`: `<service> <old> → <new>: <what for>` and its ticket keys after
+    it, bare (the page's linker links them); a last line counts what did not fit."""
+    out = []
+    svcs = rec.get("services") or []
+    shown = svcs if len(svcs) <= cap else svcs[:cap - 1]
+    for v in shown:
+        move = f"{v['from']} → {v['to']}" if v.get("from") else f"→ {v['to']}"
+        keys = " ".join(v.get("keys") or [])
+        out.append(f"{v['service']} {move}: {' '.join(str(v['for']).split())}" + (f" ({keys})" if keys else ""))
+    if len(shown) < len(svcs):
+        out.append(f"{len(svcs) - len(shown)} more services in the release note")
+    return out
+
+
+def build_title(rec):
+    return f"MediaHub {rec['line']} build {rec['build']} → {rec.get('lane_name') or rec['lane']} · what changed"
+
+
+def build_note(rec):
+    """The release note's body: the title, where it came from, the table of service, version and what for. Ticket keys
+    bare; the vault's linker links them."""
+    L = [f"# {build_title(rec)}", ""]
+    L.append(f"*{rec.get('lane_name') or rec['lane']}, {rec['date']}." + (f" Source: {rec['source']}." if rec.get("source") else "") + "*")
+    L += ["", "| service | version | what for |", "|---|---|---|"]
+    for v in rec["services"]:
+        ver = f"{v['from']} → **{v['to']}**" if v.get("from") else f"**{v['to']}**"
+        keys = ", ".join(v.get("keys") or [])
+        L.append(f"| {v['service']} | {ver} | {' '.join(str(v['for']).split())}" + (f" ({keys})" if keys else "") + " |")
+    if rec.get("notes"):
+        L += ["", " ".join(str(rec["notes"]).split())]
+    return "\n".join(L) + "\n"
+
+
+def cmd_changes(a):
+    """What a lane's newest build changed, by service and purpose, from its record; `--check FILE` validates a record
+    before the morning session leaves it."""
+    if a.check:
+        try:
+            rec = json.load(open(a.check, encoding="utf-8"))
+        except (OSError, ValueError) as e:
+            print(f"cannot read {a.check}: {e}", file=sys.stderr); sys.exit(EX_USAGE)
+        probs = build_check(rec, os.path.basename(a.check))
+        print("\n".join(probs) if probs else f"ok: {build_name(rec)}")
+        sys.exit(1 if probs else 0)
+    s = site()
+    reports = s.get("reports") or os.path.join(s.get("projects", ""), "reports")
+    want = lane_slug(a.lane or "")
+    recs = [r for r in build_records(reports) if not want or want in (lane_slug(r["lane"]), lane_slug(r.get("lane_name")))]
+    if a.json:
+        print(json.dumps(recs[:1] if a.lane else recs, ensure_ascii=False)); return
+    if not recs:
+        print(f"no build record for {a.lane or 'any lane'} under <reports>/releases/"); sys.exit(1)
+    for r in recs[:1] if a.lane else recs:
+        print(f"{r.get('lane_name') or r['lane']} took build {r['build']} ({r['line']}, {r['date']}):")
+        print("\n".join("  " + l for l in build_lines(r)))
+
+
 def main():
     sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "configserver"))
     import redact; redact.guard_output()  # a credential inside a remote payload never reaches the terminal
@@ -1434,11 +1553,14 @@ def main():
     p = sub.add_parser("pins", help="the official bundle per line, as pinned"); p.add_argument("--json", action="store_true")
     p = sub.add_parser("builds"); p.add_argument("job"); p.add_argument("--limit", type=int, default=15); p.add_argument("--fresh", action="store_true", help="read Jenkins now instead of the store"); p.add_argument("--json", action="store_true")
     p = sub.add_parser("drift"); p.add_argument("line", nargs="?", default="mh2.1@"); p.add_argument("--bundles", type=int, default=5, help="newest N bundles to union (default 5)"); host_arg(p); p.add_argument("--json", action="store_true")
+    p = sub.add_parser("changes", help="what a lane's newest build changed, one line per service and what for, from its record")
+    p.add_argument("lane", nargs="?", help="qa-cn3 or QA-AWS3; every record when omitted"); p.add_argument("--check", metavar="FILE", help="validate a build record")
+    p.add_argument("--json", action="store_true")
     p = sub.add_parser("login"); p.add_argument("target", nargs="?", choices=("qa", "tvu"), default="qa"); p.add_argument("--force", action="store_true"); p.add_argument("--no-browser", action="store_true"); p.add_argument("--timeout", type=int, default=300); p.add_argument("--json", action="store_true")
     p.add_argument("--keepalive", action="store_true", help="tvu: one validation call that renews the session's idle TTL; never logs in, never retries")
     a = ap.parse_args()
     {"bundles": cmd_bundles, "bundle": cmd_bundle, "bundle-diff": cmd_bundle_diff, "envs": cmd_envs, "gateway": cmd_gateway, "builds": cmd_builds, "drift": cmd_drift, "login": cmd_login, "pin": cmd_pin, "unpin": cmd_unpin, "pins": cmd_pins,
-     "create": cmd_create}[a.cmd](a)
+     "create": cmd_create, "changes": cmd_changes}[a.cmd](a)
 
 
 if __name__ == "__main__":

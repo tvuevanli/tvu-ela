@@ -77,6 +77,7 @@ flowchart LR
 | 有人甩来一个 graph id / process id / object id | `graph` · `object` | `ela 01M1GD1F…` · `ela <32位十六进制>` · `ela <19位数字>` |
 | 「这个修复上 daily 了吗」「prod-3 是什么版本」 | `release` | `ela versions` · `ela bundles` · `ela builds <job>` · `ela drift` |
 | 从一个 bundle 出发建新 bundle（只建，绝不删）：先看和底版的差异、自动写的说明、各 lane 版本顺序（QA ≥ daily ≥ prod）的警告，我同意后再建，建完按名字读回核对 | `release` | `ela release create --from mh2.1@daily-wed-s1-d45 --set "Docker Encoder=1.0.56"` · 加 `--apply` 才建 |
+| 一条 lane 换了 build，每个服务改了什么、为了什么：每个服务一行（旧版本 → 新版本：用途，最多 15 个词，票号在后），早报会话每个 build 写一次记录，today.md 的 Releases 和 vault 里这条线的 release note 都读它 | `release` | `ela release changes qa-cn3`（或 `QA-AWS3`）· `--json` · `--check <记录文件>` |
 | 两个 bundle 之间 docker service 变了什么 | `release` | `ela bundle-diff <A> <B>` |
 | QA 要推 daily、daily 要上 prod | `promote` | `ela promote 2.1 qa daily` |
 | QA 报过的某个 docker 镜像能不能进 lane：引 QA 报告里的结论、报告里的单和是否阻断、各 lane 的 bundle 带的版本，结论 ready / not ready，daily lane 落后时给出建 bundle 的命令（dry run）；prod 只随发布线 promotion 走 | `docker` | `ela docker`（打印页面）· `--image tvu_live_transmit` · `--json` · `--write`（落到 reports/docker/candidates.json）· `--page`（写 lanes/docker.md） |

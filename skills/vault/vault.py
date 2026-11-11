@@ -696,6 +696,12 @@ def report_notes(reports, today):
         label = {"brief": "Morning brief", "week": "The week", "changes": "What changed"}[m.group(2)]
         notes.append(Note(f"{DAYS}/{m.group(1)[:4]}/{m.group(1)}-{m.group(2)}.md", f"{label} · {d:%a} {m.group(1)}", body,
                           {"type": "day", "date": m.group(1), "kind": m.group(2)}, fl, src_rel=f"runner/{f}"))
+    for rec in build_records(reports):                    # a build a lane took: its release note, written once (source vault)
+        R = release_mod()
+        notes.append(Note(f"{RELEASES}/{rec['line']}/{rec['name']}.md", R.build_title(rec), R.build_note(rec),
+                          {"type": "report", "date": rec["date"], "status": "decided", "source": "vault",
+                           "keys": sorted({k for v in rec["services"] for k in v.get("keys") or []})}, [],
+                          src_rel=f"releases/{rec['line']}/{rec['name']}.json"))
     # the board, recent and the constraints page are angles nothing consumed: their verbs render them on demand, their
     # sources stay under the reports root, and the vault no longer carries them (ADR 0015)
     lp = os.path.join(reports, "lanes", "lanes.md")
@@ -743,6 +749,21 @@ def report_notes(reports, today):
             notes.append(Note(path, title, body, {"type": kind, "date": m.group(1) if m else None}, fl,
                               src_rel=f"{sub + '/' if sub else ''}{f}"))
     return notes
+
+
+def release_mod():
+    sys.path.insert(0, os.path.join(HERE, "..", "release"))
+    import release as R                                    # noqa: E402 — the build records' one reader and renderer
+    return R
+
+
+def build_records(reports):
+    """The build records under <reports>/releases/ (`ela release changes`), newest first; [] when release cannot load."""
+    try:
+        return release_mod().build_records(reports)
+    except Exception as e:                                 # a broken import costs the build block, said once
+        print(f"builds: not read — {str(e)[:120]}", file=sys.stderr)
+        return []
 
 
 def reader_heading(body, date):
@@ -2785,6 +2806,31 @@ def fact_lines(notes, limit=4):
     return pages[0], sorted(out, key=lambda x: order[x[0]])[:limit]
 
 
+def build_block(notes, builds, today):
+    """The Releases fact when a lane took a build since the last page: each build a sentence linking its release note,
+    then one line per changed service, BUILD_LINES lines in all. Since the last page: dated from the page before the
+    newest What-changed page (the day before today when there is none) through today. None when no build."""
+    if not builds:
+        return None
+    R = release_mod()
+    days = sorted({(n.props.get("date") or "")[:10] for n in notes if n.props.get("type") == "day" and n.props.get("kind") == "changes"})
+    days = [d for d in days if d and d <= today.isoformat()]
+    since = days[-2] if len(days) > 1 else (today - datetime.timedelta(days=1)).isoformat()
+    recent = sorted((b for b in builds if since <= b["date"] <= today.isoformat()), key=lambda b: (b["date"], b["name"]))
+    if not recent:
+        return None
+    heads, rows, room = [], [], R.BUILD_LINES
+    for b in recent:
+        if room <= 0:
+            break
+        heads.append(f"{b.get('lane_name') or b['lane']} took build {b['build']} "
+                     f"([[{RELEASES}/{b['line']}/{b['name']}|release note]])")
+        lines = R.build_lines(b, cap=room)
+        rows += [f"  - {l}" for l in lines]
+        room -= len(lines)
+    return "; ".join(heads) + ".\n" + "\n".join(rows)
+
+
 def ask_words(text, n=80):
     """An ask in a few words: the text up to its first clause break (`;`, ` (`, ` — `) when that is short enough, else
     cut at a word with an ellipsis."""
@@ -2805,6 +2851,9 @@ def today_page(today, notes, desk=None, shown=(), more=0, dropped=0):
     desk = desk or {}
     iso = today.isoformat()
     changes, facts = fact_lines(notes)
+    block = build_block(notes, desk.get("builds") or [], today)
+    if block:                                              # a lane took a build: the Releases fact is the build, by service
+        facts = [("Releases and versions", block)] + [f for f in facts if f[0] != "Releases and versions"]
     briefs = sorted((n for n in notes if n.props.get("type") == "day" and n.props.get("kind") == "brief"),
                     key=lambda n: n.props.get("date") or "", reverse=True)
     brief = briefs[0] if briefs else None
@@ -2846,7 +2895,7 @@ def today_page(today, notes, desk=None, shown=(), more=0, dropped=0):
     L = render(facts)
     def words(L):
         return len(plain("\n".join(L)).split())
-    while facts and words(L) > TODAY_WORDS:              # whole facts leave from the end; none is shortened
+    while len(facts) > (1 if block else 0) and words(L) > TODAY_WORDS:   # whole facts leave from the end; the build stays
         facts = facts[:-1]
         L = render(facts)
     links = [f"[[{changes.path[:-3]}|what changed]]" if changes else None,
@@ -3495,7 +3544,7 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since
     dropped = sum(1 for v in asks_state.values() if v.get("dropped"))
     planned[TODAY] = redact(front([], {"type": "today", "date": today.isoformat()}) + linker(today_page(today, notes + native, {
         "actions": week_actions(reports, today), "hold": tier2_hold(reports, today.isoformat()), "lists": list_links(reports),
-        "meetings": meetings}, shown, more, dropped)))
+        "meetings": meetings, "builds": build_records(reports)}, shown, more, dropped)))
     planned[DROPPED] = redact(front([], {"type": "dropped", "date": today.isoformat()}) + linker(dropped_page(asks_state)))
     if today <= HOME_POINTER_UNTIL:                        # Home points to today.md for two weeks, then is not written
         planned["home.md"] = front([], {"type": "home", "date": today.isoformat()}) + home_pointer()

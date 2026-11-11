@@ -1,0 +1,16 @@
+{
+ "line": "2.1",
+ "lane": "qa-cn3",
+ "lane_name": "QA-AWS3",
+ "build": "90",
+ "date": "2026-11-10",
+ "at": "2026-11-10T19:20:23+08:00",
+ "source": "the release thread 2026-11-10_Release and the release mail",
+ "services": [
+  {"service": "UR Caller", "from": "2.1.89", "to": "2.1.90", "for": "RTSP Pull address on createDestination; encoding profiles read in batches, no HTTP 413", "keys": ["MH-3887"]},
+  {"service": "MediaHub backend", "from": "2.1.42", "to": "2.1.43", "for": "FloSports public API: six endpoints", "keys": ["MH-3881", "MH-3903", "MH-3883", "MH-3887", "MH-3907", "MH-3795"]},
+  {"service": "MediaHub frontend", "from": "2.2.128", "to": "2.2.129", "for": "Graphics Insertion polish and clearer errors", "keys": ["MH-1860", "MH-3953", "MH-3972", "MH-3978", "MH-3962", "MH-3941", "MH-3977"]},
+  {"service": "Unified Media frontend", "from": "3.0.41", "to": "3.0.43", "for": "View Object opens the edit form with its values", "keys": ["MH-3991"]}
+ ],
+ "notes": "mx-media was not built (no new commit). No DB change; config gains only optional keys with defaults."
+}
