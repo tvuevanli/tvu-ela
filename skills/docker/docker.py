@@ -472,7 +472,7 @@ def morning_lines(res):
     """The morning page's lines: one per promotable candidate; the page holds the rest."""
     return [f"- **{c['image']} {c['version']}** {VERDICT_WORD[c['verdict']]} — behind on {', '.join(c['behind'])}"
             + (f"; {len(c['questions'])} question{'s' if len(c['questions']) != 1 else ''}" if c["questions"] else "")
-            + " → [[lanes/docker|Docker candidates]]" for c in promotable(res)]
+            + " → [[releases/docker|Docker candidates]]" for c in promotable(res)]
 
 
 def main():

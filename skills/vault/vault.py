@@ -703,6 +703,7 @@ def report_notes(reports, today):
             continue
         d = datetime.date.fromisoformat(m.group(1))
         fl, body = split_front(open(os.path.join(rd, f), encoding="utf-8").read())
+        body = layout5_links(body)
         if m.group(2) == "brief":
             body = action_states(body, os.path.join(rd, f"{m.group(1)}-actions.json"), lists)
         label = {"brief": "Morning brief", "week": "The week", "changes": "What changed"}[m.group(2)]
@@ -720,6 +721,7 @@ def report_notes(reports, today):
     if os.path.isfile(lp):                                 # the lanes, their differences and two weeks of moves, rewritten each pass
         fl, body = split_front(open(lp, encoding="utf-8").read())
         dm = re.search(r"\*(\d{4}-\d{2}-\d{2})", body)
+        body = layout5_links(body)
         notes.append(Note(LANES_PAGE, "The lanes", body, {"type": "lanes", "date": dm.group(1) if dm else None}, fl, src_rel="lanes/lanes.md"))
     on = onething_note(reports, today)
     if on:                                                 # his One Thing rows not yet pasted, rendered from the store each sync
@@ -727,9 +729,16 @@ def report_notes(reports, today):
     ld = os.path.join(reports, "lanes")
     lanes = lane_lines()
     for f in sorted(os.listdir(ld)) if os.path.isdir(ld) else []:   # what QA verifies per lane, what is in development per line
+        if f == "docker.md":                               # the docker candidates, linked from the day pages
+            fl, body = split_front(open(os.path.join(ld, f), encoding="utf-8").read())
+            dm = re.search(r"\*(\d{4}-\d{2}-\d{2})", body)
+            notes.append(Note(DOCKER_PAGE, "Docker candidates", body, {"type": "docker", "date": dm.group(1) if dm else None}, fl,
+                              src_rel=f"lanes/{f}"))
+            continue
         m = re.match(r"^(test-list|dev-list|train)-(.+)\.md$", f)
         if m:
             fl, body = split_front(open(os.path.join(ld, f), encoding="utf-8").read())
+            body = layout5_links(body, lanes)
             dm = re.search(r"\*(\d{4}-\d{2}-\d{2})", body)
             title = {"test-list": "Test list · ", "dev-list": "Dev list · ", "train": "Train · "}[m.group(1)] + m.group(2)
             notes.append(Note(list_home(f, lanes), title, body, {"type": m.group(1), "date": dm.group(1) if dm else None}, fl, src_rel=f"lanes/{f}"))
@@ -756,10 +765,15 @@ def report_notes(reports, today):
                 path = f"{READINGS}/{m.group(1)}-{rest}.md"
             else:
                 path = f"{READINGS}/{rest}.md"
-            # a deep reading of one ticket (`ela-runner deep`) is a ticket page: real status, timeline, next
-            kind = "ticket" if re.match(r"^\d{4}-\d{2}-\d{2}-deep-", base) else "review"
-            notes.append(Note(path, title, body, {"type": kind, "date": m.group(1) if m else None}, fl,
-                              src_rel=f"{sub + '/' if sub else ''}{f}"))
+            # a deep reading of one ticket (`ela-runner deep`) is a ticket page: real status, timeline, next; its title
+            # plain text (the heading may link the key) and its key the one the file is named for
+            deep = re.match(r"^\d{4}-\d{2}-\d{2}-deep-([A-Za-z][A-Za-z0-9]+-\d+)", base)
+            kind = "ticket" if deep else "review"
+            props = {"type": kind, "date": m.group(1) if m else None}
+            if deep:
+                title = plain(title)
+                props["keys"] = [deep.group(1).upper()]
+            notes.append(Note(path, title, body, props, fl, src_rel=f"{sub + '/' if sub else ''}{f}"))
     return notes
 
 
@@ -792,7 +806,14 @@ def reader_heading(body, date):
     return body[:m.start()] + f"# {want}{sub}" + body[m.end():]
 
 
-LANES_PAGE, ONE_THING = f"{RELEASES}/lanes.md", f"{REF}/one-thing.md"
+LANES_PAGE, ONE_THING, DOCKER_PAGE = f"{RELEASES}/lanes.md", f"{REF}/one-thing.md", f"{RELEASES}/docker.md"
+OLD_LANE_LINK = re.compile(r"\[\[lanes/([^\]|#]+)")
+
+
+def layout5_links(body, lanes=None):
+    """A page's links to layout 4's lanes/ folder written to where layout 5 keeps the page (a session that wrote
+    `[[lanes/docker|…]]` from habit links a path that no longer exists)."""
+    return OLD_LANE_LINK.sub(lambda m: "[[" + list_home(m.group(1) + ".md", lanes)[:-3], body or "")
 RECENT_POINTER = "*Every ticket of the week, placed by line and lane: [[recent|Recent · 7 days]]*"
 
 
@@ -1410,7 +1431,7 @@ SPECS = {
         closing="the message paste-ready in a code block, English, mentions written for you to retype; parked once sent, `waits-on` naming who answers and `wake` what brings it back"),
 }
 BUDGET.update({"case": 1200, "draft": 600})
-PAGES_SPEC = ("home", "today", "dropped", "board", "lanes", "recent", "one-thing", "test-list", "dev-list", "train", "program", "guide",
+PAGES_SPEC = ("home", "today", "dropped", "board", "lanes", "docker", "recent", "one-thing", "test-list", "dev-list", "train", "program", "guide",
               "vocabulary", "system", "constraints", "readme", "services")   # living pages: each one's generator is its spec
 CJK = re.compile(r"[一-鿿　-〿＀-￯]")
 SPEC_MARK = "<!-- note standards -->"
@@ -1513,6 +1534,10 @@ def link_keys(body, jira_base, projects=None):
     return "".join(out), n
 
 
+# a release line's record and the release note of a build it took: what happened, with nothing to rule
+RELEASE_RECORD = re.compile(r"^releases/[\d.]+/(?:release-[\d-]+-record|\d{4}-\d{2}-\d{2}-build-[\w.]+-to-[a-z0-9-]+)\.md$")
+
+
 def spec_lint(rel, text, generated=False, projects=None):
     """The note's deviations from its type's spec, one line each; [] when it meets it or has no spec."""
     fl, body = split_front(text)
@@ -1563,7 +1588,7 @@ def spec_lint(rel, text, generated=False, projects=None):
     def at(want):
         w = want.rstrip("?").lower()
         return next((i for i, h in enumerate(hs) if h == w or h.startswith(w)), None)
-    closed = folder_of(rel) in CLOSED_FOLDERS or is_done(props)   # its outcome is in next: a closing would now be history
+    closed = folder_of(rel) in CLOSED_FOLDERS or is_done(props) or bool(RELEASE_RECORD.match(rel))   # nothing left to rule
     for want in sp["sections"]:
         if not want.endswith("?") and at(want) is None and kind not in ("project",) and not (closed and want == WHAT_TO_DO):
             out.append(f"no ## {want}")

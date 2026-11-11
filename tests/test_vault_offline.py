@@ -1317,4 +1317,26 @@ with tempfile.TemporaryDirectory() as t:
     check("a note written in place (source vault) reports no source change and gains no Afterwards line",
           V.source_changes(vlt, rep) == [] and V.append_source_changes(vlt, rep) == []
           and open(os.path.join(vlt, note)).read() == inplace)
+# ela's own notes pass ela's lint (the record of 2026-11-11: 17 lint lines, several on notes ela wrote)
+rec = '---\ntitle: "MediaHub 2.1 build 90 → QA-AWS3 · what changed"\naliases: ["MediaHub 2.1 build 90 → QA-AWS3 · what changed"]\ntype: "report"\n' \
+      'date: "2026-11-10"\nsource: "vault"\nstatus: "decided"\n---\n# MediaHub 2.1 build 90 → QA-AWS3 · what changed\n\n| a | b |\n'
+check("a release line's record and a build's release note owe no What you should do",
+      not any("What you should do" in x for x in V.spec_lint("releases/2.1/2026-11-10-build-90-to-qa-aws3.md", rec))
+      and not any("What you should do" in x for x in V.spec_lint("releases/2.1/release-2-1-record.md", rec.replace("2026-11-10", "2026-11-04"))))
+check("a page's links to layout 4's lanes/ go to where layout 5 keeps the page",
+      V.layout5_links("see [[lanes/docker|Docker candidates]] and [[lanes/test-list-qa-cn3|QA]]", {"qa-cn3": "2.1"})
+      == "see [[releases/docker|Docker candidates]] and [[releases/2.1/test-list-qa-cn3|QA]]")
+with tempfile.TemporaryDirectory() as rt:
+    os.makedirs(os.path.join(rt, "ela")); os.makedirs(os.path.join(rt, "lanes"))
+    open(os.path.join(rt, "ela", "2026-11-11-deep-MH-3993.md"), "w").write(
+        "# [MH-3993](https://j/browse/MH-3993) · Graphics Insertion missing at 4K — no fix exists\n\n**Do.** hand it over.\n")
+    open(os.path.join(rt, "lanes", "docker.md"), "w").write("# Docker candidates\n\n*2026-11-11*\n")
+    got = {n.path: n for n in V.report_notes(rt, datetime.date(2026, 11, 11))}
+    deep = next((n for p_, n in got.items() if p_.endswith("2026-11-11-deep-mh-3993.md")), None)
+    page = V.front([], dict(deep.props, title=deep.title)) + deep.body if deep else ""
+    check("the deep reading: a plain title among its aliases, its key set; the docker page placed in releases/",
+          deep is not None and deep.title.startswith("MH-3993 · Graphics") and deep.props["keys"] == ["MH-3993"]
+          and V.spec_lint("reference/2026-11-11-deep-mh-3993.md", page) == []
+          and "releases/docker.md" in got)
+
 sys.exit(1 if failures else 0)
