@@ -522,8 +522,11 @@ def applied_no_change(actions, issues, me, now):
 
 
 # ── corrections: a tier-1 or tier-2 action the team undid or answered against ──────────────────────────
+KEY_ARGS = re.compile(r"\b[A-Z][A-Z0-9]+-\d+\b")
 TIER_WINDOW, DEMOTE_AT = 7, 3        # three corrections on one rule in seven days demote it to tier 3
-REVERT_FIELD = {"label": "labels", "fixed-in-ledger": "Fixed In", "assign-by-rule": "assignee"}
+REVERT_FIELD = {"label": "labels", "fixed-in-ledger": "Fixed In", "assign-by-rule": "assignee",
+                # the dry-run classes a grant moved up (ADR 0019): their acts are tier 1 under the class's own name
+                "release-label": "labels", "fixed-in-announced": "Fixed In", "link-named": "Link"}
 
 
 def tiered(actions):
@@ -548,6 +551,10 @@ def reverts(actions, issues, me, now):
             if field == "labels" and added and not any(x in (ev.get("from") or "") and x not in (ev.get("to") or "")
                                                        for x in added.group(1).split(",")):
                 continue                                    # another label moved, not the one ela set
+            if field == "Link":                             # only the link ela made, taken away; another link added is not a revert
+                other = (KEY_ARGS.findall(re.split(r"\s--", a.get("command") or "", 1)[0]) or [None])[-1]
+                if ev.get("to") or not other or other not in (ev.get("from") or ""):
+                    continue
             rows.append({"kind": "correction", "how": "revert", "rule": a.get("rule"), "key": key,
                          "said": f"action {a.get('n')}: {a.get('text', '')[:100]}",
                          "now": f"{field}: {ev.get('from') or '—'} → {ev.get('to') or '—'} by {ev.get('by')} {t.isoformat(timespec='minutes')}"})

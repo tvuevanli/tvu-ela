@@ -3047,9 +3047,25 @@ def demoted_rules(reports):
     return {r: v.get("why") or "demoted" for r, v in rules.items() if isinstance(v, dict) and v.get("demoted")}
 
 
-def tier_check(page, actions, demoted=None, verdict_build=None):
+def granted_rules(reports):
+    """The dry-run classes the owner granted ({class: (tier, command regex)}), from <reports>/ela/dry/classes.json: a
+    granted class's actions draft at its tier under its own name (decision on the dry-run classes, ADR 0019). {} when
+    there is none or the store cannot be read."""
+    try:
+        sys.path.insert(0, os.path.join(HERE, "..", "dry"))
+        import dry as D
+        st = D.load_state(reports or "")
+    except Exception:                                      # noqa: BLE001 — no store: no grant
+        return {}
+    return {c: (x["tier"], D.CLASSES[c]["command"]) for c, x in st.items()
+            if c in D.CLASSES and D.CLASSES[c].get("command") and not D.CLASSES[c].get("never") and x.get("tier", 3) < D.CLASSES[c]["base"]}
+
+
+def tier_check(page, actions, demoted=None, verdict_build=None, granted=None):
     """Each action's tier against the closed rules and its form on the page: one line per failure. `demoted` {rule:
-    why}; `verdict_build` the build QA's latest report covers ({build, report}), which a train action's evidence names."""
+    why}; `verdict_build` the build QA's latest report covers ({build, report}), which a train action's evidence names;
+    `granted` {class: (tier, command regex)}, the dry-run classes the owner moved up, admitted like TIER_RULES."""
+    rules = dict(TIER_RULES, **(granted or {}))
     fails = []
     done = {int(n) for n, _ in DONE_LINE_RX.findall(page)}
     dont_at = {int(n): t for n, t in DONT_BOX_RX.findall(page)}
@@ -3085,10 +3101,10 @@ def tier_check(page, actions, demoted=None, verdict_build=None):
         if rule in PENDING_RULES and not re.search(PENDING_RULES[rule], cmd):
             fails.append(f"action {n}: its command is not what rule {rule} admits: {cmd[:70]}")
         if tier < 3:
-            if rule not in TIER_RULES or TIER_RULES[rule][0] != tier:
+            if rule not in rules or rules[rule][0] != tier:
                 fails.append(f"action {n}: tier {tier} needs a tier-{tier} rule ("
-                             + ", ".join(r for r, (t, _) in TIER_RULES.items() if t == tier) + f"), not {rule!r}")
-            elif not re.search(TIER_RULES[rule][1], cmd + " "):
+                             + ", ".join(r for r, (t, _) in rules.items() if t == tier) + f"), not {rule!r}")
+            elif not re.search(rules[rule][1], cmd + " ") and not re.search(rules[rule][1], cmd):
                 fails.append(f"action {n}: its command is not what rule {rule} admits: {cmd[:70]}")
             if rule in (demoted or {}):
                 fails.append(f"action {n}: rule {rule} is demoted ({demoted[rule]}); its actions are tier 3")
@@ -3140,7 +3156,7 @@ def cmd_page_check(args):
         reports = json.load(open(SITE)).get("reports")
     except (OSError, ValueError):
         reports = None
-    tiers = tier_check(page, actions, demoted_rules(reports), verdict) if args.actions else []
+    tiers = tier_check(page, actions, demoted_rules(reports), verdict, granted_rules(reports)) if args.actions else []
     for line in tiers:
         print(f"tier: {line}")
     sys.path.insert(0, os.path.join(HERE, "..", "review"))

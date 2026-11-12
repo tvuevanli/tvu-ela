@@ -50,6 +50,12 @@ iss = {"MH-7": {"events": [{"at": "2026-10-29T12:00:00+0800", "by": "A Dev", "fi
 r = RV.reverts(applied, iss, me, now)
 check("a label taken off by a colleague is a correction; the owner's own change and a tier-3 action are not",
       [(x["key"], x["rule"]) for x in r] == [("MH-7", "label")])
+links = [{"n": 5, "tier": 1, "rule": "link-named", "command": "ela jira link MH-11 MH-12 --type contains", "text": "link", "applied": at},
+         {"n": 6, "tier": 1, "rule": "link-named", "command": "ela jira link MH-13 MH-14 --type contains", "text": "link", "applied": at}]
+liss = {"MH-11": {"events": [{"at": "2026-10-29T12:00:00+0800", "by": "A Dev", "field": "Link", "from": "This issue contains MH-12", "to": ""}]},
+        "MH-13": {"events": [{"at": "2026-10-29T12:00:00+0800", "by": "A Dev", "field": "Link", "from": "", "to": "This issue relates to MH-99"}]}}
+check("a link ela made, taken away by a colleague, is a correction on its class; another link added is not",
+      [(x["key"], x["rule"]) for x in RV.reverts(links, liss, me, now)] == [("MH-11", "link-named")])
 gaps = []
 rep = RV.replies(applied, iss, me, [], gaps)
 check("a colleague's comment after a tier-1 comment goes to the reader to judge", [(x["key"], x["action"]) for x in rep] == [("MH-9", 3)])
@@ -118,4 +124,17 @@ check("thread-reply may not make a top-level post",
 pr = [{"n": 7, "tier": 1, "rule": "priority-by-rule", "evidence": "customer bracket", "command": "ela jira priority MH-1 --to High --why x"}]
 check("priority-by-rule stays tier 3 until promoted", any("until the owner promotes it" in f for f in B.tier_check("- done 7 — x\n", pr)))
 check("as tier 3 it passes", B.tier_check("- [ ] apply 7 — raise MH-1 to High\n", [dict(pr[0], tier=3)]) == [])
+# a dry-run class the owner granted drafts at its new tier under its own name; one not granted stays tier 3
+sys.path.insert(0, os.path.join(ROOT, "skills", "dry"))
+import dry as DR  # noqa: E402
+with tempfile.TemporaryDirectory() as t:
+    la = [{"n": 1, "tier": 1, "rule": "link-named", "evidence": "named in the 11-11 comment", "command": "ela jira link MH-3735 MH-3983 --type contains"}]
+    lp = "- done 1 — MH-3735 contains MH-3983 · evidence: named in the 11-11 comment\n"
+    check("not granted: a class at tier 1 is refused", any("needs a tier-1 rule" in x for x in B.tier_check(lp, la, {}, None, B.granted_rules(t))))
+    st = DR.load_state(t); st["link-named"]["tier"] = 1; st["close"]["tier"] = 1; DR.save_state(t, st)
+    g = B.granted_rules(t)
+    check("granted: admitted at tier 1 by its command pattern; a class tier 3 names by rule is never admitted",
+          B.tier_check(lp, la, {}, None, g) == [] and "close" not in g)
+    bad = [dict(la[0], command="ela jira link MH-3735 MH-3983 --type blocks")]
+    check("granted, but a command outside the class is refused", any("not what rule link-named admits" in x for x in B.tier_check(lp, bad, {}, None, g)))
 sys.exit(1 if failures else 0)
