@@ -120,5 +120,11 @@ with tempfile.TemporaryDirectory() as t:
     check("the test lists are read from the lanes folder", RC.read_testlists(t) == {"qa-cn3": TESTLISTS["qa-cn3"]})
     check("no result, no page", RC.newest_result(f"{t}/none") == (None, None))
 check("a timestamp with its offset", RC.mmdd("2026-11-01T23:30:00.000-0800") in ("11-01", "11-02") and RC.parse_at("junk") is None)
+# a bare Fixed In and its canonical +BUILD form are one fix: the lane carries it either way round (MH-3926, build 91)
+check("a bare entry and its +BUILD lane are the same release, and the reverse",
+      RC.carries({("unified-streaming", "qa-cn3"): "2.1.91+382"}, "qa-cn3", "unified-streaming", "2.1.91") is True
+      and RC.carries({("unified-streaming", "qa-cn3"): "2.1.91"}, "qa-cn3", "unified-streaming", "2.1.91+382") is True
+      and RC.carries({("unified-streaming", "qa-cn3"): "2.1.90+381"}, "qa-cn3", "unified-streaming", "2.1.91") is False
+      and RC.carries({("unified-streaming", "qa-cn3"): "2.1.91+381"}, "qa-cn3", "unified-streaming", "2.1.91+382") is False)
 print(f"{len(failures)} failures" if failures else "recent: all offline checks passed")
 sys.exit(1 if failures else 0)

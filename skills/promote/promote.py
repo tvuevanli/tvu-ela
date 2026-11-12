@@ -90,11 +90,13 @@ parse_version, vlabel = R.parse_version, R.vlabel
 
 
 def cmp_versions(slug, a, b):
-    """-1 a<b · 0 · 1 a>b, honouring patch_only slugs (order on M.m.p only)."""
+    """-1 a<b · 0 · 1 a>b, honouring patch_only slugs (order on M.m.p only). A version without a build (the bare
+    `unified-streaming@2.1.91` most Fixed In entries carry, a mail's `v2.1.91`) is the same release as its canonical
+    `+BUILD` form: the build orders two versions only when both name one."""
     if a is None or b is None:
         return None
     po = set((R.rmap("version_rules").get("semver_build") or {}).get("patch_only") or [])
-    ka, kb = (a[:3], b[:3]) if slug in po else (a, b)
+    ka, kb = (a[:3], b[:3]) if slug in po else ((a[:4], b[:4]) if not (a[4:5] and a[4] and b[4:5] and b[4]) else (a, b))
     return (ka > kb) - (ka < kb)
 
 
