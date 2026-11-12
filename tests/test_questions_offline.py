@@ -114,7 +114,7 @@ check("his tick and `ela:` line inside the folded part count as on the page",
       st["questions"]["q-aaaaaa"]["status"] == "closed" and st["questions"]["q-bbbbbb"]["status"] == "dropped")
 
 check("a note's meeting is its file name less its date, matched to the book's key either way",
-      Q.audience("meetings/20261112-sync-eng-qa.md", ["sync-eng-qa-ux"]) == "sync-eng-qa-ux"
+      Q.audience("meetings/2026-11-12-sync-eng-qa.md", ["sync-eng-qa-ux"]) == "sync-eng-qa-ux"
       and Q.audience("meetings/2026-11-17-sync-eng-qa-ux.md", ["sync-eng-qa-ux"]) == "sync-eng-qa-ux")
 
 with tempfile.TemporaryDirectory() as t:
@@ -131,7 +131,7 @@ with tempfile.TemporaryDirectory() as t:
     json.dump({"issues": [{"fields": {"assignee": {"displayName": "The Owner"}}}]}, open(os.path.join(facts, "jira", "owner.json"), "w"))
     seed = os.path.join(t, "sync-eng-qa-ux.md")
     open(seed, "w").write(OLD)
-    hand = os.path.join(vault, "meetings", "20261112-sync-eng-qa.md")
+    hand = os.path.join(vault, "meetings", "2026-11-12-sync-eng-qa.md")
     open(hand, "w").write(HAND)
     open(os.path.join(vault, "projects", "mh-3984-destination-csc.md"), "w").write(PROJECT)
     tz = datetime.datetime.now().astimezone().tzinfo
@@ -238,7 +238,7 @@ with tempfile.TemporaryDirectory() as t:
 with tempfile.TemporaryDirectory() as t:
     vault, reports, facts = (os.path.join(t, x) for x in ("vault", "reports", "facts"))
     os.makedirs(os.path.join(vault, "meetings")); os.makedirs(os.path.join(facts, "jira", "issues")); os.makedirs(os.path.join(reports, "ela"))
-    open(os.path.join(vault, "meetings", "20261112-sync-eng-qa.md"), "w").write(HAND)
+    open(os.path.join(vault, "meetings", "2026-11-12-sync-eng-qa.md"), "w").write(HAND)
     seed = os.path.join(t, "sync-eng-qa-ux.md")
     open(seed, "w").write(OLD)
     tz = datetime.datetime.now().astimezone().tzinfo
@@ -257,13 +257,13 @@ with tempfile.TemporaryDirectory() as t:
     json.dump({"key": "MH-3752", "fields": {"summary": "CN upgrade", "status": {"name": "In Progress"}, "assignee": {"displayName": "CN release lead"},
                "updated": "2026-11-13T10:00:00.000+0800", "duedate": "2026-11-16"}}, open(os.path.join(facts, "jira", "issues", "MH-3752.json"), "w"))
     json.dump({"issues": [{"fields": {"assignee": {"displayName": "The Owner"}}}]}, open(os.path.join(facts, "jira", "owner.json"), "w"))
-    hand = os.path.join(vault, "meetings", "20261112-sync-eng-qa.md")
+    hand = os.path.join(vault, "meetings", "2026-11-12-sync-eng-qa.md")
     open(hand, "w").write(HAND + "- [ ] Who decides the overlay switch? · The Owner, app lead\n")
     tz = datetime.datetime.now().astimezone().tzinfo
     book = [{"key": "sync-eng-qa-ux", "name": "Team sync", "weekdays": ["Tue", "Thu"], "time": "", "enabled": False}]
     morning = datetime.datetime(2026, 11, 12, 10, 0, tzinfo=tz)
     V.questions_pass(vault, reports, facts, morning, book, "https://j")
-    check("on the day of his own note, nothing is built over it", sorted(os.listdir(os.path.join(vault, "meetings"))) == ["20261112-sync-eng-qa.md"])
+    check("on the day of his own note, nothing is built over it", sorted(os.listdir(os.path.join(vault, "meetings"))) == ["2026-11-12-sync-eng-qa.md"])
     evening = datetime.datetime(2026, 11, 12, 19, 0, tzinfo=tz)
     V.questions_pass(vault, reports, facts, evening, book, "https://j")
     built = os.path.join(vault, "meetings", "2026-11-17-sync-eng-qa-ux.md")
@@ -292,7 +292,7 @@ with tempfile.TemporaryDirectory() as t:
     issue("MH-2564", "2026-11-10T09:00:00.000+0800", [{"author": {"displayName": "The Owner"}, "created": "2026-11-10T09:00:30.000+0800"},
                                                       {"author": {"displayName": "UR lead"}, "created": "2026-11-03T09:00:00.000+0800"}])
     issue("MH-3975", "2026-11-11T09:00:00.000+0800")
-    open(os.path.join(vault, "meetings", "20261112-sync-eng-qa.md"), "w").write(HAND + f"- [ ] [MH-3975]({J}MH-3975) — who re-tests 1.0.25? · PM lead\n")
+    open(os.path.join(vault, "meetings", "2026-11-12-sync-eng-qa.md"), "w").write(HAND + f"- [ ] [MH-3975]({J}MH-3975) — who re-tests 1.0.25? · PM lead\n")
     json.dump({"keys:MH-3975": {"first": "2026-11-05", "text": "MH-3975: ask the PM lead", "dropped": "2026-11-10"}},
               open(os.path.join(reports, "ela", "asks.json"), "w"))
     for i, d in enumerate(("2026-11-09", "2026-11-10", "2026-11-11", "2026-11-12")):

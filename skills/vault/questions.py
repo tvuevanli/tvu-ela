@@ -37,7 +37,7 @@ QREF = re.compile(r"#\^(q-[0-9a-f]{6})\b")
 KEY = re.compile(r"(?<![\w/#=.-])([A-Z][A-Z0-9]{1,9}-\d{1,6})(?![\w-])")
 SLACK = re.compile(r"https://[\w.-]+\.slack\.com/archives/[A-Z0-9]+/p\d{16}")
 SINCE = re.compile(r"[ \t]*·[ \t]*since[ \t]+\d{2}-\d{2}\b")
-DATED = re.compile(r"^(\d{4})-?(\d{2})-?(\d{2})-(.+)\.md$")    # meetings/<yyyy-mm-dd>-<key>.md, or his compact <yyyymmdd>-
+DATED = re.compile(r"^(\d{4})-(\d{2})-(\d{2})-(.+)\.md$")      # meetings/<yyyy-mm-dd>-<key>.md (ADR 0017)
 BOT = re.compile(r"^(?:Automation\b|Slack$|Jira$|GitLab|GitHub|Jenkins)", re.I)
 STOP = set("a an and are as at be by can do does for from has have how if in is it its of on or the then this to was "
            "what when where which who whom why will with".split())

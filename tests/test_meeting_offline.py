@@ -308,7 +308,7 @@ source: "vault"
 with tempfile.TemporaryDirectory() as t:
     vault, reports, facts = (os.path.join(t, x) for x in ("vault", "reports", "facts"))
     os.makedirs(os.path.join(vault, "meetings")); os.makedirs(os.path.join(facts, "jira", "issues")); os.makedirs(os.path.join(reports, "ela"))
-    hand = os.path.join(vault, "meetings", "20261112-sync-eng-qa.md")
+    hand = os.path.join(vault, "meetings", "2026-11-12-sync-eng-qa.md")
     body = ("---\ntitle: \"MediaHub team sync · Thu 2026-11-12\"\ntype: \"meeting\"\ndate: \"2026-11-12\"\nsource: \"vault\"\n---\n\n"
             "# MediaHub team sync · Thu 2026-11-12\n\n## 1. Close HTTP ports\n\n- [ ] Close order: A or B? · Robin Wu, Evan\n\n"
             "## If time allows \n\n- [ ] [MH-2564](https://j/browse/MH-2564) async: when? · Evan, Yulong Lu\n")
@@ -318,14 +318,23 @@ with tempfile.TemporaryDirectory() as t:
     V.meeting_roll(vault, datetime.date(2026, 12, 30))
     check("a hand-written meeting note is never rewritten by close or roll", r == [] and open(hand).read() == body)
 
-# the lint reads a dated meeting note, his compact date form too, and asks for no Ruled before the meeting
+# the lint reads a dated meeting note, named from its date and nothing else (ADR 0017), and asks for no Ruled before the meeting
 with tempfile.TemporaryDirectory() as t:
     hand = ("---\ntitle: \"MediaHub team sync · Thu 2026-11-12\"\naliases: [\"MediaHub team sync · Thu 2026-11-12\"]\ntype: \"meeting\"\n"
             "date: \"2026-11-12\"\nsource: \"vault\"\n---\n\n# MediaHub team sync · Thu 2026-11-12\n\n## 1. Close HTTP ports\n\n"
             "- [ ] " + "a long question " * 12 + "· Robin Wu\n")
-    rel = "meetings/20261112-sync-eng-qa.md"
+    rel = "meetings/2026-11-12-sync-eng-qa.md"
     check("a dated note by hand: no spec line, no meeting line", V.spec_lint(rel, hand) == [] and V.meeting_lint(rel, hand) == [])
-    check("its compact date is still checked against its date",
+    check("its date is checked against its name",
           V.spec_lint(rel, hand.replace('date: "2026-11-12"', 'date: "2026-11-13"')) == ["date 2026-11-13 but the file name says 2026-11-12"])
+    compact = V.spec_lint("meetings/20261112-sync-eng-qa.md", hand)
+    check("the compact form is a lint line: its name and its date",
+          compact[0].startswith("file name: want") and "does not start with it: want `2026-11-12-…`" in compact[1])
+    plan = hand.replace('type: "meeting"', 'type: "plan"').replace("## 1. Close HTTP ports", "## What to do")
+    check("an undated test plan is a lint line; the dated one is not",
+          any("does not start with it" in x for x in V.spec_lint("releases/2.1/release-2-1-cn-test-plan.md", plan))
+          and not any("file name" in x or "does not start" in x for x in V.spec_lint("releases/2.1/2026-11-12-plan-cn-test.md", plan)))
+    legacy = hand.replace("## 1. Close HTTP ports", "## To raise")
+    check("the verb's meetings/<key>.md is a standing page", not any("does not start" in x for x in V.spec_lint("meetings/sync-eng-qa.md", legacy)))
 
 sys.exit(1 if failures else 0)

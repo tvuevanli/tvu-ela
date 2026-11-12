@@ -104,7 +104,7 @@ LANE = r"(?:qa|daily|stage|test\d*|prod|cn)"
 RELEASE_NAME = re.compile(r"(?:^|-)(?:promote|deploy|docker|release|hotfix)(?:-|$)|(?:^|-)mh\d+-\d+(?:-|$)"
                           rf"|(?:^|-){LANE}(?:-[a-z0-9]+)?-to-{LANE}(?:-|\d|$)")
 # a review of a release in mh/releases/<line>/: <date>-<kind>-<what>, the line left to the folder (no 2-1 after the kind)
-RELEASE_KINDS = ("promote", "deploy", "docker", "hotfix", "review")
+RELEASE_KINDS = ("promote", "deploy", "docker", "hotfix", "review", "sync")   # sync: a release line's sync meeting or reading
 RELEASE_REVIEW_NAME = r"\d{4}-\d{2}-\d{2}-(?:" + "|".join(RELEASE_KINDS) + r")-(?!\d+-\d+-)[a-z0-9]+(?:-[a-z0-9]+)*"
 LINE_NAME = re.compile(r"(?:^|-)(?:mh|promote|release)-?(\d{1,2})-(\d{1,2})(?:-|$)")   # mh2-1, promote-2-1 → 2.1
 RELEASE_TITLE = re.compile(r"\b(promote|promotion|deploy|docker|release|hotfix)\b", re.I)   # … or by its title
@@ -1336,8 +1336,7 @@ SPECS = {
         closing=f"## {WHAT_TO_DO}: the recommended option and the alternative, each with its first step; options you named keep your labels, your order and your definitions, the recommendation a separate line"),
     "plan": dict(
         kind="work for your word: agree, park, not now or reject",
-        name=(rf"^{THING}/{DATED}\.md$|^releases/[\d.]+/{SLUG}-test-plan\.md$",
-              THING_NAME + "; a release line's test plan `releases/<line>/release-<line>-<what>-test-plan.md`"),
+        name=(rf"^{THING}/{DATED}\.md$", THING_NAME + "; a release line's test plan `releases/<line>/<date>-plan-<what>.md`"),
         title=(r".", "what the plan builds, as a sentence"),
         required=("date",), optional=("source", "target", "keys", "posted", "watch", "project", "ela", "progress", "branch"),
         sections=("The problem?", WHAT_TO_DO, ASKS_HEAD + "?", "Progress?"),
@@ -1405,8 +1404,8 @@ SPECS = {
         closing="## Next step in the head (`next-step` is the line Home may name); the tail from Waiting for your word is the sync's"),
     "meeting": dict(
         kind="what you raise at one meeting, and what it ruled",
-        name=(rf"^(?:meetings/{SLUG}|archive/meetings-{SLUG}-\d{{4}}-\d{{2}}|archive/{SLUG})\.md$",
-              "`meetings/<yyyy-mm-dd>-<key>.md` (or his `<yyyymmdd>-<key>`), the verb's `meetings/<key>.md`; older months `archive/meetings-<key>-<yyyy-mm>.md`"),
+        name=(rf"^(?:meetings/(?:{DATED}|(?!\d{{8}}-){SLUG})|archive/meetings-{SLUG}-\d{{4}}-\d{{2}}|archive/{SLUG})\.md$",
+              "`meetings/<yyyy-mm-dd>-<key>.md`, the verb's `meetings/<key>.md`; older months `archive/meetings-<key>-<yyyy-mm>.md`"),
         title=(r" · |^Review list$", "`<meeting> · <day and date>`"),
         required=(), optional=("date", "status", "keys", "source", "by"),
         sections=("To raise?", "Ruled?"),                 # Ruled comes after the meeting; a dated note has its own sections (ADR 0016)
@@ -1539,6 +1538,12 @@ def link_keys(body, jira_base, projects=None):
 RELEASE_RECORD = re.compile(r"^releases/[\d.]+/(?:release-[\d-]+-record|\d{4}-\d{2}-\d{2}-build-[\w.]+-to-[a-z0-9-]+)\.md$")
 
 
+def undated(kind, rel, text):
+    """A standing page, named without a date though it carries one (ADR 0017): a project's page, a release line's
+    record, and the verb's meetings/<key>.md. Every other note with a `date` is named from it."""
+    return kind == "project" or bool(RELEASE_RECORD.match(rel)) or (kind == "meeting" and legacy_form(text))
+
+
 def spec_lint(rel, text, generated=False, projects=None):
     """The note's deviations from its type's spec, one line each; [] when it meets it or has no spec."""
     fl, body = split_front(text)
@@ -1550,7 +1555,9 @@ def spec_lint(rel, text, generated=False, projects=None):
     if not re.match(sp["name"][0], rel):
         out.append(f"file name: want {sp['name'][1]}")
     name = os.path.basename(rel)[:-3]
-    dm = re.match(r"^(\d{4}-\d{2}-\d{2})-", re.sub(r"^(\d{4})(\d{2})(\d{2})-", r"\1-\2-\3-", name))   # his compact date too
+    dm = re.match(r"^(\d{4}-\d{2}-\d{2})-", name)
+    if not dm and props.get("date") and not undated(kind, rel, text):    # name order is time order (ADR 0017)
+        out.append(f"dated {props['date'][:10]} but the file name does not start with it: want `{props['date'][:10]}-…`")
     if dm and props.get("date") and props["date"][:10] != dm.group(1) and (props.get("end") or "")[:10] != dm.group(1):   # a sprint is named by its end
         out.append(f"date {props['date']} but the file name says {dm.group(1)}")
     raw = next((l for l in fl if l.startswith("title:")), None)
@@ -1574,7 +1581,7 @@ def spec_lint(rel, text, generated=False, projects=None):
             out.append("no title heading")
         elif opening(head) != opening(title):             # a heading may add a subtitle or a time; it opens the same
             out.append("the first heading is not the title")
-        stem = re.sub(r"^\d{4}-?\d{2}-?\d{2}-", "", name)
+        stem = re.sub(r"^\d{4}-\d{2}-\d{2}-", "", name)
         lost = [n for n in re.findall(r"(?<![\d.])\d{2,}(?![\d.])", stem.replace("-", " ")) if int(n) not in {int(d) for d in re.findall(r"\d+", title)}]
         if lost:
             out.append(f"the file name says {', '.join(lost)}, the title does not")
@@ -5270,7 +5277,7 @@ def record_gone(path, rels, now):
     with open(path, "a", encoding="utf-8") as fh:
         for r in rels:
             fh.write(json.dumps({"at": now.isoformat(timespec="seconds"), "path": r,
-                                 "title": sentence(re.sub(r"^\d{4}-?\d{2}-?\d{2}-", "", os.path.basename(r)[:-3]).replace("-", " ")),
+                                 "title": sentence(re.sub(r"^\d{4}-\d{2}-\d{2}-", "", os.path.basename(r)[:-3]).replace("-", " ")),
                                  "fate": "gone by hand", "by": "owner", "backup": f"backup/reports:vault/{r}"}, ensure_ascii=False) + "\n")
 
 
