@@ -743,7 +743,32 @@ MARK = {"pass": "✅", "fail": "❌", "untested": "·"}
 
 
 def link(r):
-    return f"[{r['ticket']}]({r['url']})" + "".join(f" / [{k}]({JIRA_URL}{k})" for k in r["also"]) if r["ticket"] else "**no ticket**"
+    """A row's ticket cell: the ticket the row is named for; one more of the same behaviour beside it, and from two up
+    their count, each of them written out in the row's fold (same_behaviour). A cell is never a run of keys."""
+    if not r["ticket"]:
+        return "**no ticket**"
+    head = f"[{r['ticket']}]({r['url']})"
+    return head + (f" / [{r['also'][0]}]({JIRA_URL}{r['also'][0]})" if len(r["also"]) == 1 else f" and {len(r['also'])} more" if r["also"] else "")
+
+
+KEY_RUN = re.compile(r"(?<![\w-])[A-Z][A-Z0-9]+-\d+(?:[\s,;/、]+[A-Z][A-Z0-9]+-\d+){2,}[\s:,;.—-]*")
+
+
+def same_behaviour(r, facts):
+    """(the how-to-verify sentence, the lines naming the row's other tickets). A sentence from a release thread opens
+    with the tickets it covers as a run of keys; the run is taken out and each ticket it or the row names beyond the
+    row's own is one line: key, title, status. `facts`: {key: {summary, status}} from the fact store."""
+    how = " ".join(str(r["how_to_verify"]).split())
+    real = lambda t: [k for k in B.KEY_RX.findall(t) if k in B.keys_in(t)]   # noqa: E731 — in the order written, tickets only
+    named = [k for m in KEY_RUN.finditer(how) for k in real(m.group(0))]
+    led = bool(KEY_RUN.match(how))
+    how = KEY_RUN.sub(lambda m: "" if m.start() == 0 else f"{len(real(m.group(0)))} tickets ", how).strip()
+    how = how[:1].upper() + how[1:] if led else how
+    others = [k for k in dict.fromkeys([*r["also"], *named]) if k != r["ticket"]]
+    if len(others) < 2 and not named:                      # a pair stands in the cell
+        return how, []
+    return how, ["", f"The same behaviour, {len(others)} more ticket{'s' if len(others) != 1 else ''}:"] + \
+        [f"- [{k}]({JIRA_URL}{k}) {B.R.ticket_line(k, facts.get(k), who=False)[len(k) + 1:]}" for k in others]
 
 
 def cell(text, n=220):
@@ -780,7 +805,11 @@ def callout(name, what, lines):
     return ["", f"> [!note]- {name} · {what}"] + [f"> {l}" if l else ">" for l in lines]
 
 
-def render_page(out):
+def render_page(out, facts=None):
+    """The lane's page. `facts`: {key: ticket facts} for the tickets a row groups under its own; read from the fact
+    store when not given."""
+    if facts is None:
+        facts = B.R.facts_tickets(site().get("runtime"), sorted({k for r in out["rows"] for k in [*r["also"], *B.keys_in(str(r["how_to_verify"]))]}))
     at = datetime.datetime.fromisoformat(out["generated"])
     unit = "build" if out["kind"] == "qa" else "release"
     L = ["# Test list · " + out["shown"], "", f"*{at:%Y-%m-%d %H:%M} · lane {out['lane']} · {unit} {out['lane_label'] or '?'} now*",
@@ -800,11 +829,12 @@ def render_page(out):
                  f"{(r.get('status') or '—') if r['ticket'] else '—'} | {page_name(r.get('assignee')) or '—'} | {v} | "
                  f"{r['first_build']} → {r['lane_build']} | {'yes' if r['auto'] else '–'} |")
         saw = (r.get("ela_saw") or {}).get("line")
-        if r["how_to_verify"] == "steps unknown" and not saw:
+        how, others = same_behaviour(r, facts)
+        if r["how_to_verify"] == "steps unknown" and not saw and not others:
             continue
         notes += callout(r["ticket"] or f"no ticket: {short(r['title'], 40)}", "how to verify",
                          [f"**{r['priority']}** {r['priority_reason']} · layer {r['layer']} · {r['age_days'] if r['age_days'] is not None else '?'}d on the list", "",
-                          " ".join(str(r["how_to_verify"]).split())] + (["", f"*ela saw*: {' '.join(saw.split())}"] if saw else []))
+                          how] + others + (["", f"*ela saw*: {' '.join(saw.split())}"] if saw else []))
     L += notes
     L += env_section(out.get("env") or [])
     if out["left"]:

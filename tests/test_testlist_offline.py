@@ -187,4 +187,14 @@ with tempfile.TemporaryDirectory() as d:
     finally:
         B.run_json, B.R._MAP = real_run, real_map
 
+grp = {"ticket": "MH-3881", "url": "u", "also": ["MH-3887", "MH-3891"], "how_to_verify": "MH-3881 / MH-3891 / MH-3887 / MH-3903 acceptance fixes."}
+how, others = TL.same_behaviour(grp, {"MH-3887": {"summary": "ISSP port range", "status": "Done"}})
+check("a row grouping tickets shows its own and a count; the fold names each other one with its title and status",
+      TL.link(grp) == "[MH-3881](u) and 2 more" and how == "Acceptance fixes."
+      and others[1:] == ["The same behaviour, 3 more tickets:", f"- [MH-3887]({TL.JIRA_URL}MH-3887) ISSP port range · Done",
+                         f"- [MH-3891]({TL.JIRA_URL}MH-3891) (not in the fact store)", f"- [MH-3903]({TL.JIRA_URL}MH-3903) (not in the fact store)"])
+pair = dict(grp, also=["MH-3887"], how_to_verify="steps unknown")
+check("a pair stays in the cell and adds nothing to the fold",
+      TL.link(pair) == f"[MH-3881](u) / [MH-3887]({TL.JIRA_URL}MH-3887)" and TL.same_behaviour(pair, {}) == ("steps unknown", []))
+
 sys.exit(1 if failures else 0)
