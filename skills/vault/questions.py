@@ -607,8 +607,24 @@ def short(text, n=TEXT_CHARS):
 
 
 def answerer(r):
-    ps = [p.strip() for p in re.split(r",|\+", r.get("who") or "") if p.strip()]
+    """(who answers first, the others): those the box names, else the holder a pass found (the person its ticket or
+    its project's ticket is on), else Not named."""
+    ps = [p.strip() for p in re.split(r",|\+", r.get("who") or r.get("holder") or "") if p.strip()]
     return (ps[0] if ps else "Not named"), ps[1:]
+
+
+def hold(state, facts_issue, page_keys):
+    """Who answers a question no box names: the person its one ticket is on, else the person its project's ticket is
+    on (page_keys: {project page: its key}). Written as `holder`; none leaves it Not named, and then its line asks who
+    takes it."""
+    for r in state["questions"].values():
+        if r["status"] != "open" or r.get("who"):
+            continue
+        ks = r["lead"][:1] if len(r["lead"]) == 1 else []
+        t = r.get("thing") or {}
+        if t.get("kind") == "project" and page_keys.get(t.get("ref")):
+            ks.append(page_keys[t["ref"]])
+        r["holder"] = next((a for a in (ticket_state(facts_issue(k)).get("assignee") for k in ks) if a), None)
 
 
 def subject_line(r):
@@ -648,11 +664,15 @@ def unworded(r):
 
 
 def line(r, jira=""):
-    """`Subject: sentence`, the subject's ticket linked: one question that stands alone, whole."""
+    """`Subject: sentence`, the subject's ticket linked: one question that stands alone, whole. With nobody to answer
+    it, the question is who takes it."""
     sub = subject_line(r)
     if sub and jira:
         sub = KEY.sub(lambda m: link(m.group(1), jira) if is_key(m.group(1)) else m.group(1), sub)
-    return f"{sub}: {sentence(r)}" if sub else sentence(r)
+    t = sentence(r)
+    if answerer(r)[0] == "Not named" and not re.match(r"^who\b", t, re.I):
+        t = f"Who takes it? {t}"
+    return f"{sub}: {t}" if sub else t
 
 
 def set_words(state, rid, subject, sentence_):

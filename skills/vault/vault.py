@@ -3660,6 +3660,13 @@ def questions_pass(vault, reports, facts, now, meetings=(), jira="", seeds=(), d
     Q.harvest(state, cands, now, issue, projects, snaps, start, keys, titles)
     closed += Q.gone_from_pages(state, project_srcs, today)
     Q.wait_since(state, today, question_evidence(vault, reports, issue, owner))
+    page_keys = {}
+    for key, text in project_pages(vault).items():
+        rel = project_path(vault, key)
+        k = next((x for x in Q.keys_in(h1(split_front(text)[1]) or "")), None) or next((x for x, p in projects.items() if p == rel), None)
+        if k:
+            page_keys[rel] = k
+    Q.hold(state, issue, page_keys)
     build_meeting_notes(vault, state, now, meetings, issue, owner, jira, dry_run)
     for n in Q.nudges(state, today):                       # listed at three meetings: the message he can send, drafted
         r = state["questions"][n["id"]]

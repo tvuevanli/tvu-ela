@@ -96,7 +96,7 @@ check("a subject from the bullet it hangs from, from its own words before a colo
       and Q.subject_of(sec("[MH-2564](https://j/browse/MH-2564) async graph submissions: when?", "If time allows")) == "MH-2564"
       and Q.subject_of(sec("Who takes it?", kind="project", where="projects/p.md"), {"MH-3984": "projects/p.md"},
                        {"projects/p.md": "MH-3984 · Destination CSC"}) == "Destination CSC (MH-3984)")
-r_ = {"raw": "x", "text": "MH-2564 — async graph submissions: when?", "lead": ["MH-2564"], "subject": "MH-2564", "thing": {}}
+r_ = {"raw": "x", "text": "MH-2564 — async graph submissions: when?", "lead": ["MH-2564"], "subject": "MH-2564", "thing": {}, "who": "UR lead"}
 check("a line is its subject and the question, the subject not said twice, its ticket linked, never cut",
       Q.line(r_, "https://j") == "[MH-2564](https://j/browse/MH-2564): Async graph submissions: when?"
       and not Q.unworded(r_) and Q.unworded(dict(r_, text="MH-2564 — " + "word " * 30 + "?")))
@@ -146,6 +146,11 @@ with tempfile.TemporaryDirectory() as t:
           len([r for r in qs.values() if r["status"] == "open"]) == 7 and not any("1080p" in r["text"] for r in qs.values())
           and any(r["thing"].get("ref", "").startswith("projects/") for r in qs.values()))
     check("the hand-written note is read, never written", open(hand).read() == HAND)
+    csc = next(r for r in qs.values() if r["thing"].get("ref", "").startswith("projects/"))
+    check("a project's question no box names goes to the person its project's ticket is on, else asks who takes it",
+          csc.get("holder") is None and Q.answerer(csc)[0] == "Not named" and Q.line(csc).endswith("Who takes orchestration and the destination UI?")
+          and Q.line(dict(csc, text="Retire the poll?")).endswith(": Who takes it? Retire the poll?")
+          and Q.answerer(dict(csc, holder="CSC lead"))[0] == "CSC lead" and "0 meetings" not in Q.page(state, now.date()))
 
     issue("MH-2564", "Backlog", "UR lead")                 # the world answers: the ticket got an assignee
     state, done = V.questions_pass(vault, reports, facts, now + datetime.timedelta(hours=1), book, "https://j")
