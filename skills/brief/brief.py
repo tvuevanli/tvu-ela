@@ -3009,9 +3009,9 @@ TIER_RULES = {
     "label": (1, r"^ela jira label " + KEY_ARG + r"\s"),
     "fixed-in-ledger": (1, r"^ela jira fixed-in " + KEY_ARG + r"\s(?!.*--clear\b)"),
     "assign-by-rule": (1, r"^ela jira assign " + KEY_ARG + r"\s"),
-    "thread-reply": (2, TEAM_POST),
-    "train-hold": (2, TEAM_POST),
-    "train-promote": (2, TEAM_POST),
+    # tier 2 (thread-reply, train-hold, train-promote) is retired since 2026-11-12, the owner's rule that nothing posts
+    # to Slack on its own except the daily and weekly reports (elak working-with-evan.md and the amendment to the three
+    # tiers): those posts are tier 3 and leave on his approve only
 }
 # tier 3 with a send box: the runner drafts it, it leaves only when he ticks `send N` (read at 09:30 and 10:00) or says
 # `apply N`, never on a timer (decisions/2026-10-29-writes-run-in-three-tiers.md, amendment 2026-10-30)
@@ -3100,6 +3100,9 @@ def tier_check(page, actions, demoted=None, verdict_build=None, granted=None):
             fails.append(f"action {n}: rule {rule} is tier 3 until the owner promotes it"); continue
         if rule in PENDING_RULES and not re.search(PENDING_RULES[rule], cmd):
             fails.append(f"action {n}: its command is not what rule {rule} admits: {cmd[:70]}")
+        if tier == 2:
+            fails.append(f"action {n}: tier 2 is retired (2026-11-12): a Slack post waits for the owner's approve, "
+                         "drafted as `apply N`"); continue
         if tier < 3:
             if rule not in rules or rules[rule][0] != tier:
                 fails.append(f"action {n}: tier {tier} needs a tier-{tier} rule ("

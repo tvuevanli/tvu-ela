@@ -610,10 +610,11 @@ The page is read in Obsidian, so its form is fixed:
 - **Every drafted action has a tier.** Tier 1, ela acts at the pass that drafted it and says so: Jira only, under one
   of the closed rules `fact-comment` (a comment stating a fact, carrying its evidence), `label`, `fixed-in-ledger` (a
   Fixed In the builds ledger confirms; never a clear) and `assign-by-rule` (an assignment a closed routing rule
-  gives); never a terminal status, a close, a transition or a customer-facing field. Tier 2, the runner sends it at
-  10:00 unless he ticks "don't": `thread-reply` (a reply in a team channel's thread ela has read), `train-hold`,
-  and `train-promote`, each an `ela slack post <thread permalink> …
-  --team-thread`, which slack.py refuses outside the team channels. Tier 3 is everything else, on his word only
+  gives); never a terminal status, a close, a transition or a customer-facing field. Tier 2 is retired
+  (2026-11-12, the owner's rule: nothing posts to Slack on its own except the daily and weekly reports; elak
+  working-with-evan.md): a thread reply, a train hold or a train promote is drafted at tier 3 as `apply N`, still an
+  `ela slack post <thread permalink> … --team-thread`, and leaves only on his approve; page-check fails a tier-2
+  action and the runner refuses one. Tier 3 is everything else, on his word only
   (`apply N`): customers, prod approvals, people, anything addressed to him, anything no closed rule admits. One tier-3
   rule is a meeting's list, `meeting`: an `apply N` that posts it in that day's thread (above); the meeting's note
   carries no box for it. `qa-today` and `dev-today` (QA today and Dev today, above)

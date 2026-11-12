@@ -23,16 +23,17 @@ acts = [{"n": 1, "tier": 1, "rule": "fact-comment", "evidence": "QA's fail on bu
 page = ("### 1. MH-1\nfacts\n- **Do:**\n- done 1 — the QA fail recorded on MH-1 · evidence: comment 10-28\n"
         "- [ ] don't 2 — at 10:00 unless you tick: hold the train on build 77\n- [ ] apply 3 — close MH-3\n- [ ] apply 4 — comment MH-4\n")
 verdict = {"build": "77"}
-check("tiers as written pass, and no tier reads as tier 3", B.tier_check(page, acts, {}, verdict) == [])
+check("a tier-2 post is refused: tier 2 is retired (2026-11-12)", any("action 2: tier 2 is retired" in x for x in B.tier_check(page, acts, {}, verdict)))
+page3 = page.replace("- [ ] don't 2 — at 10:00 unless you tick:", "- [ ] apply 2 —")
+check("the same post drafted as apply N passes, and no tier reads as tier 3", B.tier_check(page3, [dict(acts[1], tier=3)] + acts[:1] + acts[2:], {}, verdict) == [])
 check("lint takes a done line and a don't box as Do lines", [x for x in RV.lint(page, acts) if "Do line" in x or "box" in x] == [])
 bad = [dict(acts[0], command="ela jira close MH-1 --from-file f"), dict(acts[1], tier=1), dict(acts[2], tier=2, rule="thread-reply")]
 f = B.tier_check(page, bad, {}, verdict)
 check("a close is never what fact-comment admits", any("action 1: its command is not" in x for x in f))
 check("a tier-1 rule is not a tier-2 one, and the page form must match", any("action 2: tier 1 needs" in x for x in f) and any("action 2: tier 1, but the page writes it as tier 2" in x for x in f))
-check("a tier-2 reply needs --team-thread", any("action 3: its command is not" in x for x in f))
+check("a tier-2 action is refused whatever its command", any("action 3: tier 2 is retired" in x for x in f))
 f = B.tier_check(page, [dict(acts[0], evidence=""), dict(acts[1], evidence="build 78 under test")] + acts[2:], {}, verdict)
-check("tier 1 and 2 carry evidence; a train action names the verdict build and its report",
-      any("action 1: a tier-1 action carries its evidence" in x for x in f) and any("action 2: a train action's evidence" in x for x in f))
+check("tier 1 carries evidence", any("action 1: a tier-1 action carries its evidence" in x for x in f))
 check("a demoted rule's actions are tier 3", any("rule fact-comment is demoted" in x for x in B.tier_check(page, acts, {"fact-comment": "3 in 7 days"}, verdict)))
 check("an applied tier-3 action said in words needs no box", B.tier_check("", [dict(acts[2], applied="2026-10-29T09:00:00+08:00")], {}) == [])
 check("a done line with no action is caught", any("action 9: on the page" in x for x in B.tier_check("- done 9 — x\n", [], {})))
@@ -92,9 +93,8 @@ with tempfile.TemporaryDirectory() as t:
 mt = [{"n": 5, "tier": 2, "rule": "train-hold", "send_at": "14:00", "evidence": "build 79 report: hold",
        "command": f"ela slack post {THREAD} --text-file f --team-thread"}]
 p14 = "- [ ] don't 5 — at 14:00 unless you tick: hold the train\n"
-check("a tier-2 post at its send time passes", B.tier_check(p14, mt) == [])
-check("a page time that disagrees with the action's send_at fails",
-      any("goes at 10:00" in f for f in B.tier_check(p14.replace("14:00", "10:00"), mt)))
+check("a tier-2 post at its send time is refused: no timer posts to Slack", any("tier 2 is retired" in x for x in B.tier_check(p14, mt)))
+check("a tier-2 post at any time is refused", any("tier 2 is retired" in f for f in B.tier_check(p14.replace("14:00", "10:00"), mt)))
 mtg = [{"n": 8, "tier": 3, "send_box": True, "rule": "meeting", "send_at": "10:00", "command": f"ela slack post {THREAD} --text-file f --team-thread"}]
 pointer = "## Scrum with the PM at 10:00\n\nScrum with the PM at 10:00 · 2 items on [[meetings/scrum-pm]] · 1 new today\n"
 check("a meeting's list is a tier-3 send box whose box is in its note: the page's pointer line passes", B.tier_check(pointer, mtg) == [])
@@ -119,8 +119,8 @@ check("QA today drafted at tier 2 fails", any("send-box action is tier 3" in f f
       "- [ ] don't 9 — at 09:30 unless you tick: QA today\n", [dict(qa[0], tier=2, send_box=False)])))
 check("a send-box action without its send box fails", any("is written" in f for f in B.tier_check("- [ ] apply 9 — QA today\n", qa)))
 check("a send box with no action fails", any("not in the actions file" in f for f in B.tier_check(psb, [])))
-check("thread-reply may not make a top-level post",
-      any("not what rule" in f for f in B.tier_check("- [ ] don't 6 — at 10:00 unless you tick: x\n", [dict(dp[0], rule="thread-reply")])))
+check("thread-reply is no longer a rule that sends: refused at tier 2",
+      any("tier 2 is retired" in f for f in B.tier_check("- [ ] don't 6 — at 10:00 unless you tick: x\n", [dict(dp[0], rule="thread-reply")])))
 pr = [{"n": 7, "tier": 1, "rule": "priority-by-rule", "evidence": "customer bracket", "command": "ela jira priority MH-1 --to High --why x"}]
 check("priority-by-rule stays tier 3 until promoted", any("until the owner promotes it" in f for f in B.tier_check("- done 7 — x\n", pr)))
 check("as tier 3 it passes", B.tier_check("- [ ] apply 7 — raise MH-1 to High\n", [dict(pr[0], tier=3)]) == [])
