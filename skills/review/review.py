@@ -526,7 +526,7 @@ KEY_ARGS = re.compile(r"\b[A-Z][A-Z0-9]+-\d+\b")
 TIER_WINDOW, DEMOTE_AT = 7, 3        # three corrections on one rule in seven days demote it to tier 3
 REVERT_FIELD = {"label": "labels", "fixed-in-ledger": "Fixed In", "assign-by-rule": "assignee",
                 # the dry-run classes a grant moved up (ADR 0019): their acts are tier 1 under the class's own name
-                "release-label": "labels", "fixed-in-announced": "Fixed In", "link-named": "Link"}
+                "release-reconcile": "Fixed In", "link-named": "Link"}
 
 
 def tiered(actions):

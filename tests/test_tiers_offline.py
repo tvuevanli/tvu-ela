@@ -135,6 +135,12 @@ with tempfile.TemporaryDirectory() as t:
     g = B.granted_rules(t)
     check("granted: admitted at tier 1 by its command pattern; a class tier 3 names by rule is never admitted",
           B.tier_check(lp, la, {}, None, g) == [] and "close" not in g)
+    ra = [{"n": 1, "tier": 1, "rule": "release-reconcile", "evidence": "builds 90, 91 against Jira", "command": "ela release reconcile qa-aws3 --build 90 --build 91 --batch"}]
+    rp = "- done 1 — builds 90, 91: Fixed In and labels · evidence: builds 90, 91 against Jira\n"
+    check("a pending rule stays tier 3 until granted; granted, the release batch is admitted at tier 1",
+          any("until the owner promotes it" in x for x in B.tier_check(rp, ra, {}, None, g)))
+    st["release-reconcile"]["tier"] = 1; DR.save_state(t, st)
+    check("granted release-reconcile passes at tier 1", B.tier_check(rp, ra, {}, None, B.granted_rules(t)) == [])
     bad = [dict(la[0], command="ela jira link MH-3735 MH-3983 --type blocks")]
     check("granted, but a command outside the class is refused", any("not what rule link-named admits" in x for x in B.tier_check(lp, bad, {}, None, g)))
 sys.exit(1 if failures else 0)

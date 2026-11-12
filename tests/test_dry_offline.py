@@ -91,10 +91,10 @@ with tempfile.TemporaryDirectory() as R:
         {"at": "2026-11-03T09:20:00+08:00", "system": "jira", "verb": "comment", "key": "MH-9", "ok": True}]) + "\n")
     rows = D.seed(R)
     by = {(r["class"], r["verdict"], r.get("as_drafted")) for r in rows}
-    check("seed: applied action as drafted, handled himself as an edit, a veto as cancelled",
-          {("fixed-in-announced", "applied", True), ("assign-by-rule", "edited", False), ("close", "cancelled", None)} <= by)
+    check("seed: handled himself is an edit, a veto cancelled; a single Fixed In drafted before its rule counts in totals only",
+          {("release-reconcile", "applied", None), ("assign-by-rule", "edited", False), ("close", "cancelled", None)} <= by)
     check("seed: the write its applied action accounts for is not counted twice; a log-only write's draft is unknown",
-          sum(1 for r in rows if r["class"] == "fixed-in-announced") == 1 and ("link-named", "applied", None) in by
+          sum(1 for r in rows if r["class"] == "release-reconcile") == 1 and ("link-named", "applied", None) in by
           and ("message-to-person", "applied", None) in by)
     check("seed: comments are not attributed to a class", not any(r.get("target") in ("MH-4", "MH-9") for r in rows))
 
@@ -127,9 +127,9 @@ with tempfile.TemporaryDirectory() as R:
           not [x for x in D.asks(R, datetime.date(2026, 11, 16), ask_state={}) if x["kind"] == "grant"])
 
 with tempfile.TemporaryDirectory() as R:
-    drive(R, "release-label", 10)
-    D.append(R, {"at": "2026-11-04T12:00:00+08:00", "class": "release-label", "verdict": "edited", "as_drafted": False, "target": "MH-9", "source": "batch"})
-    check("an edit in the last ten blocks maturity", not D.judged("release-label", D.record(R), D.load_state(R)["release-label"])["mature"])
+    drive(R, "release-reconcile", 10)
+    D.append(R, {"at": "2026-11-04T12:00:00+08:00", "class": "release-reconcile", "verdict": "edited", "as_drafted": False, "target": "MH-9", "source": "batch"})
+    check("an edit in the last ten blocks maturity", not D.judged("release-reconcile", D.record(R), D.load_state(R)["release-reconcile"])["mature"])
     drive(R, "close", 20)
     drive(R, "message-to-person", 20)
     check("a class tier 3 names by rule never earns the ask, however clean",
@@ -141,14 +141,14 @@ with tempfile.TemporaryDirectory() as R:
     check("and cannot be granted by a letter", refused and D.load_state(R)["close"]["tier"] == 3)
 
 with tempfile.TemporaryDirectory() as R:
-    drive(R, "fixed-in-announced", 10)
+    drive(R, "release-reconcile", 10)
     g = [x for x in D.asks(R, datetime.date(2026, 11, 6), commit=True, ask_state={}) if x["kind"] == "grant"]
     D.asks(R, datetime.date(2026, 11, 11), commit=True, ask_state={g[0]["id"]: {"dropped": "2026-11-11"}})
-    check("no answer changes nothing; the ask stays away", D.load_state(R)["fixed-in-announced"]["tier"] == 3
+    check("no answer changes nothing; the ask stays away", D.load_state(R)["release-reconcile"]["tier"] == 3
           and not [x for x in D.asks(R, datetime.date(2026, 11, 12), ask_state={}) if x["kind"] == "grant"])
-    drive(R, "fixed-in-announced", 9, start=datetime.date(2026, 11, 12))
+    drive(R, "release-reconcile", 9, start=datetime.date(2026, 11, 12))
     check("nine more: still away", not [x for x in D.asks(R, datetime.date(2026, 11, 16), ask_state={}) if x["kind"] == "grant"])
-    drive(R, "fixed-in-announced", 1, start=datetime.date(2026, 11, 16))
+    drive(R, "release-reconcile", 1, start=datetime.date(2026, 11, 16))
     check("ten more clean runs: it returns", [x["kind"] for x in D.asks(R, datetime.date(2026, 11, 16), ask_state={})] == ["grant"])
 
 with tempfile.TemporaryDirectory() as R, tempfile.TemporaryDirectory() as out:
@@ -208,6 +208,11 @@ with tempfile.TemporaryDirectory() as R, tempfile.TemporaryDirectory() as VT:
           and "`ela: undo 1`" in V.dry_pages(VT, R, datetime.date(2026, 11, 16))["ela/dry/did.md"])
     page = V.today_page(datetime.date(2026, 11, 16), [], {"dry_facts": facts}, [])
     check("a fall is said on today.md under Facts", "- **Done by ela:** link-named is back to your confirm (word: the owner's ela: line against a link)." in page)
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "skills", "brief"))
+import brief as B  # noqa: E402
+check("release-reconcile is the release work's own rule: the same command shape as the page check's",
+      D.CLASSES["release-reconcile"]["command"] == B.PENDING_RULES["release-reconcile"])
 
 print(f"{len(failures)} failed" if failures else "all passed")
 sys.exit(1 if failures else 0)

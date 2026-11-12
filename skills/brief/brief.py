@@ -3096,7 +3096,7 @@ def tier_check(page, actions, demoted=None, verdict_build=None, granted=None):
             if n in done | dont | boxed:
                 fails.append(f"action {n}: a send-box action has only its send box on the page")
             continue
-        if tier < 3 and rule in PENDING_RULES:
+        if tier < 3 and rule in PENDING_RULES and rule not in (granted or {}):   # granted: his word moved it (ADR 0019)
             fails.append(f"action {n}: rule {rule} is tier 3 until the owner promotes it"); continue
         if rule in PENDING_RULES and not re.search(PENDING_RULES[rule], cmd):
             fails.append(f"action {n}: its command is not what rule {rule} admits: {cmd[:70]}")

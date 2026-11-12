@@ -66,20 +66,15 @@ CLASSES = {
         "command": r"^ela jira comment " + KEY + r" --from-file \S+\s*$",
         "case": "MH-3735, 2026-11-12: 'update the parent' after the links",
     },
-    "fixed-in-announced": {
-        "says": "append Fixed In for a ticket named in an announced build",
-        "atom": ("jira", "fixed-in"), "noun": ("Fixed In", "Fixed In"), "ladder": (3, 1), "base": 3,
-        "rule": "defined by the release-reconcile work: a ticket the build's announcement names, the entry from the "
-                "builds ledger, append only",
-        "command": r"^(?!.*--clear\b)ela jira fixed-in " + KEY + r"(?: " + KEY + r")* --add \S",
-        "case": "39 fixed-in writes in writes.jsonl, all attended",
-    },
-    "release-label": {
-        "says": "the release label for a ticket named in an announced build",
-        "atom": ("jira", "label"), "noun": ("label", "labels"), "ladder": (3, 1), "base": 3,
-        "rule": "defined by the release-reconcile work: the label of the build that ships the ticket",
-        "command": r"^ela jira label " + KEY + r" --add \S+\s*$",
-        "case": "3 label writes in writes.jsonl, all attended",
+    "release-reconcile": {
+        "says": "add the missing Fixed In and release label to the tickets of a build a lane took",
+        "atom": ("jira", "fixed-in+label"), "noun": ("build's Jira gaps", "builds' Jira gaps"), "ladder": (3, 1), "base": 3,
+        "rule": "the release-reconcile work's: each ticket a build's announcement names, read against Jira after the "
+                "release thread is quiet; Fixed In appended from the builds ledger, the build's label added; one batch "
+                "for every build in the window",
+        # kept equal to brief.py's PENDING_RULES["release-reconcile"] (a test holds them together)
+        "command": r"^ela release reconcile [\w-]+(?:\s+--build\s+\d+)*\s+--batch\s*$",
+        "case": "39 fixed-in and 3 label writes in writes.jsonl, all attended; the rule landed 2026-11-12",
     },
     "assign-by-rule": {
         "says": "assign by a written routing rule",
@@ -660,10 +655,8 @@ def class_of_action(a):
         return "close"
     if kind == "slack" and re.search(r"\bslack post @|\bDM\b|archives/D[A-Z0-9]+", cmd):
         return "message-to-person"
-    if kind == "fixed-in" or re.match(r"^ela jira fixed-in\b", cmd):
-        return "fixed-in-announced"
-    if kind == "label" or re.match(r"^ela jira label\b", cmd):
-        return "release-label"
+    if kind in ("fixed-in", "label") or re.match(r"^ela jira (?:fixed-in|label)\b", cmd):
+        return "release-reconcile"
     if kind == "assign" or re.match(r"^ela jira assign\b", cmd):
         return "assign-by-rule"
     if re.match(r"^ela jira link\b", cmd):
@@ -675,7 +668,7 @@ def class_of_write(w):
     verb = w.get("verb")
     if w.get("system") == "slack":
         return "message-to-person" if str(w.get("where") or "").startswith("DM to") else None
-    return {"link": "link-named", "fixed-in": "fixed-in-announced", "label": "release-label", "assign": "assign-by-rule",
+    return {"link": "link-named", "fixed-in": "release-reconcile", "label": "release-reconcile", "assign": "assign-by-rule",
             "close": "close"}.get(verb)
 
 
@@ -704,8 +697,10 @@ def seed(reports):
                 continue
             keys = sorted(set(KEY_RX.findall(re.split(r"\s--", a.get("command") or "", 1)[0])))
             base = {"class": cls, "target": ",".join(keys) or None, "command": a.get("command"), "source": f"seed:actions {day} #{a.get('n')}"}
+            # a single Fixed In or label drafted before the release-reconcile rule was not selected by it: totals only
+            before_rule = cls == "release-reconcile" and a.get("rule") != "release-reconcile"
             if a.get("applied"):
-                rows.append(dict(base, at=str(a["applied"]), verdict="applied", letter="A", as_drafted=True))
+                rows.append(dict(base, at=str(a["applied"]), verdict="applied", letter="A", as_drafted=None if before_rule else True))
                 used.append((keys, parse_ts(a["applied"])))
             elif a.get("by_owner"):
                 at = a["by_owner"].get("at") if isinstance(a["by_owner"], dict) else a["by_owner"]
@@ -798,8 +793,8 @@ def read_issue(key, env):
 def cmd_draft(a):
     r = reports_root(a)
     if a.cls not in ("link-named", "parent-status"):
-        print(f"no selector for {a.cls}: link-named and parent-status are drafted here; the release classes are drafted "
-              "by the release-reconcile work", file=sys.stderr); sys.exit(EX_USAGE)
+        print(f"no selector for {a.cls}: link-named and parent-status are drafted here; release-reconcile is drafted "
+              "by `ela release reconcile`", file=sys.stderr); sys.exit(EX_USAGE)
     env = a.env_file or os.environ.get("ELA_ENV_FILE") or site().get("env")
     parent = json.load(open(a.issue_file, encoding="utf-8")) if a.issue_file else read_issue(a.key, env)
     if not parent:
