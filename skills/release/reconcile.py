@@ -274,9 +274,9 @@ def reconcile(rec, issues, reading=None, label=None):
 
 # ── reading the sources ───────────────────────────────────────────────────────────────────────────────
 
-def _run(argv, timeout=120):
+def _run(argv, timeout=120, env=None):
     try:
-        p = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
+        p = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, env=env)
         return p.returncode, p.stdout, p.stderr
     except (OSError, subprocess.TimeoutExpired) as e:
         return 1, "", str(e)
@@ -409,12 +409,22 @@ def merged_commands(results):
     return out
 
 
-def run_batch(results, apply=False, env_file=None):
-    """Each command through jira.py, dry run unless `apply`. → [(key, rc, text)]."""
-    out = []
-    for key, tail in merged_commands(results):
+def batch_id(results, today=None):
+    """The batch's name in the acts record: `<date>-release-reconcile-<lane>-b<builds>`; each command is an act of it
+    (`…#3`), so `ela dry undo <batch>` takes the whole batch back and `ela dry undo <batch>#3` one write."""
+    today = today or datetime.date.today()
+    lane = (results[0].get("lane") if results else "") or "lane"
+    return f"{today.isoformat()}-release-reconcile-{lane}-b" + "-".join(str(r.get("build")) for r in results)
+
+
+def run_batch(results, apply=False, env_file=None, today=None, run=None):
+    """Each command through jira.py, dry run unless `apply`; each one an act of the batch (ELA_ACT, ELA_CLASS), so
+    jira.py keeps the Fixed In and labels it found beside the write. → [(key, rc, text)]."""
+    out, bid = [], batch_id(results, today)
+    for i, (key, tail) in enumerate(merged_commands(results), 1):
         argv = ["python3", os.path.join(SKILLS, "jira", "jira.py")] + (["--env-file", env_file] if env_file else []) + tail + (["--apply"] if apply else [])
-        rc, so, se = _run(argv)
+        env = dict(os.environ, ELA_ACT=f"{bid}#{i}", ELA_CLASS="release-reconcile")
+        rc, so, se = (run or _run)(argv, env=env)
         out.append((key, rc, (so.strip() or se.strip())))
     return out
 

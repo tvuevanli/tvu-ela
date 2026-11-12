@@ -28,8 +28,15 @@ names by rule (NEVER) is recorded but never proposed.
   correct <class> --how revert|correction|word [--ref R] [--note T] [--date D]
                                          a correction after the fact; a granted class returns to confirm
   did     [--date D] [--json]            what granted classes did without confirm: the Facts line and its list
+  undo    <act|batch> [--apply] [--json] the reverse of an act, from the before-state it kept (<reports>/ela/acts.jsonl):
+                                         each undo a dry run unless --apply; applied, it records the class's correction
+  acts    [--class C] [--json]           the acts on record, each with its before-state and its undo
 
-Store: <reports>/ela/dry/ — classes.json (tier, grants, asks), record.jsonl, record-seed.jsonl, batches/<id>.json.
+A class whose reverse atom jira.py does not carry is never proposed for a grant (`reversible`): what ela may do
+without asking, it must be able to take back.
+
+Store: <reports>/ela/dry/ — classes.json (tier, grants, asks), record.jsonl, record-seed.jsonl, batches/<id>.json;
+<reports>/ela/acts.jsonl, written by jira.py at each applied write (the act, its before-state, its undo).
 Exit codes: 0 ok · 2 usage · 3 not found · 5 remote.
 """
 import argparse, datetime, glob, hashlib, json, os, re, subprocess, sys
@@ -57,6 +64,7 @@ CLASSES = {
                 "ticket linked or proposed; `contains`, or `relates to` when the naming line says related",
         "command": r"^ela jira link " + KEY + r" " + KEY + r" --type (?:contains|\"?relates to\"?)\s*$",
         "case": "MH-3735, 2026-11-12: links approved as a kind in one sentence",
+        "reverse": (("unlink", "--id"),),
     },
     "parent-status": {
         "says": "a status comment on a parent you own, from its children's states",
@@ -65,6 +73,7 @@ CLASSES = {
                 "status comment on the parent",
         "command": r"^ela jira comment " + KEY + r" --from-file \S+\s*$",
         "case": "MH-3735, 2026-11-12: 'update the parent' after the links",
+        "reverse": (("comment-delete", "--id"),),
     },
     "release-reconcile": {
         "says": "add the missing Fixed In and release label to the tickets of a build a lane took",
@@ -75,6 +84,7 @@ CLASSES = {
         # kept equal to brief.py's PENDING_RULES["release-reconcile"] (a test holds them together)
         "command": r"^ela release reconcile [\w-]+(?:\s+--build\s+\d+)*\s+--batch\s*$",
         "case": "39 fixed-in and 3 label writes in writes.jsonl, all attended; the rule landed 2026-11-12",
+        "reverse": (("fixed-in", "--remove"), ("label", "--remove")),
     },
     "assign-by-rule": {
         "says": "assign by a written routing rule",
@@ -82,6 +92,7 @@ CLASSES = {
         "rule": "a routing rule written in elak names the owner of the ticket's area",
         "command": r"^ela jira assign " + KEY + r"\s",
         "case": "tier 1 by the decision of 2026-10-29 (assign-by-rule); 5 assign writes, all attended",
+        "reverse": (("assign", "--assignee"),),
     },
 }
 # tier 3 by rule (decision 2026-10-29): recorded, never proposed for a grant
@@ -218,10 +229,38 @@ def next_tier(cls, tier):
     return lad[min(lad.index(tier) + 1, len(lad) - 1)] if tier in lad else tier
 
 
+_HELP = {}
+
+
+def atom_help(verb):
+    """jira.py's own --help for one verb ('' when it has no such verb): the reverse atoms are checked against the
+    capability as it is, not against a list kept here."""
+    if verb not in _HELP:
+        try:
+            p = subprocess.run(["python3", JIRA, verb, "--help"], capture_output=True, text=True, timeout=60)
+            _HELP[verb] = p.stdout if p.returncode == 0 else ""
+        except (OSError, subprocess.TimeoutExpired):
+            _HELP[verb] = ""
+    return _HELP[verb]
+
+
+def reversible(cls):
+    """Whether every write the class makes has its reverse atom in jira.py (each named verb answers --help and takes
+    the named flag). → (bool, [what is missing])."""
+    rev = CLASSES[cls].get("reverse") or ()
+    if not rev:
+        return False, ["no reverse atom named"]
+    missing = [f"jira {v} {flag}" for v, flag in rev if flag not in atom_help(v)]
+    return not missing, missing
+
+
 def grant_due(cls, rows, st_c):
-    """Whether this pass may put a grant ask for the class: mature, able to rise, no ask open, and when an earlier ask
-    went unanswered or was declined, ASK_AGAIN_AFTER more clean runs since it."""
+    """Whether this pass may put a grant ask for the class: mature, able to rise, reversible (what ela may do unasked
+    it must be able to take back), no ask open, and when an earlier ask went unanswered or was declined,
+    ASK_AGAIN_AFTER more clean runs since it."""
     if not can_rise(cls, st_c):
+        return False
+    if not reversible(cls)[0]:
         return False
     j = judged(cls, rows, st_c)
     if not j["mature"]:
@@ -503,16 +542,19 @@ def make_batch(reports, cls, scope, writes, left, today):
 
 
 # ── the answer ────────────────────────────────────────────────────────────────────────────────────────────────
-def run_write(command, apply, action=None, word=None):
+def run_write(command, apply, action=None, word=None, cls=None):
     """One write through its own capability: `ela jira …` becomes jira.py; --apply only when the answer carried it.
-    The write log records the batch and the answer it ran under (ELA_ACTION, ELA_WORD)."""
+    The write log records the batch and the answer it ran under (ELA_ACTION, ELA_WORD); the act (ELA_ACT, the same
+    id) and its class (ELA_CLASS) go with the before-state jira.py keeps, so `ela dry undo` can find it. `command`
+    is a string or an argv list."""
     import shlex
-    argv = shlex.split(command)
+    argv = shlex.split(command) if isinstance(command, str) else list(command)
     if argv[:2] != ["ela", "jira"]:
         raise ValueError(f"not a Jira write: {command}")
     env = os.environ.get("ELA_ENV_FILE") or site().get("env")
     cmd = ["python3", JIRA] + (["--env-file", env] if env else []) + argv[2:] + (["--apply"] if apply else [])
-    env = dict(os.environ, **({"ELA_ACTION": action} if action else {}), **({"ELA_WORD": word} if word else {}))
+    env = dict(os.environ, **({"ELA_ACTION": action, "ELA_ACT": action} if action else {}), **({"ELA_WORD": word} if word else {}),
+               **({"ELA_CLASS": cls} if cls else {}))
     p = subprocess.run(cmd, capture_output=True, text=True, timeout=300, env=env)
     return p.returncode, (p.stdout + p.stderr).strip()
 
@@ -545,14 +587,14 @@ def answer(reports, aid, letter, note_text=None, apply=False, runner=run_write, 
                         append(reports, {"at": now_iso(now), "class": b["class"], "verdict": "cancelled", "letter": "A", "target": w["target"],
                                          "command": w["command"], "batch": b["id"], "source": "batch", "how": "struck"})
                     did.append(f"{w['n']} left out"); continue
-                code, out = (run_write(cmd, apply, action=f"dry:{b['id']}#{w['n']}", word=f"answer {aid} {letter}")
+                code, out = (run_write(cmd, apply, action=act_id(b["id"], w["n"]), word=f"answer {aid} {letter}", cls=b["class"])
                              if runner is run_write else runner(cmd, apply))
                 did.append(f"{w['n']} {'applied' if apply else 'dry run'}{' as edited' if verdict == 'edited' else ''}: "
                            f"{'ok' if code == 0 else 'failed'} — {out.splitlines()[-1] if out else ''}"[:200])
                 if apply and code == 0:
                     append(reports, {"at": now_iso(now), "class": b["class"], "verdict": verdict, "letter": "A", "target": w["target"],
                                      "command": cmd, "drafted": w["command"], "as_drafted": verdict == "applied",
-                                     "batch": b["id"], "source": "batch"})
+                                     "batch": b["id"], "act": act_id(b["id"], w["n"]), "source": "batch"})
             if apply:
                 b["state"] = "applied"
         if apply or letter == "B":
@@ -567,6 +609,8 @@ def answer(reports, aid, letter, note_text=None, apply=False, runner=run_write, 
         raise ValueError(f"{aid} offers A, B or C, not {letter}")
     if CLASSES[cls].get("never"):
         raise ValueError(f"{cls} is tier 3 by rule ({CLASSES[cls]['never']}); it is never granted")
+    if letter == "A" and not reversible(cls)[0]:
+        raise ValueError(f"{cls} has no reverse atom ({', '.join(reversible(cls)[1])}); it is not granted until it can be undone")
     ask = x.get("ask") or {"id": aid, "clean_at": int(m.group(2))}
     ask["answered"] = {"letter": letter, "at": now_iso(now)}
     x["ask"] = ask
@@ -584,6 +628,64 @@ def answer(reports, aid, letter, note_text=None, apply=False, runner=run_write, 
         did.append(f"{cls}: never asked again")
     save_state(reports, st)
     return {"ask": aid, "letter": letter, "did": did}
+
+
+# ── undo: an act's reverse, from the before-state it kept ─────────────────────────────────────────────────────
+def act_id(batch, n):
+    """An act's name: its batch and its line (`2026-11-12-link-named-MH-3735#2`); the write log's ELA_ACTION is the same."""
+    return f"{batch}#{n}"
+
+
+def acts_path(reports):
+    return os.path.join(reports, "ela", "acts.jsonl")
+
+
+def acts(reports, ref=None):
+    """The acts on record, oldest first, each {act, class, key, verb, before, undo, at, undone}: `ref` an act id, or a
+    batch id for every act of it. An act jira.py logged without a class is classed by its verb."""
+    rows = read_jsonl(acts_path(reports))
+    undone = {r["undone"]: r for r in rows if r.get("undone")}
+    out = []
+    for r in rows:
+        if r.get("undone") or not r.get("undo"):
+            continue
+        a = r.get("act") or ""
+        if ref and not (a == ref or a.startswith(ref + "#")):
+            continue
+        cls = r.get("class") or class_of_write({"system": "jira", "verb": r.get("verb")})
+        out.append(dict(r, **{"class": cls, "undone": (undone.get(a) or {}).get("at") if a else None}))
+    return out
+
+
+def undo(reports, ref, apply=False, runner=None, now=None):
+    """The reverse of an act (or of every act of a batch): each undo atom through jira.py, a dry run unless `apply`.
+    Applied and all ok, the act is marked undone and its class takes the correction (a revert): a granted class returns
+    to confirm. → {ref, did: [...], notice}; raises KeyError when no act on record matches."""
+    found = acts(reports, ref)
+    if not found:
+        raise KeyError(ref)
+    did, ok, done = [], True, set()
+    for r in found:
+        if r["undone"]:
+            did.append(f"{r['act']} {r['key']}: already undone {r['undone'][:16]}"); continue
+        word = f"undo {ref}"
+        code, out = (runner(r["undo"], apply) if runner else
+                     run_write(r["undo"], apply, action=f"undo:{r['act']}", word=word, cls=r["class"]))
+        ok = ok and code == 0
+        last = out.splitlines()[-1] if out else ""
+        did.append(f"{r['act'] or '?'} {r['key']} {r['verb']}: {'undone' if apply and code == 0 else 'dry run' if code == 0 else 'failed'}"
+                   f" — {' '.join(r['undo'][2:])}" + (f" · {last}" if last else ""))
+        if apply and code == 0 and r.get("act"):
+            done.add((r["act"], r["class"]))
+    notice = None
+    if apply:
+        os.makedirs(os.path.dirname(acts_path(reports)), exist_ok=True)
+        with open(acts_path(reports), "a", encoding="utf-8") as f:
+            for a, _ in sorted(done):
+                f.write(json.dumps({"at": now_iso(now), "undone": a}, ensure_ascii=False) + "\n")
+        for cls in sorted({c for _, c in done if c in CLASSES}):
+            notice = correct(reports, cls, "revert", ref=ref, note="undone by ela dry undo", now=now) or notice
+    return {"ref": ref, "applied": apply, "ok": ok, "did": did, "notice": notice}
 
 
 def correct(reports, cls, how, ref=None, note=None, now=None):
@@ -753,11 +855,13 @@ def cmd_status(a):
     out, lines = [], []
     for c in CLASSES:
         j = judged(c, rows, st[c])
-        j.update(tier=st[c]["tier"], never=CLASSES[c].get("never"), ask=st[c].get("ask"), never_ask=st[c].get("never_ask"))
+        j.update(tier=st[c]["tier"], never=CLASSES[c].get("never"), ask=st[c].get("ask"), never_ask=st[c].get("never_ask"),
+                 reversible=None if CLASSES[c].get("never") else reversible(c)[0])
         out.append(j)
         t = j["totals"]
         rec = " · ".join(f"{t[v]} {v}" for v in VERDICTS if t[v])
-        state = ("never proposed (tier 3 by rule)" if j["never"] else "at the top of its ladder" if not can_rise(c, st[c]) and not j["never_ask"]
+        state = ("never proposed (tier 3 by rule)" if j["never"] else
+                 "never proposed until it can be undone: " + ", ".join(reversible(c)[1]) if not j["reversible"] else "at the top of its ladder" if not can_rise(c, st[c]) and not j["never_ask"]
                  else "never asked again (his word)" if j["never_ask"] else "mature: one grant ask" if j["mature"] else "needs " + "; ".join(j["needs"]))
         lines.append(f"{c:20} tier {j['tier']}  {rec or 'no record'}"
                      + (f" ({j['applied_unknown_draft']} applied, draft unknown)" if j["applied_unknown_draft"] else "")
@@ -871,6 +975,23 @@ def cmd_correct(a):
     emit(a, {"notice": n}, [n or f"{a.cls}: recorded; it was already at confirm"])
 
 
+def cmd_undo(a):
+    try:
+        res = undo(reports_root(a), a.ref, a.apply)
+    except KeyError:
+        print(f"no act {a.ref} on record (<reports>/ela/acts.jsonl)", file=sys.stderr); sys.exit(EX_NOTFOUND)
+    emit(a, res, [f"undo {a.ref}:"] + [f"  {d}" for d in res["did"]] + ([res["notice"]] if res["notice"] else [])
+         + ([] if a.apply else ["dry run — pass --apply to undo"]))
+    if not res["ok"]:
+        sys.exit(EX_REMOTE)
+
+
+def cmd_acts(a):
+    rows = [r for r in acts(reports_root(a)) if not a.cls or r["class"] == a.cls]
+    emit(a, rows, [f"{r['at'][:16]}  {r['act'] or '(no act)'}  {r['class'] or '?'}  {r['key']} {r['verb']}  before {json.dumps(r['before'], ensure_ascii=False)}"
+                   + (f"  undone {r['undone'][:16]}" if r["undone"] else f"  · ela dry undo {r['act']}" if r["act"] else "") for r in rows] or ["no act on record"])
+
+
 def cmd_did(a):
     day = a.date or datetime.datetime.now(TZ).date().isoformat()
     line, rows = did(reports_root(a), day)
@@ -897,6 +1018,9 @@ def main():
     s = sub.add_parser("correct"); s.add_argument("cls"); s.add_argument("--how", choices=("revert", "correction", "word"), required=True)
     s.add_argument("--ref"); s.add_argument("--note"); s.add_argument("--date"); s.add_argument("--json", action="store_true"); s.set_defaults(func=cmd_correct)
     s = sub.add_parser("did"); s.add_argument("--date"); s.add_argument("--json", action="store_true"); s.set_defaults(func=cmd_did)
+    s = sub.add_parser("undo"); s.add_argument("ref", help="an act id (batch#n) or a batch id"); s.add_argument("--apply", action="store_true")
+    s.add_argument("--json", action="store_true"); s.set_defaults(func=cmd_undo)
+    s = sub.add_parser("acts"); s.add_argument("--class", dest="cls"); s.add_argument("--json", action="store_true"); s.set_defaults(func=cmd_acts)
     a = p.parse_args()
     a.func(a)
 

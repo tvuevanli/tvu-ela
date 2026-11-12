@@ -46,6 +46,7 @@ python3 tests/test_vault_offline.py || fail=1
 python3 tests/test_vault_migrate_offline.py || fail=1
 python3 tests/test_today_offline.py || fail=1
 python3 tests/test_dry_offline.py || fail=1
+python3 tests/test_dry_undo_offline.py || fail=1
 python3 tests/test_release_changes_offline.py || fail=1
 python3 tests/test_release_reconcile_offline.py || fail=1
 python3 tests/test_page_fold_offline.py || fail=1

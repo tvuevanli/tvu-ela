@@ -1654,6 +1654,8 @@ def cmd_reconcile(a):
             print("\n".join("  " + l for l in t.splitlines()) if rc == 0 else f"  {k}: failed: {t[:200]}")
         if not a.apply:
             print("pass --apply to write")
+        else:
+            print(f"undo: `ela dry undo {RC.batch_id(results)}` (a dry run until --apply; one write: …#N)")
         sys.exit(0 if all(rc == 0 for _, rc, _ in ran) else EX_REMOTE)
     if a.json:
         print(json.dumps({"results": results, "ask": RC.ask_text(results), "raised": raised}, ensure_ascii=False)); return

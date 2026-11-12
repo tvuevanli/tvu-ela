@@ -16,6 +16,9 @@ Usage:
     jira.py transition MH-1 [MH-2 …] --to Review  [--terminal] [--apply]   # looked up by target status; a terminal one needs --terminal
     jira.py label MH-1 [MH-2 …] --add a,b --remove c           [--apply]   # only the delta is written
     jira.py link MH-1 MH-2 --type Blocks|"is blocked by"|Relates [--apply]  # existing link of that type is a no-op
+    jira.py unlink MH-1 --id <link id> [--apply]               # the reverse atoms: each applied write records its
+    jira.py comment-delete MH-1 --id <comment id> [--apply]    # before-state and its undo in <reports>/ela/acts.jsonl;
+    jira.py assign MH-1 --assignee <prior>|none [--apply]      # Fixed In and labels reverse through --remove
     jira.py fixed-in MH-1 [MH-2 …] --add 'slug@1.2.3; slug2@4.5.6' [--apply]  # append-only; present entries skipped
     jira.py priority MH-1 [MH-2 …] --to High [--why "rule"] [--apply]   # raises; never lowers one a person set
     jira.py due MH-1 [MH-2 …] --date 2026-11-04 [--why "rule"] [--apply]  # sets a missing date; never moves one
@@ -100,12 +103,54 @@ def write_who():
     return {"session": session, "job": e.get("ELA_RUNNER_JOB") or None, "action": e.get("ELA_ACTION") or None, "word": word}
 
 
+def ela_dir():
+    """<reports>/ela, where the write log and the acts live; ELA_REPORTS overrides the site's reports root (tests)."""
+    if os.environ.get("ELA_REPORTS"):
+        return os.path.join(os.environ["ELA_REPORTS"], "ela")
+    site = json.load(open(os.path.expanduser("~/.claude/ela/site.json")))
+    return os.path.join(site.get("reports") or os.path.join(site.get("projects") or "", "reports"), "ela")
+
+
+def undo_argv(*argv):
+    """A reverse atom as the argv `ela jira …` takes, without --apply: an undo is a dry run until its own word."""
+    return ["ela", "jira", *[str(a) for a in argv]]
+
+
+def record_act(key, verb, before, undo, after=None):
+    """One applied write's before-state and the reverse atom that restores it, kept with the act: <reports>/ela/
+    acts.jsonl. The act is the caller's (ELA_ACT: a dry batch's write, a reconcile batch's command) and its class
+    (ELA_CLASS); `ela dry undo <act>` runs the undo. Never fatal: the write has happened either way."""
+    try:
+        d = ela_dir()
+        os.makedirs(d, exist_ok=True)
+        row = {"at": datetime.datetime.now().astimezone().isoformat(timespec="seconds"), "act": os.environ.get("ELA_ACT") or None,
+               "class": os.environ.get("ELA_CLASS") or None, "key": key, "verb": verb, "before": before, "after": after,
+               "undo": undo, **write_who()}
+        with open(os.path.join(d, "acts.jsonl"), "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+
+
+def acts_rows():
+    """Every recorded act row, oldest first; [] when there is none."""
+    out = []
+    try:
+        for line in open(os.path.join(ela_dir(), "acts.jsonl"), encoding="utf-8"):
+            try:
+                out.append(json.loads(line))
+            except ValueError:
+                continue
+    except (OSError, ValueError):
+        pass
+    return out
+
+
 def log_write(system, method, path, ok=True):
     """One line per applied write, so the owner's brief can say what ela did: Jira and Slack record ela's writes
     under the owner's own account, indistinguishable from his clicks. <reports>/ela/writes.jsonl; never fatal."""
     try:
-        site = json.load(open(os.path.expanduser("~/.claude/ela/site.json")))
-        d = os.path.join(site.get("reports") or os.path.join(site.get("projects") or "", "reports"), "ela")
+        d = ela_dir()
         os.makedirs(d, exist_ok=True)
         key = (re.search(r"/issue/([A-Z][A-Z0-9]+-\d+)", path) or [None, None])[1]
         verb = next((a for a in sys.argv[1:] if not a.startswith("-") and not os.path.exists(a)), "")
@@ -1258,7 +1303,10 @@ def _norm(s):
 
 
 def resolve_assignee(creds, who):
-    """Email or accountId → accountId; without either, the token's own account."""
+    """Email or accountId → accountId; without either, the token's own account; `none` unassigns (an undo's
+    reverse of an assignment to a ticket that had nobody)."""
+    if who and who.lower() == "none":
+        return None, "Unassigned"
     if not who or who.lower() == "me":
         me = api_get(creds, "/rest/api/3/myself")
         return me["accountId"], f"{me.get('displayName')} (self)"
@@ -1287,6 +1335,7 @@ def cmd_assign(creds, args):
     account_id, assignee_name = resolve_assignee(creds, args.assignee)
     result = {"key": key, "summary": f.get("summary"),
               "from": cur.get("displayName"), "to": assignee_name,
+              "before": {"assignee": cur.get("accountId"), "name": cur.get("displayName")},
               "dry_run": not args.apply, "changed": False}
     if cur.get("accountId") == account_id:
         if args.json: print(json.dumps(result, ensure_ascii=False))
@@ -1302,6 +1351,8 @@ def cmd_assign(creds, args):
     _request(creds, f"/rest/api/3/issue/{key}/assignee",
              payload={"accountId": account_id}, method="PUT")
     result["changed"] = True
+    result["undo"] = undo_argv("assign", key, "--assignee", cur.get("accountId") or "none")
+    record_act(key, "assign", result["before"], result["undo"], {"assignee": account_id})
     if args.json: print(json.dumps(result, ensure_ascii=False))
     else: print(f"{key} assigned: {cur.get('displayName') or 'Unassigned'} -> {assignee_name}")
 
@@ -1554,6 +1605,9 @@ def _comment_one(creds, key, text, apply, mention=True, edit=None):
                    + (", technical detail collapsed" if r["detail"] else "") + "):", "  " + shown]
     resp = api_post(creds, f"/rest/api/3/issue/{key}/comment", {"body": adf})
     r["posted"], r["comment_id"] = True, resp.get("id")
+    if resp.get("id"):
+        r["undo"] = undo_argv("comment-delete", key, "--id", resp["id"])
+        record_act(key, "comment", {"comment": None}, r["undo"], {"comment": str(resp["id"])})
     return r, [f"{key}: comment posted (id {resp.get('id')})"]
 
 
@@ -1750,6 +1804,10 @@ def _label_one(creds, key, add, rem, apply):
     ops = [{"add": x} for x in to_add] + [{"remove": x} for x in to_rem]
     _request(creds, f"/rest/api/3/issue/{key}", payload={"update": {"labels": ops}}, method="PUT")
     r["changed"] = True
+    # the reverse takes out exactly what was added and puts back what was taken, so a label someone else set since stays
+    r["undo"] = undo_argv("label", key, *(["--remove", ",".join(to_add)] if to_add else []),
+                          *(["--add", ",".join(to_rem), "--nonstandard", "restoring the labels before an act"] if to_rem else []))
+    record_act(key, "label", {"labels": cur}, r["undo"], {"labels": [x for x in cur if x not in to_rem] + to_add})
     return r, [f"{key}: labels " + " ".join((["+" + x for x in to_add] + ["-" + x for x in to_rem]))]
 
 
@@ -1987,7 +2045,62 @@ def cmd_link(creds, args):
     if not after:                                       # read back: a reversed link is named, never reported as done
         r["created"] = False; r["error"] = "the link Jira holds does not read as asked; check both issues"
         _emit(args, r, [f"WRONG — Jira does not show {plan['reads']}; check {key} and {other}"]); sys.exit(1)
+    r["link_id"] = after.get("id")
+    if r["link_id"]:
+        r["undo"] = undo_argv("unlink", key, "--id", r["link_id"])
+        record_act(key, "link", {"link": None, "reads": plan["reads"]}, r["undo"], {"link": str(r["link_id"])})
     _emit(args, r, [f"linked: {plan['reads']} (on {other}: {plan['target_reads']})"])
+
+
+# ── the reverse atoms: what undoes an act, each a dry run until --apply ───────────────────────
+
+def cmd_unlink(creds, args):
+    """Remove one issue link by its id, from the issue it joins: the reverse of `link`. The dry run reads the link as
+    Jira shows it on <key>; a link already gone is a no-op; an id that does not join <key> is refused."""
+    key = extract_key(args.target)
+    f = _issue(creds, key, "summary,issuelinks")
+    l = next((x for x in f.get("issuelinks") or [] if str(x.get("id")) == str(args.id)), None)
+    r = {"key": key, "id": str(args.id), "dry_run": not args.apply, "removed": False}
+    if l is None:
+        _emit(args, r, [f"{key}: no link {args.id} — already gone"]); return
+    t = l.get("type") or {}
+    o = l.get("outwardIssue") or l.get("inwardIssue") or {}
+    reads = f"{key} {t.get('outward') if l.get('outwardIssue') else t.get('inward')} {o.get('key')}"
+    r.update(reads=reads, other=o.get("key"), type=t.get("name"))
+    if not args.apply:
+        _emit(args, r, [f"DRY RUN — unlink {reads}  ({t.get('name')}, id {args.id})", "pass --apply to unlink"]); return
+    _request(creds, f"/rest/api/3/issueLink/{args.id}", method="DELETE")
+    r["removed"] = True
+    _emit(args, r, [f"unlinked: {reads}"])
+
+
+def own_comment(cid):
+    """Whether ela posted comment `cid`: an act on record names it. A comment the owner typed himself, under the same
+    account, is never deleted by ela."""
+    return any(str((a.get("after") or {}).get("comment")) == str(cid) for a in acts_rows() if a.get("verb") == "comment")
+
+
+def cmd_comment_delete(creds, args):
+    """Delete one comment ela posted (an act on record names it, and this account wrote it): the reverse of a comment.
+    Anyone else's comment, and his own typed under the same account, is refused. Already gone is a no-op."""
+    key = extract_key(args.target)
+    c = next((x for x in fetch_comments(creds, key) if str(x.get("id")) == str(args.id)), None)
+    r = {"key": key, "id": str(args.id), "dry_run": not args.apply, "removed": False}
+    if c is None:
+        _emit(args, r, [f"{key}: no comment {args.id} — already gone"]); return
+    me = _request(creds, "/rest/api/3/myself") or {}
+    if (c.get("author") or {}).get("accountId") != me.get("accountId"):
+        sys.exit(f"comment-delete: refused — comment {args.id} on {key} is {name_of(c.get('author'))}'s, not this account's")
+    if not own_comment(args.id):
+        sys.exit(f"comment-delete: refused — no act on record posted comment {args.id}; ela deletes only its own comments")
+    text = body_text(c.get("body"))
+    r["text"] = text
+    if not args.apply:
+        _emit(args, r, [f"DRY RUN — delete comment {args.id} on {key} ({(c.get('created') or '')[:16]}):",
+                        "  " + text.replace("\n", "\n  "), "pass --apply to delete"]); return
+    _request(creds, f"/rest/api/3/issue/{key}/comment/{args.id}", method="DELETE")
+    r["removed"] = True
+    _emit(args, r, [f"{key}: comment {args.id} deleted"])
 
 
 def fixed_in_entries(text):
@@ -2029,6 +2142,12 @@ def _fixed_in_one(creds, key, add, apply, remove=None, clear=False):
     _request(creds, f"/rest/api/3/issue/{key}", payload={"fields": {FIXED_IN_FIELD: body}}, method="PUT")
     after = _issue(creds, key, FIXED_IN_FIELD).get(FIXED_IN_FIELD)
     r["changed"], r["value"] = True, "; ".join(fixed_in_entries(body_text(after) if after else ""))
+    if new and not gone:                                  # an append's reverse takes out exactly the entries it added
+        r["undo"] = undo_argv("fixed-in", key, "--remove", "; ".join(new))
+    elif gone and not new:                                # a removal's reverse appends them again
+        r["undo"] = undo_argv("fixed-in", key, "--add", "; ".join(gone))
+    if r.get("undo"):
+        record_act(key, "fixed-in", {"fixed_in": r["current"]}, r["undo"], {"fixed_in": r["value"]})
     return r, [f"{key}: Fixed In = {r['value']}"]
 
 
@@ -2337,7 +2456,7 @@ def main():
     p = sub.add_parser(
         "assign", help="re-assign one issue — dry-run unless --apply")
     p.add_argument("target", help="issue key or browse URL")
-    p.add_argument("--assignee", required=True, help="email, accountId, or me")
+    p.add_argument("--assignee", required=True, help="email, accountId, me, or none (unassign)")
     p.add_argument("--apply", action="store_true")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_assign)
@@ -2431,6 +2550,16 @@ def main():
     p.add_argument("--type", required=True, help='link type or phrase: Relates · Blocks · "is blocked by" · Duplicate · Cloners · "contains" · "is contained in" · "implements"')
     p.add_argument("--apply", action="store_true"); p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_link)
+
+    p = sub.add_parser("unlink", help="remove one link by id (the reverse of link) — dry-run unless --apply; already gone is a no-op")
+    p.add_argument("target"); p.add_argument("--id", required=True, help="the link id, as the act recorded it")
+    p.add_argument("--apply", action="store_true"); p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_unlink)
+
+    p = sub.add_parser("comment-delete", help="delete one comment ela posted (an act on record names it) — dry-run unless --apply; anyone else's is refused")
+    p.add_argument("target"); p.add_argument("--id", required=True, help="the comment id, as the act recorded it")
+    p.add_argument("--apply", action="store_true"); p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_comment_delete)
 
     p = sub.add_parser("fixed-in", help="append entries to Fixed In — dry-run unless --apply; present entries are skipped, none removed")
     p.add_argument("targets", nargs="+", help="issue keys or browse URLs")
