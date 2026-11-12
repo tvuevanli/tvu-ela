@@ -613,10 +613,10 @@ def answerer(r):
     return (ps[0] if ps else "Not named"), ps[1:]
 
 
-def hold(state, facts_issue, page_keys):
+def hold(state, facts_issue, page_keys, owner=""):
     """Who answers a question no box names: the person its one ticket is on, else the person its project's ticket is
     on (page_keys: {project page: its key}). Written as `holder`; none leaves it Not named, and then its line asks who
-    takes it."""
+    takes it. The owner is named as the boxes name him, by his first name."""
     for r in state["questions"].values():
         if r["status"] != "open" or r.get("who"):
             continue
@@ -625,6 +625,8 @@ def hold(state, facts_issue, page_keys):
         if t.get("kind") == "project" and page_keys.get(t.get("ref")):
             ks.append(page_keys[t["ref"]])
         r["holder"] = next((a for a in (ticket_state(facts_issue(k)).get("assignee") for k in ks) if a), None)
+        if owner and r["holder"] == owner:                 # the boxes name him by his first name: one group, not two
+            r["holder"] = owner.split()[0]
 
 
 def subject_line(r):

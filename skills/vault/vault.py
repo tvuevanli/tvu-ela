@@ -3666,7 +3666,7 @@ def questions_pass(vault, reports, facts, now, meetings=(), jira="", seeds=(), d
         k = next((x for x in Q.keys_in(h1(split_front(text)[1]) or "")), None) or next((x for x, p in projects.items() if p == rel), None)
         if k:
             page_keys[rel] = k
-    Q.hold(state, issue, page_keys)
+    Q.hold(state, issue, page_keys, owner)
     build_meeting_notes(vault, state, now, meetings, issue, owner, jira, dry_run)
     for n in Q.nudges(state, today):                       # listed at three meetings: the message he can send, drafted
         r = state["questions"][n["id"]]
