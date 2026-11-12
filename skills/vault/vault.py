@@ -3980,6 +3980,22 @@ def questions_pass(vault, reports, facts, now, meetings=(), jira="", seeds=(), d
                    "unworded": [r["id"] for r in Q.open_records(state) if Q.unworded(r)]}
 
 
+# an item under Needs you: its heading and at most three lines after it, never past the next heading (an item of two
+# lines once swallowed the next item's heading, whose `Nth morning` was then never read)
+MORNING_ITEM = re.compile(r"^(?:>[ \t]*)?###[ \t]+(?:\d+\.[ \t]*)?(.+)\n((?:(?!(?:>[ \t]*)?#{1,6}[ \t])(?:.*\n|.+$)){0,3})", re.M)
+NTH_MORNING = re.compile(r"\b(\d+)(?:st|nd|rd|th) morning\b")
+
+
+def morning_items(text):
+    """[(heading, n)]: each item on a morning page that says its own `Nth morning`, in page order."""
+    out = []
+    for m in MORNING_ITEM.finditer(text or ""):
+        n = NTH_MORNING.search(m.group(2))
+        if n:
+            out.append((m.group(1), int(n.group(1))))
+    return out
+
+
 def question_evidence(vault, reports, issue, owner=""):
     """key → [(date, why)]: the earlier evidence that a question about one ticket was already waiting. His asks on it
     (the asks store, which reference/dropped.md is written from: its first day), the morning pages carrying it under
@@ -4005,11 +4021,10 @@ def question_evidence(vault, reports, issue, owner=""):
             text = open(p, encoding="utf-8").read()
         except OSError:
             continue
-        for m in re.finditer(r"^(?:>[ \t]*)?###[ \t]+(?:\d+\.[ \t]*)?(.+)\n((?:.*\n){0,3})", text, re.M):
-            ks = Q.keys_in(Q.visible(m.group(1)))
-            n = re.search(r"\b(\d+)(?:st|nd|rd|th) morning\b", m.group(2))
-            if ks and n:                                   # the page's own age; an earlier run that broke off is not this one
-                start = pages[max(0, i - (int(n.group(1)) - 1))][0]
+        for head, n in morning_items(text):
+            ks = Q.keys_in(Q.visible(head))
+            if ks:                                         # the page's own age; an earlier run that broke off is not this one
+                start = pages[max(0, i - (n - 1))][0]
                 by[ks[0]] = [e for e in by.get(ks[0], []) if not e[1].startswith("on the morning page")]
                 put(ks[0], start, f"on the morning page since {start}")
     arch = os.path.join(vault, ARCHIVE)

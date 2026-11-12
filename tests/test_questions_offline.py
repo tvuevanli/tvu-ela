@@ -318,4 +318,10 @@ with tempfile.TemporaryDirectory() as t:
     ev = V.question_evidence(vault, reports, lambda k: None)
     check("a morning page's own count reaches back over the pages", ("2026-11-09", "on the morning page since 2026-11-09") in ev("MH-3909"))
 
+PAGE = ("## Needs you\n\n> ### 1. MH-1: short\n> MH-1 · 2nd morning\n> ### 2. MH-2: also short\n> MH-2 · 3rd morning\n"
+        "### 3. MH-3: one line\n### 4. MH-4: no blank line before it\nMH-4 · 4th morning")
+check("items of two lines or less: each heading is read, none swallowed by the item before it",
+      [(Q.keys_in(h)[0], n) for h, n in V.morning_items(PAGE)] == [("MH-1", 2), ("MH-2", 3), ("MH-4", 4)])
+check("an item without its own count does not borrow the next item's", all(not h.startswith("3.") and "MH-3" not in h for h, _ in V.morning_items(PAGE)))
+
 sys.exit(1 if failures else 0)
