@@ -377,6 +377,15 @@ def ask_text(results):
     return f"{lane} build{'s' if len(rs) > 1 else ''} {builds}: {len(keys)} ticket{'s' if len(keys) != 1 else ''} lack Fixed In or the label."
 
 
+def ask_options(n, command):
+    """The drafted action's letters for today.md's one reconcile ask: A applies the batch (`apply N`, the runner),
+    B shows each write (the batch's dry run, which writes nothing), C skips this build (the ask leaves by his word)."""
+    dry = re.sub(r"\s+--apply\b", "", command or "").strip()
+    return [{"letter": "A", "text": "apply the batch", "does": f"apply {n}", "recommended": True},
+            {"letter": "B", "text": "show me each", "does": dry, "recommended": False},
+            {"letter": "C", "text": "skip this build", "does": "drop", "recommended": False}]
+
+
 def batch_commands(res):
     """[(key, argv tail)] for the jira capability: one fixed-in append and one label add per ticket that owes them."""
     out = []

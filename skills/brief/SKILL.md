@@ -765,7 +765,8 @@ ela-runner starts this skill headless every weekday morning after it wrote the f
   folded into another ticket; one agent's same miss on three builds). When it prints an `ask:` line, draft **one**
   action for all of them: tier 3, rule `release-reconcile`, `text` the ask line as printed, `command` the call it
   names (`ela release reconcile <lane> --build N … --batch`, no `--apply`), `kind` `fixed-in`, `evidence` the builds
-  and the reading's time. Its apply is that batch: Fixed In appends and the release label, append-only; status,
+  and the reading's time, and `options` the three letters `--json` prints with N the action's number (A apply the
+  batch: `apply N` · B show me each: the batch's dry run · C skip this build: `drop`). Its apply is that batch: Fixed In appends and the release label, append-only; status,
   assignee and folds are never in it. Never on the release-finished message: this pass runs at night or in the
   morning, when the thread has been quiet. Nothing is posted in the release thread.
   *Why: the engineers' release agents leave Fixed In and labels behind on about one ticket in four (builds 90 and 91,

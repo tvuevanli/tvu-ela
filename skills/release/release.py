@@ -1658,7 +1658,10 @@ def cmd_reconcile(a):
             print(f"undo: `ela dry undo {RC.batch_id(results)}` (a dry run until --apply; one write: …#N)")
         sys.exit(0 if all(rc == 0 for _, rc, _ in ran) else EX_REMOTE)
     if a.json:
-        print(json.dumps({"results": results, "ask": RC.ask_text(results), "raised": raised}, ensure_ascii=False)); return
+        cmd = f"ela release reconcile {a.lane} " + " ".join(f"--build {r['build']}" for r in results) + " --batch"
+        print(json.dumps({"results": results, "ask": RC.ask_text(results), "command": cmd if RC.ask_text(results) else None,
+                          "options": RC.ask_options("N", cmd) if RC.ask_text(results) else None, "raised": raised},
+                         ensure_ascii=False)); return
     for res in results:
         print(f"{res.get('lane_name') or res['lane']} build {res['build']} ({res['line']}, {res['date']}): "
               f"{len(res['rows'])} ticket{'s' if len(res['rows']) != 1 else ''} with a gap, {len(res['ok'])} in order")

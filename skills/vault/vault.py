@@ -2831,7 +2831,8 @@ def ask_candidates(today, actions, notes):
     """What only he can answer, in the morning page's order: today's tier-3 drafted actions not yet applied, handled or
     vetoed (a send box is not an ask), then each live note with an open box under Waiting for your word, then each
     project: its head's open questions and its notes' open boxes as one line linking the page.
-    [{id, box, text, link, sig, first}]; `first` is the earliest day it was seen."""
+    [{id, box, text, link, sig, first, options?}]; `first` is the earliest day it was seen; an action that carries its own
+    `options` keeps them."""
     iso = today.isoformat()
     seen = {}
     for a in actions:
@@ -2853,6 +2854,8 @@ def ask_candidates(today, actions, notes):
             continue
         c = {"id": i, "box": f"apply {a['n']}", "ns": [int(a["n"])], "text": a.get("text") or "",
              "sig": evidence_sig(a.get("evidence")), "first": seen.get(i, iso)}
+        if a.get("options"):                               # the action's own letters (a reconcile batch: apply · each · skip)
+            c["options"] = a["options"]
         by_id[i] = c
         out.append(c)
     projects = {n.facts["key"]: n.facts for n in notes if n.props.get("type") == "project" and getattr(n, "facts", None)}

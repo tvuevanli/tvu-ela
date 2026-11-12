@@ -244,5 +244,19 @@ needs = page.split("## Needs you")[1].split("##")[0] if "## Needs you" in page e
 check("today.md: one ask, its A the batch", needs.count("- [ ] A (recommended): apply as drafted") == 1
       and "1. QA-AWS3 builds 90, 91: 9 tickets lack Fixed In or the label." in needs)
 
+# the action carries its own letters: A apply the batch · B show me each · C skip this build
+act3 = dict(act, options=RC.ask_options(1, act["command"]))
+cands = V.ask_candidates(datetime.date(2026, 11, 12), [act3], [])
+check("ask_candidates passes the action's options through", cands[0].get("options") == act3["options"])
+shown, _, _, _ = V.settle_asks({}, cands, datetime.date(2026, 11, 12))
+needs = V.today_page(datetime.date(2026, 11, 12), [], {}, shown).split("## Needs you")[1].split("##")[0]
+check("today.md: A apply the batch · B show me each · C skip this build",
+      "- [ ] A (recommended): apply the batch" in needs and "- [ ] B: show me each" in needs and "- [ ] C: skip this build" in needs
+      and "apply as drafted" not in needs)
+opts = {o["letter"]: o["does"] for o in act3["options"]}
+check("A is `apply N`, B the batch's dry run (no --apply), C a drop",
+      opts == {"A": "apply 1", "B": "ela release reconcile qa-aws3 --build 90 --build 91 --batch", "C": "drop"}
+      and not V.sync_handles(opts["A"]) and V.sync_handles(opts["C"]))
+
 print(f"{len(failures)} failures" if failures else "release reconcile: all offline checks passed")
 sys.exit(1 if failures else 0)
