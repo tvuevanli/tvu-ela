@@ -171,6 +171,12 @@
                                    class to confirm; undo <act|batch> takes an act back from the before-state it kept
                                    (dry run until --apply), and records the correction; a class without its reverse
                                    atom is never proposed for a grant
+  ela mention list|show|triage|facts|draft|answer|follow|close|tally <id|permalink>
+                                   a mention of you in Slack, watched through your reply (ADR 0021): triaged (ask ·
+                                   incident · notice) with the reason kept; you go first; your reply's commitments
+                                   prepared as dry runs by class; unanswered after 30 working minutes, one message
+                                   with the facts, a reply to paste and A / B / C; scan|note|due|sent are the
+                                   runner's; every verb read-only toward Slack; draft writes only the local draft
   ela vault sync [--dry-run]       regenerate the owner's Obsidian vault: day pages, readings, verifications,
                                    decisions and plans; a note over its reading budget carries a warning;
                                    a note you delete is done and stays deleted (ela vault restore PATH)
@@ -269,7 +275,7 @@ VERBS = {
     "mr": ("mr", "create"), "mr-preflight": ("mr", "preflight"),
     "sessions": ("sessions", "find"), "session": ("sessions", None),
     "route": ("route", "facts"),
-    "dry": ("dry", None),
+    "dry": ("dry", None), "mention": ("mention", None),
     "fixed-in": ("fixedin", "draft"),
     "links": ("links", None),
     "stage": ("stage", "queue"),
