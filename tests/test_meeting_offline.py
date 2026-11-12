@@ -287,4 +287,18 @@ source: "vault"
     check("a project's page shows what its meetings ruled on its keys",
           len(got) == 1 and got[0][0] == "2026-11-11" and "split into [MH-3997](https://j/browse/MH-3997)" in got[0][3])
 
+# a note he or a session wrote by hand is input: close and roll leave it byte-identical (the sync note of 2026-11-12)
+with tempfile.TemporaryDirectory() as t:
+    vault, reports, facts = (os.path.join(t, x) for x in ("vault", "reports", "facts"))
+    os.makedirs(os.path.join(vault, "meetings")); os.makedirs(os.path.join(facts, "jira", "issues")); os.makedirs(os.path.join(reports, "ela"))
+    hand = os.path.join(vault, "meetings", "20261112-sync-eng-qa.md")
+    body = ("---\ntitle: \"MediaHub team sync · Thu 2026-11-12\"\ntype: \"meeting\"\ndate: \"2026-11-12\"\nsource: \"vault\"\n---\n\n"
+            "# MediaHub team sync · Thu 2026-11-12\n\n## 1. Close HTTP ports\n\n- [ ] Close order: A or B? · Robin Wu, Evan\n\n"
+            "## If time allows \n\n- [ ] [MH-2564](https://j/browse/MH-2564) async: when? · Evan, Yulong Lu\n")
+    open(hand, "w").write(body)
+    tz = datetime.datetime.now().astimezone().tzinfo
+    r = V.meeting_close(vault, reports, facts, datetime.datetime(2026, 11, 12, 19, 0, tzinfo=tz), [])
+    V.meeting_roll(vault, datetime.date(2026, 12, 30))
+    check("a hand-written meeting note is never rewritten by close or roll", r == [] and open(hand).read() == body)
+
 sys.exit(1 if failures else 0)

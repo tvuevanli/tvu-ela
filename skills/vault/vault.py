@@ -3277,6 +3277,15 @@ def meeting_lint(path, text):
     return out
 
 
+def ela_wrote(text):
+    """Whether ela wrote this meeting note and may write it again: the verb's form (a `## To raise` section) or a dated
+    note it built (`by: "ela"`). A note he or a session wrote by hand is input only, never rewritten (the hand-written
+    sync note of 2026-11-12, <runtime>/drafts/2026-11-12-open-questions-brief.md)."""
+    fl, body = split_front(text or "")
+    return any(re.match(r"^by:\s*['\"]?ela['\"]?\s*$", l) for l in fl) or \
+        bool(re.search(r"^##[ \t]+" + re.escape(MEETING_RAISE) + r"[ \t]*$", body, re.M))
+
+
 def meeting_roll(vault, today, dry_run=False):
     """Ruled dates older than 30 days leave each meetings/<key>.md for archive/meetings-<key>-<yyyy-mm>.md, appended
     in date order; the archive is written first, so a crash between the two leaves a date in both, never in neither.
@@ -3289,7 +3298,7 @@ def meeting_roll(vault, today, dry_run=False):
             continue
         text = open(p, encoding="utf-8").read()
         fl, _ = split_front(text)
-        if not any(re.match(r"^type:\s*['\"]?meeting['\"]?\s*$", l) for l in fl):
+        if not any(re.match(r"^type:\s*['\"]?meeting['\"]?\s*$", l) for l in fl) or not ela_wrote(text):
             continue
         n = meeting_parse(text)
         old = sorted((x for x in n["ruled"] if x[0] < cut), key=lambda x: x[0])
@@ -3450,8 +3459,8 @@ def meeting_close(vault, reports, facts, now, meetings, next_day=None, dry_run=F
             continue
         text = open(p, encoding="utf-8").read()
         fl, _ = split_front(text)
-        if not any(re.match(r"^type:\s*['\"]?meeting['\"]?\s*$", l) for l in fl):
-            continue
+        if not any(re.match(r"^type:\s*['\"]?meeting['\"]?\s*$", l) for l in fl) or not ela_wrote(text):
+            continue                                       # a hand-written note is read, never rewritten
         n = meeting_parse(text)
         key, title = f[:-3], n["title"] or f[:-3]
         day = meeting_day(title)
