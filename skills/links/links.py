@@ -42,6 +42,11 @@ HERE = os.path.dirname(os.path.realpath(__file__))
 SITE = os.path.expanduser("~/.claude/ela/site.json")
 EX_USAGE, EX_NOTFOUND = 2, 3
 KEY_RX = re.compile(r"(?<![A-Za-z0-9_-])([A-Z][A-Z0-9]{1,9})-(\d{1,6})(?![0-9])")
+# the media standards a MediaHub text names in key shape. Each prefix is also a Jira project here (SCTE-35 is a real,
+# unrelated ticket in the fact store), so neither the project list nor the store tells them apart: a name, not a key.
+STANDARD_NAMES = re.compile(r"^(?:SCTE-(?:20|27|35|104|128|130|214|224|250)|SMPTE-\d+|ST-(?:291|292|424|2022|2059|2110)|"
+                            r"AC-[34]|EAC-3|BT-(?:601|709|1886|2020|2100)|ITU-\d+|MPEG-[124]|AES-(?:3|67)|H-26[1-6]|"
+                            r"ISO-\d+|IEC-\d+|RFC-\d+|UTF-(?:8|16|32))$")
 PERMALINK_RX = re.compile(r"https://[a-z0-9-]+\.slack\.com/archives/([A-Z0-9]+)/p(\d{10})(\d{6})(?:\?[^\s>|\"'\\)]*)?")
 THREAD_TS_RX = re.compile(r"thread_ts=(\d+\.\d+)")
 # a deploy said done: the words the team's deploy replies use (MH-3870's thread, 2026-11-04); vocabulary, not speech
@@ -110,7 +115,8 @@ def first_line(text, n=100):
 # ── keys ─────────────────────────────────────────────────────────────────────────────────────────────
 
 class Keys:
-    """The key shape restricted to Jira's project keys (facts/jira/projects.json), so `UTF-8` or `H-264` is not one."""
+    """The key shape restricted to Jira's project keys (facts/jira/projects.json), so `UTF-8` or `H-264` is not one,
+    and never a standard's name (`SCTE-35`, `ST-2110`), whose prefix may well be a project."""
 
     def __init__(self, facts):
         pj = read_json(os.path.join(facts, "jira", "projects.json"), {}) or {}
@@ -124,7 +130,7 @@ class Keys:
         out = []
         for p, n in KEY_RX.findall(str(text or "")):
             k = f"{p}-{int(n)}" if not n.startswith("0") else None   # a leading zero is not a key (MH-0123)
-            if k and p in self.projects and k not in out:
+            if k and p in self.projects and k not in out and not STANDARD_NAMES.match(k):
                 out.append(k)
         return out
 

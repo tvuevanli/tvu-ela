@@ -37,7 +37,7 @@ def adf(text):
 
 BASE = "https://example.atlassian.net"
 PL = "https://example.slack.com/archives/C06553EE44X/p1793673172789319"
-put("rt/facts/jira/projects.json", {"projects": [{"key": "MH"}, {"key": "UR"}, {"key": "WR3"}]})
+put("rt/facts/jira/projects.json", {"projects": [{"key": "MH"}, {"key": "UR"}, {"key": "WR3"}, {"key": "SCTE"}, {"key": "ST"}]})
 put("rt/facts/jira/issues/MH-3870.json", {"key": "MH-3870", "url": f"{BASE}/browse/MH-3870", "fields": {
     "summary": "Generic MXL processes not released", "status": {"name": "Backlog"}, "updated": "2026-11-02T19:40:32.024-0800",
     "created": "2026-11-02T18:44:06.456-0800", "reporter": {"displayName": "QA lead"},
@@ -45,7 +45,7 @@ put("rt/facts/jira/issues/MH-3870.json", {"key": "MH-3870", "url": f"{BASE}/brow
                     "outwardIssue": {"key": "UR-542", "fields": {"summary": "MeshAdapter pair released late", "status": {"name": "Backlog"}}}}],
     "description": adf(f"Seen in qa2. Source: {PL}")},
     "comments": [{"id": "287579", "created": "2026-11-02T19:00:00.000-0800", "author": {"displayName": "Automation"},
-                  "body": adf("(Copied from UR-542) see also UTF-8 and H-264")}]})
+                  "body": adf("(Copied from UR-542) see also UTF-8 and H-264; SCTE-35 on SRT, ST-2110 later, SCTE-7 is a ticket")}]})
 put("rt/facts/jira/issues/MH-3735.json", {"key": "MH-3735", "url": f"{BASE}/browse/MH-3735", "fields": {
     "summary": "Close HTTP ports", "status": {"name": "Backlog"}, "updated": "2026-11-11T19:40:32.024-0800",
     "issuelinks": [{"type": {"outward": "contains", "inward": "is contained in"}, "outwardIssue": {"key": "MH-3990", "fields": {"summary": "Blackframe over MQTT"}}}],
@@ -109,6 +109,9 @@ named = {n["key"]: n for n in v["named_with"]}
 check("UR-545 is named with it, with where", "UR-545" in named and named["UR-545"]["where"][0]["where"].startswith("thread #prj_dev_mediahub"))
 check("UR-542 is named with it and marked linked, listed first", v["named_with"][0]["key"] == "UR-542" and v["named_with"][0]["linked"])
 check("a key outside the Jira projects is not a key (UTF-8, H-264)", not any(k in named for k in ("UTF-8", "H-264")))
+check("a standard's name is not a key though its prefix is a project (SCTE-35, ST-2110); the project's own ticket is",
+      not any(k in named for k in ("SCTE-35", "ST-2110")) and "SCTE-7" in named)
+check("Keys.find: the deny list is names, not prefixes", L.Keys(os.path.join(TMP, "rt", "facts")).find("SCTE-35 SCTE-7 AC-3 SMPTE-2110") == ["SCTE-7"])
 check("the mail that names it", [e["mail"]["label"] for e in v["mails"]] == ["Daily Test Report build 79"])
 check("a lone message that names no key is not indexed", not db.execute("SELECT 1 FROM nodes WHERE id = 'slack:C06553EE44X/1793700000.000001'").fetchone())
 
