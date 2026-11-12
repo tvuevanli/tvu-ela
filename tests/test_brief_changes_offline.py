@@ -292,6 +292,8 @@ with tempfile.TemporaryDirectory() as t:
 check("a release-branch build without a lane is on the QA lane, and each from chains to the last to",
       "| QA-AWS3 | mediahub-frontend | — → 2.2.119 build 174 |" in mv and "| QA-AWS3 | mediahub-frontend | 2.2.119 build 174 → 2.2.120 build 175 |" in mv)
 check("a patch build sits on its base", "| prod-3 | unified-media-frontend | 3.0.36 → 3.0.36.1 build 194 |" in mv)
+check("a zero-led id in a title or a commit subject is not a ticket key",
+      B.keys_in("[FloSports MH-006] audio remap, fixes MH-3881 and MH-0412") == ["MH-3881"])
 row = {"lane": "QA-AWS3", "service": "unified-streaming", "to": "2.1.91 build 382",
        "tickets": {"MH-046", "MH-3873", "MH-3887", "MH-3891", "MH-3926", "MH-3940"}}
 fx = {"MH-3873": {"summary": "Overlay cleanup leaves a 4K buffer " + "x" * 80, "status": "Review"}, "MH-3887": {"summary": "FloSports | API key", "status": "Done"}}

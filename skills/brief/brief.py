@@ -728,7 +728,9 @@ SLACK = os.path.join(HERE, "..", "slack", "slack.py")
 
 
 def keys_in(text):
-    return sorted({k for k in KEY_RX.findall(text or "") if not NOT_KEYS.match(k)})
+    """The ticket keys a text names. A zero-led id is not one: Jira numbers never lead with a zero, and a customer's
+    own item numbers in a title or a commit subject (`[FloSports MH-006]`) would otherwise be read as tickets."""
+    return sorted({k for k in KEY_RX.findall(text or "") if not NOT_KEYS.match(k) and not k.split("-")[1].startswith("0")})
 
 
 def run_json(cmd, timeout=600):
