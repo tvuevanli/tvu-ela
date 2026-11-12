@@ -2986,7 +2986,8 @@ def build_block(notes, builds, today, tickets=None, owner=""):
     """The Releases fact when a lane took a build since the last page: each build a sentence linking its release note,
     then one line per changed service (its move and what for, never a cluster of keys), BUILD_LINES lines in all. Under
     a service, the tickets inline_tickets picks, each in words; the rest as "N more tickets" linking the service's
-    section of the note. Since the last page: dated from the page before the newest What-changed page (the day before
+    section of the note. A ticket two services carry shows once, under the first, its line naming the others. Since
+    the last page: dated from the page before the newest What-changed page (the day before
     today when there is none) through today. None when no build."""
     if not builds:
         return None
@@ -3001,6 +3002,7 @@ def build_block(notes, builds, today, tickets=None, owner=""):
     met = {k for n in notes if n.props.get("type") == "meeting" and (n.props.get("date") or "")[:10] == today.isoformat()
            for k in KEY_RX.findall(n.body or "")}
     heads, rows, room, budget = [], [], R.BUILD_LINES, INLINE_MAX
+    placed = set()                                          # a ticket shown once in the block, under its first service
     for b in recent:
         if room <= 0:
             break
@@ -3009,14 +3011,21 @@ def build_block(notes, builds, today, tickets=None, owner=""):
         svcs = b.get("services") or []
         shown = svcs if len(svcs) <= room else svcs[:max(room - 1, 1)]
         pick = inline_tickets(b, tickets, owner, met)
+        carriers = {}
+        for v in svcs:
+            for k in v.get("keys") or []:
+                carriers.setdefault(k, []).append(v["service"])
         for v in shown:
             keys = v.get("keys") or []
-            inline = [k for k in keys if k in pick][:budget]
+            inline = [k for k in keys if k in pick and k not in placed][:budget]
             budget -= len(inline)
-            rest = len(keys) - len(inline)
+            placed.update(inline)
+            rest = len([k for k in keys if k not in inline and not (k in placed and k in pick)])
             more = f" · [[{note}#{v['service']}|{rest} {'more ' if inline else ''}ticket{'s' if rest != 1 else ''}]]" if rest else ""
             rows.append(f"  - {v['service']} {R.service_move(v)}: {' '.join(str(v['for']).split())}{more}")
-            rows += [f"    - {R.ticket_line(k, tickets.get(k), who=False)}" for k in inline]
+            rows += [f"    - {R.ticket_line(k, tickets.get(k), who=False)}"
+                     + (" · also " + ", ".join(s for s in carriers[k] if s != v["service"]) if len(carriers.get(k, [])) > 1 else "")
+                     for k in inline]
         if len(shown) < len(svcs):
             rows.append(f"  - {len(svcs) - len(shown)} more services in the release note")
         room -= len(shown) + (len(shown) < len(svcs))
