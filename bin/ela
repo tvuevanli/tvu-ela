@@ -163,6 +163,12 @@
                                    state, build, QA verdict, what the train needs (ticket · Fixed In · verdict), gaps
   ela ticket refresh KEY|--all     each change on a tracked ticket since the last pass, read as sure (a rule
                                    in probe §fix) or unsure; appended to its fix page; findings for the brief
+  ela dry status|classes|seed|draft|batch|asks|answer|correct|did
+                                   dry runs by class: each kind of write's record (applied as drafted, edited,
+                                   cancelled, expired, corrected), its tier, what is one step from maturity; draft
+                                   link-named|parent-status <KEY> prepares one batch (read-only); answer <ask> A|B|C
+                                   is his letter (A on a batch is a dry run until --apply); correct returns a granted
+                                   class to confirm
   ela vault sync [--dry-run]       regenerate the owner's Obsidian vault: day pages, readings, verifications,
                                    decisions and plans; a note over its reading budget carries a warning;
                                    a note you delete is done and stays deleted (ela vault restore PATH)
@@ -254,6 +260,7 @@ VERBS = {
     "mr": ("mr", "create"), "mr-preflight": ("mr", "preflight"),
     "sessions": ("sessions", "find"), "session": ("sessions", None),
     "route": ("route", "facts"),
+    "dry": ("dry", None),
     "fixed-in": ("fixedin", "draft"),
     "stage": ("stage", "queue"),
     "logs": ("logs", None),
