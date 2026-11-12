@@ -187,4 +187,20 @@ with tempfile.TemporaryDirectory() as t:
     check("a project's question ticked on its page closes",
           all(r["status"] != "open" for r in state["questions"].values() if r["thing"].get("ref", "").startswith("projects/")))
 
+# the older note seeded after the vault's own were read: the first raising moves back, the newest wording stays
+with tempfile.TemporaryDirectory() as t:
+    vault, reports, facts = (os.path.join(t, x) for x in ("vault", "reports", "facts"))
+    os.makedirs(os.path.join(vault, "meetings")); os.makedirs(os.path.join(facts, "jira", "issues")); os.makedirs(os.path.join(reports, "ela"))
+    open(os.path.join(vault, "meetings", "20261112-sync-eng-qa.md"), "w").write(HAND)
+    seed = os.path.join(t, "sync-eng-qa-ux.md")
+    open(seed, "w").write(OLD)
+    tz = datetime.datetime.now().astimezone().tzinfo
+    now = datetime.datetime(2026, 11, 12, 10, 0, tzinfo=tz)
+    V.questions_pass(vault, reports, facts, now, [], "")
+    state, done = V.questions_pass(vault, reports, facts, now, [], "", seeds=[seed])
+    cn = [r for r in state["questions"].values() if "MH-3752" in r["keys"]]
+    check("a seed read after the vault: one record, first raised 11-11, worded as the newest note words it",
+          len(cn) == 1 and cn[0]["first"]["date"] == "2026-11-11" and cn[0]["text"].startswith("What must be on CN")
+          and cn[0]["meetings"] == ["2026-11-11", "2026-11-12"])
+
 sys.exit(1 if failures else 0)

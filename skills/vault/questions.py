@@ -261,6 +261,11 @@ def same_question(rec, c, cvis):
     return bool(wa and wb) and len(wa & wb) / len(wa | wb) >= 0.6 and common
 
 
+def same_audience(a, b):
+    """One meeting's two names (his `sync-eng-qa`, the book's `sync-eng-qa-ux`), or either unknown."""
+    return not a or not b or a == b or a.startswith(b + "-") or b.startswith(a + "-")
+
+
 def listed_at(c, today, meeting_start):
     """When the candidate's note last said the question was open: an earlier meeting's start, else the note's write."""
     d = c.get("date")
@@ -291,6 +296,17 @@ def thing_of(c, projects):
     return {"kind": "topic", "name": "Other" if not sec or GENERIC_SECTION.match(sec) else sec[:60]}
 
 
+def raised(c, vis, today):
+    """The day a candidate says its question was first raised: its note's date, a Ruled date it was carried at, its
+    `since MM-DD`, whichever is earliest and not after today."""
+    first = min([d for d in [c.get("date"), *c.get("ruled_dates", [])] if d and d <= today.isoformat()] or [today.isoformat()])
+    since = re.search(r"·[ \t]*since[ \t]+(\d{2})-(\d{2})\b", vis)
+    if since:
+        sd = datetime.date(today.year, int(since.group(1)), int(since.group(2)))
+        first = min(first, (sd if sd <= today else sd.replace(year=today.year - 1)).isoformat())
+    return first
+
+
 def harvest(state, cands, now, facts_issue, projects=None, snapshot=None, meeting_start=None, keys=()):
     """Candidates into records: a box with its id, or one already a source, is that record; else the same question by
     ticket and meaning across notes merges into an open record; else a new record. A ticked box closes it (his tick).
@@ -308,24 +324,21 @@ def harvest(state, cands, now, facts_issue, projects=None, snapshot=None, meetin
         rec = qs.get(rid) if rid else None
         if rec is None:
             rec = next((r for r in sorted(qs.values(), key=lambda r: r["first"]["date"]) if r["status"] == "open"
-                        and (r.get("audience") in (None, c.get("audience")) or c.get("audience") is None) and same_question(r, c, vis)), None)
+                        and same_audience(r.get("audience"), c.get("audience")) and same_question(r, c, vis)), None)
         q, who = split_who(vis)
         if rec is None:
             if c["ticked"]:
                 continue                                    # ticked before ela ever saw it: not a question to keep
-            first = min([d for d in [c.get("date"), *c.get("ruled_dates", [])] if d and d <= today.isoformat()] or [today.isoformat()])
-            since = re.search(r"·[ \t]*since[ \t]+(\d{2})-(\d{2})\b", vis)
-            if since:
-                sd = datetime.date(today.year, int(since.group(1)), int(since.group(2)))
-                sd = sd if sd <= today else sd.replace(year=today.year - 1)
-                first = min(first, sd.isoformat())
             rec = {"id": qid(c["raw"], c["where"]), "text": q, "raw": c["raw"], "who": who, "keys": keys_in(vis),
                    "lead": lead_keys(vis), "thing": thing_of(c, projects or {}), "audience": c.get("audience"),
-                   "first": {"date": first, "where": c["where"]}, "meetings": [], "sources": [], "status": "open",
+                   "first": {"date": today.isoformat(), "where": c["where"]}, "meetings": [], "sources": [], "status": "open",
                    "base": None}
             while rec["id"] in qs:
                 rec["id"] = "q-" + hashlib.sha1(rec["id"].encode()).hexdigest()[:6]
             qs[rec["id"]] = rec
+        first = raised(c, vis, today)                      # an older note read later moves the first raising back
+        if first < rec["first"]["date"]:
+            rec["first"] = {"date": first, "where": c["where"]}
         if src not in rec["sources"]:
             rec["sources"].append(src)
             by_src[src] = rec["id"]
@@ -337,8 +350,8 @@ def harvest(state, cands, now, facts_issue, projects=None, snapshot=None, meetin
         if c["ticked"]:
             rec.update(status="closed", outcome=f"ticked on {c['where']}", closed=today.isoformat(), by="owner")
             touched.append(rec["id"]); continue
-        if c.get("date") and c["date"] >= rec["first"]["date"] or not rec.get("who"):   # the newest listing words it
-            rec.update(text=q, raw=c["raw"], who=who or rec.get("who"))
+        if (c.get("date") or "") >= rec.get("worded", "") or not rec.get("who"):   # the newest listing words it
+            rec.update(text=q, raw=c["raw"], who=who or rec.get("who"), worded=max(c.get("date") or "", rec.get("worded", "")))
             rec["keys"] = list(dict.fromkeys(rec["keys"] + keys_in(vis)))
             rec["lead"] = lead_keys(vis) or rec["lead"]
             if c.get("audience") and not rec.get("audience"):
