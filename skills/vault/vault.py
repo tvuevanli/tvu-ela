@@ -131,7 +131,7 @@ TYPE_FAMILY = {"decision": "decision", "plan": "plan", "sprint": "plan",
                "ticket": "reading", "review": "reading", "verify": "reading", "verify-plan": "reading",
                "home": "page", "today": "page", "dropped": "page", "board": "page", "lanes": "page", "docker": "page", "recent": "page", "one-thing": "page", "test-list": "page", "dev-list": "page", "train": "page", "program": "page",
                "guide": "page", "vocabulary": "page", "system": "page", "constraints": "page", "readme": "page", "meeting": "page",
-               "report": "page", "project": "page", "services": "page",
+               "report": "page", "project": "page", "services": "page", "questions": "page",
                "day": "day", "reader": "day", "case": "case", "draft": "draft"}
 THING_FOLDERS = ("projects", RELEASES, CASES, REF, ELA, ARCHIVE)   # ela/ includes ela/history/   # where a work note lives: its thing's home
 FAMILY_FOLDERS = {"decision": THING_FOLDERS, "plan": THING_FOLDERS, "reading": THING_FOLDERS,
@@ -1432,7 +1432,7 @@ SPECS = {
 }
 BUDGET.update({"case": 1200, "draft": 600})
 PAGES_SPEC = ("home", "today", "dropped", "board", "lanes", "docker", "recent", "one-thing", "test-list", "dev-list", "train", "program", "guide",
-              "vocabulary", "system", "constraints", "readme", "services")   # living pages: each one's generator is its spec
+              "vocabulary", "system", "constraints", "readme", "services", "questions")   # living pages: each one's generator is its spec
 CJK = re.compile(r"[一-鿿　-〿＀-￯]")
 SPEC_MARK = "<!-- note standards -->"
 
@@ -2945,7 +2945,7 @@ def short(text, n):
     return text if len(text) <= n else text[:n].rsplit(" ", 1)[0] + " …"
 
 
-def today_page(today, notes, desk=None, shown=(), more=0, dropped=0):
+def today_page(today, notes, desk=None, shown=(), more=0, dropped=0, questions_line=None):
     """today.md: Facts (3–5 lines), Needs you (at most three asks, each with what happens if he does nothing and
     when), Today (meetings, a near deadline, what leaves at 10:00), then one line of links. Above the line it keeps
     within TODAY_WORDS words: facts are cut from the end until it does."""
@@ -2962,7 +2962,8 @@ def today_page(today, notes, desk=None, shown=(), more=0, dropped=0):
     for c in shown:
         gone = drop_day(datetime.date.fromisoformat(c["first"]), today)
         # the words stay outside the wikilink: a ticket key inside a link's label would be linked again and break it
-        what = ask_words(c["text"]) + (f" → [[{c['link']}|{'its section' if '#' in c['link'] else 'the note'}]]" if c.get("link") else "")
+        what = (c["text"] if c.get("whole") else ask_words(c["text"])) + \
+            (f" → [[{c['link']}|{'its section' if '#' in c['link'] else 'the note'}]]" if c.get("link") else "")
         asks.append((f"- [ ] {c['box']} — " if c.get("box") else "- ") + what + f" · *if not: nothing; gone {gone:%a}*")
     acts = [a for a in desk.get("actions") or [] if a.get("day") == iso]
     soon = [a for a in acts if a.get("tier") == 2 and not (a.get("applied") or a.get("vetoed") or a.get("failed"))]
@@ -2980,6 +2981,8 @@ def today_page(today, notes, desk=None, shown=(), more=0, dropped=0):
     for f in projects:
         if f.get("days") is not None and 0 <= f["days"] <= PROJECT_SOON_DAYS:
             day.append(f"- [[{f['path'][:-3]}|{f['key']}]]: {days_words(f['days'])} to {f['deadline'].isoformat()}")
+    if questions_line:                                     # the team's open questions: one line, the page behind it
+        day.append(questions_line)
     if soon:
         day.append(f"- At 10:00 ela does {len(soon)} drafted action{'s' if len(soon) != 1 else ''}"
                    + (f", held until {hold['until']} (dry run)" if hold else "; tick `don't N` to stop one"))
@@ -3539,6 +3542,145 @@ def meeting_close(vault, reports, facts, now, meetings, next_day=None, dry_run=F
     return out
 
 
+# ── open team questions: one record each, open until the world answers (ADR 0016; questions.py) ─────────
+def questions_mod():
+    sys.path.insert(0, HERE)
+    import questions as Q
+    return Q
+
+
+def owner_name(facts):
+    """The owner's Jira display name, from the fact store's own query (assignee = currentUser())."""
+    try:
+        d = json.load(open(os.path.join(facts, "jira", "owner.json"), encoding="utf-8"))
+        return ((((d.get("issues") or [{}])[0].get("fields") or {}).get("assignee")) or {}).get("displayName") or ""
+    except (OSError, ValueError, AttributeError, IndexError):
+        return ""
+
+
+def next_meeting(meetings, today, key=None):
+    """(key, name, date) of the soonest standing meeting after today by its weekdays (on or off in the book), or of
+    `key`'s; None when none has weekdays."""
+    try:
+        sys.path.insert(0, os.path.join(HERE, "..", "brief"))
+        import brief as B
+        names, working = B.WEEKDAY_NAMES, lambda d: B.is_working_day(d)
+    except Exception:
+        names, working = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"), lambda d: d.weekday() < 5
+    best = None
+    for m in meetings or []:
+        if not isinstance(m, dict) or (key and m.get("key") != key):
+            continue
+        days_ = [str(x).strip() for x in (m.get("weekdays") or [])] if isinstance(m.get("weekdays"), list) else \
+            re.findall(r"\w+", str(m.get("weekdays") or ""))
+        for i in range(1, 22):
+            d = today + datetime.timedelta(days=i)
+            if names[d.weekday()] in days_ and working(d):
+                if not best or d < best[2]:
+                    best = (m.get("key"), m.get("name") or m.get("key"), d)
+                break
+    return best
+
+
+def questions_pass(vault, reports, facts, now, meetings=(), jira="", seeds=(), dry_run=False):
+    """The open team questions brought up to date: his ticks and `ela:` lines on the standing page and his `drop`
+    on today.md first, then each open one read against its ticket and thread (an outcome closes it), then every
+    meeting note, project page and seed (a meeting note outside the vault, e.g. from the backup) read for boxes and
+    merged into the records. → (state, {consumed: [his lines on the page], closed: [(id, outcome)], new: [id]})."""
+    Q = questions_mod()
+    state = Q.load(reports)
+    today = now.date()
+    owner = owner_name(facts)
+    cache = {}
+    def issue(k):
+        if k not in cache:
+            cache[k] = facts_issue(facts, k)
+        return cache[k]
+    closed = []
+    try:
+        disk = open(os.path.join(vault, Q.QUESTIONS_PAGE), encoding="utf-8").read()
+    except OSError:
+        disk = ""
+    got, consumed = Q.by_word(state, disk, today)
+    closed += got
+    try:                                                   # `drop` ticked on today.md's ask for a question
+        for line in open(os.path.join(vault, TODAY), encoding="utf-8"):
+            m = re.match(r"^[ \t]*[-*][ \t]+\[[xX]\][ \t]+drop\b.*?" + Q.QREF.pattern, line)
+            r = state["questions"].get(m.group(1)) if m else None
+            if r and r["status"] == "open":
+                r.update(status="dropped", outcome="dropped by your word on today.md", closed=today.isoformat(), by="owner")
+                closed.append((r["id"], r["outcome"]))
+    except OSError:
+        pass
+    closed += Q.settle(state, now, issue, owner, lambda raw, at: thread_outcome(facts, raw, at))
+    keys = [m.get("key") for m in meetings or [] if isinstance(m, dict) and m.get("key")]
+    def start(aud, d):
+        m = next((x for x in meetings or [] if isinstance(x, dict) and x.get("key") == aud), None)
+        return meeting_window(m, d)[0]
+    cands, d = [], os.path.join(vault, MEETINGS)
+    for f in sorted(os.listdir(d)) if os.path.isdir(d) else []:
+        rel = f"{MEETINGS}/{f}"
+        if not f.endswith(".md") or rel == Q.QUESTIONS_PAGE:
+            continue
+        try:
+            text = open(os.path.join(d, f), encoding="utf-8").read()
+        except OSError:
+            continue
+        if not any(re.match(r"^type:\s*['\"]?meeting['\"]?\s*$", l) for l in split_front(text)[0]):
+            continue
+        cands += Q.meeting_candidates(rel, text, keys, os.path.getmtime(os.path.join(d, f)))
+    for path in seeds or ():
+        text = open(path, encoding="utf-8").read()
+        cands += Q.meeting_candidates(f"{MEETINGS}/{os.path.basename(path)}", text, keys, os.path.getmtime(path))
+    projects, project_srcs = {}, set()
+    for key, text in project_pages(vault).items():
+        rel = project_path(vault, key)
+        fl, body = split_front(text)
+        for k in KEY_RX.findall(" ".join(fl) + " " + (h1(body) or "")):
+            projects.setdefault(k, rel)
+        head, _ = project_head(body)
+        pc = Q.project_candidates(rel, head, section_at)
+        project_srcs |= {f"{rel}#{Q.gist(c['raw'])}" for c in pc}
+        cands += pc
+    try:
+        snaps = json.load(open(meeting_snapshot_path(reports), encoding="utf-8"))
+    except (OSError, ValueError):
+        snaps = {}
+    before = set(state["questions"])
+    Q.harvest(state, cands, now, issue, projects, snaps, start, keys)
+    closed += Q.gone_from_pages(state, project_srcs, today)
+    for n in Q.nudges(state, today):                       # listed at three meetings: the message he can send, drafted
+        r = state["questions"][n["id"]]
+        dr = Q.draft(r, owner.split()[0] if owner else "")
+        if dr:
+            path = os.path.join(reports, "ela", "drafts", f"question-{r['id']}.txt")
+            cmd = dr.pop("command")
+            dr["command"] = f"ela {cmd[0]} {cmd[1]} {cmd[2]} " + ("--from-file " if cmd[0] == "jira" else "--file ") + path
+            dr["file"] = path
+            if not dry_run and r.get("draft", {}).get("text") != dr["text"]:
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                atomic_write(path, dr["text"] + "\n")
+            r["draft"] = dr
+    if not dry_run:
+        Q.save(reports, state, atomic_write)
+    return state, {"consumed": consumed, "closed": closed, "new": sorted(set(state["questions"]) - before)}
+
+
+def question_asks(state, today):
+    """The asks a question earns on today.md: listed at three meetings (and each three more) with no outcome, once
+    each, ahead of the drafted actions."""
+    Q = questions_mod()
+    out = []
+    for n in Q.nudges(state, today):
+        r = state["questions"][n["id"]]
+        who = Q.answerer(r)[0]
+        send = f"send {who} the drafted message, or drop it" if r.get("draft") else "name who answers it, or drop it"
+        out.append({"id": f"question:{r['id']}:{n['bucket']}", "box": "drop", "whole": True,
+                    "text": f"{Q.short(r['text'], 70)} — carried through {n['count']} meetings: {send}",
+                    "link": f"{Q.QUESTIONS_PAGE[:-3]}#^{r['id']}", "sig": evidence_sig(r["id"]), "first": today.isoformat()})
+    return out
+
+
 # ── the sync ──────────────────────────────────────────────────────────────────────────────────────────
 
 def native_notes(vault):
@@ -3779,7 +3921,7 @@ def services_note(s, vault, today):
                 src_rel="published:map/services.yaml")
 
 
-def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since=None, dry_run=False):
+def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since=None, dry_run=False, questions=None):
     reports = s.get("reports")
     enotes, titles = elak_notes(s.get("elak"))
     notes = report_notes(reports, today) + enotes      # the constraints page is retired (ADR 0015); `ela promote` reads the pins
@@ -3872,7 +4014,8 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since
         planned[n.path] = redact(front(n.front_lines, dict(n.props, title=n.title)) + (with_warning(body, n.held) if n.held else body))
     asks_state = load_asks(reports)
     cands = ask_candidates(today, week_actions(reports, today), notes + native)
-    shown, more, _, asks_state = settle_asks(asks_state, cands, today)
+    qcands = question_asks(questions, today) if questions else []
+    shown, more, _, asks_state = settle_asks(asks_state, qcands + cands, today)
     if not dry_run:
         os.makedirs(os.path.join(reports, "ela"), exist_ok=True)
         atomic_write(os.path.join(reports, "ela", "asks.json"), json.dumps(asks_state, indent=1, ensure_ascii=False))
@@ -3883,13 +4026,29 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since
     except Exception:                                      # the day file is elak's; a bad one costs the meeting lines only
         meetings = []
     dropped = sum(1 for v in asks_state.values() if v.get("dropped"))
+    qline = None
+    if questions:
+        Q = questions_mod()
+        aud = max(((r.get("audience"), 1) for r in Q.open_records(questions) if r.get("audience")), default=(None, 0))[0]
+        counts = {}
+        for r in Q.open_records(questions):
+            if r.get("audience"):
+                counts[r["audience"]] = counts.get(r["audience"], 0) + 1
+        aud = max(counts, key=counts.get) if counts else None
+        nm = next_meeting(meeting_book()[0], today, aud) if aud else None
+        label = (("sync" if "sync" in (nm[0] or "") else nm[1]), nm[2]) if nm else None
+        qline = Q.today_line(questions, today, label, jira_base)
     day_brief = f"{DAYS}/{today:%Y}/{today.isoformat()}-brief.md"
     if day_brief in planned:                               # the morning page: boxes only on the asks today.md shows
         planned[day_brief] = also_noticed(planned[day_brief], {n for c in cands for n in c.get("ns") or []}
                                           - {n for c in shown for n in c.get("ns") or []})
     planned[TODAY] = redact(front([], {"type": "today", "date": today.isoformat()}) + linker(today_page(today, notes + native, {
         "actions": week_actions(reports, today), "hold": tier2_hold(reports, today.isoformat()), "lists": list_links(reports),
-        "meetings": meetings, "builds": build_records(reports)}, shown, more, dropped)))
+        "meetings": meetings, "builds": build_records(reports)}, shown, more, dropped, questions_line=qline)))
+    if questions:
+        Q = questions_mod()
+        drafts = {r["id"]: r["draft"] for r in Q.open_records(questions) if r.get("draft") and len(r["meetings"]) >= Q.NUDGE_EVERY}
+        planned[Q.QUESTIONS_PAGE] = front([], {"type": "questions", "date": today.isoformat()}) + Q.page(questions, today, jira_base, drafts)
     planned[DROPPED] = redact(front([], {"type": "dropped", "date": today.isoformat()}) + linker(dropped_page(asks_state)))
     if today <= HOME_POINTER_UNTIL:                        # Home points to today.md for two weeks, then is not written
         planned["home.md"] = front([], {"type": "home", "date": today.isoformat()}) + home_pointer()
@@ -4851,7 +5010,7 @@ def atomic_write(path, text):
     return True
 
 
-WRITERS = ("sync", "marks", "finish", "note", "restore", "setup", "afterwards", "tidy", "lint", "migrate")   # guidance only reads; lint writes with --fix --apply
+WRITERS = ("sync", "questions", "marks", "finish", "note", "restore", "setup", "afterwards", "tidy", "lint", "migrate")   # guidance only reads; lint writes with --fix --apply
 
 
 def vault_lock():
@@ -4865,6 +5024,27 @@ def vault_lock():
     lock = open(os.path.join(runtime, "vault-sync.lock"), "w")
     fcntl.flock(lock, fcntl.LOCK_EX)
     return lock
+
+
+def cmd_questions(a):
+    """`ela vault questions`: the open team questions, brought up to date the way the sync does (a dry run unless
+    --apply); --seed adds meeting notes from outside the vault (the backup's copy of a note that is gone)."""
+    s = json.load(open(SITE))
+    env = s.get("env")
+    jira_url = next((l.split("=", 1)[1].strip() for l in open(env) if l.startswith("JIRA_BASE_URL=")), "") \
+        if env and os.path.isfile(env) else ""
+    state, done = questions_pass(s["vault"], s.get("reports") or "", os.path.join(s.get("runtime") or "", "facts"),
+                                 datetime.datetime.now().astimezone(), meeting_book()[0], jira_url, a.seed or (), dry_run=not a.apply)
+    Q = questions_mod()
+    recs = Q.open_records(state)
+    if a.json:
+        print(json.dumps({"open": recs, "closed": done["closed"], "new": done["new"], "dry_run": not a.apply}, ensure_ascii=False)); return
+    today = datetime.date.today()
+    for r in recs:
+        print(f"{r['id']} · {Q.answerer(r)[0]} · since {r['first']['date']} · {len(r['meetings'])} meetings · {Q.short(r['text'], 90)}")
+    for qi, w in done["closed"]:
+        print(f"closed {qi}: {w}")
+    print(f"{len(recs)} open, {len(done['new'])} new" + ("" if a.apply else " · DRY RUN (--apply writes the records)") + f" · {today}")
 
 
 def cmd_sync(a):
@@ -4900,6 +5080,11 @@ def cmd_sync(a):
         if env and os.path.isfile(env) else ""
     closed = meeting_close(vault, s.get("reports") or "", os.path.join(s.get("runtime") or "", "facts"),
                            datetime.datetime.now().astimezone(), *meeting_book(), dry_run=a.dry_run, jira=jira_url)
+    qstate, qdone = (questions_pass(vault, s.get("reports") or "", os.path.join(s.get("runtime") or "", "facts"),
+                                    datetime.datetime.now().astimezone(), meeting_book()[0], jira_url, dry_run=a.dry_run)
+                     if os.path.isdir(s.get("reports") or "") else (None, {"consumed": [], "closed": [], "new": []}))   # no root: plan stops the sync
+    for qi, words in qdone["closed"]:
+        print(f"question {qi}: {words}", file=sys.stderr)
     for fix in settle_statuses(vault, a.dry_run):
         print(f"status: {fix}", file=sys.stderr)
     if not a.dry_run:
@@ -4926,7 +5111,7 @@ def cmd_sync(a):
     try:
         planned, files, notes, warnings, native_paths, inferred = plan(s, env, today, now, removed | set(newly),
                                                                         removed_src | {old_src[r] for r in newly if old_src.get(r)},
-                                                                        since, a.dry_run)
+                                                                        since, a.dry_run, questions=qstate)
     except SourceError as e:
         print(f"vault: not synced — {e}", file=sys.stderr); sys.exit(3)
     if newly and not a.dry_run:
@@ -4979,7 +5164,8 @@ def cmd_sync(a):
         planned[rel] = keep_choice(planned[rel], dfl, rel)   # the move he chose waits for the watcher, not for this rewrite
         for m in TICKED.finditer(dbody):                   # a choice he ticked stays ticked when the page is rewritten
             planned[rel] = re.sub(r"^(\s*" + QUOTE + r"[-*]\s+)\[ \](\s+" + re.escape(m.group(1)) + r"\s*)$", r"\1[x]\2", planned[rel], count=1, flags=re.M)
-        mine = [(section_at(dbody, m.start()), m.group(0).strip()) for m in GUIDE.finditer(dbody) if m.group(0).strip() not in planned[rel]]
+        mine = [(section_at(dbody, m.start()), m.group(0).strip()) for m in GUIDE.finditer(dbody) if m.group(0).strip() not in planned[rel]
+                and not (rel == questions_mod().QUESTIONS_PAGE and m.group(0).strip() in qdone["consumed"])]   # read: on the record now
         # a word typed in the ela property, which the tables no longer offer, stays as a line in the note, written as
         # typed so its guidance id is the one already handled
         said = next((l.strip() for l in dfl if re.match(r'^ela:\s*\S', l) and not re.match(r'^ela:\s*""\s*$', l)), None)
@@ -6016,6 +6202,12 @@ def main():
     p.add_argument("--slug", action="append", metavar="KEY=WORDS", help="name a project page by hand: MH-3983=csc-over-mqtt")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_migrate)
+    p = sub.add_parser("questions", help="the open team questions: each one record, closed by its outcome or his word, "
+                                         "never by age (ADR 0016); a dry run unless --apply")
+    p.add_argument("--seed", nargs="+", metavar="NOTE", help="meeting notes outside the vault to read too (a backup's copy)")
+    p.add_argument("--apply", action="store_true", help="write the records")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_questions)
     p = sub.add_parser("restore", help="bring back a note the owner deleted in the vault")
     p.add_argument("path", help="the note's path in the vault, as the deletion log lists it")
     p.set_defaults(func=cmd_restore)
