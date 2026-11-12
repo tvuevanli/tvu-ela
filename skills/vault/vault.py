@@ -2188,7 +2188,7 @@ def meeting_outcomes(notes, keys, today, days=30):
     return sorted(out, key=lambda x: x[0], reverse=True)
 
 
-def project_tail(facts, rows, today, jira_base="", met=()):
+def project_tail(facts, rows, today, jira_base="", met=(), asked=()):
     """The sync's half of a project page: TAIL_HEADS in their order, each printed only when it has something to say
     (the hand-kept head is what he reads; the review of 2026-11-11 found the tail a third of the page saying nothing).
     No Waiting for your word: the page's own open questions are on the page, a note beside it holds its own asks, and
@@ -2209,8 +2209,9 @@ def project_tail(facts, rows, today, jira_base="", met=()):
                 bits = [r["type"], r["date"], r["status"]]
                 L.append(f"- [[{r['path'][:-3]}|{label(r['title'])}]] · " + " · ".join(b for b in bits if b))
             L.append("")
-    if met:
-        L += [f"## {MEETINGS_HEAD}", ""] + [f"- {d_[5:]} · [[{p[:-3]}|{label(name)}]]: {line}" for d_, p, name, line in met] + [""]
+    if met or asked:                                       # what its meetings still ask (ADR 0016), then what they ruled
+        L += [f"## {MEETINGS_HEAD}", ""] + [f"- open: {a}" for a in asked] + \
+             [f"- {d_[5:]} · [[{p[:-3]}|{label(name)}]]: {line}" for d_, p, name, line in met] + [""]
     keys = [f"[{k}]({jira_base}/browse/{k})" if jira_base else k for k in facts["keys"]]
     links = facts["links"]
     wp = facts["props"]
@@ -2226,7 +2227,7 @@ def project_tail(facts, rows, today, jira_base="", met=()):
     return "\n".join(L)
 
 
-def project_note(key, text, vault, notes, today, jira_base="", ticket=None):
+def project_note(key, text, vault, notes, today, jira_base="", ticket=None, questions=None):
     """The page as the sync writes it: its properties settled (type project, watch defaulting to the deadline plus 14
     days, every other line kept), the head as written, the tail generated. The Note carries front_text, head and tail
     apart, so the head is never linked, unwrapped or retitled."""
@@ -2246,7 +2247,15 @@ def project_note(key, text, vault, notes, today, jira_base="", ticket=None):
     if keep:
         fm = fm[:-len("---\n\n")] + "\n".join(keep) + "\n---\n\n"
     rows = project_rows(vault, key, notes, facts["path"])
-    tail = project_tail(facts, rows, today, jira_base, meeting_outcomes(notes, facts["keys"], today))
+    asked = []
+    if questions:                                          # its open team questions raised elsewhere; its own boxes are in its head
+        Q = questions_mod()
+        for r in Q.open_records(questions):
+            if (r.get("thing") or {}).get("ref") == facts["path"] and not all(x.startswith(facts["path"] + "#") for x in r["sources"]):
+                n_ = len(r["meetings"])
+                asked.append(f"{Q.short(r['text'], 100)}" + (f" · {r['who']}" if r.get("who") else "") +
+                             f" · since {r['first']['date'][5:]} · listed at {n_} meeting{'s' if n_ != 1 else ''} · [[{Q.QUESTIONS_PAGE[:-3]}#^{r['id']}|on the list]]")
+    tail = project_tail(facts, rows, today, jira_base, meeting_outcomes(notes, facts["keys"], today), asked)
     n = Note(facts["path"], facts["title"], facts["head"] + "\n" + tail, {"type": "project", "date": want["date"], "deadline": want["deadline"]})
     n.front_text, n.head, n.tail, n.facts, n.rows = fm, facts["head"] + "\n", tail, facts, rows
     return n
@@ -4025,7 +4034,7 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since
     if env and os.path.isfile(env):
         jira_base = next((l.split("=", 1)[1].strip().rstrip("/") for l in open(env) if l.startswith("JIRA_BASE_URL=")), "")
     for key, text in pages.items():                        # each project's page: its head as written, its tail from the notes
-        notes.append(project_note(key, text, s["vault"], notes + native, today, jira_base, ticket_of(text)))
+        notes.append(project_note(key, text, s["vault"], notes + native, today, jira_base, ticket_of(text), questions))
     # a ticket a page leads with, or names among its keys (MH-3990 under the MH-3735 project), has its page: never a second
     paged = {k for text in pages.values() for k in KEY_RX.findall(props_of(split_front(text)[0]).get("keys") or "")}
     for t in tickets:                                      # an open kind:project ticket with no page gets one, once
