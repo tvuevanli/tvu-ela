@@ -357,7 +357,7 @@ def read_builds(reports, b):
         b.node(bid, "build", f"build {r.get('build')} → {r.get('lane_name') or r.get('lane')} ({r.get('line')}, {r.get('date')})",
                date=r.get("date"), lane=r.get("lane"), line=r.get("line"), path=p)
         for s in r.get("services") or []:
-            for k in s.get("keys") or []:
+            for k in [x for x in s.get("keys") or [] if not STANDARD_NAMES.match(x)]:
                 b.edge(bid, k, "carries", p, r.get("date"), f"{s.get('service')} {s.get('from')}→{s.get('to')}")
 
 
@@ -370,7 +370,7 @@ def read_lanes(reports, b):
         t = read_json(p, {}) or {}
         for row in t.get("rows") or []:
             for k in [row.get("key")] + list(row.get("also") or []):
-                if not k:
+                if not k or STANDARD_NAMES.match(k):           # a train row's `also` can carry a standard's name (SCTE-35)
                     continue
                 for lane, c in (row.get("cells") or {}).items():
                     note = f"arrived {c.get('arrived') or '?'}" + (f" · verdict {c['verdict']}" if c.get("verdict") else "") \

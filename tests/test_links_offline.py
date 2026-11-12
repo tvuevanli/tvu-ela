@@ -71,7 +71,7 @@ put("rt/facts/mail/messages/m1.json", {"id": "m1", "thread": "t1", "subject": "D
 put("reports/releases/2.1/2026-11-11-build-91-to-qa-aws3.json", {"line": "2.1", "lane": "qa-cn3", "lane_name": "QA-AWS3",
     "build": "91", "date": "2026-11-11", "services": [{"service": "UR Caller", "from": "2.1.90", "to": "2.1.91", "keys": ["MH-3990"]}]})
 put("reports/releases/2.1/2026-11-11-build-91-to-qa-aws3.reconcile.json", {"build": "91", "services": [{"keys": ["MH-1"]}]})
-put("reports/train/2.1.json", {"rows": [{"key": "MH-3768", "also": [], "cells": {
+put("reports/train/2.1.json", {"rows": [{"key": "MH-3768", "also": ["SCTE-35"], "cells": {
     "prod-3": {"arrived": "2.1.87", "since": "2026-11-09", "verdict": "untested"}}}]})
 put("vault/projects/mh-3735/mh-3735.md", "# MH-3735 HTTP to MQTT\n\nwatches MH-3735 and MH-3990\n")
 put("vault/reference/days/2026-11-12-brief.md", "# a day page\nMH-3735\n")
@@ -111,6 +111,8 @@ check("UR-542 is named with it and marked linked, listed first", v["named_with"]
 check("a key outside the Jira projects is not a key (UTF-8, H-264)", not any(k in named for k in ("UTF-8", "H-264")))
 check("a standard's name is not a key though its prefix is a project (SCTE-35, ST-2110); the project's own ticket is",
       not any(k in named for k in ("SCTE-35", "ST-2110")) and "SCTE-7" in named)
+check("a train row's also naming a standard is not indexed as a ticket",
+      not db.execute("SELECT 1 FROM edges WHERE src = 'SCTE-35' OR dst = 'SCTE-35'").fetchone())
 check("Keys.find: the deny list is names, not prefixes", L.Keys(os.path.join(TMP, "rt", "facts")).find("SCTE-35 SCTE-7 AC-3 SMPTE-2110") == ["SCTE-7"])
 check("the mail that names it", [e["mail"]["label"] for e in v["mails"]] == ["Daily Test Report build 79"])
 check("a lone message that names no key is not indexed", not db.execute("SELECT 1 FROM nodes WHERE id = 'slack:C06553EE44X/1793700000.000001'").fetchone())
