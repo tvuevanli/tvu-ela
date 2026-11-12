@@ -5051,6 +5051,36 @@ def cmd_questions(a):
     print(f"{len(recs)} open, {len(done['new'])} new" + ("" if a.apply else " · DRY RUN (--apply writes the records)") + f" · {today}")
 
 
+def today_said(vault, today, said, answers, planned):
+    """His `ela:` lines on today.md by the day each was written: the manifest's record, else the day its answer was
+    asked, else today. → ({day page: [lines]} for an earlier day's lines, {line: day} for today's). today.md starts each
+    day without yesterday's words; they stay on that day's page, reference/days/<year>/<date>-brief.md, with their
+    answers (ADR 0014: today.md is today's page). A line whose day page is not written leaves today.md and stays in
+    the answers' record."""
+    try:
+        text = open(os.path.join(vault, TODAY), encoding="utf-8").read()
+    except OSError:
+        return {}, {}
+    asked = {}
+    for r in answers:
+        if r.get("note") == TODAY and r.get("at"):
+            for x in r.get("lines") or []:
+                asked[x.strip()] = min(asked.get(x.strip(), r["at"][:10]), r["at"][:10])
+    stale, keep = {}, {}
+    for m in GUIDE.finditer(text, body_start(text)):
+        line = m.group(0).strip()
+        day = said.get(line) or asked.get(m.group(1).strip().strip('"').strip("'")) or today.isoformat()
+        if day >= today.isoformat():
+            keep[line] = day
+            continue
+        page = f"{DAYS}/{day[:4]}/{day}-brief.md"
+        if page in planned:
+            stale.setdefault(page, []).append(line)
+        else:
+            stale.setdefault(None, []).append(line)
+    return stale, keep
+
+
 def cmd_sync(a):
     s = json.load(open(SITE))
     vault = s.get("vault")
@@ -5061,12 +5091,14 @@ def cmd_sync(a):
     mpath = os.path.join(vault, MANIFEST)
     old, old_src, old_layout, old_gen, old_seen, old_home = [], {}, None, {}, {}, {}
     old_moved = {"map": {}, "until": None}
+    old_said = {}
     if os.path.exists(mpath):
         try:
             m = json.load(open(mpath))
             old, old_src, old_layout, old_gen, old_seen = (m["files"], m.get("sources") or {}, m.get("layout"), m.get("generated") or {},
                                                            m.get("seen") or {})
             old_home = m.get("home") or {}
+            old_said = m.get("said") or {}
             old_moved = {"map": m.get("moved") or {}, "until": m.get("moved_until")}
         except (ValueError, KeyError):
             print("vault: the manifest is unreadable; not synced (remove it deliberately to start over)", file=sys.stderr); sys.exit(3)
@@ -5156,6 +5188,13 @@ def cmd_sync(a):
     # a task its source already ticked is not his choice; recorded so the guidance verb tells the two apart
     source_ticks = {r: [m.group(1) for m in TICKED.finditer(t)] for r, t in planned.items() if r.endswith(".md") and TICKED.search(t)}
     done_on_disk = set()
+    stale, said = today_said(vault, today, old_said, answers, planned)
+    stale_lines = {l for ls in stale.values() for l in ls}
+    for target, lines in stale.items():                    # yesterday's words on today.md go to that day's page, answers too
+        if target is None:
+            continue
+        answers = answers + [dict(r, note=target) for r in answers if r.get("note") == TODAY
+                             and {x.strip() for x in r.get("lines") or []} & {GUIDE.match(l).group(1).strip() for l in lines if GUIDE.match(l)}]
     for rel in [r for r in planned if r.endswith(".md")]:  # his `ela:` lines in a generated note outlive its rewrite
         try:
             disk = open(os.path.join(vault, rel), encoding="utf-8").read()
@@ -5169,7 +5208,9 @@ def cmd_sync(a):
         for m in TICKED.finditer(dbody):                   # a choice he ticked stays ticked when the page is rewritten
             planned[rel] = re.sub(r"^(\s*" + QUOTE + r"[-*]\s+)\[ \](\s+" + re.escape(m.group(1)) + r"\s*)$", r"\1[x]\2", planned[rel], count=1, flags=re.M)
         mine = [(section_at(dbody, m.start()), m.group(0).strip()) for m in GUIDE.finditer(dbody) if m.group(0).strip() not in planned[rel]
-                and not (rel == questions_mod().QUESTIONS_PAGE and m.group(0).strip() in qdone["consumed"])]   # read: on the record now
+                and not (rel == questions_mod().QUESTIONS_PAGE and m.group(0).strip() in qdone["consumed"])   # read: on the record now
+                and not (rel == TODAY and m.group(0).strip() in stale_lines)]                                 # an earlier day's: on its page
+        mine += [(None, l) for l in stale.get(rel, []) if l not in planned[rel] and l not in [x for _, x in mine]]
         # a word typed in the ela property, which the tables no longer offer, stays as a line in the note, written as
         # typed so its guidance id is the one already handled
         said = next((l.strip() for l in dfl if re.match(r'^ela:\s*\S', l) and not re.match(r'^ela:\s*""\s*$', l)), None)
@@ -5252,7 +5293,7 @@ def cmd_sync(a):
                                         "seen": {r: d for r, d in seen.items() if r in planned},
                                         "home": {"open": is_open, "looked": looked, "before": before},
                                         "moved": moved_paths(old_moved, today), "moved_until": old_moved.get("until"),
-                                        "source_ticks": source_ticks}, indent=0))
+                                        "source_ticks": source_ticks, "said": said}, indent=0))
         for rel in gone:
             try:
                 os.remove(os.path.join(vault, rel))

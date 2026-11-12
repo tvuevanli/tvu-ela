@@ -82,5 +82,20 @@ check("a note's ask keeps its words outside the link", "→ [[to-read/x|the note
       {"id": "note:x", "text": "MH-1 · a plan", "link": "to-read/x", "first": THU.isoformat()}]))
 check("a send box (the Dev and QA day drafts) is not on today.md: those are made on demand",
       "send 9" not in V.today_page(THU, [], {"actions": [{"n": 9, "tier": 3, "send_box": True, "rule": "dev-today", "day": THU.isoformat(), "text": "Dev today"}]}))
+# today.md starts each day without an earlier day's `ela:` lines: they go to that day's page with their answers
+import tempfile  # noqa: E402
+with tempfile.TemporaryDirectory() as t:
+    open(os.path.join(t, "today.md"), "w").write('---\ntype: "today"\ndate: "2026-11-12"\n---\n\n# Today\n\n## Needs you\n\n'
+                                                  "ela: cancel 1, read it for its effect\n\nela: a word from this morning\n")
+    answers = [{"note": "today.md", "at": "2026-11-11T09:11:39+0800", "lines": ["cancel 1, read it for its effect"], "job": "j1"}]
+    planned = {"reference/days/2026/2026-11-11-brief.md": "x", "today.md": "y"}
+    stale, said = V.today_said(t, datetime.date(2026, 11, 12), {}, answers, planned)
+    check("yesterday's line (dated by its answer) goes to its day page; this morning's stays",
+          stale == {"reference/days/2026/2026-11-11-brief.md": ["ela: cancel 1, read it for its effect"]}
+          and said == {"ela: a word from this morning": "2026-11-12"})
+    stale, said = V.today_said(t, datetime.date(2026, 11, 13), said, answers, planned)
+    check("the next day, this morning's line is an earlier day's too, by the day the manifest kept",
+          None in stale and stale[None] == ["ela: a word from this morning"] and said == {})
+
 print("today: all offline checks passed" if not failures else f"today: {len(failures)} failed")
 sys.exit(1 if failures else 0)
