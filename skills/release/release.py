@@ -1643,6 +1643,7 @@ def cmd_reconcile(a):
     if a.batch and a.apply and os.environ.get("ELA_NO_APPLY"):
         print("reconcile: an unattended session dry-runs the batch; --apply is the owner's word", file=sys.stderr); sys.exit(EX_USAGE)
     if a.batch:
+        os.environ.setdefault("ELA_ACTION", f"reconcile {a.lane} build " + ",".join(str(r.get("build")) for r in results))
         ran = RC.run_batch(results, apply=a.apply, env_file=a.env_file)
         if a.json:
             print(json.dumps([{"key": k, "rc": rc, "out": t} for k, rc, t in ran], ensure_ascii=False)); return

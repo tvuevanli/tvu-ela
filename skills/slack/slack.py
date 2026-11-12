@@ -809,6 +809,15 @@ def post_json(method, tok, payload):
     return d
 
 
+def write_who():
+    """Who sent it and on whose word (the same fields as jira.py's write log): the session's name or Claude id, the
+    runner's job, the drafted action applied, the word. Unset stays null."""
+    e = os.environ
+    session = e.get("ELA_SESSION_NAME") or (f"claude:{e['CLAUDE_CODE_SESSION_ID'][:8]}" if e.get("CLAUDE_CODE_SESSION_ID") else None)
+    word = e.get("ELA_WORD") or ("the owner in the session" if session and not e.get("ELA_NO_APPLY") else None)
+    return {"session": session, "job": e.get("ELA_RUNNER_JOB") or None, "action": e.get("ELA_ACTION") or None, "word": word}
+
+
 def log_write(where, link, chars):
     """One line per message sent, so the owner's brief can say what ela did (<reports>/ela/writes.jsonl, shared with
     the jira capability's log). Never fatal."""
@@ -819,7 +828,7 @@ def log_write(where, link, chars):
         os.makedirs(d, exist_ok=True)
         row = {"at": datetime.datetime.now().astimezone().isoformat(timespec="seconds"), "system": "slack", "verb": "post",
                "key": None, "where": where, "permalink": link, "chars": chars, "ok": True,
-               "unattended": bool(os.environ.get("ELA_NO_APPLY"))}
+               "unattended": bool(os.environ.get("ELA_NO_APPLY")), **write_who()}
         with open(os.path.join(d, "writes.jsonl"), "a", encoding="utf-8") as fh:
             fh.write(json.dumps(row, ensure_ascii=False) + "\n")
     except Exception:

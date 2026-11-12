@@ -90,6 +90,16 @@ def load_env(env_file):
     return creds
 
 
+def write_who():
+    """Who made a write and on whose word, from the environment the caller set: the session's name (or its Claude id),
+    the runner's job, the drafted action or batch applied, and the word (a tick, `apply N`, an answer). A field
+    nobody set stays null; the links index then says unknown rather than guessing."""
+    e = os.environ
+    session = e.get("ELA_SESSION_NAME") or (f"claude:{e['CLAUDE_CODE_SESSION_ID'][:8]}" if e.get("CLAUDE_CODE_SESSION_ID") else None)
+    word = e.get("ELA_WORD") or ("the owner in the session" if session and not e.get("ELA_NO_APPLY") else None)
+    return {"session": session, "job": e.get("ELA_RUNNER_JOB") or None, "action": e.get("ELA_ACTION") or None, "word": word}
+
+
 def log_write(system, method, path, ok=True):
     """One line per applied write, so the owner's brief can say what ela did: Jira and Slack record ela's writes
     under the owner's own account, indistinguishable from his clicks. <reports>/ela/writes.jsonl; never fatal."""
@@ -99,8 +109,10 @@ def log_write(system, method, path, ok=True):
         os.makedirs(d, exist_ok=True)
         key = (re.search(r"/issue/([A-Z][A-Z0-9]+-\d+)", path) or [None, None])[1]
         verb = next((a for a in sys.argv[1:] if not a.startswith("-") and not os.path.exists(a)), "")
+        named = [a for a in sys.argv[1:] if re.fullmatch(r"[A-Z][A-Z0-9]+-\d+", a) and a != key]
         row = {"at": datetime.datetime.now().astimezone().isoformat(timespec="seconds"), "system": system, "verb": verb,
-               "key": key, "method": method, "path": path, "ok": ok, "unattended": bool(os.environ.get("ELA_NO_APPLY"))}
+               "key": key or (named.pop(0) if named else None), "keys": named or None, "method": method, "path": path,
+               "ok": ok, "unattended": bool(os.environ.get("ELA_NO_APPLY")), **write_who()}
         with open(os.path.join(d, "writes.jsonl"), "a", encoding="utf-8") as fh:
             fh.write(json.dumps(row, ensure_ascii=False) + "\n")
     except Exception:

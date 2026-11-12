@@ -503,15 +503,17 @@ def make_batch(reports, cls, scope, writes, left, today):
 
 
 # ── the answer ────────────────────────────────────────────────────────────────────────────────────────────────
-def run_write(command, apply):
-    """One write through its own capability: `ela jira …` becomes jira.py; --apply only when the answer carried it."""
+def run_write(command, apply, action=None, word=None):
+    """One write through its own capability: `ela jira …` becomes jira.py; --apply only when the answer carried it.
+    The write log records the batch and the answer it ran under (ELA_ACTION, ELA_WORD)."""
     import shlex
     argv = shlex.split(command)
     if argv[:2] != ["ela", "jira"]:
         raise ValueError(f"not a Jira write: {command}")
     env = os.environ.get("ELA_ENV_FILE") or site().get("env")
     cmd = ["python3", JIRA] + (["--env-file", env] if env else []) + argv[2:] + (["--apply"] if apply else [])
-    p = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+    env = dict(os.environ, **({"ELA_ACTION": action} if action else {}), **({"ELA_WORD": word} if word else {}))
+    p = subprocess.run(cmd, capture_output=True, text=True, timeout=300, env=env)
     return p.returncode, (p.stdout + p.stderr).strip()
 
 
@@ -543,7 +545,8 @@ def answer(reports, aid, letter, note_text=None, apply=False, runner=run_write, 
                         append(reports, {"at": now_iso(now), "class": b["class"], "verdict": "cancelled", "letter": "A", "target": w["target"],
                                          "command": w["command"], "batch": b["id"], "source": "batch", "how": "struck"})
                     did.append(f"{w['n']} left out"); continue
-                code, out = runner(cmd, apply)
+                code, out = (run_write(cmd, apply, action=f"dry:{b['id']}#{w['n']}", word=f"answer {aid} {letter}")
+                             if runner is run_write else runner(cmd, apply))
                 did.append(f"{w['n']} {'applied' if apply else 'dry run'}{' as edited' if verdict == 'edited' else ''}: "
                            f"{'ok' if code == 0 else 'failed'} — {out.splitlines()[-1] if out else ''}"[:200])
                 if apply and code == 0:
