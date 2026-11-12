@@ -1,0 +1,825 @@
+{
+ "MH-1860": {
+  "key": "MH-1860",
+  "fields": {
+   "summary": "Graphics Overlay on MediaHub destinations: overlay service control, MediaHub UI, web render and Mixer PIP",
+   "status": {
+    "name": "Review"
+   },
+   "assignee": {
+    "displayName": "Erin Zhang"
+   },
+   "labels": [],
+   "customfield_11252": null
+  }
+ },
+ "MH-3795": {
+  "key": "MH-3795",
+  "fields": {
+   "summary": "[FloSports MH-035] Need a server-side API to list the account's TVU devices (name, type, PID, online status)",
+   "status": {
+    "name": "Done"
+   },
+   "assignee": {
+    "displayName": "Erin Zhang"
+   },
+   "labels": [
+    "FloSports",
+    "MH-035",
+    "release:mh-2.1"
+   ],
+   "customfield_11252": {
+    "type": "doc",
+    "version": 1,
+    "content": [
+     {
+      "type": "paragraph",
+      "content": [
+       {
+        "type": "text",
+        "text": "mediahub-backend@2.1.40"
+       }
+      ]
+     }
+    ]
+   }
+  }
+ },
+ "MH-3873": {
+  "key": "MH-3873",
+  "fields": {
+   "summary": "BE: keep YouTube source LOADING until youtuberender reports ready (0x83410211), poll Redis with 30s default timeout",
+   "status": {
+    "name": "Review"
+   },
+   "assignee": {
+    "displayName": "Erin Zhang"
+   },
+   "labels": [
+    "release:mh-2.1"
+   ],
+   "customfield_11252": {
+    "type": "doc",
+    "version": 1,
+    "content": [
+     {
+      "type": "paragraph",
+      "content": [
+       {
+        "type": "text",
+        "text": "unified-streaming@2.1.91"
+       }
+      ]
+     }
+    ]
+   }
+  }
+ },
+ "MH-3881": {
+  "key": "MH-3881",
+  "fields": {
+   "summary": "[FloSports MH-006] Audio remapping matrix on the public API",
+   "status": {
+    "name": "Done"
+   },
+   "assignee": {
+    "displayName": "Erin Zhang"
+   },
+   "labels": [
+    "FloSports",
+    "MH-006",
+    "release:mh-2.1"
+   ],
+   "customfield_11252": {
+    "type": "doc",
+    "version": 1,
+    "content": [
+     {
+      "type": "paragraph",
+      "content": [
+       {
+        "type": "text",
+        "text": "mediahub-backend@2.1.44"
+       }
+      ]
+     }
+    ]
+   }
+  }
+ },
+ "MH-3883": {
+  "key": "MH-3883",
+  "fields": {
+   "summary": "[FloSports MH-008] Public write for source microservice settings",
+   "status": {
+    "name": "Done"
+   },
+   "assignee": {
+    "displayName": "Erin Zhang"
+   },
+   "labels": [
+    "FloSports",
+    "MH-008",
+    "release:mh-2.1"
+   ],
+   "customfield_11252": null
+  }
+ },
+ "MH-3887": {
+  "key": "MH-3887",
+  "fields": {
+   "summary": "[FloSports MH-013] RTSP Pull address via the API",
+   "status": {
+    "name": "Done"
+   },
+   "assignee": {
+    "displayName": "Erin Zhang"
+   },
+   "labels": [
+    "FloSports",
+    "MH-013",
+    "release:mh-2.1"
+   ],
+   "customfield_11252": {
+    "type": "doc",
+    "version": 1,
+    "content": [
+     {
+      "type": "paragraph",
+      "content": [
+       {
+        "type": "text",
+        "text": "unified-streaming@2.1.90"
+       }
+      ]
+     }
+    ]
+   }
+  }
+ },
+ "MH-3891": {
+  "key": "MH-3891",
+  "fields": {
+   "summary": "[FloSports MH-030] Share encoding profiles across the organization",
+   "status": {
+    "name": "Done"
+   },
+   "assignee": {
+    "displayName": "Andyzhao"
+   },
+   "labels": [
+    "FloSports",
+    "MH-030",
+    "release:mh-2.1"
+   ],
+   "customfield_11252": {
+    "type": "doc",
+    "version": 1,
+    "content": [
+     {
+      "type": "paragraph",
+      "content": [
+       {
+        "type": "text",
+        "text": "unified-streaming@2.1.85"
+       }
+      ]
+     }
+    ]
+   }
+  }
+ },
+ "MH-3903": {
+  "key": "MH-3903",
+  "fields": {
+   "summary": "[FloSports MH-049] Pack thumbnails and config T links through the API",
+   "status": {
+    "name": "Done"
+   },
+   "assignee": {
+    "displayName": "Erin Zhang"
+   },
+   "labels": [
+    "FloSports",
+    "MH-049",
+    "release:mh-2.1"
+   ],
+   "customfield_11252": {
+    "type": "doc",
+    "version": 1,
+    "content": [
+     {
+      "type": "paragraph",
+      "content": [
+       {
+        "type": "text",
+        "text": "mediahub-backend@2.1.44"
+       }
+      ]
+     }
+    ]
+   }
+  }
+ },
+ "MH-3907": {
+  "key": "MH-3907",
+  "fields": {
+   "summary": "[FloSports MH-057] Read a source's live bitrate",
+   "status": {
+    "name": "Done"
+   },
+   "assignee": {
+    "displayName": "Erin Zhang"
+   },
+   "labels": [
+    "FloSports",
+    "MH-057",
+    "release:mh-2.1"
+   ],
+   "customfield_11252": {
+    "type": "doc",
+    "version": 1,
+    "content": [
+     {
+      "type": "paragraph",
+      "content": [
+       {
+        "type": "text",
+        "text": "mediahub-backend@2.1.44"
+       }
+      ]
+     }
+    ]
+   }
+  }
+ },
+ "MH-3926": {
+  "key": "MH-3926",
+  "fields": {
+   "summary": "Overlay app is left orphaned when a destination with Graphics Insertion is deleted",
+   "status": {
+    "name": "Review"
+   },
+   "assignee": {
+    "displayName": "Erin Zhang"
+   },
+   "labels": [
+    "release:mh-2.1"
+   ],
+   "customfield_11252": {
+    "type": "doc",
+    "version": 1,
+    "content": [
+     {
+      "type": "paragraph",
+      "content": [
+       {
+        "type": "text",
+        "text": "unified-streaming@2.1.91"
+       }
+      ]
+     }
+    ]
+   }
+  }
+ },
+ "MH-3927": {
+  "key": "MH-3927",
+  "fields": {
+   "summary": "Graphics Insertion trusts destination attribute overlayAppId, allowing cross-tenant access to another user's overlay app",
+   "status": {
+    "name": "Review"
+   },
+   "assignee": {
+    "displayName": "Summer Chen"
+   },
+   "labels": [
+    "release:mh-2.1",
+    "security"
+   ],
+   "customfield_11252": null
+  }
+ },
+ "MH-3933": {
+  "key": "MH-3933",
+  "fields": {
+   "summary": "Model AIOC schedule events as objectd objects for org-wide visibility and permissions",
+   "status": {
+    "name": "Review"
+   },
+   "assignee": {
+    "displayName": "Erin Zhang"
+   },
+   "labels": [
+    "release:mh-2.1"
+   ],
+   "customfield_11252": {
+    "type": "doc",
+    "version": 1,
+    "content": [
+     {
+      "type": "paragraph",
+      "content": [
+       {
+        "type": "text",
+        "text": "mediahub-backend@2.1.44"
+       }
+      ]
+     }
+    ]
+   }
+  }
+ },
+ "MH-3940": {
+  "key": "MH-3940",
+  "fields": {
+   "summary": "Operation Log records the object owner instead of the actual operator when a shared user stops another user's live",
+   "status": {
+    "name": "Review"
+   },
+   "assignee": {
+    "displayName": "Erin Zhang"
+   },
+   "labels": [
+    "release:mh-2.1"
+   ],
+   "customfield_11252": {
+    "type": "doc",
+    "version": 1,
+    "content": [
+     {
+      "type": "paragraph",
+      "content": [
+       {
+        "type": "text",
+        "text": "unified-streaming@2.1.91"
+       }
+      ]
+     }
+    ]
+   }
+  }
+ },
+ "MH-3941": {
+  "key": "MH-3941",
+  "fields": {
+   "summary": "Interact button does nothing when HTML source has no preview",
+   "status": {
+    "name": "Done"
+   },
+   "assignee": {
+    "displayName": "Erin Zhang"
+   },
+   "labels": [
+    "release:mh-2.1"
+   ],
+   "customfield_11252": {
+    "type": "doc",
+    "version": 1,
+    "content": [
+     {
+      "type": "paragraph",
+      "content": [
+       {
+        "type": "text",
+        "text": "mediahub-frontend@2.2.128"
+       }
+      ]
+     }
+    ]
+   }
+  }
+ },
+ "MH-3953": {
+  "key": "MH-3953",
+  "fields": {
+   "summary": "HTML Art forward button stays disabled after going back in MQTT mode",
+   "status": {
+    "name": "Done"
+   },
+   "assignee": {
+    "displayName": "Erin Zhang"
+   },
+   "labels": [
+    "release:mh-2.1"
+   ],
+   "customfield_11252": {
+    "type": "doc",
+    "version": 1,
+    "content": [
+     {
+      "type": "paragraph",
+      "content": [
+       {
+        "type": "text",
+        "text": "mediahub-frontend@2.2.129"
+       }
+      ]
+     }
+    ]
+   }
+  }
+ },
+ "MH-3958": {
+  "key": "MH-3958",
+  "fields": {
+   "summary": "Source preview panel \"Audio Channels\" shows misleading total (tracks × first-track channels, e.g. 36) instead of per-track value",
+   "status": {
+    "name": "Review"
+   },
+   "assignee": {
+    "displayName": "Erin Zhang"
+   },
+   "labels": [
+    "release:mh-2.1"
+   ],
+   "customfield_11252": {
+    "type": "doc",
+    "version": 1,
+    "content": [
+     {
+      "type": "paragraph",
+      "content": [
+       {
+        "type": "text",
+        "text": "mediahub-frontend@2.2.130"
+       }
+      ]
+     }
+    ]
+   }
+  }
+ },
+ "MH-3962": {
+  "key": "MH-3962",
+  "fields": {
+   "summary": "[cn2] Resource-pool allocation failure shows an unclear, non-user-friendly error prompt",
+   "status": {
+    "name": "Done"
+   },
+   "assignee": {
+    "displayName": "Alice Wang"
+   },
+   "labels": [
+    "release:mh-2.1"
+   ],
+   "customfield_11252": {
+    "type": "doc",
+    "version": 1,
+    "content": [
+     {
+      "type": "paragraph",
+      "content": [
+       {
+        "type": "text",
+        "text": "mediahub-frontend@2.2.129"
+       }
+      ]
+     }
+    ]
+   }
+  }
+ },
+ "MH-3972": {
+  "key": "MH-3972",
+  "fields": {
+   "summary": "Graphics insertion output failure notice persists after streaming stops",
+   "status": {
+    "name": "Done"
+   },
+   "assignee": {
+    "displayName": "Erin Zhang"
+   },
+   "labels": [
+    "release:mh-2.1"
+   ],
+   "customfield_11252": {
+    "type": "doc",
+    "version": 1,
+    "content": [
+     {
+      "type": "paragraph",
+      "content": [
+       {
+        "type": "text",
+        "text": "mediahub-frontend@2.2.129"
+       }
+      ]
+     }
+    ]
+   }
+  }
+ },
+ "MH-3977": {
+  "key": "MH-3977",
+  "fields": {
+   "summary": "Graphics Insertion panel layout broken at 1280px width",
+   "status": {
+    "name": "Done"
+   },
+   "assignee": {
+    "displayName": "Erin Zhang"
+   },
+   "labels": [
+    "release:mh-2.1"
+   ],
+   "customfield_11252": {
+    "type": "doc",
+    "version": 1,
+    "content": [
+     {
+      "type": "paragraph",
+      "content": [
+       {
+        "type": "text",
+        "text": "mediahub-frontend@2.2.129"
+       }
+      ]
+     }
+    ]
+   }
+  }
+ },
+ "MH-3978": {
+  "key": "MH-3978",
+  "fields": {
+   "summary": "Refreshing the home page while a source preview is running pops a \"requested service was not found\" error (partylineDomain missing in initConfig)",
+   "status": {
+    "name": "Done"
+   },
+   "assignee": {
+    "displayName": "Erin Zhang"
+   },
+   "labels": [
+    "release:mh-2.1"
+   ],
+   "customfield_11252": {
+    "type": "doc",
+    "version": 1,
+    "content": [
+     {
+      "type": "paragraph",
+      "content": [
+       {
+        "type": "text",
+        "text": "mediahub-frontend@2.2.129"
+       }
+      ]
+     }
+    ]
+   }
+  }
+ },
+ "MH-3979": {
+  "key": "MH-3979",
+  "fields": {
+   "summary": "summary withheld",
+   "status": {
+    "name": "Review"
+   },
+   "assignee": {
+    "displayName": "Erin Zhang"
+   },
+   "labels": [
+    "release:mh-2.1"
+   ],
+   "customfield_11252": {
+    "type": "doc",
+    "version": 1,
+    "content": [
+     {
+      "type": "paragraph",
+      "content": [
+       {
+        "type": "text",
+        "text": "mediahub-frontend@2.2.130"
+       }
+      ]
+     }
+    ]
+   }
+  }
+ },
+ "MH-3987": {
+  "key": "MH-3987",
+  "fields": {
+   "summary": "[App] Drive CSC sessions through mqtt-gateway instead of direct HTTP",
+   "status": {
+    "name": "Review"
+   },
+   "assignee": {
+    "displayName": "Erin Zhang"
+   },
+   "labels": [],
+   "customfield_11252": null
+  }
+ },
+ "MH-3988": {
+  "key": "MH-3988",
+  "fields": {
+   "summary": "Pre-start permission request omits credentials, hits prod billing",
+   "status": {
+    "name": "Review"
+   },
+   "assignee": {
+    "displayName": "Erin Zhang"
+   },
+   "labels": [],
+   "customfield_11252": null
+  }
+ },
+ "MH-3989": {
+  "key": "MH-3989",
+  "fields": {
+   "summary": "[cn2] Quick settings should remove the example URLs for source types not supported in the China region",
+   "status": {
+    "name": "Review"
+   },
+   "assignee": {
+    "displayName": "Alice Wang"
+   },
+   "labels": [
+    "release:mh-2.1"
+   ],
+   "customfield_11252": {
+    "type": "doc",
+    "version": 1,
+    "content": [
+     {
+      "type": "paragraph",
+      "content": [
+       {
+        "type": "text",
+        "text": "mediahub-frontend@2.2.130"
+       }
+      ]
+     }
+    ]
+   }
+  }
+ },
+ "MH-3991": {
+  "key": "MH-3991",
+  "fields": {
+   "summary": "View Object on filtered-out new destination opens quick-create form",
+   "status": {
+    "name": "Done"
+   },
+   "assignee": {
+    "displayName": "Erin Zhang"
+   },
+   "labels": [
+    "release:mh-2.1"
+   ],
+   "customfield_11252": {
+    "type": "doc",
+    "version": 1,
+    "content": [
+     {
+      "type": "paragraph",
+      "content": [
+       {
+        "type": "text",
+        "text": "unified-media-frontend@3.0.43"
+       }
+      ]
+     }
+    ]
+   }
+  }
+ },
+ "MH-3992": {
+  "key": "MH-3992",
+  "fields": {
+   "summary": "[cn2] Multiple UI strings not translated to Chinese under Chinese locale (Media Analyzer fields, micro-service menu, MPEG-TS mux settings, Seamless switching toast, etc.)",
+   "status": {
+    "name": "Review"
+   },
+   "assignee": {
+    "displayName": "Alice Wang"
+   },
+   "labels": [
+    "release:mh-2.1"
+   ],
+   "customfield_11252": {
+    "type": "doc",
+    "version": 1,
+    "content": [
+     {
+      "type": "paragraph",
+      "content": [
+       {
+        "type": "text",
+        "text": "mediahub-frontend@2.2.130"
+       }
+      ]
+     }
+    ]
+   }
+  }
+ },
+ "MH-3993": {
+  "key": "MH-3993",
+  "fields": {
+   "summary": "Graphics Insertion missing from output with 4K profile",
+   "status": {
+    "name": "Review"
+   },
+   "assignee": {
+    "displayName": "Erin Zhang"
+   },
+   "labels": [
+    "release:mh-2.1"
+   ],
+   "customfield_11252": {
+    "type": "doc",
+    "version": 1,
+    "content": [
+     {
+      "type": "paragraph",
+      "content": [
+       {
+        "type": "text",
+        "text": "unified-streaming@2.1.91"
+       }
+      ]
+     }
+    ]
+   }
+  }
+ },
+ "MH-3998": {
+  "key": "MH-3998",
+  "fields": {
+   "summary": "SCTE-35 include option on SRT, UDP and RTP destinations",
+   "status": {
+    "name": "Review"
+   },
+   "assignee": {
+    "displayName": "Erin Zhang"
+   },
+   "labels": [],
+   "customfield_11252": null
+  }
+ },
+ "MH-4000": {
+  "key": "MH-4000",
+  "fields": {
+   "summary": "MediaHub does not report \"Start blocked\" to billing Monitor when start is blocked by token permission (upgrade tvu-common-ui to 1.2.243)",
+   "status": {
+    "name": "Review"
+   },
+   "assignee": {
+    "displayName": "Erin Zhang"
+   },
+   "labels": [
+    "release:mh-2.1"
+   ],
+   "customfield_11252": {
+    "type": "doc",
+    "version": 1,
+    "content": [
+     {
+      "type": "paragraph",
+      "content": [
+       {
+        "type": "text",
+        "text": "mediahub-frontend@2.2.130"
+       }
+      ]
+     }
+    ]
+   }
+  }
+ },
+ "MH-4001": {
+  "key": "MH-4001",
+  "fields": {
+   "summary": "\"View Object\" link does nothing after creating a second object",
+   "status": {
+    "name": "Review"
+   },
+   "assignee": {
+    "displayName": "Erin Zhang"
+   },
+   "labels": [
+    "release:mh-2.1"
+   ],
+   "customfield_11252": {
+    "type": "doc",
+    "version": 1,
+    "content": [
+     {
+      "type": "paragraph",
+      "content": [
+       {
+        "type": "text",
+        "text": "mediahub-frontend@2.2.130"
+       }
+      ]
+     }
+    ]
+   }
+  }
+ }
+}

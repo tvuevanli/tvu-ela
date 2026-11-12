@@ -1,0 +1,16 @@
+{
+ "line": "2.1",
+ "lane": "qa-cn3",
+ "lane_name": "QA-AWS3",
+ "build": "91",
+ "date": "2026-11-11",
+ "at": "2026-11-11T18:18:41+08:00",
+ "source": "the release thread https://tvunetworks.slack.com/archives/C0C16LK4KT9/p1794389824737829 (andyBot, 2026-11-11_Release) and the release mail [Release Mediahub QA-AWS3] For 2.1 Release build 91; Jenkins ur-caller #382, media-hub-v4 #276, mediahub-front-docker #187, mx-service-front-docker #201",
+ "services": [
+  {"service": "UR Caller", "from": "2.1.90", "to": "2.1.91", "for": "SCTE off switch, overlay cleanup and 4K buffering, operator logging, YouTube readiness, CSC via MQTT", "keys": ["MH-3998", "MH-3926", "MH-3993", "MH-3940", "MH-3873", "MH-3987", "MH-3891", "MH-3887"]},
+  {"service": "MediaHub frontend", "from": "2.2.129", "to": "2.2.130", "for": "Chinese UI copy, billing start-blocked report, permission cookies, audio channel display, View Object link", "keys": ["MH-3992", "MH-3979", "MH-3989", "MH-4000", "MH-3988", "MH-3958", "MH-4001"]},
+  {"service": "MediaHub backend", "from": "2.1.43", "to": "2.1.44", "for": "AIOC schedules as route objects; FloSports API fixes from build 90's QA", "keys": ["MH-3933", "MH-3881", "MH-3903", "MH-3907"]},
+  {"service": "Unified Media frontend", "from": "3.0.43", "to": "3.0.44", "for": "Include SCTE option on SRT, UDP and ProMPEG destinations", "keys": ["MH-3998"]}
+ ],
+ "notes": "UR Caller must ship with or before Unified Media frontend for the SCTE option; this build carries both. mx-media (1.0.290) and mediahub-admin-frontend (1.0.39) unchanged. QA's report is due the evening of 11-12."
+}

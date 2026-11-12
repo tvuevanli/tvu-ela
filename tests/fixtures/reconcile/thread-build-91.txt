@@ -1,0 +1,76 @@
+--- andyBot  ts=1794389824.737829
+--- andyBot  ts=1794389825.392789
+--- Sunny Yin  ts=1794389831.895339
+--- andyBot  ts=1794389832.317279
+--- Summer Chen  ts=1794389843.832079
+--- andyzhao  ts=1794391444.291229
+--- andyBot  ts=1794391587.457259
+--- andyBot  ts=1794391656.854189
+:robot_face:[今日发版] ②③ 4 个构建已并发触发（目标 QA-AWS3）：
+• ur-caller · release2.1 → v2.1.91 <https://jenkins-002.tvunetworks.cn/job/ur-caller/382/>
+• media-hub-v4 · release2.1 → v2.1.44 <https://jenkins-002.tvunetworks.cn/job/media-hub-v4/276/>
+• mediahub-front-docker · release2.1 → v2.2.130 <https://jenkins-002.tvunetworks.cn/job/mediahub-front-docker/187/>
+• mx-service-front-docker · feature/MH3.0-develop-no-s3 → v3.0.44 <https://jenkins-002.tvunetworks.cn/job/mx-service-front-docker/201/>
+--- andyBot  ts=1794391753.062989
+:robot_face:[今日发版] ④ :white_check_mark: ur-caller v2.1.91 构建成功（81s）<https://jenkins-002.tvunetworks.cn/job/ur-caller/382/>
+--- andyBot  ts=1794391781.413179
+:robot_face:[今日发版] ④ :white_check_mark: media-hub-v4 v2.1.44 构建成功（102s）<https://jenkins-002.tvunetworks.cn/job/media-hub-v4/276/>
+--- andyBot  ts=1794391851.739089
+:robot_face:[今日发版] ④ :white_check_mark: mx-service-front-docker v3.0.44 构建成功（163s）<https://jenkins-002.tvunetworks.cn/job/mx-service-front-docker/201/>
+--- andyBot  ts=1794391905.861999
+:robot_face:[今日发版] ④ :white_check_mark: mediahub-front-docker v2.2.130 构建成功（225s）<https://jenkins-002.tvunetworks.cn/job/mediahub-front-docker/187/>
+4 个构建全部成功，均已部署 QA-AWS3。
+--- andyBot  ts=1794391906.791459
+:robot_face:[今日发版] @Summer Slack Bot 本次 QA-AWS3 发版（mediahub-front v2.2.130 / ur-caller v2.1.91）已上，请处理下这几个单的 Jira 状态（评论 + 流转审查+ 改派）：
+• Alice 报的 → 派 Alice：MH-3992、MH-3989
+• 其余 → 派 Erin：MH-4001、MH-4000、MH-3988、MH-3979、MH-3958、MH-3926、MH-3993（ur-caller 里 WebRenderer buffering 改动）
+MH-3927 的改动在本次已被 revert 并入 MH-3926，不用流转。
+--- andyBot  ts=1794391907.872409
+:robot_face:[今日发版] :white_check_mark: 今日 QA3 发版完成
+• ur-caller v2.1.91 (#382) ← Andy
+  - MH-3940 停止日志记实际操作人
+  - MH-3873 YouTube 源等就绪码再翻 ACTIVE（默认 30s）
+  - MH-3987 CSC session 可经 mqtt-gateway（默认关）
+  - MH-3998 SRT/UDP/ProMPEG 可关 SCTE-35 流
+  - MH-3926 删 destination 时清理 overlay app
+  - MH-3993 WebRenderer buffering 6000→1000ms 可配
+  - MH-3891 / MH-3887 FloSports 回修（profileId 错误码、ISSP 端口段）
+• media-hub-v4 v2.1.44 (#276) ← Andy
+  - MH-3933 AIOC 排程 route object + scheduleObjectId
+  - MH-3881 / MH-3903 / MH-3907 FloSports build 90 验收回修
+• mediahub-front v2.2.130 (#187) ← Summer
+  - MH-4001 连续创建后立即查看无反应
+  - MH-4000 启动被拦向 billing 上报 Start blocked
+  - MH-3992 / MH-3979 / MH-3989 中文界面文案修正
+  - MH-3988 permission 请求保留 Cookie
+  - MH-3958 预览 Audio Channels 拆分
+• mx-service-front v3.0.44 (#201) ← Sunny
+  - MH-3998 SRT/UDP/ProMPEG 增加 Include SCTE-35 选项
+:red_circle: 发布顺序：MH-3998 要求 ur-caller 先于或同发 mx-service-front，本次已同带
+未变更：mx-media（v1.0.290 #94）、mediahub-admin-frontend（v1.0.39 #47）
+邮件草稿生成中。
+--- andyBot  ts=1794391952.337989
+:robot_face:[今日发版] ⑤ @andyzhao 邮件草稿已建好，请确认：
+主题：[Release Mediahub QA-AWS3] For 2.1 Release build 91
+收件人：qag / tvuwebteam / rwu / evanli / it / justinchen（6 个）
+正文要点：4 个组件 ur-caller v2.1.91 → media-hub-v4 v2.1.44 → mediahub-front v2.2.130 → mx-service-front v3.0.44；未变更 mx-media v1.0.290 #94、admin-front v1.0.39 #47；DB none；Properties none（3 个新键都有代码默认值）；Rollback 指向 #381/#275/#186/#200。
+拿不准的：① MH-3933 端到端要 AIOC 批分支已部署 QA，我在 Test Focus 里注明了；② MH-3998 的发布顺序约束已写进 Note。
+回可以发我就直接发出；要改直接说。
+--- andyBot  ts=1794392080.864869
+:robot_face:[今日发版] 补充：Evan 的 SCTE-35 功能（MH-3998）本次已带上 ←Evan
+• ur-caller v2.1.91：58b122d6 SRT/UDP/ProMPEG 支持关闭预留 SCTE-35 流
+• mx-service-front v3.0.44：71199c6f 增加 Include SCTE-35 选项；e047232a scte35Enabled 写入门禁改用组件真实类型
+Jira 已处理：MH-3998 已加发版评论，状态本就在审查、经办人 Erin，无需再流转。
+--- andyBot  ts=1794392283.463049
+--- andyzhao  ts=1794392313.343949
+--- andyBot  ts=1794392330.715489
+:robot_face:[今日发版] :white_check_mark: 邮件已发出：[Release Mediahub QA-AWS3] For 2.1 Release build 91
+@Erin Zhang @alicewang @Evan Li QA-AWS3 已部署，可以开测：
+• ur-caller v2.1.91 / media-hub-v4 v2.1.44 / mediahub-front v2.2.130 / mx-service-front v3.0.44
+• Jira：MH-3998 MH-3873 MH-3940 MH-3987 MH-3926 MH-3993 MH-3891 MH-3887 MH-3933 MH-3881 MH-3903 MH-3907 MH-4001 MH-4000 MH-3992 MH-3979 MH-3989 MH-3988 MH-3958
+--- andyBot  ts=1794392331.896259
+--- Summer Chen  ts=1794394866.072079
+--- Sunny Yin  ts=1794394893.862339
+--- Summer Slack Bot  ts=1794394932.393999
+--- Summer Slack Bot  ts=1794395070.664899
+--- andyBot  ts=1794395971.650749

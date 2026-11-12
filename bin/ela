@@ -89,6 +89,10 @@
   ela release unpin <line>         lift the hold · ela release pins: the holds in force
   ela release changes [lane]       what a lane's newest build changed: one line per service and what for, from
                                    its record (<reports>/releases/<line>/); --check FILE validates a record
+  ela release reconcile <lane> [--build N]  the build's tickets against Jira, read-only: Fixed In covering this
+                                   build's version per service (bare = +BUILD), the release label, the status and
+                                   assignee the release thread announced; a revert folded into another ticket is an
+                                   open question. --batch: the appends and labels, dry run unless --apply
   ela promote <line> <from> <to>   the promotion assessment, ranked
                                    [--purpose regular|prod-staging|demo] [--scope app|all]
                                    [--bundles] [--out DIR]; or one part of it:

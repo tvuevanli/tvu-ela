@@ -1,0 +1,73 @@
+--- andyBot  ts=1794303455.218569
+--- andyBot  ts=1794303455.821199
+--- andyBot  ts=1794303463.095959
+--- Summer Chen  ts=1794303501.866349
+--- Sunny Yin  ts=1794305009.452669
+--- andyBot  ts=1794307204.816779
+--- andyzhao  ts=1794308688.980389
+--- andyzhao  ts=1794308726.366559
+--- andyBot  ts=1794308785.005809
+--- andyBot  ts=1794308842.962289
+:robot_face:[今日发版] 已触发构建：
+• ur-caller v2.1.90 <https://jenkins-002.tvunetworks.cn/job/ur-caller/381/>
+• media-hub-v4 v2.1.43 <https://jenkins-002.tvunetworks.cn/job/media-hub-v4/275/>
+• mx-service-front-docker v3.0.42 <https://jenkins-002.tvunetworks.cn/job/mx-service-front-docker/199/>
+--- andyBot  ts=1794309005.735339
+--- andyBot  ts=1794309111.790329
+:robot_face:[今日发版] :white_check_mark: 今日 QA3 发版完成
+• ur-caller v2.1.90 (#381) ← Andy
+   - 编码模板详情按 ids 分批查，避免 413
+   - MH-3887 createDestination 补 RTSP Pull 地址说明
+• media-hub-v4 v2.1.43 (#275) ← Andy
+   - MH-3881 destination 音频 remap 读写 API
+   - MH-3903 按 objectId 返回设备缩略图与 ConfigT 链接
+   - MH-3883 PUT sourceObject 写 uhd/autoPreview 等
+   - MH-3887 tvuServerUrl 增加 RTSP_PULL 地址
+   - MH-3907 streamInfo 返回 source 实时码率
+   - MH-3795 Grid 子类型改按 PID 槽位判
+   - 其它 3 笔：log 查询 ES 超时可配、建 ext NPE 修复、文档
+• mx-service-front-docker v3.0.42 (#199) ← Sunny
+   - 文档自动同步 1 笔
+Jira 6 单已评论、流转审查、改派 Erin。邮件草稿生成中。
+--- Summer Chen  ts=1794309130.172209
+--- andyBot  ts=1794309138.035219
+--- andyBot  ts=1794309281.457729
+:robot_face:[今日发版] 收到 Summer：mediahub-front-docker（release2.1 → QA-AWS3）分支有新提交，已触发 v2.2.129 <https://jenkins-002.tvunetworks.cn/job/mediahub-front-docker/186/> 。构建完成后并入今天这封邮件，邮件先不发。
+--- andyBot  ts=1794309510.007509
+:robot_face:[今日发版] :white_check_mark: mediahub-front-docker v2.2.129 (#186) 构建成功 ← Summer
+   - MH-1860 未开 overlay 时隐藏 Graphics Insertion
+   - MH-3953 后退后前进按钮不亮（HTTP/MQTT）
+   - MH-3972 停播后不再提示图形叠加启动失败
+   - MH-3978 缺 partylineDomain 时不再发请求
+   - MH-3962 资源池无可用节点时提示更直白
+   - MH-3941 交互按钮英文提示修正
+   - MH-3977 图形叠加操作台窄弹窗布局
+@Summer Slack Bot 请帮 Summer 处理以上 Jira（评论、流转审查、改派）。
+@andyzhao 邮件草稿已并入 MediaHub 前端 v2.2.128→v2.2.129，主题与收件人不变，回可以发我就发出。
+--- Summer Slack Bot  ts=1794309512.217719
+--- Summer Slack Bot  ts=1794309562.857029
+--- andyzhao  ts=1794309593.321739
+--- andyBot  ts=1794309648.208989
+:robot_face:[今日发版] :e-mail: 发版邮件已发出：[Release Mediahub QA-AWS3] For 2.1 Release build 90
+@Erin Zhang @alicewang @Evan Li QA-AWS3 可以开测：
+• ur-caller v2.1.90
+• media-hub-v4 v2.1.43
+• MediaHub 前端 v2.2.129
+• Unified Media 前端 v3.0.42
+Jira：MH-3881 MH-3903 MH-3883 MH-3887 MH-3907 MH-3795（后端）；MH-1860 MH-3953 MH-3972 MH-3978 MH-3962 MH-3941 MH-3977（前端）
+--- andyBot  ts=1794309649.240119
+--- Sunny Yin  ts=1794313002.395199
+--- andyBot  ts=1794313067.045099
+:robot_face:[今日发版] 收到 Sunny 追加：mx-service-front-docker（feature/MH3.0-develop-no-s3 → QA-AWS3）有新提交 MH-3991，已触发 v3.0.43 <https://jenkins-002.tvunetworks.cn/job/mx-service-front-docker/200/>
+--- andyBot  ts=1794313199.825229
+:robot_face:[今日发版] :white_check_mark: mx-service-front-docker v3.0.43 (#200) 构建成功
+   - MH-3991 tangibleTypeMap 补登记 partyline，修复 view object 编辑回显
+@Sunny Yin 需要把这次追加回复到今天的发版邮件里吗？回要我就回复邮件（只写版本变动和 change log）。
+--- Sunny Yin  ts=1794313221.016729
+--- andyBot  ts=1794313259.510579
+:robot_face:[今日发版] :e-mail: 已回复今天的发版邮件（追加 Unified Media 前端 v3.0.42→v3.0.43）。
+@Erin Zhang @alicewang @Evan Li 追加可测：mx-service-front-docker v3.0.43，Jira：MH-3991
+--- andyBot  ts=1794316905.399089
+--- Summer Chen  ts=1794361203.943609
+--- Summer Slack Bot  ts=1794361208.191339
+--- Summer Slack Bot  ts=1794361262.493259

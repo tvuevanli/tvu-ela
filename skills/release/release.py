@@ -15,6 +15,11 @@ L1: subcommands, --json, stdlib only. No store, no scheduler: every answer is th
                                           shows the change, --apply writes the entry and commits that file alone (ADR 0012)
   pins     [--json]                       the official bundle per line, as pinned
   drift    [line] [--bundles N] [--host]  GM service names shipped in the newest N bundles vs map/services.yaml gm_names
+  changes  [lane] [--check FILE]          what a lane's newest build changed, by service and what for, from its record
+  reconcile <lane> [--build N] [--batch [--apply]]  the build's tickets against Jira: a Fixed In covering this build's
+                                          version of each service, the release label, the status and assignee the
+                                          release thread announced; a fold is an open question. Read-only; the reading
+                                          is kept beside the record. --batch: the appends and labels, dry run first
   login    [qa|tvu] [--force]             qa: tvutest account login → SID (2h), printed for the env file.
                                           tvu: a one-time HTTPS page under ela.tvunetworks.com collects the browser's
                                           SID after Google SSO (a paste field is the fallback); stored in
@@ -1484,9 +1489,10 @@ def build_title(rec):
     return f"MediaHub {rec['line']} build {rec['build']} → {rec.get('lane_name') or rec['lane']} · what changed"
 
 
-def build_note(rec):
-    """The release note's body: the title, where it came from, the table of service, version and what for. Ticket keys
-    bare; the vault's linker links them."""
+def build_note(rec, reading=None):
+    """The release note's body: the title, where it came from, the table of service, version and what for, then the
+    Jira gaps `ela release reconcile` last read for this build (nothing when there is none). Ticket keys bare; the
+    vault's linker links them."""
     L = [f"# {build_title(rec)}", ""]
     L.append(f"*{rec.get('lane_name') or rec['lane']}, {rec['date']}." + (f" Source: {rec['source']}." if rec.get("source") else "") + "*")
     L += ["", "| service | version | what for |", "|---|---|---|"]
@@ -1496,7 +1502,100 @@ def build_note(rec):
         L.append(f"| {v['service']} | {ver} | {' '.join(str(v['for']).split())}" + (f" ({keys})" if keys else "") + " |")
     if rec.get("notes"):
         L += ["", " ".join(str(rec["notes"]).split())]
+    gaps = reconcile_mod().gaps_table(reading) if reading else ""
+    if gaps:
+        L += ["", gaps.rstrip("\n")]
     return "\n".join(L) + "\n"
+
+
+def reconcile_mod():
+    sys.modules.setdefault("release", sys.modules[__name__])   # run as a script, the module reconcile imports is this one
+    import reconcile                                           # noqa: E402 — a build against Jira and its release thread
+    return reconcile
+
+
+def lane_builds(reports, lane, builds=None):
+    """The lane's build records, newest first; `builds` narrows to those numbers."""
+    want = lane_slug(lane or "")
+    recs = [r for r in build_records(reports) if not want or want in (lane_slug(r["lane"]), lane_slug(r.get("lane_name")))]
+    return [r for r in recs if str(r["build"]) in {str(b) for b in builds}] if builds else recs
+
+
+def cmd_reconcile(a):
+    """A lane's build against Jira: what each ticket it carries lacks (Fixed In, the label, the status and assignee the
+    release thread announced), and the folds that are open questions. Read-only; the reading is kept beside the record
+    for the release note. `--batch` runs the Fixed In appends and labels through the jira verbs, dry run unless --apply."""
+    RC = reconcile_mod()
+    s = site()
+    reports = s.get("reports") or os.path.join(s.get("projects", ""), "reports")
+    recs = lane_builds(reports, a.lane, a.build)
+    if not a.build:
+        recs = recs[:1]
+    if not recs:
+        print(f"no build record for {a.lane}" + (f" build {', '.join(a.build)}" if a.build else "") + " under <reports>/releases/", file=sys.stderr)
+        sys.exit(EX_NOTFOUND)
+    now = datetime.datetime.now().astimezone().isoformat(timespec="seconds")
+    a.env_file = a.env_file or s.get("env")                    # jira and slack read their tokens from the site's env file
+    results = []
+    for rec in sorted(recs, key=lambda r: (r["date"], r["name"])):
+        msgs = RC.read_thread(rec, a.env_file)
+        reading = RC.thread_reading(msgs, RC.record_keys(rec)) if msgs is not None else None
+        keys = RC.record_keys(rec) + [f["key"] for f in (reading or {}).get("folds") or []]
+        res = dict(RC.reconcile(rec, RC.read_issues(keys, a.env_file), reading), at=now)
+        results.append(res)
+        if not a.no_save:
+            p = RC.reading_path(reports, res)
+            os.makedirs(os.path.dirname(p), exist_ok=True)
+            with open(p + ".tmp", "w", encoding="utf-8") as fh:
+                fh.write(json.dumps(res, indent=1, ensure_ascii=False) + "\n")
+            os.replace(p + ".tmp", p)
+    raised = []
+    if not a.no_save:
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "vault"))
+        import questions as Q                                  # noqa: E402 — ADR 0016's records
+
+        def write(path, text):
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path + ".tmp", "w", encoding="utf-8") as fh:
+                fh.write(text)
+            os.replace(path + ".tmp", path)
+        state = Q.load(reports)
+        raised = RC.raise_questions(state, results, RC.saved_readings(reports, a.lane), datetime.date.today(), now,
+                                    drafts_dir=os.path.join(reports, "ela", "drafts"), write=write)
+        if raised:
+            Q.save(reports, state, write)
+    if a.batch and a.apply and os.environ.get("ELA_NO_APPLY"):
+        print("reconcile: an unattended session dry-runs the batch; --apply is the owner's word", file=sys.stderr); sys.exit(EX_USAGE)
+    if a.batch:
+        ran = RC.run_batch(results, apply=a.apply, env_file=a.env_file)
+        if a.json:
+            print(json.dumps([{"key": k, "rc": rc, "out": t} for k, rc, t in ran], ensure_ascii=False)); return
+        if not ran:
+            print("nothing to write: every ticket has its Fixed In and label"); return
+        print(("APPLIED" if a.apply else "DRY RUN") + f" — {RC.ask_text(results) or ''} Append-only; status, assignee and folds are not in the batch.")
+        for k, rc, t in ran:
+            print("\n".join("  " + l for l in t.splitlines()) if rc == 0 else f"  {k}: failed: {t[:200]}")
+        if not a.apply:
+            print("pass --apply to write")
+        sys.exit(0 if all(rc == 0 for _, rc, _ in ran) else EX_REMOTE)
+    if a.json:
+        print(json.dumps({"results": results, "ask": RC.ask_text(results), "raised": raised}, ensure_ascii=False)); return
+    for res in results:
+        print(f"{res.get('lane_name') or res['lane']} build {res['build']} ({res['line']}, {res['date']}): "
+              f"{len(res['rows'])} ticket{'s' if len(res['rows']) != 1 else ''} with a gap, {len(res['ok'])} in order")
+        for r in res["rows"]:
+            print(f"  {r['key']}  {r['status'] or '?'} · {r['assignee'] or 'unassigned'} · {(r['agent'] or 'no agent named') + ('' if r.get('asked', True) else ', not asked')}")
+            for m in r["misses"]:
+                print(f"    {m['what']}" + (f" → {m['entry']}" if m.get("entry") else ""))
+        for q in res["questions"]:
+            print(f"  open question to {q.get('holder') or 'its holder'}: {q['text']}")
+        for g in res["gaps"]:
+            print(f"  not judged: {g}")
+    ask = RC.ask_text(results)
+    if ask:
+        print(f"ask: {ask} (`ela release reconcile {a.lane} " + " ".join(f"--build {r['build']}" for r in results) + " --batch`)")
+    if raised:
+        print(f"raised {len(raised)} open question{'s' if len(raised) != 1 else ''} ({', '.join(raised)})")
 
 
 def cmd_changes(a):
@@ -1556,11 +1655,16 @@ def main():
     p = sub.add_parser("changes", help="what a lane's newest build changed, one line per service and what for, from its record")
     p.add_argument("lane", nargs="?", help="qa-cn3 or QA-AWS3; every record when omitted"); p.add_argument("--check", metavar="FILE", help="validate a build record")
     p.add_argument("--json", action="store_true")
+    p = sub.add_parser("reconcile", help="a lane's build against Jira: Fixed In, the release label, the status and assignee the thread announced; read-only, --batch writes the appends on --apply")
+    p.add_argument("lane", help="qa-cn3 or QA-AWS3"); p.add_argument("--build", action="append", help="a build number, repeatable; default the newest")
+    p.add_argument("--batch", action="store_true", help="the Fixed In appends and labels through the jira verbs; dry run unless --apply")
+    p.add_argument("--apply", action="store_true"); p.add_argument("--no-save", action="store_true", help="keep no reading and raise no question")
+    p.add_argument("--json", action="store_true")
     p = sub.add_parser("login"); p.add_argument("target", nargs="?", choices=("qa", "tvu"), default="qa"); p.add_argument("--force", action="store_true"); p.add_argument("--no-browser", action="store_true"); p.add_argument("--timeout", type=int, default=300); p.add_argument("--json", action="store_true")
     p.add_argument("--keepalive", action="store_true", help="tvu: one validation call that renews the session's idle TTL; never logs in, never retries")
     a = ap.parse_args()
     {"bundles": cmd_bundles, "bundle": cmd_bundle, "bundle-diff": cmd_bundle_diff, "envs": cmd_envs, "gateway": cmd_gateway, "builds": cmd_builds, "drift": cmd_drift, "login": cmd_login, "pin": cmd_pin, "unpin": cmd_unpin, "pins": cmd_pins,
-     "create": cmd_create, "changes": cmd_changes}[a.cmd](a)
+     "create": cmd_create, "changes": cmd_changes, "reconcile": cmd_reconcile}[a.cmd](a)
 
 
 if __name__ == "__main__":

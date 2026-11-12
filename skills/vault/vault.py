@@ -711,7 +711,8 @@ def report_notes(reports, today):
                           {"type": "day", "date": m.group(1), "kind": m.group(2)}, fl, src_rel=f"runner/{f}"))
     for rec in build_records(reports):                    # a build a lane took: its release note, written once (source vault)
         R = release_mod()
-        notes.append(Note(f"{RELEASES}/{rec['line']}/{rec['name']}.md", R.build_title(rec), R.build_note(rec),
+        reading = R.reconcile_mod().saved_reading(reports, rec)   # its Jira gaps, as `ela release reconcile` last read them
+        notes.append(Note(f"{RELEASES}/{rec['line']}/{rec['name']}.md", R.build_title(rec), R.build_note(rec, reading),
                           {"type": "report", "date": rec["date"], "status": "decided", "source": "vault",
                            "keys": sorted({k for v in rec["services"] for k in v.get("keys") or []})}, [],
                           src_rel=f"releases/{rec['line']}/{rec['name']}.json"))

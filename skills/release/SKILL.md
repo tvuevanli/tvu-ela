@@ -66,7 +66,8 @@ lanes each release line uses — all in `<elak>/map/release.yaml` (origin per bl
   build carrying it (`builds`) → the version on the lane (`envs --host prod`), whose +BUILD names the lane's own
   build → whether that build's sha descends from the fix commit → verdict, each step cited. A higher version is
   not containment: one job builds several branches (release.yaml trains), so `ela fixed-in` judges by ancestry.
-- **One write: create a bundle, never anything else.** `$R create [name] --from <base> --set "<GM name or slug>=<tag>"
+- **One write of its own: create a bundle.** (The reconcile batch below writes nothing itself; it runs the jira
+  capability's append verbs.) `$R create [name] --from <base> --set "<GM name or slug>=<tag>"
   … [--drop <svc>] [--note "why"] [--apply]` makes a new bundle on prod from a base: every `--set` resolves to exactly
   one tag of that service (else exit 3 with the nearest tags), the name must be one the owner uses (daily-<day>-sN-dM,
   stage-sN-dM, rc|beta|ga-sN-dM, MediaHub M.m.N, MediaHub M.m rcN; default the base's next) and must not exist, and the
@@ -76,6 +77,18 @@ lanes each release line uses — all in `<elak>/map/release.yaml` (origin per bl
   `US.call` refuses any write path but `tagBundle/create` (delete, update, bind, …) by path, since reads POST too, and
   create off prod. Temporary or never-published bundles have no name form yet; they stay in the GM UI until the owner
   names one.
+- **A build is reconciled against Jira after the release, never during it.** `$R reconcile <lane> [--build N …]`
+  takes the build record's services, versions and keys as the scope and reads each ticket now: a Fixed In entry for
+  every service that carries it at or past this build's version in its series (a bare `unified-streaming@2.1.91` and
+  `2.1.91+382` are one fix; only older entries is rework not appended: the new entry is appended, an existing one is
+  never rewritten; `flag:no-version` and `flag:non-carrier` owe none), the line's release label, and — from the
+  release thread the record cites — the status (Review) and assignee announced for the key. A key the thread says was
+  reverted and folded into another is not a Fixed In matter: it is an open question (ADR 0016) to that ticket's
+  holder. The reading is kept beside the record (`<name>.reconcile.json`); the release note's Jira gaps table is
+  rendered from it, and the same miss by one agent on three builds is one open question to the agent's owner, with a
+  message drafted for the owner of ela to send. `--batch` is the one write path: per ticket a `jira fixed-in --add`
+  and a `jira label --add`, dry run unless `--apply`, refused under `ELA_NO_APPLY`. ela posts nothing in the release
+  thread; the engineers' agents keep doing the Jira side, ela checks it.
 - **Prod's bundle is the newest official one** (`MediaHub <M.m>.N [(qualifier)]`, `MediaHub <M.m> rcN`, anchored; a
   side bundle such as "Docker Only" or "pre" never counts). `$R pin <line> <bundle> --why "…"` only holds prod on an
   older official on purpose, `$R unpin <line>` lifts it (ADR 0013); an rc bundle is special-purpose, not a lane (owner's
