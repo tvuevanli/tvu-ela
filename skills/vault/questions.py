@@ -244,6 +244,30 @@ def save(reports, state, write):
     write(p, json.dumps(state, indent=1, ensure_ascii=False, sort_keys=True) + "\n")
 
 
+def follow(state, moved):
+    """Each record's notes followed through a rename ({old path: new path}): its sources, where it was first raised,
+    the digests of the notes ela built. A renamed note's boxes then find their records by source, so nothing is
+    seeded twice. → the ids changed."""
+    if not moved:
+        return []
+    def to(where):
+        p, sep, g = where.partition("#")
+        return moved.get(p, p) + sep + g
+    out = []
+    for r in state["questions"].values():
+        srcs = list(dict.fromkeys(to(s) for s in r.get("sources") or []))
+        first = r.get("first")
+        if isinstance(first, dict) and first.get("where"):
+            first = dict(first, where=to(first["where"]))
+        if srcs != r.get("sources") or first != r.get("first"):
+            r["sources"], r["first"] = srcs, first
+            out.append(r["id"])
+    built = state.setdefault("built", {})
+    for o in [k for k in built if k in moved]:
+        built.setdefault(moved[o], built.pop(o))
+    return out
+
+
 def ticket_state(issue):
     f = (issue or {}).get("fields") or {}
     return {"status": (f.get("status") or {}).get("name"), "assignee": (f.get("assignee") or {}).get("displayName"),

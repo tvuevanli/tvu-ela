@@ -3597,6 +3597,7 @@ def questions_pass(vault, reports, facts, now, meetings=(), jira="", seeds=(), d
     unworded: [id]})."""
     Q = questions_mod()
     state = Q.load(reports)
+    followed = Q.follow(state, renames(vault, reports))   # a renamed note keeps its questions, never seeds them again
     today = now.date()
     owner = owner_name(facts)
     cache = {}
@@ -3684,6 +3685,7 @@ def questions_pass(vault, reports, facts, now, meetings=(), jira="", seeds=(), d
     if not dry_run:
         Q.save(reports, state, atomic_write)
     return state, {"consumed": consumed, "closed": closed, "new": sorted(set(state["questions"]) - before), "refused": refused,
+                   "followed": followed,
                    "unworded": [r["id"] for r in Q.open_records(state) if Q.unworded(r)]}
 
 
@@ -5086,6 +5088,8 @@ def cmd_restore(a):
         src = None
     if a.path not in paths and src not in srcs:
         print(f"not among the deleted notes: {a.path}", file=sys.stderr); sys.exit(2)
+    if a.path in renames(s["vault"], s.get("reports")):
+        print(f"{a.path} was renamed, not deleted: it is {renames(s['vault'], s.get('reports'))[a.path]}", file=sys.stderr); sys.exit(2)
     row = {"at": datetime.datetime.now().isoformat(timespec="seconds"), "path": a.path, "restored": True}
     if src:
         row["src"] = src
@@ -5142,7 +5146,7 @@ def atomic_write(path, text):
     return True
 
 
-WRITERS = ("sync", "questions", "marks", "finish", "note", "restore", "setup", "afterwards", "tidy", "lint", "migrate")   # guidance only reads; lint writes with --fix --apply
+WRITERS = ("sync", "questions", "marks", "finish", "note", "restore", "setup", "afterwards", "tidy", "lint", "migrate", "rename")   # guidance only reads; lint writes with --fix --apply
 
 
 def vault_lock():
@@ -5193,10 +5197,61 @@ def cmd_questions(a):
         sys.exit(2)
 
 
-def gone_by_hand(vault, old_native, native_paths, removed, backup=None):
+STEM = re.compile(r"^[a-z0-9][a-z0-9._-]*$")           # an alias that reads as a file name, not a title
+
+
+def renames(vault, reports):
+    """{old path: new path} for each note renamed in the vault: the close log's rename rows (`renamed_to`, written by
+    `ela vault rename` or by hand; a migration's `renamed_from`), then each note's aliases that read as a file name its
+    folder no longer holds (an old name is kept as an alias). A chain a → b → c resolves to c."""
+    out = {}
+    try:
+        for line in open(os.path.join(reports or "", "ela", "vault-removed.jsonl"), encoding="utf-8"):
+            try:
+                row = json.loads(line)
+            except ValueError:
+                continue
+            if row.get("renamed_to") and row.get("path"):
+                out[row["path"]] = row["renamed_to"]
+            elif row.get("renamed_from") and row.get("path"):
+                out[row["renamed_from"]] = row["path"]
+    except OSError:
+        pass
+    for rel, text in vault_notes(vault) if vault and os.path.isdir(vault) else ():
+        d = os.path.dirname(rel)
+        for al in list_prop(split_front(text)[0], "aliases"):
+            old = f"{d}/{al}.md" if d else f"{al}.md"
+            if STEM.match(al) and old != rel and old not in out and not os.path.exists(os.path.join(vault, old)):
+                out[old] = rel
+    def last(p, seen=()):
+        n = out.get(p)
+        return p if n is None or n in seen else last(n, seen + (p,))
+    return {o: last(o) for o in out if last(o) != o}
+
+
+def follow_manifest(m, moved):
+    """The manifest's paths followed through renames, in place: the files it wrote, the vault's own notes, and the
+    path-keyed records. → the keys changed."""
+    changed = []
+    for key in ("files", "native"):
+        if key in m:
+            new = sorted({moved.get(p, p) for p in m.get(key) or []})
+            if new != sorted(m.get(key) or []):
+                m[key] = new
+                changed.append(key)
+    for key in ("sources", "seen", "generated"):
+        d = m.get(key) or {}
+        if any(k in moved for k in d):
+            m[key] = {moved.get(k, k): v for k, v in d.items() if not (k in moved and moved[k] in d)}
+            changed.append(key)
+    return changed
+
+
+def gone_by_hand(vault, old_native, native_paths, removed, backup=None, moved=None):
     """The notes of the vault's own (source: vault: meeting notes, plans, the owner's documents) the last sync saw and
-    that are gone now without a verb: no deletion row, no note of the same name elsewhere. On the first sync that keeps
-    the list, the last backup's copy of the vault stands in for it. A note gone this way keeps its trace."""
+    that are gone now without a verb: no deletion row, no rename (`moved`, from renames), no note of the same name
+    elsewhere. On the first sync that keeps the list, the last backup's copy of the vault stands in for it. A note gone
+    this way keeps its trace."""
     if old_native is None:
         old_native = [n.path for n in native_notes(backup)] if backup and os.path.isdir(backup) else []
     names = {}
@@ -5204,8 +5259,8 @@ def gone_by_hand(vault, old_native, native_paths, removed, backup=None):
         dirs[:] = [d for d in dirs if not d.startswith(".")]
         for f in fs:
             names.setdefault(f.lower(), True)
-    return sorted(r for r in old_native if r not in native_paths and r not in removed and not os.path.exists(os.path.join(vault, r))
-                  and os.path.basename(r).lower() not in names)
+    return sorted(r for r in old_native if r not in native_paths and r not in removed and r not in (moved or {})
+                  and not os.path.exists(os.path.join(vault, r)) and os.path.basename(r).lower() not in names)
 
 
 def record_gone(path, rels, now):
@@ -5321,7 +5376,8 @@ def cmd_sync(a):
         print(f"vault: not synced — {e}", file=sys.stderr); sys.exit(3)
     if newly and not a.dry_run:
         record_removed(removed_path, newly, old_src, now, archived)
-    by_hand = gone_by_hand(vault, old_native, native_paths, removed, os.path.join(s.get("runtime") or "", "backup", "work", "vault"))
+    by_hand = gone_by_hand(vault, old_native, native_paths, removed, os.path.join(s.get("runtime") or "", "backup", "work", "vault"),
+                           renames(vault, s.get("reports")))      # a renamed note has not vanished
     if by_hand and not a.dry_run:
         record_gone(removed_path, by_hand, now)
     for r in by_hand:
@@ -6026,6 +6082,48 @@ def cmd_migrate(a):
                   if a.apply else "Nothing written. `ela vault migrate --apply` carries this out under the vault lock."))
 
 
+def follow_records(vault, reports, moved, apply):
+    """The records that name a note by its path brought to its new name: the open questions' sources
+    (<reports>/ela/questions.json) and the sync's manifest. → [(record, what changed)]; written only with apply."""
+    out = []
+    Q = questions_mod()
+    state = Q.load(reports)
+    ids = Q.follow(state, moved)
+    if ids:
+        out.append(("questions.json", f"{len(ids)} questions follow the rename: " + ", ".join(ids[:8]) + (", …" if len(ids) > 8 else "")))
+        if apply:
+            Q.save(reports, state, atomic_write)
+    mpath = os.path.join(vault, MANIFEST)
+    try:
+        m = json.load(open(mpath))
+    except (OSError, ValueError):
+        m = None
+    keys = follow_manifest(m, moved) if m is not None else []
+    if keys:
+        out.append((MANIFEST, "paths followed in " + ", ".join(keys)))
+        if apply:
+            atomic_write(mpath, json.dumps(m, indent=0))
+    return out
+
+
+def cmd_rename(a):
+    """`ela vault rename --records [--apply]`: the records brought to the renames already made (the close log's
+    rename rows, the old names kept as aliases). A dry run unless --apply; under the vault lock."""
+    s = json.load(open(SITE))
+    vault, reports = s.get("vault"), s.get("reports") or ""
+    if not vault or not os.path.isdir(vault):
+        print(f"site.json `vault` is not a folder: {vault}", file=sys.stderr); sys.exit(2)
+    moved = renames(vault, reports)
+    done = follow_records(vault, reports, moved, a.apply)
+    if a.json:
+        print(json.dumps({"renames": moved, "records": done, "dry_run": not a.apply}, ensure_ascii=False, indent=1)); return
+    for o, n in sorted(moved.items()):
+        print(f"  {o} → {n}")
+    for rec, what in done:
+        print(f"{rec}: {what}")
+    print(f"{len(moved)} renames known · {len(done)} records to follow" + ("" if a.apply else " · DRY RUN (--apply writes them)"))
+
+
 # ── the archive keeps listening: Afterwards ───────────────────────────────────────────────────────────
 # A note that sent something out (`posted:` permalinks) or follows tickets (`keys:`) is watched for a window after it
 # leaves to-read: the threads' replies and the keys' status changes and comments since `watched:` become one dated line
@@ -6430,6 +6528,12 @@ def main():
     p.add_argument("--apply", action="store_true", help="write the records")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_questions)
+    p = sub.add_parser("rename", help="follow renames: --records brings questions.json and the manifest to the names "
+                                      "notes have now; a dry run unless --apply")
+    p.add_argument("--records", action="store_true", help="the records only, for renames already made")
+    p.add_argument("--apply", action="store_true", help="write them, under the vault lock")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_rename)
     p = sub.add_parser("restore", help="bring back a note the owner deleted in the vault")
     p.add_argument("path", help="the note's path in the vault, as the deletion log lists it")
     p.set_defaults(func=cmd_restore)
