@@ -1405,10 +1405,11 @@ SPECS = {
         closing="## Next step in the head (`next-step` is the line Home may name); the tail from Waiting for your word is the sync's"),
     "meeting": dict(
         kind="what you raise at one meeting, and what it ruled",
-        name=(rf"^(?:meetings/{SLUG}|archive/meetings-{SLUG}-\d{{4}}-\d{{2}}|archive/{SLUG})\.md$", "`meetings/<key>.md`; older months `archive/meetings-<key>-<yyyy-mm>.md`"),
-        title=(r" · |^Review list$", "`<meeting> · <days and time>`"),
-        required=(), optional=("date", "status", "keys", "source"),
-        sections=("To raise?", "Ruled"),
+        name=(rf"^(?:meetings/{SLUG}|archive/meetings-{SLUG}-\d{{4}}-\d{{2}}|archive/{SLUG})\.md$",
+              "`meetings/<yyyy-mm-dd>-<key>.md` (or his `<yyyymmdd>-<key>`), the verb's `meetings/<key>.md`; older months `archive/meetings-<key>-<yyyy-mm>.md`"),
+        title=(r" · |^Review list$", "`<meeting> · <day and date>`"),
+        required=(), optional=("date", "status", "keys", "source", "by"),
+        sections=("To raise?", "Ruled?"),                 # Ruled comes after the meeting; a dated note has its own sections (ADR 0016)
         closing="the `- [ ] send` box at the top; each item under 140 characters: ticket link · question · who decides · since when"),
     "day": dict(
         kind="a morning page, what changed the day before, or the week",
@@ -1549,7 +1550,7 @@ def spec_lint(rel, text, generated=False, projects=None):
     if not re.match(sp["name"][0], rel):
         out.append(f"file name: want {sp['name'][1]}")
     name = os.path.basename(rel)[:-3]
-    dm = re.match(r"^(\d{4}-\d{2}-\d{2})-", name)
+    dm = re.match(r"^(\d{4}-\d{2}-\d{2})-", re.sub(r"^(\d{4})(\d{2})(\d{2})-", r"\1-\2-\3-", name))   # his compact date too
     if dm and props.get("date") and props["date"][:10] != dm.group(1) and (props.get("end") or "")[:10] != dm.group(1):   # a sprint is named by its end
         out.append(f"date {props['date']} but the file name says {dm.group(1)}")
     raw = next((l for l in fl if l.startswith("title:")), None)
@@ -1573,7 +1574,7 @@ def spec_lint(rel, text, generated=False, projects=None):
             out.append("no title heading")
         elif opening(head) != opening(title):             # a heading may add a subtitle or a time; it opens the same
             out.append("the first heading is not the title")
-        stem = re.sub(r"^\d{4}-\d{2}-\d{2}-", "", name)
+        stem = re.sub(r"^\d{4}-?\d{2}-?\d{2}-", "", name)
         lost = [n for n in re.findall(r"(?<![\d.])\d{2,}(?![\d.])", stem.replace("-", " ")) if int(n) not in {int(d) for d in re.findall(r"\d+", title)}]
         if lost:
             out.append(f"the file name says {', '.join(lost)}, the title does not")
@@ -3268,6 +3269,9 @@ def meeting_lint(path, text):
     """Lint lines for a meeting note: an item over 140 characters as reading mode shows it, a send line left on it, a
     missing section."""
     n, out = meeting_parse(text), []
+    dated = bool(re.match(r"^\d{4}-?\d{2}-?\d{2}-", os.path.basename(path)))
+    if not ela_wrote(text) or dated:                       # his own note, or one built from the records: its sections are its own
+        return [f"{path}: a send line on a page shown to the team; sending is `ela meeting --key <key> --slack`"] if n["send"] else []
     if n["send"]:
         out.append(f"{path}: a send line on a page shown to the team; sending is `ela meeting --key <key> --slack`")
     for want in (MEETING_RAISE, MEETING_RULED):

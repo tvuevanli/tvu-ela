@@ -301,4 +301,14 @@ with tempfile.TemporaryDirectory() as t:
     V.meeting_roll(vault, datetime.date(2026, 12, 30))
     check("a hand-written meeting note is never rewritten by close or roll", r == [] and open(hand).read() == body)
 
+# the lint reads a dated meeting note, his compact date form too, and asks for no Ruled before the meeting
+with tempfile.TemporaryDirectory() as t:
+    hand = ("---\ntitle: \"MediaHub team sync · Thu 2026-11-12\"\naliases: [\"MediaHub team sync · Thu 2026-11-12\"]\ntype: \"meeting\"\n"
+            "date: \"2026-11-12\"\nsource: \"vault\"\n---\n\n# MediaHub team sync · Thu 2026-11-12\n\n## 1. Close HTTP ports\n\n"
+            "- [ ] " + "a long question " * 12 + "· Robin Wu\n")
+    rel = "meetings/20261112-sync-eng-qa.md"
+    check("a dated note by hand: no spec line, no meeting line", V.spec_lint(rel, hand) == [] and V.meeting_lint(rel, hand) == [])
+    check("its compact date is still checked against its date",
+          V.spec_lint(rel, hand.replace('date: "2026-11-12"', 'date: "2026-11-13"')) == ["date 2026-11-13 but the file name says 2026-11-12"])
+
 sys.exit(1 if failures else 0)
