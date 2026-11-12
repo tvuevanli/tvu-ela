@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""A ticket description's Markdown subset, offline: headings, both list kinds, the two marks, the `---` fold, and a
+"""A ticket description's Markdown subset, offline: headings, both list kinds, the marks and links, the `---` fold, and a
 plain-text description rendered exactly as before."""
 import os, sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -36,6 +36,33 @@ nodes = J.markdown_to_adf("Run **now** in `copier.cpp:42` please")["content"][0]
 check("bold and code marks", [(n["text"], [m["type"] for m in n.get("marks", [])]) for n in nodes] == [
     ("Run ", []), ("now", ["strong"]), (" in ", []), ("copier.cpp:42", ["code"]), (" please", [])])
 check("a bold line is not a bullet", kinds(J.markdown_to_adf("**Cause** first")) == ["paragraph"])
+
+# links: [text](url) links its text; a bare URL links itself; code is never linkified
+def marked(line):
+    return [(n["text"], n.get("marks", [])) for n in J.markdown_to_adf(line)["content"][0]["content"]]
+LINK = lambda href: {"type": "link", "attrs": {"href": href}}
+check("[text](url) is a link on its text", marked("See [the spec](https://wiki.example/x?a=1) now") == [
+    ("See ", []), ("the spec", [LINK("https://wiki.example/x?a=1")]), (" now", [])])
+check("a bare URL links itself", marked("Log: https://logs.example/t/42 here") == [
+    ("Log: ", []), ("https://logs.example/t/42", [LINK("https://logs.example/t/42")]), (" here", [])])
+check("trailing punctuation stays outside the link", marked("see http://a.example/p.") == [
+    ("see ", []), ("http://a.example/p", [LINK("http://a.example/p")]), (".", [])])
+check("a closing parenthesis the URL did not open stays outside", marked("(https://a.example/x)") == [
+    ("(", []), ("https://a.example/x", [LINK("https://a.example/x")]), (")", [])])
+check("a balanced parenthesis stays in the URL", marked("https://w.example/A_(b)")[0][0] == "https://w.example/A_(b)")
+check("a URL inside code is not linkified", marked("run `curl https://a.example/x` first") == [
+    ("run ", []), ("curl https://a.example/x", [{"type": "code"}]), (" first", [])])
+check("a URL inside bold is bold and linked", marked("**at https://a.example**") == [
+    ("at ", [{"type": "strong"}]), ("https://a.example", [{"type": "strong"}, LINK("https://a.example")])])
+check("a [text](url) target is not linked twice", len(marked("[x](https://a.example/y)")) == 1)
+check("links in list items and headings",
+      J.markdown_to_adf("- https://a.example")["content"][0]["content"][0]["content"][0]["content"][0]["marks"] == [LINK("https://a.example")]
+      and J.markdown_to_adf("## [Spec](https://a.example)")["content"][0]["content"][0]["marks"] == [LINK("https://a.example")])
+check("a bare scheme is not a link", marked("http:// alone") == [("http:// alone", [])])
+check("body_text keeps a link's target", "https://a.example/y" in J.body_text(J.markdown_to_adf("[x](https://a.example/y)")))
+check("a comment keeps link marks next to a mention",
+      [n.get("marks") for n in J.comment_to_adf("@ann see https://a.example", {"ann": ("id1", "Ann")})["content"][0]["content"]]
+      == [None, None, [LINK("https://a.example")]])
 
 # the fold: everything after the first dash line, titled by its words
 doc = J.markdown_to_adf("### Problem\nIt breaks.\n--- Call sites\n- a.cs:1\n--- not a second fold")

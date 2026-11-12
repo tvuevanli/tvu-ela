@@ -363,7 +363,7 @@ def apply_mentions(node, mentions):
 
 
 def comment_to_adf(text, mentions=None):
-    """A comment: the Markdown subset (bold, code, bullets, numbered lists, headings) above and inside the
+    """A comment: the Markdown subset (bold, code, links, bullets, numbered lists, headings) above and inside the
     `---` fold, with `@name` as mention nodes — one renderer for comment and close."""
     return apply_mentions(markdown_to_adf(text), mentions or {})
 
@@ -388,24 +388,62 @@ def text_to_adf(text, mentions=None, detail=False):
     return {"type": "doc", "version": 1, "content": top or [{"type": "paragraph"}]}
 
 
-MARK_RX = re.compile(r"(\*\*[^*]+\*\*|`[^`]+`)")
+# Code comes first, so a URL inside backticks stays code; a [text](url) link comes before a bare URL, so its
+# target is not linkified a second time.
+MARK_RX = re.compile(r"`(?P<code>[^`]+)`|\*\*(?P<bold>[^*]+)\*\*"
+                     r"|\[(?P<label>[^\]]+)\]\((?P<href>https?://[^\s)]+)\)|(?P<url>https?://[^\s<>`]+)")
+URL_RX = re.compile(r"https?://[^\s<>`]+")
 HEADING_RX = re.compile(r"^(#{1,3})\s+(.*)$")
 BULLET_RX = re.compile(r"^[-*]\s+(.*)$")
 NUMBERED_RX = re.compile(r"^\d+\.\s+(.*)$")
 
 
-def _marked(line):
-    """`**bold**` and `` `code` `` as ADF marks; everything else is plain text."""
-    nodes = []
-    for part in MARK_RX.split(line):
-        if not part:
+def _url_end(url):
+    """A bare URL without the sentence punctuation that follows it; a closing parenthesis stays only when the
+    URL opened one."""
+    while url and (url[-1] in ".,;:!?'\"" or (url[-1] == ")" and url.count(")") > url.count("("))):
+        url = url[:-1]
+    return url
+
+
+def _text(text, marks=None):
+    return {"type": "text", "text": text, "marks": marks} if marks else {"type": "text", "text": text}
+
+
+def _linked(text, marks=None):
+    """Plain text with each bare http(s) URL as a link mark whose text is the URL; `marks` apply to every node."""
+    nodes, pos = [], 0
+    for m in URL_RX.finditer(text):
+        url = _url_end(m.group(0))
+        if not url.split("://", 1)[1]:
             continue
-        if part.startswith("**") and part.endswith("**") and len(part) > 4:
-            nodes.append({"type": "text", "text": part[2:-2], "marks": [{"type": "strong"}]})
-        elif part.startswith("`") and part.endswith("`") and len(part) > 2:
-            nodes.append({"type": "text", "text": part[1:-1], "marks": [{"type": "code"}]})
+        if m.start() > pos:
+            nodes.append(_text(text[pos:m.start()], marks))
+        nodes.append(_text(url, (marks or []) + [{"type": "link", "attrs": {"href": url}}]))
+        pos = m.start() + len(url)
+    if pos < len(text):
+        nodes.append(_text(text[pos:], marks))
+    return nodes
+
+
+def _marked(line):
+    """`**bold**`, `` `code` ``, `[text](https://url)` and a bare http(s) URL as ADF marks; everything else is
+    plain text. A URL inside code stays code."""
+    nodes, pos = [], 0
+    for m in MARK_RX.finditer(line):
+        if m.start() > pos:
+            nodes.extend(_linked(line[pos:m.start()]))
+        if m.group("code") is not None:
+            nodes.append(_text(m.group("code"), [{"type": "code"}]))
+        elif m.group("bold") is not None:
+            nodes.extend(_linked(m.group("bold"), [{"type": "strong"}]))
+        elif m.group("href") is not None:
+            nodes.append(_text(m.group("label"), [{"type": "link", "attrs": {"href": m.group("href")}}]))
         else:
-            nodes.append({"type": "text", "text": part})
+            nodes.extend(_linked(m.group("url")))
+        pos = m.end()
+    if pos < len(line):
+        nodes.extend(_linked(line[pos:]))
     return nodes or [{"type": "text", "text": line}]
 
 
@@ -447,7 +485,8 @@ def _md_blocks(lines):
 
 def markdown_to_adf(text):
     """A ticket description in a Markdown subset → ADF: `#`..`###` headings, `- `/`* ` bullets, `1. ` numbered
-    lists, `**bold**`, `` `code` ``, ``` fenced code blocks. A line of three or more dashes folds everything after it into a collapsed
+    lists, `**bold**`, `` `code` ``, `[text](https://url)` and bare http(s) URLs as links (not inside code),
+    ``` fenced code blocks. A line of three or more dashes folds everything after it into a collapsed
     block titled by the words on that line (default 'Technical detail'), as in a comment. A line with none of
     these is a plain paragraph, exactly as `text_to_adf` renders it, so a plain-text description is unchanged."""
     top, rest, title, inside = [], [], "Technical detail", False
@@ -2128,7 +2167,7 @@ def cmd_retitle(creds, args):
 
 def cmd_describe(creds, args):
     """Replace one issue's description from a file (the Markdown subset: headings, bullets, numbered lists, bold,
-    code, a --- fold). Dry run prints the current text and the new text rendered; --apply writes. Links the
+    code, links, a --- fold). Dry run prints the current text and the new text rendered; --apply writes. Links the
     original author posted must be carried into the new text by the caller — the atom does not merge."""
     text = _read_text(args)
     if not text.strip():
@@ -2300,7 +2339,7 @@ def main():
     p.add_argument("--summary", required=True,
                    help="title; a parent carries cross-layer scope, no token required")
     p.add_argument("--description",
-                   help="Markdown subset: # headings, - and 1. lists, **bold**, `code`; "
+                   help="Markdown subset: # headings, - and 1. lists, **bold**, `code`, [text](url), bare URLs; "
                         "a --- line folds what follows into a collapsed block")
     p.add_argument("--assignee",
                    help="assignee email or accountId "
@@ -2319,7 +2358,7 @@ def main():
     p.add_argument("--summary", required=True,
                    help="'[Token] action' — token from the seven-layer vocabulary")
     p.add_argument("--description",
-                   help="Markdown subset: # headings, - and 1. lists, **bold**, `code`; "
+                   help="Markdown subset: # headings, - and 1. lists, **bold**, `code`, [text](url), bare URLs; "
                         "a --- line folds what follows into a collapsed block")
     p.add_argument("--assignee",
                    help="assignee email or accountId "
@@ -2333,7 +2372,7 @@ def main():
                    help="create although the description lacks the sections its type requires; the reason is printed")
     p.set_defaults(func=cmd_create_subtask)
 
-    p = sub.add_parser("comment", help="post one comment to one or more issues (Markdown subset: bold, code, bullets, numbered; @name mentions; a --- line folds the rest) — dry-run unless --apply; identical text is not re-posted; --edit <id> replaces one")
+    p = sub.add_parser("comment", help="post one comment to one or more issues (Markdown subset: bold, code, links, bullets, numbered; @name mentions; a --- line folds the rest) — dry-run unless --apply; identical text is not re-posted; --edit <id> replaces one")
     p.add_argument("targets", nargs="+", help="issue keys or browse URLs")
     p.add_argument("--text", help="plain text; paragraphs become ADF paragraphs")
     p.add_argument("--from-file", help="read the text from a file instead")
