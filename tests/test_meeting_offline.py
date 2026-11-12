@@ -336,5 +336,14 @@ with tempfile.TemporaryDirectory() as t:
           and not any("file name" in x or "does not start" in x for x in V.spec_lint("releases/2.1/2026-11-12-plan-cn-test.md", plan)))
     legacy = hand.replace("## 1. Close HTTP ports", "## To raise")
     check("the verb's meetings/<key>.md is a standing page", not any("does not start" in x for x in V.spec_lint("meetings/sync-eng-qa.md", legacy)))
+    report = ('---\ntitle: "ela backlog"\naliases: ["ela backlog"]\ntype: "report"\ndate: "2026-10-30"\nsource: "vault"\n'
+              'status: "decided"\n---\n# ela backlog\n\n## What you should do\n\nKeep it.\n')
+    check("a report ruled in place, named by its slug, is a standing page (ADR 0020)",
+          V.spec_lint("ela/backlog.md", report) == [] and V.spec_lint("projects/mediahub-bot/design.md", report) == []
+          and V.name_breaks("ela/backlog.md", report) is None)
+    check("a report named with a date keeps the rule", V.spec_lint("ela/2026-11-01-backlog.md", report) == ["date 2026-10-30 but the file name says 2026-11-01"])
+    check("a standing report may carry updated in place of date; neither is a missing property",
+          V.spec_lint("ela/backlog.md", report.replace('date: "2026-10-30"', 'updated: "2026-11-10"')) == []
+          and V.spec_lint("ela/backlog.md", report.replace('date: "2026-10-30"\n', "")) == ["missing date or updated"])
 
 sys.exit(1 if failures else 0)

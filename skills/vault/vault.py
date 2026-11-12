@@ -1412,7 +1412,8 @@ SPECS = {
         kind="a standing review or design for your decision, ruled in place",
         name=(rf"^(?:[a-z0-9.-]+/)*(?:{DATED}|{SLUG})\.md$", "`<slug>.md`, or `<date>-<slug>.md` when it is of a day"),
         title=(r".", "what it settles, as a sentence"),
-        required=("date", "source", "status"), optional=("target", "progress", "ela", "keys", "posted", "watch", "project"),
+        # a standing report may say when it was last brought up to date (`updated`) in place of the day it was written
+        required=("date|updated", "source", "status"), optional=("target", "progress", "ela", "keys", "posted", "watch", "project"),
         sections=(WHAT_TO_DO, ASKS_HEAD + "?"),
         closing=f"## {WHAT_TO_DO}: the recommendation, the alternative, the first step; status proposed, decided or superseded"),
     "project": dict(
@@ -1477,7 +1478,7 @@ def spec_text():
                 f"- **What**: {sp['kind']}",
                 f"- **File**: {sp['name'][1]}",
                 f"- **Title**: {sp['title'][1]}",
-                "- **Properties**: " + (", ".join(f"`{p}`" for p in sp["required"]) or "none") + " required"
+                "- **Properties**: " + (", ".join(" or ".join(f"`{x}`" for x in p.split("|")) for p in sp["required"]) or "none") + " required"
                 + (("; " + ", ".join(f"`{p}`" for p in sp["optional"]) + " when they apply") if sp["optional"] else "")
                 + "; status (live or done), next and moves by type",
                 "- **Sections**: " + (" → ".join(secs) or "as its generator writes them"),
@@ -1563,8 +1564,10 @@ RELEASE_RECORD = re.compile(r"^releases/[\d.]+/(?:release-[\d-]+-record|\d{4}-\d
 
 def undated(kind, rel, text):
     """A standing page, named without a date though it carries one (ADR 0017): a project's page, a release line's
-    record, and the verb's meetings/<key>.md. Every other note with a `date` is named from it."""
-    return kind == "project" or bool(RELEASE_RECORD.match(rel)) or (kind == "meeting" and legacy_form(text))
+    record, the verb's meetings/<key>.md, and a report ruled in place, named by its slug (ADR 0020: the report spec's
+    `<slug>.md`, a report that is not of a day). Every other note with a `date` is named from it."""
+    return (kind == "project" or bool(RELEASE_RECORD.match(rel)) or (kind == "meeting" and legacy_form(text))
+            or (kind == "report" and not re.match(r"\d{4}-\d{2}-\d{2}-", os.path.basename(rel))))
 
 
 def spec_lint(rel, text, generated=False, projects=None):
@@ -1608,10 +1611,10 @@ def spec_lint(rel, text, generated=False, projects=None):
         lost = [n for n in re.findall(r"(?<![\d.])\d{2,}(?![\d.])", stem.replace("-", " ")) if int(n) not in {int(d) for d in re.findall(r"\d+", title)}]
         if lost:
             out.append(f"the file name says {', '.join(lost)}, the title does not")
-    missing = [p for p in sp["required"] if not props.get(p)]
+    missing = [p for p in sp["required"] if not any(props.get(x) for x in p.split("|"))]   # `a|b`: either will do
     if missing:
-        out.append("missing " + ", ".join(missing))
-    known = set(PROPS) | set(LIFE_PROPS) | set(sp["required"]) | set(sp["optional"])
+        out.append("missing " + ", ".join(p.replace("|", " or ") for p in missing))
+    known = set(PROPS) | set(LIFE_PROPS) | {x for p in sp["required"] for x in p.split("|")} | set(sp["optional"])
     extra = [k for k in props if k not in known and k not in ALL_MOVE_PROPS + tuple(MARKS) + ("learn", "start", "end", "built")]
     if extra:
         out.append("properties outside the vocabulary: " + ", ".join(extra))
