@@ -436,11 +436,12 @@ next train's departure (a train fix); a Review ticket the next evening (QA's rep
 component from the evidence it already reads (a customer's bracket, an incident, a prod lane, the next train). A
 change is drafted as `ela jira priority KEY --to P --why "<rule>"` (rule `priority-by-rule`; it only raises, never
 lowers what a person set) or `ela jira due KEY --date D --why "<rule>"` (rule `due-by-rule`; never moves a date),
-tier 3 until he promotes the rule. The Ticket lanes open with two rows, each a count and three keys, never items:
-"overdue: N · oldest MH-a, MH-b, MH-c · +M release tickets" (`lanes.overdue`, `first`, `release_tickets`: the
+tier 3 until he promotes the rule. The Ticket lanes open with two rows, each a count and its oldest ticket with
+the title, never items and never a run of keys:
+"overdue: N · oldest MH-a <its title> · +M release tickets" (`lanes.overdue`, `first`, `release_tickets`: the
 project lead's release-tracking tickets, a `release:` label or an Epic or Project, which are bookkeeping, not a
 commitment) and "due this week: N · …" (`lanes.due_week`), then
-"Highest/High untouched 14+ days: N · MH-x, MH-y, MH-z" (`lanes.tracked.high_untouched`). One becomes an item only
+"Highest/High untouched 14+ days: N · oldest MH-x <its title>" (`lanes.tracked.high_untouched`). One becomes an item only
 when the ticket is addressed to him or is a customer incident; the eight-item cap and Home's three stand. The
 findings file keeps every one for the ticket pages and the replay.
 
@@ -521,7 +522,7 @@ At most three lines (§2b), then [[2026-10-28-changes|What changed]].
 
 | lane | today |
 |---|---|
-| In Progress, gone quiet | 3 silent over 48 hours (MH-3745, MH-3769, MH-3413) · 7 blocked · 102 untouched for 14 days |
+| In Progress, gone quiet | 3 silent over 48 hours (longest MH-3745 Search's recording blocks MediaHub's SRT receiver) · 7 blocked · 102 untouched for 14 days |
 | new and unassigned | none overdue · 8 recent tickets without a layer prefix |
 | customer incidents | 54 open; Reuters freeze ×13 is the big cluster |
 | needs a breakdown | 7 without sub-tasks; MH-3794 and MH-3795 first |
@@ -660,6 +661,13 @@ The page is read in Obsidian, so its form is fixed:
   sprint is active.
 - **Every ticket key carries its Jira title** where it first appears on the page, in a few plain words, so the
   reader knows the ticket without opening it.
+- **A key never stands in a run.** Three or more keys with only punctuation between them are written nowhere on a
+  page, an Evidence block included. A list of tickets is one line or one table row per ticket (key, its Jira title,
+  status), or, where that would take the page past its budget, their count and a link to where the list lives: the
+  service's section of the build's release note (`[[releases/<line>/<build note>#<service>|N tickets]]`), the lane's
+  test list, the train. A row of *New tickets* is one ticket. `ela page-check` names each run as a `lint:` line.
+  *Why: a run of keys cannot be matched to the words beside it without opening Jira (the vault's note standards,
+  the key and title rule of 2026-11-12).*
 - **A ticket appears once.** A new ticket that is already an item gets no row under *New tickets*.
 - **Tables, not code blocks,** for anything with columns; no nested lists; no bold paragraph labels.
 - **Ticket keys bare** (MH-3811): the vault and the runner turn them into links. Slack threads and other pages
@@ -781,20 +789,25 @@ ela-runner starts this skill headless every weekday morning after it wrote the f
     under it are its evidence, folded in a `> [!note]- Evidence` callout, each with its source (a mail subject, a
     permalink, a build number, a sha). The page is evidence for the brief's items, so it reads in a minute folded
     and in full when opened.
+    A list of tickets in an Evidence block is one row or line per ticket (key, title, status), or their count and
+    a link to where the list lives; never a run of keys (§3).
   - **Releases and versions**: per lane, each move as `service old → new (#build, date)`, a patch build named as
     one, a build that reached no lane as "built, not deployed", and which of the window's commits each build
     carried. The release thread's per-build lines (the tickets each carries) outrank Jenkins for what reached a
     lane. A lane whose versions are not a host read now — the QA lane since the QA environment stopped admitting
     ela's account (2026-11-04): QA's report mail or the release thread — is said so with the source and its time, from
     `lane_sources` ("QA-AWS3 as QA reported 11-03 19:07; lane not read"); a move by mail says `(reported by mail)`.
+  - **Tickets**: the moves by where they went ("to Review with QA: 14, build 91's fixes"), each group a count
+    with the link to its list (the build's release note, the lane's test list), then at most three tickets named
+    with title and status where one needs a word: a reopen, a fail, one of his own.
   - **Docker services**, from `docker[]`: each version that moved or was announced in the window, by slug (the
     name as announced when the map has no slug), with where it landed (a lane's bundle, a QA box, a default tag) and
     its source (bundle name, mail subject, the ticket comment). The tickets it claims follow it; a version announced
     with no ticket is said so in those words. A version whose ticket has no Fixed In is an item on the brief (the
     drafted Fixed In as `apply N`), not here. *Why: docker services are announced, not built from tracked commits,
     so the commit join that fills Fixed In for the app services does not reach them.*
-  - **Code** is the largest section: per repository, per ticket (key, title, its commits, the thread that
-    discusses it), then the commits without a ticket sorted into what is harmless, by category and named once
+  - **Code** is the largest section: per repository, one row per ticket (key, title, its commits, the thread that
+    discusses it; tickets one commit carries together are still a row each), then the commits without a ticket sorted into what is harmless, by category and named once
     (docs, review fixes, refactors), and the few that matter, each with why: a fix that reached a lane or prod
     without a ticket, a behaviour change riding under another ticket, correctness of billing or auth.
   - Where two sources disagree, the page says so (Helm's report calling a ticket verified while QA's mail

@@ -230,6 +230,12 @@ def lint(text, actions=None, counts=None, bundles=None, in_vault=False, brief=Fa
     for said, real in summary_mornings(text):
         fails.append(f"summary: \"{said}\", but {real} item{'s' if real != 1 else ''} say so")
     plain = outside_code(text)
+    for n, line in enumerate(plain.splitlines(), 1):         # a key never stands in a run (the vault's note standards)
+        for m in V.KEY_CLUSTER.finditer(V.plain(line)):
+            keys = [k for k in re.findall(r"[A-Z][A-Z0-9]+-\d+", m.group(0)) if V.is_jira_key(k)]
+            if len(keys) >= 3:
+                fails.append(f"line {n}: {len(keys)} ticket keys with no words between them ({', '.join(keys[:3])}, …): one line or "
+                             "row per ticket with its title and status, or their count and a link to where the list lives")
     for m in VAGUE_SERVICE_RX.finditer(plain):
         line = plain[:m.start()].count("\n") + 1
         fails.append(f"line {line}: \"{m.group(0)}\": name the service by its slug")

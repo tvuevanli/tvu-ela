@@ -106,4 +106,9 @@ check("a report's status is proposed, decided or superseded; a plan's is the fol
       not [f for f in RV.lint(rp) if "status" in f] and [f for f in RV.lint(rp.replace("report", "plan", 1)) if "status" in f])
 check("a report over 1,200 words outside its folds gives the vault's line, wherever it lives",
       RV.budget("/v/ela/bot/r.md", rp) == "1,502 words, budget 1,200 (folded callouts not counted)" and RV.budget("/v/ela/bot/r.md", rp.replace("word ", "", 900)) is None)
+run = "# P\n\n> [!note]- Evidence\n> - Done after QA's pass: MH-3881, MH-3887, MH-3903.\n\n| MH-1, MH-2 | two |\n- MH-4 a title · Done\n- MH-046, FI-07, MH-5 ids\n"
+check("three ticket keys with no words between them are a finding with its line; a pair, titled lines and zero-led ids are not",
+      [f for f in RV.lint(run) if "no words between" in f]
+      == ["line 4: 3 ticket keys with no words between them (MH-3881, MH-3887, MH-3903, …): one line or row per ticket with its "
+          "title and status, or their count and a link to where the list lives"])
 sys.exit(1 if failures else 0)
