@@ -1371,4 +1371,10 @@ check("an Afterwards line: the ticket with its title, one person's run collapsed
 check("moves by two people stay two; a ticket the store lacks keeps its key alone",
       al["MH-3891"] == "- 11-11 · [MH-3891](https://j/browse/MH-3891): Review → Done (Erin Zhang); Done → Reopened (Andyzhao)")
 
+check("three keys with no words between them are a lint line, linked or not; two, or keys with words, are not",
+      len(V.key_cluster_lint("x\n\nUR Caller: purpose ([MH-3998](u) [MH-3926](u) MH-3993)\n")) == 1
+      and V.key_cluster_lint("MH-1 and MH-2\n- MH-3 title · Review\n- MH-4 title · Done\n- MH-5 x\n") == []
+      and V.key_cluster_lint("MPEG-2 AC-3 H-264 codecs\n") == [])
+check("the note standards carry the rule", "A key never stands alone" in V.spec_text())
+
 sys.exit(1 if failures else 0)
