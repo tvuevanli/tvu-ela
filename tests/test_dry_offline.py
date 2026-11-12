@@ -161,5 +161,53 @@ with tempfile.TemporaryDirectory() as R, tempfile.TemporaryDirectory() as out:
     p["fields"]["comment"]["comments"][0]["body"]["content"][0] = para("CSC (MH-3983, Review)")
     check("nothing moved: nothing drafted", D.select_parent_status(p, OWNER, datetime.date(2026, 11, 13), out)[0] == [])
 
+# today.md, end to end on a temp vault and reports root: the batch is one ask linking its review note; the letters
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "skills", "vault"))
+import vault as V  # noqa: E402
+with tempfile.TemporaryDirectory() as R, tempfile.TemporaryDirectory() as VT:
+    THU = datetime.date(2026, 11, 12)
+    writes, left = D.select_link_named(parent, children, before="2026-11-12T13:18:00+08:00")
+    b = D.make_batch(R, "link-named", "MH-3735", writes, left, THU)
+    st = {}
+    dc, facts = V.dry_asks(R, THU, st)
+    shown, more, _, st = V.settle_asks(st, dc + V.ask_candidates(THU, [{"n": 7, "tier": 3, "command": "ela jira comment MH-7", "text": "comment MH-7",
+                                                                           "evidence": "e", "day": THU.isoformat()}], []), THU)
+    for k, c in enumerate(shown, 1):
+        st[c["id"]].update(slot=k, options={o["letter"]: o["does"] for o in V.ask_options(c)})
+    page = V.today_page(THU, [], {"dry_facts": facts}, shown)
+    pages = V.dry_pages(VT, R, THU)
+    check("today.md: the six-link case is one ask with a review note, A applies the batch, B drops it",
+          f"1. 4 links ready for MH-3735: link a child to a parent he owns when a comment on the parent names it. → [[ela/dry/{b['id']}|the note]]" in page
+          and "    - [ ] A (recommended): apply all 4 (strike a line in the note to leave it out)" in page and "    - [ ] B: drop them" in page
+          and f"ela/dry/{b['id']}.md" in pages and all(f"`{w['command']}`" in pages[f"ela/dry/{b['id']}.md"] for w in writes))
+    check("within today.md's word cap", len(V.plain(page.split("\n---\n")[0]).split()) <= V.TODAY_WORDS)
+    os.makedirs(os.path.join(VT, "ela", "dry"))
+    open(os.path.join(VT, f"ela/dry/{b['id']}.md"), "w").write(pages[f"ela/dry/{b['id']}.md"].replace("1. `", "~~1. `", 1))
+    check("the review note on disk is his: a struck line survives the next sync", V.dry_pages(VT, R, THU)[f"ela/dry/{b['id']}.md"].count("~~1. `") == 1)
+    lt = V.today_letters(page.replace("    - [ ] A (recommended): apply all 4", "    - [x] A (recommended): apply all 4"), st)
+    check("a tick on A is the runner's: the batch applies with --apply, the struck line left out by the answer",
+          [(x["id"], x["does"]) for x in lt] == [(f"dry:{b['id']}", f"ela dry answer dry:{b['id']} A --apply")] and not V.sync_handles(lt[0]["does"]))
+    drive(R, "link-named", 10)
+    dc, _ = V.dry_asks(R, datetime.date(2026, 11, 13), {})
+    g = next(c for c in dc if c["id"].startswith("grant:"))
+    st = {g["id"]: {"slot": 2, "options": {o["letter"]: o["does"] for o in g["options"]}, "sig": g["sig"], "first": "2026-11-13", "text": "g"}}
+    open(os.path.join(VT, "today.md"), "w").write("## Needs you\n\n1. x\n2. grant\nela: A\n")
+    done = V.settle_letters(VT, R, st, datetime.date(2026, 11, 13))
+    check("`ela: A` under the grant ask: the sync grants it once (3 → 1), and remembers the letter",
+          done == [(g["id"], "A")] and D.load_state(R)["link-named"]["tier"] == 1 and V.settle_letters(VT, R, st, datetime.date(2026, 11, 13)) == [])
+    D.correct(R, "link-named", "word", note="the owner's ela: line against a link", now=datetime.datetime(2026, 11, 16, 9, tzinfo=D.TZ))
+    _, facts = V.dry_asks(R, datetime.date(2026, 11, 16), {})
+    page = V.today_page(datetime.date(2026, 11, 16), [], {"dry_facts": facts}, [])
+    os.makedirs(os.path.join(R, "runner"))
+    json.dump([{"n": 1, "tier": 1, "rule": "link-named", "text": "MH-3735 contains MH-1", "command": "ela jira link MH-3735 MH-1 --type contains",
+                "applied": "2026-11-16T08:40:00+0800"}, {"n": 2, "tier": 3, "text": "comment MH-2", "applied": "2026-11-16T09:00:00+0800"}],
+              open(os.path.join(R, "runner", "2026-11-16-actions.json"), "w"))
+    _, facts = V.dry_asks(R, datetime.date(2026, 11, 16), {})
+    check("what a granted class did without confirm is one Facts line linking the list; his own applies are not in it",
+          facts[0] == "ela did: 1 link → [[ela/dry/did|the list, each undoable by a word]]"
+          and "`ela: undo 1`" in V.dry_pages(VT, R, datetime.date(2026, 11, 16))["ela/dry/did.md"])
+    page = V.today_page(datetime.date(2026, 11, 16), [], {"dry_facts": facts}, [])
+    check("a fall is said on today.md under Facts", "- **Done by ela:** link-named is back to your confirm (word: the owner's ela: line against a link)." in page)
+
 print(f"{len(failures)} failed" if failures else "all passed")
 sys.exit(1 if failures else 0)

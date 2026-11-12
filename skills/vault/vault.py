@@ -1435,7 +1435,7 @@ SPECS = {
 }
 BUDGET.update({"case": 1200, "draft": 600})
 PAGES_SPEC = ("home", "today", "dropped", "board", "lanes", "docker", "recent", "one-thing", "test-list", "dev-list", "train", "program", "guide",
-              "vocabulary", "system", "constraints", "readme", "services", "questions")   # living pages: each one's generator is its spec
+              "vocabulary", "system", "constraints", "readme", "services", "questions", "dry")   # living pages: each one's generator is its spec
 CJK = re.compile(r"[一-鿿　-〿＀-￯]")
 SPEC_MARK = "<!-- note standards -->"
 
@@ -3054,6 +3054,49 @@ def settle_letters(vault, reports, state, today, dry_run=False):
     return done
 
 
+def dry_asks(reports, today, asks_state, dry_run=False):
+    """The dry-run classes on today.md: one ask per class batch waiting, one grant ask per mature class, each in the
+    lettered shape; and the Facts lines, what granted classes did without confirm and any class that fell back to
+    confirm today. → (candidates, fact lines). A broken store costs these asks only."""
+    try:
+        D = dry_mod()
+        got = D.asks(reports, today, commit=not dry_run, ask_state=asks_state)
+        line, _ = D.did(reports, today.isoformat())
+        facts = ([f"{line} → [[{ELA}/dry/did|the list, each undoable by a word]]"] if line else []) + D.notices(reports, today.isoformat())
+    except Exception:                                      # noqa: BLE001 — the page is written without them
+        return [], []
+    out = []
+    for x in got:
+        text = x["question"] + (f" {x['record']}." if x.get("record") else "")
+        out.append({"id": x["id"], "text": text, "whole": True, "options": x["options"], "link": x.get("link"),
+                    "sig": x["sig"], "first": today.isoformat()})
+    return out, facts
+
+
+def dry_pages(vault, reports, today):
+    """ela/dry/<batch>.md for each batch waiting: written once, then his (a struck or edited line is what the answer
+    reads), and ela/dry/did.md, today's acts without confirm with the word that undoes each."""
+    out = {}
+    try:
+        D = dry_mod()
+        for b in D.batches(reports):
+            if b.get("state") != "open":
+                continue
+            rel = f"{D.note_rel(b['id'])}.md"
+            try:
+                out[rel] = open(os.path.join(vault, rel), encoding="utf-8").read()   # his copy: struck and edited lines stay
+            except OSError:
+                out[rel] = front([], {"type": "dry", "date": today.isoformat()}) + D.review_note(b)
+        line, rows = D.did(reports, today.isoformat())
+        out[f"{ELA}/dry/did.md"] = front([], {"type": "dry", "date": today.isoformat()}) + "\n".join(
+            [f"# Done by ela · {today:%a %Y-%m-%d}", "", "Writes of a granted class ela made without asking. Write the undo line "
+             "here or on today.md and ela reverses that one; a reversal also returns the class to your confirm.", ""]
+            + ([f"- {n}. {t} · `{u}`" for n, t, u in rows] or ["Nothing today."])) + "\n"
+    except Exception:                                      # noqa: BLE001
+        pass
+    return out
+
+
 def dry_mod():
     sys.path.insert(0, os.path.join(HERE, "..", "dry"))
     import dry as D                                        # noqa: E402 — the class records' one reader and writer
@@ -3075,6 +3118,7 @@ def today_page(today, notes, desk=None, shown=(), more=0, dropped=0, questions_l
     block = build_block(notes, desk.get("builds") or [], today)
     if block:                                              # a lane took a build: the Releases fact is the build, by service
         facts = [("Releases and versions", block)] + [f for f in facts if f[0] != "Releases and versions"]
+    facts = [("Done by ela", l) for l in desk.get("dry_facts") or []] + facts   # ela's own acts and falls lead: never cut
     briefs = sorted((n for n in notes if n.props.get("type") == "day" and n.props.get("kind") == "brief"),
                     key=lambda n: n.props.get("date") or "", reverse=True)
     brief = briefs[0] if briefs else None
@@ -4264,7 +4308,8 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since
     settle_letters(s["vault"], reports, asks_state, today, dry_run)   # his letters the sync acts on itself, before the asks are counted
     cands = ask_candidates(today, week_actions(reports, today), notes + native)
     qcands = question_asks(questions, today, week_actions(reports, today)) if questions else []
-    shown, more, _, asks_state = settle_asks(asks_state, qcands + cands, today)
+    dcands, dry_facts = dry_asks(reports, today, asks_state, dry_run)
+    shown, more, _, asks_state = settle_asks(asks_state, qcands + dcands + cands, today)
     for v in asks_state.values():                          # the slots are today's page's: yesterday's numbers mean nothing
         for k in ("slot", "options"):
             v.pop(k, None)
@@ -4298,7 +4343,8 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since
                                           - {n for c in shown for n in c.get("ns") or []})
     planned[TODAY] = redact(front([], {"type": "today", "date": today.isoformat()}) + linker(today_page(today, notes + native, {
         "actions": week_actions(reports, today), "hold": tier2_hold(reports, today.isoformat()), "lists": list_links(reports),
-        "meetings": meetings, "builds": build_records(reports)}, shown, more, dropped, questions_line=qline)))
+        "meetings": meetings, "builds": build_records(reports), "dry_facts": dry_facts}, shown, more, dropped, questions_line=qline)))
+    planned.update(dry_pages(s["vault"], reports, today))
     if questions:
         Q = questions_mod()
         drafts = {r["id"]: r["draft"] for r in Q.open_records(questions) if r.get("draft") and (len(r["meetings"]) >= Q.NUDGE_EVERY or r.get("message"))}
