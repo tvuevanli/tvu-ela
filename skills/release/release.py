@@ -15,7 +15,8 @@ L1: subcommands, --json, stdlib only. No store, no scheduler: every answer is th
                                           shows the change, --apply writes the entry and commits that file alone (ADR 0012)
   pins     [--json]                       the official bundle per line, as pinned
   drift    [line] [--bundles N] [--host]  GM service names shipped in the newest N bundles vs map/services.yaml gm_names
-  changes  [lane] [--check FILE]          what a lane's newest build changed, by service and what for, from its record
+  changes  [lane] [--check FILE] [--tickets]  what a lane's newest build changed, by service and what for, from its
+                                          record; --tickets: each ticket under its service, key, title, status, assignee
   reconcile <lane> [--build N] [--batch [--apply]]  the build's tickets against Jira: a Fixed In covering this build's
                                           version of each service, the release label, the status and assignee the
                                           release thread announced; a fold is an open question. Read-only; the reading
@@ -1489,19 +1490,63 @@ def build_title(rec):
     return f"MediaHub {rec['line']} build {rec['build']} → {rec.get('lane_name') or rec['lane']} · what changed"
 
 
-def build_note(rec, reading=None):
-    """The release note's body: the title, where it came from, the table of service, version and what for, then the
-    Jira gaps `ela release reconcile` last read for this build (nothing when there is none). Ticket keys bare; the
-    vault's linker links them."""
+TITLE_CHARS = 90
+
+
+def ticket_title(summary, n=TITLE_CHARS):
+    """A Jira summary as pages show it: whole up to about n characters, a longer one cut at a word boundary."""
+    t = " ".join(str(summary or "").split()).replace("|", "/")
+    return t if len(t) <= n else t[:n].rsplit(" ", 1)[0].rstrip(" ,;:-") + " …"
+
+
+def ticket_facts(issue):
+    """{summary, status, assignee} of a Jira issue as read or as the fact store keeps it; None for no issue."""
+    if not issue:
+        return None
+    f = issue.get("fields") or issue
+    who = f.get("assignee")
+    return {"summary": f.get("summary") or "", "status": ((f.get("status") or {}).get("name") if isinstance(f.get("status"), dict) else f.get("status")) or "",
+            "assignee": (who or {}).get("displayName") if isinstance(who, dict) else who}
+
+
+def facts_tickets(runtime, keys):
+    """{key: ticket_facts} from the fact store (<runtime>/facts/jira/issues/<KEY>.json); a key it lacks is left out."""
+    out = {}
+    for k in keys:
+        try:
+            out[k] = ticket_facts(json.load(open(os.path.join(runtime or "", "facts", "jira", "issues", f"{k}.json"), encoding="utf-8")))
+        except (OSError, ValueError):
+            continue
+    return out
+
+
+def ticket_line(key, t, who=True):
+    """One ticket in words, never a bare key: `KEY <summary> · <status>[ · <assignee>]`; the key alone is linked by the
+    page's linker. A ticket the fact store lacks says so."""
+    if not t:
+        return f"{key} (not in the fact store)"
+    return f"{key} {ticket_title(t.get('summary'))} · {t.get('status') or '?'}" + (f" · {t['assignee']}" if who and t.get("assignee") else "")
+
+
+def service_move(v):
+    return f"{v['from']} → {v['to']}" if v.get("from") else f"→ {v['to']}"
+
+
+def build_note(rec, reading=None, tickets=None):
+    """The release note's body: the title, where it came from, then per service its section — the version move and
+    what for, then one line per ticket it carries (key, title, status, assignee) — then the record's notes and the
+    Jira gaps `ela release reconcile` last read (nothing when there is none). `tickets`: {key: ticket_facts}. Keys
+    are left bare for the vault's linker; a key never stands alone."""
+    tickets = tickets or {}
     L = [f"# {build_title(rec)}", ""]
     L.append(f"*{rec.get('lane_name') or rec['lane']}, {rec['date']}." + (f" Source: {rec['source']}." if rec.get("source") else "") + "*")
-    L += ["", "| service | version | what for |", "|---|---|---|"]
     for v in rec["services"]:
-        ver = f"{v['from']} → **{v['to']}**" if v.get("from") else f"**{v['to']}**"
-        keys = ", ".join(v.get("keys") or [])
-        L.append(f"| {v['service']} | {ver} | {' '.join(str(v['for']).split())}" + (f" ({keys})" if keys else "") + " |")
+        L += ["", f"## {v['service']}", "", f"{service_move(v)} · {' '.join(str(v['for']).split())}"]
+        keys = v.get("keys") or []
+        if keys:
+            L += [""] + [f"- {ticket_line(k, tickets.get(k))}" for k in keys]
     if rec.get("notes"):
-        L += ["", " ".join(str(rec["notes"]).split())]
+        L += ["", "## Notes", "", " ".join(str(rec["notes"]).split())]
     gaps = reconcile_mod().gaps_table(reading) if reading else ""
     if gaps:
         L += ["", gaps.rstrip("\n")]
@@ -1619,7 +1664,13 @@ def cmd_changes(a):
         print(f"no build record for {a.lane or 'any lane'} under <reports>/releases/"); sys.exit(1)
     for r in recs[:1] if a.lane else recs:
         print(f"{r.get('lane_name') or r['lane']} took build {r['build']} ({r['line']}, {r['date']}):")
-        print("\n".join("  " + l for l in build_lines(r)))
+        if not a.tickets:
+            print("\n".join("  " + l for l in build_lines(r)))
+            continue
+        facts = facts_tickets(s.get("runtime"), [k for v in r["services"] for k in v.get("keys") or []])
+        for v in r["services"]:                            # per service its move and purpose, then one line per ticket
+            print(f"  {v['service']} {service_move(v)}: {' '.join(str(v['for']).split())}")
+            print("\n".join(f"    {ticket_line(k, facts.get(k))}" for k in v.get("keys") or []))
 
 
 def main():
@@ -1654,6 +1705,7 @@ def main():
     p = sub.add_parser("drift"); p.add_argument("line", nargs="?", default="mh2.1@"); p.add_argument("--bundles", type=int, default=5, help="newest N bundles to union (default 5)"); host_arg(p); p.add_argument("--json", action="store_true")
     p = sub.add_parser("changes", help="what a lane's newest build changed, one line per service and what for, from its record")
     p.add_argument("lane", nargs="?", help="qa-cn3 or QA-AWS3; every record when omitted"); p.add_argument("--check", metavar="FILE", help="validate a build record")
+    p.add_argument("--tickets", action="store_true", help="one line per ticket under each service: key, title, status, assignee (the fact store)")
     p.add_argument("--json", action="store_true")
     p = sub.add_parser("reconcile", help="a lane's build against Jira: Fixed In, the release label, the status and assignee the thread announced; read-only, --batch writes the appends on --apply")
     p.add_argument("lane", help="qa-cn3 or QA-AWS3"); p.add_argument("--build", action="append", help="a build number, repeatable; default the newest")

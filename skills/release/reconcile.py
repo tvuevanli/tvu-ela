@@ -354,9 +354,10 @@ def gaps_table(res):
     for r in res["rows"]:
         what = "; ".join(m["what"] for m in r["misses"])
         prop = "; ".join(r["add"] + ([f"label {r['label']}"] if r.get("label") else [])) or "—"
-        L.append(f"| {r['key']} | {what} | {prop} |")
+        L.append(f"| {R().ticket_line(r['key'], r, who=False)} | {what} | {prop} |")
     for q in res.get("questions") or []:
-        L.append(f"| {q['key']} | reverted into {q['into']}: an open question to {q.get('holder') or 'its holder'}, not a Fixed In matter | — |")
+        L.append(f"| {R().ticket_line(q['key'], q, who=False)} | reverted into {q['into']}: an open question to "
+                 f"{q.get('holder') or 'its holder'}, not a Fixed In matter | — |")
     return "\n".join(l for l in L if l is not None) + "\n"
 
 

@@ -118,8 +118,8 @@ check("a ticket Jira did not return is a gap, never in order",
 note = R.build_note(record("91"), r91)
 table = note.split("## Jira gaps")[1] if "## Jira gaps" in note else ""
 check("the release note carries the Jira gaps table: ticket, what is missing, the proposed entry",
-      "| ticket | what is missing | proposed |" in table and "| MH-3988 | no mediahub-frontend entry for 2.2.130; no release:mh-2.1 | "
-      "mediahub-frontend@2.2.130+187; label release:mh-2.1 |" in table and "MH-3927 | reverted into MH-3926" in table)
+      "| ticket | what is missing | proposed |" in table and "| MH-3988 Pre-start permission request omits credentials, hits prod billing · Review | no mediahub-frontend entry for 2.2.130; no release:mh-2.1 | "
+      "mediahub-frontend@2.2.130+187; label release:mh-2.1 |" in table and "| MH-3927 Graphics Insertion trusts destination attribute overlayAppId, allowing cross-tenant … · Review | reverted into MH-3926" in table)
 check("nothing when there is none", "Jira gaps" not in R.build_note(record("91"), dict(r91, rows=[], questions=[]))
       and "Jira gaps" not in R.build_note(record("91")))
 check("one ask for every build in the window",

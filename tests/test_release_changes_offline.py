@@ -29,9 +29,16 @@ check("one line per service, at most four, purpose then keys",
 five = dict(rec, services=rec["services"] + [dict(rec["services"][0], service="Orchestration")])
 check("five services: three lines and a count", len(R.build_lines(five)) == 4 and R.build_lines(five)[-1].startswith("2 more services"))
 note = R.build_note(rec)
-check("the release note: title, source, a table of service, version and what for",
-      note.startswith("# MediaHub 2.1 build 90 → QA-AWS3 · what changed") and "| UR Caller | 2.1.89 → **2.1.90** |" in note
+check("the release note: title, source, then per service its move and what for",
+      note.startswith("# MediaHub 2.1 build 90 → QA-AWS3 · what changed") and "## UR Caller\n\n2.1.89 → 2.1.90 · " in note
       and "What you should do" not in note)
+t = {"MH-3887": {"summary": "[FloSports MH-013] RTSP Pull address via the API", "status": "Done", "assignee": "Erin Zhang"}}
+note = R.build_note(rec, tickets=t)
+check("one line per ticket under its service: key, title, status, assignee; a key the store lacks says so",
+      "\n- MH-3887 [FloSports MH-013] RTSP Pull address via the API · Done · Erin Zhang\n" in note
+      and "\n- MH-3881 (not in the fact store)\n" in note and "(MH-3881" not in note)
+check("a long title is cut at a word boundary near 90 characters",
+      R.ticket_title("word " * 30).endswith(" …") and len(R.ticket_title("word " * 30)) <= 92 and R.ticket_title("a | b") == "a / b")
 
 with tempfile.TemporaryDirectory() as tmp:
     shutil.copytree(FIX, os.path.join(tmp, "releases"))
@@ -62,9 +69,20 @@ with tempfile.TemporaryDirectory() as tmp:
     import io, contextlib, argparse
     out = io.StringIO()
     with contextlib.redirect_stdout(out):
-        R.cmd_changes(argparse.Namespace(check=None, lane="QA-AWS3", json=False))
+        R.cmd_changes(argparse.Namespace(check=None, lane="QA-AWS3", json=False, tickets=False))
     check("`release changes QA-AWS3` prints the build by service", out.getvalue().startswith("QA-AWS3 took build 90 (2.1, 2026-11-10):")
           and out.getvalue().count("\n  ") == 4)
+    os.makedirs(os.path.join(tmp, "facts", "jira", "issues"))
+    json.dump({"key": "MH-3991", "fields": {"summary": "View Object on filtered-out new destination opens quick-create form",
+               "status": {"name": "Done"}, "assignee": {"displayName": "Erin Zhang"}}},
+              open(os.path.join(tmp, "facts", "jira", "issues", "MH-3991.json"), "w"))
+    json.dump({"reports": tmp, "runtime": tmp}, open(site, "w"))
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        R.cmd_changes(argparse.Namespace(check=None, lane="QA-AWS3", json=False, tickets=True))
+    check("`--tickets`: each ticket under its service, in words",
+          "\n  Unified Media frontend 3.0.41 → 3.0.43: " in out.getvalue()
+          and "\n    MH-3991 View Object on filtered-out new destination opens quick-create form · Done · Erin Zhang" in out.getvalue())
 
 if failures:
     print(f"release changes: {len(failures)} failed"); sys.exit(1)
