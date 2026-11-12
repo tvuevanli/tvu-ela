@@ -2255,12 +2255,13 @@ def meeting_outcomes(notes, keys, today, days=30):
     return sorted(out, key=lambda x: x[0], reverse=True)
 
 
-def project_tail(facts, rows, today, jira_base="", met=(), asked=()):
+def project_tail(facts, rows, today, jira_base="", met=(), asked=(), titles=None):
     """The sync's half of a project page: TAIL_HEADS in their order, each printed only when it has something to say
     (the hand-kept head is what he reads; the review of 2026-11-11 found the tail a third of the page saying nothing).
     No Waiting for your word: the page's own open questions are on the page, a note beside it holds its own asks, and
     today.md links each once (ADR 0015). The next step is the head's and is not repeated. A label is plain text: a
-    title carrying a Markdown link would break the wikilink around it."""
+    title carrying a Markdown link would break the wikilink around it. Under Keys and threads each key is one line
+    with its title and status (`titles`: {key: ticket facts} from the fact store), never a run of keys."""
     d = facts["deadline"]
     L = stands_lines(facts.get("ticket"), jira_base)
     if rows:
@@ -2279,14 +2280,16 @@ def project_tail(facts, rows, today, jira_base="", met=(), asked=()):
     if met or asked:                                       # what its meetings still ask (ADR 0016), then what they ruled
         L += [f"## {MEETINGS_HEAD}", ""] + [f"- open: {a}" for a in asked] + \
              [f"- {d_[5:]} · [[{p[:-3]}|{label(name)}]]: {line}" for d_, p, name, line in met] + [""]
-    keys = [f"[{k}]({jira_base}/browse/{k})" if jira_base else k for k in facts["keys"]]
+    R = release_mod()
+    keys = [f"- [{k}]({jira_base}/browse/{k})" if jira_base else f"- {k}" for k in facts["keys"]]
+    keys = [f"{line} {R.ticket_line(k, (titles or {}).get(k), who=False)[len(k) + 1:]}" for line, k in zip(keys, facts["keys"])]
     links = facts["links"]
     wp = facts["props"]
     watch = wp.get("watch") if "watch" in wp else ((d + datetime.timedelta(days=PROJECT_WATCH_DAYS)).isoformat() if d else None)
-    bits = ([f"keys {', '.join(keys)}"] if keys else []) + \
-           ([f"{len(links)} thread{'s' if len(links) != 1 else ''}"] if links else []) + ([f"watched until {watch}"] if watch else [])
-    if bits or links:
-        L += [f"## {TAIL_HEADS[1]}", "", f"*{' · '.join(bits)}*"] + [f"- [thread]({l})" for l in links] + [""]
+    bits = ([f"{len(links)} thread{'s' if len(links) != 1 else ''}"] if links else []) + ([f"watched until {watch}"] if watch else [])
+    if keys or bits or links:
+        L += [f"## {TAIL_HEADS[1]}", ""] + (keys + [""] if keys and (bits or links) else keys) + \
+             ([f"*{' · '.join(bits)}*"] if bits else []) + [f"- [thread]({l})" for l in links] + [""]
     if facts["afterwards"]:
         L += [AFTERWARDS_HEAD, ""] + facts["afterwards"] + [""]
     if d:
@@ -2294,7 +2297,7 @@ def project_tail(facts, rows, today, jira_base="", met=(), asked=()):
     return "\n".join(L)
 
 
-def project_note(key, text, vault, notes, today, jira_base="", ticket=None, questions=None):
+def project_note(key, text, vault, notes, today, jira_base="", ticket=None, questions=None, titles=None):
     """The page as the sync writes it: its properties settled (type project, watch defaulting to the deadline plus 14
     days, every other line kept), the head as written, the tail generated. The Note carries front_text, head and tail
     apart, so the head is never linked, unwrapped or retitled."""
@@ -2321,7 +2324,7 @@ def project_note(key, text, vault, notes, today, jira_base="", ticket=None, ques
             if (r.get("thing") or {}).get("ref") == facts["path"] and not all(x.startswith(facts["path"] + "#") for x in r["sources"]):
                 asked.append(Q.line(r, jira_base) + (f" · {r['who']}" if r.get("who") else "") +
                              f" · {Q.waited(r, today)} · [[{Q.QUESTIONS_PAGE[:-3]}#^{r['id']}|on the list]]")
-    tail = project_tail(facts, rows, today, jira_base, meeting_outcomes(notes, facts["keys"], today), asked)
+    tail = project_tail(facts, rows, today, jira_base, meeting_outcomes(notes, facts["keys"], today), asked, titles)
     n = Note(facts["path"], facts["title"], facts["head"] + "\n" + tail, {"type": "project", "date": want["date"], "deadline": want["deadline"]})
     n.front_text, n.head, n.tail, n.facts, n.rows = fm, facts["head"] + "\n", tail, facts, rows
     return n
@@ -4464,15 +4467,17 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since
     jira_base = ""
     if env and os.path.isfile(env):
         jira_base = next((l.split("=", 1)[1].strip().rstrip("/") for l in open(env) if l.startswith("JIRA_BASE_URL=")), "")
+    key_titles = release_mod().facts_tickets(s.get("runtime"), sorted({k for t in pages.values() for k in project_facts("", t, today)["keys"]}))
     for key, text in pages.items():                        # each project's page: its head as written, its tail from the notes
-        notes.append(project_note(key, text, s["vault"], notes + native, today, jira_base, ticket_of(text), questions))
+        notes.append(project_note(key, text, s["vault"], notes + native, today, jira_base, ticket_of(text), questions, key_titles))
     # a ticket a page leads with, or names among its keys (MH-3990 under the MH-3735 project), has its page: never a second
     paged = {k for text in pages.values() for k in KEY_RX.findall(props_of(split_front(text)[0]).get("keys") or "")}
     for t in tickets:                                      # an open kind:project ticket with no page gets one, once
         if t["key"] not in paged:
             key = jira_project_key(t)
             fresh = jira_project_page(t, today)
-            notes.append(project_note(key, fresh, s["vault"], notes + native, today, jira_base, t))
+            notes.append(project_note(key, fresh, s["vault"], notes + native, today, jira_base, t,
+                                      titles=release_mod().facts_tickets(s.get("runtime"), project_facts("", fresh, today)["keys"])))
     projects = project_keys(env, s.get("runtime")) if jira_base else set()
     spec = lint_notes(s["vault"], projects or None)
     if spec:                                               # one line here; each deviation is `vault.py lint`'s

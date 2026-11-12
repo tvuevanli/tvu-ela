@@ -171,7 +171,7 @@ with tempfile.TemporaryDirectory() as tmp:
           and "## Waiting for your word" not in sbb)
     check("the tail says the days left and the overdue step, the keys watched, and lists the folder's reading and the inferred one",
           f"## Deadline\n\n*{SB_DEADLINE} · 30 days left*" in sbb and sbb.count("wire the decoder") == 1
-          and "## Keys and threads\n\n*keys MH-5 · watched until" in sbb
+          and "## Keys and threads\n\n- MH-5 (not in the fact store)\n\n*watched until" in sbb
           and "**in this folder**\n" in sbb and "- [[projects/sb/glossary|Glossary]] · review · 2026-11-01" in sbb
           and f"- [[projects/sb/{today}-review-sb-read|A read for the project]] · review · {today} · live" in sbb
           and "Nothing yet" not in sbb and "Afterwards" not in sbb)
@@ -1389,6 +1389,11 @@ check("three keys with no words between them are a lint line, linked or not; two
       and V.key_cluster_lint("MH-1 and MH-2\n- MH-3 title · Review\n- MH-4 title · Done\n- MH-5 x\n") == []
       and V.key_cluster_lint("MPEG-2 AC-3 H-264 codecs\n") == [])
 check("the note standards carry the rule", "A key never stands alone" in V.spec_text())
+kt = V.project_tail({"deadline": None, "days": None, "keys": ["MH-1", "MH-2", "MH-3"], "links": [], "props": {"watch": ""}, "afterwards": [], "ticket": None},
+                    [], datetime.date(2026, 11, 12), "https://j", titles={"MH-1": {"summary": "Optional SCTE-35", "status": "Review"}})
+check("a project page's keys are one line a ticket with title and status, never a run",
+      "## Keys and threads\n\n- [MH-1](https://j/browse/MH-1) Optional SCTE-35 · Review\n- [MH-2](https://j/browse/MH-2) (not in the fact store)\n" in kt
+      and V.key_cluster_lint(kt) == [])
 check("a run counts Jira keys only: zero-led ids and test-case ids beside one ticket are no cluster",
       V.key_cluster_lint("MH-046, MH-3907, MH-3933\nENT-05, FI-07, MH-1860, POP-03\n") == []
       and len(V.key_cluster_lint("MH-046, MH-3907, MH-3933, MH-3940\n")) == 1)
