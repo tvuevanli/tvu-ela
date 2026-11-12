@@ -85,6 +85,28 @@ check("lead keys: a list that opens the line needs every key; a line about one t
 check("who is what follows the last ` · `; a proposal is neither question nor who",
       Q.split_who("Who takes it? · ela proposes: the lead") == ("Who takes it?", None)
       and Q.split_who("Date for the deployment · release lead") == ("Date for the deployment", "release lead"))
+sec = lambda raw, section=None, parent=None, kind="meeting", where="meetings/x.md": {"raw": raw, "section": section, "parent": parent,
+                                                                                  "kind": kind, "where": where}
+check("a subject from the section, with the section's key or else the question's one ticket",
+      Q.subject_of(sec("UR: the retry order. Who? · UR lead", "5. TVU Region 3.0 — [MH-3819](https://j/browse/MH-3819)")) == "TVU Region 3.0 (MH-3819)"
+      and Q.subject_of(sec("What must be on CN ([MH-3752](https://j/browse/MH-3752))? · CN lead", "2. 超赛 11/21 — CN vs COM")) == "超赛 11/21, CN vs COM (MH-3752)")
+check("a subject from the bullet it hangs from, from its own words before a colon, from its ticket",
+      Q.subject_of(sec("Who upgrades the account pool to Premium? · PM lead", "7. Waiting on Evan — threads", "**YouTube source** ([ads](https://s))")) == "YouTube source"
+      and Q.subject_of(sec("This week's deploy: what goes to Prod 3? · QA lead", "If time allows")) == "This week's deploy"
+      and Q.subject_of(sec("[MH-2564](https://j/browse/MH-2564) async graph submissions: when?", "If time allows")) == "MH-2564"
+      and Q.subject_of(sec("Who takes it?", kind="project", where="projects/p.md"), {"MH-3984": "projects/p.md"},
+                       {"projects/p.md": "MH-3984 · Destination CSC"}) == "Destination CSC (MH-3984)")
+r_ = {"raw": "x", "text": "MH-2564 — async graph submissions: when?", "lead": ["MH-2564"], "subject": "MH-2564", "thing": {}}
+check("a line is its subject and the question, the subject not said twice, its ticket linked, never cut",
+      Q.line(r_, "https://j") == "[MH-2564](https://j/browse/MH-2564): Async graph submissions: when?"
+      and not Q.unworded(r_) and Q.unworded(dict(r_, text="MH-2564 — " + "word " * 30 + "?")))
+check("his words for a line: one sentence of at most 25 words, no ellipsis; they stand while the note words it the same",
+      Q.set_words({"questions": {"q": r_}}, "q", "MH-2564", "When does async graph submission start …?") == "an ellipsis: write it whole"
+      and Q.set_words({"questions": {"q": r_}}, "q", "MH-2564", "word " * 26 + "?").startswith("one whole sentence")
+      and Q.set_words({"questions": {"q": r_}}, "q", "Async graph submissions (MH-2564)", "Which sprint takes it, and who builds it?") is None
+      and Q.line(r_) == "Async graph submissions (MH-2564): Which sprint takes it, and who builds it?"
+      and Q.line(dict(r_, raw="reworded")) == "MH-2564: Async graph submissions: when?")
+
 check("a note's meeting is its file name less its date, matched to the book's key either way",
       Q.audience("meetings/20261112-sync-eng-qa.md", ["sync-eng-qa-ux"]) == "sync-eng-qa-ux"
       and Q.audience("meetings/2026-11-17-sync-eng-qa-ux.md", ["sync-eng-qa-ux"]) == "sync-eng-qa-ux")

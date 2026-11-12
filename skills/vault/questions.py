@@ -6,7 +6,8 @@ meeting or on a project page: something a team member answers about the product 
 ela's (a write ela proposes): those expire after three working mornings (ADR 0014); a team question does not
 (ADR 0016). The records live in <reports>/ela/questions.json:
 
-    {"questions": {id: {id, text, raw, who, keys, lead, thing, audience, first: {date, where}, meetings: [date],
+    {"questions": {id: {id, text, raw, who, subject, words: {for, subject, sentence}, keys, lead, thing, audience,
+                        first: {date, where}, meetings: [date],
                         sources: [where#gist], base: {at, tickets: {KEY: {status, assignee, due, resolution}}},
                         waiting: {since, why}, status: open|closed|dropped, outcome, closed, by, draft}},
      "built": {meeting note: digest of the bytes ela last wrote}}
@@ -25,6 +26,7 @@ QUESTIONS_PAGE = "meetings/open-questions.md"
 NUDGE_EVERY = 3                         # listed at this many meetings without an outcome: one ask on today.md
 PAGE_LINES = 48                         # the standing page fits one screen
 TEXT_CHARS = 110
+WORDS_MAX = 25                          # a question on the page is one whole sentence of at most this many words
 CARRIED_DAYS = 7                        # waiting this long, or listed at two meetings: carried
 STATE = ("ela", "questions.json")
 BOX = re.compile(r"^([ \t]*)[-*][ \t]+\[([ xX])\][ \t]+(\S.*?)[ \t]*$")
@@ -306,6 +308,56 @@ def thing_of(c, projects):
     return {"kind": "topic", "name": "Other" if not sec or GENERIC_SECTION.match(sec) else sec[:60]}
 
 
+def topic(text):
+    """A heading or a title as a topic: links and bold dropped, a leading `1.` and a leading key dropped, its parts
+    joined by commas; None when that is more than eight words."""
+    t = re.sub(r"\*+", "", visible(text or "")).strip()
+    t = re.sub(r"^\d+\.[ \t]*", "", t)
+    t = re.sub(r"^[A-Z][A-Z0-9]+-\d+[ \t]*[·—:-][ \t]*", "", t)
+    t = re.sub(r"[ \t]+\([^()]*\)$", "", t)               # a title's closing aside: `Optional SCTE-35 in the output (…)`
+    parts = [p.strip() for p in re.split(r" — | · ", t) if p.strip() and not KEY.fullmatch(p.strip())]
+    t = ", ".join(parts)
+    return t if t and len(t.split()) <= 8 else None
+
+
+def head_of(text):
+    """The words before a question's first `:` or ` — `, case kept, when two to six words and not a key: its own
+    subject (`This week's deploy: …`)."""
+    head = re.split(r" — |: ", visible(text), 1)
+    if len(head) < 2 or KEY.search(head[0]):
+        return None
+    return head[0].strip() if 2 <= len(head[0].split()) <= 6 else None
+
+
+def subject_of(c, projects=None, titles=None):
+    """What a question is about, written on the record when it is read from a note, so its line stands alone off its
+    section: a project page's topic and key; the topic of the section it sits under, with the section's key or else the
+    question's one ticket; the bold lead of the bullet it hangs from; its own words before a colon; its ticket."""
+    vis = visible(c["raw"])
+    lead = lead_keys(vis)
+    one = lead[0] if len(lead) == 1 else None
+    def with_key(name, ks):
+        k = ks[0] if ks else one
+        if name and k and k not in name:
+            return f"{name} ({k})"
+        return name or k
+    if c["kind"] == "project":
+        key = next((k for k, rel in (projects or {}).items() if rel == c["where"]), None)
+        return with_key(topic((titles or {}).get(c["where"])), [key] if key else [])
+    sec = re.sub(r"^\d+\.[ \t]*", "", c.get("section") or "")
+    if sec and not GENERIC_SECTION.match(visible(sec).strip()) and topic(sec):
+        return with_key(topic(sec), keys_in(visible(sec)))
+    par = re.match(r"^\*\*([^*]+)\*\*", c.get("parent") or "")
+    if par:
+        return with_key(topic(par.group(1)), keys_in(visible(c["parent"])))
+    h = head_of(vis)
+    if h:
+        return h
+    if one:
+        return one
+    return f"{lead[0]} and {len(lead) - 1} more" if lead else None
+
+
 def raised(c, vis, today):
     """The day a candidate says its question was first raised: its note's date, a Ruled date it was carried at, its
     `since MM-DD`, whichever is earliest and not after today."""
@@ -317,7 +369,7 @@ def raised(c, vis, today):
     return first
 
 
-def harvest(state, cands, now, facts_issue, projects=None, snapshot=None, meeting_start=None, keys=()):
+def harvest(state, cands, now, facts_issue, projects=None, snapshot=None, meeting_start=None, keys=(), titles=None):
     """Candidates into records: a box with its id, or one already a source, is that record; else the same question by
     ticket and meaning across notes merges into an open record; else a new record. A ticked box closes it (his tick).
     A record each listing's meeting date is added to; a closed one is never reopened by an old box.
@@ -343,6 +395,7 @@ def harvest(state, cands, now, facts_issue, projects=None, snapshot=None, meetin
             if c["ticked"]:
                 continue                                    # ticked before ela ever saw it: not a question to keep
             rec = {"id": qid(c["raw"], c["where"]), "text": q, "raw": c["raw"], "who": who, "keys": keys_in(vis),
+                   "subject": subject_of(c, projects, titles),
                    "lead": lead_keys(vis), "thing": thing_of(c, projects or {}), "audience": c.get("audience"),
                    "first": {"date": today.isoformat(), "where": c["where"]}, "meetings": [], "sources": [], "status": "open",
                    "base": None}
@@ -364,7 +417,8 @@ def harvest(state, cands, now, facts_issue, projects=None, snapshot=None, meetin
             rec.update(status="closed", outcome=f"ticked on {c['where']}", closed=today.isoformat(), by="owner")
             touched.append(rec["id"]); continue
         if not built and ((c.get("date") or "") >= rec.get("worded", "") or not rec.get("who")):   # the newest hand listing words it
-            rec.update(text=q, raw=c["raw"], who=who or rec.get("who"), worded=max(c.get("date") or "", rec.get("worded", "")))
+            rec.update(text=q, raw=c["raw"], who=who or rec.get("who"), worded=max(c.get("date") or "", rec.get("worded", "")),
+                       subject=subject_of(c, projects, titles) or rec.get("subject"))
             rec["keys"] = list(dict.fromkeys(rec["keys"] + keys_in(vis)))
             rec["lead"] = lead_keys(vis) or rec["lead"]
             if c.get("audience") and not rec.get("audience"):
@@ -557,6 +611,68 @@ def answerer(r):
     return (ps[0] if ps else "Not named"), ps[1:]
 
 
+def subject_line(r):
+    """The record's subject: its own words for it, else the one read from its note, else its thing."""
+    w = r.get("words") or {}
+    if w.get("for") == r.get("raw") and w.get("subject"):
+        return w["subject"]
+    if r.get("subject"):
+        return r["subject"]
+    t = r.get("thing") or {}
+    if t.get("kind") == "ticket":
+        return t.get("key")
+    if t.get("kind") == "project":
+        return t.get("key") or topic(os.path.basename(t.get("ref") or "")[:-3].replace("-", " "))
+    return t.get("name") if t.get("name") not in (None, "Other") else None
+
+
+def sentence(r):
+    """The question as a sentence: its own words when written for its current wording (`ela vault questions --word`),
+    else its text with its subject not said twice. Never cut."""
+    w = r.get("words") or {}
+    if w.get("for") == r.get("raw") and w.get("sentence"):
+        return w["sentence"]
+    t = re.sub(r"\*\*([^*]+)\*\*", r"\1", r.get("text") or "").strip()
+    sub = subject_line(r) or ""
+    for lead in [k for k in r.get("lead") or [] if k in sub][:1] + ([head_of(t)] if head_of(t) and head_of(t) == sub else []):
+        t = re.sub(r"^" + re.escape(lead) + r"(?:[ \t]+—[ \t]+|:[ \t]+|[ \t]+)", "", t)
+    for k in keys_in(sub):
+        t = re.sub(r"[ \t]*\(" + re.escape(k) + r"\)", "", t)   # `… to 2.1.42+ (MH-3752)?` under a subject naming MH-3752
+    return t[:1].upper() + t[1:]
+
+
+def unworded(r):
+    """Whether the line still needs its words: not one whole sentence of at most WORDS_MAX words."""
+    t = sentence(r)
+    return len(t.split()) > WORDS_MAX or not re.search(r"[?.]$", t) or not t[:1].isupper() and not re.match(r"^[A-Z]{2}|\W", t)
+
+
+def line(r, jira=""):
+    """`Subject: sentence`, the subject's ticket linked: one question that stands alone, whole."""
+    sub = subject_line(r)
+    if sub and jira:
+        sub = KEY.sub(lambda m: link(m.group(1), jira) if is_key(m.group(1)) else m.group(1), sub)
+    return f"{sub}: {sentence(r)}" if sub else sentence(r)
+
+
+def set_words(state, rid, subject, sentence_):
+    """His or a session's words for a question's line: a subject of at most eight words and one whole sentence of at
+    most WORDS_MAX words, never an ellipsis. They stand while the question's wording on its note stays the same.
+    → None, or what is wrong."""
+    r = state["questions"].get(rid)
+    if not r:
+        return f"no question {rid}"
+    s_, t = " ".join((subject or "").split()), " ".join((sentence_ or "").split())
+    if "…" in s_ + t or "..." in s_ + t:
+        return "an ellipsis: write it whole"
+    if not s_ or len(s_.split()) > 8:
+        return "a subject is one to eight words"
+    if len(t.split()) > WORDS_MAX or not re.search(r"[?.]$", t):
+        return f"one whole sentence of at most {WORDS_MAX} words, ending in ? or ."
+    r["words"] = {"for": r.get("raw"), "subject": s_, "sentence": t}
+    return None
+
+
 def link(k, jira):
     return f"[{k}]({jira.rstrip('/')}/browse/{k})" if jira else k
 
@@ -586,11 +702,8 @@ def page(state, today, jira="", drafts=None):
                 more += 1; continue
             co = answerer(r)[1]
             k = r["lead"][0] if r["lead"] else (r["keys"][0] if r["keys"] else None)
-            n = len(r["meetings"])
-            shown_text = re.sub(r"\*\*([^*]+)\*\*", r"\1", r["text"])
-            if k and shown_text.startswith(k + " — "):
-                shown_text = shown_text[len(k) + 3:]
-            bits = [f"**{name}**" + (f" with {', '.join(co)}" if co else ""), short(shown_text, 90)] + ([link(k, jira)] if k else []) + \
+            ln = line(r, jira)
+            bits = [f"**{name}**" + (f" with {', '.join(co)}" if co else ""), ln] + ([link(k, jira)] if k and k not in ln else []) + \
                    [waited(r, today)]
             L.append(f"- [ ] {' · '.join(bits)} ^{r['id']}")
             d = (drafts or {}).get(r["id"])
@@ -611,7 +724,7 @@ def today_line(state, today, next_meeting=None, jira=""):
     if not recs:
         return None
     o = recs[0]
-    k = o["lead"][0] if o["lead"] else (o["keys"][0] if o["keys"] else short(o["text"], 40))
+    k = o["lead"][0] if len(o["lead"]) == 1 else subject_line(o) or line(o)
     bits = [f"[[{QUESTIONS_PAGE[:-3]}|{len(recs)} open team question{'s' if len(recs) != 1 else ''}]]",
             f"longest waiting: {link(k, jira) if KEY.fullmatch(k or '') else k}, {days(age(o, today))}"]
     if next_meeting:
@@ -639,7 +752,7 @@ def draft(r, owner_first=""):
     hi = f"Hi {to.split()[0]}, " if to else "Hi, "
     n = len(r["meetings"])
     text = (f"{hi}one open question from the MediaHub syncs, listed at {n} meetings, waiting since {since(r)[5:]}: "
-            f"{r['text'].rstrip('?. ')}? Could you answer here, or tell me who should?" + (f" — {owner_first}" if owner_first else ""))
+            f"{line(r).rstrip('?. ')}? Could you answer here, or tell me who should?" + (f" — {owner_first}" if owner_first else ""))
     th = SLACK.search(r.get("raw") or "")
     if r["lead"]:
         return {"to": to or "its holder", "via": f"Jira comment on {r['lead'][0]}", "text": text,
@@ -702,12 +815,9 @@ def meeting_note(state, aud, title, day, now, facts_issue, owner_first="", jira=
          f"every open one is on [[{QUESTIONS_PAGE[:-3]}|the standing list]].*", ""]
     def box(r, carried=False):
         k = r["lead"][0] if r["lead"] else None
-        text = re.sub(r"\*\*([^*]+)\*\*", r"\1", r["text"])
-        if k and text.startswith(k + " — "):
-            text = text[len(k) + 3:]
-        bits = [short(text, 100)] + ([r["who"]] if r.get("who") else [])
+        text = line(r, jira)
+        bits = [text] + ([r["who"]] if r.get("who") else [])
         if carried:
-            n = len(r["meetings"])
             bits += ([link(k, jira)] if k and k not in text else []) + [waited(r, now.date())]
         return f"- [ ] {' · '.join(bits)} ^{r['id']}"
     for i, ((kind, ref), rs) in enumerate(focus, 1):

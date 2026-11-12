@@ -2252,7 +2252,7 @@ def project_note(key, text, vault, notes, today, jira_base="", ticket=None, ques
         Q = questions_mod()
         for r in Q.open_records(questions):
             if (r.get("thing") or {}).get("ref") == facts["path"] and not all(x.startswith(facts["path"] + "#") for x in r["sources"]):
-                asked.append(f"{Q.short(r['text'], 100)}" + (f" · {r['who']}" if r.get("who") else "") +
+                asked.append(Q.line(r, jira_base) + (f" · {r['who']}" if r.get("who") else "") +
                              f" · {Q.waited(r, today)} · [[{Q.QUESTIONS_PAGE[:-3]}#^{r['id']}|on the list]]")
     tail = project_tail(facts, rows, today, jira_base, meeting_outcomes(notes, facts["keys"], today), asked)
     n = Note(facts["path"], facts["title"], facts["head"] + "\n" + tail, {"type": "project", "date": want["date"], "deadline": want["deadline"]})
@@ -3588,11 +3588,13 @@ def next_meeting(meetings, today, key=None):
     return best
 
 
-def questions_pass(vault, reports, facts, now, meetings=(), jira="", seeds=(), dry_run=False):
+def questions_pass(vault, reports, facts, now, meetings=(), jira="", seeds=(), dry_run=False, words=()):
     """The open team questions brought up to date: his ticks and `ela:` lines on the standing page and his `drop`
     on today.md first, then each open one read against its ticket and thread (an outcome closes it), then every
     meeting note, project page and seed (a meeting note outside the vault, e.g. from the backup) read for boxes and
-    merged into the records. → (state, {consumed: [his lines on the page], closed: [(id, outcome)], new: [id]})."""
+    merged into the records; then the words given for a question's line (words: [(id, subject, sentence)]).
+    → (state, {consumed: [his lines on the page], closed: [(id, outcome)], new: [id], refused: [(id, why)],
+    unworded: [id]})."""
     Q = questions_mod()
     state = Q.load(reports)
     today = now.date()
@@ -3654,7 +3656,8 @@ def questions_pass(vault, reports, facts, now, meetings=(), jira="", seeds=(), d
     except (OSError, ValueError):
         snaps = {}
     before = set(state["questions"])
-    Q.harvest(state, cands, now, issue, projects, snaps, start, keys)
+    titles = {project_path(vault, key): h1(split_front(text)[1]) or key for key, text in project_pages(vault).items()}
+    Q.harvest(state, cands, now, issue, projects, snaps, start, keys, titles)
     closed += Q.gone_from_pages(state, project_srcs, today)
     Q.wait_since(state, today, question_evidence(vault, reports, issue, owner))
     build_meeting_notes(vault, state, now, meetings, issue, owner, jira, dry_run)
@@ -3670,15 +3673,17 @@ def questions_pass(vault, reports, facts, now, meetings=(), jira="", seeds=(), d
                 os.makedirs(os.path.dirname(path), exist_ok=True)
                 atomic_write(path, dr["text"] + "\n")
             r["draft"] = dr
+    refused = [(w[0], why) for w in words or () for why in [Q.set_words(state, *w)] if why]
     if not dry_run:
         Q.save(reports, state, atomic_write)
-    return state, {"consumed": consumed, "closed": closed, "new": sorted(set(state["questions"]) - before)}
+    return state, {"consumed": consumed, "closed": closed, "new": sorted(set(state["questions"]) - before), "refused": refused,
+                   "unworded": [r["id"] for r in Q.open_records(state) if Q.unworded(r)]}
 
 
 def question_evidence(vault, reports, issue, owner=""):
     """key → [(date, why)]: the earlier evidence that a question about one ticket was already waiting. His asks on it
     (the asks store, which reference/dropped.md is written from: its first day), the morning pages carrying it under
-    Needs you (the page's own `Nth morning`, counted back over the pages), the archived meeting lists that listed it
+    Needs you (the latest page's own `Nth morning`, counted back over the pages), the archived meeting lists that listed it
     (archive/, type meeting: its `since MM-DD`, else the note's date), and the ticket's last movement by someone
     other than the owner."""
     Q = questions_mod()
@@ -3703,8 +3708,9 @@ def question_evidence(vault, reports, issue, owner=""):
         for m in re.finditer(r"^(?:>[ \t]*)?###[ \t]+(?:\d+\.[ \t]*)?(.+)\n((?:.*\n){0,3})", text, re.M):
             ks = Q.keys_in(Q.visible(m.group(1)))
             n = re.search(r"\b(\d+)(?:st|nd|rd|th) morning\b", m.group(2))
-            if ks:
-                start = pages[max(0, i - (int(n.group(1)) - 1 if n else 0))][0]
+            if ks and n:                                   # the page's own age; an earlier run that broke off is not this one
+                start = pages[max(0, i - (int(n.group(1)) - 1))][0]
+                by[ks[0]] = [e for e in by.get(ks[0], []) if not e[1].startswith("on the morning page")]
                 put(ks[0], start, f"on the morning page since {start}")
     arch = os.path.join(vault, ARCHIVE)
     for f in sorted(os.listdir(arch)) if os.path.isdir(arch) else []:
@@ -3795,7 +3801,7 @@ def question_asks(state, today, actions=()):
             send = f"apply sends {who} the drafted message, or drop it on the list"
         out.append({"id": f"question:{r['id']}:{n['bucket']}", "box": f"apply {act['n']}" if act else "drop", "whole": True,
                     "ns": [int(act["n"])] if act else [],
-                    "text": f"{Q.short(r['text'], 70)} — carried through {n['count']} meetings: {send}",
+                    "text": f"{Q.line(r)} — carried through {n['count']} meetings: {send}",
                     "link": f"{Q.QUESTIONS_PAGE[:-3]}#^{r['id']}", "sig": evidence_sig(r["id"]), "first": today.isoformat()})
     return out
 
@@ -5152,18 +5158,32 @@ def cmd_questions(a):
     env = s.get("env")
     jira_url = next((l.split("=", 1)[1].strip() for l in open(env) if l.startswith("JIRA_BASE_URL=")), "") \
         if env and os.path.isfile(env) else ""
+    words = [tuple(w) for w in a.word or ()]
+    if a.words:
+        try:
+            words += [(k, *v) for k, v in json.load(open(a.words, encoding="utf-8")).items()]
+        except (OSError, ValueError, TypeError) as e:
+            print(f"--words: {e}", file=sys.stderr); sys.exit(2)
     state, done = questions_pass(s["vault"], s.get("reports") or "", os.path.join(s.get("runtime") or "", "facts"),
-                                 datetime.datetime.now().astimezone(), meeting_book()[0], jira_url, a.seed or (), dry_run=not a.apply)
+                                 datetime.datetime.now().astimezone(), meeting_book()[0], jira_url, a.seed or (), dry_run=not a.apply,
+                                 words=words)
     Q = questions_mod()
     recs = Q.open_records(state)
     if a.json:
-        print(json.dumps({"open": recs, "closed": done["closed"], "new": done["new"], "dry_run": not a.apply}, ensure_ascii=False)); return
+        print(json.dumps({"open": recs, "closed": done["closed"], "new": done["new"], "refused": done["refused"],
+                          "unworded": done["unworded"], "dry_run": not a.apply}, ensure_ascii=False))
+        sys.exit(2 if done["refused"] else 0)
+    for qi, why in done["refused"]:
+        print(f"refused words for {qi}: {why}", file=sys.stderr)
     today = datetime.date.today()
     for r in recs:
-        print(f"{r['id']} · {Q.answerer(r)[0]} · {Q.waited(r, today)} ({r.get('waiting', {}).get('why', '')}) · {Q.short(r['text'], 90)}")
+        print(f"{r['id']} · {Q.answerer(r)[0]} · {Q.waited(r, today)} ({r.get('waiting', {}).get('why', '')}) · {Q.line(r)}" + (" · NEEDS WORDS" if Q.unworded(r) else ""))
     for qi, w in done["closed"]:
         print(f"closed {qi}: {w}")
-    print(f"{len(recs)} open, {len(done['new'])} new" + ("" if a.apply else " · DRY RUN (--apply writes the records)") + f" · {today}")
+    print(f"{len(recs)} open, {len(done['new'])} new, {len(done['unworded'])} need words" +
+          ("" if a.apply else " · DRY RUN (--apply writes the records)") + f" · {today}")
+    if done["refused"]:
+        sys.exit(2)
 
 
 def gone_by_hand(vault, old_native, native_paths, removed, backup=None):
@@ -6397,6 +6417,9 @@ def main():
     p = sub.add_parser("questions", help="the open team questions: each one record, closed by its outcome or his word, "
                                          "never by age (ADR 0016); a dry run unless --apply")
     p.add_argument("--seed", nargs="+", metavar="NOTE", help="meeting notes outside the vault to read too (a backup's copy)")
+    p.add_argument("--word", nargs=3, action="append", metavar=("ID", "SUBJECT", "SENTENCE"),
+                   help="a question's line in its own words: a subject and one whole sentence of at most 25 words")
+    p.add_argument("--words", metavar="FILE", help='the same for many: a JSON file {"q-xxxxxx": ["subject", "sentence"]}')
     p.add_argument("--apply", action="store_true", help="write the records")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_questions)
