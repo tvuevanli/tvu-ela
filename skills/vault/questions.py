@@ -843,8 +843,11 @@ def meeting_note(state, aud, title, day, now, facts_issue, owner_first="", jira=
             if u and last and u[:10] > last:
                 return True
         return False
+    top = [r for r in carried(state, now.date())[:CARRIED_MAX] if same_audience_strict(r.get("audience"), aud)]
     groups = {}
     for r in recs:
+        if r in top:
+            continue                                       # it is under Carried, as on the standing page
         if (r.get("thing") or {}).get("kind") in ("project", "ticket") or (r.get("thing") or {}).get("name") not in (None, "Other"):
             groups.setdefault(thing_key(r), []).append(r)
     def weight(item):
@@ -855,9 +858,6 @@ def meeting_note(state, aud, title, day, now, facts_issue, owner_first="", jira=
     focus = [g for g in sorted(groups.items(), key=weight) if any(changed(r) or due(r) for r in g[1])][:FOCUS_MAX]
     if not focus:                                          # a quiet week: the things with most open questions lead
         focus = sorted((g for g in groups.items() if len(g[1]) >= 2), key=lambda g: (-len(g[1]), g[1][0]["first"]["date"]))[:FOCUS_MAX]
-    top = [r for r in carried(state, now.date())[:CARRIED_MAX] if same_audience_strict(r.get("audience"), aud)]
-    focus = [(k, [r for r in rs if r not in top]) for k, rs in focus]
-    focus = [(k, rs) for k, rs in focus if rs]
     placed = {r["id"] for _, rs in focus for r in rs} | {r["id"] for r in top}
     L = [f"# {title}", "",
          f"*Built from the open questions on {now:%m-%d %H:%M}. A tick, or an `ela:` line under a question, closes it; "
