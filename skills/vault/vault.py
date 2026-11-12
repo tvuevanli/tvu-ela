@@ -120,7 +120,7 @@ DELETABLE = ("projects", RELEASES, CASES, REF, HISTORY, TO_READ, READINGS, "days
 KEEP_FOREVER = ("brief", "week", "changes")   # the morning pages are the record of what ela told the owner; the rest expires
 PROPS = ("title", "aliases", "type", "date", "kind", "project", "slug", "deadline", "next-step", "customer", "hubspot", "graph", "box",
          "status", "result", "target", "progress", "source",
-         "moves", "next", "ela", "posted", "channels", "keys", "watch", "watched", "last", "language")
+         "moves", "next", "ela", "posted", "channels", "keys", "watch", "watched", "last", "language", "by")
 # the whole vocabulary; no tags (ADR 0010)
 MARKS = {"done": DONE, "drop": DONE}   # both close the note where it is and keep it; next says which (no data is lost)
 BUDGET = {"ticket": 700, "topic": 800, "guide": 1200, "board": 1000, "day": 1200, "review": 2500, "decision": 800, "plan": 800, "sprint": 800, "report": 1200,
@@ -3284,6 +3284,11 @@ def meeting_lint(path, text):
     return out
 
 
+def legacy_form(text):
+    """The verb's form of a meeting note, meetings/<key>.md with a `## To raise` section: the one close and roll write."""
+    return bool(re.search(r"^##[ \t]+" + re.escape(MEETING_RAISE) + r"[ \t]*$", split_front(text or "")[1], re.M))
+
+
 def ela_wrote(text):
     """Whether ela wrote this meeting note and may write it again: the verb's form (a `## To raise` section) or a dated
     note it built (`by: "ela"`). A note he or a session wrote by hand is input only, never rewritten (the hand-written
@@ -3305,7 +3310,7 @@ def meeting_roll(vault, today, dry_run=False):
             continue
         text = open(p, encoding="utf-8").read()
         fl, _ = split_front(text)
-        if not any(re.match(r"^type:\s*['\"]?meeting['\"]?\s*$", l) for l in fl) or not ela_wrote(text):
+        if not any(re.match(r"^type:\s*['\"]?meeting['\"]?\s*$", l) for l in fl) or not legacy_form(text):
             continue
         n = meeting_parse(text)
         old = sorted((x for x in n["ruled"] if x[0] < cut), key=lambda x: x[0])
@@ -3335,8 +3340,8 @@ def meeting_roll(vault, today, dry_run=False):
 # His ticks and `ela:` lines rule an item when he writes them; nothing requires them. After the meeting's end, the
 # next sync reads each item's ticket in the fact store (<runtime>/facts/jira/issues/) and its thread, if the item links
 # one (<runtime>/facts/slack/), for what changed since the meeting began, and writes the outcome under Ruled itself. An
-# item with no change rolls to the next meeting once, then leaves for reference/dropped.md like any ask. Reason: the
-# review of the vault's first day on layout 5 (<runtime>/drafts/2026-11-12-vault-two-day-review-brief.md, change 4).
+# item with no change is carried to the next meeting until an outcome comes (ADR 0016). Reason: the review of the
+# vault's first day on layout 5 (<runtime>/drafts/2026-11-12-vault-two-day-review-brief.md, change 4).
 MEETING_HOURS = 1                                       # a meeting's length when meetings.yaml gives no `minutes`
 SLACK_LINK = re.compile(r"/archives/([A-Z0-9]+)/p(\d{10})(\d{6})")
 
@@ -3447,11 +3452,12 @@ def meeting_snapshot_path(reports):
 def meeting_close(vault, reports, facts, now, meetings, next_day=None, dry_run=False, jira=""):
     """Each meeting note whose meeting has ended and is not yet closed: his ticks and `ela:` lines applied first, then
     each item left is read for what changed since the meeting began; a change is its outcome under `### <day>` in
-    Ruled, the rest roll once (their `since` kept) and leave for reference/dropped.md the second time. Before a meeting
+    Ruled, the rest are carried to the next meeting (their `since` kept) until an outcome comes: a team question never
+    leaves for reference/dropped.md (ADR 0016); its record is the open-questions pass's. Before a meeting
     begins, its tickets' status and assignee are kept (<reports>/ela/meetings.json) so an assignment can be told
     after. `meetings`: meetings.yaml's list; `next_day(meeting, day)`: the meeting's next date after `day`, or None;
     `jira`: the base URL the outcome's ticket keys are linked to.
-    → [{note, day, outcome: [(text, words)], rolled: [text], dropped: [text]}]."""
+    → [{note, day, outcome: [(text, words)], rolled: [text]}]."""
     out, d = [], os.path.join(vault, MEETINGS)
     snap_path = meeting_snapshot_path(reports)
     try:
@@ -3459,15 +3465,14 @@ def meeting_close(vault, reports, facts, now, meetings, next_day=None, dry_run=F
     except (OSError, ValueError):
         snaps = {}
     snaps_changed = False
-    drops = []
     for f in sorted(os.listdir(d)) if os.path.isdir(d) else []:
         p = os.path.join(d, f)
         if not f.endswith(".md"):
             continue
         text = open(p, encoding="utf-8").read()
         fl, _ = split_front(text)
-        if not any(re.match(r"^type:\s*['\"]?meeting['\"]?\s*$", l) for l in fl) or not ela_wrote(text):
-            continue                                       # a hand-written note is read, never rewritten
+        if not any(re.match(r"^type:\s*['\"]?meeting['\"]?\s*$", l) for l in fl) or not legacy_form(text):
+            continue                                       # a hand-written note is read, never rewritten; a built one is the records' view
         n = meeting_parse(text)
         key, title = f[:-3], n["title"] or f[:-3]
         day = meeting_day(title)
@@ -3493,7 +3498,7 @@ def meeting_close(vault, reports, facts, now, meetings, next_day=None, dry_run=F
             continue                                       # closed once; what he adds after is the next meeting's
         meeting_rule(n, day, day, raised_for=day)          # his ticks and words first, as the meeting's own
         before = snaps.get(sk) or {}
-        stay, lines, res = [], [], {"note": f"{MEETINGS}/{f}", "day": day.isoformat(), "outcome": [], "rolled": [], "dropped": []}
+        stay, lines, res = [], [], {"note": f"{MEETINGS}/{f}", "day": day.isoformat(), "outcome": [], "rolled": []}
         for it in n["items"]:
             fld = meeting_fields(it["text"])
             words, read = (ticket_outcome(facts, fld["key"], start, before.get(fld["key"])) if fld["key"] else (None, False))
@@ -3507,17 +3512,10 @@ def meeting_close(vault, reports, facts, now, meetings, next_day=None, dry_run=F
                 lines += [f"- {bare} · {words}"] + detail
                 res["outcome"].append((bare, words))
                 continue
-            since = meeting_since(fld["since"], day) if fld["since"] else day
             gone = "no ticket to read" if not fld["key"] else ("not read" if not read else "no change")
-            if since < day:                                # rolled once already: it leaves the list
-                lines.append(f"- {bare} · {gone}, second meeting: left the list")
-                res["dropped"].append(bare)
-                drops.append({"id": f"meeting:{key}:{fld['gist']}", "text": f"{visible(bare)} ({title.split(' · ')[0]})",
-                              "first": since.isoformat(), "dropped": day.isoformat()})
-                continue
             if not fld["since"]:                           # it keeps the day it was raised for, shown from the next meeting on
                 it["text"] = it["text"].rstrip() + f" · since {day:%m-%d}"
-            lines.append(f"- {bare} · {gone}: raised again next meeting")
+            lines.append(f"- {bare} · {gone}: carried to the next meeting")   # a team question stays until answered (ADR 0016)
             res["rolled"].append(bare)
             stay.append(it)
         n["items"] = stay
@@ -3537,12 +3535,6 @@ def meeting_close(vault, reports, facts, now, meetings, next_day=None, dry_run=F
     if not dry_run and snaps_changed:
         os.makedirs(os.path.dirname(snap_path), exist_ok=True)
         atomic_write(snap_path, json.dumps(snaps, indent=1, ensure_ascii=False))
-    if drops and not dry_run:                              # like any ask: once on reference/dropped.md
-        state = load_asks(reports)
-        for x in drops:
-            if not (state.get(x["id"]) or {}).get("dropped"):
-                state[x["id"]] = {"first": x["first"], "text": x["text"], "sig": "", "dropped": x["dropped"]}
-        atomic_write(os.path.join(reports, "ela", "asks.json"), json.dumps(state, indent=1, ensure_ascii=False))
     return out
 
 
@@ -3641,7 +3633,8 @@ def questions_pass(vault, reports, facts, now, meetings=(), jira="", seeds=(), d
         rel = project_path(vault, key)
         fl, body = split_front(text)
         for k in KEY_RX.findall(" ".join(fl) + " " + (h1(body) or "")):
-            projects.setdefault(k, rel)
+            if is_jira_key(k):
+                projects.setdefault(k, rel)
         head, _ = project_head(body)
         pc = Q.project_candidates(rel, head, section_at)
         project_srcs |= {f"{rel}#{Q.gist(c['raw'])}" for c in pc}
@@ -3653,6 +3646,7 @@ def questions_pass(vault, reports, facts, now, meetings=(), jira="", seeds=(), d
     before = set(state["questions"])
     Q.harvest(state, cands, now, issue, projects, snaps, start, keys)
     closed += Q.gone_from_pages(state, project_srcs, today)
+    build_meeting_notes(vault, state, now, meetings, issue, owner, jira, dry_run)
     for n in Q.nudges(state, today):                       # listed at three meetings: the message he can send, drafted
         r = state["questions"][n["id"]]
         dr = Q.draft(r, owner.split()[0] if owner else "")
@@ -3668,6 +3662,55 @@ def questions_pass(vault, reports, facts, now, meetings=(), jira="", seeds=(), d
     if not dry_run:
         Q.save(reports, state, atomic_write)
     return state, {"consumed": consumed, "closed": closed, "new": sorted(set(state["questions"]) - before)}
+
+
+def build_meeting_notes(vault, state, now, meetings, issue, owner="", jira="", dry_run=False):
+    """For each standing meeting with weekdays, its next note built from the records: meetings/<yyyy-mm-dd>-<key>.md for
+    today's meeting before it ends, else the next one. A note for that day he or a session wrote by hand is left alone
+    (and read as input); a built note he has edited since ela wrote it is his from then on. → the paths written."""
+    Q = questions_mod()
+    today, out = now.date(), []
+    d = os.path.join(vault, MEETINGS)
+    present = sorted(os.listdir(d)) if os.path.isdir(d) else []
+    titles = {}
+    for key, text in project_pages(vault).items():
+        titles[project_path(vault, key)] = h1(split_front(text)[1]) or key
+    for m in meetings or []:
+        if not isinstance(m, dict) or not m.get("key") or not m.get("weekdays"):
+            continue
+        k = m["key"]
+        _, end = meeting_window(m, today)
+        nm = next_meeting([m], today - datetime.timedelta(days=1), k)   # today's counts while it has not ended
+        day = nm[2] if nm and (nm[2] > today or now < end) else (next_meeting([m], today, k) or (None, None, None))[2]
+        if not day:
+            continue
+        rel = f"{MEETINGS}/{day.isoformat()}-{k}.md"
+        hand = False
+        for f in present:
+            if f.endswith(".md") and f"{MEETINGS}/{f}" != rel and Q.same_audience_strict(Q.audience(f, [k]), k):
+                try:
+                    t = open(os.path.join(d, f), encoding="utf-8").read()
+                except OSError:
+                    continue
+                if Q.note_date(f, t) == day.isoformat() and not legacy_form(t):
+                    hand = True
+        if hand:
+            continue
+        p = os.path.join(vault, rel)
+        if os.path.exists(p) and digest(open(p, encoding="utf-8").read()) != state["built"].get(rel):
+            continue                                       # he edited it: his now, read as input
+        name = (m.get("name") or k).split(" · ")[0]
+        title = f"{name} · {day:%a %Y-%m-%d}"
+        body = Q.meeting_note(state, k, title, day, now, issue, owner.split()[0] if owner else "", jira, titles)
+        text = front([], {"title": title, "type": "meeting", "date": day.isoformat(), "by": "ela", "source": "vault"}) + body
+        if os.path.exists(p) and re.sub(r"\*Built from[^*]*\*", "", open(p, encoding="utf-8").read()) == re.sub(r"\*Built from[^*]*\*", "", text):
+            continue                                       # nothing but the stamp would change
+        if not dry_run:
+            os.makedirs(d, exist_ok=True)
+            atomic_write(p, text)
+            state["built"][rel] = digest(text)
+        out.append(rel)
+    return out
 
 
 def question_asks(state, today):

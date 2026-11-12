@@ -118,11 +118,29 @@ with tempfile.TemporaryDirectory() as t:
                 code = e.code or 0
         return so.getvalue(), se.getvalue(), code
 
-    # --raise: his item, the key a link, since today; the note made in shape on first use; twice is once
+    # with no note in the verb's form, the list is the records' (ADR 0016): --raise adds a question, writes no note
+    o, _, c = run("--raise", "MH-2406 — friendly notice for 0x81004009 too?", "--decides", "PM lead", "--now", "2026-10-29T09:00")
+    qs = json.load(open(os.path.join(reports, "ela", "questions.json")))["questions"]
+    check("no verb's note: --raise records a question for the meeting and writes no meetings/<key>.md",
+          c == 0 and not os.path.exists(note) and len(qs) == 1 and list(qs.values())[0]["audience"] == "scrum-pm"
+          and list(qs.values())[0]["who"] == "PM lead")
+    built = os.path.join(vault, "meetings", "2026-10-30-scrum-pm.md")
+    open(built, "w").write('---\ntitle: "Scrum with the PM · Fri 2026-10-30"\ntype: "meeting"\ndate: "2026-10-30"\nby: "ela"\n---\n\n'
+                           "# Scrum with the PM · Fri 2026-10-30\n\n## Carried\n\n- [ ] friendly notice for 0x81004009 too? · PM lead ^q-abcdef\n")
+    o, _, c = run("--json", "--now", "2026-10-29T09:00")
+    j = json.loads(o)
+    check("--json reads the dated note for the meeting: its boxes are the list, its path the note",
+          j["note"] == "meetings/2026-10-30-scrum-pm.md" and len(j["items"]) == 1 and "^q-" not in j["items"][0]["text"]
+          and "[[meetings/2026-10-30-scrum-pm]]" in j["pointer"])
+    os.remove(built); os.remove(os.path.join(reports, "ela", "questions.json"))
+    open(note, "w").write('---\ntitle: "Scrum with the PM · Fri 2026-10-30"\ntype: "meeting"\nsource: "vault"\n---\n\n'
+                          "# Scrum with the PM · Fri 2026-10-30\n\n## To raise\n\n## Ruled\n")
+
+    # --raise on the verb's note: his item, the key a link, since today; twice is once
     o, _, c = run("--raise", "MH-2406 — friendly notice for 0x81004009 too?", "--decides", "you decide with the PM",
                   "--detail", "the pool has no usable box", "--now", "2026-10-29T09:00")
     text = open(note).read()
-    check("--raise makes the note in shape and adds the item, the key a Jira link, since today, its detail folded",
+    check("--raise keeps the verb's note in shape and adds the item, the key a Jira link, since today, its detail folded",
           c == 0 and V.meeting_lint("meetings/scrum-pm.md", text) == []
           and "- [ ] [MH-2406](https://j.example/browse/MH-2406) — friendly notice for 0x81004009 too? · you decide with the PM · since 10-29" in text
           and "  - the pool has no usable box" in text and "send" not in text
@@ -268,8 +286,8 @@ source: "vault"
     check("after its end, outcomes under Ruled without a tick: split, assigned and commented, no change",
           "MH-3568](https://j/browse/MH-3568) — optional SCTE-35: owners? · the team · split into [MH-3997](https://j/browse/MH-3997) and [MH-3998](https://j/browse/MH-3998)" in ruled
           and "assigned to Fujian Fang; comment by Summer Chen" in ruled and "  - rule: passthrough keeps SCTE-35" in ruled
-          and "Black frame to MQTT: who? · Gabriel Liu · no change: raised again next meeting" in ruled
-          and "This week's deploy — what goes in? · Erin Zhang · no ticket to read: raised again next meeting" in ruled
+          and "Black frame to MQTT: who? · Gabriel Liu · no change: carried to the next meeting" in ruled
+          and "This week's deploy — what goes in? · Erin Zhang · no ticket to read: carried to the next meeting" in ruled
           and len(r) == 1 and len(r[0]["outcome"]) == 2 and len(r[0]["rolled"]) == 2)
     raise_ = text.split("## To raise")[1].split("## Ruled")[0]
     check("the unchanged items roll to the next meeting, their age shown; the note is titled for it, no send line",
@@ -278,10 +296,9 @@ source: "vault"
     check("a second pass the same evening closes nothing again",
           V.meeting_close(vault, reports, facts, datetime.datetime(2026, 11, 11, 19, 0, tzinfo=tz), [meet], nxt) == [])
     r2 = V.meeting_close(vault, reports, facts, datetime.datetime(2026, 11, 13, 19, 0, tzinfo=tz), [meet], nxt)
-    asks = json.load(open(os.path.join(reports, "ela", "asks.json")))
-    check("no change at the second meeting: it leaves the list for the dropped asks",
-          len(r2[0]["dropped"]) == 2 and "## To raise\n\n## Ruled" in open(note).read()
-          and any(k.startswith("meeting:sync:") and v["dropped"] == "2026-11-13" for k, v in asks.items()))
+    check("no change at the second meeting: a team question is carried again, never dropped (ADR 0016)",
+          len(r2[0]["rolled"]) == 2 and "Black frame to MQTT: who? · Gabriel Liu · since 11-11" in open(note).read().split("## Ruled")[0]
+          and not os.path.exists(os.path.join(reports, "ela", "asks.json")))
     mt = V.Note("meetings/sync.md", "MediaHub team sync", V.split_front(open(note).read())[1], {"type": "meeting"}, [])
     got = V.meeting_outcomes([mt], ["MH-3568"], datetime.date(2026, 11, 13))
     check("a project's page shows what its meetings ruled on its keys",

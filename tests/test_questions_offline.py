@@ -203,4 +203,31 @@ with tempfile.TemporaryDirectory() as t:
           len(cn) == 1 and cn[0]["first"]["date"] == "2026-11-11" and cn[0]["text"].startswith("What must be on CN")
           and cn[0]["meetings"] == ["2026-11-11", "2026-11-12"])
 
+# the next meeting's note, built from the records: not over his note for the day; his edit makes it his
+with tempfile.TemporaryDirectory() as t:
+    vault, reports, facts = (os.path.join(t, x) for x in ("vault", "reports", "facts"))
+    os.makedirs(os.path.join(vault, "meetings")); os.makedirs(os.path.join(facts, "jira", "issues")); os.makedirs(os.path.join(reports, "ela"))
+    json.dump({"key": "MH-3752", "fields": {"summary": "CN upgrade", "status": {"name": "In Progress"}, "assignee": {"displayName": "CN release lead"},
+               "updated": "2026-11-13T10:00:00.000+0800", "duedate": "2026-11-16"}}, open(os.path.join(facts, "jira", "issues", "MH-3752.json"), "w"))
+    json.dump({"issues": [{"fields": {"assignee": {"displayName": "The Owner"}}}]}, open(os.path.join(facts, "jira", "owner.json"), "w"))
+    hand = os.path.join(vault, "meetings", "20261112-sync-eng-qa.md")
+    open(hand, "w").write(HAND + "- [ ] Who decides the overlay switch? · The Owner, app lead\n")
+    tz = datetime.datetime.now().astimezone().tzinfo
+    book = [{"key": "sync-eng-qa-ux", "name": "Team sync", "weekdays": ["Tue", "Thu"], "time": "", "enabled": False}]
+    morning = datetime.datetime(2026, 11, 12, 10, 0, tzinfo=tz)
+    V.questions_pass(vault, reports, facts, morning, book, "https://j")
+    check("on the day of his own note, nothing is built over it", sorted(os.listdir(os.path.join(vault, "meetings"))) == ["20261112-sync-eng-qa.md"])
+    evening = datetime.datetime(2026, 11, 12, 19, 0, tzinfo=tz)
+    V.questions_pass(vault, reports, facts, evening, book, "https://j")
+    built = os.path.join(vault, "meetings", "2026-11-17-sync-eng-qa-ux.md")
+    text = open(built).read()
+    heads = re.findall(r"^## (.+)$", text, re.M)
+    check("after it, the next one is built: dated, by ela, a focus topic with where it stands, then what waits on him, then Carried",
+          'date: "2026-11-17"' in text and 'by: "ela"' in text and heads[0].startswith("1. CN upgrade — [MH-3752]")
+          and "In Progress · carried by CN release lead" in text and heads[-2:] == ["Waiting on you", "Carried"]
+          and re.search(r"^- \[ \] .*listed at 1 meeting \^q-[0-9a-f]{6}$", text, re.M) and open(hand).read().endswith("app lead\n"))
+    open(built, "a").write("\nmy own line\n")
+    V.questions_pass(vault, reports, facts, evening + datetime.timedelta(hours=1), book, "https://j")
+    check("a built note he edited is his: not rebuilt", open(built).read().endswith("my own line\n"))
+
 sys.exit(1 if failures else 0)

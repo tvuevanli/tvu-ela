@@ -63,15 +63,23 @@ def split_who(vis):
     return " · ".join(p for p in parts if not re.match(r"^(?:since\b|listed at\b)", p, re.I)), None
 
 
+NOT_KEYS = re.compile(r"^(MPEG|AC|EAC|AES|HDR|SMPTE|ST|ITU|BT|SCTE|IEC|ISO|EBU|ATSC|DVB|IEEE|UTF|SHA|MD|RFC|CVE|HTTP|"
+                      r"TLS|SSL|H|X|AV|AAC|MP|HEVC|AVC|UR|J2N|QA|AWS|CN|ENV|S|W)-")   # vault.py's: a standard or a codec, not a ticket
+
+
+def is_key(k):
+    return not NOT_KEYS.match(k) and not k.split("-")[1].startswith("0")
+
+
 def keys_in(vis):
-    return list(dict.fromkeys(KEY.findall(vis or "")))
+    return [k for k in dict.fromkeys(KEY.findall(vis or "")) if is_key(k)]
 
 
 def lead_keys(vis):
     """The tickets whose outcome answers the question: when the line opens with a list of three or more keys joined
     only by commas, slashes, `and`, `plus` or an aside in brackets (owners for these, past due in Review), every one;
     otherwise the first key (`MH-2564 …, which would fix A, B and C` is MH-2564's question)."""
-    ms = list(KEY.finditer(vis or ""))
+    ms = [m for m in KEY.finditer(vis or "") if is_key(m.group(1))]
     best, run = [], []
     for i, m in enumerate(ms):
         sep = re.sub(r"\([^)]*\)", "", vis[ms[i - 1].end():m.start()]) if i else ""
@@ -194,7 +202,8 @@ def meeting_candidates(rel, text, keys=(), mtime=None):
     for b in boxes(text):
         if b["section"] and b["section"].lower() in ("where things stand",):
             continue
-        out.append(dict(b, where=rel, date=day, audience=aud, kind="meeting", mtime=mtime, hand=not ela_wrote(text)))
+        out.append(dict(b, where=rel, date=day, audience=aud, kind="meeting", mtime=mtime, hand=not ela_wrote(text),
+                        legacy=bool(re.search(r"^##[ \t]+To raise[ \t]*$", text, re.M))))
     carried = {}
     for d, lines in ruled_lines(text).items():             # the verb's Ruled lines: "no change: raised again" was listed then
         for l in lines:
@@ -320,8 +329,11 @@ def harvest(state, cands, now, facts_issue, projects=None, snapshot=None, meetin
     for c in sorted(cands, key=lambda c: (c.get("date") or "9999", c["where"])):
         vis = visible(c["raw"])
         src = c["where"] + "#" + gist(SINCE.sub("", c["raw"]))
+        built = c["kind"] == "meeting" and not c.get("hand") and c.get("legacy") is False
         rid = c.get("id") if c.get("id") in qs else by_src.get(src)
         rec = qs.get(rid) if rid else None
+        if built and (rec is None or c.get("id") != rec["id"]):
+            continue                                        # a note ela built lists records; it never words or makes one
         if rec is None:
             rec = next((r for r in sorted(qs.values(), key=lambda r: r["first"]["date"]) if r["status"] == "open"
                         and same_audience(r.get("audience"), c.get("audience")) and same_question(r, c, vis)), None)
@@ -350,7 +362,7 @@ def harvest(state, cands, now, facts_issue, projects=None, snapshot=None, meetin
         if c["ticked"]:
             rec.update(status="closed", outcome=f"ticked on {c['where']}", closed=today.isoformat(), by="owner")
             touched.append(rec["id"]); continue
-        if (c.get("date") or "") >= rec.get("worded", "") or not rec.get("who"):   # the newest listing words it
+        if not built and ((c.get("date") or "") >= rec.get("worded", "") or not rec.get("who")):   # the newest hand listing words it
             rec.update(text=q, raw=c["raw"], who=who or rec.get("who"), worded=max(c.get("date") or "", rec.get("worded", "")))
             rec["keys"] = list(dict.fromkeys(rec["keys"] + keys_in(vis)))
             rec["lead"] = lead_keys(vis) or rec["lead"]
@@ -584,6 +596,111 @@ def draft(r, owner_first=""):
     if th:
         return {"to": to or "the thread", "via": "a reply in its thread", "text": text, "command": ["slack", "post", th.group(0)]}
     return None
+
+
+# ── the meeting note, built from the records ──────────────────────────────────────────────────────────
+
+FOCUS_MAX = 6
+DUE_DAYS = 7
+
+
+def thing_key(r):
+    t = r.get("thing") or {}
+    return (t.get("kind"), t.get("ref") or t.get("key") or t.get("name") or "Other")
+
+
+def is_owner(who, owner_first):
+    return bool(owner_first) and owner_first.lower() in people(who) | {p.split()[0] for p in people(who) if p}
+
+
+def meeting_note(state, aud, title, day, now, facts_issue, owner_first="", jira="", project_titles=None):
+    """meetings/<day>-<aud>.md as text: the focus topics first (a project or ticket whose questions changed since the last
+    meeting, or are due within a week, most pressing first), each with where it stands and its questions with who
+    answers; then what waits on the owner; then every other open question of the audience under Carried, oldest first,
+    each with how many meetings it was listed at. Each box carries its record's id, so a tick closes that record."""
+    recs = [r for r in open_records(state) if same_audience_strict(r.get("audience"), aud)]
+    last = max((d for r in recs for d in r["meetings"] if d < day.isoformat()), default="")
+    lo, hi = (now.date() - datetime.timedelta(days=DUE_DAYS)).isoformat(), (day + datetime.timedelta(days=DUE_DAYS)).isoformat()
+    def due(r):                                            # coming due: a date long past is stale, not pressing
+        ds = [((facts_issue(k) or {}).get("fields") or {}).get("duedate") for k in r["lead"]]
+        ds = [d for d in ds if d and lo <= d <= hi]
+        return min(ds) if ds else None
+    def changed(r):
+        if r["first"]["date"] > last or r.get("evidence"):
+            return True
+        for k in r["lead"]:
+            u = ((facts_issue(k) or {}).get("fields") or {}).get("updated")
+            if u and last and u[:10] > last:
+                return True
+        return False
+    groups = {}
+    for r in recs:
+        if (r.get("thing") or {}).get("kind") in ("project", "ticket") or (r.get("thing") or {}).get("name") not in (None, "Other"):
+            groups.setdefault(thing_key(r), []).append(r)
+    def weight(item):
+        rs = item[1]
+        dues = [d for d in (due(r) for r in rs) if d]
+        soon = min(dues) if dues else "9999"
+        return (soon, -sum(changed(r) for r in rs), -len(rs))
+    focus = [g for g in sorted(groups.items(), key=weight) if any(changed(r) or due(r) for r in g[1])][:FOCUS_MAX]
+    if not focus:                                          # a quiet week: the things with most open questions lead
+        focus = sorted((g for g in groups.items() if len(g[1]) >= 2), key=lambda g: (-len(g[1]), g[1][0]["first"]["date"]))[:FOCUS_MAX]
+    placed = {r["id"] for _, rs in focus for r in rs}
+    L = [f"# {title}", "",
+         f"*Built from the open questions on {now:%m-%d %H:%M}. A tick, or an `ela:` line under a question, closes it; "
+         f"every open one is on [[{QUESTIONS_PAGE[:-3]}|the standing list]].*", ""]
+    def box(r, carried=False):
+        k = r["lead"][0] if r["lead"] else None
+        text = re.sub(r"\*\*([^*]+)\*\*", r"\1", r["text"])
+        if k and text.startswith(k + " — "):
+            text = text[len(k) + 3:]
+        bits = [short(text, 100)] + ([r["who"]] if r.get("who") else [])
+        if carried:
+            n = len(r["meetings"])
+            bits += ([link(k, jira)] if k and k not in text else []) + [f"since {r['first']['date'][5:]}", f"listed at {n} meeting{'s' if n != 1 else ''}"]
+        return f"- [ ] {' · '.join(bits)} ^{r['id']}"
+    for i, ((kind, ref), rs) in enumerate(focus, 1):
+        t = rs[0]["thing"]
+        key = t.get("key") or next((k for r in rs for k in r["lead"]), None)
+        f = ((facts_issue(key) or {}).get("fields") or {}) if key else {}
+        name = (project_titles or {}).get(ref) or (f.get("summary") if kind == "ticket" else None) or t.get("name") or ref
+        name = re.sub(r"^[A-Z][A-Z0-9]+-\d+\s*[·—:-]?\s*", "", name) or name
+        L += [f"## {i}. {name}" + (f" — {link(key, jira)}" if key else ""), ""]
+        if f:
+            st = (f.get("status") or {}).get("name")
+            who = (f.get("assignee") or {}).get("displayName") or "nobody yet"
+            upd = (f.get("updated") or "")[5:10]
+            L += [f"{st} · carried by {who}" + (f" · last changed {upd}" if upd else "") +
+                  (f" · due {f['duedate']}" + (" (past)" if f["duedate"] < day.isoformat() else "") if f.get("duedate") else ""), ""]
+        L += [box(r) for r in sorted(rs, key=lambda r: r["first"]["date"])] + [""]
+    mine = [r for r in recs if r["id"] not in placed and is_owner(r.get("who"), owner_first)]
+    if mine:
+        L += ["## Waiting on you", ""] + [box(r, True) for r in mine] + [""]
+        placed |= {r["id"] for r in mine}
+    rest = [r for r in recs if r["id"] not in placed]
+    if rest:
+        L += ["## Carried", ""] + [box(r, True) for r in rest] + [""]
+    if not recs:
+        L += ["No open question for this meeting.", ""]
+    return "\n".join(L).rstrip("\n") + "\n"
+
+
+def same_audience_strict(a, b):
+    return bool(a and b) and (a == b or a.startswith(b + "-") or b.startswith(a + "-"))
+
+
+def add(state, text, audience, today, where):
+    """A question raised by the verb (`ela meeting --key K --raise`): a record of its own, first raised today."""
+    vis = visible(text)
+    q, who = split_who(vis)
+    rid = qid(text, where)
+    if rid in state["questions"]:
+        return None
+    state["questions"][rid] = {"id": rid, "text": q, "raw": text, "who": who, "keys": keys_in(vis), "lead": lead_keys(vis),
+                               "thing": {"kind": "ticket", "key": keys_in(vis)[0], "name": keys_in(vis)[0]} if keys_in(vis) else {"kind": "topic", "name": "Other"},
+                               "audience": audience, "first": {"date": today.isoformat(), "where": where}, "meetings": [],
+                               "sources": [f"{where}#{gist(text)}"], "status": "open", "base": None, "worded": today.isoformat()}
+    return rid
 
 
 if __name__ == "__main__":

@@ -3421,7 +3421,19 @@ def cmd_meeting(args):
         text = open(path, encoding="utf-8").read()
     except OSError:
         text = ""
+    dated, records = None, not text                        # no note in the verb's form: the list is the records' (ADR 0016)
+    if not text:                                           # no note in the verb's form: the dated note for the meeting (ADR 0016)
+        Q = V.questions_mod()
+        for f in sorted(os.listdir(os.path.dirname(path))) if os.path.isdir(os.path.dirname(path)) else []:
+            p_ = os.path.join(os.path.dirname(path), f)
+            if f.endswith(".md") and Q.DATED.match(f) and Q.same_audience_strict(Q.audience(f, [args.key]), args.key):
+                t_ = open(p_, encoding="utf-8").read()
+                if Q.note_date(f, t_) == (nxt or d).isoformat():
+                    dated, text = p_, t_
     n = V.meeting_parse(text)
+    if dated:                                              # its boxes are the list; the records hold what it rules
+        n["items"] = [{"text": V.questions_mod().QID.sub("", b["line"]).split("] ", 1)[1].strip(), "ticked": b["ticked"], "under": []}
+                      for b in V.questions_mod().boxes(text)]
     # the note is shown to the team: its title names the meeting and its next date (`MediaHub team sync · Wed
     # 2026-11-11`); a name written by hand on the note is kept, the date moves with the meeting (2026-11-10)
     hand = (V.props_of(n["front"]).get("title") or "").split(" · ")[0].strip()
@@ -3437,14 +3449,22 @@ def cmd_meeting(args):
         k = len(V.visible(line))
         if k > V.MEETING_ITEM_MAX:
             refused.append(f"{k} characters, over {V.MEETING_ITEM_MAX}: {V.visible(line)}"); continue
+        if records:                                        # a question of its own, on the next built note and the standing page
+            Q = V.questions_mod()
+            st = Q.load(site.get("reports"))
+            if Q.add(st, line, args.key, d, f"meetings/{args.key}.md"):
+                added.append(line)
+                if not args.dry_run:
+                    Q.save(site.get("reports"), st, V.atomic_write)
+            continue
         if V.meeting_add(n, line, args.detail):
             added.append(line)
-    if args.rule:
+    if args.rule and not records:
         ruled = V.meeting_rule(n, d, last, raised_for=V.meeting_day(n["title"] or ""))
         if n["send"] and n["send"]["ticked"] and last == d and now.date() == d:
             n["send"]["ticked"] = False                     # his tick was for this meeting; the next one needs its own
     changed = not text or added or ruled or (args.rule and V.meeting_parse(text)["send"] != n["send"])
-    if writes and changed and not args.dry_run:
+    if writes and changed and not args.dry_run and not records:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         V.atomic_write(path, V.meeting_render(n, title, send_text, d))
     order = [it for it in n["items"] if not it["ticked"]]
@@ -3460,7 +3480,8 @@ def cmd_meeting(args):
     # new: raised today, or raised for this meeting (an item shows no `since` on the day it is for)
     new = [it["text"] for it in n["items"] if V.meeting_fields(it["text"])["since"] in (today_mmdd, None)]
     count = len(n["items"])
-    pointer = (f"{name} at {time_} · {count} item{'s' if count != 1 else ''} on [[meetings/{args.key}]]"
+    note_rel = f"meetings/{os.path.basename(dated)}" if dated else f"meetings/{args.key}.md"
+    pointer = (f"{name} at {time_} · {count} item{'s' if count != 1 else ''} on [[{note_rel[:-3]}]]"
                + (f" · {len(new)} new today" if new else ""))
     thread = None
     try:
@@ -3473,7 +3494,7 @@ def cmd_meeting(args):
     follow = [{"key": r["key"], "tier": 3, "draft": f"{name}, {d.isoformat()}: {r['words']}"}
               for r in ruled if r["outcome"] == "ruled" and r["key"] and r["words"]]
     if args.json:
-        print(json.dumps({"key": args.key, "name": name, "note": f"meetings/{args.key}.md", "date": when.isoformat(), "time": time_,
+        print(json.dumps({"key": args.key, "name": name, "note": note_rel, "date": when.isoformat(), "time": time_,
                           "channel": channel, "post": m.get("post") is True and bool(channel), "thread": thread,
                           "send_ticked": bool(n["send"] and n["send"]["ticked"]), "items": [dict(V.meeting_fields(it["text"]), text=it["text"],
                           ticked=it["ticked"]) for it in n["items"]], "pointer": pointer, "new": new, "text": slack,
