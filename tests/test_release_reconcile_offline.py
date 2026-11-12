@@ -130,6 +130,10 @@ check("the batch: a Fixed In append and a label add per ticket, nothing else",
       and ["label", "MH-3998", "--add", "release:mh-2.1"] in cmds
       and all(c[0] in ("fixed-in", "label") and c[2] == "--add" and "--remove" not in c and "--clear" not in c for c in cmds))
 check("MH-3927 is not in the batch, nor a status or assignee", not any("MH-3927" in c for c in cmds))
+merged = RC.merged_commands([r90, r91])
+check("a ticket two builds carry is one append naming both entries",
+      [c for _, c in merged if c[:2] == ["fixed-in", "MH-3887"]] == [["fixed-in", "MH-3887", "--add", "mediahub-backend@2.1.43+275; unified-streaming@2.1.91+382"]]
+      and len([c for _, c in merged if c[0] == "fixed-in"]) == 9)
 check("a key carried by two services of one build is one write", sum(1 for c in cmds if c[:2] == ["fixed-in", "MH-3998"]) == 1)
 
 with tempfile.TemporaryDirectory() as tmp:

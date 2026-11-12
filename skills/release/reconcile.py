@@ -387,14 +387,34 @@ def batch_commands(res):
     return out
 
 
+def merged_commands(results):
+    """batch_commands over every build, one write per ticket and verb: a ticket two builds carry (MH-3887 in 90 and 91)
+    gets one append naming both entries."""
+    adds, labels, order = {}, {}, []
+    for res in results:
+        for r in batchable(res):
+            if r["key"] not in order:
+                order.append(r["key"])
+            adds.setdefault(r["key"], [])
+            adds[r["key"]] += [e for e in r["add"] if e not in adds[r["key"]]]
+            if r.get("label"):
+                labels[r["key"]] = r["label"]
+    out = []
+    for k in order:
+        if adds[k]:
+            out.append((k, ["fixed-in", k, "--add", "; ".join(adds[k])]))
+        if k in labels:
+            out.append((k, ["label", k, "--add", labels[k]]))
+    return out
+
+
 def run_batch(results, apply=False, env_file=None):
     """Each command through jira.py, dry run unless `apply`. → [(key, rc, text)]."""
     out = []
-    for res in results:
-        for key, tail in batch_commands(res):
-            argv = ["python3", os.path.join(SKILLS, "jira", "jira.py")] + (["--env-file", env_file] if env_file else []) + tail + (["--apply"] if apply else [])
-            rc, so, se = _run(argv)
-            out.append((key, rc, (so.strip() or se.strip())))
+    for key, tail in merged_commands(results):
+        argv = ["python3", os.path.join(SKILLS, "jira", "jira.py")] + (["--env-file", env_file] if env_file else []) + tail + (["--apply"] if apply else [])
+        rc, so, se = _run(argv)
+        out.append((key, rc, (so.strip() or se.strip())))
     return out
 
 
