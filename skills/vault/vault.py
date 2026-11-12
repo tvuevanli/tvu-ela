@@ -1466,7 +1466,9 @@ def spec_text():
            "of `aliases`; the first heading is the title (it may link a ticket key). Durable text is English, and "
            "every Jira key in it is a link. A key never stands alone: it is written `[KEY](link) <Jira summary> · <status>`, "
            "the summary as Jira has it up to about 90 characters (a longer one cut at a word boundary), and a list of keys "
-           "is one line a ticket, never a cluster in brackets. The one exception is a note written for a Chinese-speaking audience (a test "
+           "is one line a ticket, never a cluster in brackets. The rule looks forward: lint reads it on a standing page and on "
+           f"a note dated {KEY_RULE_FROM} or later (a hand-written one only while it is live); an earlier note is history, "
+           "neither rewritten nor reported. The one exception is a note written for a Chinese-speaking audience (a test "
            "plan for the China QA team): it keeps its body's language, says so with `language: \"zh\"`, and still carries "
            "an English title, the Chinese one kept as an alias. A body is never translated in place. A note ends with what you should do and how, before the sections ela keeps "
            f"({', '.join(TAIL_ORDER[1:])}, in that order). A deviation is a lint line (`ela vault lint`), never a failure; "
@@ -1655,24 +1657,39 @@ def lint_notes(vault, projects=None):
         gen = set()
     out = []
     for rel, text in vault_notes(vault):
-        found = front_breaks(split_front(text)[0]) + spec_lint(rel, text, rel in gen, projects) + own_lines_lint(text) + key_cluster_lint(text)
+        found = front_breaks(split_front(text)[0]) + spec_lint(rel, text, rel in gen, projects) + own_lines_lint(text)
+        if key_rule_covers(rel, props_of(split_front(text)[0]), rel in gen):
+            found += key_cluster_lint(text)
         if found:
             out.append((rel, rel in gen, found))
     return out
 
 
 KEY_CLUSTER = re.compile(r"(?<![\w-])[A-Z][A-Z0-9]+-\d+(?:[\s,;/、()]+[A-Z][A-Z0-9]+-\d+){2,}")
+KEY_RULE_FROM = "2026-11-12"             # the day the key + title rule was written; a note of an earlier day is history
+
+
+def key_rule_covers(rel, props, generated):
+    """Whether the key-cluster line applies to a note. The rule looks forward: it covers a living page (named without
+    a date, rewritten or kept current) and a note of KEY_RULE_FROM or later; a note of an earlier day is history,
+    neither rewritten nor reported. A hand-written note is named only while it is live: one that is done, archived or
+    kept under ela/history is the record."""
+    day = re.match(r"(\d{4}-\d{2}-\d{2})-", os.path.basename(rel))
+    if day and day.group(1) < KEY_RULE_FROM:
+        return False
+    return generated or not (folder_of(rel) in CLOSED_FOLDERS or is_done(props) or rel.startswith(HISTORY + "/"))
 
 
 def key_cluster_lint(text):
-    """One lint line per run of three or more Jira keys with no words between them, in any note: a key never stands
-    alone; each is written with its title and status, one line a ticket. A hand-written note is only named, never
-    rewritten."""
+    """One lint line per run of three or more Jira keys with no words between them: a key never stands alone; each is
+    written with its title and status, one line a ticket. A run counts its Jira keys only: a standard's name (AC-3)
+    and an id with a leading zero (a test case, a customer's own numbering) are not tickets. Which notes the line is
+    read on is key_rule_covers; a hand-written note is only named, never rewritten."""
     out = []
     for line in split_front(text)[1].splitlines():
         for m in KEY_CLUSTER.finditer(plain(line)):
-            keys = re.findall(r"[A-Z][A-Z0-9]+-\d+", m.group(0))
-            if not all(NOT_KEYS.match(k) for k in keys):
+            keys = [k for k in re.findall(r"[A-Z][A-Z0-9]+-\d+", m.group(0)) if is_jira_key(k)]
+            if len(keys) >= 3:
                 out.append(f"{len(keys)} Jira keys with no words between them ({', '.join(keys[:3])}, …): "
                            "write each as its title and status, one line a ticket")
     return out

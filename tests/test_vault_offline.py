@@ -1389,6 +1389,18 @@ check("three keys with no words between them are a lint line, linked or not; two
       and V.key_cluster_lint("MH-1 and MH-2\n- MH-3 title · Review\n- MH-4 title · Done\n- MH-5 x\n") == []
       and V.key_cluster_lint("MPEG-2 AC-3 H-264 codecs\n") == [])
 check("the note standards carry the rule", "A key never stands alone" in V.spec_text())
+check("a run counts Jira keys only: zero-led ids and test-case ids beside one ticket are no cluster",
+      V.key_cluster_lint("MH-046, MH-3907, MH-3933\nENT-05, FI-07, MH-1860, POP-03\n") == []
+      and len(V.key_cluster_lint("MH-046, MH-3907, MH-3933, MH-3940\n")) == 1)
+check("the key rule looks forward: a living page and a note of the rule's day or later, never an earlier day",
+      V.key_rule_covers("releases/lanes.md", {}, True) and V.key_rule_covers("reference/days/2026/2026-11-12-changes.md", {}, True)
+      and not V.key_rule_covers("reference/days/2026/2026-11-11-changes.md", {}, True)
+      and not V.key_rule_covers("releases/2.1/2026-10-27-review-cannot-evaluate.md", {"status": "live"}, False))
+check("a hand-written note is named only while it is live",
+      V.key_rule_covers("meetings/2026-11-12-sync-eng-qa.md", {}, False)
+      and not V.key_rule_covers("releases/2.1/2026-11-12-sync-prod-3-to-cn-prod-2.md", {"status": "done"}, False)
+      and not V.key_rule_covers("archive/2026-11-13-one-thing.md", {}, False)
+      and not V.key_rule_covers("ela/history/2026-11-12-overview-sections.md", {}, False))
 
 lk = V.Linker({}, {}, "https://j", ["MH"])
 check("a key with a leading zero is a customer's id, not a ticket: left unlinked inside a title",
