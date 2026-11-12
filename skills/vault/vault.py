@@ -3299,6 +3299,14 @@ def mention_pages(reports, today):
     return out
 
 
+def mention_waiting(reports):
+    """The open mentions of him as lines for a meeting note's Waiting on you; none when the store cannot be read."""
+    try:
+        return [x["line"] for x in mention_mod().waiting(reports)]
+    except Exception:                                      # noqa: BLE001 — the note is built without them
+        return []
+
+
 def mention_mod():
     sys.path.insert(0, os.path.join(HERE, "..", "mention"))
     import mention as MN                                   # noqa: E402 — the mention store's one reader and writer
@@ -4035,7 +4043,8 @@ def questions_pass(vault, reports, facts, now, meetings=(), jira="", seeds=(), d
         if k:
             page_keys[rel] = k
     Q.hold(state, issue, page_keys, owner)
-    build_meeting_notes(vault, state, now, meetings, issue, owner, jira, dry_run, stand=stand_lines(build_records(reports), today))
+    build_meeting_notes(vault, state, now, meetings, issue, owner, jira, dry_run, stand=stand_lines(build_records(reports), today),
+                        waiting=mention_waiting(reports))
     for n in Q.nudges(state, today):                       # listed at three meetings: the message he can send, drafted
         r = state["questions"][n["id"]]
         dr = Q.draft(r, owner.split()[0] if owner else "")
@@ -4147,10 +4156,12 @@ def stand_lines(builds, today):
     return out[:STAND_LANES]
 
 
-def build_meeting_notes(vault, state, now, meetings, issue, owner="", jira="", dry_run=False, stand=None):
+def build_meeting_notes(vault, state, now, meetings, issue, owner="", jira="", dry_run=False, stand=None, waiting=None):
     """For each standing meeting with weekdays, its next note built from the records: meetings/<yyyy-mm-dd>-<key>.md for
     today's meeting before it ends, else the next one. A note for that day he or a session wrote by hand is left alone
-    (and read as input); a built note he has edited since ela wrote it is his from then on. → the paths written."""
+    (and read as input); a built note he has edited since ela wrote it is his from then on. `waiting`, the open mentions
+    of him, goes under Waiting on you in a note whose audience includes engineering (the threads are the team channels').
+    → the paths written."""
     Q = questions_mod()
     today, out = now.date(), []
     d = os.path.join(vault, MEETINGS)
@@ -4184,7 +4195,10 @@ def build_meeting_notes(vault, state, now, meetings, issue, owner="", jira="", d
             continue                                       # he edited it: his now, read as input
         name = (m.get("name") or k).split(" · ")[0]
         title = f"{name} · {day:%a %Y-%m-%d}"
-        body = Q.meeting_note(state, k, title, day, now, issue, owner.split()[0] if owner else "", jira, titles, stand)
+        aud = m.get("audience")
+        eng = "engineering" in (aud if isinstance(aud, list) else re.findall(r"[\w-]+", str(aud or "")))
+        body = Q.meeting_note(state, k, title, day, now, issue, owner.split()[0] if owner else "", jira, titles, stand,
+                              waiting if eng else None)
         text = front([], {"title": title, "type": "meeting", "date": day.isoformat(), "by": "ela", "source": "vault"}) + body
         if os.path.exists(p) and re.sub(r"\*Built from[^*]*\*", "", open(p, encoding="utf-8").read()) == re.sub(r"\*Built from[^*]*\*", "", text):
             continue                                       # nothing but the stamp would change

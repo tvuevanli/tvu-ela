@@ -878,11 +878,12 @@ def is_owner(who, owner_first):
 STAND_HEAD = "Where things stand"
 
 
-def meeting_note(state, aud, title, day, now, facts_issue, owner_first="", jira="", project_titles=None, stand=None):
+def meeting_note(state, aud, title, day, now, facts_issue, owner_first="", jira="", project_titles=None, stand=None, waiting=None):
     """meetings/<day>-<aud>.md as text: Where things stand (`stand`, the lanes' facts the caller read: one line each,
     always present, team-facing), then the focus topics (a project or ticket whose questions changed since the last
     meeting, or are due within a week, most pressing first), each with where it stands and its questions with who
-    answers; then what waits on the owner; then Carried, the standing page's part one for this audience in its order
+    answers; then what waits on the owner (his open questions, then `waiting`: the Slack mentions of him still open,
+    one line each from the mention store, ADR 0021); then Carried, the standing page's part one for this audience in its order
     and lines; then the rest, raised once. Each box carries its record's id, so a tick closes that record."""
     recs = [r for r in open_records(state) if same_audience_strict(r.get("audience"), aud)]
     last = max((d for r in recs for d in r["meetings"] if d < day.isoformat()), default="")
@@ -938,8 +939,8 @@ def meeting_note(state, aud, title, day, now, facts_issue, owner_first="", jira=
                   (f" · due {f['duedate']}" + (" (past)" if f["duedate"] < day.isoformat() else "") if f.get("duedate") else ""), ""]
         L += [box(r) for r in sorted(rs, key=lambda r: r["first"]["date"])] + [""]
     mine = [r for r in recs if r["id"] not in placed and is_owner(r.get("who"), owner_first)]
-    if mine:
-        L += ["## Waiting on you", ""] + [box(r, True) for r in mine] + [""]
+    if mine or waiting:
+        L += ["## Waiting on you", ""] + [box(r, True) for r in mine] + [f"- {w}" for w in waiting or []] + [""]
         placed |= {r["id"] for r in mine}
     if top:                                                # the standing page's part one, in its order
         L += ["## Carried", ""] + [box(r, True) for r in top] + [""]

@@ -217,6 +217,18 @@ with tempfile.TemporaryDirectory() as tmp:
     recs = M.load(R)
     check("B keeps it under Waiting on you until he replies; it leaves today.md", any(x["id"] == a10 for x in M.waiting(R))
           and f"mention:{a10}" not in {c["id"] for c in V.mention_asks(R, FRI)})
+    Q = V.questions_mod()
+    note = Q.meeting_note({"questions": {}}, "sync-eng-qa", "Team sync · Fri 2026-11-13", FRI, at(8, 0, 13), lambda k: None, "Owner", "", {}, None,
+                          V.mention_waiting(R))
+    check("a built meeting note's Waiting on you is the store's open mentions, each a line with its thread",
+          "## Waiting on you\n\n- **Asker, 11-12** ([thread](" in note and note.count("([thread](") == len(M.waiting(R)) and "MH-3869" in note)
+    VT = os.path.join(tmp, "vault")
+    mt = [{"key": "sync-eng-qa", "name": "Team sync", "weekdays": ["Fri"], "time": "10:00", "audience": ["engineering", "qa"]},
+          {"key": "scrum-pm", "name": "Scrum", "weekdays": ["Fri"], "time": "11:00", "audience": "product"}]
+    built = V.build_meeting_notes(VT, {"questions": {}, "built": {}}, at(8, 0, 13), mt, lambda k: None, "Owner", "", waiting=V.mention_waiting(R))
+    texts = {os.path.basename(p): open(os.path.join(VT, p)).read() for p in built}
+    check("it goes to the note whose audience includes engineering, not to the product scrum",
+          "Waiting on you" in texts["2026-11-13-sync-eng-qa.md"] and "Waiting on you" not in texts["2026-11-13-scrum-pm.md"])
     r = M.answer(R, a5, "C", ctx, at(9, 0, 13))
     tl = M.tally(R)
     check("C closes it and counts against that kind of message", r["state"] == "closed" and tl["question"]["C"] == 1 and tl["question"]["A"] == 1
