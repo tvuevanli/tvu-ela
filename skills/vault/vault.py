@@ -4697,9 +4697,10 @@ def close_name(folder, kind, rel):
     return release_review_name(name)
 
 
-def relink(vault, old, new):
+def relink(vault, old, new, dry_run=False):
     """Rewrite each [[link]] (and each markdown link to <name>.md) naming the note `old` to `new` across the vault;
-    returns the files changed. A link resolves by name, so its folder path, heading and alias are kept."""
+    returns the files changed (that would change, with dry_run). A link resolves by name, so its folder path, heading
+    and alias are kept."""
     wiki = re.compile(r"(\[\[(?:[^\[\]|#]*/)?)" + re.escape(old) + r"(?=(?:\.md)?[\]|#])", re.I)
     md = re.compile(r"(\]\((?:[^()\s]*/)?)" + re.escape(old) + r"(?=\.md[)#])", re.I)
     changed = []
@@ -4715,7 +4716,8 @@ def relink(vault, old, new):
                 continue
             out = md.sub(lambda m: m.group(1) + new, wiki.sub(lambda m: m.group(1) + new, text))
             if out != text:
-                atomic_write(p, out)
+                if not dry_run:
+                    atomic_write(p, out)
                 changed.append(os.path.relpath(p, vault).replace(os.sep, "/"))
     return changed
 
@@ -6113,13 +6115,74 @@ def follow_records(vault, reports, moved, apply):
     return out
 
 
+def name_breaks(rel, text):
+    """Why a note's name breaks the naming rule (ADR 0017), or None: a note with a date is named from it."""
+    props = props_of(split_front(text)[0])
+    d = (props.get("date") or "")[:10]
+    if d and not undated(props.get("type"), rel, text) and not os.path.basename(rel).startswith(d + "-"):
+        return f"dated {d} but named `{os.path.basename(rel)}`"
+    return None
+
+
+def rename_note(vault, reports, old, new, apply):
+    """One note renamed in one step (ADR 0017): moved, its old name kept as an alias, links to it rewritten, a
+    `renamed_to` row in the close log, the records followed. → {links: [files], records: [(record, what)], warn}."""
+    p_old, p_new = os.path.join(vault, old), os.path.join(vault, new)
+    text = open(p_old, encoding="utf-8").read()
+    o, n = os.path.basename(old)[:-3], os.path.basename(new)[:-3]
+    out = {"links": relink(vault, o, n, dry_run=True) if o != n else [], "warn": name_breaks(new, text)}
+    if not apply:
+        out["records"] = follow_records(vault, reports, {**renames(vault, reports), old: new}, False)
+        return out
+    os.makedirs(os.path.dirname(p_new) or vault, exist_ok=True)
+    atomic_write(p_new, with_alias(text, o) if o != n else text)
+    os.remove(p_old)
+    if o != n:
+        out["links"] = relink(vault, o, n)
+    log = os.path.join(reports, "ela", "vault-removed.jsonl")
+    os.makedirs(os.path.dirname(log), exist_ok=True)
+    with open(log, "a", encoding="utf-8") as fh:
+        fh.write(json.dumps({"at": datetime.datetime.now().isoformat(timespec="seconds"), "path": old, "fate": "renamed",
+                             "by": "owner", "renamed_to": new}, ensure_ascii=False) + "\n")
+    out["records"] = follow_records(vault, reports, renames(vault, reports), True)
+    return out
+
+
 def cmd_rename(a):
-    """`ela vault rename --records [--apply]`: the records brought to the renames already made (the close log's
-    rename rows, the old names kept as aliases). A dry run unless --apply; under the vault lock."""
+    """`ela vault rename OLD NEW [--apply]`: one note renamed in one step (ADR 0017); `--records [--apply]`: the
+    records brought to the renames already made (the close log's rename rows, the old names kept as aliases). A dry
+    run unless --apply; under the vault lock."""
     s = json.load(open(SITE))
     vault, reports = s.get("vault"), s.get("reports") or ""
     if not vault or not os.path.isdir(vault):
         print(f"site.json `vault` is not a folder: {vault}", file=sys.stderr); sys.exit(2)
+    if a.paths:
+        if len(a.paths) != 2 or a.records:
+            print("rename takes OLD NEW, or --records alone", file=sys.stderr); sys.exit(2)
+        old, _ = note_path(vault, a.paths[0])
+        new = os.path.relpath(os.path.realpath(a.paths[1]), os.path.realpath(vault)).replace(os.sep, "/") \
+            if os.path.isabs(a.paths[1]) else a.paths[1]
+        if not new.endswith(".md") or new.startswith("..") or new.startswith("."):
+            print(f"not a note path in the vault: {a.paths[1]}", file=sys.stderr); sys.exit(2)
+        if os.path.exists(os.path.join(vault, new)):
+            print(f"{new} exists; not renamed", file=sys.stderr); sys.exit(2)
+        same = [x for x, _ in vault_notes(vault) if x != old and os.path.basename(x) == os.path.basename(old)]
+        if same and os.path.basename(old) != os.path.basename(new):
+            print(f"{os.path.basename(old)} is also {', '.join(same)}: a link by name is ambiguous; not renamed", file=sys.stderr); sys.exit(2)
+        r = rename_note(vault, reports, old, new, a.apply)
+        if a.json:
+            print(json.dumps({"from": old, "to": new, **r, "dry_run": not a.apply}, ensure_ascii=False, indent=1)); return
+        print(f"{'' if a.apply else 'DRY RUN — '}{old} → {new}" + (f", alias {os.path.basename(old)[:-3]}" if old.rsplit('/', 1)[-1] != new.rsplit('/', 1)[-1] else ""))
+        print(f"links: {len(r['links'])} notes" + (": " + ", ".join(r["links"][:6]) + (", …" if len(r["links"]) > 6 else "") if r["links"] else ""))
+        for rec, what in r["records"]:
+            print(f"{rec}: {what}")
+        if r["warn"]:
+            print(f"warning: the new name still breaks the naming rule ({r['warn']})", file=sys.stderr)
+        if not a.apply:
+            print("Nothing written. --apply renames it under the vault lock and logs the rename.")
+        return
+    if not a.records:
+        print("rename takes OLD NEW, or --records", file=sys.stderr); sys.exit(2)
     moved = renames(vault, reports)
     done = follow_records(vault, reports, moved, a.apply)
     if a.json:
@@ -6535,8 +6598,9 @@ def main():
     p.add_argument("--apply", action="store_true", help="write the records")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_questions)
-    p = sub.add_parser("rename", help="follow renames: --records brings questions.json and the manifest to the names "
-                                      "notes have now; a dry run unless --apply")
+    p = sub.add_parser("rename", help="OLD NEW: rename a note in one step (alias, links, log, records); --records brings "
+                                      "questions.json and the manifest to renames already made; a dry run unless --apply")
+    p.add_argument("paths", nargs="*", metavar="OLD NEW", help="the note's path and its new path in the vault")
     p.add_argument("--records", action="store_true", help="the records only, for renames already made")
     p.add_argument("--apply", action="store_true", help="write them, under the vault lock")
     p.add_argument("--json", action="store_true")

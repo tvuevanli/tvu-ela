@@ -61,4 +61,31 @@ with tempfile.TemporaryDirectory() as tmp:
     check("a renamed note has not gone by hand; a vanished one has",
           V.gone_by_hand(vault, old_native, native_now, set(), None, moved) == ["reference/gone.md"])
 
+# `ela vault rename OLD NEW`: a dry run writes nothing; --apply moves it, keeps the old name, rewrites links, logs, follows
+with tempfile.TemporaryDirectory() as tmp:
+    vault, reports = os.path.join(tmp, "vault"), os.path.join(tmp, "reports")
+    note(os.path.join(vault, "meetings", "20261112-sync-eng-qa.md"), ["T"])
+    open(os.path.join(vault, "today.md"), "w").write("See [[20261112-sync-eng-qa|the sync]] and [[meetings/20261112-sync-eng-qa#Ruled]].\n")
+    os.makedirs(os.path.join(reports, "ela"))
+    json.dump({"questions": {"q-1": {"id": "q-1", "status": "open", "first": {"where": "meetings/20261112-sync-eng-qa.md"},
+                                     "sources": ["meetings/20261112-sync-eng-qa.md#x"]}}, "built": {}},
+              open(os.path.join(reports, "ela", "questions.json"), "w"))
+    old, new = "meetings/20261112-sync-eng-qa.md", "meetings/2026-11-12-sync-eng-qa.md"
+    check("the lint names the compact name", any("does not start with it" in x for x in
+          V.spec_lint(old, open(os.path.join(vault, old)).read())))
+    dry = V.rename_note(vault, reports, old, new, False)
+    check("a dry run lists the links and records and writes nothing",
+          dry["links"] == ["today.md"] and dry["records"] and os.path.exists(os.path.join(vault, old))
+          and not os.path.exists(os.path.join(reports, "ela", "vault-removed.jsonl")))
+    r = V.rename_note(vault, reports, old, new, True)
+    text = open(os.path.join(vault, new)).read()
+    row = json.loads(open(os.path.join(reports, "ela", "vault-removed.jsonl")).read())
+    st = json.load(open(os.path.join(reports, "ela", "questions.json")))
+    check("applied: moved, the old name an alias, the new name clean", not os.path.exists(os.path.join(vault, old))
+          and '"20261112-sync-eng-qa"' in text and r["warn"] is None)
+    check("applied: links rewritten, heading and label kept", open(os.path.join(vault, "today.md")).read()
+          == "See [[2026-11-12-sync-eng-qa|the sync]] and [[meetings/2026-11-12-sync-eng-qa#Ruled]].\n")
+    check("applied: one renamed_to row", row["path"] == old and row["renamed_to"] == new and row["fate"] == "renamed")
+    check("applied: the questions follow", st["questions"]["q-1"]["sources"] == [new + "#x"])
+
 sys.exit(1 if failures else 0)
