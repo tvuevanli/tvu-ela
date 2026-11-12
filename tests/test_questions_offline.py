@@ -177,6 +177,10 @@ with tempfile.TemporaryDirectory() as t:
           and r["draft"]["via"] == "Jira comment on MH-3752" and r["draft"]["command"].startswith("ela jira comment MH-3752 --from-file ")
           and os.path.isfile(r["draft"]["file"]) and "— The" in open(r["draft"]["file"]).read())
     check("the ask is the same one until three more meetings pass", ask["id"].endswith(":1"))
+    act = {"rule": "question", "question": cn["id"], "day": later.date().isoformat(), "n": 7, "tier": 3, "text": "send it"}
+    ask2 = next(a for a in V.question_asks(state, later.date(), [act]) if cn["id"] in a["id"])
+    check("once the runner drafts it as an action, the question's ask carries its apply box and the action is not a second ask",
+          ask2["box"] == "apply 7" and ask2["ns"] == [7] and V.ask_candidates(later.date(), [act], []) == [])
     open(os.path.join(vault, "today.md"), "w").write(f"- [x] drop — x → [[{Q.QUESTIONS_PAGE[:-3]}#^{cn['id']}|its section]]\n")
     state, _ = V.questions_pass(vault, reports, facts, later, book, "https://j")
     check("`drop` ticked on today.md drops the question", state["questions"][cn["id"]]["status"] == "dropped")

@@ -2796,6 +2796,8 @@ def ask_candidates(today, actions, notes):
     for a in sorted((a for a in actions if a.get("day") == iso), key=lambda a: int(a["n"])):
         if a.get("tier", 3) != 3 or a.get("send_box") or a.get("applied") or a.get("by_owner") or a.get("vetoed"):
             continue
+        if a.get("rule") == "question":                    # a question's drafted message: its ask is the question's own
+            continue
         i = action_id(a)
         if i in by_id:                                     # a second write on the same tickets is the same decision
             c = by_id[i]
@@ -3722,7 +3724,7 @@ def build_meeting_notes(vault, state, now, meetings, issue, owner="", jira="", d
     return out
 
 
-def question_asks(state, today):
+def question_asks(state, today, actions=()):
     """The asks a question earns on today.md: listed at three meetings (and each three more) with no outcome, once
     each, ahead of the drafted actions."""
     Q = questions_mod()
@@ -3731,7 +3733,12 @@ def question_asks(state, today):
         r = state["questions"][n["id"]]
         who = Q.answerer(r)[0]
         send = f"send {who} the drafted message, or drop it" if r.get("draft") else "name who answers it, or drop it"
-        out.append({"id": f"question:{r['id']}:{n['bucket']}", "box": "drop", "whole": True,
+        act = next((a for a in actions if a.get("rule") == "question" and a.get("question") == r["id"] and a.get("day") == today.isoformat()
+                    and not (a.get("applied") or a.get("vetoed") or a.get("by_owner"))), None)
+        if act:                                            # the runner drafted it as an action: send is `apply N`
+            send = f"apply sends {who} the drafted message, or drop it on the list"
+        out.append({"id": f"question:{r['id']}:{n['bucket']}", "box": f"apply {act['n']}" if act else "drop", "whole": True,
+                    "ns": [int(act["n"])] if act else [],
                     "text": f"{Q.short(r['text'], 70)} — carried through {n['count']} meetings: {send}",
                     "link": f"{Q.QUESTIONS_PAGE[:-3]}#^{r['id']}", "sig": evidence_sig(r["id"]), "first": today.isoformat()})
     return out
@@ -4070,7 +4077,7 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since
         planned[n.path] = redact(front(n.front_lines, dict(n.props, title=n.title)) + (with_warning(body, n.held) if n.held else body))
     asks_state = load_asks(reports)
     cands = ask_candidates(today, week_actions(reports, today), notes + native)
-    qcands = question_asks(questions, today) if questions else []
+    qcands = question_asks(questions, today, week_actions(reports, today)) if questions else []
     shown, more, _, asks_state = settle_asks(asks_state, qcands + cands, today)
     if not dry_run:
         os.makedirs(os.path.join(reports, "ela"), exist_ok=True)
