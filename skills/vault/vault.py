@@ -1164,7 +1164,8 @@ class Linker:
         return f"[[{n.path[:-3]}|{n.title}]]" if n else m.group(0)
 
     def is_key(self, k):
-        return bool(self.jira_base) and k.split("-")[0] in self.projects and not NOT_KEYS.match(k)
+        # a Jira number never starts with 0: `[FloSports MH-030]` in a summary is the customer's own item id
+        return bool(self.jira_base) and k.split("-")[0] in self.projects and not NOT_KEYS.match(k) and not k.split("-")[1].startswith("0")
 
     def __call__(self, text):
         text = SLACK_LINK.sub(lambda m: f"[{m.group(2)}]({m.group(1)})", text)

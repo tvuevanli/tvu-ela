@@ -1377,4 +1377,8 @@ check("three keys with no words between them are a lint line, linked or not; two
       and V.key_cluster_lint("MPEG-2 AC-3 H-264 codecs\n") == [])
 check("the note standards carry the rule", "A key never stands alone" in V.spec_text())
 
+lk = V.Linker({}, {}, "https://j", ["MH"])
+check("a key with a leading zero is a customer's id, not a ticket: left unlinked inside a title",
+      lk("MH-3891 [FloSports MH-030] Share profiles") == "[MH-3891](https://j/browse/MH-3891) [FloSports MH-030] Share profiles")
+
 sys.exit(1 if failures else 0)
