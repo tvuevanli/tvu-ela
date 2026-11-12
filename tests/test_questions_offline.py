@@ -107,6 +107,12 @@ check("his words for a line: one sentence of at most 25 words, no ellipsis; they
       and Q.line(r_) == "Async graph submissions (MH-2564): Which sprint takes it, and who builds it?"
       and Q.line(dict(r_, raw="reworded")) == "MH-2564: Async graph submissions: when?")
 
+st = {"questions": {"q-aaaaaa": {"status": "open"}, "q-bbbbbb": {"status": "open"}}}
+got, used = Q.by_word(st, "> [!note]- Raised once, by who answers (2)\n> **PM lead**\n> - [x] A: B? · raised today ^q-aaaaaa\n"
+                          "> - [ ] C: D? · raised today ^q-bbbbbb\n> ela: drop\n", datetime.date(2026, 11, 12))
+check("his tick and `ela:` line inside the folded part count as on the page",
+      st["questions"]["q-aaaaaa"]["status"] == "closed" and st["questions"]["q-bbbbbb"]["status"] == "dropped")
+
 check("a note's meeting is its file name less its date, matched to the book's key either way",
       Q.audience("meetings/20261112-sync-eng-qa.md", ["sync-eng-qa-ux"]) == "sync-eng-qa-ux"
       and Q.audience("meetings/2026-11-17-sync-eng-qa-ux.md", ["sync-eng-qa-ux"]) == "sync-eng-qa-ux")
@@ -172,9 +178,18 @@ with tempfile.TemporaryDirectory() as t:
 
     text = Q.page(state, later.date(), "https://j")
     line = next(l for l in text.splitlines() if cn["id"] in l)
-    check("the standing page: one line a question, its answerer first, its ticket, how long it has waited, how many meetings",
-          line.startswith("- [ ] **CN release lead** with UR lead · ") and "[MH-3752](https://j/browse/MH-3752)" in line
-          and "waiting 31 days · 2 meetings" in line and len(text.splitlines()) <= Q.PAGE_LINES + 4)
+    part1 = text.split("## Carried", 1)[1].split("> [!note]-", 1)[0]
+    check("the standing page: Carried first, each line its subject and question, who answers, how long it has waited",
+          line.startswith("- [ ] CN vs COM ([MH-3752](https://j/browse/MH-3752)): What must be on CN for 11/21")
+          and "· **CN release lead** with UR lead · waiting 31 days · 2 meetings" in line and line in part1
+          and 0 < part1.count("- [ ] ") <= Q.CARRIED_MAX and "…" not in text)
+    built = sorted(f for f in os.listdir(os.path.join(vault, "meetings")) if f.startswith("2026-12"))
+    note = open(os.path.join(vault, "meetings", built[0])).read() if built else ""
+    page_ids = re.findall(r"\^(q-[0-9a-f]{6})", part1)
+    note_ids = re.findall(r"\^(q-[0-9a-f]{6})", note.split("## Carried", 1)[1].split("\n## ", 1)[0]) if "## Carried" in note else []
+    check("the built meeting note's Carried is the page's part one: same lines, same order",
+          note_ids and note_ids == [i for i in page_ids if i in note_ids]
+          and all(l in part1 for l in note.split("## Carried", 1)[1].split("\n## ", 1)[0].splitlines() if l.startswith("- [ ]")))
     tl = Q.today_line(state, later.date(), ("sync", datetime.date(2026, 12, 15)), "https://j")
     check("today's one line: how many, the longest waiting and its days, the next sync, the page linked",
           tl.startswith("- [[meetings/open-questions|") and re.search(r"longest waiting: \[MH-\d+\]\(https://j/browse/MH-\d+\), 31 days", tl) and tl.endswith("next sync Tue"))
@@ -182,7 +197,8 @@ with tempfile.TemporaryDirectory() as t:
     # his word on the page: a tick closes, `ela: drop` drops, other words close with those words
     deploy = next(r for r in state["questions"].values() if "deploy" in r["text"])
     overlay = next(r for r in state["questions"].values() if "Overlay" in r["text"])
-    disk = text.replace(f"- [ ] **QA lead**", "- [x] **QA lead**").replace(
+    dl = next(l for l in text.splitlines() if deploy["id"] in l)
+    disk = text.replace(dl, dl.replace("- [ ] ", "- [x] ", 1)).replace(
         next(l for l in text.splitlines() if overlay["id"] in l), next(l for l in text.splitlines() if overlay["id"] in l) + "\n  ela: drop")
     open(os.path.join(vault, Q.QUESTIONS_PAGE), "w").write(disk)
     state, done = V.questions_pass(vault, reports, facts, later, book, "https://j")
@@ -253,9 +269,9 @@ with tempfile.TemporaryDirectory() as t:
     built = os.path.join(vault, "meetings", "2026-11-17-sync-eng-qa-ux.md")
     text = open(built).read()
     heads = re.findall(r"^## (.+)$", text, re.M)
-    check("after it, the next one is built: dated, by ela, a focus topic with where it stands, then what waits on him, then Carried",
+    check("after it, the next one is built: dated, by ela, a focus topic with where it stands, then what waits on him, then the rest",
           'date: "2026-11-17"' in text and 'by: "ela"' in text and heads[0].startswith("1. CN upgrade — [MH-3752]")
-          and "In Progress · carried by CN release lead" in text and heads[-2:] == ["Waiting on you", "Carried"]
+          and "In Progress · carried by CN release lead" in text and heads[-2:] == ["Waiting on you", "Raised once"]
           and re.search(r"^- \[ \] .*· 1 meeting \^q-[0-9a-f]{6}$", text, re.M) and open(hand).read().endswith("app lead\n"))
     open(built, "a").write("\nmy own line\n")
     V.questions_pass(vault, reports, facts, evening + datetime.timedelta(hours=1), book, "https://j")

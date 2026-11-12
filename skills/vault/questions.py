@@ -24,7 +24,7 @@ import datetime, hashlib, json, os, re, sys
 
 QUESTIONS_PAGE = "meetings/open-questions.md"
 NUDGE_EVERY = 3                         # listed at this many meetings without an outcome: one ask on today.md
-PAGE_LINES = 48                         # the standing page fits one screen
+CARRIED_MAX = 10                        # part one of the standing page, the part he reads: one screen
 TEXT_CHARS = 110
 WORDS_MAX = 25                          # a question on the page is one whole sentence of at most this many words
 CARRIED_DAYS = 7                        # waiting this long, or listed at two meetings: carried
@@ -511,6 +511,7 @@ def by_word(state, page_text, today):
     out, consumed, cur = [], [], None
     qs = state["questions"]
     for line in (page_text or "").splitlines():
+        line = re.sub(r"^>[ \t]?(?!\[!)", "", line) if line.startswith(">") else line   # inside the page's folded part
         b = BOX.match(line)
         if b:
             m = QID.search(line)
@@ -707,33 +708,56 @@ def days(n):
     return "today" if n == 0 else f"{n} day{'s' if n != 1 else ''}"
 
 
+def carried(state, today):
+    """Part one, the questions that keep going unattended: listed at two or more meetings or waiting CARRIED_DAYS or
+    more, longest waiting first. The page shows the first CARRIED_MAX."""
+    return [r for r in open_records(state) if len(r["meetings"]) >= 2 or age(r, today) >= CARRIED_DAYS]
+
+
+def entry(r, today, jira="", who=True):
+    """One question's line wherever it is listed: `Subject: question · **who answers** with others · waiting N days ·
+    M meetings`, its ticket linked when the subject does not name it."""
+    ln = line(r, jira)
+    k = r["lead"][0] if r["lead"] else (r["keys"][0] if r["keys"] else None)
+    name, co = answerer(r)
+    return " · ".join([ln] + ([link(k, jira)] if k and k not in ln else []) +
+                      ([f"**{name}**" + (f" with {', '.join(co)}" if co else "")] if who else []) + [waited(r, today)])
+
+
 def page(state, today, jira="", drafts=None):
-    """meetings/open-questions.md, one screen: one line a question, grouped by who answers (the first named; the group
-    with the oldest question first), each with its ticket, since when and at how many meetings it was listed."""
+    """meetings/open-questions.md in two parts. Carried, the part he reads: at most CARRIED_MAX questions listed at two
+    or more meetings or waiting a week or more, longest waiting first, each with who answers. Then, folded, the
+    questions raised once, grouped by who answers (the group waiting longest first), and any carried one past the
+    first ten. Each line is a box carrying its record's id, so his tick or `ela:` line closes it."""
     recs = open_records(state)
-    groups = {}
-    for r in recs:
-        groups.setdefault(answerer(r)[0], []).append(r)
+    top = carried(state, today)
+    head, over = top[:CARRIED_MAX], top[CARRIED_MAX:]
+    rest = [r for r in recs if r not in top]
     L = ["# Open team questions", "",
-         f"*{len(recs)} open, by who answers, oldest first. Its ticket or thread answering it closes one, as does your tick "
-         "or an `ela:` line under it (`ela: drop` drops it).*", ""]
-    more = 0
-    for name, rs in sorted(groups.items(), key=lambda g: (g[1][0]["first"]["date"], g[0])):
-        for r in rs:                                       # one line each, its answerer first: the groups read down the page
-            if len(L) >= PAGE_LINES:
-                more += 1; continue
-            co = answerer(r)[1]
-            k = r["lead"][0] if r["lead"] else (r["keys"][0] if r["keys"] else None)
-            ln = line(r, jira)
-            bits = [f"**{name}**" + (f" with {', '.join(co)}" if co else ""), ln] + ([link(k, jira)] if k and k not in ln else []) + \
-                   [waited(r, today)]
-            L.append(f"- [ ] {' · '.join(bits)} ^{r['id']}")
+         f"*{len(recs)} open. Carried: listed at two meetings or waiting a week, longest first. Its ticket or thread "
+         "answering it closes one, as does your tick or an `ela:` line under it (`ela: drop` drops it).*", ""]
+    if head:
+        L += ["## Carried", ""]
+        for r in head:
+            L.append(f"- [ ] {entry(r, today, jira)} ^{r['id']}")
             d = (drafts or {}).get(r["id"])
             if d:
                 L += [f"  > [!note]- draft to {d['to']} ({d['via']})", *("  > " + x for x in d["text"].splitlines())]
-    L.append("")
-    if more:
-        L += [f"{more} more in the record (`ela vault questions --json`).", ""]
+        L.append("")
+    def fold(title, rs):
+        groups = {}
+        for r in rs:
+            groups.setdefault(answerer(r)[0], []).append(r)
+        out = [f"> [!note]- {title} ({len(rs)})"]
+        for i, (name, g) in enumerate(sorted(groups.items(), key=lambda g: (since(g[1][0]), g[0]))):
+            out += ([">"] if i else []) + [f"> **{name}**"]
+            out += [f"> - [ ] {entry(r, today, jira, who=False)}" + (f" · with {', '.join(answerer(r)[1])}" if answerer(r)[1] else "")
+                    + f" ^{r['id']}" for r in g]
+        return out + [""]
+    if rest:
+        L += fold("Raised once, by who answers", rest)
+    if over:
+        L += fold("Carried, past the first ten", over)
     if not recs:
         L += ["No open team question.", ""]
     return "\n".join(L).rstrip("\n") + "\n"
@@ -802,8 +826,8 @@ def is_owner(who, owner_first):
 def meeting_note(state, aud, title, day, now, facts_issue, owner_first="", jira="", project_titles=None):
     """meetings/<day>-<aud>.md as text: the focus topics first (a project or ticket whose questions changed since the last
     meeting, or are due within a week, most pressing first), each with where it stands and its questions with who
-    answers; then what waits on the owner; then every other open question of the audience under Carried, oldest first,
-    each with how many meetings it was listed at. Each box carries its record's id, so a tick closes that record."""
+    answers; then what waits on the owner; then Carried, the standing page's part one for this audience in its order
+    and lines; then the rest, raised once. Each box carries its record's id, so a tick closes that record."""
     recs = [r for r in open_records(state) if same_audience_strict(r.get("audience"), aud)]
     last = max((d for r in recs for d in r["meetings"] if d < day.isoformat()), default="")
     lo, hi = (now.date() - datetime.timedelta(days=DUE_DAYS)).isoformat(), (day + datetime.timedelta(days=DUE_DAYS)).isoformat()
@@ -831,17 +855,17 @@ def meeting_note(state, aud, title, day, now, facts_issue, owner_first="", jira=
     focus = [g for g in sorted(groups.items(), key=weight) if any(changed(r) or due(r) for r in g[1])][:FOCUS_MAX]
     if not focus:                                          # a quiet week: the things with most open questions lead
         focus = sorted((g for g in groups.items() if len(g[1]) >= 2), key=lambda g: (-len(g[1]), g[1][0]["first"]["date"]))[:FOCUS_MAX]
-    placed = {r["id"] for _, rs in focus for r in rs}
+    top = [r for r in carried(state, now.date())[:CARRIED_MAX] if same_audience_strict(r.get("audience"), aud)]
+    focus = [(k, [r for r in rs if r not in top]) for k, rs in focus]
+    focus = [(k, rs) for k, rs in focus if rs]
+    placed = {r["id"] for _, rs in focus for r in rs} | {r["id"] for r in top}
     L = [f"# {title}", "",
          f"*Built from the open questions on {now:%m-%d %H:%M}. A tick, or an `ela:` line under a question, closes it; "
          f"every open one is on [[{QUESTIONS_PAGE[:-3]}|the standing list]].*", ""]
-    def box(r, carried=False):
-        k = r["lead"][0] if r["lead"] else None
-        text = line(r, jira)
-        bits = [text] + ([r["who"]] if r.get("who") else [])
-        if carried:
-            bits += ([link(k, jira)] if k and k not in text else []) + [waited(r, now.date())]
-        return f"- [ ] {' · '.join(bits)} ^{r['id']}"
+    def box(r, full=False):
+        if full:
+            return f"- [ ] {entry(r, now.date(), jira)} ^{r['id']}"
+        return f"- [ ] {' · '.join([line(r, jira)] + ([r['who']] if r.get('who') else []))} ^{r['id']}"
     for i, ((kind, ref), rs) in enumerate(focus, 1):
         t = rs[0]["thing"]
         key = t.get("key") or next((k for r in rs for k in r["lead"]), None)
@@ -860,9 +884,11 @@ def meeting_note(state, aud, title, day, now, facts_issue, owner_first="", jira=
     if mine:
         L += ["## Waiting on you", ""] + [box(r, True) for r in mine] + [""]
         placed |= {r["id"] for r in mine}
+    if top:                                                # the standing page's part one, in its order
+        L += ["## Carried", ""] + [box(r, True) for r in top] + [""]
     rest = [r for r in recs if r["id"] not in placed]
     if rest:
-        L += ["## Carried", ""] + [box(r, True) for r in rest] + [""]
+        L += ["## Raised once", ""] + [box(r, True) for r in rest] + [""]
     if not recs:
         L += ["No open question for this meeting.", ""]
     return "\n".join(L).rstrip("\n") + "\n"
