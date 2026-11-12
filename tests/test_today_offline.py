@@ -48,8 +48,30 @@ check("six fresh asks: three shown", len(s4) == 3 and more4 == 3)
 page = V.today_page(THU, [], {"actions": many}, s4, more4, 1)
 above = page.split("\n---\n")[0]
 check("the page: three boxes with what happens if he does nothing, no count of the rest, within the word cap",
-      above.count("- [ ] apply ") == 3 and above.count("*if not: nothing; gone ") == 3 and "more wait" not in above
+      above.count("- [ ] A (recommended): apply as drafted") == 3 and above.count("- [ ] B: drop it") == 3
+      and above.count("*no answer: nothing happens; gone ") == 3 and "more wait" not in above
       and len(V.plain(above).split()) <= V.TODAY_WORDS and "[[reference/dropped|dropped asks]] (1)" in page)
+# one shape for every ask: a question line, lettered options, A recommended; answered by one letter
+state = {"keys:MH-10": {"slot": 1, "options": {"A": "apply 10", "B": "drop"}}, "keys:MH-11": {"slot": 2, "options": {"A": "apply 11", "B": "drop"}},
+         "grant:link-named:10": {"slot": 3, "options": {"A": "ela dry answer grant:link-named:10 A", "B": "ela dry answer grant:link-named:10 B",
+                                                        "C": "ela dry answer grant:link-named:10 C"}}}
+said = above.replace("    - [ ] A (recommended): apply as drafted", "    - [x] A (recommended): apply as drafted", 1)
+said = said.replace("    - [ ] B: drop it\n3.", "    - [ ] B: drop it\nela: B\n3.", 1) + "\nela: 3 c\nela: 2 C\n"
+got = sorted((x["slot"], x["letter"], x["does"]) for x in V.today_letters(said, state))
+check("letters: a tick on option A, `ela: B` under an ask, `ela: 3 c` anywhere; a letter the ask lacks is left out",
+      got == [(1, "A", "apply 10"), (2, "B", "drop"), (3, "C", "ela dry answer grant:link-named:10 C")])
+check("the sync acts on a drop and on a dry answer that writes nothing live; apply and --apply are the runner's",
+      V.sync_handles("drop") and V.sync_handles(None) and V.sync_handles("ela dry answer grant:x:1 A")
+      and not V.sync_handles("apply 10") and not V.sync_handles("ela dry answer dry:b A --apply"))
+import tempfile
+with tempfile.TemporaryDirectory() as vd:
+    open(os.path.join(vd, "today.md"), "w").write(said)
+    st = {k: dict(v, sig="e", first=THU.isoformat(), text=k) for k, v in state.items() if k.startswith("keys:")}
+    done = V.settle_letters(vd, vd, st, THU, dry_run=True)
+    check("B drops the ask by his word, once; A is left for the runner",
+          done == [("keys:MH-11", "B")] and st["keys:MH-11"]["dropped"] == THU.isoformat() and st["keys:MH-11"]["by"] == "owner"
+          and not st["keys:MH-10"].get("answered") and V.settle_letters(vd, vd, st, THU, dry_run=True) == []
+          and "dropped by your word" in V.dropped_page(st))
 dp = V.dropped_page(st1)
 check("the dropped page lists each drop once with its dates", dp.count("comment MH-1") == 1 and f"{THU} · comment MH-1 · asked since {MON}" in dp)
 # the record of 2026-11-11: MH-3993 drafted as a comment and an assignment, one ask cut mid-phrase
@@ -59,7 +81,8 @@ c2 = V.ask_candidates(WED, two, [])
 check("two writes on one ticket are one ask, its box naming both", len(c2) == 1 and c2[0]["box"] == "apply 2, 3" and c2[0]["ns"] == [2, 3])
 p2 = V.today_page(WED, [], {}, c2)
 check("the ask is the whole sentence, never cut",
-      "- [ ] apply 2, 3 — MH-3993: hand the 4K WebRenderer crash to Fujian Fang with Summer Chen's findings and three checks on box .46." in p2
+      "1. MH-3993: hand the 4K WebRenderer crash to Fujian Fang with Summer Chen's findings and three checks on box .46." in p2
+      and "- [ ] A (recommended): apply both as drafted" in p2
       and "…" not in p2.split("## Today")[0])
 mp = "\n".join(["### 2. x", "- [ ] apply 2 — a", "- [ ] I handled it myself — not apply 2", "> [!note]- 6 more", "> ### 3. y",
                   "> - [ ] apply 4 — b", "> - [ ] I handled it myself — not apply 4", "> - [x] apply 5 — c · applied 09:12"])

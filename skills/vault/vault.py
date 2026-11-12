@@ -199,6 +199,8 @@ ela writes this vault from first-hand sources, and it holds things and angles (e
   changes that, never its folder; a done note is the record and is never written again.
 - An ask lives once, on its thing. today.md links at most three; one unanswered on three working mornings leaves
   for `reference/dropped.md`.
+- An ask is a question and two or three lettered options; A is ela's recommendation. Answer with one letter: tick
+  the option, or write `ela: A` under the ask (`ela: 2 B` anywhere on the page). `apply N` still means that ask's A.
 - Your `ela:` lines and ticked boxes survive every rewrite. Ask in a session for anything else.
 
 ## Layout
@@ -2857,6 +2859,8 @@ def settle_asks(state, cands, today):
     live, dropped_now, waiting = [], [], 0
     for c in cands:
         st = state.get(c["id"])
+        if st and st.get("answered") and st.get("sig") == c["sig"]:
+            continue                                       # he answered it by a letter: off the page until it changes
         if st and st.get("dropped"):
             if st.get("sig") == c["sig"]:
                 continue                                   # nothing changed since it dropped: it stays off the page
@@ -2959,6 +2963,103 @@ def ask_words(text, n=ASK_WORDS):
     return out if re.search(r"[.!?]$", out) else out + "."
 
 
+# ── the shape of an ask (the desk's addition to the dry-run brief, 2026-11-12) ─────────────────────────────────────
+# Every ask is one line of question and two or three lettered options, each saying what happens; A is ela's
+# recommendation and says so; doing nothing is stated once. He answers by one letter: a tick on the option line,
+# `ela: A` under the ask or `ela: 2 B` anywhere on today.md, the letter in a session. `apply N` keeps meaning that ask's A.
+# An option's `does` is what the letter runs: `apply N` (the runner, as before), `drop` (the sync: the ask leaves, by his
+# word), `ela dry answer …` (the sync runs it, unless it carries --apply, which is the runner's), or None (nothing to run).
+def opt(letter, text, does, recommended=False):
+    return {"letter": letter, "text": text, "does": does, "recommended": recommended}
+
+
+def ask_options(c):
+    """A candidate's options: its own when it carries them, else by its kind."""
+    if c.get("options"):
+        return c["options"]
+    ns = c.get("ns") or []
+    if c["id"].startswith(("keys:", "cmd:")) and ns:
+        both = "" if len(ns) == 1 else " both" if len(ns) == 2 else f" all {len(ns)}"
+        return [opt("A", f"apply{both} as drafted", "apply " + ", ".join(str(n) for n in ns), True), opt("B", "drop it", "drop")]
+    return [opt("A", "answer in the note", None, True), opt("B", "drop it from today", "drop")]
+
+
+ASK_HEAD = re.compile(r"^(\d+)\.[ \t]+\S", re.M)
+OPTION_TICK = re.compile(r"^([ABC])(?:[ \t]+\(recommended\))?:")
+LETTER_LINE = re.compile(r"^(?:(\d+)[ \t]*)?([ABCabc])\.?$")
+
+
+def slot_at(text, pos):
+    found = None
+    for m in ASK_HEAD.finditer(text, 0, pos):
+        found = int(m.group(1))
+    return found
+
+
+def today_letters(text, state):
+    """His letters on today.md: [{slot, letter, id, does, raw, kind, pos}], each resolved against the ask state's slots
+    (the asks the page was written with). A tick on an option line, or `ela: A` under an ask, answers that ask; `ela: 2 B`
+    answers ask 2 wherever it is written. A letter no ask offers is left out."""
+    slots = {v["slot"]: (k, v) for k, v in (state or {}).items() if isinstance(v, dict) and v.get("slot")}
+    out = []
+    found = [(m, "tick", OPTION_TICK.match(m.group(1))) for m in TICKED.finditer(text or "")]
+    found += [(m, "line", LETTER_LINE.match(m.group(1).strip())) for m in his_lines(text or "")]
+    for m, kind, x in found:
+        if not x:
+            continue
+        if kind == "tick":
+            slot, letter = slot_at(text, m.start()), x.group(1)
+        else:
+            slot = int(x.group(1)) if x.group(1) else (slot_at(text, m.start()) or (next(iter(slots)) if len(slots) == 1 else None))
+            letter = x.group(2).upper()
+        if slot not in slots:
+            continue
+        aid, v = slots[slot]
+        if letter not in (v.get("options") or {}):
+            continue
+        out.append({"slot": slot, "letter": letter, "id": aid, "does": v["options"][letter], "raw": m.group(1), "kind": kind, "pos": m.start()})
+    return out
+
+
+def sync_handles(does):
+    """Whether the sync acts on this letter itself (nothing leaves ela): a drop, a no-op, or a dry answer that writes
+    nothing live. The rest goes to the runner through `ela vault guidance`."""
+    return does is None or does == "drop" or (does.startswith("ela dry answer ") and "--apply" not in does)
+
+
+def settle_letters(vault, reports, state, today, dry_run=False):
+    """The letters on today.md the sync acts on itself, once each: B `drop` takes the ask off the page by his word (into
+    dropped.md, marked so); a dry answer that writes nothing live (a grant's A, B or C; a batch's B) runs here. The ask
+    remembers the letter, so a page rewritten with the tick still on it does not act twice. → [(id, letter)]."""
+    try:
+        text = open(os.path.join(vault, TODAY), encoding="utf-8").read()
+    except OSError:
+        return []
+    done = []
+    for x in today_letters(text, state):
+        v = state.get(x["id"]) or {}
+        if v.get("answered") or not sync_handles(x["does"]):
+            continue
+        if x["does"] and x["does"].startswith("ela dry answer ") and not dry_run:
+            parts = x["does"].split()
+            try:
+                dry_mod().answer(reports, parts[3], parts[4])
+            except (KeyError, ValueError):
+                continue
+        v["answered"] = {"letter": x["letter"], "at": today.isoformat()}
+        if x["does"] == "drop":
+            v["dropped"], v["by"] = today.isoformat(), "owner"
+        state[x["id"]] = v
+        done.append((x["id"], x["letter"]))
+    return done
+
+
+def dry_mod():
+    sys.path.insert(0, os.path.join(HERE, "..", "dry"))
+    import dry as D                                        # noqa: E402 — the class records' one reader and writer
+    return D
+
+
 def short(text, n):
     text = " ".join((text or "").split())
     return text if len(text) <= n else text[:n].rsplit(" ", 1)[0] + " …"
@@ -2978,12 +3079,13 @@ def today_page(today, notes, desk=None, shown=(), more=0, dropped=0, questions_l
                     key=lambda n: n.props.get("date") or "", reverse=True)
     brief = briefs[0] if briefs else None
     asks = []
-    for c in shown:
+    for k, c in enumerate(shown, 1):
         gone = drop_day(datetime.date.fromisoformat(c["first"]), today)
         # the words stay outside the wikilink: a ticket key inside a link's label would be linked again and break it
         what = (c["text"] if c.get("whole") else ask_words(c["text"])) + \
             (f" → [[{c['link']}|{'its section' if '#' in c['link'] else 'the note'}]]" if c.get("link") else "")
-        asks.append((f"- [ ] {c['box']} — " if c.get("box") else "- ") + what + f" · *if not: nothing; gone {gone:%a}*")
+        asks.append(f"{k}. {what} · *no answer: nothing happens; gone {gone:%a}*")
+        asks += [f"    - [ ] {o['letter']}{' (recommended)' if o['recommended'] else ''}: {o['text']}" for o in ask_options(c)]
     acts = [a for a in desk.get("actions") or [] if a.get("day") == iso]
     soon = [a for a in acts if a.get("tier") == 2 and not (a.get("applied") or a.get("vetoed") or a.get("failed"))]
     hold = desk.get("hold")
@@ -3037,8 +3139,8 @@ def project_label(f):
 def dropped_page(state):
     """reference/dropped.md: every ask that left today.md unanswered, newest first, once each: the day it dropped, the ask,
     and the day it was first asked. Written from the ask state, so a drop appears once and stays."""
-    rows = sorted(((v["dropped"], v.get("first") or "", v.get("text") or k) for k, v in (state or {}).items() if v.get("dropped")),
-                  reverse=True)
+    rows = sorted(((v["dropped"], v.get("first") or "", (v.get("text") or k) + (" · dropped by your word" if v.get("by") == "owner" else ""))
+                   for k, v in (state or {}).items() if v.get("dropped")), reverse=True)
     L = ["# Dropped asks", "", "Asks that left today's page after three working mornings without your word. Nothing was "
          "done about them. One comes back only when its evidence changes; say the word in a session to act on one now.", ""]
     L += [f"- {d} · {short(t, 160)} · asked since {f}" for d, f, t in rows] or ["Nothing has dropped yet."]
@@ -3620,15 +3722,18 @@ def questions_pass(vault, reports, facts, now, meetings=(), jira="", seeds=(), d
         disk = ""
     got, consumed = Q.by_word(state, disk, today)
     closed += got
-    try:                                                   # `drop` ticked on today.md's ask for a question
-        for line in open(os.path.join(vault, TODAY), encoding="utf-8"):
-            m = re.match(r"^[ \t]*[-*][ \t]+\[[xX]\][ \t]+drop\b.*?" + Q.QREF.pattern, line)
-            r = state["questions"].get(m.group(1)) if m else None
-            if r and r["status"] == "open":
-                r.update(status="dropped", outcome="dropped by your word on today.md", closed=today.isoformat(), by="owner")
-                closed.append((r["id"], r["outcome"]))
+    try:                                                   # `drop` ticked on today.md's ask for a question, or its letter
+        page = open(os.path.join(vault, TODAY), encoding="utf-8").read()
     except OSError:
-        pass
+        page = ""
+    said = [m.group(1) for m in re.finditer(r"^[ \t]*[-*][ \t]+\[[xX]\][ \t]+drop\b.*?" + Q.QREF.pattern, page, re.M)]
+    said += [x["id"].split(":")[1] for x in today_letters(page, load_asks(reports))
+             if x["id"].startswith("question:") and x["does"] == "drop"]
+    for qid in said:
+        r = state["questions"].get(qid)
+        if r and r["status"] == "open":
+            r.update(status="dropped", outcome="dropped by your word on today.md", closed=today.isoformat(), by="owner")
+            closed.append((r["id"], r["outcome"]))
     closed += Q.settle(state, now, issue, owner, lambda raw, at: thread_outcome(facts, raw, at))
     keys = [m.get("key") for m in meetings or [] if isinstance(m, dict) and m.get("key")]
     def start(aud, d):
@@ -3811,14 +3916,15 @@ def question_asks(state, today, actions=()):
     for n in Q.nudges(state, today):
         r = state["questions"][n["id"]]
         who = Q.answerer(r)[0]
-        send = f"send {who} the drafted message, or drop it" if r.get("draft") else "name who answers it, or drop it"
         act = next((a for a in actions if a.get("rule") == "question" and a.get("question") == r["id"] and a.get("day") == today.isoformat()
                     and not (a.get("applied") or a.get("vetoed") or a.get("by_owner"))), None)
         if act:                                            # the runner drafted it as an action: send is `apply N`
-            send = f"apply sends {who} the drafted message, or drop it on the list"
+            options = [opt("A", f"send {who} the drafted message", f"apply {act['n']}", True), opt("B", "drop the question", "drop")]
+        else:
+            options = [opt("A", f"keep it for {who} at the next meeting", None, True), opt("B", "drop the question", "drop")]
         out.append({"id": f"question:{r['id']}:{n['bucket']}", "box": f"apply {act['n']}" if act else "drop", "whole": True,
-                    "ns": [int(act["n"])] if act else [],
-                    "text": f"{Q.line(r)} — carried through {n['count']} meetings: {send}",
+                    "ns": [int(act["n"])] if act else [], "options": options,
+                    "text": f"{Q.line(r)} — carried through {n['count']} meetings.",
                     "link": f"{Q.QUESTIONS_PAGE[:-3]}#^{r['id']}", "sig": evidence_sig(r["id"]), "first": today.isoformat()})
     return out
 
@@ -4155,9 +4261,15 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since
             body = with_moves(body, n.path, n.props.get("type"))
         planned[n.path] = redact(front(n.front_lines, dict(n.props, title=n.title)) + (with_warning(body, n.held) if n.held else body))
     asks_state = load_asks(reports)
+    settle_letters(s["vault"], reports, asks_state, today, dry_run)   # his letters the sync acts on itself, before the asks are counted
     cands = ask_candidates(today, week_actions(reports, today), notes + native)
     qcands = question_asks(questions, today, week_actions(reports, today)) if questions else []
     shown, more, _, asks_state = settle_asks(asks_state, qcands + cands, today)
+    for v in asks_state.values():                          # the slots are today's page's: yesterday's numbers mean nothing
+        for k in ("slot", "options"):
+            v.pop(k, None)
+    for k, c in enumerate(shown, 1):
+        asks_state[c["id"]].update(slot=k, options={o["letter"]: o["does"] for o in ask_options(c)})
     if not dry_run:
         os.makedirs(os.path.join(reports, "ela"), exist_ok=True)
         atomic_write(os.path.join(reports, "ela", "asks.json"), json.dumps(asks_state, indent=1, ensure_ascii=False))
@@ -4901,6 +5013,7 @@ def cmd_guidance(a):
     except (OSError, ValueError):
         done = set()
     lines = []
+    asks_state = load_asks(reports)
     try:
         source_ticks = json.load(open(os.path.join(vault, MANIFEST))).get("source_ticks") or {}
     except (OSError, ValueError):
@@ -4917,6 +5030,8 @@ def cmd_guidance(a):
                 ticks = [x for x in TICKED.finditer(text) if x.group(1) not in source_ticks.get(rel, [])]
                 # kind tells a typed line, which a watcher lets settle before taking it up, from a ticked box, a click
                 found = [(x, "line") for x in his_lines(text)] + [(x, "tick") for x in ticks]
+                # a letter on today.md is the option's command; one the sync acts on itself is not the runner's
+                letters = {x["pos"]: x for x in today_letters(text, asks_state)} if rel == TODAY else {}
                 times = {}
                 for m, kind in ((x, k) for x, k in found if x.group(1).strip('"\' ')):
                     # the same words written again in the note are a new instruction: the nth repeat has its own id, the
@@ -4924,13 +5039,19 @@ def cmd_guidance(a):
                     times[m.group(1)] = times.get(m.group(1), 0) + 1
                     gid = guidance_id(f, m.group(1), times[m.group(1)])
                     says = m.group(1).strip().strip('"').strip("'")
-                    many = re.match(r"^apply[ \t]+(\d+(?:[ \t]*,[ \t]*\d+)+)\b(.*)$", says) if kind == "tick" else None
+                    letter = letters.get(m.start())
+                    if letter and sync_handles(letter["does"]):
+                        continue
+                    if letter:
+                        says = letter["does"]
+                    many = re.match(r"^apply[ \t]+(\d+(?:[ \t]*,[ \t]*\d+)+)\b(.*)$", says) if kind == "tick" or letter else None
                     # an ask on today.md that is several drafted writes on one ticket: the tick is his word on each
                     parts = ([(gid if i == 0 else f"{gid}-{n}", f"apply {n}{many.group(2)}")
                               for i, n in enumerate(re.findall(r"\d+", many.group(1)))] if many else [(gid, says)])
                     for pid, psays in parts:
                         if a.all or pid not in done:
-                            lines.append({"id": pid, "note": rel, "kind": kind, "says": psays, "section": section_at(text, m.start())})
+                            lines.append(dict({"id": pid, "note": rel, "kind": kind, "says": psays, "section": section_at(text, m.start())},
+                                              **({"ask": letter["id"], "letter": letter["letter"]} if letter else {})))
     r = {"guidance": lines,
          "handled_log": os.path.join(reports, "ela", "guidance-handled.jsonl")}
     if a.json:

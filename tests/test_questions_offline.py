@@ -216,7 +216,8 @@ with tempfile.TemporaryDirectory() as t:
     asks = V.question_asks(state, later.date())
     ask = next((a for a in asks if cn["id"] in a["id"]), None)
     check("listed at three meetings: one ask, `drop` its box, the drafted message waiting as a Jira comment",
-          len(r["meetings"]) == 4 and ask and ask["box"] == "drop" and "carried through 4 meetings: send CN release lead the drafted message, or drop it" in ask["text"]
+          len(r["meetings"]) == 4 and ask and ask["box"] == "drop" and ask["text"].endswith("carried through 4 meetings.")
+          and [(o["letter"], o["does"]) for o in ask["options"]] == [("A", None), ("B", "drop")] and "CN release lead" in ask["options"][0]["text"]
           and r["draft"]["via"] == "Jira comment on MH-3752" and r["draft"]["command"].startswith("ela jira comment MH-3752 --from-file ")
           and os.path.isfile(r["draft"]["file"]) and "— The" in open(r["draft"]["file"]).read())
     check("the ask is the same one until three more meetings pass", ask["id"].endswith(":1"))
