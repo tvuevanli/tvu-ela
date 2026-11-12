@@ -183,6 +183,18 @@ check("nothing missing any more: the gaps section leaves with the rewrite",
 check("his words in ela's part: the note is left alone",
       V.release_note_merge(held.replace("# build 91\n", "# build 91\n\n- [ ] check this\n"), fresh, ["UR Caller"]) is None)
 
+with tempfile.TemporaryDirectory() as tmp:                 # a held note he marked done is the record: left as it is
+    rel = os.path.join(tmp, "vault", "releases", "2.1")
+    os.makedirs(rel); os.makedirs(os.path.join(tmp, "reports", "releases", "2.1"))
+    json.dump({k: v for k, v in record("91").items() if k != "name"}, open(os.path.join(tmp, "reports", "releases", "2.1", "2026-11-11-build-91-to-qa-aws3.json"), "w"))
+    done = held.replace('source: "vault"', 'source: "vault"\nstatus: "done"')
+    open(os.path.join(rel, "2026-11-11-build-91-to-qa-aws3.md"), "w").write(done)
+    check("a held note marked done is never rewritten", V.release_notes_native(os.path.join(tmp, "vault"), os.path.join(tmp, "reports"), tmp) == []
+          and open(os.path.join(rel, "2026-11-11-build-91-to-qa-aws3.md")).read() == done)
+    open(os.path.join(rel, "2026-11-11-build-91-to-qa-aws3.md"), "w").write(held)
+    check("a held note not done is brought up to date", V.release_notes_native(os.path.join(tmp, "vault"), os.path.join(tmp, "reports"), tmp)
+          == ["releases/2.1/2026-11-11-build-91-to-qa-aws3.md"])
+
 # ── today.md's build block: service lines without key clusters; the owner's tickets inline ───────────────
 TK = {k: R.ticket_facts(v) for k, v in ISSUES.items()}
 rec91 = dict(record("91"), name="2026-11-11-build-91-to-qa-aws3")

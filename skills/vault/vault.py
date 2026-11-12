@@ -4796,6 +4796,8 @@ def release_notes_native(vault, reports, runtime, linker=None, dry_run=False):
         if not any(re.match(r"^source:\s*['\"]?vault['\"]?\s*$", l) for l in fl):
             continue
         props = props_of(fl)
+        if is_done(props):                                 # marked done: the copy on disk is the record, never written again
+            continue
         fresh = release_body(rec, {"type": props.get("type") or "report", "date": rec["date"], "status": props.get("status") or "decided"},
                              R.build_title(rec), reports, runtime, linker)
         new = release_note_merge(text, fresh, [v["service"] for v in rec["services"]])
