@@ -1397,6 +1397,9 @@ check("a project page's keys are one line a ticket with title and status, never 
 check("a run counts Jira keys only: zero-led ids and test-case ids beside one ticket are no cluster",
       V.key_cluster_lint("MH-046, MH-3907, MH-3933\nENT-05, FI-07, MH-1860, POP-03\n") == []
       and len(V.key_cluster_lint("MH-046, MH-3907, MH-3933, MH-3940\n")) == 1)
+check("a fenced block is text to copy, not read for runs, inside a callout or not",
+      V.key_cluster_lint("> ```\n> MH\tOwner\t(MH-1, MH-2, MH-3)\n> ```\n```\nMH-1 MH-2 MH-3\n```\n") == []
+      and len(V.key_cluster_lint("```\nx\n```\nMH-1 MH-2 MH-3\n")) == 1)
 check("the key rule looks forward: a living page and a note of the rule's day or later, never an earlier day",
       V.key_rule_covers("releases/lanes.md", {}, True) and V.key_rule_covers("reference/days/2026/2026-11-12-changes.md", {}, True)
       and not V.key_rule_covers("reference/days/2026/2026-11-11-changes.md", {}, True)

@@ -1683,10 +1683,16 @@ def key_rule_covers(rel, props, generated):
 def key_cluster_lint(text):
     """One lint line per run of three or more Jira keys with no words between them: a key never stands alone; each is
     written with its title and status, one line a ticket. A run counts its Jira keys only: a standard's name (AC-3)
-    and an id with a leading zero (a test case, a customer's own numbering) are not tickets. Which notes the line is
-    read on is key_rule_covers; a hand-written note is only named, never rewritten."""
-    out = []
+    and an id with a leading zero (a test case, a customer's own numbering) are not tickets. A fenced block is not
+    read: it is text to copy as it stands (a row for the sheet, a command), which the linker leaves alone too. Which
+    notes the line is read on is key_rule_covers; a hand-written note is only named, never rewritten."""
+    out, fenced = [], False
     for line in split_front(text)[1].splitlines():
+        if re.match(r"^[> \t]*```", line):                  # a fence, in a callout or not: text to copy, not prose
+            fenced = not fenced
+            continue
+        if fenced:
+            continue
         for m in KEY_CLUSTER.finditer(plain(line)):
             keys = [k for k in re.findall(r"[A-Z][A-Z0-9]+-\d+", m.group(0)) if is_jira_key(k)]
             if len(keys) >= 3:
