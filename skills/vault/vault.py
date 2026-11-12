@@ -5051,6 +5051,32 @@ def cmd_questions(a):
     print(f"{len(recs)} open, {len(done['new'])} new" + ("" if a.apply else " · DRY RUN (--apply writes the records)") + f" · {today}")
 
 
+def gone_by_hand(vault, old_native, native_paths, removed, backup=None):
+    """The notes of the vault's own (source: vault: meeting notes, plans, the owner's documents) the last sync saw and
+    that are gone now without a verb: no deletion row, no note of the same name elsewhere. On the first sync that keeps
+    the list, the last backup's copy of the vault stands in for it. A note gone this way keeps its trace."""
+    if old_native is None:
+        old_native = [n.path for n in native_notes(backup)] if backup and os.path.isdir(backup) else []
+    names = {}
+    for top_, dirs, fs in os.walk(vault):
+        dirs[:] = [d for d in dirs if not d.startswith(".")]
+        for f in fs:
+            names.setdefault(f.lower(), True)
+    return sorted(r for r in old_native if r not in native_paths and r not in removed and not os.path.exists(os.path.join(vault, r))
+                  and os.path.basename(r).lower() not in names)
+
+
+def record_gone(path, rels, now):
+    """One deletion row for each note gone by hand: fate `gone by hand`, and where its last copy is (the runner's
+    nightly backup, branch backup/reports, under vault/)."""
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "a", encoding="utf-8") as fh:
+        for r in rels:
+            fh.write(json.dumps({"at": now.isoformat(timespec="seconds"), "path": r,
+                                 "title": sentence(re.sub(r"^\d{4}-?\d{2}-?\d{2}-", "", os.path.basename(r)[:-3]).replace("-", " ")),
+                                 "fate": "gone by hand", "by": "owner", "backup": f"backup/reports:vault/{r}"}, ensure_ascii=False) + "\n")
+
+
 def today_said(vault, today, said, answers, planned):
     """His `ela:` lines on today.md by the day each was written: the manifest's record, else the day its answer was
     asked, else today. → ({day page: [lines]} for an earlier day's lines, {line: day} for today's). today.md starts each
@@ -5091,7 +5117,7 @@ def cmd_sync(a):
     mpath = os.path.join(vault, MANIFEST)
     old, old_src, old_layout, old_gen, old_seen, old_home = [], {}, None, {}, {}, {}
     old_moved = {"map": {}, "until": None}
-    old_said = {}
+    old_said, old_native = {}, None
     if os.path.exists(mpath):
         try:
             m = json.load(open(mpath))
@@ -5099,6 +5125,7 @@ def cmd_sync(a):
                                                            m.get("seen") or {})
             old_home = m.get("home") or {}
             old_said = m.get("said") or {}
+            old_native = m.get("native")
             old_moved = {"map": m.get("moved") or {}, "until": m.get("moved_until")}
         except (ValueError, KeyError):
             print("vault: the manifest is unreadable; not synced (remove it deliberately to start over)", file=sys.stderr); sys.exit(3)
@@ -5152,6 +5179,11 @@ def cmd_sync(a):
         print(f"vault: not synced — {e}", file=sys.stderr); sys.exit(3)
     if newly and not a.dry_run:
         record_removed(removed_path, newly, old_src, now, archived)
+    by_hand = gone_by_hand(vault, old_native, native_paths, removed, os.path.join(s.get("runtime") or "", "backup", "work", "vault"))
+    if by_hand and not a.dry_run:
+        record_gone(removed_path, by_hand, now)
+    for r in by_hand:
+        print(f"vault: {r} is gone without a verb; recorded, its last copy in the backup", file=sys.stderr)
     removed |= set(newly)
     # a note the layout moved (a review from to-read/ to readings/) is moved on disk before it is rewritten, so his
     # `ela:` lines and ticks go with it; a note already at its new place is left as it is
@@ -5293,7 +5325,7 @@ def cmd_sync(a):
                                         "seen": {r: d for r, d in seen.items() if r in planned},
                                         "home": {"open": is_open, "looked": looked, "before": before},
                                         "moved": moved_paths(old_moved, today), "moved_until": old_moved.get("until"),
-                                        "source_ticks": source_ticks, "said": said}, indent=0))
+                                        "source_ticks": source_ticks, "said": said, "native": sorted(native_paths)}, indent=0))
         for rel in gone:
             try:
                 os.remove(os.path.join(vault, rel))

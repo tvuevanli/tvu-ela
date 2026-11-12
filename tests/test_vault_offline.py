@@ -353,7 +353,9 @@ with tempfile.TemporaryDirectory() as tmp:
     open(native, "w").write('---\ntitle: "Workflow"\ntype: "guide"\nsource: "vault"\n---\n\n# Workflow\n\nIt stands well.\n')
     check("a sync with a native page succeeds", sync(force=True) == 0)
     check("a native note is never overwritten", "It stands well." in open(native).read())
-    check("a native note stays out of the manifest", "ela/workflow.md" not in open(f"{vault}/{V.MANIFEST}").read())
+    check("a native note stays out of the manifest's files (it is only listed as seen)",
+          "ela/workflow.md" not in json.load(open(f"{vault}/{V.MANIFEST}"))["files"]
+          and "ela/workflow.md" in json.load(open(f"{vault}/{V.MANIFEST}"))["native"])
     os.makedirs(f"{vault}/ela/bot", exist_ok=True)
     rpt = f"{vault}/ela/bot/r.md"
     def report_warnings(words):
@@ -1338,5 +1340,23 @@ with tempfile.TemporaryDirectory() as rt:
           deep is not None and deep.title.startswith("MH-3993 · Graphics") and deep.props["keys"] == ["MH-3993"]
           and V.spec_lint("reference/2026-11-11-deep-mh-3993.md", page) == []
           and "releases/docker.md" in got and not V.type_lint("releases/docker.md", "docker"))
+
+# a note of the vault's own gone without a verb keeps a trace: a row in the deletion log, with its backup copy
+with tempfile.TemporaryDirectory() as t:
+    vault, backup = os.path.join(t, "vault"), os.path.join(t, "backup", "vault")
+    for root in (vault, backup):
+        os.makedirs(os.path.join(root, "meetings")); os.makedirs(os.path.join(root, "archive"))
+    note = '---\ntitle: "Scrum with the PM · Fri 2026-11-13"\ntype: "meeting"\nsource: "vault"\n---\n\n# Scrum with the PM\n'
+    for f in ("scrum-pm.md", "moved.md", "logged.md"):
+        open(os.path.join(backup, "meetings", f), "w").write(note)
+    open(os.path.join(vault, "archive", "moved.md"), "w").write(note)    # moved by hand: a note of that name is still there
+    gone = V.gone_by_hand(vault, None, set(), {"meetings/logged.md"}, backup)
+    check("gone by hand: only the note gone without a verb, found against the backup on the first pass", gone == ["meetings/scrum-pm.md"])
+    log = os.path.join(t, "removed.jsonl")
+    V.record_gone(log, gone, datetime.datetime(2026, 11, 12, 10, 0))
+    row = json.loads(open(log).read())
+    check("its row says gone by hand and where the last copy is",
+          row["fate"] == "gone by hand" and row["backup"] == "backup/reports:vault/meetings/scrum-pm.md" and "meetings/scrum-pm.md" in V.load_removed(log)[0])
+    check("from then on the manifest's list is the record", V.gone_by_hand(vault, [], set(), set(), backup) == [])
 
 sys.exit(1 if failures else 0)
