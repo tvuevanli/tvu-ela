@@ -195,6 +195,11 @@
                                    --days N: fix on prod this long → close candidate (default 30)
   ela fixed-in <KEY>… [--jql Q]    the Fixed In the evidence supports: commits → build → lanes
                                    → QA words; draft only, no Jira write
+  ela links <KEY|permalink|lane/build>  what links to it, one screen: linked in Jira · named with it (with where) · threads
+                                   (channel, date, first line, replies, deploy posts) · builds and lanes · ela's writes (when,
+                                   what, who, on whose word) · vault notes; each line its source, the index's age on top;
+                                   co-occurrence, never cause. links rebuild|update|status: the index (<runtime>/links/),
+                                   updated after every facts refresh
   ela team <verb>                  the roster, first-hand: people|areas|who|emails|check
   ela who <person>                 one person by name, email, Uxxx or accountId; exit 3 when unknown
   ela publish <what>               render an elak source into <published> for machines to read:
@@ -264,6 +269,7 @@ VERBS = {
     "route": ("route", "facts"),
     "dry": ("dry", None),
     "fixed-in": ("fixedin", "draft"),
+    "links": ("links", None),
     "stage": ("stage", "queue"),
     "logs": ("logs", None),
     "configserver": ("configserver", None),
