@@ -47,9 +47,13 @@ No diagrams, no teaching, no summary of the summary. Dense lines with a citation
 ```bash
 JIRA="python3 ${CLAUDE_PLUGIN_ROOT}/skills/jira/jira.py --env-file <env>"
 SLACK="python3 ${CLAUDE_PLUGIN_ROOT}/skills/slack/slack.py --env-file <env>"
+ela links <KEY>                # where to read: its threads (the source link and every thread naming it),
+                               # the tickets named with it, builds and lanes, ela's writes; from the index
 $JIRA read <KEY> --deep
 $SLACK read <permalink>        # the description's source link, and any permalink in the comments
 ```
+`ela links` replaces the hunt for the thread, not the reading of it: a thread it lists is still read first-hand,
+and "named in the same thread" is a place to look, never a finding.
 Take from them: the symptom as the reporter saw it, every id (graph, object, process, commit,
 environment), who was asked, who answered, and what changed between the description and the last
 message.
