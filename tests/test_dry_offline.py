@@ -214,5 +214,21 @@ import brief as B  # noqa: E402
 check("release-reconcile is the release work's own rule: the same command shape as the page check's",
       D.CLASSES["release-reconcile"]["command"] == B.PENDING_RULES["release-reconcile"])
 
+# the owner from the env file bin/ela loads, not only from the environment
+with tempfile.TemporaryDirectory() as T:
+    envf = os.path.join(T, ".env")
+    open(envf, "w").write("# site\nJIRA_BASE_URL=https://example.invalid\nJIRA_EMAIL='owner@example.com'\n")
+    saved = os.environ.pop("JIRA_EMAIL", None)
+    try:
+        check("the owner is read from the env file when the environment has none", D.owner_of(None, envf) == OWNER)
+        os.environ["JIRA_EMAIL"] = "env@example.com"
+        check("the environment wins over the file, --owner over both",
+              D.owner_of(None, envf) == "env@example.com" and D.owner_of("x@y", envf) == "x@y")
+        os.environ.pop("JIRA_EMAIL")
+        check("no file, no environment: no owner", D.owner_of(None, os.path.join(T, "missing")) == "")
+    finally:
+        if saved is not None:
+            os.environ["JIRA_EMAIL"] = saved
+
 print(f"{len(failures)} failed" if failures else "all passed")
 sys.exit(1 if failures else 0)

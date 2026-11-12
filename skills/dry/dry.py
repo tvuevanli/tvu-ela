@@ -885,6 +885,25 @@ def cmd_seed(a):
          + [f"{len(rows)} rows " + ("written to record-seed.jsonl" if a.apply else "(dry run; --apply writes record-seed.jsonl)")])
 
 
+def env_value(path, name):
+    """One value from the site's env file (the file bin/ela passes as --env-file), '' when it is not there."""
+    try:
+        for line in open(path or "", encoding="utf-8"):
+            k, sep, v = line.strip().partition("=")
+            if sep and k.strip() == name and not line.lstrip().startswith("#"):
+                return v.strip().strip('"').strip("'")
+    except OSError:
+        pass
+    return ""
+
+
+def owner_of(a_owner=None, env_file=None):
+    """The owner as the other skills find him: --owner, then JIRA_EMAIL in the environment, then JIRA_EMAIL in the
+    env file bin/ela loads (--env-file, ELA_ENV_FILE, site.json `env`)."""
+    return (a_owner or os.environ.get("JIRA_EMAIL")
+            or env_value(env_file or os.environ.get("ELA_ENV_FILE") or site().get("env"), "JIRA_EMAIL") or "")
+
+
 def read_issue(key, env):
     cmd = ["python3", JIRA] + (["--env-file", env] if env else []) + ["read", key, "--json"]
     p = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
@@ -906,7 +925,7 @@ def cmd_draft(a):
     parent = json.load(open(a.issue_file, encoding="utf-8")) if a.issue_file else read_issue(a.key, env)
     if not parent:
         print(f"{a.key}: could not be read", file=sys.stderr); sys.exit(EX_REMOTE)
-    owner = a.owner or os.environ.get("JIRA_EMAIL") or ""
+    owner = owner_of(a.owner, env)
     if not owns(parent, owner):
         emit(a, {"batch": None, "why": "not his"}, [f"{a.key}: not assigned to the owner; the class covers parents he owns"]); return
     today = datetime.date.fromisoformat(a.date) if a.date else datetime.datetime.now(TZ).date()
@@ -1007,7 +1026,7 @@ def main():
     s = sub.add_parser("status"); s.add_argument("--json", action="store_true"); s.set_defaults(func=cmd_status)
     s = sub.add_parser("seed"); s.add_argument("--apply", action="store_true"); s.add_argument("--json", action="store_true"); s.set_defaults(func=cmd_seed)
     s = sub.add_parser("draft"); s.add_argument("cls", choices=sorted(CLASSES)); s.add_argument("key")
-    s.add_argument("--issue-file"); s.add_argument("--child-file", nargs="*"); s.add_argument("--owner", help="the owner's Jira email or name (default JIRA_EMAIL)")
+    s.add_argument("--issue-file"); s.add_argument("--child-file", nargs="*"); s.add_argument("--owner", help="the owner's Jira email or name (default JIRA_EMAIL, from the environment or the env file)")
     s.add_argument("--before", help="read only comments before this ISO time (a replay)"); s.add_argument("--date"); s.add_argument("--out-dir")
     s.add_argument("--json", action="store_true"); s.set_defaults(func=cmd_draft)
     s = sub.add_parser("batch"); s.add_argument("id"); s.add_argument("--json", action="store_true"); s.set_defaults(func=cmd_batch)
