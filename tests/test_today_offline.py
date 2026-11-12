@@ -72,6 +72,23 @@ with tempfile.TemporaryDirectory() as vd:
           done == [("keys:MH-11", "B")] and st["keys:MH-11"]["dropped"] == THU.isoformat() and st["keys:MH-11"]["by"] == "owner"
           and not st["keys:MH-10"].get("answered") and V.settle_letters(vd, vd, st, THU, dry_run=True) == []
           and "dropped by your word" in V.dropped_page(st))
+with tempfile.TemporaryDirectory() as rd:
+    os.makedirs(os.path.join(rd, "ela"))
+    import json
+    json.dump({k: dict(v, sig="e", first=THU.isoformat(), text=k) for k, v in state.items()}, open(os.path.join(rd, "ela", "asks.json"), "w"))
+    a1 = V.answer_by_letter(rd, 1, "a", THU, apply=True)
+    a2 = V.answer_by_letter(rd, 2, "B", THU)
+    a2b = V.answer_by_letter(rd, 2, "B", THU, apply=True)
+    saved = json.load(open(os.path.join(rd, "ela", "asks.json")))
+    check("`2 B` from Slack resolves as the tick does: A on a draft is the runner's `apply N`; B drops, dry run until --apply",
+          a1["run"] == "apply 10" and not a1["done"] and a2["done"] is False and "keys:MH-11" in a2["ask"]
+          and a2b["done"] is True and saved["keys:MH-11"]["dropped"] == THU.isoformat()
+          and V.answer_by_letter(rd, 2, "B", THU, apply=True)["done"] == "already answered B")
+    try:
+        V.answer_by_letter(rd, 1, "C", THU); bad = False
+    except ValueError:
+        bad = True
+    check("a letter the ask does not offer is refused", bad)
 dp = V.dropped_page(st1)
 check("the dropped page lists each drop once with its dates", dp.count("comment MH-1") == 1 and f"{THU} · comment MH-1 · asked since {MON}" in dp)
 # the record of 2026-11-11: MH-3993 drafted as a comment and an assignment, one ask cut mid-phrase

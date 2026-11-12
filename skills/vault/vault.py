@@ -3035,23 +3035,73 @@ def settle_letters(vault, reports, state, today, dry_run=False):
         text = open(os.path.join(vault, TODAY), encoding="utf-8").read()
     except OSError:
         return []
-    done = []
-    for x in today_letters(text, state):
-        v = state.get(x["id"]) or {}
-        if v.get("answered") or not sync_handles(x["does"]):
-            continue
-        if x["does"] and x["does"].startswith("ela dry answer ") and not dry_run:
-            parts = x["does"].split()
-            try:
-                dry_mod().answer(reports, parts[3], parts[4])
-            except (KeyError, ValueError):
-                continue
-        v["answered"] = {"letter": x["letter"], "at": today.isoformat()}
-        if x["does"] == "drop":
-            v["dropped"], v["by"] = today.isoformat(), "owner"
-        state[x["id"]] = v
-        done.append((x["id"], x["letter"]))
-    return done
+    return [(x["id"], x["letter"]) for x in today_letters(text, state)
+            if settle_one(reports, state, x["id"], x["letter"], x["does"], today, dry_run)]
+
+
+def settle_one(reports, state, aid, letter, does, today, dry_run=False):
+    """One letter the sync acts on itself, once: True when it acted (a dry run acts on the state, not the dry store)."""
+    v = state.get(aid) or {}
+    if v.get("answered") or not sync_handles(does):
+        return False
+    if does and does.startswith("ela dry answer ") and not dry_run:
+        parts = does.split()
+        try:
+            dry_mod().answer(reports, parts[3], parts[4])
+        except (KeyError, ValueError):
+            return False
+    v["answered"] = {"letter": letter, "at": today.isoformat()}
+    if does == "drop":
+        v["dropped"], v["by"] = today.isoformat(), "owner"
+    state[aid] = v
+    return True
+
+
+def answer_by_letter(reports, slot, letter, today, apply=False):
+    """His letter given outside the page (`2 B` in Slack, the letter in a session), resolved exactly as a tick on
+    today.md is: → {ask, letter, does, done, run}. `done` when this verb settled it (a drop, a dry answer that writes
+    nothing live), with --apply; `run` the command the runner runs otherwise (`apply N`, a batch's --apply). Raises
+    KeyError for a slot today.md does not show, ValueError for a letter that ask does not offer."""
+    state = load_asks(reports)
+    slots = {v["slot"]: k for k, v in state.items() if isinstance(v, dict) and v.get("slot")}
+    if slot not in slots:
+        raise KeyError(slot)
+    aid, letter = slots[slot], letter.upper()
+    opts = state[aid].get("options") or {}
+    if letter not in opts:
+        raise ValueError(f"ask {slot} offers {', '.join(sorted(opts))}, not {letter}")
+    does = opts[letter]
+    out = {"ask": aid, "slot": slot, "letter": letter, "does": does, "done": False, "run": None}
+    if state[aid].get("answered"):
+        out["done"] = "already answered " + state[aid]["answered"]["letter"]
+    elif sync_handles(does):
+        if apply and settle_one(reports, state, aid, letter, does, today):
+            atomic_write(os.path.join(reports, "ela", "asks.json"), json.dumps(state, indent=1, ensure_ascii=False))
+        out["done"] = apply
+    else:
+        out["run"] = does
+    return out
+
+
+def cmd_answer(a):
+    """`ela vault answer N L`: one letter on today's ask N, from anywhere."""
+    s = json.load(open(SITE))
+    try:
+        r = answer_by_letter(s.get("reports") or "", a.slot, a.letter, datetime.date.today(), a.apply)
+    except KeyError:
+        print(f"no ask {a.slot} on today.md", file=sys.stderr); sys.exit(3)
+    except ValueError as x:
+        print(str(x), file=sys.stderr); sys.exit(2)
+    if a.json:
+        print(json.dumps(r, ensure_ascii=False)); return
+    if r["run"]:
+        print(f"ask {r['slot']} {r['letter']}: the runner runs `{r['run']}`")
+    elif r["done"] is True:
+        print(f"ask {r['slot']} {r['letter']}: done ({r['does'] or 'nothing to run'})")
+    elif r["done"]:
+        print(f"ask {r['slot']}: {r['done']}")
+    else:
+        print(f"ask {r['slot']} {r['letter']}: would do `{r['does'] or 'nothing'}`; --apply settles it")
 
 
 def dry_asks(reports, today, asks_state, dry_run=False):
@@ -6760,6 +6810,10 @@ def main():
     p.add_argument("--all", action="store_true", help="include instructions already handled")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_guidance)
+    p = sub.add_parser("answer", help="one letter on today's ask N (`2 B` from Slack or a session), resolved as a tick on today.md is; dry run unless --apply")
+    p.add_argument("slot", type=int); p.add_argument("letter", choices=list("ABCabc"))
+    p.add_argument("--apply", action="store_true"); p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_answer)
     p = sub.add_parser("marks", help="finish the to-read notes whose done or drop box is ticked (no session)")
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--json", action="store_true")

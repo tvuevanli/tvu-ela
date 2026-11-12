@@ -174,6 +174,8 @@
                                    a note you delete is done and stays deleted (ela vault restore PATH)
   ela vault setup                  apply the vault's Obsidian settings from ela's versioned copy, then restart Obsidian
   ela vault guidance [--json]      the owner's `ela:` lines and ticked boxes anywhere in the vault, each handled once
+  ela vault answer N A|B|C [--apply]  one letter on today's ask N from anywhere (Slack, a session), as a tick on
+                                   today.md: prints the runner's command, or settles a drop or a dry answer itself
   ela vault finish PATH [--to drop|archive]   on your word: close a note into the archive, kept
   ela vault lint [--fix [--apply]]  every note against its type's spec (the readme's Note standards), one line per
                                    deviation; --fix normalises a title's quoting, links and alias, a dry run unless --apply
