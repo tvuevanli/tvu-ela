@@ -1014,6 +1014,179 @@ def cmd_jql(creds, args):
               f"{name_of(f.get('assignee')):<16} {f.get('summary', '')}")
 
 
+# ── find: a ticket named by what it is about ─────────────────────────────────
+# A reference like "the 异步api ticket" rarely shares a word with the summary it means; the ticket it came from names
+# the endpoint or identifier the other one uses. So find searches the caller's words and the source's vocabulary,
+# and ranks: a caller's word weighs most, a key the source itself names adds.
+ISSUE_KEY = re.compile(r"\b[A-Z][A-Z0-9]+-\d+\b")
+_IDENT = re.compile(r"(?<![\w{])[A-Za-z][A-Za-z0-9]*(?:[-_][A-Za-z0-9]+)+(?![\w}])")
+_PATH = re.compile(r"(?:https?://[^\s<>()`'\"]+|(?<![\w.])/[A-Za-z0-9_.{}\-/]+)")
+FIND_WEIGHTS = {"phrase": 3, "term": 1, "about": 2, "named": 2, "owner": 1, "project": 1}
+
+
+def _noise(piece):
+    """An id, hex, version or templated piece: not vocabulary."""
+    p = piece.lower()
+    return (not p or "{" in p or "}" in p or len(re.findall(r"\d", p)) >= 3
+            or re.fullmatch(r"v?\d+(?:\.\d+)*", p) is not None
+            or (re.fullmatch(r"[0-9a-f]+", p) is not None and re.search(r"\d", p) is not None))
+
+
+def context_terms(text, cap=10):
+    """The source's own vocabulary: hyphen/underscore identifiers and the last literal segment of each URL path,
+    lower-cased, ids/hex/versions/templated pieces and issue keys dropped, length ≥ 6, most frequent first."""
+    text = text or ""
+    counts, first = {}, {}
+    def add(t):
+        t = t.lower().strip("-_.")
+        if len(t) < 6 or ISSUE_KEY.fullmatch(t.upper()) or any(_noise(p) for p in re.split(r"[-_]", t)):
+            return
+        counts[t] = counts.get(t, 0) + 1
+        first.setdefault(t, len(first))
+    for m in _PATH.finditer(text):
+        path = m.group(0).split("?")[0].split("#")[0]
+        if "://" in path:                                   # the host is not vocabulary
+            path = path.split("://", 1)[1].partition("/")[2]
+        segs = [s for s in path.split("/") if s]
+        while segs and "{" in segs[-1]:                     # /graphs/{graphId} names "graphs"
+            segs.pop()
+        if len(segs) > 1 and not _noise(segs[-1]):          # a permalink ending in an id names nothing
+            add(segs[-1])
+    for m in _IDENT.finditer(text):
+        add(m.group(0))
+    return sorted(counts, key=lambda t: (-counts[t], first[t]))[:cap]
+
+
+def mentioned_keys(text, own=None):
+    """Issue keys the source text names, in order, without its own."""
+    out = []
+    for k in ISSUE_KEY.findall(text or ""):
+        if k != own and k not in out:
+            out.append(k)
+    return out
+
+
+def bridged_terms(text, phrases, terms):
+    """{term: [phrase, ...]} for each source term written on the same line as a caller's word: the source translating
+    the caller's word into its own vocabulary ("异步接口 `POST /api/v2.0/graph-submissions`")."""
+    out = {}
+    for line in (text or "").lower().splitlines():
+        said = [p for p in phrases if p.lower() in line]
+        for t in terms if said else []:
+            if t in line:
+                out.setdefault(t, [])
+                out[t] += [p for p in said if p not in out[t]]
+    return out
+
+
+def _flat(s):
+    return " ".join(re.sub(r"[-_]", " ", (s or "").lower()).split())
+
+
+def rank_found(hits, mentioned, owner=None, project=None, bridges=None):
+    """hits: {key: {"issue": search row, "phrases": [...], "terms": [...]}}. Score: caller's word ×3, source term ×1
+    (×3 when bridged to a caller's word), its summary carries one +2, named by the source +2, the owner's own ticket +1,
+    the source's project +1; each row carries `why`."""
+    w, rows, bridges = FIND_WEIGHTS, [], bridges or {}
+    for key, h in hits.items():
+        f = (h.get("issue") or {}).get("fields") or {}
+        phrases, terms = list(h.get("phrases") or []), list(h.get("terms") or [])
+        score = w["phrase"] * len(phrases) + sum(w["phrase"] if t in bridges else w["term"] for t in terms)
+        why = []
+        if phrases:
+            why.append("your words: " + ", ".join(phrases))
+        if terms:
+            why.append("source terms: " + ", ".join(t + (f" (≈{'/'.join(bridges[t])})" if t in bridges else "")
+                                                     for t in terms))
+        about = [x for x in phrases + terms if _flat(x) and _flat(x) in _flat(f.get("summary"))]
+        if about:
+            score += w["about"]; why.append("summary carries " + ", ".join(about))
+        if key in (mentioned or []):
+            score += w["named"]; why.append("named by the source")
+        if owner and ((f.get("assignee") or {}).get("accountId") == owner):
+            score += w["owner"]; why.append("yours")
+        if project and key.split("-")[0] == project:
+            score += w["project"]; why.append(f"in {project}")
+        rows.append({"key": key, "score": score, "status": name_of(f.get("status"), "name"),
+                     "assignee": name_of(f.get("assignee")), "summary": f.get("summary", ""), "why": why})
+    return sorted(rows, key=lambda r: (-r["score"], r["key"]))
+
+
+def _jql_str(s):
+    return s.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def _text_search(creds, words, per, project=None):
+    """One `text ~` search; an identifier is searched as a phrase. A term Jira rejects is skipped, not fatal."""
+    q = f'"\\"{_jql_str(words)}\\""' if re.search(r"[-_]", words) else f'"{_jql_str(words)}"'
+    jql = (f'project = "{_jql_str(project)}" AND ' if project else "") + f"text ~ {q} ORDER BY updated DESC"
+    try:
+        return search_rows(creds, jql, per)
+    except SystemExit as exc:
+        print(f"# skipped {words!r}: {exc}", file=sys.stderr)
+        return []
+
+
+def cmd_find(creds, args):
+    phrases = [p for p in (args.phrases or []) if p.strip()]
+    near = extract_key(args.near) if args.near else None
+    if not phrases and not near:
+        sys.exit("find needs words, --near KEY, or both")
+    terms, mentioned, src_project, bridges = [], [], None, {}
+    if near:
+        doc = issue_doc(creds, near, comments=True, fresh=args.fresh)
+        f = doc.get("fields") or {}
+        text = "\n".join([f.get("summary") or "", body_text(f.get("description"))]
+                         + [body_text(c.get("body")) for c in doc.get("comments") or []])
+        terms = [t for t in context_terms(text) if t not in [p.lower() for p in phrases]]
+        mentioned = mentioned_keys(text, near)
+        bridges = bridged_terms(text, phrases, terms)
+        src_project = near.split("-")[0]
+    hits = {}
+    def hit(issue, kind, word):
+        k = issue.get("key")
+        if not k or k == near:
+            return
+        h = hits.setdefault(k, {"issue": issue, "phrases": [], "terms": []})
+        if word not in h[kind]:
+            h[kind].append(word)
+    for p in phrases:
+        for i in _text_search(creds, p, args.per, args.project):
+            hit(i, "phrases", p)
+    for t in terms:
+        for i in _text_search(creds, t, args.per, args.project):
+            hit(i, "terms", t)
+    missing = [k for k in mentioned if k not in hits]
+    if missing:
+        try:
+            for i in search_rows(creds, f"key in ({', '.join(missing)})", len(missing)):
+                hits.setdefault(i.get("key"), {"issue": i, "phrases": [], "terms": []})
+        except SystemExit as exc:
+            print(f"# named keys unread: {exc}", file=sys.stderr)
+    owner = (api_get(creds, "/rest/api/3/myself") or {}).get("accountId")
+    found = rank_found(hits, mentioned, owner, src_project, bridges)[: args.limit]
+    if args.json:
+        print(json.dumps({"phrases": phrases, "near": near, "terms": terms, "bridges": bridges, "mentioned": mentioned,
+                          "found": found}, ensure_ascii=False))
+        return
+    tried = phrases + terms
+    print(f"# find {' '.join(phrases)}" + (f" --near {near}" if near else ""))
+    if terms:
+        print(f"# source terms: {', '.join(terms)}")
+    if bridges:
+        print("# the source says your words as: " + ", ".join(f"{'/'.join(v)} → {t}" for t, v in bridges.items()))
+    if mentioned:
+        print(f"# named by the source: {', '.join(mentioned)}")
+    print()
+    if not found:
+        print(f"nothing found for: {', '.join(tried) or '(no terms)'} — try the other language's word, "
+              "or the endpoint/identifier the ticket would use")
+        sys.exit(1)
+    for r in found:
+        print(f"{r['key']:<10} {r['score']:>3} [{r['status']}] {r['assignee']}  {r['summary']}")
+        print(f"{'':<14} why: {'; '.join(r['why'])}")
+
+
 def validate_summary(summary):
     """The seven-token gate: '[Token] action', no dash separator, one token."""
     token = next((t for t in LAYER_TOKENS if summary.startswith(t)), None)
@@ -2098,6 +2271,17 @@ def main():
     p.add_argument("--fresh", action="store_true", help="a standing query: read Jira now instead of the store")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_jql)
+
+    p = sub.add_parser("find", help="a ticket named by what it is about: the words, and --near the ticket the "
+                                    "reference came from (its endpoints, identifiers, named keys); ranked — read-only")
+    p.add_argument("phrases", nargs="*", metavar="PHRASE", help="the caller's words, both languages (异步 async)")
+    p.add_argument("--near", metavar="KEY", help="the ticket the reference came from; its vocabulary is searched too")
+    p.add_argument("--project", help="restrict every search to one project")
+    p.add_argument("--per", type=int, default=20, help="rows read per search (default 20)")
+    p.add_argument("--limit", type=int, default=10, help="rows printed (default 10)")
+    p.add_argument("--fresh", action="store_true", help="read the --near ticket now instead of the store's copy")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_find)
 
     p = sub.add_parser(
         "assign", help="re-assign one issue — dry-run unless --apply")

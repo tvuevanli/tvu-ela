@@ -39,6 +39,22 @@ Key / status / assignee / summary rows. `--limit N` (default 50), `--json`. Two 
 store: the owner-name query (`assignee = currentUser() ORDER BY updated DESC`, limit 1, once a day) and the incidents
 umbrella's open children; `--fresh` runs them now. Every other JQL is live.
 
+## find
+
+`find [PHRASE …] [--near KEY] [--project P] [--per 20] [--limit 10] [--fresh] [--json]`, read-only. A reference to a
+ticket by what it is about (the async-API ticket, the observer one) is resolved with `find`, never by one keyword
+search: the ticket meant rarely shares a word with the reference (MH-2564, Integrate Graph Submissions API, carries
+neither 异步 nor async), but the ticket the reference came from (MH-3954) names its endpoint.
+
+- Pass the words in both languages (`异步 async asynchronous`), the domain name the team would use if known, and
+  `--near` the ticket the reference came from. Its summary, description and comments give the source terms
+  (hyphen/underscore identifiers, the last literal segment of each endpoint path) and the keys it names.
+- Ranking: your word ×3, source term ×1 — ×3 when the source writes it on the same line as your word (the source's
+  translation: `异步接口 POST /api/v2.0/graph-submissions`) — summary carries one +2, named by the source +2, yours +1,
+  the source's project +1. Every row prints its `why`.
+- Show the top rows with their `why`; the owner picks when two are close. A miss is reported with the terms tried,
+  never as "no such ticket"; then try the other language's word, or the endpoint or identifier the ticket would use.
+
 ## changes
 
 `changes --since -24h|"YYYY-MM-DD HH:MM" [--project MH] [--limit N]`: each issue updated in the window with its
