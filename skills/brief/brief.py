@@ -3030,6 +3030,8 @@ TRAIN_RULES = ("train-hold", "train-promote")
 PENDING_RULES = {
     "priority-by-rule": r"^ela jira priority " + KEY_ARG + r"\s(?=.*--to\s)",
     "due-by-rule": r"^ela jira due " + KEY_ARG + r"\s(?=.*--date\s)",
+    # a build's Fixed In appends and labels, one batch for every build in the window (`ela release reconcile`)
+    "release-reconcile": r"^ela release reconcile [\w-]+(?:\s+--build\s+\d+)*\s+--batch\s*$",
 }
 DONE_LINE_RX = re.compile(r"^\s*" + QUOTE + r"[-*]\s+done\s+(\d+)\s+—\s+(.*)$", re.M)                    # tier 1, no box: ela did it
 SEND_BOX_RX = re.compile(r"^\s*" + QUOTE + r"[-*]\s+\[[ xX]\]\s+send\s+(\d+)\s+—", re.I | re.M)                  # tier 3, leaves on his tick
@@ -3080,6 +3082,8 @@ def tier_check(page, actions, demoted=None, verdict_build=None):
             continue
         if tier < 3 and rule in PENDING_RULES:
             fails.append(f"action {n}: rule {rule} is tier 3 until the owner promotes it"); continue
+        if rule in PENDING_RULES and not re.search(PENDING_RULES[rule], cmd):
+            fails.append(f"action {n}: its command is not what rule {rule} admits: {cmd[:70]}")
         if tier < 3:
             if rule not in TIER_RULES or TIER_RULES[rule][0] != tier:
                 fails.append(f"action {n}: tier {tier} needs a tier-{tier} rule ("

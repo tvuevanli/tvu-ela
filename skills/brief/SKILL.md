@@ -758,6 +758,18 @@ ela-runner starts this skill headless every weekday morning after it wrote the f
   shows four lines. `ela release changes --check <file>` must say ok before the run ends. today.md's Releases fact and
   the line's release note in the vault are rendered from it; the Changes page keeps its own evidence table.
   *Why: the owner asked which services changed and what for, one line per service (2026-11-11 record).*
+- **The builds' Jira, reconciled once the thread is quiet.** For each lane that took a build in the window, after its
+  record exists: `ela release reconcile <lane> --build N …` (every build of the window in one call). It reads, keeps
+  its reading beside the record (the release note's Jira gaps table) and raises the open questions itself (a revert
+  folded into another ticket; one agent's same miss on three builds). When it prints an `ask:` line, draft **one**
+  action for all of them: tier 3, rule `release-reconcile`, `text` the ask line as printed, `command` the call it
+  names (`ela release reconcile <lane> --build N … --batch`, no `--apply`), `kind` `fixed-in`, `evidence` the builds
+  and the reading's time. Its apply is that batch: Fixed In appends and the release label, append-only; status,
+  assignee and folds are never in it. Never on the release-finished message: this pass runs at night or in the
+  morning, when the thread has been quiet. Nothing is posted in the release thread.
+  *Why: the engineers' release agents leave Fixed In and labels behind on about one ticket in four (builds 90 and 91,
+  brief <runtime>/drafts/2026-11-12-release-reconcile-brief.md); ela is the reconciler after the release, not another
+  release bot.*
 - `<reports>/runner/<date>-changes.md` — the Changes page, from §2b's changes facts: a review of the day for the
   owner, not a list of what moved. The vault shows it as a day page beside the brief. Under **900 words**, in §3's
   form (a `#` title with the date, tables rather than code blocks, ticket keys bare, lanes in plain words):
