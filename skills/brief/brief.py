@@ -2673,10 +2673,55 @@ def bundle_lane(name, cfgs):
     return {"daily-wed": "daily-wed", "stage": "daily-stage", "qa": "qa-cn3"}.get(tok.group(2))
 
 
-def movements(runtime, reports, tested, today, shown, bundles_now=None):
+MOVE_TICKETS = 3                                  # tickets a moves row names in words; the rest are a count and a link
+MOVE_TITLE = 60                                   # a title in a table cell: shorter than a line's, the row stays readable
+
+
+def is_ticket(k):
+    """A key-shaped id that is a Jira ticket: not a standard's name, and not zero-led (a customer's own numbering in
+    a commit subject, such as a FloSports item MH-046, which Jira would resolve to another ticket or to none)."""
+    return bool(re.fullmatch(r"[A-Z][A-Z0-9]+-[1-9]\d*", str(k or ""))) and not NOT_KEYS.match(k)
+
+
+def move_note(r, recs):
+    """(note path, service heading) of the build note that carries a moves row: a build record of the same lane whose
+    service of that name moved to that version; None when no record names the move."""
+    ver = version_text(r["to"])
+    for rec in recs:
+        if (rec.get("lane_name") or rec.get("lane")) != r["lane"] and LANE_SHOWN.get(rec.get("lane"), rec.get("lane")) != r["lane"]:
+            continue
+        for v in rec.get("services") or []:
+            if version_text(v.get("to")) == ver and mail_slug(v.get("service")) == r["service"]:
+                return f"releases/{rec['line']}/{rec['name']}", v["service"]
+    return None
+
+
+def move_tickets(r, facts, recs, jira=""):
+    """A moves row's tickets cell: at most MOVE_TICKETS tickets, each its key and title, then the count of the rest,
+    linking the service's section of the build note that lists them, or, where no build note carries the move, the
+    same keys as a Jira search. A key never stands alone, and an id that is not a ticket is not shown as one."""
+    keys = sorted(k for k in r["tickets"] if is_ticket(k))
+    if not keys:
+        return "—"
+    named = [f"{k} {R.ticket_title(facts[k].get('summary'), MOVE_TITLE)}" if facts.get(k) else f"{k} (not in the fact store)"
+             for k in keys[:MOVE_TICKETS]]
+    rest = keys[MOVE_TICKETS:]
+    if rest:
+        note = move_note(r, recs)
+        if note:
+            named.append(f"[[{note[0]}#{note[1]}\\|{len(rest)} more]]")
+        elif jira:
+            named.append(f"[{len(rest)} more]({jira.rstrip('/')}/issues/?jql=key%20in%20({'%2C'.join(rest)}))")
+        else:
+            named.append(f"{len(rest)} more")
+    return "<br>".join(named)
+
+
+def movements(runtime, reports, tested, today, shown, bundles_now=None, jira=""):
     """Every lane move of the last MOVES_DAYS days, newest first, from the daily changes files (lane versions, the
     release mails and threads with their tickets, new bundles) and the docker ledger (docker services as slug@image);
-    today's bundles from the matrix when they moved since the last file. One row per lane, service and version."""
+    today's bundles from the matrix when they moved since the last file. One row per lane, service and version; its
+    tickets as move_tickets writes them, titles from the fact store."""
     runner = os.path.join(runtime, "runner")
     rows, first = {}, None
     cfgs = {l: (R.rmap("lines") or {}).get(l) or {} for l in followed_lines()}
@@ -2805,6 +2850,8 @@ def movements(runtime, reports, tested, today, shown, bundles_now=None):
         if not r["from"] and k in chains and r["service"] not in ("app bundle",):
             r["from"] = chains[k]
         chains[k] = re.sub(r" requested$", "", str(r["to"]))
+    facts = R.facts_tickets(runtime, sorted({k for r in rows.values() for k in r["tickets"] if is_ticket(k)}))
+    recs = R.build_records(reports)
     L = ["| date | lane | service | from → to | tickets | QA |", "|---|---|---|---|---|---|"]
     for day in (today - datetime.timedelta(days=i) for i in range(MOVES_DAYS)):
         iso = day.isoformat()
@@ -2816,7 +2863,7 @@ def movements(runtime, reports, tested, today, shown, bundles_now=None):
         for r in got:
             plain = lambda v: short_version(v) if vkey(v) and re.fullmatch(r"v?[\d.]+(?:\+\d+| build \d+)?", str(v).strip()) else v  # noqa: E731
             move = f"{plain(r['from']) if r['from'] else '—'} → {plain(r['to'])}"
-            L.append(f"| {iso[5:]} | {r['lane']} | {shown_service(r['service'])} | {move} | {', '.join(sorted(r['tickets'])) or '—'} | {r['qa'] or ''} |")
+            L.append(f"| {iso[5:]} | {r['lane']} | {shown_service(r['service'])} | {move} | {move_tickets(r, facts, recs, jira)} | {r['qa'] or ''} |")
     note = f"*Kept since {first}; the table fills to {MOVES_DAYS} days as the daily reads accumulate.*" if first and first > since else ""
     return L + ([""] + [note] if note else [])
 
@@ -2908,7 +2955,9 @@ def write_lanes_page(outs, site, env, runner, tested, held=()):
                 L += [f"### {line} · {a} ahead of {b}", "", f"Not read: {str(e)[:200]}", ""]
     bundles_now = {lane: (c.get("name") if isinstance(c, dict) else None) for out in outs
                    for lane, c in zip(out.get("lane_ids") or [], (out["rows"][0]["cells"] if out["rows"] else []))}
-    L += ["## Movements, 14 days", ""] + movements(runtime, reports, tested, now.date(), shown, bundles_now) + [""]
+    envf = env[1] if env else site.get("env")
+    jira = next((l.split("=", 1)[1].strip() for l in open(envf) if l.startswith("JIRA_BASE_URL=")), "") if envf and os.path.isfile(envf) else ""
+    L += ["## Movements, 14 days", ""] + movements(runtime, reports, tested, now.date(), shown, bundles_now, jira) + [""]
     path = os.path.join(reports, "lanes", "lanes.md")
     os.makedirs(os.path.dirname(path), exist_ok=True)
     tmp = path + ".tmp"
