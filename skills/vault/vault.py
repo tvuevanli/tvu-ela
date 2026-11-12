@@ -6607,9 +6607,22 @@ def watched_notes(vault, today, stamps=None):
     return sorted(out, key=lambda w: (w["until"], w["note"]))[:WATCH_NOTES]
 
 
-def afterwards_lines(woke, jira_base=""):
-    """brief.parked_row's wake events as dated lines, one per source per day, in ela's words: who moved a key where,
-    who commented or replied, and the link; never what a colleague wrote. [(ref, date, line)]"""
+def status_runs(ws):
+    """A day's status moves as `from → to (who)`, one person's consecutive moves collapsed to their first from and last
+    to (Backlog → In Progress → Review by one hand reads Backlog → Review)."""
+    runs = []
+    for w in (w for w in ws if w.get("kind") == "status"):
+        if runs and runs[-1]["who"] == w.get("who") and runs[-1]["to"] == w.get("from"):
+            runs[-1]["to"] = w.get("to")
+        else:
+            runs.append({"from": w.get("from"), "to": w.get("to"), "who": w.get("who")})
+    return [f"{r['from']} → {r['to']} ({r['who']})" for r in runs]
+
+
+def afterwards_lines(woke, jira_base="", tickets=None):
+    """brief.parked_row's wake events as dated lines, one per source per day, in ela's words: the ticket by key and
+    title, who moved it where, who commented or replied, and the link; never what a colleague wrote.
+    tickets: {key: release.ticket_facts}, the fact store's. [(ref, date, line)]"""
     groups = {}
     for w in woke:
         at = parse_at(w.get("at"))
@@ -6623,10 +6636,12 @@ def afterwards_lines(woke, jira_base=""):
         if ws[0]["source"] == "slack":
             line = f"thread: {'a reply' if len(ws) == 1 else f'{len(ws)} replies'} from {names('reply')} → [thread]({ref})"
         else:
-            bits = [f"{w.get('from')} → {w.get('to')} ({w.get('who')})" for w in ws if w.get("kind") == "status"]
+            bits = status_runs(ws)
             if names("comment"):
                 bits.append(f"a comment from {names('comment')}")
-            line = (f"[{ref}]({jira_base}/browse/{ref})" if jira_base else ref) + ": " + "; ".join(bits)
+            t = (tickets or {}).get(ref)
+            title = f" {release_mod().ticket_title(t.get('summary'))}" if t and t.get("summary") else ""
+            line = (f"[{ref}]({jira_base}/browse/{ref})" if jira_base else ref) + title + ": " + "; ".join(bits)
         out.append((ref, day, f"- {day[5:]} · {line}"))
     return out
 
@@ -6809,10 +6824,11 @@ def cmd_afterwards(a):
     except (OSError, ValueError):
         logged = set()
     out_lines, log = [], []
+    titles = release_mod().facts_tickets(s.get("runtime"), keys)   # each ticket by its title, never a bare key
     for w in watched:
         n = {"note": w["note"], "title": w["props"].get("title") or w["note"], "waits_on": None,
              "parked": f"{w['since'].isoformat()} 00:00", "wake": " ".join(w["keys"] + w["links"])}
-        lines = afterwards_lines(B.parked_row(n, jira_rows, threads, me, now)["woke"], jira_base)
+        lines = afterwards_lines(B.parked_row(n, jira_rows, threads, me, now)["woke"], jira_base, titles)
         p = os.path.join(vault, w["note"])
         text = open(p, encoding="utf-8").read()
         new_text, _ = with_afterwards(text, lines)

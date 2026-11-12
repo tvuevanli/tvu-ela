@@ -1359,4 +1359,16 @@ with tempfile.TemporaryDirectory() as t:
           row["fate"] == "gone by hand" and row["backup"] == "backup/reports:vault/meetings/scrum-pm.md" and "meetings/scrum-pm.md" in V.load_removed(log)[0])
     check("from then on the manifest's list is the record", V.gone_by_hand(vault, [], set(), set(), backup) == [])
 
+# Afterwards names the ticket by key and title; one person's consecutive moves read first → last (desk, 2026-11-12)
+woke = [{"ref": "MH-3873", "source": "jira", "kind": "status", "from": "Backlog", "to": "In Progress", "who": "Andyzhao", "at": "2026-11-11T10:00:00+08:00"},
+        {"ref": "MH-3873", "source": "jira", "kind": "status", "from": "In Progress", "to": "Review", "who": "Andyzhao", "at": "2026-11-11T11:00:00+08:00"},
+        {"ref": "MH-3873", "source": "jira", "kind": "comment", "who": "Andyzhao", "at": "2026-11-11T11:05:00+08:00"},
+        {"ref": "MH-3891", "source": "jira", "kind": "status", "from": "Review", "to": "Done", "who": "Erin Zhang", "at": "2026-11-11T12:00:00+08:00"},
+        {"ref": "MH-3891", "source": "jira", "kind": "status", "from": "Done", "to": "Reopened", "who": "Andyzhao", "at": "2026-11-11T13:00:00+08:00"}]
+al = {ref: l for ref, _, l in V.afterwards_lines(woke, "https://j", {"MH-3873": {"summary": "BE: keep YouTube source LOADING until ready"}})}
+check("an Afterwards line: the ticket with its title, one person's run collapsed",
+      al["MH-3873"] == "- 11-11 · [MH-3873](https://j/browse/MH-3873) BE: keep YouTube source LOADING until ready: Backlog → Review (Andyzhao); a comment from Andyzhao")
+check("moves by two people stay two; a ticket the store lacks keeps its key alone",
+      al["MH-3891"] == "- 11-11 · [MH-3891](https://j/browse/MH-3891): Review → Done (Erin Zhang); Done → Reopened (Andyzhao)")
+
 sys.exit(1 if failures else 0)
