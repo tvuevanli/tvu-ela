@@ -52,6 +52,9 @@ THREAD_TS_RX = re.compile(r"thread_ts=(\d+\.\d+)")
 # a deploy said done: the words the team's deploy replies use (MH-3870's thread, 2026-11-04); vocabulary, not speech
 DEPLOY_RX = re.compile(r'(部署了|已部署|部署完成|部署完毕|已上线|上线了|升级前|\bdeployed\b|\bdeployment (?:is )?done\b|\brolled out\b)', re.I)
 VAULT_DIRS = ("projects", "meetings", "releases", "cases")
+# a thread that names more than this many keys is a digest (an alert roll-up, a release change log): being listed in it
+# together is a weak edge, folded under "named with it" into one line (MH-3870's seven from one #helm-alerts digest)
+DIGEST_KEYS = 5
 WRITE_MATCH_S = 120
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS edges (src TEXT NOT NULL, dst TEXT NOT NULL, kind TEXT NOT NULL, source TEXT, at TEXT,
@@ -625,19 +628,24 @@ def lookup_key(db, k):
     # named with it: keys the same thread names, keys its text names, tickets whose text names it
     named = {}
 
-    def add(other, where, source, at):
+    def add(other, where, source, at, weak=False, thread=None):
         if other != k:
-            named.setdefault(other, []).append({"where": where, "source": source, "at": at})
+            named.setdefault(other, []).append({"where": where, "source": source, "at": at, "weak": weak, "thread": thread})
     for t in threads:
+        digest = len(t["names"]) > DIGEST_KEYS              # a digest's list: a weak edge (the desk's item 11, 2026-11-12)
         for o in t["names"]:
-            add(o, f"thread #{t['channel']} {str(t['date'] or '')[:10]}", t["link"], t["date"])
+            add(o, f"thread #{t['channel']} {str(t['date'] or '')[:10]}", t["link"], t["date"], digest, t["id"])
     for e in out_edges(db, k, ("names",)):
         add(e["dst"], f"named in its {e['note']}", e["source"], e["at"])
     for e in in_edges(db, k, ("names",)):
         add(e["src"], f"names it in its {e['note']}", e["source"], e["at"])
     linked_keys = {l["other"] for l in uniq}
-    named_list = [{"key": o, "ticket": node(db, o), "where": w, "linked": o in linked_keys}
-                  for o, w in sorted(named.items(), key=lambda x: (x[0] not in linked_keys, -len(x[1]), x[0]))]
+    # strong: a Jira link, the ticket's own text, a thread of five keys or fewer; weak: only ever listed in digests
+    def weak(o, w):
+        return o not in linked_keys and all(x["weak"] for x in w)
+    named_list = [{"key": o, "ticket": node(db, o), "where": sorted(w, key=lambda x: x["weak"]), "linked": o in linked_keys,
+                   "weak": weak(o, w)}
+                  for o, w in sorted(named.items(), key=lambda x: (x[0] not in linked_keys, weak(*x), -sum(not y["weak"] for y in x[1]), -len(x[1]), x[0]))]
     builds = [dict(e, build=node(db, e["src"])) for e in in_edges(db, k, ("carries",))]
     mails = [dict(e, mail=node(db, e["src"])) for e in in_edges(db, k, ("mail-names",))]
     lanes = [dict(e, lane=e["dst"][5:]) for e in out_edges(db, k, ("reached",))]
@@ -711,11 +719,20 @@ def render_key(v, age):
     out.append("\nlinked in Jira")
     out += [f"  {l['reads']} {l['other']} · {ticket_words(l['ticket'])}  {l['source']}" for l in v["linked"]] or ["  none"]
     out.append("\nnamed with it")
-    for n in v["named_with"]:
+    for n in (x for x in v["named_with"] if not x["weak"]):
         where = n["where"][0]
         more = f" (+{len(n['where']) - 1} more)" if len(n["where"]) > 1 else ""
         out.append(f"  {n['key']} · {ticket_words(n['ticket'])}{' · linked' if n['linked'] else ''}")
         out.append(f"      {where['where']}{more}  {where['source']}")
+    weak = [x for x in v["named_with"] if x["weak"]]
+    if weak:                                               # one folded line, not one line a ticket
+        digests = {}
+        for x in weak:
+            for w in x["where"]:
+                digests.setdefault(w["thread"] or w["source"], w)
+        out.append(f"  also listed together in {len(digests)} digest{'s' if len(digests) != 1 else ''} "
+                   f"({len(weak)} ticket{'s' if len(weak) != 1 else ''}): "
+                   + " · ".join(f"{w['where']}  {w['source']}" for w in digests.values()))
     if not v["named_with"]:
         out.append("  none")
     out.append("\nthreads")

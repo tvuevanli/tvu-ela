@@ -59,7 +59,8 @@ put("rt/facts/jira/changes.json", [])
 put("rt/facts/slack/channels.json", {"channels": [{"id": "C06553EE44X", "name": "prj_dev_mediahub"}]})
 put("rt/facts/slack/C06553EE44X.json", {"messages": {
         "1793673172.789319": {"ts": "1793673172.789319", "text": "generic mxl source process 释放问题\nmore", "reply_count": 4},
-        "1793700000.000001": {"ts": "1793700000.000001", "text": "lunch?"}},
+        "1793700000.000001": {"ts": "1793700000.000001", "text": "lunch?"},
+        "1793900000.000002": {"ts": "1793900000.000002", "text": "alert digest: MH-3870 MH-11 MH-12 MH-13 MH-14 MH-15 UR-545"}},
     "replies": {"1793673172.789319": {"messages": [
         {"ts": "1793673172.789319", "text": "generic mxl source process 释放问题"},
         {"ts": "1793673851.771959", "text": "已创建 Jira ticket：<https://example.atlassian.net/browse/MH-3870|MH-3870>"},
@@ -114,6 +115,18 @@ check("a standard's name is not a key though its prefix is a project (SCTE-35, S
 check("a train row's also naming a standard is not indexed as a ticket",
       not db.execute("SELECT 1 FROM edges WHERE src = 'SCTE-35' OR dst = 'SCTE-35'").fetchone())
 check("Keys.find: the deny list is names, not prefixes", L.Keys(os.path.join(TMP, "rt", "facts")).find("SCTE-35 SCTE-7 AC-3 SMPTE-2110") == ["SCTE-7"])
+check("a digest (more than five keys) is a weak edge: its tickets come after the strong ones, flagged weak",
+      [n["key"] for n in v["named_with"] if n["weak"]] == ["MH-11", "MH-12", "MH-13", "MH-14", "MH-15"]
+      and not any(n["weak"] for n in v["named_with"][:2]) and v["named_with"][-1]["weak"])
+check("a ticket named both in a digest and in a small thread stays strong, its strong source first",
+      not named["UR-545"]["weak"] and not named["UR-545"]["where"][0]["weak"] and any(w["weak"] for w in named["UR-545"]["where"]))
+txt = L.render_key(v, {})
+sec = txt.split("\nnamed with it\n")[1].split("\n\n")[0]
+check("rendered: the weak ones fold into one line with the count and the source, no line a ticket",
+      "MH-11 ·" not in sec and sec.count("also listed together in 1 digest (5 tickets): thread #prj_dev_mediahub") == 1
+      and "p1793900000000002" in sec and sec.index("UR-545") < sec.index("also listed"))
+check("--json keeps every edge, each with its weak flag", all("weak" in w for n in v["named_with"] for w in n["where"])
+      and len(v["named_with"]) == len(named))
 check("the mail that names it", [e["mail"]["label"] for e in v["mails"]] == ["Daily Test Report build 79"])
 check("a lone message that names no key is not indexed", not db.execute("SELECT 1 FROM nodes WHERE id = 'slack:C06553EE44X/1793700000.000001'").fetchone())
 
