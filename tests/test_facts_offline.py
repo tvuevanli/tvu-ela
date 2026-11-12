@@ -16,6 +16,8 @@ import slack as S  # noqa: E402
 import mail as M  # noqa: E402
 import release as R  # noqa: E402
 import runtime as RT  # noqa: E402
+LINKS_CALLS = []
+F.links_update = lambda: LINKS_CALLS.append(1) or {"read": [], "edges": 0}   # the index has its own test
 RT.refresh = lambda env_file, lanes=None: {"lanes": {"prod-3": {"ur-caller": {"chain_status": "proven"}}}, "gaps": []}
 
 failures = []
@@ -116,6 +118,7 @@ class A: env_file = None; source = None; fresh = False; json = False
 F.cmd_refresh(A())
 first = {s: dict(F.watermark(s)) for s in F.SOURCES}
 check("every source has a watermark with a read time", all(first[s].get("at") for s in F.SOURCES))
+check("the links index follows a refresh", len(LINKS_CALLS) == 1)
 changes = F.read_json(os.path.join(F.store_dir("jira"), "changes.json"))
 check("the Jira sweep is a list of Jira-shaped issues with comments and read_at", isinstance(changes, list) and len(changes) == 2
       and changes[0].get("changelog") is not None and "comments" in changes[0] and changes[0].get("read_at"))

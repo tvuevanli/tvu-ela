@@ -30,6 +30,11 @@ the 2026-11-09 daily-wed → prod-3 promotion, where `mx_service_wed` read alone
 while daily-wed's UR Caller ran `default → mx_service_test → mx_service_wed` (proven from graph
 `01M6ZB6FVC11PZRPB83KSFT0WG`: created by `ur-caller[wed]`, bridged by `mqtt_gateway_test1`).
 
+After the sources, `refresh` updates the links index (`ela links`, `<runtime>/links/links.db`): the edges between
+what the store holds — Jira links and named keys, the threads and mails that name a key, build records, the train's
+lanes, vault notes, ela's writes — re-read only for the files that changed. A failure there is one line; the facts
+stand without it.
+
 ## Invariants
 - **Staleness shown, never hidden.** Every result carries `read_at` (JSON) or a `facts: jira 11-04 08:02 · …`
   line (a page). A reader who needs the world as it is now says `--fresh` on that one verb and names the gap it

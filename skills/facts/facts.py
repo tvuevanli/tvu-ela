@@ -22,7 +22,7 @@ content, every entry stamped with the time it was read:
   builds/   <job>.json (Jenkins, 80 builds) · bundles/<host>/<line>.json · bundles/detail/<id>.json · watermark.json
 
 `refresh` is incremental and idempotent: each source reads forward from its watermark; a second refresh in the same
-minute reads nothing new. A source that fails keeps its previous content and records a `gap` with the reason; the
+minute reads nothing new. After the sources, the links index (`ela links`, <runtime>/links/) re-reads what changed. A source that fails keeps its previous content and records a `gap` with the reason; the
 verbs that serve that source then answer as the live read would have (the lanes' exit code, an empty list), naming
 the last good read. `--fresh` ignores the watermarks and reads every source whole.
 
@@ -352,6 +352,20 @@ REFRESH = {"jira": refresh_jira, "slack": refresh_slack, "mail": refresh_mail, "
            "runtime": refresh_runtime}
 
 
+def links_update():
+    """The links index follows every refresh: the origins whose files changed are re-read (skills/links). Never fatal:
+    a failure is one line, and the facts stand without it."""
+    try:
+        sys.path.insert(0, os.path.join(SKILLS, "links"))
+        import links as L  # noqa: E402
+        res = L.update()
+        print(f"links: {len(res['read'])} origin(s) re-read, {res['edges']} edges, {res['seconds']}s", file=sys.stderr, flush=True)
+        return {k: res[k] for k in ("read", "edges", "bytes", "seconds")}
+    except Exception as e:  # noqa: BLE001
+        print(f"links: not updated — {type(e).__name__}: {str(e)[:160]}", file=sys.stderr, flush=True)
+        return {"error": f"{type(e).__name__}: {str(e)[:160]}"}
+
+
 def cmd_refresh(a):
     sources = a.source or list(SOURCES)
     out, failed = {}, []
@@ -371,8 +385,9 @@ def cmd_refresh(a):
             out[s] = {"ok": False, "line": line, "watermark": watermark(s)}
             failed.append(s)
         print(line, file=sys.stderr, flush=True)
+    links = links_update() if len(failed) < len(sources) else None
     if a.json:
-        print(json.dumps({"at": now_iso(), "sources": out, "failed": failed}, ensure_ascii=False))
+        print(json.dumps({"at": now_iso(), "sources": out, "failed": failed, "links": links}, ensure_ascii=False))
     if failed and len(failed) == len(sources):
         sys.exit(EX_REMOTE)
 
