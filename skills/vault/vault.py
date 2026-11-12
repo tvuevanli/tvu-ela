@@ -3969,7 +3969,7 @@ def questions_pass(vault, reports, facts, now, meetings=(), jira="", seeds=(), d
         if k:
             page_keys[rel] = k
     Q.hold(state, issue, page_keys, owner)
-    build_meeting_notes(vault, state, now, meetings, issue, owner, jira, dry_run)
+    build_meeting_notes(vault, state, now, meetings, issue, owner, jira, dry_run, stand=stand_lines(build_records(reports), today))
     for n in Q.nudges(state, today):                       # listed at three meetings: the message he can send, drafted
         r = state["questions"][n["id"]]
         dr = Q.draft(r, owner.split()[0] if owner else "")
@@ -4062,7 +4062,26 @@ def question_evidence(vault, reports, issue, owner=""):
     return evidence
 
 
-def build_meeting_notes(vault, state, now, meetings, issue, owner="", jira="", dry_run=False):
+STAND_DAYS, STAND_LANES = 14, 5
+
+
+def stand_lines(builds, today):
+    """A meeting note's Where things stand: the newest build each lane took in the last STAND_DAYS days, newest first,
+    at most STAND_LANES lanes, each linking its release note; team-facing words, no ask."""
+    lo = (today - datetime.timedelta(days=STAND_DAYS)).isoformat()
+    seen, out = set(), []
+    for b in sorted(builds or [], key=lambda b: (b.get("date") or "", b.get("name") or ""), reverse=True):
+        lane = b.get("lane_name") or b.get("lane")
+        if not lane or lane in seen or not (lo <= (b.get("date") or "") <= today.isoformat()):
+            continue
+        seen.add(lane)
+        note = f"{RELEASES}/{b['line']}/{b['name']}" if b.get("line") and b.get("name") else None
+        out.append(f"{lane} runs {b.get('line') or '?'} build {b.get('build')}, taken {b['date'][5:]}"
+                   + (f" ([[{note}|release note]])" if note else ""))
+    return out[:STAND_LANES]
+
+
+def build_meeting_notes(vault, state, now, meetings, issue, owner="", jira="", dry_run=False, stand=None):
     """For each standing meeting with weekdays, its next note built from the records: meetings/<yyyy-mm-dd>-<key>.md for
     today's meeting before it ends, else the next one. A note for that day he or a session wrote by hand is left alone
     (and read as input); a built note he has edited since ela wrote it is his from then on. → the paths written."""
@@ -4099,7 +4118,7 @@ def build_meeting_notes(vault, state, now, meetings, issue, owner="", jira="", d
             continue                                       # he edited it: his now, read as input
         name = (m.get("name") or k).split(" · ")[0]
         title = f"{name} · {day:%a %Y-%m-%d}"
-        body = Q.meeting_note(state, k, title, day, now, issue, owner.split()[0] if owner else "", jira, titles)
+        body = Q.meeting_note(state, k, title, day, now, issue, owner.split()[0] if owner else "", jira, titles, stand)
         text = front([], {"title": title, "type": "meeting", "date": day.isoformat(), "by": "ela", "source": "vault"}) + body
         if os.path.exists(p) and re.sub(r"\*Built from[^*]*\*", "", open(p, encoding="utf-8").read()) == re.sub(r"\*Built from[^*]*\*", "", text):
             continue                                       # nothing but the stamp would change

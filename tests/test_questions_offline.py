@@ -270,13 +270,35 @@ with tempfile.TemporaryDirectory() as t:
     built = os.path.join(vault, "meetings", "2026-11-17-sync-eng-qa-ux.md")
     text = open(built).read()
     heads = re.findall(r"^## (.+)$", text, re.M)
-    check("after it, the next one is built: dated, by ela, a focus topic with where it stands, then what waits on him, then the rest",
-          'date: "2026-11-17"' in text and 'by: "ela"' in text and heads[0].startswith("1. CN upgrade — [MH-3752]")
+    check("after it, the next one is built: dated, by ela, Where things stand, a focus topic with its state, then what waits on him, then the rest",
+          'date: "2026-11-17"' in text and 'by: "ela"' in text and heads[0] == "Where things stand" and heads[1].startswith("1. CN upgrade — [MH-3752]")
           and "In Progress · carried by CN release lead" in text and heads[-2:] == ["Waiting on you", "Raised once"]
           and re.search(r"^- \[ \] .*· 1 meeting \^q-[0-9a-f]{6}$", text, re.M) and open(hand).read().endswith("app lead\n"))
     open(built, "a").write("\nmy own line\n")
     V.questions_pass(vault, reports, facts, evening + datetime.timedelta(hours=1), book, "https://j")
     check("a built note he edited is his: not rebuilt", open(built).read().endswith("my own line\n"))
+
+# Where things stand on a built note: the lanes' newest builds (the generator's facts block, missing on 11-11's copy)
+B = [{"line": "2.1", "lane": "qa-cn3", "lane_name": "QA-AWS3", "build": "91", "date": "2026-11-11", "name": "2026-11-11-build-91-to-qa-aws3"},
+     {"line": "2.1", "lane": "qa-cn3", "lane_name": "QA-AWS3", "build": "90", "date": "2026-11-10", "name": "2026-11-10-build-90-to-qa-aws3"},
+     {"line": "2.1", "lane": "prod-3", "lane_name": "prod-3", "build": "88", "date": "2026-10-01", "name": "2026-10-01-build-88-to-prod-3"}]
+check("Where things stand: each lane's newest build in two weeks, linked; an older one is left out",
+      V.stand_lines(B, datetime.date(2026, 11, 12)) == ["QA-AWS3 runs 2.1 build 91, taken 11-11 ([[releases/2.1/2026-11-11-build-91-to-qa-aws3|release note]])"])
+with tempfile.TemporaryDirectory() as t:
+    vault, reports, facts = (os.path.join(t, x) for x in ("vault", "reports", "facts"))
+    os.makedirs(os.path.join(vault, "meetings")); os.makedirs(os.path.join(facts, "jira", "issues")); os.makedirs(os.path.join(reports, "releases", "2.1"))
+    json.dump({"line": "2.1", "lane": "qa-cn3", "lane_name": "QA-AWS3", "build": "91", "date": "2026-11-11", "at": "2026-11-11T18:00:00+08:00",
+               "source": "s", "services": [{"service": "UR Caller", "from": "1", "to": "2", "for": "x", "keys": []}], "notes": ""},
+              open(os.path.join(reports, "releases", "2.1", "2026-11-11-build-91-to-qa-aws3.json"), "w"))
+    tz = datetime.datetime.now().astimezone().tzinfo
+    book = [{"key": "scrum-pm", "name": "Scrum with the PM", "weekdays": ["Fri"], "time": "10:00"}]
+    V.questions_pass(vault, reports, facts, datetime.datetime(2026, 11, 12, 19, 0, tzinfo=tz), book, "https://j")
+    built = open(os.path.join(vault, "meetings", "2026-11-13-scrum-pm.md")).read()
+    check("a built meeting note opens with Where things stand, from the build records",
+          re.findall(r"^## (.+)$", built, re.M)[:1] == ["Where things stand"] and "- QA-AWS3 runs 2.1 build 91, taken 11-11" in built)
+    V.questions_pass(vault, reports, facts, datetime.datetime(2026, 11, 13, 19, 0, tzinfo=tz), book, "https://j")
+    check("after the meeting, the closed note keeps its Where things stand",
+          "## Where things stand" in open(os.path.join(vault, "meetings", "2026-11-13-scrum-pm.md")).read())
 
 # waiting since the earliest evidence, not the day ela first read the question
 with tempfile.TemporaryDirectory() as t:

@@ -850,8 +850,12 @@ def is_owner(who, owner_first):
     return bool(owner_first) and owner_first.lower() in people(who) | {p.split()[0] for p in people(who) if p}
 
 
-def meeting_note(state, aud, title, day, now, facts_issue, owner_first="", jira="", project_titles=None):
-    """meetings/<day>-<aud>.md as text: the focus topics first (a project or ticket whose questions changed since the last
+STAND_HEAD = "Where things stand"
+
+
+def meeting_note(state, aud, title, day, now, facts_issue, owner_first="", jira="", project_titles=None, stand=None):
+    """meetings/<day>-<aud>.md as text: Where things stand (`stand`, the lanes' facts the caller read: one line each,
+    always present, team-facing), then the focus topics (a project or ticket whose questions changed since the last
     meeting, or are due within a week, most pressing first), each with where it stands and its questions with who
     answers; then what waits on the owner; then Carried, the standing page's part one for this audience in its order
     and lines; then the rest, raised once. Each box carries its record's id, so a tick closes that record."""
@@ -889,6 +893,7 @@ def meeting_note(state, aud, title, day, now, facts_issue, owner_first="", jira=
     L = [f"# {title}", "",
          f"*Built from the open questions on {now:%m-%d %H:%M}. A tick, or an `ela:` line under a question, closes it; "
          f"every open one is on [[{QUESTIONS_PAGE[:-3]}|the standing list]].*", ""]
+    L += [f"## {STAND_HEAD}", ""] + ([f"- {s}" for s in stand] if stand else ["No lane took a build in the last two weeks."]) + [""]
     def box(r, full=False):
         if full:
             return f"- [ ] {entry(r, now.date(), jira)} ^{r['id']}"
