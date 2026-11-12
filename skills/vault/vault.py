@@ -4489,6 +4489,50 @@ def answer_native(vault, answers, dry_run=False):
     return out
 
 
+GAPS_HEAD = "## Jira gaps"
+
+
+def with_gaps(text, table):
+    """A release note with its Jira gaps section as `table` says now: replaced where it stands, else put before
+    Afterwards (or at the end); taken out when the table is empty. Nothing else in the note changes."""
+    lines = text.split("\n")
+    start = next((i for i, l in enumerate(lines) if l.strip() == GAPS_HEAD), None)
+    if start is not None:
+        end = next((i for i in range(start + 1, len(lines)) if re.match(r"^#{1,2} ", lines[i])), len(lines))
+        lines = lines[:start] + lines[end:]                # the blank line above it stays, for what follows
+    body = "\n".join(lines).rstrip("\n") + "\n"
+    if not table:
+        return body
+    at = re.search(r"^## Afterwards\b", body, re.M)
+    block = "\n" + table.rstrip("\n") + "\n"
+    return body[:at.start()].rstrip("\n") + "\n" + block + "\n" + body[at.start():] if at else body + block
+
+
+def release_gaps_native(vault, reports, dry_run=False):
+    """Each build's release note, once the vault holds it (source vault, never rewritten), keeps one section current:
+    `## Jira gaps`, from the reading `ela release reconcile` last kept. → the paths changed."""
+    R = release_mod()
+    out = []
+    for rec in build_records(reports):
+        reading = R.reconcile_mod().saved_reading(reports, rec)
+        if reading is None:
+            continue
+        rel = f"{RELEASES}/{rec['line']}/{rec['name']}.md"
+        p = os.path.join(vault, rel)
+        try:
+            text = open(p, encoding="utf-8").read()
+        except OSError:
+            continue
+        if not any(re.match(r"^source:\s*['\"]?vault['\"]?\s*$", l) for l in split_front(text)[0]):
+            continue
+        new = with_gaps(text, R.reconcile_mod().gaps_table(reading))
+        if new != text:
+            out.append(rel)
+            if not dry_run:
+                atomic_write(p, new)
+    return out
+
+
 # ── a note's life: to-read → in-progress → archive, and parked beside them ──────────────────────────────
 # Each note to read ends in its next moves, by kind. A tick is the owner's word for that move and nothing wider; the
 # runner does a move by script (a note moved, its status set) and starts a session only to build, plan or draft.
@@ -5424,6 +5468,7 @@ def cmd_sync(a):
     wrote, same = [], 0
     answers = load_answers(s.get("reports") or "") + load_pending(s.get("reports") or "")
     answer_native(vault, answers, a.dry_run)
+    release_gaps_native(vault, s.get("reports") or "", a.dry_run)   # a build's Jira gaps, kept current in its note
     ensure_native_moves(vault, a.dry_run)
     # a task its source already ticked is not his choice; recorded so the guidance verb tells the two apart
     source_ticks = {r: [m.group(1) for m in TICKED.finditer(t)] for r, t in planned.items() if r.endswith(".md") and TICKED.search(t)}

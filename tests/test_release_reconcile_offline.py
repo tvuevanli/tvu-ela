@@ -169,6 +169,19 @@ with tempfile.TemporaryDirectory() as tmp:
     check("the question's own message is its draft, never the meeting wording",
           all(Q.draft(p)["text"] == p["message"] for p in pats))
 
+# ── the note in the vault: written once, then the owner's; only its Jira gaps section is kept current ───
+held = "---\nsource: \"vault\"\n---\n# build 91\n\n| service |\n\n## Afterwards\n\n- 11-11 · MH-3873: Backlog → Review\n"
+table = RC.gaps_table(r91)
+once = V.with_gaps(held, table)
+check("the section goes in before Afterwards, the rest of the note untouched",
+      once.index("## Jira gaps") < once.index("## Afterwards") and once.startswith(held.split("## Afterwards")[0].rstrip("\n"))
+      and once.endswith("- 11-11 · MH-3873: Backlog → Review\n"))
+check("a second pass with the same reading changes nothing", V.with_gaps(once, table) == once)
+fewer = RC.gaps_table(dict(r91, rows=r91["rows"][:1], questions=[]))
+check("a later reading replaces the section in place", V.with_gaps(once, fewer).count("## Jira gaps") == 1
+      and "MH-3988" not in V.with_gaps(once, fewer) and "MH-3998" in V.with_gaps(once, fewer))
+check("nothing missing: the section leaves, the note is as it was", V.with_gaps(once, "") == held)
+
 # ── today.md: the ask comes from the drafted action, one line, its apply the batch ───────────────────────
 iso = "2026-11-12"
 act = {"n": 1, "day": iso, "tier": 3, "rule": "release-reconcile", "kind": "fixed-in",
