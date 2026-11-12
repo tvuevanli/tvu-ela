@@ -177,7 +177,7 @@ with tempfile.TemporaryDirectory() as R, tempfile.TemporaryDirectory() as VT:
     page = V.today_page(THU, [], {"dry_facts": facts}, shown)
     pages = V.dry_pages(VT, R, THU)
     check("today.md: the six-link case is one ask with a review note, A applies the batch, B drops it",
-          f"1. 4 links ready for MH-3735: link a child to a parent he owns when a comment on the parent names it. → [[ela/dry/{b['id']}|the note]]" in page
+          f"1. 4 links ready for MH-3735: link a child to a parent you own when a comment on the parent names it. → [[ela/dry/{b['id']}|the note]]" in page
           and "    - [ ] A (recommended): apply all 4 (strike a line in the note to leave it out)" in page and "    - [ ] B: drop them" in page
           and f"ela/dry/{b['id']}.md" in pages and all(f"`{w['command']}`" in pages[f"ela/dry/{b['id']}.md"] for w in writes))
     check("within today.md's word cap", len(V.plain(page.split("\n---\n")[0]).split()) <= V.TODAY_WORDS)

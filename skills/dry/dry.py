@@ -51,7 +51,7 @@ ASK_AGAIN_AFTER = 10                          # an unanswered or declined grant 
 # climbs 3 → 1. `base` is the tier the class holds by a recorded decision before any grant.
 CLASSES = {
     "link-named": {
-        "says": "link a child to a parent he owns when a comment on the parent names it",
+        "says": "link a child to a parent you own when a comment on the parent names it",
         "atom": ("jira", "link"), "noun": ("link", "links"), "ladder": (3, 1), "base": 3,
         "rule": "a ticket named in the parent's description or comments, not linked to it yet, and not a subtask of a "
                 "ticket linked or proposed; `contains`, or `relates to` when the naming line says related",
@@ -59,7 +59,7 @@ CLASSES = {
         "case": "MH-3735, 2026-11-12: links approved as a kind in one sentence",
     },
     "parent-status": {
-        "says": "a status comment on a parent he owns, from its children's states",
+        "says": "a status comment on a parent you own, from its children's states",
         "atom": ("jira", "comment"), "noun": ("status comment", "status comments"), "ladder": (3, 1), "base": 3,
         "rule": "the parent's contained children, one line each with its status, when a status differs from his last "
                 "status comment on the parent",
