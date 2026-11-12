@@ -169,18 +169,36 @@ with tempfile.TemporaryDirectory() as tmp:
     check("the question's own message is its draft, never the meeting wording",
           all(Q.draft(p)["text"] == p["message"] for p in pats))
 
-# ── the note in the vault: written once, then the owner's; only its Jira gaps section is kept current ───
-held = "---\nsource: \"vault\"\n---\n# build 91\n\n| service |\n\n## Afterwards\n\n- 11-11 · MH-3873: Backlog → Review\n"
-table = RC.gaps_table(r91)
-once = V.with_gaps(held, table)
-check("the section goes in before Afterwards, the rest of the note untouched",
-      once.index("## Jira gaps") < once.index("## Afterwards") and once.startswith(held.split("## Afterwards")[0].rstrip("\n"))
-      and once.endswith("- 11-11 · MH-3873: Backlog → Review\n"))
-check("a second pass with the same reading changes nothing", V.with_gaps(once, table) == once)
-fewer = RC.gaps_table(dict(r91, rows=r91["rows"][:1], questions=[]))
-check("a later reading replaces the section in place", V.with_gaps(once, fewer).count("## Jira gaps") == 1
-      and "MH-3988" not in V.with_gaps(once, fewer) and "MH-3998" in V.with_gaps(once, fewer))
-check("nothing missing: the section leaves, the note is as it was", V.with_gaps(once, "") == held)
+# ── the note in the vault: written once, then the owner's; ela's part is rewritten, his sections stay ───
+held = ("---\nsource: \"vault\"\n---\n# build 91\n\n| UR Caller | 2.1.90 → 2.1.91 | (MH-3998 MH-3926 MH-3993) |\n\n"
+        "## Afterwards\n\n- 11-11 · MH-3873: Backlog → Review\n\n## Extra\n\nAn extra section.\n")
+fresh = "# build 91\n\n## UR Caller\n\n2.1.90 → 2.1.91 · SCTE\n\n- MH-3998 SCTE-35 include option · Review\n\n## Jira gaps\n\n| a |\n"
+merged = V.release_note_merge(held, fresh, ["UR Caller"])
+check("a held note: ela's part rewritten from the record, Afterwards and his own section kept in order, front kept",
+      merged.startswith("---\nsource: \"vault\"\n---\n# build 91\n\n## UR Caller") and "(MH-3998 MH-3926" not in merged
+      and merged.index("## Jira gaps") < merged.index("## Afterwards") < merged.index("## Extra") and merged.endswith("An extra section.\n"))
+check("a second pass changes nothing", V.release_note_merge(merged, fresh, ["UR Caller"]) == merged)
+check("nothing missing any more: the gaps section leaves with the rewrite",
+      "Jira gaps" not in V.release_note_merge(merged, fresh.split("\n## Jira gaps")[0] + "\n", ["UR Caller"]))
+check("his words in ela's part: the note is left alone",
+      V.release_note_merge(held.replace("# build 91\n", "# build 91\n\n- [ ] check this\n"), fresh, ["UR Caller"]) is None)
+
+# ── today.md's build block: service lines without key clusters; the owner's tickets inline ───────────────
+TK = {k: R.ticket_facts(v) for k, v in ISSUES.items()}
+rec91 = dict(record("91"), name="2026-11-11-build-91-to-qa-aws3")
+block = V.build_block([], [rec91], datetime.date(2026, 11, 12), TK, "Evan Li")
+lines = block.split("\n")
+ur = next(i for i, l in enumerate(lines) if l.startswith("  - UR Caller"))
+check("build 91: MH-3998 and MH-3987 inline under UR Caller, the rest a count linking its section",
+      lines[ur].endswith("· [[releases/2.1/2026-11-11-build-91-to-qa-aws3#UR Caller|6 more tickets]]")
+      and lines[ur + 1] == "    - MH-3998 SCTE-35 include option on SRT, UDP and RTP destinations · Review"
+      and lines[ur + 2] == "    - MH-3987 [App] Drive CSC sessions through mqtt-gateway instead of direct HTTP · Review")
+check("no service line carries a cluster of keys", not re.search(r"\(MH-\d+ MH-", block))
+um = next(l for l in lines if l.startswith("  - Unified Media frontend"))
+check("a service with three tickets or fewer shows them, within the cap of five in all",
+      sum(1 for l in lines if l.startswith("    - ")) <= V.INLINE_MAX and not um.endswith("tickets]]"))
+TK2 = dict(TK, **{"MH-4000": dict(TK["MH-4000"], status="Reopened")})
+check("a ticket reopened in QA is inline too", "    - MH-4000 " in V.build_block([], [rec91], datetime.date(2026, 11, 12), TK2, "Evan Li"))
 
 # ── today.md: the ask comes from the drafted action, one line, its apply the batch ───────────────────────
 iso = "2026-11-12"

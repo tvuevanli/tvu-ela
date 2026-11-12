@@ -1505,8 +1505,10 @@ def ticket_facts(issue):
         return None
     f = issue.get("fields") or issue
     who = f.get("assignee")
+    rep = f.get("reporter")
     return {"summary": f.get("summary") or "", "status": ((f.get("status") or {}).get("name") if isinstance(f.get("status"), dict) else f.get("status")) or "",
-            "assignee": (who or {}).get("displayName") if isinstance(who, dict) else who}
+            "assignee": (who or {}).get("displayName") if isinstance(who, dict) else who,
+            "reporter": (rep or {}).get("displayName") if isinstance(rep, dict) else rep}
 
 
 def facts_tickets(runtime, keys):

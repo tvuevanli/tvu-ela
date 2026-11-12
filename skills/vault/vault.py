@@ -691,7 +691,7 @@ def elak_notes(elak):
     return notes, titles
 
 
-def report_notes(reports, today):
+def report_notes(reports, today, runtime=None):
     if not reports or not os.path.isdir(reports):
         raise SourceError(f"the reports root is missing: {reports}")
     notes = []
@@ -714,7 +714,8 @@ def report_notes(reports, today):
     for rec in build_records(reports):                    # a build a lane took: its release note, written once (source vault)
         R = release_mod()
         reading = R.reconcile_mod().saved_reading(reports, rec)   # its Jira gaps, as `ela release reconcile` last read them
-        notes.append(Note(f"{RELEASES}/{rec['line']}/{rec['name']}.md", R.build_title(rec), R.build_note(rec, reading),
+        tickets = R.facts_tickets(runtime, [k for v in rec["services"] for k in v.get("keys") or []])
+        notes.append(Note(f"{RELEASES}/{rec['line']}/{rec['name']}.md", R.build_title(rec), R.build_note(rec, reading, tickets),
                           {"type": "report", "date": rec["date"], "status": "decided", "source": "vault",
                            "keys": sorted({k for v in rec["services"] for k in v.get("keys") or []})}, [],
                           src_rel=f"releases/{rec['line']}/{rec['name']}.json"))
@@ -2925,28 +2926,61 @@ def also_noticed(text, hidden):
     return "\n".join(out)
 
 
-def build_block(notes, builds, today):
+INLINE_MAX = 5                                          # tickets shown under the build block's service lines, in all
+QA_TROUBLE = ("reopened", "blocked", "failed", "qa failed")
+
+
+def inline_tickets(rec, tickets, owner="", meeting_keys=()):
+    """{key} shown inline under their service on today.md, by what each means to the owner: (a) assigned to or reported
+    by him, (b) reopened, blocked or failed in QA, (c) on a meeting note dated today; then a service's tickets when it
+    carries three or fewer. At most INLINE_MAX in that order; the rest are the count linking the build note."""
+    keys = list(dict.fromkeys(k for v in rec["services"] for k in v.get("keys") or []))
+    t = lambda k: tickets.get(k) or {}                    # noqa: E731
+    a = [k for k in keys if owner and owner in (t(k).get("assignee"), t(k).get("reporter"))]
+    b = [k for k in keys if (t(k).get("status") or "").lower() in QA_TROUBLE]
+    c = [k for k in keys if k in set(meeting_keys)]
+    small = [k for v in rec["services"] if len(v.get("keys") or []) <= 3 for k in v.get("keys") or []]
+    return set(list(dict.fromkeys(a + b + c + small))[:INLINE_MAX])
+
+
+def build_block(notes, builds, today, tickets=None, owner=""):
     """The Releases fact when a lane took a build since the last page: each build a sentence linking its release note,
-    then one line per changed service, BUILD_LINES lines in all. Since the last page: dated from the page before the
-    newest What-changed page (the day before today when there is none) through today. None when no build."""
+    then one line per changed service (its move and what for, never a cluster of keys), BUILD_LINES lines in all. Under
+    a service, the tickets inline_tickets picks, each in words; the rest as "N more tickets" linking the service's
+    section of the note. Since the last page: dated from the page before the newest What-changed page (the day before
+    today when there is none) through today. None when no build."""
     if not builds:
         return None
     R = release_mod()
+    tickets = tickets or {}
     days = sorted({(n.props.get("date") or "")[:10] for n in notes if n.props.get("type") == "day" and n.props.get("kind") == "changes"})
     days = [d for d in days if d and d <= today.isoformat()]
     since = days[-2] if len(days) > 1 else (today - datetime.timedelta(days=1)).isoformat()
     recent = sorted((b for b in builds if since <= b["date"] <= today.isoformat()), key=lambda b: (b["date"], b["name"]))
     if not recent:
         return None
-    heads, rows, room = [], [], R.BUILD_LINES
+    met = {k for n in notes if n.props.get("type") == "meeting" and (n.props.get("date") or "")[:10] == today.isoformat()
+           for k in KEY_RX.findall(n.body or "")}
+    heads, rows, room, budget = [], [], R.BUILD_LINES, INLINE_MAX
     for b in recent:
         if room <= 0:
             break
-        heads.append(f"{b.get('lane_name') or b['lane']} took build {b['build']} "
-                     f"([[{RELEASES}/{b['line']}/{b['name']}|release note]])")
-        lines = R.build_lines(b, cap=room)
-        rows += [f"  - {l}" for l in lines]
-        room -= len(lines)
+        note = f"{RELEASES}/{b['line']}/{b['name']}"
+        heads.append(f"{b.get('lane_name') or b['lane']} took build {b['build']} ([[{note}|release note]])")
+        svcs = b.get("services") or []
+        shown = svcs if len(svcs) <= room else svcs[:max(room - 1, 1)]
+        pick = inline_tickets(b, tickets, owner, met)
+        for v in shown:
+            keys = v.get("keys") or []
+            inline = [k for k in keys if k in pick][:budget]
+            budget -= len(inline)
+            rest = len(keys) - len(inline)
+            more = f" · [[{note}#{v['service']}|{rest} {'more ' if inline else ''}ticket{'s' if rest != 1 else ''}]]" if rest else ""
+            rows.append(f"  - {v['service']} {R.service_move(v)}: {' '.join(str(v['for']).split())}{more}")
+            rows += [f"    - {R.ticket_line(k, tickets.get(k), who=False)}" for k in inline]
+        if len(shown) < len(svcs):
+            rows.append(f"  - {len(svcs) - len(shown)} more services in the release note")
+        room -= len(shown) + (len(shown) < len(svcs))
     return "; ".join(heads) + ".\n" + "\n".join(rows)
 
 
@@ -3165,7 +3199,7 @@ def today_page(today, notes, desk=None, shown=(), more=0, dropped=0, questions_l
     desk = desk or {}
     iso = today.isoformat()
     changes, facts = fact_lines(notes)
-    block = build_block(notes, desk.get("builds") or [], today)
+    block = build_block(notes, desk.get("builds") or [], today, desk.get("tickets"), desk.get("owner") or "")
     if block:                                              # a lane took a build: the Releases fact is the build, by service
         facts = [("Releases and versions", block)] + [f for f in facts if f[0] != "Releases and versions"]
     facts = [("Done by ela", l) for l in desk.get("dry_facts") or []] + facts   # ela's own acts and falls lead: never cut
@@ -4266,7 +4300,7 @@ def services_note(s, vault, today):
 def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since=None, dry_run=False, questions=None):
     reports = s.get("reports")
     enotes, titles = elak_notes(s.get("elak"))
-    notes = report_notes(reports, today) + enotes      # the constraints page is retired (ADR 0015); `ela promote` reads the pins
+    notes = report_notes(reports, today, s.get("runtime")) + enotes      # the constraints page is retired (ADR 0015); `ela promote` reads the pins
     vnotes, files = verify_notes(reports, today)
     notes += vnotes + verify_plan_notes(reports, vnotes)
     # what the owner deleted is not written, linked or listed; matched by source too, so a new layout keeps it deleted
@@ -4387,13 +4421,15 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since
         nm = next_meeting(meeting_book()[0], today, aud) if aud else None
         label = (("sync" if "sync" in (nm[0] or "") else nm[1]), nm[2]) if nm else None
         qline = Q.today_line(questions, today, label, jira_base)
+    builds = build_records(reports)
     day_brief = f"{DAYS}/{today:%Y}/{today.isoformat()}-brief.md"
     if day_brief in planned:                               # the morning page: boxes only on the asks today.md shows
         planned[day_brief] = also_noticed(planned[day_brief], {n for c in cands for n in c.get("ns") or []}
                                           - {n for c in shown for n in c.get("ns") or []})
     planned[TODAY] = redact(front([], {"type": "today", "date": today.isoformat()}) + linker(today_page(today, notes + native, {
         "actions": week_actions(reports, today), "hold": tier2_hold(reports, today.isoformat()), "lists": list_links(reports),
-        "meetings": meetings, "builds": build_records(reports), "dry_facts": dry_facts}, shown, more, dropped, questions_line=qline)))
+        "meetings": meetings, "builds": builds, "tickets": release_mod().facts_tickets(s.get("runtime"), [k for b in builds for v in b["services"] for k in v.get("keys") or []]),
+        "owner": owner_name(os.path.join(s.get("runtime") or "", "facts")), "dry_facts": dry_facts}, shown, more, dropped, questions_line=qline)))
     planned.update(dry_pages(s["vault"], reports, today))
     if questions:
         Q = questions_mod()
@@ -4697,44 +4733,54 @@ def answer_native(vault, answers, dry_run=False):
     return out
 
 
-GAPS_HEAD = "## Jira gaps"
+def release_note_merge(disk, fresh, services):
+    """A held build note (source vault) with ela's part rewritten: `fresh` (title, source, one section per service,
+    Notes, Jira gaps, rendered from the record) in place of what stands above the first section ela does not write;
+    every other section (Afterwards, one he added) kept in its order, the front matter kept. None when ela's part on
+    disk carries his words (a box or an `ela:` line): the note is then left as it is."""
+    fl, body = split_front(disk)
+    ours = {"notes", "jira gaps"} | {str(s).lower() for s in services}
+    parts = re.split(r"(?m)^(?=## )", body)
+    mine, kept = [parts[0]], []
+    for sec in parts[1:]:
+        head = sec.split("\n", 1)[0][3:].strip().lower()
+        (mine if head in ours and not kept else kept).append(sec)
+    if re.search(r"(?m)^\s*[-*] \[[ xX]\]|^\s*ela:", "".join(mine)):
+        return None
+    new = fresh.rstrip("\n") + "\n" + ("\n" + "".join(kept).rstrip("\n") + "\n" if kept else "")
+    return ("---\n" + "\n".join(fl) + "\n---\n" if fl else "") + new
 
 
-def with_gaps(text, table):
-    """A release note with its Jira gaps section as `table` says now: replaced where it stands, else put before
-    Afterwards (or at the end); taken out when the table is empty. Nothing else in the note changes."""
-    lines = text.split("\n")
-    start = next((i for i, l in enumerate(lines) if l.strip() == GAPS_HEAD), None)
-    if start is not None:
-        end = next((i for i in range(start + 1, len(lines)) if re.match(r"^#{1,2} ", lines[i])), len(lines))
-        lines = lines[:start] + lines[end:]                # the blank line above it stays, for what follows
-    body = "\n".join(lines).rstrip("\n") + "\n"
-    if not table:
-        return body
-    at = re.search(r"^## Afterwards\b", body, re.M)
-    block = "\n" + table.rstrip("\n") + "\n"
-    return body[:at.start()].rstrip("\n") + "\n" + block + "\n" + body[at.start():] if at else body + block
+def release_body(rec, props, title, reports, runtime, linker=None):
+    """A build note's body as the vault shows it: the record rendered with its tickets from the fact store and the
+    reading reconcile kept, the meta line under the title, keys linked."""
+    R = release_mod()
+    keys = [k for v in rec["services"] for k in v.get("keys") or []]
+    body = R.build_note(rec, R.reconcile_mod().saved_reading(reports, rec), R.facts_tickets(runtime, keys))
+    body = unwrap(callouts(meta_line(Note("", title, tidy_title(body), props, []))))
+    return linker(body) if linker else body
 
 
-def release_gaps_native(vault, reports, dry_run=False):
-    """Each build's release note, once the vault holds it (source vault, never rewritten), keeps one section current:
-    `## Jira gaps`, from the reading `ela release reconcile` last kept. → the paths changed."""
+def release_notes_native(vault, reports, runtime, linker=None, dry_run=False):
+    """Each build's release note, once the vault holds it (source vault), keeps ela's part current from its record:
+    the services with their tickets in words and the Jira gaps; Afterwards and his own sections stay. → paths changed."""
     R = release_mod()
     out = []
     for rec in build_records(reports):
-        reading = R.reconcile_mod().saved_reading(reports, rec)
-        if reading is None:
-            continue
         rel = f"{RELEASES}/{rec['line']}/{rec['name']}.md"
         p = os.path.join(vault, rel)
         try:
             text = open(p, encoding="utf-8").read()
         except OSError:
             continue
-        if not any(re.match(r"^source:\s*['\"]?vault['\"]?\s*$", l) for l in split_front(text)[0]):
+        fl, _ = split_front(text)
+        if not any(re.match(r"^source:\s*['\"]?vault['\"]?\s*$", l) for l in fl):
             continue
-        new = with_gaps(text, R.reconcile_mod().gaps_table(reading))
-        if new != text:
+        props = props_of(fl)
+        fresh = release_body(rec, {"type": props.get("type") or "report", "date": rec["date"], "status": props.get("status") or "decided"},
+                             R.build_title(rec), reports, runtime, linker)
+        new = release_note_merge(text, fresh, [v["service"] for v in rec["services"]])
+        if new is not None and new != text:
             out.append(rel)
             if not dry_run:
                 atomic_write(p, new)
@@ -5685,7 +5731,10 @@ def cmd_sync(a):
     wrote, same = [], 0
     answers = load_answers(s.get("reports") or "") + load_pending(s.get("reports") or "")
     answer_native(vault, answers, a.dry_run)
-    release_gaps_native(vault, s.get("reports") or "", a.dry_run)   # a build's Jira gaps, kept current in its note
+    jb = next((l.split("=", 1)[1].strip().rstrip("/") for l in open(env) if l.startswith("JIRA_BASE_URL=")), "") \
+        if env and os.path.isfile(env) else ""
+    release_notes_native(vault, s.get("reports") or "", s.get("runtime") or "",       # a build's note: ela's part current
+                         Linker({}, {}, jb, project_keys(env, s.get("runtime")) or [], s.get("reports")) if jb else None, a.dry_run)
     ensure_native_moves(vault, a.dry_run)
     # a task its source already ticked is not his choice; recorded so the guidance verb tells the two apart
     source_ticks = {r: [m.group(1) for m in TICKED.finditer(t)] for r, t in planned.items() if r.endswith(".md") and TICKED.search(t)}

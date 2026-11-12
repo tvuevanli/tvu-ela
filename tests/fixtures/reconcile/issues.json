@@ -10,7 +10,10 @@
     "displayName": "Erin Zhang"
    },
    "labels": [],
-   "customfield_11252": null
+   "customfield_11252": null,
+   "reporter": {
+    "displayName": "Edison Echegaray"
+   }
   }
  },
  "MH-3795": {
@@ -42,6 +45,9 @@
       ]
      }
     ]
+   },
+   "reporter": {
+    "displayName": "Andyzhao"
    }
   }
  },
@@ -72,6 +78,9 @@
       ]
      }
     ]
+   },
+   "reporter": {
+    "displayName": "Andyzhao"
    }
   }
  },
@@ -104,6 +113,9 @@
       ]
      }
     ]
+   },
+   "reporter": {
+    "displayName": "Andyzhao"
    }
   }
  },
@@ -122,7 +134,10 @@
     "MH-008",
     "release:mh-2.1"
    ],
-   "customfield_11252": null
+   "customfield_11252": null,
+   "reporter": {
+    "displayName": "Andyzhao"
+   }
   }
  },
  "MH-3887": {
@@ -154,6 +169,9 @@
       ]
      }
     ]
+   },
+   "reporter": {
+    "displayName": "Andyzhao"
    }
   }
  },
@@ -186,6 +204,9 @@
       ]
      }
     ]
+   },
+   "reporter": {
+    "displayName": "Andyzhao"
    }
   }
  },
@@ -218,6 +239,9 @@
       ]
      }
     ]
+   },
+   "reporter": {
+    "displayName": "Andyzhao"
    }
   }
  },
@@ -250,6 +274,9 @@
       ]
      }
     ]
+   },
+   "reporter": {
+    "displayName": "Andyzhao"
    }
   }
  },
@@ -280,6 +307,9 @@
       ]
      }
     ]
+   },
+   "reporter": {
+    "displayName": "Summer Chen"
    }
   }
  },
@@ -297,7 +327,10 @@
     "release:mh-2.1",
     "security"
    ],
-   "customfield_11252": null
+   "customfield_11252": null,
+   "reporter": {
+    "displayName": "Summer Chen"
+   }
   }
  },
  "MH-3933": {
@@ -327,6 +360,9 @@
       ]
      }
     ]
+   },
+   "reporter": {
+    "displayName": "Andyzhao"
    }
   }
  },
@@ -357,6 +393,9 @@
       ]
      }
     ]
+   },
+   "reporter": {
+    "displayName": "Andyzhao"
    }
   }
  },
@@ -387,6 +426,9 @@
       ]
      }
     ]
+   },
+   "reporter": {
+    "displayName": "Erin Zhang"
    }
   }
  },
@@ -417,6 +459,9 @@
       ]
      }
     ]
+   },
+   "reporter": {
+    "displayName": "Erin Zhang"
    }
   }
  },
@@ -447,6 +492,9 @@
       ]
      }
     ]
+   },
+   "reporter": {
+    "displayName": "Summer Chen"
    }
   }
  },
@@ -477,6 +525,9 @@
       ]
      }
     ]
+   },
+   "reporter": {
+    "displayName": "Alice Wang"
    }
   }
  },
@@ -507,6 +558,9 @@
       ]
      }
     ]
+   },
+   "reporter": {
+    "displayName": "Erin Zhang"
    }
   }
  },
@@ -537,6 +591,9 @@
       ]
      }
     ]
+   },
+   "reporter": {
+    "displayName": "Erin Zhang"
    }
   }
  },
@@ -567,6 +624,9 @@
       ]
      }
     ]
+   },
+   "reporter": {
+    "displayName": "Summer Chen"
    }
   }
  },
@@ -597,6 +657,9 @@
       ]
      }
     ]
+   },
+   "reporter": {
+    "displayName": "Summer Chen"
    }
   }
  },
@@ -611,7 +674,10 @@
     "displayName": "Erin Zhang"
    },
    "labels": [],
-   "customfield_11252": null
+   "customfield_11252": null,
+   "reporter": {
+    "displayName": "Evan Li"
+   }
   }
  },
  "MH-3988": {
@@ -625,7 +691,10 @@
     "displayName": "Erin Zhang"
    },
    "labels": [],
-   "customfield_11252": null
+   "customfield_11252": null,
+   "reporter": {
+    "displayName": "aiden"
+   }
   }
  },
  "MH-3989": {
@@ -655,6 +724,9 @@
       ]
      }
     ]
+   },
+   "reporter": {
+    "displayName": "Alice Wang"
    }
   }
  },
@@ -685,6 +757,9 @@
       ]
      }
     ]
+   },
+   "reporter": {
+    "displayName": "Erin Zhang"
    }
   }
  },
@@ -715,6 +790,9 @@
       ]
      }
     ]
+   },
+   "reporter": {
+    "displayName": "Alice Wang"
    }
   }
  },
@@ -745,6 +823,9 @@
       ]
      }
     ]
+   },
+   "reporter": {
+    "displayName": "Erin Zhang"
    }
   }
  },
@@ -759,7 +840,10 @@
     "displayName": "Erin Zhang"
    },
    "labels": [],
-   "customfield_11252": null
+   "customfield_11252": null,
+   "reporter": {
+    "displayName": "Evan Li"
+   }
   }
  },
  "MH-4000": {
@@ -789,6 +873,9 @@
       ]
      }
     ]
+   },
+   "reporter": {
+    "displayName": "Summer Chen"
    }
   }
  },
@@ -819,6 +906,9 @@
       ]
      }
     ]
+   },
+   "reporter": {
+    "displayName": "Erin Zhang"
    }
   }
  }
