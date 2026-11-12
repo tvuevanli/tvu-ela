@@ -6,7 +6,9 @@ produces its facts at once and no draft; his reply while a draft is pending with
 takes a slot on today.md. Nothing reaches Slack or Jira: threads and tickets are fixtures."""
 import datetime, json, os, sys, tempfile
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "skills", "mention"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "skills", "vault"))
 import mention as M  # noqa: E402
+import vault as V  # noqa: E402
 
 failures = []
 def check(name, cond):
@@ -194,10 +196,31 @@ with tempfile.TemporaryDirectory() as tmp:
     check("Waiting on you: the open asks, with the thread and the tickets linked; answered and noticed ones left out",
           any(a5 in x["id"] for x in M.waiting(R)) and any("**Asker, 11-12** ([thread](" in l and "[MH-3842](" in l and "ship on Friday" in l for l in wl)
           and not any(x["id"] in (a1, a2, a3, n1, n2) for x in M.waiting(R)))
+    # the vault: the slot, its page, and a letter the sync settles itself
+    t10 = [msg(ts(21, 30), PEER, f"<@{ME}> who owns MH-3869?")]
+    walk(CH, t10, at(21, 31))
+    a10 = f"{CH}-{ts(21, 30)}"
+    M.save(R, recs)
+    FRI = datetime.date(2026, 11, 13)
+    cands = {c["id"]: c for c in V.mention_asks(R, FRI)}
+    c5, c10 = cands[f"mention:{a5}"], cands[f"mention:{a10}"]
+    check("today.md: a held mention is an ordinary ask candidate, whole, linked to its page, his letters kept",
+          c5["whole"] and c5["link"] == f"ela/mentions/{a5}" and [o["letter"] for o in V.ask_options(c5)] == ["A", "B", "C"]
+          and [o["letter"] for o in V.ask_options(c10)] == ["B", "C"] and c5["text"].startswith("Asker asked you in #dev on 11-12 21:00, no reply yet: "))
+    pages = V.mention_pages(R, FRI)
+    check("the vault page of each held mention, typed", set(pages) == {f"ela/mentions/{a5}.md", f"ela/mentions/{a10}.md"}
+          and 'type: "mention"' in pages[f"ela/mentions/{a5}.md"] and "## Draft reply" in pages[f"ela/mentions/{a5}.md"])
+    st = {}
+    does = V.ask_options(c10)[0]["does"]
+    check("a letter on it is settled by the sync: nothing leaves ela", V.sync_handles(does) and V.settle_one(R, st, c10["id"], "B", does, FRI)
+          and st[c10["id"]]["answered"]["letter"] == "B" and M.load(R)[a10]["answer"]["letter"] == "B")
+    recs = M.load(R)
+    check("B keeps it under Waiting on you until he replies; it leaves today.md", any(x["id"] == a10 for x in M.waiting(R))
+          and f"mention:{a10}" not in {c["id"] for c in V.mention_asks(R, FRI)})
     r = M.answer(R, a5, "C", ctx, at(9, 0, 13))
     tl = M.tally(R)
     check("C closes it and counts against that kind of message", r["state"] == "closed" and tl["question"]["C"] == 1 and tl["question"]["A"] == 1
-          and tl["question"]["withdrawn"] == 1 and tl["bot-notice"]["fired"] == 1 and tl["bot-notice"]["kind"] == "notice" and not M.asks(R))
+          and tl["question"]["B"] == 1 and tl["question"]["withdrawn"] == 1 and tl["bot-notice"]["fired"] == 1 and tl["bot-notice"]["kind"] == "notice" and not M.asks(R))
     recs = M.load(R)
 
     # the thread walk: a second mention joins the open one, a mention after his reply opens another; a reaction is a reply

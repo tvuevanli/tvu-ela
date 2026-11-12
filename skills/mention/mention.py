@@ -420,7 +420,7 @@ def settle_hours(recs, day, now, reports=None):
     """A mention that fell due after his hours ended is held: it takes a slot on today.md instead of a message. One
     left open for EXPIRE_DAYS working days is closed as expired, kept on record."""
     for r in recs.values():
-        if r["state"] in OPEN and not r.get("replied_at") and not r.get("answer"):
+        if not r.get("replied_at") and (r["state"] in OPEN and not r.get("answer") or r["state"] == "answered" and r["answer"]["letter"] == "B"):
             d, n = parse(r["at"]).date(), 0
             while d < now.date():
                 d += datetime.timedelta(days=1)
@@ -675,6 +675,12 @@ def context(r_, names):
             "today": datetime.datetime.now(TZ).date(), "runtime": r_["runtime"]}
 
 
+def site_context(reports):
+    """The follow-through's readers on this machine, for a caller that holds only the reports root (the vault's sync)."""
+    r_ = dict(roots(), reports=reports)
+    return context(r_, Names(r_["slack"], r_["env"]))
+
+
 def follow_replies(recs, ids, r_, names, threads, ctx=None):
     """After a walk: each mention he has just replied to gets its follow-through, once."""
     for rid in ids:
@@ -730,8 +736,9 @@ def waiting(reports):
     """The open asks and incidents, oldest first, one line each for a meeting note's Waiting on you."""
     out = []
     for r in sorted(load(reports).values(), key=lambda r: r["at"]):
-        if r["triage"] == "notice" or r["state"] not in OPEN or r.get("replied_at") or (r.get("answer") or {}).get("letter") in ("A", "C"):
-            continue
+        letter = (r.get("answer") or {}).get("letter")
+        if r["triage"] == "notice" or r.get("replied_at") or not (r["state"] in OPEN and not letter or r["state"] == "answered" and letter == "B"):
+            continue                                       # B: the reply is his to write, and is not there yet
         keys = [x for x in (r.get("facts") or {}).get("keys") or []][:3]
         out.append({"id": r["id"], "line": f"**{r['by_name']}, {r['at'][5:10]}** ([thread]({r['permalink']})"
                                            + "".join(f", [{x['key']}]({x['url']})" for x in keys) + f"): {r.get('ask') or r['first']}"})
@@ -770,6 +777,7 @@ def answer(reports, ref, letter, ctx=None, now=None):
     else:
         r["state"] = "answered"
         if letter == "A" and ctx:
+            ctx = ctx() if callable(ctx) else ctx
             follow(r, r.get("reply") or "", [x["key"] for x in (r.get("facts") or {}).get("keys") or []], ctx, source="draft")
     log(reports, {"at": iso(now), "id": rid, "reason": r["reason"], "outcome": letter})
     save(reports, recs)

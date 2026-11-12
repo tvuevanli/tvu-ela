@@ -1454,7 +1454,7 @@ SPECS = {
 }
 BUDGET.update({"case": 1200, "draft": 600})
 PAGES_SPEC = ("home", "today", "dropped", "board", "lanes", "docker", "recent", "one-thing", "test-list", "dev-list", "train", "program", "guide",
-              "vocabulary", "system", "constraints", "readme", "services", "questions", "dry")   # living pages: each one's generator is its spec
+              "vocabulary", "system", "constraints", "readme", "services", "questions", "dry", "mention")   # living pages: each one's generator is its spec
 CJK = re.compile(r"[一-鿿　-〿＀-￯]")
 SPEC_MARK = "<!-- note standards -->"
 
@@ -3142,7 +3142,8 @@ def today_letters(text, state):
 def sync_handles(does):
     """Whether the sync acts on this letter itself (nothing leaves ela): a drop, a no-op, or a dry answer that writes
     nothing live. The rest goes to the runner through `ela vault guidance`."""
-    return does is None or does == "drop" or (does.startswith("ela dry answer ") and "--apply" not in does)
+    return (does is None or does == "drop" or (does.startswith("ela dry answer ") and "--apply" not in does)
+            or does.startswith("ela mention answer "))     # a letter on a held mention: a record, and dry-run batches at most
 
 
 def settle_letters(vault, reports, state, today, dry_run=False):
@@ -3166,6 +3167,13 @@ def settle_one(reports, state, aid, letter, does, today, dry_run=False):
         parts = does.split()
         try:
             dry_mod().answer(reports, parts[3], parts[4])
+        except (KeyError, ValueError):
+            return False
+    if does and does.startswith("ela mention answer ") and not dry_run:
+        parts = does.split()
+        try:
+            MN = mention_mod()
+            MN.answer(reports, parts[3], parts[4], lambda: MN.site_context(reports))
         except (KeyError, ValueError):
             return False
     v["answered"] = {"letter": letter, "at": today.isoformat()}
@@ -3263,6 +3271,38 @@ def dry_pages(vault, reports, today):
     except Exception:                                      # noqa: BLE001
         pass
     return out
+
+
+def mention_asks(reports, today):
+    """The mentions of him that take an ordinary ask slot on today.md (ADR 0021): an ask he has not answered, held
+    because it came or fell due outside his hours; his options A use this draft · B I will write it · C nothing needed.
+    A broken store costs these asks only."""
+    try:
+        got = mention_mod().asks(reports)
+    except Exception:                                      # noqa: BLE001 — the page is written without them
+        return []
+    return [{"id": x["id"], "text": x["question"], "whole": True, "options": x["options"], "link": x["link"], "sig": x["sig"],
+             "first": today.isoformat()} for x in got]
+
+
+def mention_pages(reports, today):
+    """ela/mentions/<id>.md for each mention holding a slot: the thread, the facts and the reply to paste."""
+    out = {}
+    try:
+        MN = mention_mod()
+        recs = MN.load(reports)
+        for x in MN.asks(reports):
+            r = recs[x["id"].split(":", 1)[1]]
+            out[f"{MN.note_rel(r['id'])}.md"] = front([], {"type": "mention", "date": today.isoformat()}) + MN.page(r)
+    except Exception:                                      # noqa: BLE001
+        pass
+    return out
+
+
+def mention_mod():
+    sys.path.insert(0, os.path.join(HERE, "..", "mention"))
+    import mention as MN                                   # noqa: E402 — the mention store's one reader and writer
+    return MN
 
 
 def dry_mod():
@@ -4515,7 +4555,8 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since
     cands = ask_candidates(today, week_actions(reports, today), notes + native)
     qcands = question_asks(questions, today, week_actions(reports, today)) if questions else []
     dcands, dry_facts = dry_asks(reports, today, asks_state, dry_run)
-    shown, more, _, asks_state = settle_asks(asks_state, qcands + dcands + cands, today)
+    mcands = mention_asks(reports, today)                  # a person waiting on him leads the drafted writes
+    shown, more, _, asks_state = settle_asks(asks_state, qcands + mcands + dcands + cands, today)
     for v in asks_state.values():                          # the slots are today's page's: yesterday's numbers mean nothing
         for k in ("slot", "options"):
             v.pop(k, None)
@@ -4553,6 +4594,7 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since
         "meetings": meetings, "builds": builds, "tickets": release_mod().facts_tickets(s.get("runtime"), [k for b in builds for v in b["services"] for k in v.get("keys") or []]),
         "owner": owner_name(os.path.join(s.get("runtime") or "", "facts")), "dry_facts": dry_facts}, shown, more, dropped, questions_line=qline)))
     planned.update(dry_pages(s["vault"], reports, today))
+    planned.update(mention_pages(reports, today))
     if questions:
         Q = questions_mod()
         drafts = {r["id"]: r["draft"] for r in Q.open_records(questions) if r.get("draft") and (len(r["meetings"]) >= Q.NUDGE_EVERY or r.get("message"))}
