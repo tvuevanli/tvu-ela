@@ -145,12 +145,12 @@ with tempfile.TemporaryDirectory() as t:
 
     text = Q.page(state, later.date(), "https://j")
     line = next(l for l in text.splitlines() if cn["id"] in l)
-    check("the standing page: one line a question, its answerer first, its ticket, since when, how many meetings",
+    check("the standing page: one line a question, its answerer first, its ticket, how long it has waited, how many meetings",
           line.startswith("- [ ] **CN release lead** with UR lead · ") and "[MH-3752](https://j/browse/MH-3752)" in line
-          and "since 11-11 (31 days)" in line and "listed at 2 meetings" in line and len(text.splitlines()) <= Q.PAGE_LINES + 4)
+          and "waiting 31 days · 2 meetings" in line and len(text.splitlines()) <= Q.PAGE_LINES + 4)
     tl = Q.today_line(state, later.date(), ("sync", datetime.date(2026, 12, 15)), "https://j")
-    check("today's one line: how many, the oldest and its age, the next sync, the page linked",
-          tl.startswith("- [[meetings/open-questions|") and re.search(r"oldest: \[MH-\d+\]\(https://j/browse/MH-\d+\), 31 days", tl) and tl.endswith("next sync Tue"))
+    check("today's one line: how many, the longest waiting and its days, the next sync, the page linked",
+          tl.startswith("- [[meetings/open-questions|") and re.search(r"longest waiting: \[MH-\d+\]\(https://j/browse/MH-\d+\), 31 days", tl) and tl.endswith("next sync Tue"))
 
     # his word on the page: a tick closes, `ela: drop` drops, other words close with those words
     deploy = next(r for r in state["questions"].values() if "deploy" in r["text"])
@@ -229,9 +229,49 @@ with tempfile.TemporaryDirectory() as t:
     check("after it, the next one is built: dated, by ela, a focus topic with where it stands, then what waits on him, then Carried",
           'date: "2026-11-17"' in text and 'by: "ela"' in text and heads[0].startswith("1. CN upgrade — [MH-3752]")
           and "In Progress · carried by CN release lead" in text and heads[-2:] == ["Waiting on you", "Carried"]
-          and re.search(r"^- \[ \] .*listed at 1 meeting \^q-[0-9a-f]{6}$", text, re.M) and open(hand).read().endswith("app lead\n"))
+          and re.search(r"^- \[ \] .*· 1 meeting \^q-[0-9a-f]{6}$", text, re.M) and open(hand).read().endswith("app lead\n"))
     open(built, "a").write("\nmy own line\n")
     V.questions_pass(vault, reports, facts, evening + datetime.timedelta(hours=1), book, "https://j")
     check("a built note he edited is his: not rebuilt", open(built).read().endswith("my own line\n"))
+
+# waiting since the earliest evidence, not the day ela first read the question
+with tempfile.TemporaryDirectory() as t:
+    vault, reports, facts = (os.path.join(t, x) for x in ("vault", "reports", "facts"))
+    for d in ("meetings", "reference/days/2026", "archive"):
+        os.makedirs(os.path.join(vault, d))
+    os.makedirs(os.path.join(facts, "jira", "issues")); os.makedirs(os.path.join(reports, "ela"))
+    json.dump({"issues": [{"fields": {"assignee": {"displayName": "The Owner"}}}]}, open(os.path.join(facts, "jira", "owner.json"), "w"))
+    def issue(key, updated, comments=()):
+        json.dump({"key": key, "fields": {"status": {"name": "In Progress"}, "assignee": {"displayName": "CN release lead"},
+                   "created": "2026-10-01T10:00:00.000+0800", "updated": updated}, "comments": list(comments)},
+                  open(os.path.join(facts, "jira", "issues", f"{key}.json"), "w"))
+    issue("MH-3752", "2026-10-28T19:10:29.308-0700", [{"author": {"displayName": "The Owner"}, "created": "2026-10-27T01:25:03.154-0700"}])
+    issue("MH-2564", "2026-11-10T09:00:00.000+0800", [{"author": {"displayName": "The Owner"}, "created": "2026-11-10T09:00:30.000+0800"},
+                                                      {"author": {"displayName": "UR lead"}, "created": "2026-11-03T09:00:00.000+0800"}])
+    issue("MH-3975", "2026-11-11T09:00:00.000+0800")
+    open(os.path.join(vault, "meetings", "20261112-sync-eng-qa.md"), "w").write(HAND + f"- [ ] [MH-3975]({J}MH-3975) — who re-tests 1.0.25? · PM lead\n")
+    json.dump({"keys:MH-3975": {"first": "2026-11-05", "text": "MH-3975: ask the PM lead", "dropped": "2026-11-10"}},
+              open(os.path.join(reports, "ela", "asks.json"), "w"))
+    for i, d in enumerate(("2026-11-09", "2026-11-10", "2026-11-11", "2026-11-12")):
+        open(os.path.join(vault, "reference", "days", "2026", f"{d}-brief.md"), "w").write(
+            f"## Needs you\n\n> ### 4. [MH-3909]({J}MH-3909): the deploy waits\n> [MH-3909]({J}MH-3909) · {i + 1}{'st' if i == 0 else 'th'} morning\n")
+    open(os.path.join(vault, "archive", "meetings-scrum-pm-2026-11.md"), "w").write(
+        f'---\ntype: "meeting"\ndate: "2026-11-06"\n---\n# Scrum\n\n## To raise\n\n- [ ] [MH-3909]({J}MH-3909) — deploy day? · PM lead · since 11-02\n')
+    tz = datetime.datetime.now().astimezone().tzinfo
+    now = datetime.datetime(2026, 11, 12, 10, 0, tzinfo=tz)
+    state, _ = V.questions_pass(vault, reports, facts, now, [], "https://j")
+    by = {r["lead"][0]: r for r in state["questions"].values() if len(r["lead"]) == 1}
+    check("a silent ticket: waiting reaches back to its last movement by someone else, not to his own comment",
+          by["MH-3752"]["waiting"]["since"] == "2026-10-28" and by["MH-3752"]["waiting"]["why"] == "Jira silent since 2026-10-28")
+    check("an update his own comment made is not movement: the last word by someone else counts",
+          by["MH-2564"]["waiting"]["since"] == "2026-11-03")
+    check("his ask on the ticket, dropped since, dates it", by["MH-3975"]["waiting"]["since"] == "2026-11-05")
+    check("an archived meeting list dates it before the morning pages do",
+          by["MH-3909"]["waiting"]["since"] == "2026-11-02" and "archive/" in by["MH-3909"]["waiting"]["why"])
+    check("the page and today's line count the days it has waited",
+          "waiting 15 days · 1 meeting" in Q.page(state, now.date())
+          and re.search(r"longest waiting: MH-3752, 15 days", Q.today_line(state, now.date())))
+    ev = V.question_evidence(vault, reports, lambda k: None)
+    check("a morning page's own count reaches back over the pages", ("2026-11-09", "on the morning page since 2026-11-09") in ev("MH-3909"))
 
 sys.exit(1 if failures else 0)

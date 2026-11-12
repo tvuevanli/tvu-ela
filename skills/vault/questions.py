@@ -8,7 +8,7 @@ ela's (a write ela proposes): those expire after three working mornings (ADR 001
 
     {"questions": {id: {id, text, raw, who, keys, lead, thing, audience, first: {date, where}, meetings: [date],
                         sources: [where#gist], base: {at, tickets: {KEY: {status, assignee, due, resolution}}},
-                        status: open|closed|dropped, outcome, closed, by, draft}},
+                        waiting: {since, why}, status: open|closed|dropped, outcome, closed, by, draft}},
      "built": {meeting note: digest of the bytes ela last wrote}}
 
 Each pass reads every meeting note and project page for boxes (a hand-written note is read, never written), merges the
@@ -25,6 +25,7 @@ QUESTIONS_PAGE = "meetings/open-questions.md"
 NUDGE_EVERY = 3                         # listed at this many meetings without an outcome: one ask on today.md
 PAGE_LINES = 48                         # the standing page fits one screen
 TEXT_CHARS = 110
+CARRIED_DAYS = 7                        # waiting this long, or listed at two meetings: carried
 STATE = ("ela", "questions.json")
 BOX = re.compile(r"^([ \t]*)[-*][ \t]+\[([ xX])\][ \t]+(\S.*?)[ \t]*$")
 BULLET = re.compile(r"^([ \t]*)[-*][ \t]+(?!\[[ xX]\])(\S.*?)[ \t]*$")
@@ -492,9 +493,58 @@ def gone_from_pages(state, project_srcs, today):
 
 # ── the standing page and today's line ────────────────────────────────────────────────────────────────
 
+def since(r):
+    """The day a question has waited since: its earliest evidence (`waiting`), else its first raising."""
+    return min(r["first"]["date"], (r.get("waiting") or {}).get("since") or "9999")
+
+
 def open_records(state):
+    """The open records, the longest waiting first."""
     return sorted((r for r in state["questions"].values() if r["status"] == "open"),
-                  key=lambda r: (r["first"]["date"], -len(r["meetings"]), not r["lead"], r["id"]))
+                  key=lambda r: (since(r), r["first"]["date"], -len(r["meetings"]), not r["lead"], r["id"]))
+
+
+def silent_since(issue, owner=""):
+    """The day a ticket last moved by someone other than the owner, or None when it is resolved or unread: its
+    `updated`, unless his own comment made that update (written within two minutes of it); then its latest comment by
+    someone else, else its creation when someone else reported it."""
+    f = (issue or {}).get("fields") or {}
+    if not f or f.get("resolution"):
+        return None
+    comments = issue.get("comments") or ((f.get("comment") or {}).get("comments") or [])
+    def by(c):
+        return (c.get("author") or {}).get("displayName") or ""
+    upd = when(f.get("updated"))
+    mine = [t for c in comments if owner and by(c) == owner for t in (when(c.get("created")), when(c.get("updated"))) if t]
+    if upd and not any(abs((upd - t).total_seconds()) <= 120 for t in mine):
+        return upd.date().isoformat()
+    others = [when(c.get("created")) for c in comments if by(c) and by(c) != owner and not BOT.match(by(c))]
+    if (f.get("reporter") or {}).get("displayName") not in (None, owner):
+        others.append(when(f.get("created")))
+    others = [t for t in others if t]
+    return max(others).date().isoformat() if others else None
+
+
+def wait_since(state, today, evidence):
+    """Each open record's `waiting`: the earliest of its first raising and, for a question about one ticket, the
+    evidence on that ticket, evidence(key) → [(date, why)]: an ask of his on it, a morning page carrying it, an
+    archived meeting list, the ticket's last movement by someone else. The seeding date is not the age."""
+    t = today.isoformat()
+    for r in state["questions"].values():
+        if r["status"] != "open":
+            continue
+        cands = [(r["first"]["date"], f"first raised on {r['first']['where']}")]
+        if len(r["lead"]) == 1:
+            cands += [(d, w) for d, w in evidence(r["lead"][0]) if d]
+        d, why = min(c for c in cands if c[0] <= t) if any(c[0] <= t for c in cands) else cands[0]
+        r["waiting"] = {"since": d, "why": why}
+
+
+def waited(r, today):
+    """`waiting 15 days · 2 meetings`: one figure for how long, and how many meetings listed it when any did."""
+    n = (today - datetime.date.fromisoformat(since(r))).days
+    m = len(r["meetings"])
+    return ("raised today" if n <= 0 else f"waiting {days(n)}") + (f" · {m} meeting{'s' if m != 1 else ''}" if m else "")
 
 
 def short(text, n=TEXT_CHARS):
@@ -512,7 +562,7 @@ def link(k, jira):
 
 
 def age(r, today):
-    return (today - datetime.date.fromisoformat(r["first"]["date"])).days
+    return (today - datetime.date.fromisoformat(since(r))).days
 
 
 def days(n):
@@ -541,7 +591,7 @@ def page(state, today, jira="", drafts=None):
             if k and shown_text.startswith(k + " — "):
                 shown_text = shown_text[len(k) + 3:]
             bits = [f"**{name}**" + (f" with {', '.join(co)}" if co else ""), short(shown_text, 90)] + ([link(k, jira)] if k else []) + \
-                   [f"since {r['first']['date'][5:]} ({days(age(r, today))})", f"listed at {n} meeting{'s' if n != 1 else ''}"]
+                   [waited(r, today)]
             L.append(f"- [ ] {' · '.join(bits)} ^{r['id']}")
             d = (drafts or {}).get(r["id"])
             if d:
@@ -555,14 +605,15 @@ def page(state, today, jira="", drafts=None):
 
 
 def today_line(state, today, next_meeting=None, jira=""):
-    """today.md's one line: N open team questions · oldest: <key>, <days> days · next sync <day>, linking the page."""
+    """today.md's one line: N open team questions · longest waiting: <key>, <days> days · next sync <day>, linking the
+    page. The days are how long it has waited (`waiting`), not since ela first read it."""
     recs = open_records(state)
     if not recs:
         return None
     o = recs[0]
     k = o["lead"][0] if o["lead"] else (o["keys"][0] if o["keys"] else short(o["text"], 40))
     bits = [f"[[{QUESTIONS_PAGE[:-3]}|{len(recs)} open team question{'s' if len(recs) != 1 else ''}]]",
-            f"oldest: {link(k, jira) if KEY.fullmatch(k or '') else k}, {days(age(o, today))}"]
+            f"longest waiting: {link(k, jira) if KEY.fullmatch(k or '') else k}, {days(age(o, today))}"]
     if next_meeting:
         bits.append(f"next {next_meeting[0]} {next_meeting[1]:%a}")
     return "- " + " · ".join(bits)
@@ -587,7 +638,7 @@ def draft(r, owner_first=""):
         to = None
     hi = f"Hi {to.split()[0]}, " if to else "Hi, "
     n = len(r["meetings"])
-    text = (f"{hi}one open question from the MediaHub syncs, listed at {n} meetings since {r['first']['date'][5:]}: "
+    text = (f"{hi}one open question from the MediaHub syncs, listed at {n} meetings, waiting since {since(r)[5:]}: "
             f"{r['text'].rstrip('?. ')}? Could you answer here, or tell me who should?" + (f" — {owner_first}" if owner_first else ""))
     th = SLACK.search(r.get("raw") or "")
     if r["lead"]:
@@ -657,7 +708,7 @@ def meeting_note(state, aud, title, day, now, facts_issue, owner_first="", jira=
         bits = [short(text, 100)] + ([r["who"]] if r.get("who") else [])
         if carried:
             n = len(r["meetings"])
-            bits += ([link(k, jira)] if k and k not in text else []) + [f"since {r['first']['date'][5:]}", f"listed at {n} meeting{'s' if n != 1 else ''}"]
+            bits += ([link(k, jira)] if k and k not in text else []) + [waited(r, now.date())]
         return f"- [ ] {' · '.join(bits)} ^{r['id']}"
     for i, ((kind, ref), rs) in enumerate(focus, 1):
         t = rs[0]["thing"]

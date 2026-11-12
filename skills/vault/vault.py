@@ -2252,9 +2252,8 @@ def project_note(key, text, vault, notes, today, jira_base="", ticket=None, ques
         Q = questions_mod()
         for r in Q.open_records(questions):
             if (r.get("thing") or {}).get("ref") == facts["path"] and not all(x.startswith(facts["path"] + "#") for x in r["sources"]):
-                n_ = len(r["meetings"])
                 asked.append(f"{Q.short(r['text'], 100)}" + (f" · {r['who']}" if r.get("who") else "") +
-                             f" · since {r['first']['date'][5:]} · listed at {n_} meeting{'s' if n_ != 1 else ''} · [[{Q.QUESTIONS_PAGE[:-3]}#^{r['id']}|on the list]]")
+                             f" · {Q.waited(r, today)} · [[{Q.QUESTIONS_PAGE[:-3]}#^{r['id']}|on the list]]")
     tail = project_tail(facts, rows, today, jira_base, meeting_outcomes(notes, facts["keys"], today), asked)
     n = Note(facts["path"], facts["title"], facts["head"] + "\n" + tail, {"type": "project", "date": want["date"], "deadline": want["deadline"]})
     n.front_text, n.head, n.tail, n.facts, n.rows = fm, facts["head"] + "\n", tail, facts, rows
@@ -3657,6 +3656,7 @@ def questions_pass(vault, reports, facts, now, meetings=(), jira="", seeds=(), d
     before = set(state["questions"])
     Q.harvest(state, cands, now, issue, projects, snaps, start, keys)
     closed += Q.gone_from_pages(state, project_srcs, today)
+    Q.wait_since(state, today, question_evidence(vault, reports, issue, owner))
     build_meeting_notes(vault, state, now, meetings, issue, owner, jira, dry_run)
     for n in Q.nudges(state, today):                       # listed at three meetings: the message he can send, drafted
         r = state["questions"][n["id"]]
@@ -3673,6 +3673,62 @@ def questions_pass(vault, reports, facts, now, meetings=(), jira="", seeds=(), d
     if not dry_run:
         Q.save(reports, state, atomic_write)
     return state, {"consumed": consumed, "closed": closed, "new": sorted(set(state["questions"]) - before)}
+
+
+def question_evidence(vault, reports, issue, owner=""):
+    """key → [(date, why)]: the earlier evidence that a question about one ticket was already waiting. His asks on it
+    (the asks store, which reference/dropped.md is written from: its first day), the morning pages carrying it under
+    Needs you (the page's own `Nth morning`, counted back over the pages), the archived meeting lists that listed it
+    (archive/, type meeting: its `since MM-DD`, else the note's date), and the ticket's last movement by someone
+    other than the owner."""
+    Q = questions_mod()
+    by = {}
+    def put(k, d, why):
+        by.setdefault(k, []).append((d, why))
+    for k, v in load_asks(reports).items():
+        if k.startswith("keys:") and isinstance(v, dict) and v.get("first"):
+            for x in k[5:].split(","):
+                put(x, v["first"], f"your ask since {v['first']}")
+    pages = []
+    root = os.path.join(vault, DAYS)
+    for y in sorted(os.listdir(root)) if os.path.isdir(root) else []:
+        for f in sorted(os.listdir(os.path.join(root, y))) if os.path.isdir(os.path.join(root, y)) else []:
+            if re.fullmatch(r"\d{4}-\d{2}-\d{2}-brief\.md", f):
+                pages.append((f[:10], os.path.join(root, y, f)))
+    for i, (d, p) in enumerate(pages):
+        try:
+            text = open(p, encoding="utf-8").read()
+        except OSError:
+            continue
+        for m in re.finditer(r"^(?:>[ \t]*)?###[ \t]+(?:\d+\.[ \t]*)?(.+)\n((?:.*\n){0,3})", text, re.M):
+            ks = Q.keys_in(Q.visible(m.group(1)))
+            n = re.search(r"\b(\d+)(?:st|nd|rd|th) morning\b", m.group(2))
+            if ks:
+                start = pages[max(0, i - (int(n.group(1)) - 1 if n else 0))][0]
+                put(ks[0], start, f"on the morning page since {start}")
+    arch = os.path.join(vault, ARCHIVE)
+    for f in sorted(os.listdir(arch)) if os.path.isdir(arch) else []:
+        try:
+            text = open(os.path.join(arch, f), encoding="utf-8").read()
+        except OSError:
+            continue
+        if not f.endswith(".md") or not re.search(r"^type:\s*['\"]?meeting['\"]?\s*$", text, re.M):
+            continue
+        day = Q.note_date(f, text)
+        for b in Q.boxes(text):
+            vis = Q.visible(b["raw"])
+            lead = Q.lead_keys(vis)
+            s = re.search(r"·[ \t]*since[ \t]+(\d{2})-(\d{2})\b", vis)
+            d = f"{day[:4]}-{s.group(1)}-{s.group(2)}" if s and day else day
+            if len(lead) == 1 and d:
+                put(lead[0], d, f"listed on {ARCHIVE}/{f} since {d}")
+    def evidence(k):
+        out = list(by.get(k, ()))
+        s = Q.silent_since(issue(k), owner)
+        if s:
+            out.append((s, f"Jira silent since {s}"))
+        return out
+    return evidence
 
 
 def build_meeting_notes(vault, state, now, meetings, issue, owner="", jira="", dry_run=False):
@@ -5104,7 +5160,7 @@ def cmd_questions(a):
         print(json.dumps({"open": recs, "closed": done["closed"], "new": done["new"], "dry_run": not a.apply}, ensure_ascii=False)); return
     today = datetime.date.today()
     for r in recs:
-        print(f"{r['id']} · {Q.answerer(r)[0]} · since {r['first']['date']} · {len(r['meetings'])} meetings · {Q.short(r['text'], 90)}")
+        print(f"{r['id']} · {Q.answerer(r)[0]} · {Q.waited(r, today)} ({r.get('waiting', {}).get('why', '')}) · {Q.short(r['text'], 90)}")
     for qi, w in done["closed"]:
         print(f"closed {qi}: {w}")
     print(f"{len(recs)} open, {len(done['new'])} new" + ("" if a.apply else " · DRY RUN (--apply writes the records)") + f" · {today}")
