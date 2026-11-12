@@ -106,6 +106,13 @@ check("his words for a line: one sentence of at most 25 words, no ellipsis; they
       and Q.set_words({"questions": {"q": r_}}, "q", "Async graph submissions (MH-2564)", "Which sprint takes it, and who builds it?") is None
       and Q.line(r_) == "Async graph submissions (MH-2564): Which sprint takes it, and who builds it?"
       and Q.line(dict(r_, raw="reworded")) == "MH-2564: Async graph submissions: when?")
+rq = {"raw": "x", "text": "x", "lead": [], "keys": [], "who": "each holder", "sources": ["meetings/sync.md#a", "meetings/2026-11-12-sync.md#b"],
+      "words": {"for": "x", "subject": "In Review past due", "sentence": "Will each holder close MH-3510, MH-3540, MH-3569, MH-3754 and MH-2799, or set a date?"}}
+check("a run of keys in a question reads as its count, linking the note that lists them; a pair stays; new words with a run are refused",
+      Q.line(rq) == "In Review past due: Will each holder close [[meetings/2026-11-12-sync|5 tickets]], or set a date?"
+      and Q.counted("Who owns MH-9 (billing), MH-1, MH-2, MH-3?", {}) == "Who owns MH-9 (billing), and 3 more tickets?"
+      and Q.counted("Does MH-1 block MH-2?", rq) == "Does MH-1 block MH-2?" and Q.counted("AC-3, MPEG-2 and MH-1?", {}) == "AC-3, MPEG-2 and MH-1?"
+      and Q.set_words({"questions": {"q": r_}}, "q", "Queue", "In what order are MH-1, MH-2, MH-3 taken?").startswith("three or more ticket keys"))
 
 st = {"questions": {"q-aaaaaa": {"status": "open"}, "q-bbbbbb": {"status": "open"}}}
 got, used = Q.by_word(st, "> [!note]- Raised once, by who answers (2)\n> **PM lead**\n> - [x] A: B? · raised today ^q-aaaaaa\n"

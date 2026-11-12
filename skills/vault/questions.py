@@ -690,13 +690,36 @@ def unworded(r):
     return len(t.split()) > WORDS_MAX or not re.search(r"[?.]$", t) or not t[:1].isupper() and not re.match(r"^[A-Z]{2}|\W", t)
 
 
+KEY_RUN = re.compile(r"(?<![\w/#=.-])[A-Z][A-Z0-9]{1,9}-\d{1,6}(?:(?:[\s,;/、]+|,?\s+and\s+)[A-Z][A-Z0-9]{1,9}-\d{1,6}){2,}(?![\w-])")
+
+
+def key_run(text):
+    """The first run of three or more ticket keys with only punctuation or `and` between them, or None."""
+    return next((m.group(0) for m in KEY_RUN.finditer(text or "") if len(keys_in(m.group(0))) >= 3), None)
+
+
+def counted(text, r):
+    """A question's sentence with a run of three or more keys read as their count, linking the note that lists them
+    (the newest of the record's sources): a question is asked of the tickets together, and a line of keys names none
+    of them to its reader (the vault's note standards: a key never stands alone)."""
+    src = next((x.split("#", 1)[0] for x in reversed(r.get("sources") or []) if x.split("#", 1)[0].endswith(".md")), None)
+
+    def one(m):
+        n = len(keys_in(m.group(0)))
+        if n < 3:
+            return m.group(0)
+        words = f"and {n} more tickets" if text[:m.start()].rstrip().endswith(",") else f"{n} tickets"   # the tail of a longer list
+        return f"[[{src[:-3]}|{words}]]" if src else words
+    return KEY_RUN.sub(one, text)
+
+
 def line(r, jira=""):
     """`Subject: sentence`, the subject's ticket linked: one question that stands alone, whole. With nobody to answer
-    it, the question is who takes it."""
+    it, the question is who takes it. A run of keys in the sentence reads as its count (counted)."""
     sub = subject_line(r)
     if sub and jira:
         sub = KEY.sub(lambda m: link(m.group(1), jira) if is_key(m.group(1)) else m.group(1), sub)
-    t = sentence(r)
+    t = counted(sentence(r), r)
     if answerer(r)[0] == "Not named" and not re.match(r"^who\b", t, re.I):
         t = f"Who takes it? {t}"
     return f"{sub}: {t}" if sub else t
@@ -712,6 +735,8 @@ def set_words(state, rid, subject, sentence_):
     s_, t = " ".join((subject or "").split()), " ".join((sentence_ or "").split())
     if "…" in s_ + t or "..." in s_ + t:
         return "an ellipsis: write it whole"
+    if key_run(s_) or key_run(t):
+        return "three or more ticket keys in a run: say how many they are and what they share; the note lists them"
     if not s_ or len(s_.split()) > 8:
         return "a subject is one to eight words"
     if len(t.split()) > WORDS_MAX or not re.search(r"[?.]$", t):
