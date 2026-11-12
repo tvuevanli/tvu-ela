@@ -439,10 +439,16 @@ def render_page(res, rows_open=ROWS_OPEN, budget=BUDGET):
 # ── main ─────────────────────────────────────────────────────────────────────────────────────────────
 
 def plain_gaps(errs):
-    """The prefetch's errors as lines for the page: the keys that could not be read, named once, never a raw record."""
+    """The prefetch's errors as lines for the page, never a raw record. The keys that could not be read are named
+    when there are one or two; from three up they are counted by project, since an unreadable ticket has no title to
+    write beside its key and each already stands on its own row of the table."""
     unread = [m.group(1) for m in (re.match(r"jira read (\S+):", g) for g in errs) if m]
     rest = [re.sub(r"\{.*$", "", g).strip(" :") for g in errs if not re.match(r"jira read \S+:", g)]
-    return ([f"{len(unread)} ticket{'s' if len(unread) != 1 else ''} not readable (another project, or no permission): {', '.join(unread)}"] if unread else []) + rest
+    by = {}
+    for k in unread:
+        by[k.split("-")[0]] = by.get(k.split("-")[0], 0) + 1
+    which = ", ".join(unread) if len(unread) < 3 else ", ".join(f"{n} in {p}" for p, n in by.items()) + ", each on its row above"
+    return ([f"{len(unread)} ticket{'s' if len(unread) != 1 else ''} not readable (another project, or no permission): {which}"] if unread else []) + rest
 
 
 def train_path(s, line):

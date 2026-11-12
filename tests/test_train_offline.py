@@ -117,6 +117,9 @@ check("the lanes a comment names, keyed by its time", TR.comment_lanes({"comment
 check("the prefetch's errors reach the page as named keys, never a record",
       TR.plain_gaps(["jira read MEDIAHF-254: {'query': '--env-file /x/.env read', 'exit': 1}", "jira read TVUCCM-4: {'exit': 1}", "QA report mails: {'stderr': 'x'}"])
       == ["2 tickets not readable (another project, or no permission): MEDIAHF-254, TVUCCM-4", "QA report mails"])
+check("three or more unreadable keys are counted by project, not listed",
+      TR.plain_gaps([f"jira read {k}: {{'exit': 1}}" for k in ("MEDIAHF-254", "MEDIAHF-250", "TVUCCM-4")])
+      == ["3 tickets not readable (another project, or no permission): 2 in MEDIAHF, 1 in TVUCCM, each on its row above"])
 check("a comment naming the daily release's label goes to daily; a QA build number to QA; else the furthest lane reached",
       TR.verdict_lane("2026-10-31T09:00", "2.1.78", L, recs, ["78"]) == "daily-wed" and TR.verdict_lane("2026-10-31T09:00", "build 78", L, recs, ["78"]) == "qa-cn3"
       and TR.verdict_lane("2026-10-31T09:00", "1.0.11", L, recs, ["78"]) == "qa-cn3" and TR.verdict_lane("2026-10-31T09:00", "1.0.11", L, {"daily-wed": recs["daily-wed"]}, ["78"]) == "daily-wed")
