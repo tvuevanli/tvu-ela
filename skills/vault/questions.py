@@ -819,6 +819,9 @@ def draft(r, owner_first=""):
     to = answerer(r)[0]
     if to == "Not named" or GENERIC_WHO.match(to):
         to = None
+    if r.get("message"):                                   # raised with its own message (a release agent's pattern): sent as drafted
+        return {"to": to or "its owner", "via": "a direct message", "text": r["message"], "command": None} if not r["lead"] else \
+            {"to": to or "its holder", "via": f"Jira comment on {r['lead'][0]}", "text": r["message"], "command": ["jira", "comment", r["lead"][0]]}
     hi = f"Hi {to.split()[0]}, " if to else "Hi, "
     n = len(r["meetings"])
     text = (f"{hi}one open question from the MediaHub syncs, listed at {n} meetings, waiting since {since(r)[5:]}: "

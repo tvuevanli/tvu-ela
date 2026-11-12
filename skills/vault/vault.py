@@ -3682,7 +3682,7 @@ def questions_pass(vault, reports, facts, now, meetings=(), jira="", seeds=(), d
         if dr:
             path = os.path.join(reports, "ela", "drafts", f"question-{r['id']}.txt")
             cmd = dr.pop("command")
-            dr["command"] = f"ela {cmd[0]} {cmd[1]} {cmd[2]} " + ("--from-file " if cmd[0] == "jira" else "--file ") + path
+            dr["command"] = (f"ela {cmd[0]} {cmd[1]} {cmd[2]} " + ("--from-file " if cmd[0] == "jira" else "--file ") + path) if cmd else None   # a direct message: he sends it
             dr["file"] = path
             if not dry_run and r.get("draft", {}).get("text") != dr["text"]:
                 os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -4188,7 +4188,7 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since
         "meetings": meetings, "builds": build_records(reports)}, shown, more, dropped, questions_line=qline)))
     if questions:
         Q = questions_mod()
-        drafts = {r["id"]: r["draft"] for r in Q.open_records(questions) if r.get("draft") and len(r["meetings"]) >= Q.NUDGE_EVERY}
+        drafts = {r["id"]: r["draft"] for r in Q.open_records(questions) if r.get("draft") and (len(r["meetings"]) >= Q.NUDGE_EVERY or r.get("message"))}
         planned[Q.QUESTIONS_PAGE] = front([], {"type": "questions", "date": today.isoformat()}) + Q.page(questions, today, jira_base, drafts)
     planned[DROPPED] = redact(front([], {"type": "dropped", "date": today.isoformat()}) + linker(dropped_page(asks_state)))
     if today <= HOME_POINTER_UNTIL:                        # Home points to today.md for two weeks, then is not written
