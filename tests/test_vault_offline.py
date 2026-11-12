@@ -28,6 +28,16 @@ check("a key inside code stays code", "`code MH-12`" in out)
 check("codec names are not tickets, even when a project shares the prefix", lk("AC-3, MPEG-2 and SMPTE-2110") == "AC-3, MPEG-2 and SMPTE-2110")
 check("a project the owner does not work in is not linked", lk("XYZ-9") == "XYZ-9")
 check("no Jira base, no links", V.Linker({}, {}, "", {"MH"})("MH-1") == "MH-1")
+SRC = ("the release thread https://tvunetworks.slack.com/archives/C0C16LK4KT9/p1794389824737829 (andyBot) and "
+       "<https://example.slack.com/archives/C1/p1|the thread>")
+check("a Slack permalink in a page stays whole; Slack's <url|text> becomes a Markdown link",
+      lk(SRC) == "the release thread https://tvunetworks.slack.com/archives/C0C16LK4KT9/p1794389824737829 (andyBot) and "
+                 "[the thread](https://example.slack.com/archives/C1/p1)")
+import ast, collections  # noqa: E402
+_named = collections.Counter(t.id for n in ast.parse(open(V.__file__, encoding="utf-8").read()).body if isinstance(n, ast.Assign)
+                             for t in n.targets if isinstance(t, ast.Name) and t.id.isupper())
+check("no module constant in vault.py is assigned twice (a second SLACK_LINK broke every permalink)",
+      [k for k, v in _named.items() if v > 1] == [])
 
 addr = ".".join(["10", "0", "0", "7"])
 check("an address is redacted", "<address>" in V.redact("box " + addr + ":8080 down"))

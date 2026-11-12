@@ -3639,7 +3639,9 @@ def meeting_roll(vault, today, dry_run=False):
 # item with no change is carried to the next meeting until an outcome comes (ADR 0016). Reason: the review of the
 # vault's first day on layout 5 (<runtime>/drafts/2026-11-12-vault-two-day-review-brief.md, change 4).
 MEETING_HOURS = 1                                       # a meeting's length when meetings.yaml gives no `minutes`
-SLACK_LINK = re.compile(r"/archives/([A-Z0-9]+)/p(\d{10})(\d{6})")
+# its own name: as SLACK_LINK it replaced the Linker's `<url|text>` pattern, which then turned every permalink in a page
+# into "[<ts>](<channel>)" (build 91's release note, 2026-11-12)
+SLACK_THREAD = re.compile(r"/archives/([A-Z0-9]+)/p(\d{10})(\d{6})")
 
 
 def facts_issue(facts, key):
@@ -3704,7 +3706,7 @@ def ticket_outcome(facts, key, start, before=None):
 
 def thread_outcome(facts, text, start):
     """Replies after `start` in the Slack thread an item links, from the fact store: 'N replies in its thread' or None."""
-    m = SLACK_LINK.search(text or "")
+    m = SLACK_THREAD.search(text or "")
     if not m:
         return None
     try:
@@ -4662,14 +4664,14 @@ SECTION = re.compile(r"^##[ \t]+(.+?)[ \t]*$", re.M)
 # revert —`) and is read only once he writes after it; a front-matter `ela` value in the dated progress form
 # (`ela: "2026-11-09: …"`) is ela's record. On 2026-11-09 five runner jobs fired on such lines (vault review 11-10).
 STUB_END = re.compile(r"(?:—|–|-{2,}|…|\.{3}|_{3,})$")
-DATED = re.compile(r"^\d{4}-\d{2}-\d{2}\s*[:：]\s")
+DATED_SAYS = re.compile(r"^\d{4}-\d{2}-\d{2}\s*[:：]\s")
 
 
 def ela_own(says, in_front=False):
     """Whether the words of one `ela:` line are ela's own (a stub awaiting his words, or a dated record in the front
     matter) rather than his instruction."""
     says = (says or "").strip().strip('"').strip("'").strip()
-    return bool(STUB_END.search(says)) or (in_front and bool(DATED.match(says)))
+    return bool(STUB_END.search(says)) or (in_front and bool(DATED_SAYS.match(says)))
 
 
 def his_lines(text, start=0, end=None):
@@ -5964,7 +5966,6 @@ KIND_WORDS = ("decision", "plan", "sprint", "review", "verify", "verify-plan", "
 KIND_OF_TYPE = {"decision": "decision", "plan": "plan", "sprint": "sprint", "review": "review", "ticket": "deep",
                 "verify": "verify", "verify-plan": "verify-plan", "draft": "draft", "report": "review"}
 LIVE_STATUSES = ("proposed", "blocked", "building", "built", "waiting", "parked")
-WORK_TYPES = ("decision", "plan", "sprint", "review", "ticket", "verify", "verify-plan", "draft")
 MIGRATE_LOG = "vault-migrated.jsonl"
 
 
