@@ -2688,6 +2688,19 @@ def measures(s, vault, today):
     return L
 
 
+def parts_rows(skills):
+    """The overview's "The parts" table. The vault's row names what the desk is today (layout 5): today.md, a page per
+    project, a folder per release line and the meetings, each linked."""
+    return ["| part | what it is |", "|---|---|",
+            f"| ela | {skills} and the `ela` verbs, in every Claude session |",
+            "| ela-runner | the clock, the vault watcher, the Slack front door, the judge sessions |",
+            f"| the vault | your desk: [[{TODAY[:-3]}\\|today.md]], a page per project in {PROJECTS}/, a folder per release line in "
+            f"{RELEASES}/, the meetings in {MEETINGS}/ |",
+            "| elak | facts and knowledge, written on your word |",
+            "| published | the redacted subset Helm and colleagues read; its service map, for your review: [[ela/service-map\\|service map]] |",
+            "| Helm | the builds ledger and the live release views |"]
+
+
 def overview_note(s, vault, today):
     """The ela page: the parts, the schedule, the measures and the week's commits written from ela day, the timers and
     git; every other section (Waiting for your word, What changed for MediaHub this week, Known limits, and any the
@@ -2709,13 +2722,7 @@ def overview_note(s, vault, today):
     L = ["# ela", "", f"*The parts, the schedule, the measures and the week's commits are written by the sync from `ela day`, the timers "
          "and git on each sync; the other sections are the desk's, kept as written.*", "",
          "## Measures", ""] + measures(s, vault, today) + [""]
-    L += ["## The parts", "", "| part | what it is |", "|---|---|",
-          f"| ela | {skills} and the `ela` verbs, in every Claude session |",
-          "| ela-runner | the clock, the vault watcher, the Slack front door, the judge sessions |",
-          "| the vault | your desk: Home, the morning page, readings, decisions and plans |",
-          "| elak | facts and knowledge, written on your word |",
-          "| published | the redacted subset Helm and colleagues read; its service map, for your review: [[ela/service-map\\|service map]] |",
-          "| Helm | the builds ledger and the live release views |", ""]
+    L += ["## The parts", ""] + parts_rows(skills) + [""]
     L += ["## The schedule", ""]
     timers = run_out(["systemctl", "--user", "list-timers", "--all", "--no-legend", "--no-pager"])
     rows = []

@@ -36,6 +36,9 @@ check("a Slack permalink in a page stays whole; Slack's <url|text> becomes a Mar
 import ast, collections  # noqa: E402
 _named = collections.Counter(t.id for n in ast.parse(open(V.__file__, encoding="utf-8").read()).body if isinstance(n, ast.Assign)
                              for t in n.targets if isinstance(t, ast.Name) and t.id.isupper())
+_vrow = next(r for r in V.parts_rows("1 skill") if r.startswith("| the vault |"))
+check("the overview's vault row names today.md, project pages, release lines and meetings, not Home or the morning page",
+      all(w in _vrow for w in ("today.md", "projects/", "release line", "meetings/")) and "Home" not in _vrow and "morning page" not in _vrow)
 check("no module constant in vault.py is assigned twice (a second SLACK_LINK broke every permalink)",
       [k for k, v in _named.items() if v > 1] == [])
 
