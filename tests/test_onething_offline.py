@@ -228,6 +228,17 @@ check("month page: the current month's unpasted rows in the table and the copy b
       and "\n- [ ] pasted 2026-11-03\n" in page and "2026/11/02" not in page.split("## Earlier months")[0])
 check("month page: earlier months' unpasted rows under their own heading with their tab",
       "## Earlier months" in page and "> Tab 2026.10月." in page.split("## Earlier months")[1] and "- [ ] pasted 2026-10-13" in page)
+O.put_day(R, {"date": "2026-10-14", "rows": [O.new_row(1, "Assessed the open 2.1 tickets (MH-3855, MH-3820, MH-3829) and promoted build 78 for MH-3800")],
+              "drafted_at": "x", "source_errors": []}, force=True)
+old_page = O.month_page(R, datetime.date(2026, 11, 3), "https://j", "MH", "Owner")[0]
+check("a stored row's run of keys reads as its count in the table; the copy block keeps the row whole",
+      "| 2026-10-14 | 1 | Assessed the open 2.1 tickets (3 tickets) and promoted build 78 for [MH-3800](https://j/browse/MH-3800) |" in old_page
+      and "> MH\tOwner\t2026/10/14\tAssessed the open 2.1 tickets (MH-3855, MH-3820, MH-3829) and promoted" in old_page)
+run_spec = os.path.join(R, "run.json")
+json.dump({"rows": [{"date": "2026-11-20", "text": "Closed MH-1, MH-2, MH-3"}]}, open(run_spec, "w"))
+check("a drafted row with a run of keys is refused; a pair with words is not a run",
+      exit_code(O.cmd_render, argparse.Namespace(env_file=None, reports=R, rows=run_spec, out=None, force=False)) == 2
+      and O.key_run("Closed MH-1 and MH-2, then MH-3") is None)
 check("month page: nothing at all without a store", O.month_page(tempfile.mkdtemp(), datetime.date(2026, 11, 3), "https://j", "MH", "Owner") == (None, 0))
 check("month page: no rows left says so and keeps the page", "Every drafted row is on the sheet" in O.month_page(R, datetime.date(2026, 12, 1), "https://j", "MH", "Owner")[0]
       if not any(not r["pasted"] for d in O.all_entries(R) for r in d["rows"]) else True)

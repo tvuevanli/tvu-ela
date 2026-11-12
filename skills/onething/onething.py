@@ -295,6 +295,24 @@ def link_keys(text, base):
     return "".join(p if p.startswith("[") else KEY.sub(lambda m: f"[{m.group(0)}]({base}/browse/{m.group(0)})", p) for p in parts)
 
 
+KEY_RUN = re.compile(r"\(?(?<![\w-])[A-Z][A-Z0-9]{1,9}-\d+(?:[\s,;/、]+[A-Z][A-Z0-9]{1,9}-\d+){2,}\)?")
+
+
+def key_run(text):
+    """The first run of three or more ticket keys with only punctuation between them, or None. A row names the work;
+    a run of keys cannot be read without opening Jira (the vault's note standards: a key never stands alone)."""
+    m = KEY_RUN.search(text or "")
+    return m.group(0) if m else None
+
+
+def reading(text):
+    """A stored row as a page's table shows it: a run of keys reads as its count. The row itself is untouched, and the
+    Copy to the sheet block beside the table carries it whole, so a row drafted before the rule, or reworded by the
+    owner, still pastes as written."""
+    return KEY_RUN.sub(lambda m: ("(" if m.group(0).startswith("(") else "") + f"{len(KEY.findall(m.group(0)))} tickets"
+                       + (")" if m.group(0).endswith(")") else ""), text)
+
+
 def plain(text):
     """A row as the sheet takes it: links to their text, wiki links to their name, table escapes undone."""
     text = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", text)
@@ -405,7 +423,7 @@ def block(entry, base, project, who):
     date, rows = entry["date"], entry["rows"]
     L = [f"{BLOCK_TITLE}{weekday(date)} {date}", "", BLOCK_HEAD, "|---|---|---|"]
     for r in rows:
-        L.append(f"| {r['n']} | {date} | {link_keys(r['text'].replace('|', chr(92) + '|'), base)} |")
+        L.append(f"| {r['n']} | {date} | {link_keys(reading(r['text']).replace('|', chr(92) + '|'), base)} |")
     ev = [r["evidence"] for r in rows if r.get("evidence")]
     if ev:
         L += ["", "> [!note]- Evidence"] + [f"> {e}" for e in dict.fromkeys(ev)]
@@ -437,7 +455,7 @@ def month_page(reports, today, base, project, who):
         tabs = sorted({tab_name(d[:7]) for d, _ in rows})
         S = [BLOCK_HEAD.replace("# | date", "date | #"), "|---|---|---|"]
         for d, r in rows:
-            S.append(f"| {d} | {r['n']} | {link_keys(r['text'].replace('|', chr(92) + '|'), base)} |")
+            S.append(f"| {d} | {r['n']} | {link_keys(reading(r['text']).replace('|', chr(92) + '|'), base)} |")
         lines = copy_lines(project, who, [(r["n"], d, plain(r["text"])) for d, r in rows])
         S += [""] + copy_fold(tabs, lines, label) + [""]
         S += [f"- [ ] pasted {d}" + (f" {r['n']}" if sum(1 for x, _ in rows if x == d) > 1 else "") for d, r in rows]
@@ -532,6 +550,10 @@ def cmd_render(a):
     for r in spec.get("rows") or []:
         if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", r.get("date", "")) or not (r.get("text") or "").strip():
             die(f"a row needs date YYYY-MM-DD and text: {r}", EX_USAGE)
+        run = key_run(r["text"]) or key_run(r.get("evidence") or spec.get("evidence") or "")
+        if run:                                         # a draft, not his rewording (apply_lines takes his words as written)
+            die(f"{r['date']}: a run of ticket keys with no words between them ({run}): name the work and keep a key only "
+                "where the ticket is the point; in the evidence, say what happened on each ticket", EX_USAGE)
     today = datetime.datetime.now(TZ).date().isoformat()
     if a.out:                                           # a vault note on request, as before the store
         sheet = setting(a, "ONETHING_SHEET")

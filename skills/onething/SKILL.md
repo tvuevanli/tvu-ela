@@ -98,7 +98,10 @@ many dates writes one entry per date; a date already drafted stops the whole wri
 4. **One row a day, at most three works, joined by " / ".** The team writes this way. *Why:* the sheet stays
    scannable, and one `pasted` box says the day is done.
 5. **English, short, verb-first.** Keep a ticket key where the ticket is the point; it is a link in the vault and plain
-   text on the sheet. *Why:* the sheet is read in a glance; a row never carries a link there.
+   text on the sheet. Never three or more keys in a run, in the row or in its evidence: the row names the work ("assessed
+   the open 2.1 tickets"), the evidence says what happened on each ticket; `render` refuses a draft that carries one.
+   *Why:* the sheet is read in a glance; a row never carries a link there, and a run of keys tells its reader nothing
+   without Jira open (the vault's note standards, the key and title rule of 2026-11-12).
 6. **No evidence, no row.** A day with nothing of his in either source is named under `left_out` with why, never filled
    in. If `errors` is not empty, a day is not "nothing of yours": say which source was not read. *Why:* an invented row
    is worse than a missing one, and a gap is not an absence.
