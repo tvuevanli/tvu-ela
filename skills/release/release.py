@@ -1534,16 +1534,45 @@ def service_move(v):
     return f"{v['from']} → {v['to']}" if v.get("from") else f"→ {v['to']}"
 
 
-def build_note(rec, reading=None, tickets=None):
+def job_number(runtime, job, version):
+    """The Jenkins number of a job's newest successful build of `version`, from the fact store's builds
+    (<runtime>/facts/builds/<job>.json); None when the store does not hold it."""
+    try:
+        rows = json.load(open(os.path.join(runtime or "", "facts", "builds", f"{job}.json"), encoding="utf-8")).get("builds") or []
+    except (OSError, ValueError, AttributeError):
+        return None
+    want = str(version or "").lstrip("v")
+    hits = [r["number"] for r in rows if str(r.get("version") or "").lstrip("v") == want and r.get("result") == "SUCCESS" and r.get("number")]
+    return max(hits) if hits else None
+
+
+def helm_compare(rec, runtime, helm):
+    """{service: Helm's compare view from the job's build of `from` to its build of `to`}; a service whose job or
+    either build number is unknown has none. `helm` is the site's Helm URL (site.json helm_local_url)."""
+    if not helm:
+        return {}
+    jobs = {slug: job for job, slug in (rmap("jobs") or {}).items()}
+    out = {}
+    for v in rec.get("services") or []:
+        job = jobs.get(reconcile_mod().slug_of(v.get("service")) or "")
+        a, b = (job_number(runtime, job, v.get("from")), job_number(runtime, job, v.get("to"))) if job and v.get("from") else (None, None)
+        if a and b and a != b:
+            out[v["service"]] = f"{helm.rstrip('/')}/builds/compare?from={job}-{a}&to={job}-{b}"
+    return out
+
+
+def build_note(rec, reading=None, tickets=None, compare=None):
     """The release note's body: the title, where it came from, then per service its section — the version move and
     what for, then one line per ticket it carries (key, title, status, assignee) — then the record's notes and the
-    Jira gaps `ela release reconcile` last read (nothing when there is none). `tickets`: {key: ticket_facts}. Keys
+    Jira gaps `ela release reconcile` last read (nothing when there is none). `tickets`: {key: ticket_facts};
+    `compare`: {service: Helm's compare link}, put at the end of the service's line. Keys
     are left bare for the vault's linker; a key never stands alone."""
     tickets = tickets or {}
     L = [f"# {build_title(rec)}", ""]
     L.append(f"*{rec.get('lane_name') or rec['lane']}, {rec['date']}." + (f" Source: {rec['source']}." if rec.get("source") else "") + "*")
     for v in rec["services"]:
-        L += ["", f"## {v['service']}", "", f"{service_move(v)} · {' '.join(str(v['for']).split())}"]
+        link = (compare or {}).get(v["service"])
+        L += ["", f"## {v['service']}", "", f"{service_move(v)} · {' '.join(str(v['for']).split())}" + (f" · [compare]({link})" if link else "")]
         keys = v.get("keys") or []
         if keys:
             L += [""] + [f"- {ticket_line(k, tickets.get(k))}" for k in keys]

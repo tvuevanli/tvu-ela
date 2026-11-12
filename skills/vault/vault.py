@@ -691,7 +691,7 @@ def elak_notes(elak):
     return notes, titles
 
 
-def report_notes(reports, today, runtime=None):
+def report_notes(reports, today, runtime=None, helm=None):
     if not reports or not os.path.isdir(reports):
         raise SourceError(f"the reports root is missing: {reports}")
     notes = []
@@ -715,7 +715,7 @@ def report_notes(reports, today, runtime=None):
         R = release_mod()
         reading = R.reconcile_mod().saved_reading(reports, rec)   # its Jira gaps, as `ela release reconcile` last read them
         tickets = R.facts_tickets(runtime, [k for v in rec["services"] for k in v.get("keys") or []])
-        notes.append(Note(f"{RELEASES}/{rec['line']}/{rec['name']}.md", R.build_title(rec), R.build_note(rec, reading, tickets),
+        notes.append(Note(f"{RELEASES}/{rec['line']}/{rec['name']}.md", R.build_title(rec), R.build_note(rec, reading, tickets, R.helm_compare(rec, runtime, helm)),
                           {"type": "report", "date": rec["date"], "status": "decided", "source": "vault",
                            "keys": sorted({k for v in rec["services"] for k in v.get("keys") or []})}, [],
                           src_rel=f"releases/{rec['line']}/{rec['name']}.json"))
@@ -725,7 +725,7 @@ def report_notes(reports, today, runtime=None):
     if os.path.isfile(lp):                                 # the lanes, their differences and two weeks of moves, rewritten each pass
         fl, body = split_front(open(lp, encoding="utf-8").read())
         dm = re.search(r"\*(\d{4}-\d{2}-\d{2})", body)
-        body = layout5_links(body)
+        body = lanes_live(layout5_links(body), helm)
         notes.append(Note(LANES_PAGE, "The lanes", body, {"type": "lanes", "date": dm.group(1) if dm else None}, fl, src_rel="lanes/lanes.md"))
     on = onething_note(reports, today)
     if on:                                                 # his One Thing rows not yet pasted, rendered from the store each sync
@@ -779,6 +779,22 @@ def report_notes(reports, today, runtime=None):
                 props["keys"] = [deep.group(1).upper()]
             notes.append(Note(path, title, body, props, fl, src_rel=f"{sub + '/' if sub else ''}{f}"))
     return notes
+
+
+def lanes_live(body, helm):
+    """The lanes page with, under each line's heading, its lanes' live views in Helm (`/lanes/<lane>`), in the heading's
+    order; the page as it is without a Helm URL or a line the release map does not know."""
+    if not helm:
+        return body
+    lines = (release_mod().rmap("lines") or {})
+
+    def live(m):
+        lanes = (lines.get(m.group(1)) or {}).get("lanes") or {}
+        order = [lanes[r] for r in ("prod", "daily", "qa") if lanes.get(r)]
+        if not order:
+            return m.group(0)
+        return m.group(0) + "\n\nlive: " + " · ".join(f"[{l}]({helm.rstrip('/')}/lanes/{l})" for l in order)
+    return re.sub(r"(?m)^## Line ([\d.]+) · .*$", live, body)
 
 
 def release_mod():
@@ -4320,7 +4336,7 @@ def services_note(s, vault, today):
 def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since=None, dry_run=False, questions=None):
     reports = s.get("reports")
     enotes, titles = elak_notes(s.get("elak"))
-    notes = report_notes(reports, today, s.get("runtime")) + enotes      # the constraints page is retired (ADR 0015); `ela promote` reads the pins
+    notes = report_notes(reports, today, s.get("runtime"), s.get("helm_local_url")) + enotes      # the constraints page is retired (ADR 0015); `ela promote` reads the pins
     vnotes, files = verify_notes(reports, today)
     notes += vnotes + verify_plan_notes(reports, vnotes)
     # what the owner deleted is not written, linked or listed; matched by source too, so a new layout keeps it deleted
@@ -4771,17 +4787,17 @@ def release_note_merge(disk, fresh, services):
     return ("---\n" + "\n".join(fl) + "\n---\n" if fl else "") + new
 
 
-def release_body(rec, props, title, reports, runtime, linker=None):
+def release_body(rec, props, title, reports, runtime, linker=None, helm=None):
     """A build note's body as the vault shows it: the record rendered with its tickets from the fact store and the
     reading reconcile kept, the meta line under the title, keys linked."""
     R = release_mod()
     keys = [k for v in rec["services"] for k in v.get("keys") or []]
-    body = R.build_note(rec, R.reconcile_mod().saved_reading(reports, rec), R.facts_tickets(runtime, keys))
+    body = R.build_note(rec, R.reconcile_mod().saved_reading(reports, rec), R.facts_tickets(runtime, keys), R.helm_compare(rec, runtime, helm))
     body = unwrap(callouts(meta_line(Note("", title, tidy_title(body), props, []))))
     return linker(body) if linker else body
 
 
-def release_notes_native(vault, reports, runtime, linker=None, dry_run=False):
+def release_notes_native(vault, reports, runtime, linker=None, dry_run=False, helm=None):
     """Each build's release note, once the vault holds it (source vault), keeps ela's part current from its record:
     the services with their tickets in words and the Jira gaps; Afterwards and his own sections stay. → paths changed."""
     R = release_mod()
@@ -4800,7 +4816,7 @@ def release_notes_native(vault, reports, runtime, linker=None, dry_run=False):
         if is_done(props):                                 # marked done: the copy on disk is the record, never written again
             continue
         fresh = release_body(rec, {"type": props.get("type") or "report", "date": rec["date"], "status": props.get("status") or "decided"},
-                             R.build_title(rec), reports, runtime, linker)
+                             R.build_title(rec), reports, runtime, linker, helm)
         new = release_note_merge(text, fresh, [v["service"] for v in rec["services"]])
         if new is not None and new != text:
             out.append(rel)
@@ -5756,7 +5772,8 @@ def cmd_sync(a):
     jb = next((l.split("=", 1)[1].strip().rstrip("/") for l in open(env) if l.startswith("JIRA_BASE_URL=")), "") \
         if env and os.path.isfile(env) else ""
     release_notes_native(vault, s.get("reports") or "", s.get("runtime") or "",       # a build's note: ela's part current
-                         Linker({}, {}, jb, project_keys(env, s.get("runtime")) or [], s.get("reports")) if jb else None, a.dry_run)
+                         Linker({}, {}, jb, project_keys(env, s.get("runtime")) or [], s.get("reports")) if jb else None, a.dry_run,
+                         s.get("helm_local_url"))
     ensure_native_moves(vault, a.dry_run)
     # a task its source already ticked is not his choice; recorded so the guidance verb tells the two apart
     source_ticks = {r: [m.group(1) for m in TICKED.finditer(t)] for r, t in planned.items() if r.endswith(".md") and TICKED.search(t)}

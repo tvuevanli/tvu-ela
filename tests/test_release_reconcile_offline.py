@@ -195,6 +195,26 @@ with tempfile.TemporaryDirectory() as tmp:                 # a held note he mark
     check("a held note not done is brought up to date", V.release_notes_native(os.path.join(tmp, "vault"), os.path.join(tmp, "reports"), tmp)
           == ["releases/2.1/2026-11-11-build-91-to-qa-aws3.md"])
 
+# ── Helm's deep links: a compare per service row, a live view per lane (the site's Helm URL, never in a tracked file) ──
+with tempfile.TemporaryDirectory() as tmp:
+    os.makedirs(os.path.join(tmp, "facts", "builds"))
+    json.dump({"builds": [{"number": 382, "version": "2.1.91", "result": "SUCCESS"}, {"number": 381, "version": "2.1.90", "result": "SUCCESS"},
+                          {"number": 383, "version": "2.1.91", "result": "FAILURE"}]},
+              open(os.path.join(tmp, "facts", "builds", "ur-caller.json"), "w"))
+    links = R.helm_compare(record("91"), tmp, "https://helm.test/")
+    check("UR Caller's row compares its job's build of the old version with the new one; no number, no link",
+          links == {"UR Caller": "https://helm.test/builds/compare?from=ur-caller-381&to=ur-caller-382"})
+    note = R.build_note(record("91"), compare=links)
+    check("the link is short and at the end of the service's line",
+          "\n2.1.90 → 2.1.91 · SCTE off switch, overlay cleanup and 4K buffering, operator logging, YouTube readiness, CSC via MQTT"
+          " · [compare](https://helm.test/builds/compare?from=ur-caller-381&to=ur-caller-382)\n" in note
+          and "[compare]" not in note.split("## MediaHub frontend")[1])
+    check("no Helm URL, no link", R.helm_compare(record("91"), tmp, None) == {})
+page = "# The lanes\n\n## Line 2.1 · prod-3 ← daily-wed ← QA-AWS3\n\n| table |\n\n## Differences\n"
+check("each line's heading gets its lanes' live views, in the heading's order",
+      "## Line 2.1 · prod-3 ← daily-wed ← QA-AWS3\n\nlive: [prod-3](https://h/lanes/prod-3) · [daily-wed](https://h/lanes/daily-wed) · "
+      "[qa-cn3](https://h/lanes/qa-cn3)\n" in V.lanes_live(page, "https://h") and V.lanes_live(page, None) == page)
+
 # ── today.md's build block: service lines without key clusters; the owner's tickets inline ───────────────
 TK = {k: R.ticket_facts(v) for k, v in ISSUES.items()}
 rec91 = dict(record("91"), name="2026-11-11-build-91-to-qa-aws3")
