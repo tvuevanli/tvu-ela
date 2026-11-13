@@ -3,7 +3,7 @@
 read-only toward Slack and Jira; what it writes is its own store, a local draft, and dry-run batches through dry.py.
 
 A mention is triaged as an ask (a question, a request, a decision put to him), an incident (a prod failure addressed to
-him) or a notice (a bot's "ready to test", an FYI, a cc). On an ask ela reads the thread, gathers the facts and waits:
+him) or a notice (a bot's "ready to test", an FYI, a cc, an announcement to many that asks him nothing alone). On an ask ela reads the thread, gathers the facts and waits:
 he usually answers himself. A reply of his closes the mention, and what that reply commits to is prepared as dry runs
 under the action classes of `ela dry`. Unanswered after the wait window, the mention earns one message to him: the ask
 in a sentence, the facts, a reply drafted for him to paste, and A use this draft · B I will write it · C nothing
@@ -47,6 +47,7 @@ EX_USAGE, EX_NOTFOUND, EX_REMOTE = 2, 3, 5
 MENTION_WAIT_MIN = 30                          # the wait before ela tells him (his choice of 2026-11-12)
 DM_HOURS = ("08:30", "19:00")                  # the default when the day file names none
 FACT_LINES = 5
+BROADCAST_MIN = 6                              # people tagged in one message from which it reads as an announcement
 KEY_RX = re.compile(r"(?<![A-Za-z0-9_-])([A-Z][A-Z0-9]{1,9}-[1-9]\d{0,5})(?![0-9])")
 TAG = r"<@[A-Z0-9]+(?:\|[^>]*)?>"
 PERMALINK_RX = re.compile(r"/archives/([A-Z0-9]+)/p(\d{10})(\d{6})(?:\?[^\s>|]*?thread_ts=(\d+\.\d+))?")
@@ -68,11 +69,12 @@ REASONS = {
     "question": "asks or requests something of him",
     "bare-mention": "names him with no words of its own (a file or the message above is the ask)",
     "addressed": "names him in a statement; no rule calls it a notice",
+    "broadcast": "tags many people and puts no question to him alone",
     "bot-notice": "a bot's announcement that asks nothing",
     "fyi-tail": "names him only in the tags before an FYI",
     "cc-tail": "names him only in a cc",
 }
-KIND_OF = {"incident": "incident", "question": "ask", "bare-mention": "ask", "addressed": "ask",
+KIND_OF = {"incident": "incident", "question": "ask", "bare-mention": "ask", "addressed": "ask", "broadcast": "notice",
            "bot-notice": "notice", "fyi-tail": "notice", "cc-tail": "notice"}
 RANK = {"notice": 0, "ask": 1, "incident": 2}
 
@@ -92,6 +94,8 @@ def triage(text, me, bot=False, channel=""):
     text = re.sub(r"<(?:https?|mailto)[^>]*>|https?://\S+", " ", text)   # a link's own `?` asks nothing
     if (PROD_RX.search(text) or (channel or "").lower().startswith("prod")) and INCIDENT_RX.search(text):
         return "incident", "incident"
+    if len(set(re.findall(r"<@([A-Z0-9]+)", text))) >= BROADCAST_MIN and not asked_alone(text, me):
+        return "notice", "broadcast"                      # an announcement to many: its "please" is not put to him
     if ASK_RX.search(text):
         return "ask", "question"
     if bot:
@@ -99,6 +103,19 @@ def triage(text, me, bot=False, channel=""):
     if not re.sub(TAG + r"|<[^>]+>|\s", "", text):
         return "ask", "bare-mention"
     return "ask", "addressed"
+
+
+def asked_alone(text, me):
+    """Whether a message puts a question to him alone: a stretch of it (a sentence that tags someone, with the
+    untagged sentences after it) tags nobody but him and asks."""
+    scopes = []
+    for s in sentences(text):
+        tags = set(re.findall(r"<@([A-Z0-9]+)", s))
+        if tags or not scopes:
+            scopes.append([tags, s])
+        else:
+            scopes[-1][1] += "\n" + s
+    return any(tags == {me} and ASK_RX.search(s) for tags, s in scopes)
 
 
 # ── the site, the day, the stores ─────────────────────────────────────────────────────────────────────────────

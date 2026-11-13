@@ -46,6 +46,16 @@ check("a statement that names him is an ask", T(f"this customer is with <@{ME}>,
 check("prod and a failure, addressed to him: an incident", T(f"<@{ME}> prod-3 is down, every graph fails to start") == ("incident", "incident"))
 check("a failure in a prod channel is an incident", T(f"<@{ME}> the encoder crashed for the customer", ch="prod-mediahub") == ("incident", "incident"))
 check("an incident he is only copied on is a notice", T(f"prod-3 is down, <@U0X> is on it. cc <@{ME}>") == ("notice", "cc-tail"))
+# an announcement to many is a notice; a question put to him alone among them stays an ask
+MANY = " ".join(f"<@U0P{i}>" for i in range(11))
+check("an announcement tagging many, its requests put to nobody in particular, is a notice",
+      T(f"<@{ME}> {MANY}\nThis plugin reads the UR logs. No access? please ask <@U0ADM>. Questions: please reply in this thread.") == ("notice", "broadcast"))
+check("the same crowd, and a question naming him alone, is an ask",
+      T(f"{MANY}\nThe plugin is out.\n<@{ME}> can you confirm the prod token policy?") == ("ask", "question"))
+check("a question to the whole crowd is still a notice", T(f"<@{ME}> {MANY} can you all try it?") == ("notice", "broadcast"))
+check("a request to four people is an ask, as before", T(f"<@U0A> <@U0B> <@{ME}> <@U0C>\nPlease provide the list of addresses.") == ("ask", "question"))
+check("prod down, addressed to many, is an incident still", T(f"<@{ME}> {MANY} prod-3 is down, every graph fails") == ("incident", "incident"))
+check("the reason is in the closed vocabulary, a notice", M.KIND_OF["broadcast"] == "notice" and "broadcast" in M.REASONS)
 
 OWNER = "owner@example.com"
 def para(text):
