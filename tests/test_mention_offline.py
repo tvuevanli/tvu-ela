@@ -266,6 +266,28 @@ with tempfile.TemporaryDirectory() as tmp:
     M.settle_hours(recs, DAY, at(9, 0, 19), R)
     check("an ask open more than three working days is closed as expired, kept", recs[a7]["state"] == "closed" and "expired" in recs[a7]["closed"]["why"])
 
+    # a closed mention withdraws the Slack action drafted for its thread: his own reply, his C
+    t11, t12 = [msg(ts(10, 0, 16), ASKER, f"<@{ME}> is the kit on qa2?")], [msg(ts(10, 5, 16), ASKER, f"<@{ME}> can you ack?")]
+    walk(CH, t11, at(10, 1, 16)); walk(CH, t12, at(10, 6, 16))
+    a11, a12 = f"{CH}-{ts(10, 0, 16)}", f"{CH}-{ts(10, 5, 16)}"
+    os.makedirs(os.path.join(R, "runner"))
+    AF = os.path.join(R, "runner", "2026-11-16-actions.json")
+    json.dump([{"n": 1, "kind": "slack", "command": f"ela slack post '{M.permalink(CH, ts(10, 3, 16), ts(10, 0, 16))}' --text 'Yes.'"},
+               {"n": 2, "kind": "slack", "command": f"ela slack post {M.permalink(CH, ts(10, 5, 16))} --text 'Got it.'"},
+               {"n": 3, "kind": "slack", "command": f"ela slack post {M.permalink(CH, ts(10, 0, 16))} --text 'sent'", "applied": "2026-11-16T10:02:00+08:00"},
+               {"n": 4, "kind": "slack", "command": f"ela slack post {M.permalink(CH, ts(9, 0, 16))} --text 'another thread'"},
+               {"n": 5, "kind": "comment", "command": "ela jira comment MH-3842 --from-file x"}], open(AF, "w"))
+    walk(CH, t11 + [msg(ts(10, 20, 16), ME, "Yes, since build 92.")], at(10, 21, 16))
+    M.save(R, recs)
+    M.answer(R, a12, "C", ctx, at(10, 40, 16))
+    recs = M.load(R)
+    acts = {x["n"]: x for x in json.load(open(AF))}
+    check("his reply and his C each mark the drafted Slack action for that thread superseded, with why",
+          "own reply" in acts[1]["superseded"]["by"] and a11 in acts[1]["superseded"]["by"] and "C on mention" in acts[2]["superseded"]["by"]
+          and recs[a11]["superseded"] == [{"file": "2026-11-16-actions.json", "n": 1}])
+    check("an applied action, another thread's and a Jira action are left alone", not any("superseded" in acts[n] for n in (3, 4, 5)))
+    check("on request it finds nothing more to mark", M.supersede(R, recs[a11], "again", at(10, 50, 16)) == [])
+
     # the commitments reader
     C = lambda s: [c["class"] for c in M.commitments(s)[0]]
     check("Chinese vocabulary maps to the same classes", C("我来关联到 MH-1。") == ["link-named"] and C("更新一下父票的状态") == ["parent-status"]

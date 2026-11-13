@@ -8,7 +8,8 @@ he usually answers himself. A reply of his closes the mention, and what that rep
 under the action classes of `ela dry`. Unanswered after the wait window, the mention earns one message to him: the ask
 in a sentence, the facts, a reply drafted for him to paste, and A use this draft · B I will write it · C nothing
 needed. ela never posts the reply. An incident sends its facts at once and drafts nothing; a notice is recorded and
-never raised. Outside his hours nothing is sent: the mention takes an ask slot on today.md.
+never raised. Outside his hours nothing is sent: the mention takes an ask slot on today.md. When a mention closes, a
+drafted Slack action aimed at the same thread in the runner's actions file is marked superseded.
 
   scan    [--since 24h] [--json]          the Slack fact store read for mentions of him: new ones recorded and
                                           triaged, his replies noticed, what is now to do listed (the pass calls this)
@@ -26,6 +27,8 @@ never raised. Outside his hours nothing is sent: the mention takes an ask slot o
   sent    <id> [--ts T]                   the runner's word that the message reached him
   answer  <id|dm ts> <A|B|C> [--json]     his letter: A prepares the draft's dry runs by class, B leaves it to him,
                                           C closes it and counts against the triage of that kind of message
+  supersede <id> [--why T] [--json]       the drafted, unapplied Slack actions aimed at this mention's thread in
+                                          <reports>/runner/*-actions.json, marked superseded (the closes do it too)
   follow  <id> [--fresh] [--json]         his reply read again for what it commits to (a session's second look)
   close   <id> [--why T]                  closed on his word
   asks    [--json]                        the mentions that take an ask slot on today.md (held outside his hours)
@@ -408,6 +411,38 @@ def replied(recs, reports, rid, ts, text, how, now):
     elif r["state"] in ("waiting", "incident"):
         r["state"] = "replied"
     log(reports, {"at": iso(now), "id": rid, "reason": r["reason"], "outcome": "replied", "how": how})
+    supersede(reports, r, f"the owner's own reply in the thread at {r['replied_at'][5:16].replace('T', ' ')} (mention {rid})", now)
+
+
+# ── a closed mention withdraws what was drafted for its thread ────────────────────────────────────────────────
+ACTION_DONE = ("applied", "by_owner", "vetoed", "failed", "dry_run", "superseded", "cancelled")
+
+
+def supersede(reports, r, why, now):
+    """Mark `superseded` ({by, at}) each drafted, unapplied Slack action in the runner's actions files that is aimed
+    at this mention's thread: once the mention is closed, a reply drafted for the same thread would post twice. The
+    file is read again and replaced whole, as the runner does. → [{file, n}], also kept on the record."""
+    keys, out = {r["thread_ts"]} | {m["ts"] for m in r.get("mentions") or []}, []
+    if not reports:
+        return out
+    for path in sorted(glob.glob(os.path.join(reports, "runner", "*-actions.json"))):
+        acts = read_json(path)
+        hit = []
+        for a in acts if isinstance(acts, list) else []:
+            cmd = a.get("command") or "" if isinstance(a, dict) else ""
+            if not cmd or not (a.get("kind") == "slack" or " slack post " in f" {cmd}") or any(a.get(k) for k in ACTION_DONE):
+                continue
+            pl = parse_permalink(cmd)
+            if pl and pl[0] == r["channel"] and {pl[1], pl[2]} & keys:
+                a["superseded"] = {"by": why, "at": iso(now)}
+                hit.append(a.get("n"))
+        if hit:
+            atomic_write(path, json.dumps(acts, ensure_ascii=False, indent=1))
+            out += [{"file": os.path.basename(path), "n": n} for n in hit]
+    if out:
+        r.setdefault("superseded", []).extend(out)
+    return out
+
 
 
 # ── what is to do now ─────────────────────────────────────────────────────────────────────────────────────────
@@ -791,6 +826,7 @@ def answer(reports, ref, letter, ctx=None, now=None):
     r["answer"] = {"letter": letter, "at": iso(now)}
     if letter == "C":
         r.update(state="closed", closed={"at": iso(now), "why": "nothing needed (his C)"})
+        supersede(reports, r, f"the owner's C on mention {rid}: nothing needed", now)
     else:
         r["state"] = "answered"
         if letter == "A" and ctx:
@@ -983,8 +1019,19 @@ def cmd_close(a):
     r = find(recs, a.ref)
     r.update(state="closed", closed={"at": iso(now), "why": a.why or "his word"})
     log(r_["reports"], {"at": iso(now), "id": r["id"], "reason": r["reason"], "outcome": "closed"})
+    supersede(r_["reports"], r, f"mention {r['id']} closed on the owner's word" + (f": {a.why}" if a.why else ""), now)
     save(r_["reports"], recs)
     print(line_of(r))
+
+
+def cmd_supersede(a):
+    r_ = roots(a)
+    recs, now = load(r_["reports"]), now_of(a)
+    r = find(recs, a.ref)
+    got = supersede(r_["reports"], r, a.why or f"mention {r['id']} is closed ({line_of(r).rsplit(' · ', 1)[-1]})", now)
+    save(r_["reports"], recs)
+    emit(a, {"id": r["id"], "thread": f"{r['channel']}/{r['thread_ts']}", "superseded": got},
+         [f"{x['file']} action {x['n']}: superseded" for x in got] or ["no drafted Slack action is aimed at that thread"])
 
 
 def cmd_asks(a):
@@ -1030,6 +1077,7 @@ def main():
     verb("sent", cmd_sent, "ref", (("--ts",), {}), json_=False, now=True)
     verb("answer", cmd_answer, "ref", (("letter",), {"choices": list("ABCabc")}), now=True)
     verb("follow", cmd_follow, "ref", fresh)
+    verb("supersede", cmd_supersede, "ref", (("--why",), {}), now=True)
     verb("close", cmd_close, "ref", (("--why",), {}), json_=False, now=True)
     verb("asks", cmd_asks)
     verb("waiting", cmd_waiting)
