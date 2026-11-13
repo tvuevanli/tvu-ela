@@ -41,6 +41,11 @@ Read `~/.claude/ela/site.json` → `env`, `map`, `elak`, `published`. The Jira l
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/skills/brief/brief.py" --env-file <env> lanes --json   # or: ela brief --json
 ```
+Fields come out of that file, and out of any verb's `--json`, with `ela pick`, never an interpreter one-liner:
+`ela pick --file <date>-brief.json` prints the shape, `ela pick 'lanes[].@key' .count --file <date>-brief.json` one
+line per lane, `ela pick 'lanes.cadence.rows[].key' .status .assignee .flag --file …` one tab-separated line per row,
+`ela pick --file <date>-actions.json --where n=3` one action whole (`ela pick --help`: `[N]`, `[A:B]`, `**`,
+`--where K=V|K!=V|K~V`, `--count`, `--max N`).
 For the per-row follow-ups (§1a, §1b, drafted actions) and the Slack lanes, bind:
 ```bash
 JIRA="python3 ${CLAUDE_PLUGIN_ROOT}/skills/jira/jira.py --env-file <env>"

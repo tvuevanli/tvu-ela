@@ -115,6 +115,10 @@
   ela session list                 the sessions on this machine, newest first: name, cwd, started, ended, purpose
   ela sessions <word>…             earlier sessions on this machine whose first prompt or final
                                    answer carries every word
+  ela pick <path>… [--file F]      fields out of JSON, from a verb's --json on stdin or a file, with no interpreter:
+                                   no path prints the shape; rows[].key .status one tab-separated line per row;
+                                   [N] [A:B] [] ** @key; --where K=V|K!=V|K~V, --count, --shape, --max N; a file
+                                   in the site directory is refused · ela brief --json | ela pick lanes[].@key .count
 
 协调 — facts and drafts for the team
   ela brief [--lane L]             the morning brief's Jira lanes, flags computed: cadence ·
@@ -289,6 +293,7 @@ VERBS = {
     "browser": ("browser", None),
     "testlist": ("testlist", "list"), "devlist": ("testlist", "dev"),
     "verify": ("verify", "report"), "verify-plan": ("verify", "plan"),
+    "pick": ("pick", None),
 }
 PROMOTE_SUBS = {"lanes", "commits", "delta", "tickets", "evidence", "bundles", "report", "compare-helm", "constraints", "close", "plan"}
 
@@ -304,7 +309,7 @@ def run(cap, args, env_file):
     script = os.path.join(ROOT, "skills", cap, f"{cap}.py")
     if not os.path.isfile(script):
         sys.exit(f"capability {cap} has no script yet ({script})")
-    argv = ["python3", script, "--env-file", env_file, *args] if cap not in ("map", "reports", "publish", "stream", "runtime", "sessions") else ["python3", script, *args]
+    argv = ["python3", script, "--env-file", env_file, *args] if cap not in ("map", "reports", "publish", "stream", "runtime", "sessions", "pick") else ["python3", script, *args]
     os.execvp(argv[0], argv)
 
 

@@ -163,7 +163,8 @@ its row and named as not covered, but does not decide the verdict: the ticket is
 
 1. **The QA record, rendered, not written** — the run leaves `<runtime>/browser/runs/<KEY>-<date>/` holding
    `ticket.json`, `plan.json` (the confirmed goals, each with `kind`), `env.json` (`ela browser env --json`),
-   `cases.json` (`ela browser run --json`), `ancestry.json`, `technique.json` and `shots/` (the gate's `version-panel.png` among them);
+   `cases.json` (`ela browser run --json`), `ancestry.json`, `technique.json` and `shots/` (the gate's `version-panel.png` among them;
+   a field of any of these files: `ela pick <path> --file <file>`, a test-list row: `ela testlist --lane <lane> --json | ela pick 'rows[]' --where ticket=<KEY>`);
    `ela verify --key <KEY> --run <dir> --pdf <dir>/<KEY>-verify-<date>.pdf --single <reports>/verify/<KEY>-<date>/record.html`
    renders the page under
    `<reports>/verify/<KEY>-<date>/` for the owner (publishable as a private artifact), `record.html` (the same page with its images embedded, which opens inside the owner's

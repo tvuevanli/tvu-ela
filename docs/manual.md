@@ -104,6 +104,7 @@ flowchart LR
 | 每个 pass 开头把源读一遍（Jira 变更与单票、Slack 频道与 thread、三条固定的邮件搜索、各 lane 版本、Jenkins 与 bundle）进事实库 `<runtime>/facts/`，后面的 brief / changes / matrix / testlist / promote / train / recent 都读库并打印读取时间；想看库的新鲜度和缺口；某个动词要现读源就加它自己的 `--fresh` | `facts` | `ela facts refresh` · `ela facts refresh --source jira --source mail` · `ela facts refresh --fresh` · `ela facts status` · `ELA_FACTS_TRACE=1 ela changes`（每次真实请求打一行） |
 | 一张票的来龙去脉一次查完：Jira 里的关联、和它一起被提到的票（在哪个 thread、哪条评论）、相关 thread（频道、日期、第一行、回复数、部署那一条）、build 和 lane、ela 对它的写（何时、写了什么、哪个 session 或 job、凭谁的话）、vault 里的笔记；每行带出处，顶部写索引的时间。只说"同一个 thread 提到"，不说"修好了" | `links` | `ela links MH-xxxx` · `ela links <thread permalink>` · `ela links qa-cn3/91` · `ela links status` · `ela links rebuild`（索引在 `<runtime>/links/`，每次 `ela facts refresh` 后自动更新） |
 | 找之前那个关于 X 的 session | `sessions` | `ela sessions <word>` |
+| 从某个动词的 `--json` 或一个 JSON 文件里取几个字段（无人值守的 session 不能跑 `python3 -c`，用这个）：不给路径先看形状；点号路径、`[N]`、`[A:B]`、`[]` 遍历、`**` 任意深度、`@key`；多个路径一行一条、tab 分隔；`--where K=V`、`--count`；站点目录和 env 文件拒读 | `pick` | `ela brief --json \| ela pick 'lanes[].@key' .count` · `ela pick --file F` · `ela pick 'rows[].key' .status --where flag=RED --file F` |
 | 开一个 worker session：在目标规则所在的位置，默认是 workers tab 里叠起来的一个 pane（标题是 session 名），`--tab` 单独一个 tab，`--pane` 放在当前 pane 旁边（topic session）；名字被活着的 session 占着就拒绝；结束一个 session；看这台机器上有哪些 session | `session` | `ela session open runner --name runner-dev "brief"` · `ela session open . --name topic-x --pane --brief f.md` · `ela session close runner-dev` · `ela session list` |
 | 看板上哪些票的 fix 早就在 prod 了、哪些到了 QA 还没填 Fixed In、哪些等 QA 说话——按动作分组，一批一批确认；ela 提议的关票（评论 + flag:closing + 转给你）由你在 Jira 里点；你亲口点名的关票，ela 用 `ela jira close KEY --terminal` 一次确认执行 | `stage` | `ela stage --jql 'project = MH AND statusCategory != Done'` · `ela stage MH-2601`（Epic 展开子票） |
 | 一张票要在真实环境的浏览器里按票验一遍，结果要带环境和版本的证明；先看 Fixed In 在哪条 lane，再开浏览器 | `verify` · `browser` | `/ela:verify MH-xxxx --lane prod-3` · `ela browser env --key MH-xxxx --lane prod-3` |
@@ -223,7 +224,7 @@ flowchart LR
 | 级别 | 含义 | 现在有哪些 |
 |---|---|---|
 | 🟢 **能用** | 跑过，结果可信 | 全部感官 · `map` · `publish` · `runtime` · `release`（含 prod，经你的登录）· `promote`（与 Helm 对比零差异）· `team` · `reports` · `setup` · 全部写原子（dry run） |
-| 🟡 **建好了，没验够** | 能跑，但还没证明判断是对的 | `probe`（3 个根因里成了 1 个）· `brief`（两周窗口没开始）· `digest` · `feasible` · `arch` · `ask`（API 凭证未申请）· `logs` 与 `route` 的日志步骤（一个 prod-3 案例跑通）· `configserver`（新建，还没在真实排障里用过）· `j2n`（新建，同上） |
+| 🟡 **建好了，没验够** | 能跑，但还没证明判断是对的 | `pick`（离线测试过，在真实的 brief / actions 文件上跑过；无人值守的 session 还没用过它）· `probe`（3 个根因里成了 1 个）· `brief`（两周窗口没开始）· `digest` · `feasible` · `arch` · `ask`（API 凭证未申请）· `logs` 与 `route` 的日志步骤（一个 prod-3 案例跑通）· `configserver`（新建，还没在真实排障里用过）· `j2n`（新建，同上） |
 | 🔴 **写好了，没真跑过** | 拿它做决定要自己复核 | `mention`（用 11-12 当天真实的 @ 重放过：通知不提醒、他自己回了就不发、没回的出一条 DM 文本；监听和计时在 ela-runner，还没接上）· `explain`（形状在一张票上手工演过，技能本身没跑过）· `revisit`（形状取自 MH-1649 / MH-2798 两张票的手工裁决，技能本身没跑过）· `breakdown`（从没跑过真需求）· `task`（委派链路没实跑过） |
 
 **下一步最该做的一件事**：连续两周把 `/ela:brief` 当早上第一件事读，漏掉的记进 elak 的 `exit-evidence.md`。

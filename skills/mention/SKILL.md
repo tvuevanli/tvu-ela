@@ -27,7 +27,7 @@ today.md with the same options. An ask still open after three working days is cl
 
 ## Drafting the message (`/ela:mention <id|permalink>`, and the runner's draft step)
 
-1. `$MENTION show <ref> --json`, then read the thread first-hand: `ela slack read <permalink>`. Read the tickets it
+1. `$MENTION show <ref> --json` (a field of it: `… --json | ela pick <path>`; no path prints the shape), then read the thread first-hand: `ela slack read <permalink>`. Read the tickets it
    names (`ela jira read KEY`) when the answer turns on them. A summary in the thread is input, not fact.
 2. `$MENTION facts <ref>` gathers the tickets' state, owner and Fixed In and the related threads. A key it could not
    read is named in the facts as not read; do not fill it from memory.

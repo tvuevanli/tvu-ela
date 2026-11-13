@@ -10,7 +10,9 @@ user-invocable: true
 verbs and their flags. `mentions` counts a mention answered when Evan replied after the last one;
 `users` walks the whole workspace, Slack Connect guests included, and takes about a minute.
 
-Every subcommand takes `--json`. `--since` is `48h`, `7d` or `YYYY-MM-DD`. Exit codes: 0 ok · 2 usage ·
+Every subcommand takes `--json`; pick fields from it with `ela pick`, not an interpreter one-liner
+(`$SLACK unanswered --since 7d --json | ela pick 'threads[].permalink' .channel .text --max 160`; no path prints the
+shape). `--since` is `48h`, `7d` or `YYYY-MM-DD`. Exit codes: 0 ok · 2 usage ·
 4 auth · 5 remote error. A channel that will not come down whole is named in `unread_channels` and the rest are
 still reported.
 

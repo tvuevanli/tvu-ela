@@ -22,6 +22,8 @@ and every comment.
   Use when the user asks about "related tickets".
 - `--no-comments` — identity + description only; good for bulk reads.
 - `--json` — raw fields + comments as one JSON object, for machine callers; `read_at` says when it was read.
+  One field of it: `ela jira read KEY --json | ela pick fields.assignee.displayName` (`ela pick` with no path prints
+  the shape; an interpreter one-liner is never needed for this).
 - **The read serves the fact store.** `<runtime>/facts/jira/issues/<KEY>.json` holds one read per key; it is served
   while the store's last sweep (`ela facts refresh`: every MH issue updated since the previous sweep, with changelog
   and comments, `facts/jira/changes.json`) ran after that read and does not list the key as moved, and for half an
