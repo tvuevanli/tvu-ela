@@ -17,7 +17,7 @@ def check(name, cond, got=None):
 
 rules = lambda t: [x["rule"] for x in S.mrkdwn_check(t)]
 GOOD = ("*Build 92* is on QA, _not yet verified_, ~build 91~.\n• `ur-caller` 2.1.92\n• <https://x.example/a|the mail>\n"
-        "> quoted line\n```\n# not a heading\n**kept**  | a | b |\n```\n中文 *加粗* 和 _斜体_。")
+        "> quoted line\n```\n# not a heading\n**kept**  | a | b |\n```\n中文 *加粗* 和 _斜体_ 。")
 check("what Slack renders passes: bold, italic, strike, code, a bare fence, a quote, a link, the bullet", rules(GOOD) == [], rules(GOOD))
 check("a heading", rules("# Title\ntext") == ["heading"])
 check("double asterisks", rules("this is **bold** here") == ["double-asterisk"])
@@ -28,7 +28,8 @@ check("a nested list item", rules("• one\n  • under one\n    - deeper") == [
 check("a language tag on a fence", rules("```python\nprint(1)\n```") == ["fence-language"])
 check("text on the fence line that is not a tag alone is the block's content", rules("```claude plugin install x\nmore```") == [])
 check("a marker touching CJK text", rules("这是*重点*内容") == ["cjk-boundary"] and rules("结论_未验证_。") == ["cjk-boundary"] and rules("旧的~作废~了") == ["cjk-boundary"])
-check("CJK punctuation is a boundary; so is a space", rules("结论：*通过*。") == [] and rules("这是 *重点* 内容") == [])
+check("full-width punctuation is no boundary; a space is", rules("结论：*通过*。") == ["cjk-boundary"] and rules("*标题*（说明）") == ["cjk-boundary"] and rules("这是 *重点* 内容") == [] and rules("结论： *通过* 。") == [])
+check("the repair puts the space beside full-width punctuation", S.mrkdwn_fix("*标题*（说明）") == "*标题* （说明）" and S.mrkdwn_fix("• *版本*：1.0") == "• *版本* ：1.0", S.mrkdwn_fix("*标题*（说明）"))
 check("an underscore inside a name is not a marker", rules("set preferred_pool_id on the node, 用 a_b_c 的值") == [])
 check("the line of each slip is its line in the text, past a code block", [(x["rule"], x["line"]) for x in S.mrkdwn_check("ok\n```\na\nb\n```\n# late")] == [("heading", 6)])
 BAD = "# Result\nsee [mail](https://x.example/m), **passed**\n---\n• one\n  - under\n```json\n{\"a\": 1}\n```\n这是*重点*内容"

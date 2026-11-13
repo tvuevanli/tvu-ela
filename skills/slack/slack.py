@@ -897,7 +897,9 @@ MRKDWN_RULES = {
     "fence-language": ("a language tag on a ``` fence: Slack prints it as the block's first line; open with bare ```", True),
     "cjk-boundary": ("a *bold*, _italic_ or ~strike~ marker touching CJK text: it needs a space on both sides to render", True),
 }
-_CJK = "぀-ヿ㐀-䶿一-鿿가-힯"
+# CJK punctuation and the full-width forms are word characters to Slack as well: a heading written as a bold span and
+# followed by a full-width bracket, colon or comma showed its asterisks (two replies of 2026-11-13, seen by the owner)
+_CJK = "\u3000-\u303f぀-ヿ㐀-䶿一-鿿가-힯\uff00-\uffef"
 _FENCE_TAG = re.compile(r"^([ \t]*```)[A-Za-z][\w+#.-]*[ \t]*$")
 _SPAN = re.compile(r"(?<![*_~])([*_~])(?=\S)([^\n]*?\S)\1(?![*_~])")
 _LINE_RULES = (("heading", re.compile(r"^#{1,6} +(.*?)\s*#*\s*$")),
