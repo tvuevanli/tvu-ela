@@ -28,30 +28,8 @@ site's env file is refused. Exit 0 · 2 usage or not JSON · 3 the path names no
 import argparse, json, os, re, sys
 
 EX_USAGE, EX_NOTFOUND = 2, 3
-SITE_DIR = os.path.join("~", ".claude", "ela")
-
-
-def site_paths():
-    """(the site directory, the env file), both resolved; the env file may live outside the directory."""
-    d = os.path.realpath(os.path.expanduser(SITE_DIR))
-    env = os.environ.get("ELA_ENV_FILE") or ""
-    try:
-        with open(os.path.join(d, "site.json")) as fh:
-            env = env or (json.load(fh).get("env") or "")
-    except Exception:
-        pass
-    return d, os.path.realpath(os.path.expanduser(env or os.path.join(d, ".env")))
-
-
-def refused(path):
-    """Why this file is not read, or None. Resolved first, so a link or `..` into the site directory is refused too."""
-    real = os.path.realpath(os.path.expanduser(path))
-    d, env = site_paths()
-    if real == env:
-        return "the site's env file is not read"
-    if real == d or real.startswith(d + os.sep):
-        return "a file in the site directory is not read"
-    return None
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "setup"))
+from siteguard import refused  # noqa: E402
 
 
 def die(msg, code=EX_USAGE):

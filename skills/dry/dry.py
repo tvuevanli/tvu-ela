@@ -40,6 +40,8 @@ Store: <reports>/ela/dry/ — classes.json (tier, grants, asks), record.jsonl, r
 Exit codes: 0 ok · 2 usage · 3 not found · 5 remote.
 """
 import argparse, datetime, glob, hashlib, json, os, re, subprocess, sys
+sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "setup"))
+import siteguard  # noqa: E402  a file in the site directory is never read for a caller
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 JIRA = os.path.join(HERE, "..", "jira", "jira.py")
@@ -922,7 +924,7 @@ def cmd_draft(a):
         print(f"no selector for {a.cls}: link-named and parent-status are drafted here; release-reconcile is drafted "
               "by `ela release reconcile`", file=sys.stderr); sys.exit(EX_USAGE)
     env = a.env_file or os.environ.get("ELA_ENV_FILE") or site().get("env")
-    parent = json.load(open(a.issue_file, encoding="utf-8")) if a.issue_file else read_issue(a.key, env)
+    parent = json.load(open(siteguard.guard(a.issue_file), encoding="utf-8")) if a.issue_file else read_issue(a.key, env)
     if not parent:
         print(f"{a.key}: could not be read", file=sys.stderr); sys.exit(EX_REMOTE)
     owner = owner_of(a.owner, env)

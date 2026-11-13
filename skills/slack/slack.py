@@ -33,6 +33,8 @@ SLACK_USER_TOKEN resolves the same way and is read by `post --as-owner` only.
 import argparse, html, json, os, re, shutil, signal, sys, time, urllib.error, urllib.parse, urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
+sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "setup"))
+import siteguard  # noqa: E402  a file in the site directory is never read for a caller
 
 API = "https://slack.com/api/"
 EX_USAGE, EX_AUTH, EX_REMOTE = 2, 4, 5
@@ -994,7 +996,7 @@ def cmd_check(a):
     if (a.text is None) == (a.file is None):
         print("check takes --text or --file (a path, or - for stdin), not both", file=sys.stderr); sys.exit(EX_USAGE)
     try:
-        text = a.text if a.text is not None else (sys.stdin.read() if a.file == "-" else open(a.file, encoding="utf-8").read())
+        text = a.text if a.text is not None else (sys.stdin.read() if a.file == "-" else open(siteguard.guard(a.file), encoding="utf-8").read())
     except OSError as e:
         print(f"--file: {e}", file=sys.stderr); sys.exit(EX_USAGE)
     slips = mrkdwn_check(text)
@@ -1015,7 +1017,7 @@ def cmd_post(tok, a):
     --team-thread: refused unless the target is a thread in one of TEAM_CHANNELS.
     --team-day-post: refused unless the target is one of TEAM_CHANNELS by name, top level, and the bot has posted no
     other top-level message there today: the one day post the qa-today and dev-today rules may make."""
-    text = open(a.file).read() if a.file and a.file != "-" else (sys.stdin.read() if a.file == "-" else a.text)
+    text = open(siteguard.guard(a.file, a.env_file)).read() if a.file and a.file != "-" else (sys.stdin.read() if a.file == "-" else a.text)
     if not text or not text.strip():
         print("nothing to post: pass --text or --file", file=sys.stderr); sys.exit(EX_USAGE)
     text = text.rstrip("\n")
@@ -1200,6 +1202,8 @@ def main():
     # the owner's word for a write is given in the Slack thread and executed by the runner, not by a model.
     if os.environ.get("ELA_NO_APPLY") and getattr(a, "apply", False):
         print("refused: --apply inside an unattended session (ELA_NO_APPLY); the dry run above is the answer, the owner's word applies it", file=sys.stderr); sys.exit(2)
+    if a.cmd == "post":
+        siteguard.guard(a.file, a.env_file)              # before the token is read: a refusal needs no credential
     tok = token(a.env_file)
     {"read": cmd_read, "channels": cmd_channels, "history": cmd_history, "mentions": cmd_mentions, "search": cmd_search,
      "unanswered": cmd_unanswered, "whoami": cmd_whoami, "users": cmd_users, "post": cmd_post,

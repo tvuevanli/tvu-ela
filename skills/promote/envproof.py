@@ -27,6 +27,8 @@ build-85 verdicts on qa-cn3 were same-build evidence for daily-wed, not other-la
 Exit codes: 0 proven or same-build · 3 other-lane · 4 unproven · 2 usage.
 """
 import argparse, json, os, sys
+sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "setup"))
+import siteguard  # noqa: E402  a file in the site directory is never read for a caller
 
 HERE = os.path.dirname(os.path.realpath(__file__))
 SKILLS = os.path.dirname(HERE)
@@ -129,7 +131,7 @@ def main():
                 print(f"{k:<22} unread: {why}")
         sys.exit(0 if got else EX_UNPROVEN)
     if a.cmd == "text":
-        text = sys.stdin.read() if a.file == "-" else open(a.file).read()
+        text = sys.stdin.read() if a.file == "-" else open(siteguard.guard(a.file)).read()
         proof = panel(text)
         lv = lane_versions(a.lane)[0] if proof and proof.get("lane") and proof["lane"] != a.lane else None
         verdict = judge(a.lane, proof, lv)

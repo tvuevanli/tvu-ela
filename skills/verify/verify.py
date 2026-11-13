@@ -22,6 +22,8 @@ The page under `<reports>` is the owner's reading copy; the `--single` file is t
 the run went. Nothing here links to claude.ai. Exit codes: 0 ok · 2 usage.
 """
 import argparse, base64, datetime, html, json, os, re, shutil, subprocess, sys
+sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "setup"))
+import siteguard  # noqa: E402  a file in the site directory is never read for a caller
 
 EX_USAGE, EX_FAIL = 2, 5
 HERE = os.path.dirname(os.path.realpath(__file__))
@@ -336,7 +338,7 @@ def cmd_plan(a):
     long. It no longer waits for the owner's word: the night run verifies the test list's auto rows directly, read-only,
     and writes what it saw on the row (`ela testlist --saw`); the vault carries a plan as a reading, never a to-read."""
     try:
-        plan = json.load(open(a.plan, encoding="utf-8"))
+        plan = json.load(open(siteguard.guard(a.plan), encoding="utf-8"))
     except (OSError, ValueError) as e:
         print(f"plan: {e}", file=sys.stderr); sys.exit(EX_USAGE)
     if not isinstance(plan, list) or not plan:

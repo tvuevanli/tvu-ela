@@ -15,7 +15,9 @@ Why: on 2026-11-09 two reviewer agents found about 45 errors in the promote note
 (gap 8: no self-review), and the note used mx/hub/FE/BE, bare keys and Slack links that break when pasted (gap 10).
 Exit 0 clean, 1 lint findings, 2 usage.
 """
-import argparse, json, re, sys
+import argparse, json, os, re, sys
+sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "setup"))
+import siteguard  # noqa: E402  a file in the site directory is never read for a caller
 
 KEY_RE = re.compile(r"\b[A-Z][A-Z0-9]{1,5}-(?!0)\d{2,6}\b")   # a leading zero is an item id (MH-030), not a Jira key
 SHORT = re.compile(r"(?<![\w`/.\-])(mx|hub|FE|BE|mx-service|tvu-media-hub)(?![\w`/.\-])")
@@ -137,9 +139,9 @@ def main():
             for c in mine:
                 print(f"- [{c['kind']}] {c['claim']}\n    settle: {c['settle']}")
         return
-    res = {"note": lint_note(open(a.note).read())}
+    res = {"note": lint_note(open(siteguard.guard(a.note)).read())}
     if a.slack:
-        res["slack"] = lint_slack(open(a.slack).read())
+        res["slack"] = lint_slack(open(siteguard.guard(a.slack)).read())
     if a.json:
         print(json.dumps(res, ensure_ascii=False, indent=1))
     else:

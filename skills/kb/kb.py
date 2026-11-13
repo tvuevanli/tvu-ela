@@ -25,6 +25,8 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "setup"))
+import siteguard  # noqa: E402  a file in the site directory is never read for a caller
 
 DEFAULT_URL = "https://kb.tvunetworks.com"
 ENV_KEYS = ("OUTLINE_URL", "OUTLINE_TOKEN")
@@ -252,7 +254,7 @@ def read_body(args):
         return sys.stdin.read()
     if args.file:
         try:
-            with open(args.file, encoding="utf-8") as fh:
+            with open(siteguard.guard(args.file), encoding="utf-8") as fh:
                 return fh.read()
         except OSError as exc:
             sys.exit(f"cannot read {args.file}: {exc}")
@@ -416,6 +418,7 @@ def main():
     # absent flag; either position turns it on.
     if getattr(args, "json", None) is None:
         args.json = bool(getattr(p.parse_known_args()[0], "json", False))
+    siteguard.guard(getattr(args, "file", None), args.env_file)   # before the token is read: a refusal needs no credential
     args.fn(load_env(args.env_file), args)
 
 

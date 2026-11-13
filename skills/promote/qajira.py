@@ -21,6 +21,8 @@ the verdict was observed on. Splits: the keys a QA comment names after split / æ
 ticket's Jira links of type Cloners or a split type; each split is read once and its own verdict and status shown.
 """
 import argparse, json, os, re, subprocess, sys
+sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "setup"))
+import siteguard  # noqa: E402  a file in the site directory is never read for a caller
 
 HERE = os.path.dirname(os.path.realpath(__file__))
 SKILLS = os.path.dirname(HERE)
@@ -264,7 +266,7 @@ def main():
         except (OSError, ValueError):
             pass
     if a.cmd == "parse":
-        text = sys.stdin.read() if a.file == "-" else open(a.file).read()
+        text = sys.stdin.read() if a.file == "-" else open(siteguard.guard(a.file)).read()
         r = parse(text)
         print(json.dumps(r, ensure_ascii=False, indent=1) if a.json else (r or {}).get("verdict", "no result"))
         return

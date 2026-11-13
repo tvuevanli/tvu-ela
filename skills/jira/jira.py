@@ -43,6 +43,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "setup"))
+import siteguard  # noqa: E402  a file in the site directory is never read for a caller
 HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "facts"))
 try:
@@ -1530,7 +1532,7 @@ def _emit(args, result, text_lines):
 def _read_text(args):
     text = getattr(args, "text", None)
     if getattr(args, "from_file", None):
-        with open(args.from_file, encoding="utf-8") as fh:
+        with open(siteguard.guard(args.from_file), encoding="utf-8") as fh:
             text = fh.read().rstrip("\n")
     return text or ""
 
@@ -2216,7 +2218,7 @@ def cmd_attach(creds, args):
     """Attach one file to one issue — dry run names the file and its size; --apply uploads. A file of the same name
     already on the issue is a no-op, so a re-run does not pile up copies."""
     key = extract_key(args.target)
-    path = os.path.realpath(args.file)
+    path = os.path.realpath(siteguard.guard(args.file))
     if not os.path.isfile(path):
         sys.exit(f"attach: no such file {path}")
     name, size = os.path.basename(path), os.path.getsize(path)

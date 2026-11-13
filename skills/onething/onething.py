@@ -30,6 +30,8 @@ import argparse, datetime, html, io, json, os, re, subprocess, sys, urllib.error
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "gdoc"))
 import gdoc  # noqa: E402  the read-only Google client and its scope allowlist
+sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "setup"))
+import siteguard  # noqa: E402  a file in the site directory is never read for a caller
 
 JIRA = os.path.join(HERE, "..", "jira", "jira.py")
 SLACK = os.path.join(HERE, "..", "slack", "slack.py")
@@ -546,7 +548,7 @@ def copy_section(text, tabs, nums, lines):
 
 
 def cmd_render(a):
-    spec = json.load(open(a.rows, encoding="utf-8"))
+    spec = json.load(open(siteguard.guard(a.rows), encoding="utf-8"))
     for r in spec.get("rows") or []:
         if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", r.get("date", "")) or not (r.get("text") or "").strip():
             die(f"a row needs date YYYY-MM-DD and text: {r}", EX_USAGE)
@@ -642,7 +644,7 @@ def apply_lines(reports, date, lines):
 
 def cmd_apply(a):
     try:
-        lines = open(a.lines, encoding="utf-8").read().splitlines()
+        lines = open(siteguard.guard(a.lines), encoding="utf-8").read().splitlines()
     except OSError as e:
         die(f"lines file: {e}", EX_NOTFOUND)
     got = apply_lines(reports_root(a), a.date, lines)
@@ -753,7 +755,7 @@ def import_note(reports, text, name, year_hint, force=False, pasted=False):
 def cmd_import(a):
     if not os.path.isfile(a.note):
         die(f"no note {a.note}", EX_NOTFOUND)
-    text = open(a.note, encoding="utf-8").read()
+    text = open(siteguard.guard(a.note), encoding="utf-8").read()
     year = re.search(r'^date: "(\d{4})', text, re.M) or re.search(r"(\d{4})-\d{2}-\d{2}", os.path.basename(a.note))
     dates = import_note(reports_root(a), text, os.path.basename(a.note), year.group(1) if year else datetime.date.today().year, a.force, a.pasted)
     print(f"{len(dates)} day(s) imported from {os.path.basename(a.note)}: {', '.join(dates)}"
