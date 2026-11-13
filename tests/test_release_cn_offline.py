@@ -179,4 +179,22 @@ check("--host cn alone exits 4 on a refused login", code == R.EX_AUTH)
 down.discard("cn")
 check("no write reaches the China host", R.write_refused("/userGroup/user-group/tagBundle/create", "cn") is not None)
 check("the fixture session never reaches the output", "fixture-session" not in out + err)
+# ── the refresh's gap says when a host refused the account as not admitted ──────────────────────────────────────
+def refused(code):
+    def read():
+        print(f"tvutest login failed: HTTP 200 {{'errorCode': '{code}', 'errorInfo': 'x', 'result': None}}", file=sys.stderr)
+        sys.exit(R.EX_AUTH)
+    return read
+def gap_of(read):
+    with contextlib.redirect_stderr(io.StringIO()) as said:
+        rows, gap = R._refresh_read(read)
+    return rows, gap, said.getvalue()
+rows, gap, said = gap_of(refused(R.NOT_ADMITTED))
+check("a login refused as not admitted is said in the refresh's gap, the read's last words kept",
+      rows is None and gap == f"exit 4, account not admitted ({R.NOT_ADMITTED})" and "login failed" in said)
+check("another error code is a plain exit 4", gap_of(refused("0x80060004"))[1] == "exit 4")
+def remote():
+    print(f"userservice: HTTP 502 {R.NOT_ADMITTED}", file=sys.stderr); sys.exit(R.EX_REMOTE)
+check("the code in a non-auth failure is not that state", gap_of(remote)[1] == "exit 5")
+check("a read that works has no gap", gap_of(lambda: [1])[:2] == ([1], None))
 sys.exit(1 if failures else 0)

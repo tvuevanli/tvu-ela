@@ -539,6 +539,28 @@ def account_login(env_file, host, keys=QA_KEYS, what="tvutest"):
     return str(sid).strip()
 
 
+# A userservice's answer to an account it does not admit ("This account hasn't been activated"). The QA environment
+# answers the tvutest account so since 2026-11-04: an access policy, not a broken account (SKILL.md, two hosts).
+NOT_ADMITTED = "0x80060018"
+
+
+def _refresh_read(read):
+    """(rows, gap) of one host read for `ela facts refresh`. The gap is the exit code; a login the host refused as not
+    admitted is said in it, so a reader of the gap can tell that standing state from a fault. The read's own last
+    words still reach stderr."""
+    said = io.StringIO()
+    try:
+        with contextlib.redirect_stderr(said):
+            return read(), None
+    except SystemExit as e:
+        gap = f"exit {e.code}"
+        if e.code == EX_AUTH and NOT_ADMITTED in said.getvalue():
+            gap += f", account not admitted ({NOT_ADMITTED})"
+        return None, gap
+    finally:
+        sys.stderr.write(said.getvalue())
+
+
 def tvutest_login(env_file, host):
     return account_login(env_file, host, QA_KEYS, "tvutest")
 
@@ -755,10 +777,7 @@ def bundle_list(us, line, limit=50, fresh=False):
 
 def refresh_bundles(env_file, host, line, limit):
     """`ela facts refresh`: one list per host and line, written through; (rows, gap)."""
-    try:
-        return bundle_list(LazyUS(env_file, host), line, limit, fresh=True), None
-    except SystemExit as e:
-        return None, f"exit {e.code}"
+    return _refresh_read(lambda: bundle_list(LazyUS(env_file, host), line, limit, fresh=True))
 
 
 def bundle_detail(us, bundle_id, fresh=False):
@@ -1393,10 +1412,7 @@ def lane_versions(us, want=None, fresh=False):
 
 def refresh_envs(env_file, host):
     """`ela facts refresh`: one read of a host's lanes, written through; (rows, gap)."""
-    try:
-        return lane_versions(LazyUS(env_file, host), fresh=True), None
-    except SystemExit as e:
-        return None, f"exit {e.code}"
+    return _refresh_read(lambda: lane_versions(LazyUS(env_file, host), fresh=True))
 
 
 def host_service_ids(kind):
