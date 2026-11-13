@@ -57,5 +57,23 @@ with tempfile.TemporaryDirectory() as tmp:
                        ("--preview", ["--text", f"use {DECOY}", "--preview"]), ("a --file", ["--file", body])):
         c, out = run("slack", "slack.py", "--env-file", env, "post", "#x", *argv)
         check(c == 2 and "refused" in out and "JIRA_TOKEN" in out and DECOY not in out, f"slack post, {name}: a text carrying a credential is refused, the variable named, the value never", (c, out[-300:]))
+    # addresses: a service host of the env file and a local address go to the owner's DM only
+    # BOX is a public address: the documentation ranges count as private
+    BOX = ".".join(["34", "120", "5", "9"]); PRIV = ".".join(["192", "168", "1", "20"]); LOOP = ".".join(["127", "0", "0", "1"])
+    open(env, "a").write(f"UR_BASE_HOST=https://ur.svc.invalid:8443/api\nTVU_BOX={BOX}:22\nOUTLINE_URL=https://kb.invalid\nMIRROR_URL=https://kb.invalid/m\n")
+    check(G.service_hosts() == {"ur.svc.invalid": "UR_BASE_HOST", BOX: "TVU_BOX"}, "service hosts: a URL's host and a bare IP; the Jira site and the KB are allowed, by variable", G.service_hosts())
+    check(G.outward("see https://jira.invalid/browse/MH-1 and https://kb.invalid/doc/x, owner@example.invalid, build 2.1.0.92") == [], "a ticket link, a KB link, the owner's email and a version carry nothing")
+    check(len(G.outward(f"curl https://UR.svc.invalid/v1/graphs and ssh {BOX}")) == 1 and "UR_BASE_HOST" in G.outward("at ur.svc.invalid:8443")[0] and "ur.svc" not in G.outward("at ur.svc.invalid:8443")[0],
+          "a service host is found by hostname in any case, with or without a port, and named by its variable")
+    check(G.local_lines(f"ok\nopen http://localhost:3000/x\nor {LOOP}:8080\nbox {PRIV}\nlocalhostess 1.2.3") == [2, 3, 4], "localhost, a loopback and a private-range IP, by line", G.local_lines(f"http://localhost:3000\n{LOOP}\n{PRIV}"))
+    for name, text, word in (("a service host", "the graph is on ur.svc.invalid", "UR_BASE_HOST"), ("a box IP", f"ssh {BOX}", "TVU_BOX"),
+                             ("localhost", "open http://localhost:3000/page", "local address"), ("a private-range IP", f"it runs on {PRIV}", "local address")):
+        for where, argv in (("a channel", ["#x"]), ("a thread", ["https://w.invalid/archives/C0123456789/p1700000000000100"]), ("a channel preview", ["#x", "--preview"])):
+            c, out = run("slack", "slack.py", "--env-file", env, "post", *argv, "--text", text)
+            check(c == 2 and "refused" in out and word in out and "--dm me" in out and "svc.invalid" not in out and BOX not in out, f"slack post to {where}: {name} is refused, before any call", (c, out[-300:]))
+    c, out = run("slack", "slack.py", "--env-file", env, "post", "--dm", "me", "--text", "the graph is on ur.svc.invalid, page at http://localhost:3000")
+    check("refused" not in out, "the owner's own DM is not refused for an address (the run goes on to Slack, which this test does not reach)", (c, out[-300:]))
+    c, out = run("slack", "slack.py", "--env-file", env, "post", "--dm", "me", "--text", f"use {DECOY}")
+    check(c == 2 and "JIRA_TOKEN" in out, "a credential is refused in the owner's own DM too", (c, out[-200:]))
 print("siteguard: " + ("FAILED" if fail else "passed"))
 sys.exit(fail)

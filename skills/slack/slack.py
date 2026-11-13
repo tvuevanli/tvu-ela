@@ -20,7 +20,9 @@ the one write, `post`, is a dry run until --apply.
              [--as-owner]
              a text carrying a credential of the site's env file (a value of 8 characters or more that is no URL,
              email or path) is refused in the dry run, the preview and --apply, the variable named, never the value;
-             so is a --file in the site directory
+             so is a --file in the site directory. A text carrying the host of a service address in the env file
+             (Jira, Slack, the KB, Confluence, Figma and Google excepted), localhost or a private-range IP goes
+             to the owner's own DM only
              send a message as the bot (a permalink → reply in that thread). Dry run by default; refuses a
              duplicate of a message the same identity already posted there; a DM needs --dm said explicitly.
              --as-owner sends under the owner's own name with SLACK_USER_TOKEN (user scope chat:write; reads stay
@@ -1028,6 +1030,13 @@ def cmd_post(tok, a):
     if held:                                           # dry run, preview and apply alike, and before any call
         print(f"refused: the text carries the value of {', '.join(held)} from the site's env file; a credential is never posted. "
               "Take it out of the text (the variable is named here, never its value)", file=sys.stderr); sys.exit(EX_USAGE)
+    # a service host of the env file, or a local address: fine in the owner's own DM, refused anywhere else
+    outward = siteguard.outward(text, a.env_file)
+    def refuse_outward():
+        print(f"refused: the text carries {'; and '.join(outward)}. That is for the owner alone: post it to his own DM (--dm me), "
+              "or take the address out (a variable is named here, never its value)", file=sys.stderr); sys.exit(EX_USAGE)
+    if outward and not a.dm:
+        refuse_outward()
     thread_ts, where = None, ""
     as_owner = bool(getattr(a, "as_owner", False))
     if as_owner and (a.dm or a.team_thread or a.team_day_post):
@@ -1041,6 +1050,8 @@ def cmd_post(tok, a):
         if a.target:
             print("--dm takes no target; the person is the target", file=sys.stderr); sys.exit(EX_USAGE)
         uid = whoami(tok, a.env_file) if a.dm == "me" else (a.dm if re.fullmatch(r"[UW][A-Z0-9]{8,}", a.dm) else whoami(tok, a.env_file, a.dm))
+        if outward and a.dm != "me" and uid != whoami(tok, a.env_file):
+            refuse_outward()
         ch = call("conversations.open", tok, users=uid)["channel"]["id"]
         where = f"DM to {Names(tok).user(uid)} ({uid})"
     elif not a.target:
