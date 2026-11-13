@@ -172,12 +172,15 @@
                                    class to confirm; undo <act|batch> takes an act back from the before-state it kept
                                    (dry run until --apply), and records the correction; a class without its reverse
                                    atom is never proposed for a grant
-  ela mention list|show|triage|facts|draft|answer|follow|close|tally <id|permalink>
+  ela mention list|show|triage|facts|draft|answer|follow|close|supersede|tally <id|permalink>
                                    a mention of you in Slack, watched through your reply (ADR 0021): triaged (ask ·
                                    incident · notice) with the reason kept; you go first; your reply's commitments
                                    prepared as dry runs by class; unanswered after 30 working minutes, one message
-                                   with the facts, a reply to paste and A / B / C; scan|note|due|sent are the
-                                   runner's; every verb read-only toward Slack; draft writes only the local draft
+                                   with the facts, a drafted reply and A / B / C; scan|note|due|sent are the
+                                   runner's. answer <id> A posts the draft the card showed when site.json
+                                   mention_post_as is ela or owner (ADR 0022; off: you paste it); it is the one
+                                   verb that writes to Slack; supersede marks the Slack actions drafted for a
+                                   closed mention's thread
   ela vault sync [--dry-run]       regenerate the owner's Obsidian vault: day pages, readings, verifications,
                                    decisions and plans; a note over its reading budget carries a warning;
                                    a note you delete is done and stays deleted (ela vault restore PATH)

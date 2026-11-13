@@ -1,15 +1,19 @@
 #!/usr/bin/env python3
-"""A mention of the owner in Slack: he goes first, ela follows through (ADR 0021). Stdlib only. Every verb is
-read-only toward Slack and Jira; what it writes is its own store, a local draft, and dry-run batches through dry.py.
+"""A mention of the owner in Slack: he goes first, ela follows through (ADR 0021, ADR 0022). Stdlib only. One verb
+writes to Slack, `answer` with his A on a card that offered a post; every other verb is read-only toward Slack and
+Jira and writes its own store, a local draft, and dry-run batches through dry.py.
 
 A mention is triaged as an ask (a question, a request, a decision put to him), an incident (a prod failure addressed to
-him) or a notice (a bot's "ready to test", an FYI, a cc, an announcement to many that asks him nothing alone). On an ask ela reads the thread, gathers the facts and waits:
+him) or a notice (a bot's "ready to test", an FYI, a cc). On an ask ela reads the thread, gathers the facts and waits:
 he usually answers himself. A reply of his closes the mention, and what that reply commits to is prepared as dry runs
 under the action classes of `ela dry`. Unanswered after the wait window, the mention earns one message to him: the ask
-in a sentence, the facts, a reply drafted for him to paste, and A use this draft · B I will write it · C nothing
-needed. ela never posts the reply. An incident sends its facts at once and drafts nothing; a notice is recorded and
-never raised. Outside his hours nothing is sent: the mention takes an ask slot on today.md. When a mention closes, a
-drafted Slack action aimed at the same thread in the runner's actions file is marked superseded.
+in a sentence, the facts, a drafted reply, and A · B I will write it · C nothing needed. What A does is one site
+setting, `mention_post_as` in site.json: `off` (the default) A use this draft, he pastes it; `owner` A post this draft
+under your name (SLACK_USER_TOKEN); `ela` A post this draft as @ela, offered only for a draft marked --postable (an
+acknowledgement or a relayed fact), with one fixed signature line. His A is the approve of that one text: the text
+posted is the text the card showed, by hash. An incident sends its facts at once and drafts nothing; a notice is
+recorded and never raised. Outside his hours nothing is sent: the mention takes an ask slot on today.md. When a
+mention closes, a drafted Slack action aimed at the same thread in the runner's actions file is marked superseded.
 
   scan    [--since 24h] [--json]          the Slack fact store read for mentions of him: new ones recorded and
                                           triaged, his replies noticed, what is now to do listed (the pass calls this)
@@ -21,11 +25,19 @@ drafted Slack action aimed at the same thread in the runner's actions file is ma
   triage  <permalink> [--fresh] [--json]  how one message would be triaged, with the reason; nothing is recorded
   facts   <id|permalink> [--fresh] [--json]  the tickets the thread names (state, owner, Fixed In) and the related
                                           threads from the links index, five lines at most
-  draft   <id|permalink> --ask "…" --reply-file F [--json]
-                                          the message for him, written to the store: the ask, the facts, the reply to
-                                          paste, the dry runs it implies, A / B / C. Nothing is sent
-  sent    <id> [--ts T]                   the runner's word that the message reached him
-  answer  <id|dm ts> <A|B|C> [--json]     his letter: A prepares the draft's dry runs by class, B leaves it to him,
+  draft   <id|permalink> --ask "…" --reply-file F [--postable] [--json]
+                                          the message for him, written to the store: the ask, the facts, the reply,
+                                          the dry runs it implies, A / B / C. Nothing is sent. --postable: the reply
+                                          only acknowledges or relays a fact, so the `ela` setting may offer to post it
+  sent    <id> [--ts T]                   the runner's word that the message reached him; the hash of the text the
+                                          card showed is kept
+  answer  <id|dm ts> <A|B|C> [--shown H] [--json]
+                                          his letter. A on a card that offered a post: the thread is read fresh (a
+                                          reply of his closes the mention and nothing is posted), the text is checked
+                                          against the card's hash, posted once, read back, the permalink recorded and
+                                          the mention closed; refused with the reason otherwise (exit 4). A on a card
+                                          that said to paste: the draft is his, its dry runs prepared by class. A with
+                                          words after it is not an approve: a new draft is owed. B leaves it to him;
                                           C closes it and counts against the triage of that kind of message
   supersede <id> [--why T] [--json]       the drafted, unapplied Slack actions aimed at this mention's thread in
                                           <reports>/runner/*-actions.json, marked superseded (the closes do it too)
@@ -39,18 +51,23 @@ Store: <reports>/ela/mentions/ — mentions.json (one record a mention: thread, 
 his letter), triage.jsonl (every triage with its reason, every outcome), drafts/<id>.txt, tickets/<id>.md.
 The wait is one setting, MENTION_WAIT_MIN below (`day.mention_wait_min` in <elak>/blueprint/meetings.yaml overrides
 it); his hours are that file's `day.dm_hours`.
-Exit codes: 0 ok · 2 usage · 3 not found · 5 remote.
+The identity is `mention_post_as` in site.json (off · ela · owner). Exit codes: 0 ok · 2 usage · 3 not found ·
+4 a post refused · 5 remote.
 """
-import argparse, datetime, glob, html, json, os, re, subprocess, sys
+import argparse, contextlib, datetime, glob, hashlib, html, io, json, os, re, subprocess, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SITE = os.path.expanduser("~/.claude/ela/site.json")
 TZ = datetime.timezone(datetime.timedelta(hours=8))
-EX_USAGE, EX_NOTFOUND, EX_REMOTE = 2, 3, 5
+EX_USAGE, EX_NOTFOUND, EX_REFUSED, EX_REMOTE = 2, 3, 4, 5
+POST_AS = ("off", "ela", "owner")              # site.json `mention_post_as`; off until the owner chooses (ADR 0022)
+BOT_HANDLE = "ela"
+BROADCAST_MIN = 6                              # people tagged in one message from which it reads as an announcement
+# the last line of a reply posted as the bot, appended by the code and part of what the card shows and hashes
+SIGNATURE = "_ela, for {name} · approved by him · replies here reach {name}_"
 MENTION_WAIT_MIN = 30                          # the wait before ela tells him (his choice of 2026-11-12)
 DM_HOURS = ("08:30", "19:00")                  # the default when the day file names none
 FACT_LINES = 5
-BROADCAST_MIN = 6                              # people tagged in one message from which it reads as an announcement
 KEY_RX = re.compile(r"(?<![A-Za-z0-9_-])([A-Z][A-Z0-9]{1,9}-[1-9]\d{0,5})(?![0-9])")
 TAG = r"<@[A-Z0-9]+(?:\|[^>]*)?>"
 PERMALINK_RX = re.compile(r"/archives/([A-Z0-9]+)/p(\d{10})(\d{6})(?:\?[^\s>|]*?thread_ts=(\d+\.\d+))?")
@@ -127,6 +144,24 @@ def site():
         return json.load(open(SITE, encoding="utf-8"))
     except (OSError, ValueError):
         return {}
+
+
+def post_as(s=None):
+    """The identity a reply leaves under on his A: site.json `mention_post_as`. Anything but ela or owner is off."""
+    v = str((site() if s is None else s).get("mention_post_as") or "off").strip().lower()
+    return v if v in POST_AS else "off"
+
+
+def signature(name):
+    return SIGNATURE.format(name=name.split()[0]) if (name or "").strip() else ""
+
+
+def digest(text):
+    return hashlib.sha256((text or "").encode("utf-8")).hexdigest()
+
+
+class Refused(Exception):
+    """A post that does not leave, with the reason in one line."""
 
 
 def roots(a=None):
@@ -444,7 +479,6 @@ def supersede(reports, r, why, now):
     return out
 
 
-
 # ── what is to do now ─────────────────────────────────────────────────────────────────────────────────────────
 def todo(recs, day, now):
     """The runner's list, one entry a mention: `timer` (call `due` again at `at`), `draft` (a session writes the ask
@@ -455,6 +489,8 @@ def todo(recs, day, now):
         if r["state"] not in OPEN or r.get("replied_at") or r.get("answer") or r.get("dm_at"):
             continue
         base = {"id": r["id"], "permalink": r["permalink"], "triage": r["triage"]}
+        if r.get("revise"):                                # his A came with words: the next draft follows them
+            base["revise"] = r["revise"]["words"]
         if r["triage"] == "incident":
             out.append(dict(base, do="dm", kind="incident", text=r.get("draft")))
         elif r.get("hold") or (now >= parse(r["due_at"]) and not in_hours(day, now)):
@@ -566,20 +602,48 @@ def incident_text(r, facts, now):
                      + [f"• {l}" for l in facts["lines"]] + ["", "No reply is drafted for an incident."]) + "\n"
 
 
-def ask_text(r, facts, ask, reply, implied, now):
+A_TEXT = {"off": "use this draft", "ela": f"post this draft as @{BOT_HANDLE}", "owner": "post this draft under your name"}
+DRAFT_NOTE = {"off": "paste it yourself; ela posts nothing", "ela": f"your A posts exactly this as @{BOT_HANDLE}",
+              "owner": "your A posts exactly this under your name"}
+
+
+def offer_of(mode, postable, reply, name):
+    """What A on this card may do. `owner`: any draft, it leaves as him on his approve. `ela`: only a draft the
+    drafter marked postable (an acknowledgement, a relayed fact), in which this reader finds no commitment and no
+    promise, and only when the signature can name him. Otherwise the card says to paste, as under `off`."""
+    if mode == "owner":
+        return "owner"
+    if mode == "ela" and postable and name and commitments(reply) == ([], []):
+        return "ela"
+    return "off"
+
+
+def ask_text(r, facts, ask, reply, implied, now, offer="off"):
+    """The card: Slack mrkdwn only (`ela slack check` passes it). The reply sits in a bare fence, byte for byte what
+    would be pasted or posted."""
     L = [head(r, now) + " · no reply from you yet", ask.strip(), "", "*Facts*"] + [f"• {l}" for l in facts["lines"]]
-    L += ["", "*Draft reply* (paste it yourself; ela posts nothing)", "```", reply.strip(), "```"]
+    L += ["", f"*Draft reply* ({DRAFT_NOTE[offer]})", "```", reply.strip(), "```"]
     if implied:
         L += ["", "*Jira it implies* (dry runs by class, prepared on A or when you reply)"] + [f"• {x}" for x in implied]
-    L += ["", "*A* use this draft · *B* I will write it · *C* nothing needed",
+    L += ["", f"*A* {A_TEXT[offer]} · *B* I will write it · *C* nothing needed",
           "Reply with the letter. No answer: nothing happens; a reply of yours in the thread withdraws this."]
     return "\n".join(L) + "\n"
 
 
-def make_draft(r, reports, ask, reply, now):
-    """The message for him on an unanswered ask, written to the store (nothing is sent). → (path, text)."""
-    r.update(ask=" ".join(ask.split()), reply=reply.strip(), implied=implied(reply, [x["key"] for x in r["facts"]["keys"]]))
-    text = ask_text(r, r["facts"], r["ask"], reply, r["implied"], now)
+def make_draft(r, reports, ask, reply, now, mode="off", postable=False, name=""):
+    """The message for him on an unanswered ask, written to the store (nothing is sent). `mode` is the site's
+    identity, `postable` the drafter's mark, `name` the owner's name for the signature. The record keeps what A was
+    offered to do and the exact text a post would carry; a draft made again after a card went out owes a new card.
+    → (path, text)."""
+    reply = reply.strip()
+    offer = offer_of(mode, postable, reply, name)
+    post_text = reply + "\n" + signature(name) if offer == "ela" else reply
+    if r.get("dm_at") and (r.get("post_text"), r.get("offer")) != (post_text, offer):
+        r.setdefault("cards", []).append({"dm_at": r.pop("dm_at"), "dm_ts": r.pop("dm_ts", None), "shown": r.pop("shown", None)})
+    r.pop("revise", None)
+    r.update(ask=" ".join(ask.split()), reply=reply, implied=implied(reply, [x["key"] for x in r["facts"]["keys"]]),
+             postable=bool(postable), offer=offer, post_text=post_text)
+    text = ask_text(r, r["facts"], r["ask"], post_text, r["implied"], now, offer)
     path = os.path.join(store(reports), "drafts", f"{r['id']}.txt")
     atomic_write(path, text)
     r.update(draft=path, drafted_at=iso(now), state="drafted")
@@ -755,15 +819,17 @@ def asks(reports, now=None):
     are his: A use this draft (when a session has drafted one) · B I will write it · C nothing needed."""
     out = []
     for r in sorted(load(reports).values(), key=lambda r: r["at"]):
+        offer = r.get("offer") or "off"                    # a card that offers a post carries the hash of its text
+        shown = f" --shown {digest(r.get('post_text'))[:16]}" if offer != "off" else ""
         if r["triage"] != "ask" or r["state"] not in ("waiting", "drafted") or not r.get("hold") or r.get("replied_at") or r.get("answer") or r.get("dm_at"):
             continue
         aid = f"mention:{r['id']}"
-        opts = ([{"letter": "A", "text": "use this draft", "does": f"ela mention answer {r['id']} A", "recommended": True}] if r.get("draft") else []) + [
+        opts = ([{"letter": "A", "text": A_TEXT[offer], "does": f"ela mention answer {r['id']} A{shown}", "recommended": True}] if r.get("draft") else []) + [
             {"letter": "B", "text": "I will write it", "does": f"ela mention answer {r['id']} B", "recommended": False},
             {"letter": "C", "text": "nothing needed", "does": f"ela mention answer {r['id']} C", "recommended": False}]
         out.append({"id": aid, "question": f"{r['by_name']} asked you in #{r['channel_name']} on {r['at'][5:16].replace('T', ' ')}, no reply yet: "
                                            f"{r.get('ask') or r['first']}", "link": note_rel(r["id"]), "options": opts,
-                    "sig": f"{r['id']}:{'drafted' if r.get('draft') else 'bare'}"})
+                    "sig": f"{r['id']}:{'drafted' if r.get('draft') else 'bare'}" + (f":{shown.split()[-1]}" if shown else "")})
     return out
 
 
@@ -778,7 +844,8 @@ def page(r):
          f"triaged as an {r['triage']} ({REASONS[r['reason']]})", "", r.get("ask") or r["first"], "", "## Facts", ""]
     L += [f"- {md_links(l)}" for l in f["lines"]] + [""]
     if r.get("reply"):
-        L += ["## Draft reply", "", "Paste it yourself; ela posts nothing.", "", "```", r["reply"].strip(), "```", ""]
+        note = DRAFT_NOTE[r.get("offer") or "off"]
+        L += ["## Draft reply", "", note[0].upper() + note[1:] + ".", "", "```", (r.get("post_text") or r["reply"]).strip(), "```", ""]
     if r.get("implied"):
         L += ["## Jira it implies", ""] + [f"- {x}" for x in r["implied"]] + [""]
     return "\n".join(L).rstrip("\n") + "\n"
@@ -809,32 +876,141 @@ def tally(reports):
 
 
 # ── the answer ────────────────────────────────────────────────────────────────────────────────────────────────
-def answer(reports, ref, letter, ctx=None, now=None):
-    """His letter on a mention's ask. A: the draft is his to paste, and what it commits to is prepared by class. B: he
-    writes it. C: nothing was needed; closed, and counted against the triage reason. Raises KeyError, ValueError."""
+def slack_mod():
+    sys.path.insert(0, os.path.join(HERE, "..", "slack"))
+    import slack as S                                      # noqa: E402 — the one Slack reader and the one poster
+    return S
+
+
+def slack_send(env_file, link, text, as_owner, mention):
+    """One reply in the thread of `link` through `slack.py post --apply`, the one write path: its duplicate refusal,
+    its mrkdwn check, its --as-owner checks and its write log (which gets the mention id) all apply.
+    → {permalink, ts, channel, as}. Raises Refused with slack.py's own reason."""
+    S = slack_mod()
+    a = argparse.Namespace(target=link, text=text, file=None, dm=None, apply=True, preview=False, team_thread=False,
+                           team_day_post=False, json=True, env_file=env_file, as_owner=as_owner, mention=mention)
+    out, err = io.StringIO(), io.StringIO()
+    try:
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            S.cmd_post(S.token(env_file), a)
+    except SystemExit as e:
+        raise Refused(" ".join(err.getvalue().split()) or f"slack post exited {e.code}")
+    return json.loads(out.getvalue())
+
+
+def poster(r_, names, day):
+    """What `answer` needs to post on this machine: the site's identity, a fresh thread read, the send."""
+    return {"mode": post_as(), "names": names, "day": day, "read": lambda ch, root: live_thread(r_["env"], ch, root),
+            "send": lambda link, text, as_owner, mention: slack_send(r_["env"], link, text, as_owner, mention)}
+
+
+def same_text(m, text):
+    return html.unescape(m.get("text") or "").strip() == text.strip()
+
+
+def said_of(r):
+    """The line for him after his letter: where it went, with the permalink."""
+    p, letter = r.get("posted"), (r.get("answer") or {}).get("letter")
+    if p:
+        who = "under your name" if p["as"] == "owner" else f"as @{BOT_HANDLE}"
+        return f"Posted {who} in #{r['channel_name']}: <{p['permalink']}|the reply>" + ("" if p.get("read_back") else " (not read back yet: check the thread)")
+    if r.get("replied_at") and not letter:
+        return f"Nothing posted: you replied in the thread at {r['replied_at'][11:16]}. The mention is closed."
+    if r.get("revise") and not letter:
+        return "Not posted: an A with words after it is not an approve. A new draft follows, with its own card."
+    return {"A": "A: the draft is yours to paste.", "B": "B: left to you.", "C": "C: closed, and counted against this kind of mention."}.get(letter, "")
+
+
+def answer(reports, ref, letter, ctx=None, now=None, post=None, shown=None):
+    """His letter on a mention's ask. A on a card that offered a post (ADR 0022) posts that card's text, once, under
+    the checks below, and closes the mention; A on a card that said to paste leaves the draft to him and prepares
+    what it commits to by class. B: he writes it. C: nothing was needed; closed, and counted against the triage
+    reason. `letter` may carry his words after it: an A with words is not an approve, and a new draft is owed.
+    `post`: `poster()`'s dict; without it nothing can be posted. Raises KeyError, ValueError (a letter that no longer
+    applies), Refused (a post that does not leave; nothing is recorded as answered)."""
     recs, now = load(reports), now or datetime.datetime.now(TZ)
     rid = ref if ref in recs else next((k for k, r in recs.items() if r.get("dm_ts") == ref), None)
     if rid is None:
         raise KeyError(ref)
-    r, letter = recs[rid], letter.upper()
+    words = " ".join(str(letter).split())
+    r, letter, more = recs[rid], words[:1].upper(), words[1:].strip(" ,.:;，。：-")
+    if letter not in "ABC" or not letter or (more and words[1:2].isalnum()):
+        raise ValueError(f"{rid}: {words!r} is not a letter (A, B or C)")
     if r["state"] == "withdrawn" or r.get("replied_at"):
         raise ValueError(f"{rid}: withdrawn, he replied in the thread at {r.get('replied_at')}")
     if r.get("answer"):
         raise ValueError(f"{rid}: already answered {r['answer']['letter']}")
     if letter == "A" and not r.get("draft"):
         raise ValueError(f"{rid}: no draft to use; B or C")
+    if letter == "A" and more:                             # "A but say …": the text he approves does not exist yet
+        r.setdefault("cards", []).append({"dm_at": r.pop("dm_at", None), "dm_ts": r.pop("dm_ts", None), "shown": r.pop("shown", None)})
+        r.pop("draft", None)
+        r.update(state="waiting", revise={"at": iso(now), "words": more})
+        log(reports, {"at": iso(now), "id": rid, "reason": r["reason"], "outcome": "revise"})
+        save(reports, recs)
+        return dict(r, said=said_of(r))
+    offer = r.get("offer") or "off"
+    if letter == "A" and offer != "off":
+        done = post_reply(recs, reports, r, offer, post, shown, ctx, now)
+        save(reports, recs)
+        if not done:                                       # he had replied: closed by his reply, nothing posted
+            return dict(r, said=said_of(r))
     r["answer"] = {"letter": letter, "at": iso(now)}
     if letter == "C":
         r.update(state="closed", closed={"at": iso(now), "why": "nothing needed (his C)"})
         supersede(reports, r, f"the owner's C on mention {rid}: nothing needed", now)
+    elif r.get("posted"):
+        r.update(state="closed", closed={"at": iso(now), "why": f"posted {'under his name' if offer == 'owner' else 'as @' + BOT_HANDLE} on his A"})
+        supersede(reports, r, f"the reply posted on the owner's A (mention {rid}, {r['posted']['permalink']})", now)
     else:
         r["state"] = "answered"
-        if letter == "A" and ctx:
-            ctx = ctx() if callable(ctx) else ctx
-            follow(r, r.get("reply") or "", [x["key"] for x in (r.get("facts") or {}).get("keys") or []], ctx, source="draft")
-    log(reports, {"at": iso(now), "id": rid, "reason": r["reason"], "outcome": letter})
+    if letter == "A" and ctx:
+        ctx = ctx() if callable(ctx) else ctx
+        follow(r, r.get("reply") or "", [x["key"] for x in (r.get("facts") or {}).get("keys") or []], ctx, source="draft")
+    log(reports, {"at": iso(now), "id": rid, "reason": r["reason"], "outcome": letter, **({"posted": r["posted"]["as"]} if r.get("posted") else {})})
     save(reports, recs)
-    return r
+    return dict(r, said=said_of(r))
+
+
+def post_reply(recs, reports, r, offer, post, shown, ctx, now):
+    """His A on a card that offered a post. In order, each a refusal with its reason when it fails: the caller can
+    post and is not an unattended session; the site's identity is still the one the card named; the text is the text
+    the card showed, by hash; the thread, read now, holds no reply of his after the mention (it does: his reply closes
+    the mention, nothing is posted, → False). Then one post, read back. → True with r["posted"] set."""
+    rid = r["id"]
+    if not post:
+        raise Refused(f"{rid}: this card offers a post; answer it with `ela mention answer {rid} A`, which the vault's sync does not run")
+    if os.environ.get("ELA_NO_APPLY"):
+        raise Refused(f"{rid}: an unattended session does not post; his A is run by the runner")
+    if post["mode"] != offer:
+        raise Refused(f"{rid}: the card offered a post as {offer} and mention_post_as is now {post['mode']}; draft again for a new card")
+    text, want = r.get("post_text") or "", shown or r.get("shown")
+    if not want:
+        raise Refused(f"{rid}: no card on record showed this draft (`ela mention sent` keeps its hash); nothing is posted unseen")
+    if len(want) < 12 or not digest(text).startswith(want):
+        raise Refused(f"{rid}: the draft changed after the card he answered; the new text needs its own card")
+    if offer == "ela" and not text.endswith("\n" + signature(post["names"].name(post["names"].me))):
+        raise Refused(f"{rid}: the text does not end with ela's signature line; draft again")
+    thread = post["read"](r["channel"], r["thread_ts"])
+    if not thread:
+        raise Refused(f"{rid}: the thread could not be read now; nothing is posted blind")
+    ids = process(recs, reports, r["channel"], thread, post["names"], post["day"], now)
+    if r.get("replied_at"):
+        if ctx:
+            follow_replies(recs, [i for i in ids if i == rid], {"slack": ""}, post["names"], {(r["channel"], r["thread_ts"]): thread},
+                           ctx() if callable(ctx) else ctx)
+        return False
+    save(reports, recs)                                    # what the fresh read recorded stays, whatever the post does
+    last = max(float(m["ts"]) for m in r["mentions"])
+    there = next((m for m in thread if float(m["ts"]) > last and m.get("bot_id") and same_text(m, text)), None) if offer == "ela" else None
+    if there:                                              # an earlier A posted and was cut off before recording it
+        ts = there["ts"]
+    else:
+        ts = post["send"](r["permalink"], text, offer == "owner", rid)["ts"]
+    back = next((m for m in post["read"](r["channel"], r["thread_ts"]) or [] if m.get("ts") == ts), None)
+    r["posted"] = {"at": iso(now), "as": offer, "ts": ts, "permalink": permalink(r["channel"], ts, r["thread_ts"]),
+                   "hash": digest(text), "read_back": bool(back and same_text(back, text)), "found_there": bool(there)}
+    return True
 
 
 # ── verbs ─────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -974,29 +1150,35 @@ def cmd_draft(a):
         print(f"--reply-file: {e}", file=sys.stderr); sys.exit(EX_USAGE)
     if not r.get("facts"):
         r["facts"] = gather(r, thread_of(r_, r["channel"], r["thread_ts"], None, a.fresh), Names(r_["slack"], r_["env"]), lambda k: stored_issue(r_["jira"], k))
-    path, text = make_draft(r, r_["reports"], a.ask, reply, now)
+    names = Names(r_["slack"], r_["env"])
+    path, text = make_draft(r, r_["reports"], a.ask, reply, now, post_as(), a.postable, names.name(names.me) if names.me else "")
     save(r_["reports"], recs)
-    emit(a, {"id": r["id"], "draft": path, "hold": bool(r.get("hold")), "text": text}, [text, f"# written to {path}; nothing was sent"])
+    slips = slack_mod().mrkdwn_slips(text)                 # the card and the reply in it are Slack mrkdwn, or say where not
+    emit(a, {"id": r["id"], "draft": path, "hold": bool(r.get("hold")), "offer": r["offer"], "slips": slips, "text": text},
+         [text, f"# written to {path}; nothing was sent; A on this card: {A_TEXT[r['offer']]}"] + [f"# mrkdwn: {w}" for w in slips])
 
 
 def cmd_sent(a):
     r_ = roots(a)
     recs = load(r_["reports"])
     r = find(recs, a.ref)
-    r.update(dm_at=iso(now_of(a)), dm_ts=a.ts)
+    r.update(dm_at=iso(now_of(a)), dm_ts=a.ts, shown=digest(r.get("post_text") or r.get("reply") or ""))
     save(r_["reports"], recs)
     print(f"{r['id']}: the message to him is recorded" + (f" ({a.ts})" if a.ts else ""))
 
 
 def cmd_answer(a):
     r_ = roots(a)
+    names = Names(r_["slack"], r_["env"])
     try:
-        r = answer(r_["reports"], a.ref, a.letter, context(r_, Names(r_["slack"], r_["env"])), now_of(a))
+        r = answer(r_["reports"], a.ref, " ".join(a.letter), lambda: context(r_, names), now_of(a), poster(r_, names, day_settings()), a.shown)
     except KeyError:
         print(f"{a.ref}: no mention on record", file=sys.stderr); sys.exit(EX_NOTFOUND)
     except ValueError as e:
         print(str(e), file=sys.stderr); sys.exit(EX_USAGE)
-    emit(a, r, [line_of(r)] + follow_lines(r.get("follow") or {}))
+    except Refused as e:
+        print(f"refused, nothing posted: {e}", file=sys.stderr); sys.exit(EX_REFUSED)
+    emit(a, r, [line_of(r), f"  {r['said']}"] + follow_lines(r.get("follow") or {}))
 
 
 def cmd_follow(a):
@@ -1073,11 +1255,14 @@ def main():
     verb("show", cmd_show, "ref")
     verb("triage", cmd_triage, "permalink", fresh, user)
     verb("facts", cmd_facts, "ref", fresh)
-    verb("draft", cmd_draft, "ref", (("--ask",), {"required": True}), (("--reply-file",), {"required": True}), fresh, now=True)
+    verb("draft", cmd_draft, "ref", (("--ask",), {"required": True}), (("--reply-file",), {"required": True}),
+         (("--postable",), {"action": "store_true", "help": "the reply only acknowledges or relays a fact (no judgment, commitment or "
+                                                            "disagreement): under mention_post_as ela, A may post it as the bot"}), fresh, now=True)
     verb("sent", cmd_sent, "ref", (("--ts",), {}), json_=False, now=True)
-    verb("answer", cmd_answer, "ref", (("letter",), {"choices": list("ABCabc")}), now=True)
-    verb("follow", cmd_follow, "ref", fresh)
+    verb("answer", cmd_answer, "ref", (("letter",), {"nargs": "+", "help": "A, B or C; words after an A make it a redraft, not an approve"}),
+         (("--shown",), {"help": "the hash of the text the card showed (today.md's A carries it)"}), now=True)
     verb("supersede", cmd_supersede, "ref", (("--why",), {}), now=True)
+    verb("follow", cmd_follow, "ref", fresh)
     verb("close", cmd_close, "ref", (("--why",), {}), json_=False, now=True)
     verb("asks", cmd_asks)
     verb("waiting", cmd_waiting)

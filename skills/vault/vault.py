@@ -3143,7 +3143,8 @@ def sync_handles(does):
     """Whether the sync acts on this letter itself (nothing leaves ela): a drop, a no-op, or a dry answer that writes
     nothing live. The rest goes to the runner through `ela vault guidance`."""
     return (does is None or does == "drop" or (does.startswith("ela dry answer ") and "--apply" not in does)
-            or does.startswith("ela mention answer "))     # a letter on a held mention: a record, and dry-run batches at most
+            or (does.startswith("ela mention answer ") and "--shown" not in does))   # a letter on a held mention: a record, and
+                                                           # dry-run batches at most; an A that posts (ADR 0022) is the runner's
 
 
 def settle_letters(vault, reports, state, today, dry_run=False):
