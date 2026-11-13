@@ -12,14 +12,17 @@ the one write, `post`, is a dry run until --apply.
              history, mentions, unanswered, search and channels serve from the fact store (<runtime>/facts/slack/, the
              one per-channel cache, filled by `ela facts refresh`) while its read is fresh; --fresh reads Slack now
   whoami     [--email x]                 the user id behind an email (default: JIRA_EMAIL in the env file)
+  check      --text "…" | --file f|- [--fix] [--json]
+             is this text Slack mrkdwn? Names each slip (a heading, **bold**, [t](url), a pipe table, a --- rule, a
+             nested list item, a language tag on a fence, a marker touching CJK text) and exits 1; --fix prints the
+             repaired text. No token, no call: any sender runs it before its own post.
   post       <#channel|Cxxx|thread permalink> --text "…" | --file f.md [--dm me|email|Uxxx] [--preview] [--apply]
              send a message as the bot (a permalink → reply in that thread). Dry run by default; refuses a
              duplicate of a message the bot already posted there; a DM needs --dm said explicitly. --preview DMs
              the text to the owner, headed with where it would go, so he judges it as Slack renders it. A text
-             written in Markdown rather than Slack's mrkdwn (headings, **bold**, [t](url), pipe tables) is flagged
-             in the dry run and refused on --apply.
+             that fails `check` is flagged in the dry run and refused on --apply.
 
-Exit codes: 0 ok · 2 usage · 4 auth or refused · 5 remote error.
+Exit codes: 0 ok · 1 check found a slip · 2 usage · 4 auth or refused · 5 remote error.
 Credential resolution: $SLACK_BOT_TOKEN → --env-file → $SLACK_ENV_FILE → $ELA_ENV_FILE. The script never stores it.
 """
 import argparse, html, json, os, re, shutil, signal, sys, time, urllib.error, urllib.parse, urllib.request
@@ -840,16 +843,135 @@ def log_write(where, link, chars):
 TEAM_CHANNELS = ("mediahub-qa-release", "prj_dev_mediahub")
 
 
-MRKDWN_SLIPS = ((re.compile(r"^#{1,6} ", re.M), "a Markdown heading (# …): use a *bold* line"),
-                (re.compile(r"\*\*[^*\n]+\*\*"), "**bold**: Slack bolds with single *asterisks*"),
-                (re.compile(r"(?<!!)\[[^\]\n]+\]\((https?://[^)\s]+)\)"), "a [text](url) link: write <url|text>"),
-                (re.compile(r"^\s*\|.*\|\s*$", re.M), "a pipe table: Slack shows it as raw pipes; use a ``` block or lines"))
+# ── mrkdwn: what Slack renders, and what it prints literally ─────────────────────────────────────────────────
+# Slack's mrkdwn is not Markdown. It renders *bold*, _italic_, ~strike~, `code`, a fenced block with no language tag,
+# > quotes, <url|label> links and the • bullet. It prints these literally: **double asterisks**, # headings, pipe
+# tables, [label](url), --- rules, an indented (nested) list item, and a language tag on a fence. A marker also needs a
+# word boundary, and a CJK character is a word character: beside CJK text *bold*, _italic_ and ~strike~ take a space
+# on both sides. Each rule: (name, what to say, whether the repair is mechanical).
+MRKDWN_RULES = {
+    "heading": ("a Markdown heading (# …): use a *bold* line", True),
+    "double-asterisk": ("**bold**: Slack bolds with single *asterisks*", True),
+    "md-link": ("a [text](url) link: write <url|text>", True),
+    "table": ("a pipe table: Slack shows it as raw pipes; use a ``` block with padded columns, or lines", False),
+    "rule": ("a --- rule: Slack prints the dashes; leave a blank line", True),
+    "nested-list": ("an indented list item: Slack has no nesting and prints the indentation; one level, the • bullet", True),
+    "fence-language": ("a language tag on a ``` fence: Slack prints it as the block's first line; open with bare ```", True),
+    "cjk-boundary": ("a *bold*, _italic_ or ~strike~ marker touching CJK text: it needs a space on both sides to render", True),
+}
+_CJK = "぀-ヿ㐀-䶿一-鿿가-힯"
+_FENCE_TAG = re.compile(r"^([ \t]*```)[A-Za-z][\w+#.-]*[ \t]*$")
+_SPAN = re.compile(r"(?<![*_~])([*_~])(?=\S)([^\n]*?\S)\1(?![*_~])")
+_LINE_RULES = (("heading", re.compile(r"^#{1,6} +(.*?)\s*#*\s*$")),
+               ("rule", re.compile(r"^\s*(?:-{3,}|\*{3,}|_{3,})\s*$")),
+               ("table", re.compile(r"^\s*\|.*\|\s*$")),
+               ("nested-list", re.compile(r"^(?:[ ]{2,}|\t+)(?:[-*•◦▪]|\d+[.)])[ \t]+(.*)$")))
+_INLINE_RULES = (("double-asterisk", re.compile(r"\*\*([^*\n]+)\*\*")),
+                 ("md-link", re.compile(r"(?<!!)\[([^\]\n]+)\]\((https?://[^)\s]+)\)")))
+_HOLD = "\x00{}\x00"
+
+
+def _mask(text):
+    """(the text with every fenced block and `code` span held out, the held pieces): code is never checked or repaired.
+    A fence that opens with a language tag alone on its line keeps the tag outside the hold, so the tag is seen."""
+    held = []
+    def hold(m):
+        held.append(m.group(0))
+        return _HOLD.format(len(held) - 1)
+    def fence(m):
+        tag = _FENCE_TAG.match(m.group(0).split("\n", 1)[0]) if "\n" in m.group(0) else None
+        if not tag:
+            return hold(m)
+        head, rest = m.group(0).split("\n", 1)
+        held.append(tag.group(1) + "\n" + rest)
+        return head[len(tag.group(1)):].strip() + "\x01" + _HOLD.format(len(held) - 1)
+    text = re.sub(r"[ \t]*```.*?```", fence, text, flags=re.S)
+    return re.sub(r"`[^`\n]+`", hold, text), held
+
+
+def _unmask(text, held):
+    return re.sub(r"\x00(\d+)\x00", lambda m: held[int(m.group(1))], text)
+
+
+def _cjk_touch(line):
+    """The marker spans on a line that touch a CJK character outside themselves: [(start, end)]."""
+    return [(m.start(), m.end()) for m in _SPAN.finditer(line)
+            if (m.start() and re.match(f"[{_CJK}]", line[m.start() - 1])) or (m.end() < len(line) and re.match(f"[{_CJK}]", line[m.end()]))]
+
+
+def mrkdwn_check(text):
+    """Every place the text is Markdown that Slack prints literally, or a marker Slack will not render:
+    [{rule, line (1-based), why, fixable}]. Code blocks and `code` are left alone. The one function behind `check`,
+    `post`'s dry run and its refusal on --apply; a caller with its own send path imports it or runs `ela slack check`."""
+    masked, _ = _mask(text or "")
+    out, n = [], 1
+    for line in masked.split("\n"):
+        hits = []
+        if "\x01" in line:
+            hits.append("fence-language")
+            line = line.split("\x01", 1)[1]
+        hits += [name for name, rx in _LINE_RULES if rx.match(line)]
+        hits += [name for name, rx in _INLINE_RULES if rx.search(line)]
+        if "rule" not in hits and "heading" not in hits and _cjk_touch(line):
+            hits.append("cjk-boundary")
+        out += [{"rule": h, "line": n, "why": MRKDWN_RULES[h][0], "fixable": MRKDWN_RULES[h][1]} for h in hits]
+        n += 1 + sum(x.count("\n") for x in re.findall(r"\x00\d+\x00", line) for x in [_unmask(x, _)])
+    return out
+
+
+def mrkdwn_fix(text):
+    """The text with every mechanical repair made: a heading becomes a *bold* line, **x** becomes *x*, [t](u) becomes
+    <u|t>, a --- rule is dropped, a nested item moves to one level under •, a fence loses its language tag, and a
+    marker touching CJK text gets its spaces. A pipe table is left as it is: laying one out is not mechanical."""
+    masked, held = _mask(text or "")
+    lines = []
+    for line in masked.split("\n"):
+        if "\x01" in line:
+            line = line.split("\x01", 1)[1]
+        if _LINE_RULES[1][1].match(line):
+            continue
+        line = _INLINE_RULES[0][1].sub(r"*\1*", line)
+        line = _INLINE_RULES[1][1].sub(r"<\2|\1>", line)
+        m = _LINE_RULES[0][1].match(line)
+        if m:
+            line = "*" + m.group(1).strip().strip("*").strip() + "*"
+        m = _LINE_RULES[3][1].match(line)
+        if m:
+            line = "• " + m.group(1)
+        for a, b in reversed(_cjk_touch(line)):
+            after = " " if b < len(line) and re.match(f"[{_CJK}]", line[b]) else ""
+            before = " " if a and re.match(f"[{_CJK}]", line[a - 1]) else ""
+            line = line[:a] + before + line[a:b] + after + line[b:]
+        lines.append(line)
+    return _unmask("\n".join(lines), held)
 
 
 def mrkdwn_slips(text):
-    """What in the text is Markdown that Slack's mrkdwn renders literally. Code blocks are left alone."""
-    prose = re.sub(r"```.*?```", "", text, flags=re.S)
-    return [why for rx, why in MRKDWN_SLIPS if rx.search(prose)]
+    """What in the text Slack would print literally, one sentence a rule, for the dry run and the refusal."""
+    return list(dict.fromkeys(f"line {x['line']}: {x['why']}" for x in mrkdwn_check(text)))
+
+
+def cmd_check(a):
+    """`check`: is this text Slack mrkdwn? Exit 0 clean, 1 with each slip named. --fix prints the repaired text and
+    exits 0 when the repair left nothing, 1 when a slip remains that no mechanical repair covers. Reads no token and
+    calls nothing: the runner and Helm run it on their own send paths."""
+    if (a.text is None) == (a.file is None):
+        print("check takes --text or --file (a path, or - for stdin), not both", file=sys.stderr); sys.exit(EX_USAGE)
+    try:
+        text = a.text if a.text is not None else (sys.stdin.read() if a.file == "-" else open(a.file, encoding="utf-8").read())
+    except OSError as e:
+        print(f"--file: {e}", file=sys.stderr); sys.exit(EX_USAGE)
+    slips = mrkdwn_check(text)
+    fixed = mrkdwn_fix(text) if a.fix else None
+    left = mrkdwn_check(fixed) if a.fix else slips
+    if a.json:
+        print(json.dumps(dict({"clean": not slips, "slips": slips}, **({"fixed": fixed, "left": left} if a.fix else {})), ensure_ascii=False))
+    else:
+        if a.fix:
+            sys.stdout.write(fixed)
+        for x in (left if a.fix else slips):
+            print(f"line {x['line']}: {x['rule']}: {x['why']}" + ("" if x["fixable"] or a.fix else " (no mechanical repair)"), file=sys.stderr)
+    sys.exit(1 if left else 0)
 
 
 def cmd_post(tok, a):
@@ -1020,7 +1142,14 @@ def main():
     p.add_argument("--team-day-post", action="store_true", help="refuse unless the target is a team channel by name, top "
                    "level, with no other top-level post by ela there today: the day post of the qa-today and dev-today rules")
     p.add_argument("--json", action="store_true")
+    p = sub.add_parser("check", help="is this text Slack mrkdwn? exit 1 naming each slip; --fix prints the repaired text")
+    p.add_argument("--text"); p.add_argument("--file", help="a text file, or - for stdin")
+    p.add_argument("--fix", action="store_true", help="print the text with every mechanical repair made (stdout; --json: `fixed`); "
+                   "exit 1 when a slip remains that has no mechanical repair (a pipe table)")
+    p.add_argument("--json", action="store_true", help="{clean, slips: [{rule, line, why, fixable}]} and, with --fix, {fixed, left}")
     a = ap.parse_args()
+    if a.cmd == "check":
+        return cmd_check(a)
     # An unattended session (ela-runner's headless job, ELA_NO_APPLY=1) may read and dry-run, never write:
     # the owner's word for a write is given in the Slack thread and executed by the runner, not by a model.
     if os.environ.get("ELA_NO_APPLY") and getattr(a, "apply", False):

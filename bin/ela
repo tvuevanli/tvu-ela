@@ -10,9 +10,10 @@
  tickets & threads
   ela jira read|files|jql …        a ticket, a JQL search; files: its attachments to disk
   ela jira projects|changes …      every project key the account sees; tickets changed since a time
-  ela slack <verb> …               read|files|channels|history|search|mentions|unanswered|whoami|users;
+  ela slack <verb> …               read|files|channels|history|search|mentions|unanswered|whoami|users|check;
                                    files: a thread's images to disk; channels --all: every public
-                                   channel, joined or not
+                                   channel, joined or not; check --text|--file [--fix]: is this text
+                                   Slack mrkdwn (exit 1 names each slip; no token, no call)
   ela mail search|read|thread …    Gmail, read-only: QA test reports, deploy notices, approvals
   ela facts runtime show|prove <graph>  a lane's real profile chain, proven by a graph's creator and gateway
   ela facts refresh|status         the fact store (<runtime>/facts/): every source read once per pass, dated; the read

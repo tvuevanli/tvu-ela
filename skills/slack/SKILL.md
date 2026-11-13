@@ -44,11 +44,17 @@ reaction; none is to be added silently.
   refinement is previewed again, never posted to the target to see how it looks (2026-10-30: a promotion
   report went into the thread in a layout he did not want, and the bot cannot edit or delete). A DM to Evan
   himself needs no preview.
-- **Write Slack's mrkdwn, not Markdown.** `*bold*` with one asterisk, `_italic_`, `<url|text>` links, `•` or
-  numbered lines, no `#` headings, no pipe tables: an aligned table goes in a ``` block with padded columns.
-  One item per line, the key first and a few words after it; a status read at a glance takes a marker from one
-  fixed set: ✅ verified · ⬜ no verdict · 🟠 medium-or-worse open bug · ⚪ low bug. `post` flags Markdown in
-  the dry run and refuses it on `--apply`.
+- **Write Slack's mrkdwn, not Markdown.** Slack renders `*bold*` with one asterisk, `_italic_`, `~strike~`,
+  `` `code` ``, a fenced block with no language tag, `>` quotes, `<url|text>` links and the `•` bullet. It prints
+  the rest literally: `**double asterisks**`, `#` headings, pipe tables, `[text](url)`, `---` rules, an indented
+  (nested) list item, a language tag on a fence. A marker needs a word boundary and a CJK character is a word
+  character: beside CJK text `*bold*` and `_italic_` take a space on both sides. An aligned table goes in a ```
+  block with padded columns. One item per line, the key first and a few words after it; a status read at a
+  glance takes a marker from one fixed set: ✅ verified · ⬜ no verdict · 🟠 medium-or-worse open bug · ⚪ low bug.
+  `$SLACK check --text "…" | --file f|-` is the test (exit 1, each slip named with its line; `--fix` prints the
+  text with every mechanical repair made, and exits 1 only when a pipe table remains). `post` runs the same check:
+  it flags the slips in the dry run and refuses them on `--apply`. Any other sender (the runner, Helm) runs
+  `ela slack check` on its own text before it sends.
 - **The bot speaks as itself** (`@helm` until renamed Ella), never as Evan. Write in the third person
   about him ("Evan's position, recorded on … is …"), cite the source of every claim (a Jira key, a
   decision file, a doc URL), and answer in the asker's language.
