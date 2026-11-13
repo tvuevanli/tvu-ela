@@ -43,6 +43,7 @@ python3 tests/test_questions_offline.py || fail=1
 python3 tests/test_vault_rename_offline.py || fail=1
 python3 tests/test_brief_sprint_offline.py || fail=1
 python3 tests/test_brief_changes_offline.py || fail=1
+python3 tests/test_brief_china_offline.py || fail=1
 python3 tests/test_vault_offline.py || fail=1
 python3 tests/test_vault_migrate_offline.py || fail=1
 python3 tests/test_today_offline.py || fail=1

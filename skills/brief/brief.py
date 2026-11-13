@@ -1136,20 +1136,78 @@ def region_lane(subject):
     return lane if R.lane_region(lane) else None
 
 
-def region_reading(lane, tested, rows):
-    """A region lane read against the .com lane it aligns with (release.yaml regions): its versions as its newest QA
-    report states them, and every service whose version differs from the aligned lane's — by definition an environment
-    difference, since China runs no train of its own. {lane, shown, aligns_with, at, versions, differences, behind}."""
+def lane_hosts(env):
+    """The release hosts a lanes read asks: qa and prod, and the China region's own host once the site names it and
+    the release map its service ids. Until then China's lanes stand on QA's reports, as before."""
+    try:
+        china = not R.cn_missing(env[1] if len(env) > 1 else None) and bool(R.host_service_ids("cn"))
+    except SystemExit:
+        china = False
+    return ("qa", "prod") + (("cn",) if china else ())
+
+
+def host_lane_rows(env, host, errors):
+    """One host's lane rows, each naming the host. A China tag the release map does not name has no lane to stand in:
+    it stays out of the lanes and is counted once, with the verb that shows it as read."""
+    rows = [dict(r, host=host) for r in run_json(["python3", RELEASE, *env, "envs", "--host", host, "--json"], timeout=120)["rows"]]
+    if host != "cn":
+        return rows
+    unmapped = sorted({str(r.get("tag")) for r in rows if not r.get("lane")})
+    if unmapped:
+        errors.append({"source": "versions cn", "error": f"{len(unmapped)} tag(s) the release map does not name, shown as read by `ela versions --host cn`"})
+    return [r for r in rows if r.get("lane")]
+
+
+_CHINA = {}
+
+
+def china_read(env, errors):
+    """What the China host says of its bundles, asked once per run: {state: read | not configured | not read, bundles,
+    at}. Each bundle carries the lane the release map gives its name, or none (unmapped)."""
+    if "v" in _CHINA:
+        return _CHINA["v"]
+    out = {"state": "read", "bundles": [], "at": None}
+    try:
+        if R.cn_missing(env[1] if len(env) > 1 else None):
+            out["state"] = "not configured"
+        else:
+            got = run_json(["python3", RELEASE, *env, "bundles", "--host", "cn", "--limit", "50", "--json"], timeout=120)
+            out.update(bundles=got.get("bundles") or [], at=got.get("read_at"))
+    except (LaneError, subprocess.TimeoutExpired, ValueError) as e:
+        out["state"] = "not read"
+        errors.append({"source": "bundles cn", "error": str(e)[:200]})
+    _CHINA["v"] = out
+    return out
+
+
+def region_reading(lane, tested, rows, china=None):
+    """A region lane read against the .com lane it aligns with (release.yaml regions): its versions as its own host
+    publishes them (rows read from the China host), else as its newest QA report states them, and every service whose
+    version differs from the aligned lane's — by definition an environment difference, since China runs no train of
+    its own. With `china` (china_read) it also says the bundle the map places on the lane, where each fact was read
+    and when. {lane, shown, aligns_with, at, source, versions, differences, behind, host, bundle, unmapped}."""
     reg = (R.rmap("regions") or {}).get(R.lane_region(lane)) or {}
     meta = (reg.get("lanes") or {}).get(lane) or {}
     ref = reg.get("aligns_with")
-    mine = {}
-    for x in tested.values():                               # the newest report's version per service
+    mine, source = {}, "report"
+    for r in rows:                                          # its own host first: a read outranks a report
+        if r.get("lane") == lane and r.get("host") == "cn" and r.get("version"):
+            mine[r["service"]] = {"version": r["version"], "at": row_time(r), "carried": r.get("state") == "carried"}
+            source = "host"
+    for x in tested.values() if not mine else ():           # else the newest report's version per service
         if x.get("lane") == lane and (x["service"] not in mine or (x.get("at") or "") > (mine[x["service"]].get("at") or "")):
             mine[x["service"]] = x
     out = {"lane": lane, "shown": meta.get("shown") or LANE_SHOWN.get(lane, lane), "aligns_with": ref,
            "retiring": bool(meta.get("retiring")), "at": max((x.get("at") or "" for x in mine.values()), default="") or None,
+           "source": source, "carried": any(x.get("carried") for x in mine.values()),
            "versions": {k: short_version(v["version"]) for k, v in mine.items()}, "differences": [], "behind": None}
+    if china is not None:
+        placed = [b for b in china["bundles"] if b.get("lane") == lane]
+        loose = [b for b in china["bundles"] if not b.get("lane")]
+        newest = max(placed, key=lambda b: str(b.get("createTime") or ""), default=None)
+        out.update(host=china["state"], host_at=china.get("at"), unmapped=len(loose),
+                   unmapped_newest=max(loose, key=lambda b: str(b.get("createTime") or ""), default={}).get("bundleName"),
+                   bundle={"name": newest.get("bundleName"), "made": R.when(newest.get("createTime"))[:10]} if newest else None)
     for svc, x in sorted(mine.items()):
         theirs = next((r["version"] for r in rows if r.get("lane") == ref and r["service"] == svc and is_lane_row(r)), None)
         if theirs is None or vkey(theirs) == vkey(x["version"]):
@@ -1266,9 +1324,9 @@ def changes_facts(args):
     except (OSError, ValueError):
         prev = None
     live, read = [], {}
-    for host in ("qa", "prod"):
+    for host in lane_hosts(env):
         try:
-            live += [dict(r, host=host) for r in run_json(["python3", RELEASE, *env, "envs", "--host", host, "--json"], timeout=120)["rows"]]
+            live += host_lane_rows(env, host, errors)
             read[host] = True
         except (LaneError, subprocess.TimeoutExpired, ValueError) as e:
             errors.append({"source": f"versions {host}", "error": str(e)[:200]})
@@ -1978,7 +2036,7 @@ def merge_lane_rows(live, read, base_rows, mail_rows, now):
     request. A mail row never replaces a row read now or read later than it."""
     now = now.isoformat(timespec="seconds") if hasattr(now, "isoformat") else now
     out = [dict(r, read_at=r.get("read_at") or now) for r in live]
-    for host in ("qa", "prod"):
+    for host in ("qa", "prod", "cn"):
         if not read.get(host):
             out += [dict(r, state="carried") for r in base_rows or [] if r.get("host") == host]
     key = lambda r: (r.get("lane"), r["service"])  # noqa: E731
@@ -2274,15 +2332,15 @@ def lane_reads(runner, since=""):
 
 
 def read_lanes_live(env, base_rows, mail_rows=()):
-    """The lanes as they run now, both hosts, merged with the base read the merge rule's way: a host that does not
+    """The lanes as they run now, every host (lane_hosts), merged with the base read the merge rule's way: a host that does not
     answer keeps the base's rows only where no mail row (QA's report, the release) is newer, each carried with its read
     time; the mail-only rows (Orchestration, the QA lanes by report) come from the base and from `mail_rows` (the QA
     lanes as qa-tested.json reports them, so a base read from before the reports stands no longer than they do).
     (rows, {host: read}, errors)."""
     live, read, errors = [], {}, []
-    for host in ("qa", "prod"):
+    for host in lane_hosts(env):
         try:
-            live += [dict(r, host=host) for r in run_json(["python3", RELEASE, *env, "envs", "--host", host, "--json"], timeout=120)["rows"]]
+            live += host_lane_rows(env, host, errors)
             read[host] = True
         except (LaneError, subprocess.TimeoutExpired, ValueError) as e:
             errors.append({"source": f"versions {host}", "error": str(e)[:200]})
@@ -2458,7 +2516,7 @@ def line_matrix(line, args, env, rows, before, tested, pins, cand_doc, errors):
             gate = {"stop": c.get("stop", 0), "high": c.get("high", 0), "report": report, "age_hours": age}
         except (OSError, ValueError, KeyError):
             errors.append({"source": "promote report", "error": f"unreadable: {report}"})
-    regions = [region_reading(l, tested, rows) for l in region_lanes((cfg.get("lanes") or {}).get("prod"))]
+    regions = [region_reading(l, tested, rows, china_read(env, errors)) for l in region_lanes((cfg.get("lanes") or {}).get("prod"))]
     return {"line": line, "lanes": [LANE_SHOWN.get(l, l) for l in lanes] + ([cand.get("label") or "next train"] if cand else []),
             "rows": table, "same": same, "gate": gate, "lane_ids": lanes, "pending": rec, "sources": lane_sources(rows, lanes),
             "regions": [r for r in regions if r["versions"] or not r["retiring"]]}   # a retiring lane no report names is gone
@@ -2971,12 +3029,28 @@ def write_lanes_page(outs, site, env, runner, tested, held=()):
 def region_line(g):
     """A China lane under the table, never a column: it runs no train, so it is read against the .com lane it aligns with."""
     head = f"**{g['lane']}** ({g['shown']})"
+    stamp = lambda at: str(at or "")[5:16].replace("T", " ")  # noqa: E731
+    host = g.get("host")                                    # None: the China host was not asked (an older reading)
+    state = {"not configured": ".cn host not configured", "not read": ".cn host not read"}.get(host) \
+        or (".cn host: lanes not mapped" if host == "read" and g.get("source") != "host" else "")
+    bundle = ""
+    if host == "read":
+        if g.get("bundle"):
+            bundle = f" · bundle {g['bundle']['name']} ({g['bundle']['made']}), .cn host {stamp(g.get('host_at'))}"
+        elif g.get("unmapped"):
+            bundle = (f" · bundle: {g['unmapped']} on the .cn host, none mapped to this lane "
+                      f"(newest as read: {json.dumps(g.get('unmapped_newest'), ensure_ascii=False)}, unmapped)")
+        else:
+            bundle = " · bundle: none on the .cn host"
     if not g["versions"]:
-        return f"{head}: no QA report names its versions yet; aligned with {g['aligns_with']}"
+        return (f"{head}: no QA report names its versions yet" + (f" ({state})" if state else "")
+                + f"; aligned with {g['aligns_with']}{bundle}")
     v = g["versions"].get("mediahub-backend") or next(iter(g["versions"].values()))
     lag = "" if not g["differences"] else f" (behind by {g['behind']} builds)" if g["behind"] else " (differs)"
     diff = "; ".join(f"{d['service']} {d['version']} vs {d['reference']}" for d in g["differences"])
-    return (f"{head}: {v}, aligned with {g['aligns_with']}{lag} · QA report {(g['at'] or '')[:10]}"
+    src = (f".cn host {stamp(g['at'])}" + (" (carried, not read now)" if g.get("carried") else "")) if g.get("source") == "host" \
+        else f"QA report {(g['at'] or '')[:10]}" + (f" ({state})" if state else "")
+    return (f"{head}: {v}, aligned with {g['aligns_with']}{lag} · {src}{bundle}"
             + (f" · differs: {diff}" if diff else " · the same versions"))
 
 
