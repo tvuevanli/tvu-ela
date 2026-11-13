@@ -6,7 +6,7 @@ user-invocable: true
 
 # /ela:release — bundles, lane versions, builds, first-hand
 
-Self-contained. The script reads userservice (both hosts), the API gateways and Jenkins. `envs`, `gateway`,
+Self-contained. The script reads userservice (three hosts: qa, prod, and cn for the China region), the API gateways and Jenkins. `envs`, `gateway`,
 `builds`, `bundles` and `bundle` answer from the fact store (`<runtime>/facts/lanes/`, `<runtime>/facts/builds/`,
 filled by `ela facts refresh` once per pass) while that read is younger than `ELA_FACTS_MAX_AGE` hours (default 6),
 and say its time on stderr (`read_at` in JSON); a host that refused at the refresh is served as the same refusal
@@ -16,7 +16,7 @@ and say its time on stderr (`read_at` in JSON); a host that refused at the refre
 builds · login tvu`); `$R --help` lists the verbs and their flags. `bundle` is the bill of materials
 (`serviceTagList`); `envs` gives versions per lane; `builds` gives Jenkins number, version, result, branch, sha, time.
 
-Config: service URLs in `site.json services` (jenkins · userservice · userservice-test); which service ids publish
+Config: service URLs in `site.json services` (jenkins · userservice · userservice-test · userservice-cn); which service ids publish
 which versions on which host, how a tag name maps to a lane, which Jenkins job builds which service, and which
 lanes each release line uses — all in `<elak>/map/release.yaml` (origin per block).
 
@@ -54,6 +54,21 @@ lanes each release line uses — all in `<elak>/map/release.yaml` (origin per bl
   initData returns, `.env` `TVU_USER_AUTH_BASE` overrides.
   **Security:** kept alive, the SID in `session.json` no longer expires on its own while the machine is up;
   logging out in the browser still ends it at once. Accepted by the owner (2026-09-30).
+- **The China region has its own host, and its names are its own.** `--host cn` reads `site.json
+  services.userservice-cn` under an account login (`TVU_CN_ACCOUNT` / `TVU_CN_PASSWORD` in the env file, or a session
+  in `TVU_CN_SID`); `ela login cn` proves both. The China bundles and the `prod-N-china` lanes are read there and
+  nowhere else. A tag or bundle name from that host means a lane only where `<elak>/map/release.yaml`
+  `regions.china.userservice` says so (`service_ids`, `match` with `tag_suffix_to_lane` or `tag_to_lane`,
+  `bundles: [{match, lane, line}]`, `bundle_line`), and only a China lane: every other name is printed as read and
+  marked `unmapped`, never dropped and never read through the .com patterns. `Prod2` is a tag on both hosts and two
+  environments, so a China row never takes a .com lane and its facts are files of their own (`envs-cn.json`,
+  `bundles/cn/`). `$R bundles --host cn --raw` and `$R envs --host cn --raw [service]` print the host's answer with
+  the names quoted, nothing mapped: the read that says which map lines to write.
+- **Without `--host`, `bundles` and `envs` read every host.** Each row carries `host` and `read_at` (text: a header
+  per host with its read time). A host that does not answer is one `not read: <host> — <why>` line on stderr and an
+  entry in `gaps`; the other hosts' rows are whole and the exit is 0. While the site lacks the China names the answer
+  is the .com one plus one line, `China host not configured: add …`; `--host cn` exits 2 with that line. `bundle`,
+  `bundle-diff` and `drift` read one host (default qa) and take `cn` like the others; `create` and `pin` stay on prod.
 - **Orchestration's lane version comes from the gateway, not userservice.** `$R gateway [service] [--lane L]` reads
   `GET <gateway><path>` per lane from `<elak>/map/release.yaml` `gateway_versions` (path, token per lane, the site.json
   `services` key of each lane's gateway); the body is a plain string (`v4.0.206 build79 2026-10-27 08:34:39`, from
@@ -124,7 +139,7 @@ later tick exit 4 without a call until `ela login tvu`.
 
 ## Gotchas
 - **The wrong host shows no bundle** (`bundles`, `bundle`, `drift`, `--host`). QA bundles live on qa;
-  daily, stage and prod bundles on prod. Pass `--host prod` for anything past QA.
+  daily, stage and prod bundles on prod, the China region's on cn. Pass `--host prod` for anything past QA.
 - **A refused prod read exits 4 and names the command** (`--host prod`). It never falls back to a cache
   or another system's file. In a Claude session, tell Evan to type `! ela login tvu`; do not paste a
   SID for him.

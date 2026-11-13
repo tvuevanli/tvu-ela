@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
-"""Release facts, read first-hand — userservice on both hosts (GM bundles, lane versions), Jenkins (builds), the map.
+"""Release facts, read first-hand — userservice on its three hosts (GM bundles, lane versions), Jenkins (builds), the map.
 L1: subcommands, --json, stdlib only. No store, no scheduler: every answer is the source's current state.
 
-  bundles  [line] [--host qa|prod]        GM bundles for a line prefix (default mh2.1@), newest first
-  bundle   <name|id> [--host qa|prod]     a bundle's bill of materials (serviceTagList)
+  bundles  [line] [--host qa|prod|cn]     GM bundles for a line prefix (default mh2.1@), newest first; without --host
+                                          every host, each row with its host and read time; --raw: one host as it answers
+  bundle   <name|id> [--host qa|prod|cn]  a bundle's bill of materials (serviceTagList)
   bundle-diff <A> <B> [--host-a|--host-b] services added, removed and changed from A to B; A and B are a name, an id
                                           or a prefix (newest match wins, the rule printed); Slack searches suggested
-  envs     [service] [--host qa|prod]     versions per lane; tag names mapped to lanes by <elak>/map/release.yaml hosts
+  envs     [service] [--host qa|prod|cn]  versions per lane; tag names mapped to lanes by <elak>/map/release.yaml hosts
+                                          (the China host's by regions.china.userservice); without --host every host;
+                                          --raw: one host's service list, or a service's tag records, as it answers
   gateway  [service] [--lane L]           versions userservice does not publish (orchestration), per lane, read through
                                           the API gateway named in <elak>/map/release.yaml gateway_versions; no login.
                                           A lane that does not answer or parse is UNDETERMINED, never "not deployed"
@@ -21,7 +24,8 @@ L1: subcommands, --json, stdlib only. No store, no scheduler: every answer is th
                                           version of each service, the release label, the status and assignee the
                                           release thread announced; a fold is an open question. Read-only; the reading
                                           is kept beside the record. --batch: the appends and labels, dry run first
-  login    [qa|tvu] [--force]             qa: tvutest account login → SID (2h), printed for the env file.
+  login    [qa|tvu|cn] [--force]          qa: tvutest account login → SID (2h), printed for the env file.
+                                          cn: the China host's account login, proved; its session id is never shown.
                                           tvu: a one-time HTTPS page under ela.tvunetworks.com collects the browser's
                                           SID after Google SSO (a paste field is the fallback); stored in
                                           ~/.claude/ela/session.json (mode 600) with obtained_at; the first refusal
@@ -33,10 +37,14 @@ L1: subcommands, --json, stdlib only. No store, no scheduler: every answer is th
 Hosts. qa = site.json services.userservice-test, account login (TVUTEST_ACCOUNT / TVUTEST_PASSWORD), QA bundles and
 qa-* lanes. prod = site.json services.userservice, the person's TVU SSO session — `ela login tvu` (elak `blueprint/decisions/2026-09-04-prod-gm-read-through-a-person-login.md`): daily-*, stage and prod-N lanes and their bundles.
 A prod read without a live session exits 4 and names the command; nothing is guessed and no cache is read instead.
+cn = site.json services.userservice-cn, account login (TVU_CN_ACCOUNT / TVU_CN_PASSWORD, or a session in TVU_CN_SID):
+the China region's bundles and lanes (prod-N-china). Its names mean a lane only where the map's
+regions.china.userservice says so; anything else is shown as read, marked unmapped. While the site lacks those names,
+a read of every host answers for .com and says once what to add; --host cn exits 2 with the same line.
 Config: <elak>/map/release.yaml (service ids per host, tag→lane maps, Jenkins job → service, release lines).
 Exit codes: 0 ok · 2 usage · 3 not found · 4 auth · 5 remote error.
 """
-import argparse, datetime, hashlib, json, os, re, signal, ssl, subprocess, sys, urllib.error, urllib.parse, urllib.request
+import argparse, contextlib, datetime, hashlib, io, json, os, re, signal, ssl, subprocess, sys, urllib.error, urllib.parse, urllib.request
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
@@ -167,7 +175,13 @@ def rmap(key):
 
 def lane_of(host_kind, tagname):
     """Canonical lane name for a userservice tagName on a host, from release.yaml hosts; None when unmapped."""
-    h = (rmap("hosts") or {}).get(host_kind) or {}
+    if host_kind == "cn":                                   # the China host has its own map and names China lanes only
+        lane = _tag_lane(cn_map(), tagname)
+        return lane if lane_region(lane) else None
+    return _tag_lane((rmap("hosts") or {}).get(host_kind) or {}, tagname)
+
+
+def _tag_lane(h, tagname):
     t = str(tagname or "").strip()
     if h.get("match") == "endswith":
         for suffix, lane in sorted((h.get("tag_suffix_to_lane") or {}).items(), key=lambda kv: -len(kv[0])):
@@ -175,6 +189,86 @@ def lane_of(host_kind, tagname):
                 return lane
         return None
     return (h.get("tag_to_lane") or {}).get(t)
+
+
+# ── the China region's host ──────────────────────────────────────────────────────────────────────────
+# A third userservice, beside qa and prod: the China region's bundles and version records live on it and nowhere else.
+# Its address is site.json services.userservice-cn.url, its login the env file's TVU_CN_ACCOUNT / TVU_CN_PASSWORD (or a
+# session in TVU_CN_SID). Its names are not the .com names: a tag or a bundle name read from it means a lane only where
+# the release map's regions.china.userservice says so, and only a China lane (prod-N-china); anything else is shown as
+# read and marked unmapped. "Prod2" exists on both hosts and is two environments, so nothing read here is ever looked
+# up in hosts.prod, and its facts are kept in files of their own.
+HOSTS = ("qa", "prod", "cn")
+CN_SERVICE = "userservice-cn"
+CN_KEYS = ("TVU_CN_ACCOUNT", "TVU_CN_PASSWORD")
+CN_SID = "TVU_CN_SID"
+DEFAULT_LINE = "mh2.1@"
+
+
+def cn_map():
+    """The China host's naming, as data: release.yaml regions.china.userservice ({} while the map has none)."""
+    m = ((rmap("regions") or {}).get("china") or {}).get("userservice")
+    return m if isinstance(m, dict) else {}
+
+
+def _env_file(env_file=None):
+    return env_file or os.environ.get("ELA_ENV_FILE") or site().get("env")
+
+
+def cn_missing(env_file=None):
+    """The names the site still lacks for the China host, [] when it is configured."""
+    out = []
+    entry = (site().get("services") or {}).get(CN_SERVICE)
+    if not (entry.get("url") if isinstance(entry, dict) else entry):
+        out.append(f"site.json services.{CN_SERVICE}.url")
+    f = _env_file(env_file)
+    if not env_value(CN_SID, f) and not all(env_value(k, f) for k in CN_KEYS):
+        out.append(f"{' / '.join(CN_KEYS)} in the env file")
+    return out
+
+
+def cn_note(missing):
+    return "China host not configured: add " + " and ".join(missing)
+
+
+def cn_unmapped_note():
+    return ("China lanes not mapped: the release map's regions.china.userservice.service_ids is empty; "
+            "`ela release envs --host cn --raw` lists the services as the host names them")
+
+
+def cn_bundle_lane(name):
+    """(lane, line) the release map gives a bundle name read from the China host, (None, None) when no rule names it:
+    regions.china.userservice.bundles is a list of {match: <regex>, lane: <a China lane>, line: <M.m>}, first hit wins."""
+    for rule in cn_map().get("bundles") or []:
+        if not isinstance(rule, dict) or not rule.get("match") or not lane_region(rule.get("lane")):
+            continue
+        try:
+            if re.search(str(rule["match"]), str(name or "")):
+                return rule["lane"], (str(rule["line"]) if rule.get("line") is not None else None)
+        except re.error:
+            continue
+    return None, None
+
+
+def lane_shown(lane):
+    """The name the team uses for a region lane (prod-2-china → CN Prod2), from the map; the lane itself otherwise."""
+    for reg in (rmap("regions") or {}).values():
+        meta = ((reg or {}).get("lanes") or {}).get(lane)
+        if isinstance(meta, dict) and meta.get("shown"):
+            return meta["shown"]
+    return lane
+
+
+def cn_bundle(b):
+    """A bundle row read from the China host with what the map says of its name: lane, shown, line, mapped."""
+    lane, line = cn_bundle_lane(b.get("bundleName"))
+    return dict(b, lane=lane, shown=lane_shown(lane) if lane else None, line=line, mapped=bool(lane))
+
+
+def default_line(host):
+    """The bundle query a host is asked when none is typed: the morning's line on .com; on the China host the map's
+    regions.china.userservice.bundle_line, else nothing, which lists the newest of everything."""
+    return str(cn_map().get("bundle_line") or "") if host == "cn" else DEFAULT_LINE
 
 
 # A prod lane carries its region: the .com lanes are prod-N, the China region's are prod-N-china (never "-cn": qa-cn3 is
@@ -262,7 +356,8 @@ def http(url, payload=None, cookie=None, timeout=20):
 
 
 def _service_url(name):
-    url = (site().get("services", {}).get(name) or {}).get("url")
+    entry = site().get("services", {}).get(name)
+    url = entry.get("url") if isinstance(entry, dict) else entry
     if not url:
         print(f"site.json services.{name}.url is not set — run /ela:setup", file=sys.stderr); sys.exit(EX_USAGE)
     return url.rstrip("/")
@@ -377,11 +472,18 @@ def write_refused(path, kind):
 
 
 class US:
-    """userservice on one host. qa: account login, renewed by the script. prod: the person's session or nothing."""
+    """userservice on one host. qa and cn: account login, renewed by the script. prod: the person's session or nothing."""
     def __init__(self, env_file, host="qa"):
-        self.kind = "prod" if host == "prod" else "qa"
+        self.kind = host if host in HOSTS else "qa"
         self.env_file = env_file
-        if self.kind == "prod":
+        if self.kind == "cn":
+            missing = cn_missing(env_file)
+            if missing:
+                print(cn_note(missing), file=sys.stderr); sys.exit(EX_USAGE)
+            self.env_file = env_file = _env_file(env_file)
+            self.host = _service_url(CN_SERVICE)
+            self.sid = env_value(CN_SID, env_file) or account_login(env_file, self.host, CN_KEYS, "China")
+        elif self.kind == "prod":
             self.host = _service_url("userservice")
             s = _load_sessions().get("tvu") or {}
             self.sid = s.get("sid") if not s.get("rejected_at") else None
@@ -389,7 +491,7 @@ class US:
                 _need_login("tvu", "missing" if not s.get("sid") else f"refused at {s.get('rejected_at')}")
         else:
             self.host = _service_url("userservice-test")
-            self.sid = env_value("TVUTEST_SID", env_file) or tvutest_login(env_file, self.host)
+            self.sid = env_value("TVUTEST_SID", env_file) or account_login(env_file, self.host)
 
     def call(self, path, payload=None):
         why = write_refused(path, self.kind)
@@ -399,10 +501,11 @@ class US:
         if _auth_failed(st, body):
             if self.kind == "prod":
                 _mark_rejected("tvu"); _need_login("tvu", f"refused (HTTP {st})")
-            self.sid = tvutest_login(self.env_file, self.host)          # a tvutest SID lives two hours; log in again once
+            keys, what = (CN_KEYS, "China") if self.kind == "cn" else (QA_KEYS, "tvutest")
+            self.sid = account_login(self.env_file, self.host, keys, what)   # an account SID lives two hours; log in again once
             st, body = http(self.host + path, payload, cookie=f"SID={self.sid}")
             if _auth_failed(st, body):
-                print(f"userservice {self.host}: login rejected (HTTP {st}) — check TVUTEST_ACCOUNT / TVUTEST_PASSWORD", file=sys.stderr); sys.exit(EX_AUTH)
+                print(f"userservice {self.kind}: login rejected (HTTP {st}) — check {' / '.join(keys)}", file=sys.stderr); sys.exit(EX_AUTH)
         if st != 200:
             print(f"userservice {path}: HTTP {st} {str(body)[:200]}", file=sys.stderr); sys.exit(EX_REMOTE)
         return body
@@ -411,25 +514,33 @@ class US:
 class LazyUS:
     """A userservice handle that logs in only when a call is made, so a read the store answers costs no login."""
     def __init__(self, env_file, host="qa"):
-        self.kind = "prod" if host == "prod" else "qa"
+        self.kind = host if host in HOSTS else "qa"
         self.env_file, self._us = env_file, None
 
     def call(self, path, payload=None):
         if self._us is None:
-            self._us = US(self.env_file, "prod" if self.kind == "prod" else "qa")
+            self._us = US(self.env_file, self.kind)
         return self._us.call(path, payload)
 
 
-def tvutest_login(env_file, host):
-    acc, pw = env_value("TVUTEST_ACCOUNT", env_file), env_value("TVUTEST_PASSWORD", env_file)
+QA_KEYS = ("TVUTEST_ACCOUNT", "TVUTEST_PASSWORD")
+
+
+def account_login(env_file, host, keys=QA_KEYS, what="tvutest"):
+    """An account login on a userservice host (qa, cn): the env file's account and password → a two-hour SID."""
+    acc, pw = env_value(keys[0], env_file), env_value(keys[1], env_file)
     if not acc or not pw:
-        print("no TVUTEST_ACCOUNT / TVUTEST_PASSWORD in the env file", file=sys.stderr); sys.exit(EX_AUTH)
+        print(f"no {' / '.join(keys)} in the env file", file=sys.stderr); sys.exit(EX_AUTH)
     st, body = http(host + "/userAuth/token/getToken", {"email": acc, "password": hashlib.sha512(pw.encode()).hexdigest(), "expireTime": 7200})
     result = (body or {}).get("result") if isinstance(body, dict) else {}
     sid = (result or {}).get("token") or (result or {}).get("sid") or (body or {}).get("sid") if isinstance(body, dict) else None
     if not sid:
-        print(f"tvutest login failed: HTTP {st} {str(body)[:200]}", file=sys.stderr); sys.exit(EX_AUTH)
+        print(f"{what} login failed: HTTP {st} {str(body)[:200]}", file=sys.stderr); sys.exit(EX_AUTH)
     return str(sid).strip()
+
+
+def tvutest_login(env_file, host):
+    return account_login(env_file, host, QA_KEYS, "tvutest")
 
 
 def _validate_sid(host_url, sid):
@@ -599,7 +710,7 @@ def when(v):
 
 
 def _bundles_path(kind, line):
-    return os.path.join(F.store_dir("builds", "bundles", kind), f"{_safe(line)}.json")
+    return os.path.join(F.store_dir("builds", "bundles", kind), f"{_safe(line) or '_all'}.json")
 
 
 def stored_bundles(kind, line, limit):
@@ -651,7 +762,9 @@ def refresh_bundles(env_file, host, line, limit):
 
 
 def bundle_detail(us, bundle_id, fresh=False):
-    path = os.path.join(F.store_dir("builds", "bundles", "detail"), f"{_safe(bundle_id)}.json") if F else None
+    # a China bundle's detail is kept under its own host: an id is unique on one userservice, not across two
+    where = ("cn", "detail") if us.kind == "cn" else ("detail",)
+    path = os.path.join(F.store_dir("builds", "bundles", *where), f"{_safe(bundle_id)}.json") if F else None
     doc = F.read_json(path) if path else None
     if doc and not fresh and _store_fresh() and F.fresh(doc.get("at")):
         F.served("release", doc["at"], f"bundle {bundle_id}")
@@ -663,18 +776,113 @@ def bundle_detail(us, bundle_id, fresh=False):
     return out
 
 
-def cmd_bundles(a):
-    us = LazyUS(a.env_file, a.host)
-    rows = bundle_list(us, a.line, a.limit, fresh=a.fresh)
+def read_hosts(env_file, read, hosts=HOSTS):
+    """One read per host, each on its own: `read(host)` → (rows, read_at). A host that does not answer leaves the
+    others whole and becomes a gap with its own last words; the China host while the site lacks its names is a note,
+    never a gap. ([{host, rows, read_at}], [{host, exit, why}], [note])."""
+    got, gaps, notes = [], [], []
+    for host in hosts:
+        if host == "cn" and cn_missing(env_file):
+            notes.append(cn_note(cn_missing(env_file))); continue
+        said = io.StringIO()
+        try:
+            with contextlib.redirect_stderr(said):
+                rows, at = read(host)
+        except SystemExit as e:
+            code = e.code if isinstance(e.code, int) else EX_REMOTE
+            last = next((l.strip() for l in reversed(said.getvalue().splitlines()) if l.strip()), "") or f"exit {code}"
+            if host == "cn" and last == cn_unmapped_note():
+                notes.append(last)
+            else:
+                gaps.append({"host": host, "exit": code, "why": last})
+            continue
+        sys.stderr.write(said.getvalue())
+        got.append({"host": host, "rows": rows, "read_at": at})
+    return got, gaps, notes
+
+
+def _stamp(at):
+    """A read time as the reader's clock shows it: 'YYYY-MM-DD HH:MM' local, from an ISO stamp with Z or an offset."""
+    try:
+        t = datetime.datetime.fromisoformat(str(at).replace("Z", "+00:00"))
+        return (t.astimezone() if t.tzinfo else t).strftime("%Y-%m-%d %H:%M")
+    except ValueError:
+        return str(at or "")[:16]
+
+
+def _hosts_exit(got, gaps, what):
+    """Say each note and gap once on stderr; exit only when no host answered (prod's code first) or none had a row."""
+    if not got:
+        code = next((g["exit"] for g in gaps if g["host"] == "prod"), None) or next((g["exit"] for g in gaps), EX_USAGE)
+        sys.exit(code)
+    if not any(h["rows"] for h in got):
+        print(f"no {what} on {', '.join(h['host'] for h in got)}", file=sys.stderr); sys.exit(EX_NOTFOUND)
+
+
+def _say_hosts(gaps, notes):
+    for g in gaps:
+        print(f"not read: {g['host']} — {g['why']}; the other hosts' rows are whole", file=sys.stderr)
+    for n in notes:
+        print(n, file=sys.stderr)
+
+
+def _bundle_rows(env_file, host, line, limit, fresh):
+    """(rows newest first, read_at) for one host; the China host's rows carry what the map says of their names."""
+    line = default_line(host) if line is None else line
+    rows = bundle_list(LazyUS(env_file, host), line, limit, fresh=fresh)
     rows.sort(key=lambda x: str(x.get("createTime") or ""), reverse=True)
+    doc = None if fresh else stored_bundles(host, line, limit)
+    return ([cn_bundle(b) for b in rows] if host == "cn" else rows), (doc or {}).get("at") or _now()
+
+
+def _bundle_line(b, host):
+    tail = ""
+    if host == "cn":
+        tail = f"  {b['shown']} ({b['lane']})" if b.get("mapped") else "  unmapped"
+    return f"{str(b.get('bundleName')):<32} {str(b.get('bundleId')):<22} {when(b.get('createTime')):<17} {b.get('operator') or ''}{tail}"
+
+
+def cmd_bundles(a):
+    if a.raw:
+        if not a.host:
+            print("--raw shows one host's answer as it is: name it with --host", file=sys.stderr); sys.exit(EX_USAGE)
+        line = default_line(a.host) if a.line is None else a.line
+        rows = bundle_list(US(a.env_file, a.host), line, a.limit, fresh=True)   # the host now, no mapping, written through
+        if a.json:
+            print(json.dumps({"host": a.host, "query": line, "raw": True, "count": len(rows), "bundles": rows, "read_at": _now()}, ensure_ascii=False)); return
+        print(f"# {a.host} · query {line!r} · {len(rows)} bundle(s) as the host answers, names quoted as read · {_stamp(_now())}")
+        for b in rows:
+            rest = {k: v for k, v in b.items() if k not in ("bundleName", "bundleId", "createTime") and v not in (None, "")}
+            print(f"{json.dumps(b.get('bundleName'), ensure_ascii=False):<36} {str(b.get('bundleId')):<22} {when(b.get('createTime')):<17} "
+                  + json.dumps(rest, ensure_ascii=False))
+        return
+    if a.host:
+        line = default_line(a.host) if a.line is None else a.line
+        rows, at = _bundle_rows(a.env_file, a.host, line, a.limit, a.fresh)
+        if a.json:
+            print(json.dumps({"host": a.host, "line": line, "count": len(rows), "bundles": rows, "read_at": at}, ensure_ascii=False)); return
+        if not rows:
+            print(f"no bundles for {line!r} on {a.host}", file=sys.stderr); sys.exit(EX_NOTFOUND)
+        for b in rows:
+            print(_bundle_line(b, a.host))
+        return
+    # no host named: every host, each row saying where it was read and when
+    got, gaps, notes = read_hosts(a.env_file, lambda h: _bundle_rows(a.env_file, h, a.line, a.limit, a.fresh))
+    rows = [dict(b, host=h["host"], read_at=h["read_at"]) for h in got for b in h["rows"]]
+    _say_hosts(gaps, notes)
     if a.json:
-        doc = None if a.fresh else stored_bundles(us.kind, a.line, a.limit)
-        print(json.dumps({"host": a.host, "line": a.line, "count": len(rows), "bundles": rows,
-                          "read_at": (doc or {}).get("at") or _now()}, ensure_ascii=False)); return
-    if not rows:
-        print(f"no bundles for {a.line!r} on {a.host}", file=sys.stderr); sys.exit(EX_NOTFOUND)
-    for b in rows:
-        print(f"{str(b.get('bundleName')):<32} {str(b.get('bundleId')):<22} {when(b.get('createTime')):<17} {b.get('operator') or ''}")
+        print(json.dumps({"host": "all", "line": a.line if a.line is not None else DEFAULT_LINE, "count": len(rows), "bundles": rows,
+                          "hosts": [{"host": h["host"], "read_at": h["read_at"], "count": len(h["rows"]),
+                                     "query": default_line(h["host"]) if a.line is None else a.line} for h in got],
+                          "gaps": gaps, "notes": notes}, ensure_ascii=False))
+        if not got:
+            _hosts_exit(got, gaps, "bundles")
+        return
+    _hosts_exit(got, gaps, "bundles")
+    for h in got:
+        print(f"# {h['host']} — {len(h['rows'])} bundle(s), read {_stamp(h['read_at'])}")
+        for b in h["rows"]:
+            print(_bundle_line(b, h["host"]))
 
 
 def resolve_bundle(us, ref, missing_ok=False):
@@ -797,7 +1005,9 @@ def cmd_bundle(a):
     if a.json or a.raw:
         print(json.dumps({"host": a.host, "bundle": name, "bundleId": bid, "detail": detail} if a.raw else
                          {"host": a.host, "bundle": name, "bundleId": bid, "count": len(items), "services": items}, ensure_ascii=False)); return
-    print(f"# bundle {name}  id {bid}  {len(items)} service(s)  [{a.host}]")
+    lane = cn_bundle_lane(name)[0] if a.host == "cn" else None
+    print(f"# bundle {name}  id {bid}  {len(items)} service(s)  [{a.host}"
+          + (f" · {lane_shown(lane)} ({lane})" if lane else " · unmapped" if a.host == "cn" else "") + "]")
     if items:
         keys = [k for k in ("serviceName", "tagName", "version", "tag", "type", "serviceId") if k in items[0]]
         print("  " + "  ".join(f"{k:<28}" if k == "serviceName" else f"{k:<20}" for k in keys))
@@ -1156,6 +1366,10 @@ def stored_envs(kind):
 def lane_versions(us, want=None, fresh=False):
     """Every (service, tag, lane, version, updated) row a host publishes for the mapped service ids. Served from the
     store while its read of the host is fresh (a recorded gap exits as the live read did); a live read writes through."""
+    if us.kind == "cn" and not host_service_ids("cn"):       # nothing to ask for yet: a state of the map, never a recorded gap
+        if not cn_missing(us.env_file):
+            print(cn_unmapped_note(), file=sys.stderr); sys.exit(EX_USAGE)
+        print(cn_note(cn_missing(us.env_file)), file=sys.stderr); sys.exit(EX_USAGE)
     doc = None if fresh else stored_envs(us.kind)
     if doc is not None:
         if doc.get("gap"):
@@ -1185,16 +1399,41 @@ def refresh_envs(env_file, host):
         return None, f"exit {e.code}"
 
 
+def host_service_ids(kind):
+    """service id → [[slug, version field], …] for a host: each host publishes under its own ids, the China host's
+    from the map's regions.china.userservice.service_ids."""
+    if kind == "cn":
+        return cn_map().get("service_ids") or {}
+    return rmap("service_ids" if kind == "prod" else "qa_service_ids")
+
+
+def _entries(body):
+    r = body.get("result") if isinstance(body, dict) else None
+    return r if isinstance(r, list) else (body.get("data") if isinstance(body, dict) and isinstance(body.get("data"), list) else (r or {}).get("list") or [])
+
+
+def raw_envs(us, want=None):
+    """A host's own words, nothing mapped: its service list (name, id), or with `want` (an id, or part of a name) the
+    tag records of each service it matches. The first read of a host whose ids and tag names are not in the map yet."""
+    services = _entries(us.call("/userGroup/user-group/service/list?showInternalFlag=true"))
+    if not want:
+        return {"services": [{"serviceName": x.get("serviceName"), "serviceId": x.get("serviceId")} for x in services]}
+    hit = [x for x in services if str(x.get("serviceId")) == want or want.lower() in str(x.get("serviceName") or "").lower()]
+    out = []
+    for x in hit:
+        tags = _entries(us.call(f"/userGroup/user-group/tag/getTagVersionList?serviceId={urllib.parse.quote(str(x.get('serviceId')))}"))
+        out.append({"serviceName": x.get("serviceName"), "serviceId": x.get("serviceId"), "tags": tags})
+    return {"services": out}
+
+
 def _lane_versions_live(us, want=None):
-    ids = rmap("service_ids" if us.kind == "prod" else "qa_service_ids")
+    ids = host_service_ids(us.kind)
     out = []
     for svc_id, slugs in ids.items():
         slugs = [tuple(x) for x in slugs]
         if want and not any(want in slug for slug, _ in slugs):
             continue
-        body = us.call(f"/userGroup/user-group/tag/getTagVersionList?serviceId={svc_id}")
-        r = body.get("result") if isinstance(body, dict) else None
-        entries = r if isinstance(r, list) else (body.get("data") if isinstance(body, dict) and isinstance(body.get("data"), list) else (r or {}).get("list") or [])
+        entries = _entries(us.call(f"/userGroup/user-group/tag/getTagVersionList?serviceId={svc_id}"))
         for slug, field in slugs:
             if want and want not in slug:
                 continue
@@ -1264,19 +1503,64 @@ def cmd_gateway(a):
         print(f"  {r['lane']:<13} {r['site_service']:<14} {str(r['token']):<8} {v:<16} {r['version'] or ''}")
 
 
+def _env_rows(env_file, host, want, fresh):
+    """(rows, read_at) for one host; a China row says its region, and a tag the map does not name stays, unmapped."""
+    rows = lane_versions(LazyUS(env_file, host), want, fresh=fresh)
+    doc = None if fresh else stored_envs(host)
+    if host == "cn":
+        rows = [dict(r, region="china", mapped=bool(r.get("lane"))) for r in rows]
+    return rows, (doc or {}).get("at") or _now()
+
+
+def _env_line(r, host):
+    lane = r["lane"] or ("unmapped" if host == "cn" else "?")
+    return f"  {str(lane):<13} {str(r['tag']):<22} {str(r['version']):<40} {str(r['updated'] or '')[:19]}"
+
+
 def cmd_envs(a):
-    us = LazyUS(a.env_file, a.host)
-    out = lane_versions(us, (a.service or "").lower(), fresh=a.fresh)
+    want = (a.service or "").lower()
+    if a.raw:
+        if not a.host:
+            print("--raw shows one host's answer as it is: name it with --host", file=sys.stderr); sys.exit(EX_USAGE)
+        got = raw_envs(US(a.env_file, a.host), a.service)
+        if a.json:
+            print(json.dumps({"host": a.host, "raw": True, "read_at": _now(), **got}, ensure_ascii=False)); return
+        print(f"# {a.host} · {len(got['services'])} service(s) as the host answers, names quoted as read · {_stamp(_now())}")
+        for x in got["services"]:
+            print(f"{json.dumps(x.get('serviceName'), ensure_ascii=False):<44} {x.get('serviceId')}")
+            for t in x.get("tags") or []:
+                rest = {k: v for k, v in t.items() if k in ("backendVersion", "frontendVersion") and v}
+                print(f"  {json.dumps(t.get('tagName'), ensure_ascii=False):<30} {json.dumps(rest, ensure_ascii=False)}")
+        return
+    if a.host:
+        out, at = _env_rows(a.env_file, a.host, want, a.fresh)
+        if a.json:
+            print(json.dumps({"host": a.host, "rows": out, "read_at": at}, ensure_ascii=False)); return
+        if not out:
+            print(f"no env versions for {a.service!r} on {a.host}", file=sys.stderr); sys.exit(EX_NOTFOUND)
+        cur = None
+        for r in sorted(out, key=lambda x: (x["service"], str(x["lane"] or "~"), str(x["tag"]))):
+            if r["service"] != cur:
+                cur = r["service"]; print(f"# {cur}  [{a.host}]")
+            print(_env_line(r, a.host))
+        return
+    # no host named: every host, each row saying where it was read and when
+    got, gaps, notes = read_hosts(a.env_file, lambda h: _env_rows(a.env_file, h, want, a.fresh))
+    rows = [dict(r, host=h["host"], read_at=h["read_at"]) for h in got for r in h["rows"]]
+    _say_hosts(gaps, notes)
     if a.json:
-        doc = None if a.fresh else stored_envs(us.kind)
-        print(json.dumps({"host": a.host, "rows": out, "read_at": (doc or {}).get("at") or _now()}, ensure_ascii=False)); return
-    if not out:
-        print(f"no env versions for {a.service!r} on {a.host}", file=sys.stderr); sys.exit(EX_NOTFOUND)
-    cur = None
-    for r in sorted(out, key=lambda x: (x["service"], str(x["lane"] or "~"), str(x["tag"]))):
-        if r["service"] != cur:
-            cur = r["service"]; print(f"# {cur}  [{a.host}]")
-        print(f"  {str(r['lane'] or '?'):<13} {str(r['tag']):<22} {str(r['version']):<40} {str(r['updated'] or '')[:19]}")
+        print(json.dumps({"host": "all", "rows": rows, "hosts": [{"host": h["host"], "read_at": h["read_at"], "count": len(h["rows"])} for h in got],
+                          "gaps": gaps, "notes": notes}, ensure_ascii=False))
+        if not got:
+            _hosts_exit(got, gaps, "env versions")
+        return
+    _hosts_exit(got, gaps, f"env versions for {a.service!r}" if a.service else "env versions")
+    for h in got:
+        cur = None
+        for r in sorted(h["rows"], key=lambda x: (x["service"], str(x["lane"] or "~"), str(x["tag"]))):
+            if r["service"] != cur:
+                cur = r["service"]; print(f"# {cur}  [{h['host']} · read {_stamp(h['read_at'])}]")
+            print(_env_line(r, h["host"]))
 
 
 # ── jenkins ───────────────────────────────────────────────────────────────────
@@ -1405,6 +1689,14 @@ def cmd_login(a):
         keepalive_tvu(a.env_file, json_out=a.json)
     if a.target == "tvu":
         login_tvu(a.env_file, force=a.force, timeout=a.timeout, json_out=a.json, open_browser=not a.no_browser); return
+    if a.target == "cn":                                    # proves the address and the account; the session id is never shown
+        missing = cn_missing(a.env_file)
+        if missing:
+            print(cn_note(missing), file=sys.stderr); sys.exit(EX_USAGE)
+        f = _env_file(a.env_file)
+        account_login(f, _service_url(CN_SERVICE), CN_KEYS, "China")
+        print(json.dumps({"cn": "obtained", "expires_h": 2, "shown": False}) if a.json
+              else "China session obtained (2h); the read verbs log in by themselves: ela release bundles --host cn --raw"); return
     host = _service_url("userservice-test")
     sid = tvutest_login(a.env_file, host)
     # the session id is a credential: shown only to a person at a terminal, never into a pipe or a session's shell
@@ -1722,15 +2014,18 @@ def main():
     ap = argparse.ArgumentParser(description="Release facts, first-hand.")
     ap.add_argument("--env-file")
     sub = ap.add_subparsers(dest="cmd", required=True)
-    def host_arg(p): p.add_argument("--host", choices=("qa", "prod"), default="qa", help="qa (tvutest, account login) or prod (the person's TVU session; ela login tvu)")
-    p = sub.add_parser("bundles"); p.add_argument("line", nargs="?", default="mh2.1@"); p.add_argument("--limit", type=int, default=50); host_arg(p); p.add_argument("--fresh", action="store_true", help="read the host now instead of the store"); p.add_argument("--json", action="store_true")
+    HOST_HELP = "qa (tvutest, account login), prod (the person's TVU session; ela login tvu) or cn (the China region's host, account login)"
+    def host_arg(p): p.add_argument("--host", choices=HOSTS, default="qa", help=HOST_HELP)
+    def hosts_arg(p): p.add_argument("--host", choices=HOSTS, help=HOST_HELP + "; without it every host is read and each row says which")
+    RAW_HELP = "one host's answer as it is, names quoted as read, nothing mapped; needs --host (the first read of the China host)"
+    p = sub.add_parser("bundles"); p.add_argument("line", nargs="?", help=f"a name prefix; default {DEFAULT_LINE} (.com) and the map's regions.china.userservice.bundle_line (cn)"); p.add_argument("--limit", type=int, default=50); hosts_arg(p); p.add_argument("--fresh", action="store_true", help="read the host now instead of the store"); p.add_argument("--raw", action="store_true", help=RAW_HELP); p.add_argument("--json", action="store_true")
     p = sub.add_parser("bundle"); p.add_argument("ref", help="bundle name (mh2.1@daily-wed-s1-d33) or id"); host_arg(p); p.add_argument("--json", action="store_true"); p.add_argument("--raw", action="store_true")
     p = sub.add_parser("bundle-diff", help="docker services added, removed and changed between two bundles")
     p.add_argument("a", help="bundle A: exact name, id, or a prefix (mh2.0@rc-s5, or '2.0 rc-s5') — the newest match wins")
     p.add_argument("b", help="bundle B, resolved the same way")
-    for side in ("a", "b"): p.add_argument(f"--host-{side}", choices=("qa", "prod"), default="qa", help=f"host bundle {side.upper()} is read from (default qa)")
+    for side in ("a", "b"): p.add_argument(f"--host-{side}", choices=HOSTS, default="qa", help=f"host bundle {side.upper()} is read from (default qa)")
     p.add_argument("--json", action="store_true")
-    p = sub.add_parser("envs"); p.add_argument("service", nargs="?"); host_arg(p); p.add_argument("--fresh", action="store_true", help="read the host now instead of the store"); p.add_argument("--json", action="store_true")
+    p = sub.add_parser("envs"); p.add_argument("service", nargs="?"); hosts_arg(p); p.add_argument("--fresh", action="store_true", help="read the host now instead of the store"); p.add_argument("--raw", action="store_true", help=RAW_HELP + ": its service list, or with a service its tag records"); p.add_argument("--json", action="store_true")
     p = sub.add_parser("gateway", help="versions userservice does not publish (orchestration), read per lane through the API gateways; no login")
     p.add_argument("service", nargs="?"); p.add_argument("--lane", help="one lane (daily-wed, prod-3)"); p.add_argument("--fresh", action="store_true", help="read the gateways now instead of the store"); p.add_argument("--json", action="store_true")
     p = sub.add_parser("create", help="a new bundle on prod from a base bundle, services changed one by one; dry run unless --apply; never deletes")
@@ -1744,7 +2039,7 @@ def main():
     p = sub.add_parser("unpin", help="lift a line's hold: prod follows the newest official again; dry run unless --apply"); p.add_argument("line"); p.add_argument("--apply", action="store_true")
     p = sub.add_parser("pins", help="the official bundle per line, as pinned"); p.add_argument("--json", action="store_true")
     p = sub.add_parser("builds"); p.add_argument("job"); p.add_argument("--limit", type=int, default=15); p.add_argument("--fresh", action="store_true", help="read Jenkins now instead of the store"); p.add_argument("--json", action="store_true")
-    p = sub.add_parser("drift"); p.add_argument("line", nargs="?", default="mh2.1@"); p.add_argument("--bundles", type=int, default=5, help="newest N bundles to union (default 5)"); host_arg(p); p.add_argument("--json", action="store_true")
+    p = sub.add_parser("drift"); p.add_argument("line", nargs="?", default=DEFAULT_LINE); p.add_argument("--bundles", type=int, default=5, help="newest N bundles to union (default 5)"); host_arg(p); p.add_argument("--json", action="store_true")
     p = sub.add_parser("changes", help="what a lane's newest build changed, one line per service and what for, from its record")
     p.add_argument("lane", nargs="?", help="qa-cn3 or QA-AWS3; every record when omitted"); p.add_argument("--check", metavar="FILE", help="validate a build record")
     p.add_argument("--tickets", action="store_true", help="one line per ticket under each service: key, title, status, assignee (the fact store)")
@@ -1754,7 +2049,7 @@ def main():
     p.add_argument("--batch", action="store_true", help="the Fixed In appends and labels through the jira verbs; dry run unless --apply")
     p.add_argument("--apply", action="store_true"); p.add_argument("--no-save", action="store_true", help="keep no reading and raise no question")
     p.add_argument("--json", action="store_true")
-    p = sub.add_parser("login"); p.add_argument("target", nargs="?", choices=("qa", "tvu"), default="qa"); p.add_argument("--force", action="store_true"); p.add_argument("--no-browser", action="store_true"); p.add_argument("--timeout", type=int, default=300); p.add_argument("--json", action="store_true")
+    p = sub.add_parser("login"); p.add_argument("target", nargs="?", choices=("qa", "tvu", "cn"), default="qa"); p.add_argument("--force", action="store_true"); p.add_argument("--no-browser", action="store_true"); p.add_argument("--timeout", type=int, default=300); p.add_argument("--json", action="store_true")
     p.add_argument("--keepalive", action="store_true", help="tvu: one validation call that renews the session's idle TTL; never logs in, never retries")
     a = ap.parse_args()
     {"bundles": cmd_bundles, "bundle": cmd_bundle, "bundle-diff": cmd_bundle_diff, "envs": cmd_envs, "gateway": cmd_gateway, "builds": cmd_builds, "drift": cmd_drift, "login": cmd_login, "pin": cmd_pin, "unpin": cmd_unpin, "pins": cmd_pins,

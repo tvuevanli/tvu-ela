@@ -70,13 +70,15 @@
   ela sync <repo> [--ref R]        fetch; branch, ahead/behind, dirty; optionally check out R
   ela clone <alias/path>           clone into its place under <code>
  release facts
-  ela bundles [mh2.1@]             GM bundles, newest first
+  ela bundles [mh2.1@]             GM bundles, newest first: every host (qa, prod, cn = the China region's), each
+                                   row with its host and read time; --host H for one; --host cn --raw: its names as read
   ela bundle <name|id>             its bill of materials
   ela bundle-diff <A> <B>          docker services added/removed/changed between two bundles
-                                   (name, id or prefix; --host-a/--host-b)
+                                   (name, id or prefix; --host-a/--host-b qa|prod|cn)
   ela docker [--image I] [--page]   QA's docker test reports per image against the lanes' bundles: ready / not ready,
                                    the bundle command per daily lane
-  ela versions [service]           versions per env (userservice)
+  ela versions [service]           versions per lane (userservice): every host, or --host qa|prod|cn; a China
+                                   tag the release map does not name is shown as read, unmapped
   ela release gateway [service]    versions userservice does not publish (orchestration), per lane via the API
                                    gateways; [--lane L] [--json]; a lane that does not answer is UNDETERMINED
   ela builds <job|service>         Jenkins builds: version, branch, sha
@@ -243,8 +245,10 @@
 站点
   ela doctor [--only S,…] [--json] does everything of ela work here? site · units · timers · senses · facts, one
                                    line each (✓ ! ✗), the next action on a failure; exit 1 on any ✗; read-only
-  ela login tvu|qa                 prod: a one-time HTTPS page collects the browser's SID;
+  ela login tvu|qa|cn              prod: a one-time HTTPS page collects the browser's SID;
                                    then --host prod on bundles, bundle, versions, drift
+                                   cn: proves the China host's address and account (site.json
+                                   services.userservice-cn.url, TVU_CN_ACCOUNT / TVU_CN_PASSWORD)
   ela site                         the site config: roots, host names, aliases, emails
   ela runtime status|clean         the disposable working directory: what is there, and delete
                                    it (--work also drops clean worktrees)

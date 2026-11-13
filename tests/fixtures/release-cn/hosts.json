@@ -1,0 +1,32 @@
+{
+ "_note": "Invented answers in userservice's shape, one block per host. No name here was read from the China host: its real names are unknown until the first live read, which is the point of the cases.",
+ "prod": {
+  "bundles": [
+   {"bundleName": "MediaHub 2.1.15", "bundleId": "1900000000000000015", "createTime": "2026-11-10 08:00:00", "operator": "release"},
+   {"bundleName": "mh2.1@daily-wed-s1-d60", "bundleId": "1900000000000000060", "createTime": "2026-11-12 08:00:00", "operator": "release"}
+  ],
+  "tags": {
+   "svc-com-backend": [
+    {"tagName": "MediaHubProd2", "backendVersion": "v1.5.9 build11 2026-09-01 08:00:00", "frontendVersion": "v1.2.62 build81 2026-09-01 08:00:00", "updateTime": "2026-09-01 08:00:00"},
+    {"tagName": "MediaHubProd3", "backendVersion": "v2.1.40 build272 2026-11-10 08:00:00", "frontendVersion": "v2.2.130 build185 2026-11-10 08:00:00", "updateTime": "2026-11-10 08:00:00"}
+   ]
+  }
+ },
+ "cn": {
+  "bundles": [
+   {"bundleName": "MH 2.1.13 CN2", "bundleId": "1900000000000000015", "createTime": "2026-10-21 09:00:00", "operator": "cn-release"},
+   {"bundleName": "MediaHub 2.1.13（CN Prod2）", "bundleId": "1800000000000000002", "createTime": "2026-10-20 09:00:00", "operator": "cn-release"},
+   {"bundleName": "mh1.5@ga-s1-d3", "bundleId": "1800000000000000003", "createTime": "2026-06-01 09:00:00", "operator": "cn-release"}
+  ],
+  "services": [
+   {"serviceName": "MediaHub", "serviceId": "svc-cn-backend"},
+   {"serviceName": "Unified Streaming", "serviceId": "svc-cn-streaming"}
+  ],
+  "tags": {
+   "svc-cn-backend": [
+    {"tagName": "MediaHubProd2", "backendVersion": "v2.1.26 build256 2026-10-20 08:00:00", "frontendVersion": "v2.2.118 build170 2026-10-20 08:00:00", "updateTime": "2026-10-21 09:00:00"},
+    {"tagName": "MediaHubGray", "backendVersion": "v2.1.30 build260 2026-10-28 08:00:00", "frontendVersion": "v2.2.120 build175 2026-10-28 08:00:00", "updateTime": "2026-10-28 09:00:00"}
+   ]
+  }
+ }
+}
