@@ -44,7 +44,10 @@ SENSES = {
     "ur":         ("graph", ["graphs", "--pages", "1", "--limit", "1"],
                    {3: (OK, "answers (no graphs of mine)", "")}, "UR_ACCESS_KEY"),
     "jenkins":    ("release", ["builds", "mediahub-backend", "--limit", "1", "--fresh"], {}, ""),
-    "lanes":      ("release", ["envs", "--fresh"], {}, "TVUTEST_ACCOUNT"),   # QA lanes: the tvutest login
+    "lanes":      ("release", ["envs", "--host", "qa", "--fresh"], {}, "TVUTEST_ACCOUNT"),   # QA lanes: the tvutest login
+    "lanes-cn":   ("release", ["bundles", "--host", "cn", "--limit", "1", "--fresh"],          # the China region's host
+                   {2: (WARN, "not configured (a state, not a fault); the missing names are under site", "/ela:setup §1 and §2"),
+                    3: (OK, "answers (no bundle under the map's query)", "")}, "TVU_CN_ACCOUNT"),
     "sentry":     ("sentry", ["projects"],
                    {4: (WARN, "no token yet (a state, not a fault)", "ela secret SENTRY_TOKEN")}, "SENTRY_TOKEN"),
     "j2n":        ("j2n", ["envs"], {}, "TVU_PASSWORD"),        # the J2N config UI: the owner's sign-in
@@ -187,6 +190,25 @@ def section_site(s, env_file):
     return out
 
 
+def china_checks(missing):
+    """One line per name the site lacks for the China region's release host; nothing when it is configured."""
+    out = []
+    for name in missing:
+        action = "/ela:setup §1: the China userservice's address" if name.startswith("site.json") else \
+                 "ela secret TVU_CN_ACCOUNT, then ela secret TVU_CN_PASSWORD (/ela:setup §2)"
+        out.append(check("site", "china host", WARN, f"{name} is missing; release reads answer for .com only", action))
+    return out
+
+
+def section_china(env_file):
+    sys.path.insert(0, os.path.join(SKILLS, "release"))
+    try:
+        import release as R  # noqa: E402 — the names are the release capability's, never repeated here
+        return china_checks(R.cn_missing(env_file))
+    except Exception as e:  # noqa: BLE001 — a doctor that cannot ask says so instead of stopping
+        return [check("site", "china host", WARN, f"could not be checked: {e}"[:160], "run: ela release bundles --host cn")]
+
+
 def section_units(s):
     out = []
     for u in UNITS:
@@ -315,7 +337,7 @@ def main():
     with cf.ThreadPoolExecutor(max_workers=2) as ex:                  # the slow section starts first
         senses = ex.submit(section_senses, env_file, a.timeout, secrets) if "senses" in only else None
         if "site" in only and s:
-            checks += section_site(s, env_file)
+            checks += section_site(s, env_file) + section_china(env_file)
         if "units" in only:
             checks += section_units(s)
         if "timers" in only:

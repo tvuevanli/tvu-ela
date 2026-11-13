@@ -41,7 +41,7 @@ Target shape:
   "dir_names": { "<alias>/<remote name>": "<alias>/<dir name a team stack requires>" },
   "stacks":   { "<alias>": "<path of the team stack repo that governs that alias>" },
   "emails":   { "me": "<Evan's address>", "<alias>": "<a colleague's address — `ela graphs li`>" },
-  "services": { "jenkins": { "url": "<Jenkins root>" }, "userservice": { "url": "<GM userservice, prod>" }, "userservice-test": { "url": "<GM userservice, QA>" }, "confluence": { "url": "<the web team's Confluence root>" } },
+  "services": { "jenkins": { "url": "<Jenkins root>" }, "userservice": { "url": "<GM userservice, prod>" }, "userservice-test": { "url": "<GM userservice, QA>" }, "userservice-cn": { "url": "<GM userservice, the China region's>" }, "confluence": { "url": "<the web team's Confluence root>" } },
   "map_sources": {
     "mediahub_agent_workspace": "<mh-app>/mediahub-agent/workspace.json",
     "tvu_catalog_modules":      "<tvu-knowledge>/tvu-catalog/catalog/modules"
@@ -79,6 +79,7 @@ Keys and where each comes from when absent:
 | `TVU_SSH_USER` `TVU_SSH_PASSWORD` | box ssh for `graph connect` / `exec` (user defaults to the operate account) |
 | `SENTRY_URL` `SENTRY_TOKEN` `SENTRY_ORG` | the self-hosted Sentry: an auth token from the account's own API keys, scopes `project:read` (+ `org:read` for `projects`). `SENTRY_ORG` defaults to `sentry`. Crashes are the one class of fact ela cannot see any other way |
 | `TVUTEST_ACCOUNT` `TVUTEST_PASSWORD` `TVUTEST_SID` | release reads (QA GM host): a tvutest account; the login's SID is cached as `TVUTEST_SID` (2 h, refreshed by the script). No prod SID is pasted into `.env`: the prod host is read through a session the person hands over at the CLI (`ela login tvu`), stored only in the site directory — decision elak `blueprint/decisions/2026-09-04-prod-gm-read-through-a-person-login.md` |
+| `TVU_CN_ACCOUNT` `TVU_CN_PASSWORD` | release reads of the China region's GM host (`--host cn`: its bundles and the `prod-N-china` lanes), an account on that host; its address is `site.json services.userservice-cn.url`. Both are optional: without them every release read answers for .com and says once `China host not configured: add …`. `TVU_CN_SID` (optional) is a session used instead of logging in, for the case the account login is not offered there. After adding them: `ela login cn`, then `ela release bundles --host cn --raw` for the names as that host writes them, which the release map's `regions.china.userservice` is written from |
 
 Procedure: list which keys are present; for each missing one say where to get it and ask Evan to
 paste it **into the file himself** or hand it to you for a single `printf >>` — then `chmod 600`.
@@ -94,7 +95,8 @@ python3 "${CLAUDE_PLUGIN_ROOT}/skills/kb/kb.py"          --env-file "$ENV" searc
 python3 "${CLAUDE_PLUGIN_ROOT}/skills/figma/figma.py" --env-file "$ENV" me
 python3 "${CLAUDE_PLUGIN_ROOT}/skills/slack/slack.py" --env-file "$ENV" whoami            # auth + JIRA_EMAIL → user id
 python3 "${CLAUDE_PLUGIN_ROOT}/skills/graph/graph.py" --env-file "$ENV" graphs --pages 1 --limit 1     # UR key (graphs of `me` from site.json emails); or: ela graphs
-python3 "${CLAUDE_PLUGIN_ROOT}/skills/release/release.py" --env-file "$ENV" envs           # userservice SID; or: ela versions
+python3 "${CLAUDE_PLUGIN_ROOT}/skills/release/release.py" --env-file "$ENV" envs           # every userservice host, a line per host not read; or: ela versions
+python3 "${CLAUDE_PLUGIN_ROOT}/skills/release/release.py" --env-file "$ENV" bundles --host cn --limit 1   # the China host; exit 2 = not configured, a state: the line names what to add
 python3 "${CLAUDE_PLUGIN_ROOT}/skills/release/release.py" --env-file "$ENV" builds mediahub-backend --limit 1   # Jenkins; or: ela builds mediahub-backend
 python3 "${CLAUDE_PLUGIN_ROOT}/skills/confluence/confluence.py" --env-file "$ENV" spaces | head -3      # Confluence PAT; or: ela wiki spaces
 python3 "${CLAUDE_PLUGIN_ROOT}/skills/sentry/sentry.py" --env-file "$ENV" projects | head -3            # Sentry token; exit 4 = no credential yet, which is a state, not a fault
