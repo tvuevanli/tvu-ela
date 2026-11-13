@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""doctor offline: a sense probe's exit code read as ✓ / ! / ✗ (UR's exit 3 and Sentry's exit 4 are states, a timeout
-is a failure), credential values masked in a probe's output, a fact source's gap or age, and a timer's next run —
+"""doctor offline: a sense probe's exit code read as ✓ / ! / ✗ (UR's exit 3, Sentry's exit 4 and the QA host not
+admitting the account are states, a timeout is a failure), credential values masked in a probe's output, a fact source's gap or age, and a timer's next run —
 calendar or monotonic — and its service's last result. No network, no systemctl."""
 import os, sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -19,8 +19,19 @@ check("UR exit 3 (no graphs of mine) is ok", D.classify("ur", 3, "", "no graphs"
 check("Sentry exit 4 is a warn (no token yet)", D.classify("sentry", 4, "", "no SENTRY_TOKEN")[0] == D.WARN)
 st, detail, action = D.classify("browser", 4, "", "no cookies")
 check("browser exit 4 fails with the login action", st == D.FAIL and "ela login tvu --force" in action)
-st, detail, action = D.classify("lanes", 4, "", "tvutest login failed: 0x80060018 not activated")
-check("lanes auth refusal fails and quotes the server", st == D.FAIL and "0x80060018" in detail and "tvutest" in action)
+refusal = "tvutest login failed: HTTP 200 {'errorCode': '0x80060018', 'errorInfo': \"This account hasn't been activated\", 'result': None}"
+st, detail, action = D.classify("lanes", 4, "", refusal)
+check("the QA host not admitting the account is a warn that names the state and where QA versions come from, no action",
+      st == D.WARN and "a state, not a fault" in detail and "2026-11-04" in detail and "report mails" in detail and action == "")
+st, detail, action = D.classify("lanes", 4, "", "tvutest login failed: HTTP 200 {'errorCode': '0x80060004', 'errorInfo': 'wrong password', 'result': None}")
+check("another error code from the QA login still fails, quotes the server and names the keys",
+      st == D.FAIL and "0x80060004" in detail and "TVUTEST_ACCOUNT" in action)
+check("the QA lanes probe with no account in the env file still fails",
+      D.classify("lanes", 4, "", "no TVUTEST_ACCOUNT / TVUTEST_PASSWORD in the env file")[0] == D.FAIL)
+check("the QA lanes probe failing remotely or timing out still fails",
+      D.classify("lanes", 5, "", refusal)[0] == D.FAIL and D.classify("lanes", None, "", "", timeout=30)[0] == D.FAIL)
+check("the same refusal on another host is a failure: only the QA host's is the known state",
+      D.classify("lanes-cn", 4, "", refusal.replace("tvutest", "China"))[0] == D.FAIL)
 st, detail, action = D.classify("lanes-cn", 2, "", "China host not configured: add site.json services.userservice-cn.url")
 check("the China host not configured is a warn, never a failure", st == D.WARN and "not configured" in detail)
 check("a China login refusal names its key", "TVU_CN_ACCOUNT" in D.classify("lanes-cn", 4, "", "China login failed")[2])

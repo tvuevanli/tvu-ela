@@ -44,7 +44,7 @@ SENSES = {
     "ur":         ("graph", ["graphs", "--pages", "1", "--limit", "1"],
                    {3: (OK, "answers (no graphs of mine)", "")}, "UR_ACCESS_KEY"),
     "jenkins":    ("release", ["builds", "mediahub-backend", "--limit", "1", "--fresh"], {}, ""),
-    "lanes":      ("release", ["envs", "--host", "qa", "--fresh"], {}, "TVUTEST_ACCOUNT"),   # QA lanes: the tvutest login
+    "lanes":      ("release", ["envs", "--host", "qa", "--fresh"], {}, "TVUTEST_ACCOUNT"),   # QA lanes: the tvutest login (QA_REFUSAL)
     "lanes-cn":   ("release", ["bundles", "--host", "cn", "--limit", "1", "--fresh"],          # the China region's host
                    {2: (WARN, "not configured (a state, not a fault); the missing names are under site", "/ela:setup §1 and §2"),
                     3: (OK, "answers (no bundle under the map's query)", "")}, "TVU_CN_ACCOUNT"),
@@ -54,6 +54,13 @@ SENSES = {
     "browser":    ("browser", ["env"],
                    {4: (FAIL, "cookies missing", "ela login tvu --force")}, ""),
 }
+
+# The QA userservice's answer to an account it does not admit ("This account hasn't been activated"): an access policy
+# of the QA environment since 2026-11-04 (skills/release/SKILL.md), a state. The live read stays first; while it is
+# refused, a QA lane's versions come from QA's report mails and the release thread. Any other refusal is a fault.
+QA_REFUSAL = "0x80060018"
+QA_STATE = "the QA host does not admit this account since 2026-11-04 (a state, not a fault)"
+QA_INSTEAD = "QA lane versions are read from QA's report mails and the release thread"
 
 
 def check(section, name, status, detail="", action=""):
@@ -96,6 +103,8 @@ def classify(name, rc, out, err, secrets=(), timeout=None):
     """A sense probe's result as (status, detail, action). rc None = timed out."""
     _, _, special, key = SENSES[name]
     tail = mask(last_line(err) or last_line(out), secrets)
+    if name == "lanes" and rc == 4 and QA_REFUSAL in (err or ""):
+        return WARN, f"{QA_STATE}; {QA_INSTEAD}", ""
     if rc is None:
         return FAIL, f"no answer within {timeout:g}s", "is the network/VPN up? run the probe alone to see where it hangs"
     if rc in special:
