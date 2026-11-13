@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """doctor offline: a sense probe's exit code read as ✓ / ! / ✗ (UR's exit 3, Sentry's exit 4 and the QA host not
-admitting the account are states, a timeout is a failure), credential values masked in a probe's output, a fact source's gap or age, and a timer's next run —
+admitting the account are states, a timeout is a failure), credential values masked in a probe's output, a fact source's gap (the QA host's standing refusal named as a state) or age, and a timer's next run —
 calendar or monotonic — and its service's last result. No network, no systemctl."""
 import os, sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -52,6 +52,22 @@ at = "2026-11-09T08:05:52+08:00"
 check("fresh without a gap is ok", D.classify_fact("jira", {"at": at, "fresh": True, "gap": None})["status"] == D.OK)
 c = D.classify_fact("lanes", {"at": at, "fresh": True, "gap": {"why": "qa: exit 4", "partial": True}})
 check("a recorded gap warns with its why", c["status"] == D.WARN and "qa: exit 4" in c["detail"])
+na = "exit 4, account not admitted (0x80060018)"
+c = D.classify_fact("lanes", {"at": at, "fresh": True, "gap": {"why": f"qa: {na}", "partial": True}})
+check("a gap that is only the QA host not admitting the account is named as that state, with nothing to repair",
+      c["status"] == D.WARN and "a state, not a fault" in c["detail"] and "gap" not in c["detail"] and c["action"] == "")
+c = D.classify_fact("builds", {"at": at, "fresh": True, "gap": {"why": f"bundles qa mh2.0@: {na}; bundles qa mh2.1@: {na}", "partial": True}})
+check("the QA bundle lists refused the same way are that state too", c["status"] == D.WARN and "gap" not in c["detail"] and c["action"] == "")
+c = D.classify_fact("builds", {"at": at, "fresh": True, "gap": {"why": f"bundles qa mh2.1@: {na}; mediahub-backend: exit 5", "partial": True}})
+check("a gap from another cause beside it stays a gap with its action, the state said after it",
+      "gap (partial): mediahub-backend: exit 5" in c["detail"] and "a state, not a fault" in c["detail"] and "facts refresh" in c["action"])
+c = D.classify_fact("lanes", {"at": at, "fresh": True, "gap": {"why": f"cn: {na}; prod: exit 4", "partial": True}})
+check("the same refusal on another host, or a prod exit 4, stays a gap", "gap (partial): cn:" in c["detail"] and "prod: exit 4" in c["detail"] and "a state" not in c["detail"])
+c = D.classify_fact("lanes", {"at": at, "fresh": False, "gap": {"why": f"qa: {na}", "partial": True}})
+check("a stale source is stale whatever the QA host says", "stale" in c["detail"] and "facts refresh" in c["action"])
+sys.path.insert(0, os.path.join(ROOT, "skills", "release"))
+import release as R  # noqa: E402
+check("doctor and release name the same refusal code", D.QA_REFUSAL == R.NOT_ADMITTED)
 check("stale warns", D.classify_fact("mail", {"at": at, "fresh": False, "gap": None})["status"] == D.WARN)
 check("never read warns", D.classify_fact("slack", {})["status"] == D.WARN)
 

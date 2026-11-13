@@ -11,7 +11,8 @@ Sections, in order:
   units    the long-running user services (the Slack runner, Helm) are active; Helm answers HTTP
   timers   every ela-* user timer is enabled with a next run, and its service's last result did not fail
   senses   the /ela:setup §3 probes: each source read once, live (never the fact store)
-  facts    `ela facts status` per source: stale, or a gap recorded by the last pass
+  facts    `ela facts status` per source: stale, or a gap recorded by the last pass (the QA host not admitting the
+           account is named as that state, never as a gap to repair)
 Each line is ✓ (ok), ! (warn: a state, not a fault) or ✗ (fail), the failures with the next action.
 Read-only: every probe is a read; nothing is written, retried or refreshed. A credential value is never
 printed: any env-file value that appears in a probe's output is masked.
@@ -124,18 +125,29 @@ def classify(name, rc, out, err, secrets=(), timeout=None):
     return FAIL, f"exit {rc} — {tail}" if tail else f"exit {rc}", "run the probe alone"
 
 
+def qa_state_part(part):
+    """True for one part of a recorded gap that is the QA host not admitting the account (release.py writes the code
+    into the gap), never for another host's part or another cause."""
+    return part.startswith(("qa:", "bundles qa ")) and QA_REFUSAL in part
+
+
 def classify_fact(src, rec):
-    """One `facts status` source as a check."""
+    """One `facts status` source as a check. A gap's parts that are the QA host's standing refusal are named as that
+    state; any other part stays a gap with its action."""
     if not rec.get("at"):
         return check("facts", src, WARN, "never read", f"ela facts refresh --source {src}")
-    gap = rec.get("gap")
-    if gap:
-        why = gap.get("why") or "a gap"
+    gap = rec.get("gap") or {}
+    parts = [p for p in (gap.get("why") or "a gap").split("; ") if p] if gap else []
+    rest = [p for p in parts if not qa_state_part(p)]
+    qa = f"qa not read: {QA_STATE}" if len(rest) < len(parts) else ""
+    if rest:
         part = " (partial)" if gap.get("partial") else ""
-        return check("facts", src, WARN, f"gap{part}: {why} — pass at {rec['at'][:16]}",
+        return check("facts", src, WARN, f"gap{part}: {'; '.join(rest)} — pass at {rec['at'][:16]}" + (f"; {qa}" if qa else ""),
                      f"see the probe of that source; then ela facts refresh --source {src}")
     if not rec.get("fresh"):
         return check("facts", src, WARN, f"stale — last pass {rec['at'][:16]}", f"ela facts refresh --source {src}")
+    if qa:
+        return check("facts", src, WARN, f"{qa}; the rest fresh — {rec['at'][:16]}")
     return check("facts", src, OK, f"fresh — {rec['at'][:16]}")
 
 
