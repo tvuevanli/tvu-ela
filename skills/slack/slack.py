@@ -49,6 +49,7 @@ try:
 except ImportError:
     F = None
 USERS_TTL_H = 24 * 7       # a user's name and bot flag change rarely
+THREAD_HORIZON_DAYS = 8    # how far back `mentions` reads parents for a reply under an older thread (the facts pass reads the same window)
 # A large response body truncates on this link (IncompleteRead), and a retry at the same size
 # truncates again — so a page that fails is refetched smaller, at the same cursor.
 PAGE_STEPS = (200, 100, 50, 25, 10)
@@ -649,6 +650,22 @@ def refresh_channel(tok, ch, oldest, full=False):
     return len(msgs), len(got)
 
 
+def thread_parents(tok, ch, oldest, fresh=False):
+    """(the channel's parents since `oldest` with their reply marks current, whether Slack was read for them). A
+    thread's activity shows only on its parent (`latest_reply`), and a forward read of the history never brings an
+    old parent again: so the parents are read again from `oldest`, as the facts pass does, and the replies of each
+    one that moved are read with them. Served from the store while its read of the channel is fresh and reaches
+    back that far. Raises Transient."""
+    cache = load_channel(ch)
+    have_from = float(cache["oldest"]) if cache.get("oldest") else None
+    if (not fresh and F and not F.forced_fresh() and cache.get("read_at") and F.fresh(cache["read_at"])
+            and have_from is not None and oldest >= have_from):
+        F.served("slack", cache["read_at"], ch)
+        return [m for t, m in cache["messages"].items() if float(t) >= oldest], False
+    refresh_channel(tok, ch, oldest)
+    return [m for t, m in load_channel(ch)["messages"].items() if float(t) >= oldest], True
+
+
 def cmd_search(tok, a):
     """Text search over the top-level history of channels the bot is in (the bot token has no search API):
     a regular expression, case-insensitive, since a point in time, with the thread replies of a hit when
@@ -741,15 +758,18 @@ def cmd_mentions(tok, a):
     names = Names(tok)
     tag = f"<@{user}>"
     out, unread = [], []
+    # a mention inside the window may sit under a parent older than it: the parents are read back to the horizon
+    horizon = min(float(oldest), time.time() - THREAD_HORIZON_DAYS * 86400)
     for c in pick_channels(tok, a.channels):
         try:
-            roots, _ = history_rows(tok, c["id"], float(oldest), fresh=a.fresh)
+            parents, live = thread_parents(tok, c["id"], horizon, fresh=a.fresh)
         except Transient as e:
             unread.append({"channel": c["name"], "id": c["id"], "why": str(e)}); continue
-        # replies are fetched only for threads that were active inside the window
-        active = [m for m in roots if m.get("reply_count") and float(m.get("latest_reply") or m["ts"]) >= float(oldest)]
-        reps_by = replies_for(tok, c["id"], active, fresh=a.fresh)
-        for root in roots:
+        # replies are fetched only for threads that were active inside the window (a live read has just brought
+        # those of each thread that moved)
+        active = [m for m in parents if m.get("reply_count") and float(m.get("latest_reply") or m["ts"]) >= float(oldest)]
+        reps_by = replies_for(tok, c["id"], active, fresh=a.fresh and not live)
+        for root in sorted((m for m in parents if float(m["ts"]) >= float(oldest) or m["ts"] in reps_by), key=lambda m: float(m["ts"])):
             thread = [root] + reps_by.get(root["ts"], [])
             hits = [m for m in thread if tag in (m.get("text") or "") and m.get("user") != user and float(m["ts"]) >= float(oldest)]
             if not hits:
