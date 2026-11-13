@@ -35,6 +35,10 @@
   ela box <id> [-d]                a box; -d: who holds which port, orphans flagged
   ela graphs [me|li|email]         a user's graphs (default: me)
   ela resolve <id> [--email …]     32-hex: process, then tangible · 19 digits: object → its graphs
+  ela usage <type> [--days N] [--external] [--by week|day|user]
+                                   who created graphs holding a node type (youtube · webemulator · any J2N
+                                   process type) over the last N days, per week and per owner; -e prod3
+                                   (default) · test2 · cn2; no type: the types seen, with counts
   ela envs                         the UR probe order
   ela object <id>                  object or tangible
   ela stream probe <url>           what a stream carries: PMT · PCR · PID table · codec
@@ -265,7 +269,7 @@ SITE = os.path.expanduser("~/.claude/ela/site.json")
 # verb → (capability, subcommand or None = pass verb through)
 VERBS = {
     "graph": ("graph", "graph"), "process": ("graph", "process"), "box": ("graph", "box"),
-    "graphs": ("graph", "graphs"), "resolve": ("graph", "resolve"), "envs": ("graph", "envs"),
+    "graphs": ("graph", "graphs"), "resolve": ("graph", "resolve"), "envs": ("graph", "envs"), "usage": ("graph", "usage"),
     "connect": ("graph", "connect"), "exec": ("graph", "exec"), "start": ("graph", "start"), "stop": ("graph", "stop"),
     "jira": ("jira", None), "slack": ("slack", None), "object": ("object", "get"),
     "find": ("map", "find"), "where": ("map", "where"), "probe": ("map", "probe"), "clone": ("map", "clone"),

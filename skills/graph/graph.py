@@ -22,6 +22,10 @@ probed across environments in a fixed order (MediaHub 2.1 prod first) until one 
   profiles [name] [--kind K] [--limit N]   profiles whose name contains <name> (server-side, case-insensitive)
   resolve  <id> [-d] [--limit N]           detect the id shape and route: graph · process · object → every graph the
                                            object ever ran in, stopped ones included, then the current (or last) one in full
+  usage    [type] [--days N] [-e X] [--external] [--by week|day|user]   who created graphs holding a process type
+                                           (youtube_decoder; aliases youtube · webemulator) over the last N days, by
+                                           owner and per week — J2N v2's whole graph list walked newest first to the
+                                           cutoff. No type or --types: the process types seen, with counts and image
   envs                                     the probe order, the aliases and the second edge (no API call)
   connect  <ip|boxId|processId> [--env]    ssh to the box as root            (ura connect)
   exec     <processId> [--env]             docker exec -it -w /var/log <pid> bash on its box   (ura exec)
@@ -1279,6 +1283,206 @@ def cmd_stop(ur, a):
         sys.exit(EX_REMOTE)
 
 
+# ── usage: who created graphs holding a node type ─────────────────────────────
+# A short name → the process type J2N records. Only names the data itself confirms: the type's image is
+# printed by `usage --types`, which is how a product name (Web Emulator) is tied to its type.
+USAGE_ALIASES = {"youtube": "youtube_decoder", "webemulator": "html_render_uncompresseddecoder",
+                 "web-emulator": "html_render_uncompresseddecoder"}
+INTERNAL_DOMAINS = ("tvunetworks.com", "tvu.com")      # the default; site.json `internal_domains` replaces it
+USAGE_MAX_DAYS, USAGE_PAGE, USAGE_BATCH = 60, 200, 4   # a page of 200 is ~1 MB and ~3 s; 4 are read at a time
+
+
+def internal_domains():
+    try:
+        v = json.load(open(os.path.expanduser("~/.claude/ela/site.json"))).get("internal_domains")
+    except Exception:
+        v = None
+    return tuple(d.strip().lower().lstrip("@") for d in (v or INTERNAL_DOMAINS) if d and d.strip())
+
+
+def is_internal(domain, domains):
+    domain = (domain or "").lower()
+    return any(domain == d or domain.endswith("." + d) for d in domains)
+
+
+def usage_row(e):
+    """One v2 graph record → the facts usage counts: who owns it, when it was created, which process types it
+    holds. The owner is the graph's `email`; where that is empty, the first process that names one
+    (`options.x-tvu-email`). Emails arrive in mixed case, so the address is kept as given and the domain lowered."""
+    ann, procs = e.get("annotations") or {}, e.get("processes") or {}
+    procs = list(procs.values()) if isinstance(procs, dict) else list(procs)
+    email = (e.get("email") or "").strip()
+    if not email:
+        email = next((v for v in (((p.get("options") or {}).get("x-tvu-email") or "").strip()
+                                  for p in procs if isinstance(p, dict)) if v), "")
+    types, images = [], {}
+    for p in procs:
+        if not isinstance(p, dict) or not p.get("type"):
+            continue
+        t = p["type"]
+        if t not in types:
+            types.append(t)
+        img = (p.get("image") or (p.get("options") or {}).get("dockerImage") or "").rsplit("/", 1)[-1].split(":")[0]
+        if img:
+            images.setdefault(t, img)
+    return {"graph_id": e.get("id") or ann.get("app.tvunetworks.com/id", ""), "email": email,
+            "domain": email.rsplit("@", 1)[-1].lower() if "@" in email else "",
+            "created_at": _ts(e.get("createdAt")), "app": e.get("appName") or "",
+            "business_type": ann.get("businessType") or "", "types": types, "images": images}
+
+
+def usage_walk(fetch, cutoff, limit=USAGE_PAGE, batch=USAGE_BATCH):
+    """Walk the graph list newest first and stop at the cutoff. `fetch(page)` → (status, entities). The list has
+    no predicate that reaches a process's type or a creation range (tried live 2026-11-13: an unknown field
+    answers 0 rows, a dotted one is ignored), so the window is cut here: pages are read `batch` at a time and the
+    walk ends at the first row created before `cutoff` (an ISO string; the list is CreatedAt DESC) or at a short
+    page. New graphs created during the walk shift rows onto later pages, hence the dedupe by id.
+    → (rows, {pages, scanned, complete, status}); status is the first non-200 answer, 200 otherwise."""
+    rows, seen, page, meta = [], set(), 0, {"pages": 0, "scanned": 0, "complete": False, "status": 200}
+    with ThreadPoolExecutor(max_workers=batch) as pool:
+        while True:
+            for st, ents in pool.map(fetch, range(page, page + batch)):
+                if st != 200:
+                    meta["status"] = st
+                    return rows, meta
+                meta["pages"] += 1
+                for e in ents:
+                    r = usage_row(e)
+                    if r["created_at"] and r["created_at"] < cutoff:
+                        meta["complete"] = True
+                        return rows, meta
+                    meta["scanned"] += 1
+                    if r["graph_id"] and r["graph_id"] not in seen:
+                        seen.add(r["graph_id"]); rows.append(r)
+                if len(ents) < limit:
+                    meta["complete"] = True
+                    return rows, meta
+            page += batch
+
+
+def usage_summary(rows, wanted, domains, external=False):
+    """Count graphs (not processes) that hold at least one process of type `wanted`, by owner. With no `wanted`,
+    count graphs per process type instead. `external` drops owners in the internal domains; a graph with no
+    owner email anywhere is never attributed — it is counted aside and named."""
+    out = {"held": 0, "internal_dropped": 0, "no_email": 0, "rows": [], "types": {}, "images": {}}
+    for r in rows:
+        if wanted and wanted not in r["types"]:
+            continue
+        out["held"] += 1
+        if not r["email"]:
+            out["no_email"] += 1
+            continue
+        if external and is_internal(r["domain"], domains):
+            out["internal_dropped"] += 1
+            continue
+        out["rows"].append(r)
+        for t in r["types"]:
+            out["types"][t] = out["types"].get(t, 0) + 1
+            if t in r["images"]:
+                out["images"].setdefault(t, r["images"][t])
+    users, days, weeks = {}, {}, {}
+    for r in out["rows"]:
+        u = users.setdefault(r["email"].lower(), {"email": r["email"], "domain": r["domain"], "graphs": 0, "first": r["created_at"], "last": r["created_at"]})
+        u["graphs"] += 1; u["first"] = min(u["first"], r["created_at"]); u["last"] = max(u["last"], r["created_at"])
+        try:
+            d = datetime.date.fromisoformat(r["created_at"][:10])
+        except ValueError:
+            continue
+        days[d.isoformat()] = days.get(d.isoformat(), 0) + 1
+        w = (d - datetime.timedelta(days=d.weekday())).isoformat()
+        weeks[w] = weeks.get(w, 0) + 1
+    out["by_user"] = sorted(users.values(), key=lambda u: (-u["graphs"], u["email"].lower()))
+    out["by_day"], out["by_week"] = dict(sorted(days.items())), dict(sorted(weeks.items()))
+    return out
+
+
+def cmd_usage(ur, a):
+    env = normalise(a.env or "prod3")
+    if a.days < 1 or a.days > USAGE_MAX_DAYS:
+        print(f"--days is 1..{USAGE_MAX_DAYS}: the list is walked page by page, about {USAGE_PAGE} graphs and 3 s each", file=sys.stderr); sys.exit(EX_USAGE)
+    wanted = None if (a.types or not a.type) else USAGE_ALIASES.get(a.type.lower(), a.type)
+    now = datetime.datetime.now(datetime.timezone.utc)
+    since = now - datetime.timedelta(days=a.days)
+    cutoff = since.strftime("%Y-%m-%dT%H:%M:%S")
+    blind = [f"{e} has no J2N v2, so its graph list is not readable" for e in ur.order if e == "prod2" and e != env]
+    blind.append(f"only {env} was read; every other environment is a separate list (-e)")
+    blind.append("a graph is counted once, when it was created — not by hours run, and one restarted is a new graph")
+
+    def fetch(page):
+        st, body = ur.get(env, f"{J2N2}/options/graphs?query_mode=any&sorting={urllib.parse.quote('CreatedAt DESC')}"
+                               f"&page={page}&limit={USAGE_PAGE}")
+        return st, ((unwrap(body) or {}).get("entities") or []) if st == 200 else []
+
+    if sys.stderr.isatty():
+        print(f"walking {env}'s graph list back {a.days} day(s), newest first …", file=sys.stderr)
+    rows, meta = usage_walk(fetch, cutoff)
+    head = {"env": env, "type": wanted, "days": a.days, "since": cutoff + "Z", "until": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "external": a.external, "v2": True, **meta}
+    if meta["status"] == 404 and not rows:
+        # an environment without v2 is a fact about the source, not a failure of the question
+        head["v2"] = False
+        msg = f"{env} has no J2N v2 (404): its graph list cannot be read, so usage there is unknown. v2 answers on prod3, test2 and cn2."
+        if a.json:
+            print(json.dumps({**head, "cannot_see": [msg]}, ensure_ascii=False)); return
+        print(f"# usage on {env}: not readable\n{msg}"); return
+    if meta["status"] == 401:
+        print(f"401 on {env} — the access key is not valid there", file=sys.stderr); sys.exit(EX_AUTH)
+    domains = internal_domains()
+    s = usage_summary(rows, wanted, domains, a.external)
+    if not meta["complete"]:
+        blind.insert(0, f"the walk stopped early (status {meta['status']} after {meta['pages']} page(s)): the window is not fully read and every count is a floor")
+    if a.json:
+        keep = ("graph_id", "email", "domain", "created_at", "app", "business_type")
+        body = {**head, "internal_domains": list(domains), "graphs_in_window": len(rows), "held": s["held"],
+                "internal_dropped": s["internal_dropped"], "no_email": s["no_email"], "cannot_see": blind}
+        if wanted:
+            body.update({"graphs": len(s["rows"]), "users": len(s["by_user"]), "by_week": s["by_week"], "by_day": s["by_day"],
+                         "by_user": s["by_user"], "rows": [{k: r[k] for k in keep} for r in s["rows"]]})
+        else:
+            body["types"] = [{"type": t, "graphs": n, "image": s["images"].get(t, "")} for t, n in sorted(s["types"].items(), key=lambda kv: (-kv[1], kv[0]))]
+        print(json.dumps(body, ensure_ascii=False))
+        if not meta["complete"]:
+            sys.exit(EX_REMOTE)
+        return
+    who = "external owners only" if a.external else "all owners"
+    span = f"{cutoff[:10]} → {now.strftime('%Y-%m-%d')} UTC ({a.days} days)"
+    aside = [f"{len(rows)} graphs created in the window"]
+    if a.external:
+        aside.append(f"{s['internal_dropped']} dropped as internal ({', '.join(domains)})")
+    if s["no_email"]:
+        aside.append(f"{s['no_email']} with no owner email on the graph or its processes, not attributed")
+    if not wanted:
+        print(f"# process types on {env} · {span} · {who}")
+        print(f"{len(s['rows'])} graphs · {len(s['types'])} types   ({'; '.join(aside)})")
+        for t, n in sorted(s["types"].items(), key=lambda kv: (-kv[1], kv[0])):
+            print(f"  {n:>6}  {t:<44}{_c(DIM, s['images'].get(t, ''))}")
+        alias = " · ".join(f"{k} → {v}" for k, v in USAGE_ALIASES.items())
+        print(f"aliases: {alias}")
+    else:
+        print(f"# {wanted} on {env} · {span} · {who}")
+        print(f"{len(s['rows'])} graphs · {len(s['by_user'])} users   ({'; '.join(aside)})")
+        if not s["held"]:
+            near = sorted({t for r in rows for t in r["types"] if a.type.lower() in t.lower()})
+            print(f"no graph in the window holds a process of type {wanted!r}"
+                  + (f" — types that contain {a.type!r}: {', '.join(near)}" if near else " — `usage --types` lists the types seen"))
+        if a.by != "user" and s["rows"]:
+            trend = s["by_day"] if a.by == "day" else s["by_week"]
+            top = max(trend.values())
+            print("by day (UTC)" if a.by == "day" else "by week (Monday, UTC; the first and last are partial weeks)")
+            for k, n in trend.items():
+                print(f"  {k}  {n:>5}  {'█' * max(1, round(n * 30 / top))}")
+        if s["by_user"]:
+            shown = s["by_user"] if a.by == "user" else s["by_user"][:20]
+            print("users")
+            for u in shown:
+                print(f"  {u['graphs']:>5}  " + (f"{u['email']:<44}{u['first'][:10]} → {u['last'][:10]}" if a.by == "user" else u["email"]))
+            if len(s["by_user"]) > len(shown):
+                print(f"  and {len(s['by_user']) - len(shown)} more (--by user lists all)")
+    print("not seen: " + " · ".join(blind))
+    if not meta["complete"]:
+        sys.exit(EX_REMOTE)
+
+
 def cmd_envs(ur, a):
     """The probe order, the aliases and the hosts — from the env file alone, no request."""
     edges = {e: {"host": h, "path": seg, "label": label} for e, (h, seg, label) in ur.edges.items()}
@@ -1346,13 +1550,21 @@ def main():
     p.add_argument("name", nargs="?", default="", help="part of the profile name; no name = the first page of each family")
     p.add_argument("-e", "--env"); p.add_argument("--kind", choices=[k for k, _, _ in EP_FAMILIES])
     p.add_argument("--limit", type=int, default=10, help="rows per family"); p.add_argument("--json", action="store_true")
+    p = sub.add_parser("usage", help="who created graphs holding a process type over a period (J2N v2's graph list, stopped graphs included)")
+    p.add_argument("type", nargs="?", help="a process type as J2N records it (youtube_decoder), or an alias (youtube · webemulator); none = --types")
+    p.add_argument("--types", action="store_true", help="the process types seen in the window with their graph counts and image")
+    p.add_argument("--days", type=int, default=30, help=f"window back from now, 1..{USAGE_MAX_DAYS} (default 30)")
+    p.add_argument("-e", "--env", help="one environment, default prod3 (v2 answers on prod3, test2, cn2; prod2 has none)")
+    p.add_argument("--external", action="store_true", help="drop owners in the internal domains (site.json internal_domains; default tvunetworks.com, tvu.com)")
+    p.add_argument("--by", choices=["week", "day", "user"], default="week", help="the breakdown: per-week trend + top users (default), per-day trend, or every user with first and last day")
+    p.add_argument("--json", action="store_true", help="every counted graph: email, domain, graph id, created_at, app, business_type")
     p = sub.add_parser("envs"); p.add_argument("--json", action="store_true")
     a = ap.parse_args()
     # `envs` makes no request: warming TLS in background threads and then exiting mid-handshake
     # segfaults the interpreter on shutdown (intermittently, in OpenSSL) — so do not warm for it.
     ur = UR(a.env_file, warm=not (a.cmd == "envs" or (a.cmd == "graph" and a.graph_id == "envs")))
     {"graph": cmd_graph, "process": cmd_process, "box": cmd_box, "graphs": cmd_graphs,
-     "profile": cmd_profile, "profiles": cmd_profiles, "resolve": cmd_resolve, "envs": cmd_envs, "connect": cmd_connect, "exec": cmd_exec, "start": cmd_start, "stop": cmd_stop}[a.cmd](ur, a)
+     "profile": cmd_profile, "profiles": cmd_profiles, "resolve": cmd_resolve, "usage": cmd_usage, "envs": cmd_envs, "connect": cmd_connect, "exec": cmd_exec, "start": cmd_start, "stop": cmd_stop}[a.cmd](ur, a)
 
 
 if __name__ == "__main__":

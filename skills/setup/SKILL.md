@@ -41,6 +41,7 @@ Target shape:
   "dir_names": { "<alias>/<remote name>": "<alias>/<dir name a team stack requires>" },
   "stacks":   { "<alias>": "<path of the team stack repo that governs that alias>" },
   "emails":   { "me": "<Evan's address>", "<alias>": "<a colleague's address — `ela graphs li`>" },
+  "internal_domains": ["<the company's own mail domains — `ela usage --external` drops their owners; optional, the script has the default>"],
   "services": { "jenkins": { "url": "<Jenkins root>" }, "userservice": { "url": "<GM userservice, prod>" }, "userservice-test": { "url": "<GM userservice, QA>" }, "userservice-cn": { "url": "<GM userservice, the China region's>" }, "confluence": { "url": "<the web team's Confluence root>" } },
   "map_sources": {
     "mediahub_agent_workspace": "<mh-app>/mediahub-agent/workspace.json",

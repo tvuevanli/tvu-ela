@@ -76,6 +76,7 @@ flowchart LR
 | 客户问「你们支持 X 吗，能不能做」 | `feasible` | `/ela:feasible <thread 链接>` |
 | 要对一个子系统做结构评审 | `arch` | `/ela:arch app-layer` |
 | QA 日报 / 测试报告贴出来了，要知道哪些跟你有关 | `digest` | 把 Slack 永久链接贴给 ela |
+| 「YouTube 源用的人多吗」「有哪些外部用户在用 Web Emulator」：某种节点最近 N 天谁在用、趋势如何（按建 graph 的次数算，不是时长；只读一个环境，prod2 没有 v2 读不到） | `graph` | `ela usage youtube --days 30 --external` · `ela usage --types`（先从数据里找到节点类型名）· `--by day\|user` · `--json` |
 | 有人甩来一个 graph id / process id / object id | `graph` · `object` | `ela 01M1GD1F…` · `ela <32位十六进制>` · `ela <19位数字>` |
 | 「这个修复上 daily 了吗」「prod-3 是什么版本」 | `release` | `ela versions` · `ela bundles` · `ela builds <job>` · `ela drift` |
 | 从一个 bundle 出发建新 bundle（只建，绝不删）：先看和底版的差异、自动写的说明、各 lane 版本顺序（QA ≥ daily ≥ prod）的警告，我同意后再建，建完按名字读回核对 | `release` | `ela release create --from mh2.1@daily-wed-s1-d45 --set "Docker Encoder=1.0.56"` · 加 `--apply` 才建 |
@@ -156,7 +157,7 @@ flowchart TD
 | `confluence` | web 团队 wiki（`ela wiki …`） | web 团队的实现细节和 QA 手法 |
 | `gdoc` | Google Docs / Sheets / Drive（只读） | 别人共享的服务表、owner 表 |
 | `apifox` | 一个项目的 OpenAPI、某个操作的参数与返回（`ela api …`） | 「UR 这个接口收什么」 |
-| `graph` | `ela graph <id>` 节点表（按 pipeline 顺序）· `ela process <id>` 进程实时记录 · `ela box <id>` 容量与负载 · `ela graphs [me\|邮箱]` 某人的 graph · `ela resolve <id>` 按形状认 · `ela envs` 探测顺序；`ela connect` / `ela exec` 进 box，`ela start` / `ela stop` 发送端进程（y/N） | 事故第一跳：这条流跑在哪、哪个盒子 |
+| `graph` | `ela graph <id>` 节点表（按 pipeline 顺序）· `ela process <id>` 进程实时记录 · `ela box <id>` 容量与负载 · `ela graphs [me\|邮箱]` 某人的 graph · `ela resolve <id>` 按形状认 · `ela usage <type>` 某种节点谁在用 · `ela envs` 探测顺序；`ela connect` / `ela exec` 进 box，`ela start` / `ela stop` 发送端进程（y/N） | 事故第一跳：这条流跑在哪、哪个盒子 |
 | `object` | object 与 tangible | 从一个对象反查它在哪些 graph 里 |
 | `stream` | 线上流的 PID 表、编码、分辨率；两条流逐字段比 | 「PID 生效了吗」「这两条流差在哪」 |
 | `release` | `ela bundles` GM bundle 列表 · `ela bundle <name>` 物料单 · `ela versions` 各 lane 版本 · `ela builds <job>` Jenkins 构建 · `ela drift` 漂移；`ela bundles` 和 `ela versions` 不带 `--host` 时三个 host 都读（qa、prod、cn 即中国区自己的 host），每行标明读自哪个 host、什么时候读的，某个 host 读不到只说一行，其余照常；中国区 host 上的名字只有 release map 的 `regions.china.userservice` 写明了才对应到 lane（`prod-2-china`，显示为 CN Prod2），否则原样显示并标 unmapped；`ela bundles --host cn --raw` 看它的原始名字；没配置时只多一行「China host not configured」，.com 的答案不受影响；prod 用 `ela login tvu` 拿你自己的会话；`ela login tvu --keepalive` 续期（不登录、不重试），装成 systemd 用户 timer 每 30 分钟跑一次，安装命令见 release 的 SKILL.md | 「这个修复上哪个环境了」 |
@@ -224,7 +225,7 @@ flowchart LR
 | 级别 | 含义 | 现在有哪些 |
 |---|---|---|
 | 🟢 **能用** | 跑过，结果可信 | 全部感官 · `map` · `publish` · `runtime` · `release`（含 prod，经你的登录）· `promote`（与 Helm 对比零差异）· `team` · `reports` · `setup` · 全部写原子（dry run） |
-| 🟡 **建好了，没验够** | 能跑，但还没证明判断是对的 | `pick`（离线测试过，在真实的 brief / actions 文件上跑过；无人值守的 session 还没用过它）· `probe`（3 个根因里成了 1 个）· `brief`（两周窗口没开始）· `digest` · `feasible` · `arch` · `ask`（API 凭证未申请）· `logs` 与 `route` 的日志步骤（一个 prod-3 案例跑通）· `configserver`（新建，还没在真实排障里用过）· `j2n`（新建，同上） |
+| 🟡 **建好了，没验够** | 能跑，但还没证明判断是对的 | `pick`（离线测试过，在真实的 brief / actions 文件上跑过；无人值守的 session 还没用过它）· `probe`（3 个根因里成了 1 个）· `brief`（两周窗口没开始）· `digest` · `feasible` · `arch` · `ask`（API 凭证未申请）· `logs` 与 `route` 的日志步骤（一个 prod-3 案例跑通）· `configserver`（新建，还没在真实排障里用过）· `ela usage`（新建，prod3 上跑过 YouTube 源 30 天的外部用户；数字还没和别的来源对过）· `j2n`（新建，同上） |
 | 🔴 **写好了，没真跑过** | 拿它做决定要自己复核 | `mention`（用 11-12 当天真实的 @ 重放过：通知不提醒、他自己回了就不发、没回的出一条 DM 文本；监听和计时在 ela-runner，还没接上）· `explain`（形状在一张票上手工演过，技能本身没跑过）· `revisit`（形状取自 MH-1649 / MH-2798 两张票的手工裁决，技能本身没跑过）· `breakdown`（从没跑过真需求）· `task`（委派链路没实跑过） |
 
 **下一步最该做的一件事**：连续两周把 `/ela:brief` 当早上第一件事读，漏掉的记进 elak 的 `exit-evidence.md`。

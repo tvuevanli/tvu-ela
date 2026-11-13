@@ -1,13 +1,14 @@
 ---
 name: graph
-description: A MediaHub graph or process from UR, any environment, stopped graphs included. Use for a 26-character graph id, a 32-hex process id, an object id, "这个 graph 跑在哪", "哪个 box", "process 是什么状态", "停掉的 graph 还能查吗", "encoding profile 是什么", "看下 graph", "ura", or an incident's first hop from an object or graph id.
+description: A MediaHub graph or process from UR, any environment, stopped graphs included. Use for a 26-character graph id, a 32-hex process id, an object id, "这个 graph 跑在哪", "哪个 box", "process 是什么状态", "停掉的 graph 还能查吗", "encoding profile 是什么", "看下 graph", "ura", or an incident's first hop from an object or graph id. Also who used a node type over a period: "用的人多吗", "who uses X", "usage of the YouTube source", "有哪些外部用户在用".
 user-invocable: true
 ---
 
 # /ela:graph — a graph or process id in, where it runs and what it is made of out
 
 Self-contained. Argument: a graph id (26 chars, `01M1…`), a process id (32 hex), an object id
-(19 digits, with the owner's email), or an email. Read-only: J2N and Pilot are only ever read.
+(19 digits, with the owner's email), an email, or — for usage — a node type. Read-only: J2N and Pilot
+are only ever read.
 
 ## Invariants
 - **No environment to set.** The script probes four UR environments in order — `prod3` (MediaHub
@@ -86,6 +87,7 @@ and `UR_ENV_ORDER` (comma list; replaces the whole default probe order, cn2 incl
 | email or name | `$G graphs <email|name>` | that user's graphs: env, type, phase, object id, name. A full address is looked up as given (most UR users are customers, not on the roster); a bare name resolves through the roster (a first name), never a composed address. `--all` walks every env, `--object <id>` keeps the graphs carrying that object |
 | object id | `$G resolve <id> [-d] [--limit N]` | **every graph the object ever ran in** (v2, `query_mode=any`, newest first): id, env, business type, phase, process count, created, stopped and how long it ran — then the live graph in full, or the last one that ran when the object is Inactive. `$O get <id>` adds the object record itself (tangibles, owner userId) |
 | email or name, history | `$G graphs <email> --any` (or `--deleted`) | the same list by owner instead of by object — v2's options route; the plain listing is live graphs only |
+| a node type, "who uses it" | `$G usage <type> [--days N] [--external] [--by week\|day\|user] [-e X]` | graphs created in the window that hold a process of that type, per week and per owner (§2c) |
 | anything | `$G resolve <id> [--email …]` | detects the shape and routes as above; `--email` is the fallback when v2 has no answer on the environments probed |
 
 ## 2 — the first hop of an incident
@@ -107,6 +109,35 @@ The reporter says "it stopped" or the app shows the object **Inactive**. `resolv
 answers: the history table gives the graph that was running at the reported time (match the
 `stopped` column against the timestamp in the report), and its table gives the boxes and process ids
 to look at in the logs. A 32-hex id from a log that no longer runs: `process <id>` names its graph.
+
+## 2c — who used a node type, and is it growing
+"用的人多吗", "who uses the YouTube source", "有哪些外部用户在用 Web Emulator": `usage` answers from J2N v2's
+whole graph list (no `email`, `query_mode=any`, newest first), walked page by page back to the cutoff — the
+list has no filter that reaches a process's type or a creation date, so 30 days on prod3 is about 70 pages
+and 45 s, and `--days` is capped at 60. Nothing is cached: each run is a fresh read.
+```bash
+$G usage youtube --days 30 --external      # the window, graphs · users, the per-week trend, top 20 owners
+$G usage --types --days 7                   # every process type seen, its graph count and its image
+$G usage webemulator --by user --json       # every owner with first and last day; --json carries every graph
+```
+- **The type is J2N's process type, found from the data.** `youtube` → `youtube_decoder` and `webemulator`
+  → `html_render_uncompresseddecoder` are the aliases the script carries; for any other product name run
+  `--types` and read the image column (the image is the codebase's name for the node), never guess a type.
+  A type with no graph in the window prints the types whose name contains the word.
+- **A graph is the unit, creation is the event.** A graph holding the type counts once, however many such
+  processes it holds and however long it ran; a restart is a new graph. So the answer is "graphs created",
+  a proxy for sessions — say that, and never present it as hours or as concurrent use.
+- **The owner is the graph's `email`**, else a process's `x-tvu-email`; a graph with neither is counted
+  aside and named. One person in two spellings of an address is one user. `--external` drops owners in
+  the internal domains (`internal_domains` in site.json; default `tvunetworks.com`, `tvu.com`, subdomains
+  included) and prints how many it dropped — internal testing is usually most of a new node type's graphs.
+- **One environment per answer** (default prod3; `-e test2`, `-e cn2`). prod2 has no v2, so its usage is
+  unknown, and the script says so and exits 0 rather than failing. Every answer ends with a `not seen:` line;
+  carry it into the reply. A walk that stops early (exit 5) gives floors, not counts.
+- **The trend's first and last weeks are partial** (the window rarely starts on a Monday): compare the full
+  weeks between them, or use `--by day`.
+- Customers' addresses are in the output. They go to the owner; a reply in a shared channel gives counts
+  and organisations (domains) unless the owner asks for the addresses.
 
 ## Gotchas
 - **A deleted process still answers** (`process`). Pilot returns a 200 skeleton with every field
