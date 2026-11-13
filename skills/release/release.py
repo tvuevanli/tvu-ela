@@ -1407,7 +1407,12 @@ def cmd_login(a):
         login_tvu(a.env_file, force=a.force, timeout=a.timeout, json_out=a.json, open_browser=not a.no_browser); return
     host = _service_url("userservice-test")
     sid = tvutest_login(a.env_file, host)
-    print(json.dumps({"TVUTEST_SID": sid}) if a.json else f"TVUTEST_SID={sid}\n(put it in the env file; it expires in 2h)")
+    # the session id is a credential: shown only to a person at a terminal, never into a pipe or a session's shell
+    # (the audit of 2026-11-13). Nothing needs it copied: Client logs in by itself when TVUTEST_SID is absent.
+    if sys.stdout.isatty() and not a.json:
+        print(f"TVUTEST_SID={sid}\n(put it in the env file; it expires in 2h)"); return
+    print(json.dumps({"tvutest": "obtained", "expires_h": 2, "shown": False}) if a.json
+          else "QA session obtained (2h); its id is shown only in a terminal, and the read verbs log in by themselves")
 
 
 # ── a build a lane took: one line per service and what for ───────────────────────────────────────────
