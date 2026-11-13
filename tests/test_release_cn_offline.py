@@ -94,6 +94,9 @@ code, out, err = run(R.cmd_envs)
 check("unconfigured: versions answer for .com", code == 0 and {r["lane"] for r in json.loads(out)["rows"]} == {"prod-2", "prod-3"} and err.count("China host not configured") == 1)
 code, out, err = run(R.cmd_bundles, host="prod", line="MediaHub 2.1")
 check("a named host keeps its shape", code == 0 and json.loads(out)["host"] == "prod" and "gaps" not in json.loads(out) and not err)
+sys.path.insert(0, os.path.join(ROOT, "skills", "facts"))
+import facts as FA  # noqa: E402
+check("the facts pass skips an unconfigured China host as a state", FA.cn_state(R, ENV) == "not configured")
 SITE["services"]["userservice-cn"] = {"url": URL["cn"]}
 check("the address alone leaves the login missing", R.cn_missing(ENV) == ["TVU_CN_ACCOUNT / TVU_CN_PASSWORD in the env file"])
 open(ENV, "w").write("TVU_CN_ACCOUNT=fixture@example.invalid\nTVU_CN_PASSWORD=fixture\n")
@@ -123,8 +126,11 @@ check("envs --raw lists the host's services as named", code == 0 and [s["service
 code, out, err = run(R.cmd_envs, host="cn", raw=True, service="MediaHub")
 check("envs --raw with a service shows its tag records", [t["tagName"] for t in json.loads(out)["services"][0]["tags"]] == ["MediaHubProd2", "MediaHubGray"])
 
+check("the facts pass reads its bundles while its lanes are unmapped", FA.cn_state(R, ENV) == "lanes not mapped")
+
 # ── the map names the China host's ids, tags and bundles ─────────────────────────────────────────────
 set_map(MAPPED)
+check("the facts pass reads it whole once the map names its ids", FA.cn_state(R, ENV) is None)
 code, out, err = run(R.cmd_envs)
 rows = json.loads(out)["rows"]
 cn = {r["tag"]: r for r in rows if r["host"] == "cn"}

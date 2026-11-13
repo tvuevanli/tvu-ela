@@ -276,12 +276,23 @@ def refresh_mail(env_file, full):
     return "mail: " + ", ".join(f"{k} {v['count']} ids ({v['fetched']} new)" for k, v in stats.items()) + f", {time.time() - t0:.1f}s"
 
 
+def cn_state(R, env_file):
+    """The China host for a pass: 'not configured' (the site lacks its names), 'lanes not mapped' (the release map
+    names no service ids for it; its bundles are still read), or None when both are there."""
+    if R.cn_missing(env_file):
+        return "not configured"
+    return None if R.host_service_ids("cn") else "lanes not mapped"
+
+
 def refresh_lanes(env_file, full):
     sys.path.insert(0, os.path.join(SKILLS, "release"))
     import release as R  # noqa: E402
     t0 = time.time()
     parts, gaps = [], []
-    for host in ("qa", "prod"):
+    for host in R.HOSTS:
+        state = cn_state(R, env_file) if host == "cn" else None
+        if state == "not configured" or (state and "not mapped" in state):   # a state of the site or the map, never a gap
+            parts.append(f"cn {state}"); continue
         rows, gap = R.refresh_envs(env_file, host)
         parts.append(f"{host} {len(rows) if rows is not None else 'gap'}")
         if gap:
@@ -316,6 +327,8 @@ def refresh_builds(env_file, full):
             wanted |= {("qa", cfg["bundle_line"]), ("prod", cfg["bundle_line"])}
         if (cfg.get("lanes") or {}).get("prod"):
             wanted.add(("prod", f"MediaHub {line}"))
+    if cn_state(R, env_file) != "not configured":           # the China host's own list, under its own query and directory
+        wanted.add(("cn", R.default_line("cn")))
     bundles = 0
     for host, line in sorted(wanted):
         rows, gap = R.refresh_bundles(env_file, host, line, BUNDLES_LIMIT)
