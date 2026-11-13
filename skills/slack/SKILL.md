@@ -54,7 +54,8 @@ reaction; none is to be added silently.
   block with padded columns. One item per line, the key first and a few words after it; a status read at a
   glance takes a marker from one fixed set: ✅ verified · ⬜ no verdict · 🟠 medium-or-worse open bug · ⚪ low bug.
   `$SLACK check --text "…" | --file f|-` is the test (exit 1, each slip named with its line; `--fix` prints the
-  text with every mechanical repair made, and exits 1 only when a pipe table remains). `post` runs the same check:
+  text with every mechanical repair made, a `- item` line written as `• item` and a nested item flattened where
+  it stood, and exits 1 only when a pipe table remains). `post` runs the same check:
   it flags the slips in the dry run and refuses them on `--apply`. Any other sender (the runner, Helm) runs
   `ela slack check` on its own text before it sends.
 - **The bot speaks as itself** (`@ela`), never as Evan. Write in the third person

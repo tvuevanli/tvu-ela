@@ -35,6 +35,11 @@ BAD = "# Result\nsee [mail](https://x.example/m), **passed**\n---\n• one\n  - 
 FIXED = "*Result*\nsee <https://x.example/m|mail>, *passed*\n• one\n• under\n```\n{\"a\": 1}\n```\n这是 *重点* 内容"
 check("--fix: each mechanical repair, code untouched", S.mrkdwn_fix(BAD) == FIXED and rules(FIXED) == [], S.mrkdwn_fix(BAD))
 check("a repair of clean text changes nothing", S.mrkdwn_fix(GOOD) == GOOD)
+LIST = "Next:\n- first *thing*\n  - under first\n    1. deeper, with `- code`\n- second\n* star\n+ plus\n```\n- in a block\n```\n-not a bullet\n- \n*bold* line"
+check("--fix: a - item line takes the • bullet; nested items flatten where they stood, text whole; code and bold untouched",
+      S.mrkdwn_fix(LIST) == "Next:\n• first *thing*\n• under first\n• deeper, with `- code`\n• second\n• star\n• plus\n```\n- in a block\n```\n-not a bullet\n- \n*bold* line", S.mrkdwn_fix(LIST))
+check("a - item line is no slip: it holds no post", rules("Next:\n- first\n- second") == [] and S.mrkdwn_slips("- only") == [])
+check("the repaired list is clean and repairing it again changes nothing", rules(S.mrkdwn_fix(LIST)) == [] and S.mrkdwn_fix(S.mrkdwn_fix(LIST)) == S.mrkdwn_fix(LIST))
 check("post's dry-run flags come from the same check", len(S.mrkdwn_slips(BAD)) == 7 and S.mrkdwn_slips(GOOD) == [])
 
 def run(*args, stdin=None):

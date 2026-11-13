@@ -15,7 +15,7 @@ the one write, `post`, is a dry run until --apply.
   check      --text "…" | --file f|- [--fix] [--json]
              is this text Slack mrkdwn? Names each slip (a heading, **bold**, [t](url), a pipe table, a --- rule, a
              nested list item, a language tag on a fence, a marker touching CJK text) and exits 1; --fix prints the
-             repaired text. No token, no call: any sender runs it before its own post.
+             repaired text, and writes a `- item` line as `• item` (no slip: Slack prints the hyphen as written). No token, no call: any sender runs it before its own post.
   post       <#channel|Cxxx|thread permalink> --text "…" | --file f.md [--dm me|email|Uxxx] [--preview] [--apply]
              [--as-owner]
              send a message as the bot (a permalink → reply in that thread). Dry run by default; refuses a
@@ -899,6 +899,9 @@ _LINE_RULES = (("heading", re.compile(r"^#{1,6} +(.*?)\s*#*\s*$")),
                ("nested-list", re.compile(r"^(?:[ ]{2,}|\t+)(?:[-*•◦▪]|\d+[.)])[ \t]+(.*)$")))
 _INLINE_RULES = (("double-asterisk", re.compile(r"\*\*([^*\n]+)\*\*")),
                  ("md-link", re.compile(r"(?<!!)\[([^\]\n]+)\]\((https?://[^)\s]+)\)")))
+# a Markdown bullet at the margin (- item, * item, + item). Slack prints the marker as written, which reads, so it is
+# no slip and holds no post; --fix writes the • bullet, so a list is one kind of line whoever drafted it.
+_MD_BULLET = re.compile(r"^ ?[-*+][ \t]+(\S.*)$")
 _HOLD = "\x00{}\x00"
 
 
@@ -952,7 +955,8 @@ def mrkdwn_check(text):
 
 def mrkdwn_fix(text):
     """The text with every mechanical repair made: a heading becomes a *bold* line, **x** becomes *x*, [t](u) becomes
-    <u|t>, a --- rule is dropped, a nested item moves to one level under •, a fence loses its language tag, and a
+    <u|t>, a --- rule is dropped, a nested item moves to one level under • where it stood (its parent's line before
+    it, its own text whole), a `- item` line at the margin takes the • bullet, a fence loses its language tag, and a
     marker touching CJK text gets its spaces. A pipe table is left as it is: laying one out is not mechanical."""
     masked, held = _mask(text or "")
     lines = []
@@ -967,6 +971,7 @@ def mrkdwn_fix(text):
         if m:
             line = "*" + m.group(1).strip().strip("*").strip() + "*"
         m = _LINE_RULES[3][1].match(line)
+        m = m or _MD_BULLET.match(line)
         if m:
             line = "• " + m.group(1)
         for a, b in reversed(_cjk_touch(line)):
