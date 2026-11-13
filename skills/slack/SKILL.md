@@ -25,8 +25,8 @@ Slack now and writes through; a window the store does not reach is read live and
 
 Read `~/.claude/ela/site.json` → `env` (the path of ela's credential file, mode 600) and pass it as
 `--env-file`. That file is ela's own — copied once from wherever the tokens lived before; nothing
-here depends on another tool's config. The script reads `SLACK_BOT_TOKEN` from it, and `JIRA_EMAIL` for
-`whoami` and the default `--user me` of `mentions` / `unanswered`. Missing or expired → run `/ela:setup`.
+here depends on another tool's config. The script reads `SLACK_BOT_TOKEN` from it, `JIRA_EMAIL` for
+`whoami` and the default `--user me` of `mentions` / `unanswered`, and `SLACK_USER_TOKEN` for `post --as-owner` only. Missing or expired → run `/ela:setup`.
 
 ## Scope
 
@@ -55,13 +55,19 @@ reaction; none is to be added silently.
   text with every mechanical repair made, and exits 1 only when a pipe table remains). `post` runs the same check:
   it flags the slips in the dry run and refuses them on `--apply`. Any other sender (the runner, Helm) runs
   `ela slack check` on its own text before it sends.
-- **The bot speaks as itself** (`@helm` until renamed Ella), never as Evan. Write in the third person
+- **The bot speaks as itself** (`@ela`), never as Evan. Write in the third person
   about him ("Evan's position, recorded on … is …"), cite the source of every claim (a Jira key, a
   decision file, a doc URL), and answer in the asker's language.
+- **Under his own name: `post --as-owner`.** It sends with `SLACK_USER_TOKEN` from the env file (a user token of
+  his, user scope `chat:write`); every read stays on the bot token. It is refused, with the fix in one line, when
+  the token is missing, belongs to someone else or lacks the scope, and it never falls back to the bot: the author a
+  reader sees is the one that was approved. Same dry run, same word before `--apply`, same duplicate refusal
+  (against his own last messages). No `--dm` and no team gate with it. Its standing caller is `ela mention answer`
+  on his A (ADR 0022), where the mention card is the dry run.
 - **Reply in the thread** where the question lives (pass the permalink); a top-level post needs a reason
   Evan stated. A DM to anyone other than Evan needs him to name the person.
-- **Idempotent by content.** The script refuses a message identical to one the bot already posted in the
-  last 20 of that thread or channel — a rerun cannot double-post.
+- **Idempotent by content.** The script refuses a message identical to one the same identity already posted in
+  the last 20 of that thread or channel — a rerun cannot double-post.
 - **Nothing unsettled goes out as fact.** If a claim is not on record, the message says so and offers to
   relay; drafting the question back to Evan is the right move, not guessing.
 

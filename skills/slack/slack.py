@@ -17,13 +17,18 @@ the one write, `post`, is a dry run until --apply.
              nested list item, a language tag on a fence, a marker touching CJK text) and exits 1; --fix prints the
              repaired text. No token, no call: any sender runs it before its own post.
   post       <#channel|Cxxx|thread permalink> --text "…" | --file f.md [--dm me|email|Uxxx] [--preview] [--apply]
+             [--as-owner]
              send a message as the bot (a permalink → reply in that thread). Dry run by default; refuses a
-             duplicate of a message the bot already posted there; a DM needs --dm said explicitly. --preview DMs
+             duplicate of a message the same identity already posted there; a DM needs --dm said explicitly.
+             --as-owner sends under the owner's own name with SLACK_USER_TOKEN (user scope chat:write; reads stay
+             on the bot token); a missing token, one that is not his, or one lacking the scope is refused with the
+             fix, and nothing falls back to the bot. --preview DMs
              the text to the owner, headed with where it would go, so he judges it as Slack renders it. A text
              that fails `check` is flagged in the dry run and refused on --apply.
 
 Exit codes: 0 ok · 1 check found a slip · 2 usage · 4 auth or refused · 5 remote error.
 Credential resolution: $SLACK_BOT_TOKEN → --env-file → $SLACK_ENV_FILE → $ELA_ENV_FILE. The script never stores it.
+SLACK_USER_TOKEN resolves the same way and is read by `post --as-owner` only.
 """
 import argparse, html, json, os, re, shutil, signal, sys, time, urllib.error, urllib.parse, urllib.request
 from concurrent.futures import ThreadPoolExecutor
@@ -808,8 +813,34 @@ def post_json(method, tok, payload):
     except Exception as e:
         print(f"slack {method}: {e!r}", file=sys.stderr); sys.exit(EX_REMOTE)
     if not d.get("ok"):
-        print(f"slack {method} failed: {d.get('error')}", file=sys.stderr); sys.exit(EX_AUTH if d.get("error") in ("invalid_auth", "not_authed", "missing_scope") else EX_REMOTE)
+        print(f"slack {method} failed: {d.get('error')}", file=sys.stderr)
+        if d.get("error") == "missing_scope":
+            print(f"  fix: the token lacks the scope {d.get('needed') or 'chat:write'}: add it to the Slack app, reinstall the app, "
+                  "and put the new token in the env file", file=sys.stderr)
+        sys.exit(EX_AUTH if d.get("error") in ("invalid_auth", "not_authed", "missing_scope", "token_revoked", "not_allowed_token_type") else EX_REMOTE)
     return d
+
+
+def owner_identity(tok, env_file):
+    """`post --as-owner`: (the owner's user token, his user id, his handle), or exit EX_AUTH with the one-line fix. The
+    token must be there and must be his own (auth.test against the id behind JIRA_EMAIL). A bot token is never used
+    in its place: a reply under his name either leaves as him or does not leave."""
+    utok = env_value("SLACK_USER_TOKEN", env_file)
+    if not utok:
+        print("refused: --as-owner needs SLACK_USER_TOKEN. fix: add SLACK_USER_TOKEN=<the owner's user token, user scope "
+              "chat:write> to the env file. Nothing was posted, and nothing is posted as the bot instead", file=sys.stderr)
+        sys.exit(EX_AUTH)
+    who = raw("auth.test", utok)
+    if not who.get("ok"):
+        print(f"refused: SLACK_USER_TOKEN does not authenticate ({who.get('error')}). fix: replace it in the env file with "
+              "a current user token. Nothing was posted", file=sys.stderr)
+        sys.exit(EX_AUTH)
+    owner = whoami(tok, env_file)
+    if who.get("bot_id") or who.get("user_id") != owner:
+        print(f"refused: SLACK_USER_TOKEN belongs to @{who.get('user')}, not to the owner ({owner}). fix: put the owner's own "
+              "user token in the env file. Nothing was posted", file=sys.stderr)
+        sys.exit(EX_AUTH)
+    return utok, owner, who.get("user")
 
 
 def write_who():
@@ -821,16 +852,16 @@ def write_who():
     return {"session": session, "job": e.get("ELA_RUNNER_JOB") or None, "action": e.get("ELA_ACTION") or None, "word": word}
 
 
-def log_write(where, link, chars):
+def log_write(where, link, chars, sent_as=None, mention=None):
     """One line per message sent, so the owner's brief can say what ela did (<reports>/ela/writes.jsonl, shared with
-    the jira capability's log). Never fatal."""
+    the jira capability's log). `sent_as`: the handle it left under; `mention`: the mention it answers. Never fatal."""
     try:
         import datetime
         site = json.load(open(os.path.expanduser("~/.claude/ela/site.json")))
         d = os.path.join(site.get("reports") or os.path.join(site.get("projects") or "", "reports"), "ela")
         os.makedirs(d, exist_ok=True)
         row = {"at": datetime.datetime.now().astimezone().isoformat(timespec="seconds"), "system": "slack", "verb": "post",
-               "key": None, "where": where, "permalink": link, "chars": chars, "ok": True,
+               "key": None, "where": where, "permalink": link, "chars": chars, "ok": True, "as": sent_as, "mention": mention,
                "unattended": bool(os.environ.get("ELA_NO_APPLY")), **write_who()}
         with open(os.path.join(d, "writes.jsonl"), "a", encoding="utf-8") as fh:
             fh.write(json.dumps(row, ensure_ascii=False) + "\n")
@@ -984,6 +1015,9 @@ def cmd_post(tok, a):
         print("nothing to post: pass --text or --file", file=sys.stderr); sys.exit(EX_USAGE)
     text = text.rstrip("\n")
     thread_ts, where = None, ""
+    as_owner = bool(getattr(a, "as_owner", False))
+    if as_owner and (a.dm or a.team_thread or a.team_day_post):
+        print("refused: --as-owner takes a channel or a thread permalink; --dm and the team gates are the bot's", file=sys.stderr); sys.exit(EX_USAGE)
     if a.team_thread and (a.dm or not a.target or "/archives/" not in a.target):
         print(f"refused: --team-thread takes a thread permalink in {', '.join(TEAM_CHANNELS)}", file=sys.stderr); sys.exit(EX_USAGE)
     if a.team_day_post and (a.dm or a.team_thread or not a.target or "/archives/" in a.target
@@ -1011,10 +1045,14 @@ def cmd_post(tok, a):
         ch = resolve_channel(tok, a.target)
         where = f"top level in #{next((c['name'] for c in list_channels(tok) if c['id'] == ch), ch)}"
     me = call("auth.test", tok)
-    # idempotency: the same text from this bot already in the last 20 messages of the target → refuse
+    send_tok, handle, owner = tok, me.get("user"), None
+    if as_owner:
+        send_tok, owner, handle = owner_identity(tok, a.env_file)
+    # idempotency: the same text from this identity already in the last 20 messages of the target → refuse
     recent = (call("conversations.replies", tok, channel=ch, ts=thread_ts, limit=20) if thread_ts
               else call("conversations.history", tok, channel=ch, limit=20))["messages"]
-    dup = next((m for m in recent if m.get("bot_id") == me.get("bot_id") and (m.get("text") or "").strip() == text.strip()), None)
+    same = (lambda m: m.get("user") == owner and not m.get("bot_id")) if as_owner else (lambda m: bool(m.get("bot_id")) and m.get("bot_id") == me.get("bot_id"))
+    dup = next((m for m in recent if same(m) and html.unescape(m.get("text") or "").strip() == text.strip()), None)
     if dup:
         print(f"refused: this exact message is already there — {permalink_of(ch, dup['ts'])}", file=sys.stderr); sys.exit(EX_AUTH)
     if a.team_day_post:
@@ -1029,7 +1067,7 @@ def cmd_post(tok, a):
     if a.preview:
         uid = whoami(tok, a.env_file)
         dm = call("conversations.open", tok, users=uid)["channel"]["id"]
-        head = f"_Preview, not sent — would post as @{me.get('user')} {where}_"
+        head = f"_Preview, not sent — would post as @{handle} {where}_"
         d = post_json("chat.postMessage", tok, {"channel": dm, "text": f"{head}\n\n{text}", "unfurl_links": False, "unfurl_media": False})
         link = permalink_of(d["channel"], d["ts"])
         log_write(f"preview to owner of: {where}", link, len(text))
@@ -1039,19 +1077,20 @@ def cmd_post(tok, a):
     if a.apply and slips:
         print("refused: the text is Markdown, not Slack mrkdwn —\n" + "\n".join(f"  {w}" for w in slips), file=sys.stderr); sys.exit(EX_USAGE)
     if not a.apply:
-        out = {"dry_run": True, "as": me.get("user"), "where": where, "channel": ch, "thread_ts": thread_ts, "chars": len(text), "slips": slips, "text": text}
+        out = {"dry_run": True, "as": handle, "as_owner": as_owner, "where": where, "channel": ch, "thread_ts": thread_ts, "chars": len(text), "slips": slips, "text": text}
         if a.json:
             print(json.dumps(out, ensure_ascii=False)); return
-        print(f"DRY RUN — would post as @{me.get('user')}  {where}\n{'─' * 76}\n{text}\n{'─' * 76}\n"
+        print(f"DRY RUN — would post as @{handle}  {where}\n{'─' * 76}\n{text}\n{'─' * 76}\n"
               + "".join(f"mrkdwn: {w}\n" for w in slips) + "pass --preview to see it in Slack, --apply to send")
         return
     payload = {"channel": ch, "text": text, "unfurl_links": False, "unfurl_media": False}
     if thread_ts:
         payload["thread_ts"] = thread_ts
-    d = post_json("chat.postMessage", tok, payload)
+    d = post_json("chat.postMessage", send_tok, payload)
     link = permalink_of(d["channel"], d["ts"])
-    log_write(where, link, len(text))
-    print(json.dumps({"posted": True, "as": me.get("user"), "channel": d["channel"], "ts": d["ts"], "permalink": link}) if a.json else f"posted as @{me.get('user')}  {link}")
+    log_write(where, link, len(text), handle, getattr(a, "mention", None))
+    print(json.dumps({"posted": True, "as": handle, "as_owner": as_owner, "channel": d["channel"], "ts": d["ts"], "thread_ts": thread_ts, "permalink": link})
+          if a.json else f"posted as @{handle}  {link}")
 
 
 def cmd_whoami(tok, a):
@@ -1135,6 +1174,8 @@ def main():
     p.add_argument("--text"); p.add_argument("--file", help="markdown/text file, or - for stdin")
     p.add_argument("--dm", help="me · an email · a user id — a direct message instead of a channel")
     p.add_argument("--apply", action="store_true", help="actually send; without it nothing leaves the machine")
+    p.add_argument("--as-owner", action="store_true", help="send under the owner's own name with SLACK_USER_TOKEN (user scope "
+                   "chat:write); refused, never sent as the bot, when the token is missing, not his, or lacks the scope")
     p.add_argument("--preview", action="store_true", help="DM the text to the owner, headed with its target, instead of "
                    "sending it there: how it renders in Slack is judged in Slack")
     p.add_argument("--team-thread", action="store_true", help="refuse unless the target is a thread in a team channel "

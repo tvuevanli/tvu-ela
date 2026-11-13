@@ -67,6 +67,7 @@ Keys and where each comes from when absent:
 |---|---|
 | `JIRA_BASE_URL` `JIRA_EMAIL` `JIRA_TOKEN` | Atlassian account → Security → API tokens |
 | `SLACK_BOT_TOKEN` | the workspace's Slack app → OAuth & Permissions → Bot User OAuth Token (`xoxb-…`) |
+| `SLACK_USER_TOKEN` | optional, only for `mention_post_as: owner` in `site.json` (ADR 0022): the same app → User Token Scopes → `chat:write`, reinstall, User OAuth Token (`xoxp-…`) of the owner's own account; read by `ela slack post --as-owner` and by nothing else |
 | `OUTLINE_URL` `OUTLINE_TOKEN` | Outline (kb.tvunetworks.com) → Settings → API tokens |
 | `TVU_OBJECT_SERVICE_HOST` `TVU_CC_BEARER_TOKEN` | Object Service host + a CC bearer token from a logged-in session |
 | `FIGMA_TOKEN` | Figma → Settings → Security → Personal access tokens (read scope) |
