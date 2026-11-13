@@ -40,6 +40,10 @@ reaction; none is to be added silently.
 
 - **Dry run first, always.** Show Evan the dry-run output (target, identity, full text). `--apply` is sent
   only after his word in this conversation, once per message. Never batch several `--apply` behind one yes.
+- **A credential is never posted.** `post` refuses, in the dry run, the preview and `--apply`, a text that carries a
+  credential of the site's env file (a value of 8 characters or more that is not a URL, an email or a path), naming
+  the variable and never the value; `--file` refuses a file in the site directory. A refusal is the answer: take
+  the value out, never work around it.
 - **Preview in Slack before a team post.** A terminal dry run cannot show how Slack renders a message, so a
   post to a channel or a thread someone else will read goes `--preview` first: the text is DM'd to Evan, headed
   with where it would go, and he judges it there. Only his word after the preview sends it to the target, and a

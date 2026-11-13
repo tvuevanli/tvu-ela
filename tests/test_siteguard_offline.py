@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """The site guard: a verb that takes a file from its caller refuses the site directory and the env file, before any
-token is read or call made, and says why without the file's text. Offline: every case stops at the refusal."""
+token is read or call made, and says why without the file's text; `slack post` refuses a text that carries a
+credential of the env file, naming the variable. Offline: every case stops at the refusal."""
 import json, os, subprocess, sys, tempfile
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 fail = 0
@@ -49,5 +50,12 @@ with tempfile.TemporaryDirectory() as tmp:
     check(G.credentials() == {DECOY: "JIRA_TOKEN"}, "a credential is a value of 8 characters or more that is not a URL, an email or a path", G.credentials().values())
     check(G.carried(f"see https://jira.invalid/browse/MH-1, from owner@example.invalid, {DECOY}!") == ["JIRA_TOKEN"] and G.carried("https://jira.invalid/browse/MH-1") == [],
           "carried names the variable; a ticket link and the owner's email carry nothing")
+    # the post scrub: refused before any call, in the dry run, the preview and --apply, from --text and from --file
+    open(env, "a").write("SLACK_BOT_TOKEN=" + "-".join(["another", "decoy", "token"]) + "\n")
+    body = os.path.join(tmp, "reply.md"); open(body, "w").write(f"the build is on QA\ntoken: {DECOY}\n")
+    for name, argv in (("the dry run", ["--text", f"use {DECOY} to sign in"]), ("--apply", ["--text", f"use {DECOY}", "--apply"]),
+                       ("--preview", ["--text", f"use {DECOY}", "--preview"]), ("a --file", ["--file", body])):
+        c, out = run("slack", "slack.py", "--env-file", env, "post", "#x", *argv)
+        check(c == 2 and "refused" in out and "JIRA_TOKEN" in out and DECOY not in out, f"slack post, {name}: a text carrying a credential is refused, the variable named, the value never", (c, out[-300:]))
 print("siteguard: " + ("FAILED" if fail else "passed"))
 sys.exit(fail)

@@ -18,6 +18,9 @@ the one write, `post`, is a dry run until --apply.
              repaired text, and writes a `- item` line as `• item` (no slip: Slack prints the hyphen as written). No token, no call: any sender runs it before its own post.
   post       <#channel|Cxxx|thread permalink> --text "…" | --file f.md [--dm me|email|Uxxx] [--preview] [--apply]
              [--as-owner]
+             a text carrying a credential of the site's env file (a value of 8 characters or more that is no URL,
+             email or path) is refused in the dry run, the preview and --apply, the variable named, never the value;
+             so is a --file in the site directory
              send a message as the bot (a permalink → reply in that thread). Dry run by default; refuses a
              duplicate of a message the same identity already posted there; a DM needs --dm said explicitly.
              --as-owner sends under the owner's own name with SLACK_USER_TOKEN (user scope chat:write; reads stay
@@ -1021,6 +1024,10 @@ def cmd_post(tok, a):
     if not text or not text.strip():
         print("nothing to post: pass --text or --file", file=sys.stderr); sys.exit(EX_USAGE)
     text = text.rstrip("\n")
+    held = siteguard.carried(text, a.env_file)
+    if held:                                           # dry run, preview and apply alike, and before any call
+        print(f"refused: the text carries the value of {', '.join(held)} from the site's env file; a credential is never posted. "
+              "Take it out of the text (the variable is named here, never its value)", file=sys.stderr); sys.exit(EX_USAGE)
     thread_ts, where = None, ""
     as_owner = bool(getattr(a, "as_owner", False))
     if as_owner and (a.dm or a.team_thread or a.team_day_post):
