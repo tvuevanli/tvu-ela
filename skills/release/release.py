@@ -25,7 +25,7 @@ L1: subcommands, --json, stdlib only. No store, no scheduler: every answer is th
                                           release thread announced; a fold is an open question. Read-only; the reading
                                           is kept beside the record. --batch: the appends and labels, dry run first
   login    [qa|tvu|cn] [--force]          qa: tvutest account login → SID (2h), printed for the env file.
-                                          cn: the China host's account login, proved; its session id is never shown.
+                                          cn: the China host's account login, proved and kept in session.json (2h); never shown.
                                           tvu: a one-time HTTPS page under ela.tvunetworks.com collects the browser's
                                           SID after Google SSO (a paste field is the fallback); stored in
                                           ~/.claude/ela/session.json (mode 600) with obtained_at; the first refusal
@@ -1710,7 +1710,12 @@ def cmd_login(a):
         if missing:
             print(cn_note(missing), file=sys.stderr); sys.exit(EX_USAGE)
         f = _env_file(a.env_file)
-        account_login(f, _service_url(CN_SERVICE), CN_KEYS, "China")
+        sid = account_login(f, _service_url(CN_SERVICE), CN_KEYS, "China")
+        # kept beside the tvu session (mode 600) for a reader that holds no account: the runner copies it into
+        # mediahub-bot's session file, as it does the tvu one; an account session lives two hours
+        d = _load_sessions()
+        d["cn"] = {"sid": sid, "obtained_at": _now(), "expires_h": 2}
+        _save_sessions(d)
         print(json.dumps({"cn": "obtained", "expires_h": 2, "shown": False}) if a.json
               else "China session obtained (2h); the read verbs log in by themselves: ela release bundles --host cn --raw"); return
     host = _service_url("userservice-test")
