@@ -39,8 +39,10 @@ today.md with the same options. An ask still open after three working days is cl
 5. Decide whether the reply is postable by ela: it only acknowledges ("got it, thanks") or relays a fact that is on
    record. A reply that judges, commits him to something, declines or disagrees is not, and neither is one you are
    unsure about. Not postable is the default; say `--postable` only when sure.
-6. `$MENTION draft <ref> --ask "<the sentence>" --reply-file <file> [--postable]` writes the card to the store and
-   prints it, with what A on it will do. Nothing is sent. A `# mrkdwn:` line names text Slack would print literally:
+6. `$MENTION draft <ref> --ask "<the sentence>" --reading "<one line: whether the ask still needs him, and why>"
+   --reply-file <file> [--fact <key or link>]… [--postable]` writes the card to the store and prints it, with what A on
+   it will do. `--reading` is required. A `--fact` is a key or link `$MENTION facts` printed for this mention, or
+   `none`; any other is refused. Nothing is sent. A `# mrkdwn:` line names text Slack would print literally:
    fix the reply and draft again. The runner sends the card to him and records `$MENTION sent <id> --ts <ts>`; in an
    attended session, show him the printed text.
 7. When `$MENTION due` lists the draft with `revise` (his A came with words), write the reply again following those
