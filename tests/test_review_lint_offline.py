@@ -111,4 +111,7 @@ check("three ticket keys with no words between them are a finding with its line;
       [f for f in RV.lint(run) if "no words between" in f]
       == ["line 4: 3 ticket keys with no words between them (MH-3881, MH-3887, MH-3903, …): one line or row per ticket with its "
           "title and status, or their count and a link to where the list lives"])
+rx = [r for r, k in RV.COUNT_PHRASES if k == "builds"][0]
+check("a lane behind by N builds is not the day's build count; N builds in prose still is",
+      not rx.search("daily-wed (behind by 20 builds)") and rx.search("5 builds ran today").group(1) == "5")
 sys.exit(1 if failures else 0)

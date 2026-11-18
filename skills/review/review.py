@@ -56,7 +56,8 @@ COUNT_PHRASES = (
     (re.compile(r"\b(\d+)\s+(?:ela\s+)?jobs\b" + SCOPED, re.I), "jobs"),
     (re.compile(r"\b(\d+)\s+commits\b" + SCOPED, re.I), "commits"),
     (re.compile(r"\b(\d+)\s+tickets moved\b" + SCOPED, re.I), "tickets_moved"),
-    (re.compile(r"\b(\d+)\s+builds\b" + SCOPED, re.I), "builds"),
+    # "behind by N builds" is a lane's distance from another (brief.py's lanes line), not the day's build count
+    (re.compile(r"(?<!behind by )\b(\d+)\s+builds\b" + SCOPED, re.I), "builds"),
 )
 
 
