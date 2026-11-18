@@ -61,4 +61,36 @@ with tempfile.TemporaryDirectory() as tmp:
     p = run(["open", "runner", "x"])
     check(p.returncode == 2 and "not inside zellij" in p.stderr and not os.path.isdir(os.path.join(tmp, "rt", "sessions")), "outside zellij it refuses and writes nothing")
     check(run(["open", "nowhere", "x"]).returncode == 3, "an unknown target exits 3")
+    # usage: each API message counted once, subagents added, the cost from cost-state, the kind from where it ran
+    import datetime
+    stamp = datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
+    proj = os.path.join(home, ".claude", "projects", "-p")
+    os.makedirs(os.path.join(proj, "s1", "subagents"))
+    def amsg(mid, inp, out, rd, wr, blocks):
+        return {"type": "assistant", "timestamp": stamp, "cwd": "/w/.ela-guest/2026-11-18-x",
+                "message": {"id": mid, "model": "m1", "content": blocks,
+                            "usage": {"input_tokens": inp, "output_tokens": out, "cache_read_input_tokens": rd,
+                                      "cache_creation_input_tokens": wr}}}
+    lines = [{"type": "user", "cwd": "/w/.ela-guest/2026-11-18-x", "message": {"content": "what runs on prod"}},
+             amsg("m-a", 1, 10, 100, 5, [{"type": "text", "text": "x"}]),
+             amsg("m-a", 1, 10, 100, 5, [{"type": "tool_use", "name": "Skill", "input": {"skill": "ela:graph"}}]),
+             amsg("m-b", 2, 20, 200, 0, [{"type": "tool_use", "name": "Bash", "input": {}}]),
+             {"type": "cost-state", "totalCostUSD": 1.25}]
+    open(os.path.join(proj, "s1.jsonl"), "w").write("".join(json.dumps(l) + "\n" for l in lines))
+    open(os.path.join(proj, "s1", "subagents", "agent-1.jsonl"), "w").write(json.dumps(amsg("m-c", 3, 30, 300, 7, [])) + "\n")
+    p = run(["usage", "--since", "1d", "--json"])
+    rows = {r["id"]: r for r in json.loads(p.stdout)["sessions"]} if p.returncode == 0 else {}
+    s1 = rows.get("s1") or {}
+    check(s1.get("tokens") == {"input": 6, "output": 60, "cache_read": 600, "cache_write": 12} and s1.get("turns") == 3,
+          "usage counts each message id once and adds the subagent's transcript")
+    check(s1.get("cost_usd") == 1.25 and s1.get("kind") == "guest" and s1.get("skills") == {"ela:graph": 1}
+          and s1.get("tools") == {"Skill": 1, "Bash": 1}, "the cost from cost-state, the kind from the cwd, tools and skills counted")
+    check(s1.get("purpose") == "what runs on prod", "a session the registry does not know takes its first prompt as purpose")
+    run(["hook-end"], json.dumps({"session_id": "s1", "reason": "exit", "transcript_path": os.path.join(proj, "s1.jsonl")}))
+    end = json.loads(open(os.path.join(tmp, "rt", "sessions.jsonl")).read().splitlines()[-1])
+    check((end.get("usage") or {}).get("tokens", {}).get("cache_read") == 600, "the end line stores the session's usage")
+    os.remove(os.path.join(proj, "s1.jsonl"))
+    rows = {r["id"]: r for r in json.loads(run(["usage", "--since", "1d", "--json"]).stdout)["sessions"]}
+    check((rows.get("s1") or {}).get("cost_usd") == 1.25, "with the transcript cleaned up, the stored usage stands in")
+    check(run(["usage", "--since", "soon"]).returncode == 2, "a --since that is no window exits 2")
 sys.exit(fail)
