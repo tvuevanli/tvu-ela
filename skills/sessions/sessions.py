@@ -38,7 +38,7 @@ Printed per hit, newest first: the date · the project directory · the first pr
 answer (240 chars) · the paths the session read (Read tool calls, at most 12, relative to <projects> or <code>).
 --json adds the transcript path.
 
-Not printed: tool results of any kind, any other prompt or answer. Every printed string passes publish.redact
+Not printed: tool results of any kind, any other prompt or answer. Every printed string passes configserver.redact (credentials), then publish.redact
 (addresses become <ip> / <tailnet>) and any run of 32+ token-shaped characters becomes <token>.
 
 Exit codes: 0 ok · 2 usage · 3 nothing found / unknown target · 5 zellij failed.
@@ -47,6 +47,8 @@ import argparse, datetime, glob, json, os, re, shlex, subprocess, sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "publish"))
 from publish import redact   # one rule for addresses, defined once (publish.py)
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "configserver"))
+from redact import scrub as cut_credentials   # one rule for embedded credentials (configserver/redact.py)
 
 SITE = os.path.expanduser("~/.claude/ela/site.json")
 TRANSCRIPTS = os.path.expanduser("~/.claude/projects")
@@ -83,7 +85,8 @@ def registry():
 
 
 def clean(text):
-    return TOKEN.sub(lambda m: m.group(1) or "<token>", redact(text or ""))
+    """Credentials cut first (a stream key's rule needs the URL's host whole), then addresses, then any long run."""
+    return TOKEN.sub(lambda m: m.group(1) or "<token>", redact(cut_credentials(text or "")))
 
 
 def shown_path(p, projects, code):
@@ -635,7 +638,8 @@ def usage_rows(since):
         rows[sid] = dict(u, id=sid, name=r.get("name"), job=r.get("job"), purpose=r.get("purpose"), cwd=r.get("cwd"),
                          first=r.get("started"), last=u.get("last") or r.get("ended"), kind=kind_of(r.get("name"), r.get("cwd")))
     for sid in [k for k, v in rows.items() if v.get("continued_in") in rows]:
-        del rows[sid]
+        if isinstance(rows[rows[sid]["continued_in"]].get("cost_usd"), (int, float)):   # a successor still open has
+            del rows[sid]                                                               # no total yet: keep this one
     return sorted(rows.values(), key=lambda r: r.get("last") or "", reverse=True)
 
 
@@ -686,7 +690,8 @@ def cmd_usage(a):
              "own": round(sum(r.get("cost_usd") or 0 for r in rows if not operating(r)), 2)}
     if a.json:
         print(json.dumps({"since": since.isoformat(timespec="seconds"), "by": a.by, "groups": groups, "split": split,
-                          "sessions": [{k: (clean(v) if k == "purpose" and v else v) for k, v in r.items()}
+                          "sessions": [{k: (clean(v) if k == "purpose" and v else shown_path(v, projects, code) if k == "cwd" and v else v)
+                                        for k, v in r.items()}
                                        for r in rows]}, ensure_ascii=False, indent=1))
         return 0
     if not rows:
