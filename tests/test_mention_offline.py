@@ -135,10 +135,11 @@ with tempfile.TemporaryDirectory() as tmp:
     related = lambda k, skip: [{"link": "https://slack.example/archives/C0QA/p1", "channel": "qa", "date": "2026-11-10", "first": "build 90 carries it", "id": "x"}] if k == "MH-3735" else []
     recs[a2]["facts"] = M.gather(recs[a2], t2, names, ISSUES.get, related)
     lines = recs[a2]["facts"]["lines"]
-    check("facts: each ticket with its state, owner and Fixed In, as a link; the related thread; what was not read",
+    tl = recs[a2]["facts"]["thread_lines"]
+    check("facts: each ticket with its state, owner and Fixed In, as a link; what was not read; the related thread kept apart",
           lines[0] == "<https://jira.example/browse/MH-3735|MH-3735> Backlog · Owner · Fixed In ur-caller@2.1.90 · MH-3735 summary"
-          and "no Fixed In" in lines[1] and lines[2].startswith("<https://slack.example/archives/C0QA/p1|#qa 11-10> names MH-3735")
-          and lines[3] == "not read (not in the Jira fact store): MH-7001" and len(lines) <= M.FACT_LINES)
+          and "no Fixed In" in lines[1] and lines[2] == "not read (not in the Jira fact store): MH-7001" and len(lines) <= M.FACT_LINES
+          and tl and tl[0].startswith("<https://slack.example/archives/C0QA/p1|#qa 11-10> names MH-3735"))
     path, text = M.make_draft(recs[a2], R, "Asker asks which build carries the MH-3735 fix.", "It is in build 90. I'll link MH-3842 to MH-3735.", at(11, 32))
     check("the message: the ask, the facts, the reply to paste, the dry runs it implies, the three letters",
           "Asker asks which build" in text and "*Facts*" in text and "```\nIt is in build 90." in text

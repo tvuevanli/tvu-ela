@@ -6,8 +6,9 @@ Jira and writes its own store, a local draft, and dry-run batches through dry.py
 A mention is triaged as an ask (a question, a request, a decision put to him), an incident (a prod failure addressed to
 him) or a notice (a bot's "ready to test", an FYI, a cc). On an ask ela reads the thread, gathers the facts and waits:
 he usually answers himself. A reply of his closes the mention, and what that reply commits to is prepared as dry runs
-under the action classes of `ela dry`. Unanswered after the wait window, the mention earns one message to him: the ask
-in a sentence, the facts, a drafted reply, and A · B I will write it · C nothing needed. What A does is one site
+under the action classes of `ela dry`. Unanswered after the wait window, the mention earns one message to him: what it
+is and what is asked of him in a sentence, ela's reading of whether it still needs him, three facts at most, a drafted
+reply, and A · B I will write it · C nothing needed. What A does is one site
 setting, `mention_post_as` in site.json: `off` (the default) A use this draft, he pastes it; `owner` A post this draft
 under your name (SLACK_USER_TOKEN); `ela` A post this draft as @ela, offered only for a draft marked --postable (an
 acknowledgement or a relayed fact), with one fixed signature line. His A is the approve of that one text: the text
@@ -24,11 +25,15 @@ mention closes, a drafted Slack action aimed at the same thread in the runner's 
   show    <id|permalink> [--json]         one mention: thread, triage and reason, his reply, what was prepared, his letter
   triage  <permalink> [--fresh] [--json]  how one message would be triaged, with the reason; nothing is recorded
   facts   <id|permalink> [--fresh] [--json]  the tickets the thread names (state, owner, Fixed In) and the related
-                                          threads from the links index, five lines at most
-  draft   <id|permalink> --ask "…" --reply-file F [--postable] [--json]
-                                          the message for him, written to the store: the ask, the facts, the reply,
-                                          the dry runs it implies, A / B / C. Nothing is sent. --postable: the reply
-                                          only acknowledges or relays a fact, so the `ela` setting may offer to post it
+                                          threads from the links index
+  draft   <id|permalink> --ask "…" --reading "…" --reply-file F [--fact X]… [--postable] [--json]
+                                          the message for him, written to the store. Its first line says what it is
+                                          and what is asked of him (--ask, one sentence), its second whether the ask
+                                          still needs him (--reading); then three facts at most (--fact: a ticket key
+                                          or a related thread's link that bears on the answer, `none` for none), the
+                                          reply, the dry runs it implies, A / B / C. Nothing is sent. --postable: the
+                                          reply only acknowledges or relays a fact, so the `ela` setting may offer to
+                                          post it
   sent    <id> [--ts T]                   the runner's word that the message reached him; the hash of the text the
                                           card showed is kept
   answer  <id|dm ts> <A|B|C> [--shown H] [--json]
@@ -67,7 +72,8 @@ BROADCAST_MIN = 6                              # people tagged in one message fr
 SIGNATURE = "_ela, for {name} · approved by him · replies here reach {name}_"
 MENTION_WAIT_MIN = 30                          # the wait before ela tells him (his choice of 2026-11-12)
 DM_HOURS = ("08:30", "19:00")                  # the default when the day file names none
-FACT_LINES = 5
+FACT_LINES = 3                                 # a card's facts: those that bear on the answer, no more
+INCIDENT_LINES = 5                             # an incident's facts: the tickets and the related threads
 KEY_RX = re.compile(r"(?<![A-Za-z0-9_-])([A-Z][A-Z0-9]{1,9}-[1-9]\d{0,5})(?![0-9])")
 TAG = r"<@[A-Z0-9]+(?:\|[^>]*)?>"
 PERMALINK_RX = re.compile(r"/archives/([A-Z0-9]+)/p(\d{10})(\d{6})(?:\?[^\s>|]*?thread_ts=(\d+\.\d+))?")
@@ -555,7 +561,9 @@ def related_threads(key, skip):
 
 
 def gather(r, thread, names, issue, related=related_threads):
-    """{keys: [{key, url, status, assignee, fixed_in, summary}], threads, gaps, lines (FACT_LINES at most, Slack links)}."""
+    """{keys: [{key, url, status, assignee, fixed_in, summary}], threads, gaps, lines (FACT_LINES at most, Slack
+    links: the tickets, then what was not read), more (the tickets named beyond those lines), thread_lines (the
+    related threads: an incident shows them, a card only the ones its drafter picks)}."""
     text = "\n".join(m.get("text") or "" for m in thread)
     out = {"keys": [], "threads": [], "gaps": [], "lines": [], "at": iso(datetime.datetime.now(TZ))}
     for k in keys_in(text):
@@ -573,20 +581,46 @@ def gather(r, thread, names, issue, related=related_threads):
                 seen.add(t["link"])
                 out["threads"].append({"key": k, "link": t["link"], "channel": t.get("channel"), "date": str(t.get("date") or "")[:10],
                                        "first": first_line(t.get("first") or "", 80)})
-    for x in out["keys"][:3]:
-        out["lines"].append(f"<{x['url']}|{x['key']}> {x['status']} · {x['assignee']}"
-                            + (f" · Fixed In {x['fixed_in']}" if x["fixed_in"] else " · no Fixed In") + f" · {first_line(x['summary'], 60)}")
-    for t in out["threads"][:FACT_LINES - len(out["lines"])]:
-        out["lines"].append(f"<{t['link']}|#{t['channel']} {t['date'][5:]}> names {t['key']}: {t['first']}")
-    more = len(out["keys"]) - 3
-    if more > 0 and len(out["lines"]) < FACT_LINES:
-        out["lines"].append(f"{more} more ticket{'s' if more > 1 else ''} named: " + ", ".join(f"<{x['url']}|{x['key']}>" for x in out["keys"][3:8]))
-    if out["gaps"] and len(out["lines"]) < FACT_LINES:
-        out["lines"].append("not read (not in the Jira fact store): " + ", ".join(out["gaps"][:6]))
-    if not out["lines"]:
-        out["lines"].append("The thread names no ticket.")
-    out["lines"] = out["lines"][:FACT_LINES]
+    gap = ["not read (not in the Jira fact store): " + ", ".join(out["gaps"][:6])] if out["gaps"] else []
+    shown = out["keys"][:FACT_LINES - len(gap)]
+    out["lines"] = [ticket_line(x) for x in shown] + gap or ["The thread names no ticket."]
+    out["more"] = [x["key"] for x in out["keys"][len(shown):]]
+    out["thread_lines"] = [thread_line(t) for t in out["threads"]]
     return out
+
+
+def ticket_line(x):
+    return (f"<{x['url']}|{x['key']}> {x['status']} · {x['assignee']}"
+            + (f" · Fixed In {x['fixed_in']}" if x["fixed_in"] else " · no Fixed In") + f" · {first_line(x['summary'], 60)}")
+
+
+def thread_line(t):
+    return f"<{t['link']}|#{t['channel']} {t['date'][5:]}> names {t['key']}: {t['first']}"
+
+
+def card_facts(facts, picks=None):
+    """The fact lines of a card, FACT_LINES at most. `picks` is the drafter's choice of the facts that bear on the
+    answer, in his order: a ticket key the thread names, the link of a related thread (one that changes the answer),
+    or `none` alone for a card without facts. Without picks: the tickets and what was not read; no related thread.
+    Raises ValueError for a pick the facts do not hold, or more than FACT_LINES of them."""
+    picks = [p.strip() for p in picks or [] if p and p.strip()]
+    if not picks:
+        return list(facts.get("lines") or [])[:FACT_LINES]
+    if [p.lower() for p in picks] == ["none"]:
+        return []
+    if len(picks) > FACT_LINES:
+        raise ValueError(f"{len(picks)} facts picked; a card carries {FACT_LINES} at most, those that bear on the answer")
+    by = {x["key"]: ticket_line(x) for x in facts.get("keys") or []}
+    by.update({t["link"]: thread_line(t) for t in facts.get("threads") or []})
+    out = []
+    for p in picks:
+        if p in facts.get("gaps") or []:
+            out.append(f"not read (not in the Jira fact store): {p}")
+        elif p in by:
+            out.append(by[p])
+        else:
+            raise ValueError(f"{p}: not among this mention's facts (`ela mention facts` lists the tickets and the related threads)")
+    return list(dict.fromkeys(out))
 
 
 # ── the message for him ───────────────────────────────────────────────────────────────────────────────────────
@@ -598,8 +632,9 @@ def head(r, now):
 
 def incident_text(r, facts, now):
     """A prod incident addressed to him: the facts at once, no reply drafted, no letters."""
+    lines = [l for l in facts["lines"] + (facts.get("thread_lines") or []) if l != "The thread names no ticket."][:INCIDENT_LINES]
     return "\n".join([head(r, now) + " · reads as a prod incident addressed to you", r["first"], "", "*Facts*"]
-                     + [f"• {l}" for l in facts["lines"]] + ["", "No reply is drafted for an incident."]) + "\n"
+                     + [f"• {l}" for l in lines or ["The thread names no ticket."]] + ["", "No reply is drafted for an incident."]) + "\n"
 
 
 A_TEXT = {"off": "use this draft", "ela": f"post this draft as @{BOT_HANDLE}", "owner": "post this draft under your name"}
@@ -618,10 +653,20 @@ def offer_of(mode, postable, reply, name):
     return "off"
 
 
-def ask_text(r, facts, ask, reply, implied, now, offer="off"):
-    """The card: Slack mrkdwn only (`ela slack check` passes it). The reply sits in a bare fence, byte for byte what
-    would be pasted or posted."""
-    L = [head(r, now) + " · no reply from you yet", ask.strip(), "", "*Facts*"] + [f"• {l}" for l in facts["lines"]]
+def source(r, now):
+    """Where and when the mention is, as the tail of a card's first line."""
+    mins = int((now - parse(r["at"])).total_seconds() // 60)
+    return f"<{r['permalink']}|#{r['channel_name']} {r['at'][5:16].replace('T', ' ')}> · {f'{mins} min' if mins < 120 else f'{mins // 60} h'} ago"
+
+
+def ask_text(r, lines, ask, reply, implied, now, offer="off", reading="", more=()):
+    """The card: Slack mrkdwn only (`ela slack check` passes it). Its first line says what the message is and what is
+    asked of him, in one sentence, so it never reads as a digest; the second is ela's reading of whether the ask still
+    needs him; then the facts that bear on the answer (`lines`, FACT_LINES at most), the reply in a bare fence, byte
+    for byte what would be pasted or posted, and the letters."""
+    L = [f"*One mention is waiting on you:* {ask.strip()} · {source(r, now)}"] + ([reading.strip()] if reading.strip() else [])
+    if lines:
+        L += ["", "*Facts*" + (f" ({len(more)} more named in the thread: {', '.join(more[:5])})" if more else "")] + [f"• {l}" for l in lines]
     L += ["", f"*Draft reply* ({DRAFT_NOTE[offer]})", "```", reply.strip(), "```"]
     if implied:
         L += ["", "*Jira it implies* (dry runs by class, prepared on A or when you reply)"] + [f"• {x}" for x in implied]
@@ -630,20 +675,21 @@ def ask_text(r, facts, ask, reply, implied, now, offer="off"):
     return "\n".join(L) + "\n"
 
 
-def make_draft(r, reports, ask, reply, now, mode="off", postable=False, name=""):
+def make_draft(r, reports, ask, reply, now, mode="off", postable=False, name="", reading="", picks=None):
     """The message for him on an unanswered ask, written to the store (nothing is sent). `mode` is the site's
-    identity, `postable` the drafter's mark, `name` the owner's name for the signature. The record keeps what A was
+    identity, `postable` the drafter's mark, `name` the owner's name for the signature, `reading` the drafter's one
+    line on whether the ask still needs him, `picks` his choice of facts (`card_facts`). The record keeps what A was
     offered to do and the exact text a post would carry; a draft made again after a card went out owes a new card.
-    → (path, text)."""
-    reply = reply.strip()
+    → (path, text). Raises ValueError for a pick the facts do not hold."""
+    reply, lines = reply.strip(), card_facts(r["facts"], picks)
     offer = offer_of(mode, postable, reply, name)
     post_text = reply + "\n" + signature(name) if offer == "ela" else reply
     if r.get("dm_at") and (r.get("post_text"), r.get("offer")) != (post_text, offer):
         r.setdefault("cards", []).append({"dm_at": r.pop("dm_at"), "dm_ts": r.pop("dm_ts", None), "shown": r.pop("shown", None)})
     r.pop("revise", None)
     r.update(ask=" ".join(ask.split()), reply=reply, implied=implied(reply, [x["key"] for x in r["facts"]["keys"]]),
-             postable=bool(postable), offer=offer, post_text=post_text)
-    text = ask_text(r, r["facts"], r["ask"], post_text, r["implied"], now, offer)
+             postable=bool(postable), offer=offer, post_text=post_text, reading=" ".join(reading.split()), card_facts=lines)
+    text = ask_text(r, lines, r["ask"], post_text, r["implied"], now, offer, r["reading"], () if picks else r["facts"].get("more") or ())
     path = os.path.join(store(reports), "drafts", f"{r['id']}.txt")
     atomic_write(path, text)
     r.update(draft=path, drafted_at=iso(now), state="drafted")
@@ -841,8 +887,10 @@ def page(r):
     """ela/mentions/<id>.md, what a today.md ask links: the ask, the facts, the reply to paste."""
     f = r.get("facts") or {"lines": []}
     L = [f"# {r['by_name']} in #{r['channel_name']} · {r['at'][:10]}", "", f"[The thread]({r['permalink']}) · {r['at'][5:16].replace('T', ' ')} · "
-         f"triaged as an {r['triage']} ({REASONS[r['reason']]})", "", r.get("ask") or r["first"], "", "## Facts", ""]
-    L += [f"- {md_links(l)}" for l in f["lines"]] + [""]
+         f"triaged as an {r['triage']} ({REASONS[r['reason']]})", "", r.get("ask") or r["first"], ""]
+    L += [r["reading"], ""] if r.get("reading") else []
+    lines = r["card_facts"] if "card_facts" in r else f["lines"]
+    L += ["## Facts", ""] + [f"- {md_links(l)}" for l in lines] + [""] if lines else []
     if r.get("reply"):
         note = DRAFT_NOTE[r.get("offer") or "off"]
         L += ["## Draft reply", "", note[0].upper() + note[1:] + ".", "", "```", (r.get("post_text") or r["reply"]).strip(), "```", ""]
@@ -1111,6 +1159,7 @@ def cmd_show(a):
     r = find(load(roots(a)["reports"]), a.ref)
     L = [line_of(r), f"  {r['permalink']}", f"  {r['first']}", f"  triage: {r['triage']} — {REASONS[r['reason']]}"]
     L += [f"  fact: {l}" for l in (r.get("facts") or {}).get("lines") or []]
+    L += [f"  related: {l}" for l in (r.get("facts") or {}).get("thread_lines") or []]
     L += [f"  draft: {r['draft']}"] if r.get("draft") else []
     L += follow_lines(r["follow"]) if r.get("follow") else []
     emit(a, r, L)
@@ -1135,7 +1184,8 @@ def cmd_facts(a):
     names = Names(r_["slack"], r_["env"])
     r["facts"] = gather(r, thread_of(r_, r["channel"], r["thread_ts"], None, a.fresh), names, lambda k: stored_issue(r_["jira"], k))
     save(r_["reports"], recs)
-    emit(a, r["facts"], r["facts"]["lines"])
+    emit(a, r["facts"], r["facts"]["lines"] + [f"more tickets named: {', '.join(r['facts']['more'])}"] * bool(r["facts"]["more"])
+         + [f"related thread (a card shows it only when picked, --fact <its link>): {l}" for l in r["facts"]["thread_lines"]])
 
 
 def cmd_draft(a):
@@ -1151,7 +1201,11 @@ def cmd_draft(a):
     if not r.get("facts"):
         r["facts"] = gather(r, thread_of(r_, r["channel"], r["thread_ts"], None, a.fresh), Names(r_["slack"], r_["env"]), lambda k: stored_issue(r_["jira"], k))
     names = Names(r_["slack"], r_["env"])
-    path, text = make_draft(r, r_["reports"], a.ask, reply, now, post_as(), a.postable, names.name(names.me) if names.me else "")
+    try:
+        path, text = make_draft(r, r_["reports"], a.ask, reply, now, post_as(), a.postable, names.name(names.me) if names.me else "",
+                                a.reading, a.fact)
+    except ValueError as e:
+        print(f"{r['id']}: {e}", file=sys.stderr); sys.exit(EX_USAGE)
     save(r_["reports"], recs)
     slips = slack_mod().mrkdwn_slips(text)                 # the card and the reply in it are Slack mrkdwn, or say where not
     emit(a, {"id": r["id"], "draft": path, "hold": bool(r.get("hold")), "offer": r["offer"], "slips": slips, "text": text},
@@ -1256,6 +1310,9 @@ def main():
     verb("triage", cmd_triage, "permalink", fresh, user)
     verb("facts", cmd_facts, "ref", fresh)
     verb("draft", cmd_draft, "ref", (("--ask",), {"required": True}), (("--reply-file",), {"required": True}),
+         (("--reading",), {"required": True, "help": "one line: whether the ask still needs him, and why (the card's second line)"}),
+         (("--fact",), {"action": "append", "help": f"a fact that bears on the answer, {FACT_LINES} at most: a ticket key, a related thread's "
+                                                    "link, or `none`; default: the tickets the thread names"}),
          (("--postable",), {"action": "store_true", "help": "the reply only acknowledges or relays a fact (no judgment, commitment or "
                                                             "disagreement): under mention_post_as ela, A may post it as the bot"}), fresh, now=True)
     verb("sent", cmd_sent, "ref", (("--ts",), {}), json_=False, now=True)
