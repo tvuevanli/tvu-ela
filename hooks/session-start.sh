@@ -9,6 +9,13 @@ CWD="${CLAUDE_PROJECT_DIR:-$PWD}"
 
 [ -t 0 ] || printf '%s' "$(cat)" | python3 "$ROOT/skills/sessions/sessions.py" hook-start >/dev/null 2>&1 || true
 
+# A guest session (ela-runner's answer to a colleague on the owner's whitelist, ELA_GUEST=1) gets no owner context:
+# who he is, his preferences and the knowledge root's location are his, not the asker's.
+if [ "${ELA_GUEST:-}" = "1" ]; then
+  echo "ela guest session: answering a colleague of the owner, read-only, from ela's product verbs, the code and the published knowledge."
+  exit 0
+fi
+
 cat "$ROOT/context/evan.md" 2>/dev/null
 # working preferences live in the site dir (never committed), beside site.json and .env
 cat "$HOME/.claude/ela/working-with-evan.md" 2>/dev/null
