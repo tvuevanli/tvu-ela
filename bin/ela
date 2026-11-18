@@ -303,7 +303,7 @@ VERBS = {
     "verify": ("verify", "report"), "verify-plan": ("verify", "plan"),
     "pick": ("pick", None),
 }
-PROMOTE_SUBS = {"lanes", "commits", "delta", "tickets", "evidence", "bundles", "report", "compare-helm", "constraints", "close", "plan"}
+PROMOTE_SUBS = {"lanes", "commits", "delta", "tickets", "evidence", "bundles", "report", "compare-helm", "constraints", "close", "plan", "proof"}
 
 
 def site():
