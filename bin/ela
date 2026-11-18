@@ -119,7 +119,7 @@
                                    live session holds is refused; the layout goes to <runtime>/sessions/; needs zellij
   ela session close <name>         end a live session: its Claude process, then its pane; the registry says closed by desk
   ela session list                 the sessions on this machine, newest first: name, cwd, started, ended, purpose
-  ela session usage [--since 7d] [--by kind|name|day|cwd] [--top 10] [--json]
+  ela session usage [--since 7d] [--by kind|name|day|cwd|model] [--top 10] [--json]
                                    what the sessions cost, from Claude Code's transcripts: tokens (cache read and write,
                                    input, output), the recorded cost, turns, tools and skills, grouped; the costliest listed
   ela sessions <word>…             earlier sessions on this machine whose first prompt or final

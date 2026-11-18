@@ -93,4 +93,23 @@ with tempfile.TemporaryDirectory() as tmp:
     rows = {r["id"]: r for r in json.loads(run(["usage", "--since", "1d", "--json"]).stdout)["sessions"]}
     check((rows.get("s1") or {}).get("cost_usd") == 1.25, "with the transcript cleaned up, the stored usage stands in")
     check(run(["usage", "--since", "soon"]).returncode == 2, "a --since that is no window exits 2")
+    # a continued session is counted once, through its successor; a prompt is redacted whole before it is cut
+    tok = "Q" * 40
+    prev = [{"type": "user", "cwd": "/w", "message": {"content": "x" * 60 + " the key: " + tok}},
+            amsg("m-p", 1, 1, 10, 0, []), {"type": "continued-in", "continuedInSessionId": "s3"}, [1, 2]]
+    succ = [{"type": "user", "cwd": "/w", "message": {"content": "go on"}}, amsg("m-p", 1, 1, 10, 0, []),
+            amsg("m-q", 1, 1, 10, 0, []), {"type": "cost-state", "totalCostUSD": 2.0,
+                                            "modelUsage": {"m1": {"costUSD": 2.0}}}]
+    open(os.path.join(proj, "s2.jsonl"), "w").write("".join(json.dumps(l) + "\n" for l in prev))
+    open(os.path.join(proj, "s3.jsonl"), "w").write("".join(json.dumps(l) + "\n" for l in succ))
+    p = run(["usage", "--since", "1d", "--json"])
+    out = json.loads(p.stdout)
+    rows = {r["id"]: r for r in out["sessions"]}
+    check("s2" not in rows and rows.get("s3", {}).get("turns") == 2 and rows["s3"].get("cost_by_model") == {"m1": 2.0},
+          "a session continued in another is dropped; the successor carries its messages and cost")
+    run(["hook-end"], json.dumps({"session_id": "s2", "reason": "exit", "transcript_path": os.path.join(proj, "s2.jsonl")}))
+    end = json.loads(open(os.path.join(tmp, "rt", "sessions.jsonl")).read().splitlines()[-1])
+    check(end.get("purpose") and "QQQQQQQQ" not in end["purpose"], "the stored purpose is redacted before it is cut")
+    check(run(["usage", "--since", "1d", "--by", "model"]).returncode == 0 and "m1" in run(["usage", "--since", "1d", "--by", "model"]).stdout,
+          "--by model groups by the message's model")
 sys.exit(fail)

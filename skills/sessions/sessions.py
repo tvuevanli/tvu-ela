@@ -4,7 +4,7 @@
   sessions open <alias|path> [--name N] [--tab | --pane] [--brief FILE] [--permission-mode M] [--dry-run] ["brief"]
   sessions close <name> [--dry-run]
   sessions list [--limit 30] [--json]
-  sessions usage [--since 7d|48h|YYYY-MM-DD] [--by kind|name|day|cwd] [--top 10] [--json]
+  sessions usage [--since 7d|48h|YYYY-MM-DD] [--by kind|name|day|cwd|model] [--top 10] [--json]
   sessions find <word> [<word>…] [--since YYYY-MM-DD] [--limit 20] [--json]
   sessions hook-start | hook-end      the plugin's SessionStart / SessionEnd hooks; hook JSON on stdin
 
@@ -135,15 +135,17 @@ def one_line(text, n):
 # ── usage: what a session cost, read from its transcript ───────────────────────────────────────
 
 TOKENS = ("input", "output", "cache_read", "cache_write")
+USAGE_KEPT = ("tokens", "by_model", "cost_by_model", "cost_usd", "turns", "subagents", "models", "tools", "skills", "last", "continued_in")
 
 
-def _tokens_of(path, tools, skills):
-    """Sum one transcript file's assistant usage, each API message once: Claude Code writes one line per content
-    block, every line carrying the whole message's usage under the same message id. → (tokens, models, turns,
-    cwd, first timestamp, last timestamp)."""
-    seen, tokens, models, cwd, first, last = set(), dict.fromkeys(TOKENS, 0), set(), None, None, None
+def _tokens_of(path, tools, skills, seen):
+    """Read one transcript file's assistant messages into `seen` (message id → usage, shared by a session's files:
+    Claude Code writes one line per content block, each carrying the whole message's usage, and a subagent's file may
+    repeat a message of its parent; the largest usage of an id is kept, since a later line may carry the final count).
+    → (models, cwd, first timestamp, last timestamp, the session this one continued in, or None)."""
+    models, cwd, first, last, cont = set(), None, None, None, None
     for line in open(path, encoding="utf-8", errors="replace"):
-        if '"assistant"' not in line and cwd is not None:
+        if cwd is not None and '"assistant"' not in line and '"continued-in"' not in line:
             continue
         try:
             d = json.loads(line)
@@ -151,7 +153,10 @@ def _tokens_of(path, tools, skills):
             continue
         if not isinstance(d, dict):
             continue
-        cwd = cwd or d.get("cwd")
+        if cwd is None and isinstance(d.get("cwd"), str):
+            cwd = d["cwd"]
+        if d.get("type") == "continued-in" and isinstance(d.get("continuedInSessionId"), str):
+            cont = d["continuedInSessionId"]
         if d.get("type") != "assistant":
             continue
         ts = d.get("timestamp")
@@ -160,22 +165,25 @@ def _tokens_of(path, tools, skills):
         msg = d.get("message") if isinstance(d.get("message"), dict) else {}
         for b in msg.get("content") if isinstance(msg.get("content"), list) else []:
             if isinstance(b, dict) and b.get("type") == "tool_use":
-                name = b.get("name") or "?"
+                name = str(b.get("name") or "?")
                 tools[name] = tools.get(name, 0) + 1
+                inp = b.get("input") if isinstance(b.get("input"), dict) else {}
                 if name == "Skill":
-                    sk = (b.get("input") or {}).get("skill") or "?"
+                    sk = str(inp.get("skill") or "?")
                     skills[sk] = skills.get(sk, 0) + 1
         u, mid = msg.get("usage"), msg.get("id")
-        if not isinstance(u, dict) or (mid and mid in seen):
+        if not isinstance(u, dict):
             continue
-        seen.add(mid)
-        if msg.get("model"):
-            models.add(msg["model"])
-        tokens["input"] += u.get("input_tokens") or 0
-        tokens["output"] += u.get("output_tokens") or 0
-        tokens["cache_read"] += u.get("cache_read_input_tokens") or 0
-        tokens["cache_write"] += u.get("cache_creation_input_tokens") or 0
-    return tokens, models, len(seen), cwd, first, last
+        n = lambda k: u.get(k) if isinstance(u.get(k), (int, float)) else 0
+        t = {"input": n("input_tokens"), "output": n("output_tokens"), "cache_read": n("cache_read_input_tokens"),
+             "cache_write": n("cache_creation_input_tokens"), "model": msg.get("model") if isinstance(msg.get("model"), str) else None}
+        key = mid if isinstance(mid, str) and mid else f"{path}:{len(seen)}"
+        old = seen.get(key)
+        if old is None or sum(t[k] for k in TOKENS) > sum(old[k] for k in TOKENS):
+            seen[key] = t
+        if t["model"]:
+            models.add(t["model"])
+    return models, cwd, first, last, cont
 
 
 def _cost_state(path):
@@ -194,29 +202,35 @@ def _cost_state(path):
 
 
 def usage_of(transcript):
-    """One session's usage: tokens summed over its own transcript and its subagents' (<id>/subagents/*.jsonl),
-    the tools and skills it called, its cost when Claude Code recorded one. None when the file cannot be read."""
-    tools, skills = {}, {}
+    """One session's usage: tokens summed over its own transcript and its subagents' (<id>/subagents/*.jsonl), each
+    message once, the tools and skills it called, its cost when Claude Code recorded one, the session it continued
+    in. None when the file cannot be read."""
+    tools, skills, seen = {}, {}, {}
     try:
-        tokens, models, turns, cwd, first, last = _tokens_of(transcript, tools, skills)
+        models, cwd, first, last, cont = _tokens_of(transcript, tools, skills, seen)
         cs = _cost_state(transcript)
     except OSError:
         return None
     sub = 0
     for p in sorted(glob.glob(os.path.join(transcript[:-len(".jsonl")], "subagents", "*.jsonl"))):
         try:
-            t, m, n, _, _, _ = _tokens_of(p, tools, skills)
+            m, _, _, _, _ = _tokens_of(p, tools, skills, seen)
         except OSError:
             continue
         sub += 1
         models |= m
-        turns += n
+    tokens = {k: sum(t[k] for t in seen.values()) for k in TOKENS}
+    by_model = {}
+    for t in seen.values():
+        b = by_model.setdefault(t["model"] or "?", dict.fromkeys(TOKENS, 0))
         for k in TOKENS:
-            tokens[k] += t[k]
+            b[k] += t[k]
     cost = cs.get("totalCostUSD") if cs else None
-    return {"tokens": tokens, "cost_usd": round(cost, 4) if isinstance(cost, (int, float)) else None,
-            "turns": turns, "subagents": sub, "models": sorted(models), "tools": tools, "skills": skills,
-            "cwd": cwd, "first": first, "last": last}
+    mu = cs.get("modelUsage") if cs and isinstance(cs.get("modelUsage"), dict) else {}
+    cost_by_model = {m: round(v["costUSD"], 4) for m, v in mu.items() if isinstance(v, dict) and isinstance(v.get("costUSD"), (int, float))}
+    return {"tokens": tokens, "by_model": by_model, "cost_by_model": cost_by_model, "cost_usd": round(cost, 4) if isinstance(cost, (int, float)) else None,
+            "turns": len(seen), "subagents": sub, "models": sorted(models), "tools": tools, "skills": skills,
+            "cwd": cwd, "first": first, "last": last, "continued_in": cont}
 
 
 def cmd_find(a):
@@ -475,7 +489,9 @@ def first_prompt(transcript):
                 d = json.loads(line)
             except ValueError:
                 continue
-            msg = d.get("message") if isinstance(d, dict) and isinstance(d.get("message"), dict) else {}
+            if not isinstance(d, dict):
+                continue
+            msg = d.get("message") if isinstance(d.get("message"), dict) else {}
             if d.get("type") == "user" and isinstance(msg.get("content"), str):
                 return msg["content"]
     except OSError:
@@ -501,10 +517,13 @@ def cmd_hook_end(a):
     if not d.get("session_id"):
         return 0
     prompt = first_prompt(d.get("transcript_path") or "")
-    u = usage_of(d["transcript_path"]) if d.get("transcript_path") else None
+    try:                                     # the end line is written whatever the transcript holds
+        u = usage_of(d["transcript_path"]) if isinstance(d.get("transcript_path"), str) else None
+    except Exception:
+        u = None
     append({"event": "end", "id": d["session_id"], "at": now(), "reason": d.get("reason"),
-            "purpose": one_line80(prompt) if prompt else None,
-            "usage": {k: u[k] for k in ("tokens", "cost_usd", "turns", "subagents", "models", "tools", "skills")} if u else None})
+            "purpose": one_line80(clean(prompt)) if prompt else None,          # redacted whole, then cut
+            "usage": {k: u.get(k) for k in USAGE_KEPT} if u else None})
     return 0
 
 
@@ -587,31 +606,37 @@ def _when(ts):
 
 
 def usage_rows(since):
-    """Every session active since `since`: from its transcript when Claude Code still keeps it, else from the usage
-    its end line stored (transcripts are cleaned up after a month; the registry is not)."""
+    """Every session whose last message is inside the window: from its transcript while Claude Code still keeps it,
+    else from the usage its end line stored (transcripts are cleaned up after a month; the registry is not). A session
+    continued in another (a `continued-in` line) is dropped when its successor is counted: the successor's transcript
+    carries the earlier messages and its cost total includes them."""
     known = {r["id"]: r for r in sessions(unstarted=True)}
-    rows, done, cut = [], set(), since.timestamp()
+    rows, seen_ids, cut = {}, set(), since.timestamp()
     for path in glob.glob(os.path.join(TRANSCRIPTS, "*", "*.jsonl")):
+        sid = os.path.basename(path)[:-len(".jsonl")]
+        seen_ids.add(sid)                                   # on disk: its stored copy never stands in
         try:
             if os.path.getmtime(path) < cut:
                 continue
-        except OSError:
+            u = usage_of(path)
+        except Exception:
             continue
-        sid = os.path.basename(path)[:-len(".jsonl")]
-        u = usage_of(path)
         if not u or not u["turns"] or not _when(u["last"]) or _when(u["last"]) < since:
             continue
         r = known.get(sid) or {}
-        rows.append(dict(u, id=sid, name=r.get("name"), job=r.get("job"),
-                         purpose=r.get("purpose") or one_line80(first_prompt(path) or "") or None, kind=kind_of(r.get("name"), u["cwd"] or r.get("cwd"))))
-        done.add(sid)
+        purpose = r.get("purpose") or one_line80(clean(first_prompt(path) or "")) or None
+        rows[sid] = dict(u, id=sid, name=r.get("name"), job=r.get("job"), purpose=purpose,
+                         kind=kind_of(r.get("name"), u["cwd"] or r.get("cwd")))
     for sid, r in known.items():
-        u, at = r.get("usage"), _when(r.get("ended"))
-        if sid in done or not u or not at or at < since:
+        u = r.get("usage")
+        at = _when((u or {}).get("last") or r.get("ended"))
+        if sid in seen_ids or not isinstance(u, dict) or not at or at < since:
             continue
-        rows.append(dict(u, id=sid, name=r.get("name"), job=r.get("job"), purpose=r.get("purpose"), cwd=r.get("cwd"),
-                         first=r.get("started"), last=r.get("ended"), kind=kind_of(r.get("name"), r.get("cwd"))))
-    return sorted(rows, key=lambda r: r.get("last") or "", reverse=True)
+        rows[sid] = dict(u, id=sid, name=r.get("name"), job=r.get("job"), purpose=r.get("purpose"), cwd=r.get("cwd"),
+                         first=r.get("started"), last=u.get("last") or r.get("ended"), kind=kind_of(r.get("name"), r.get("cwd")))
+    for sid in [k for k, v in rows.items() if v.get("continued_in") in rows]:
+        del rows[sid]
+    return sorted(rows.values(), key=lambda r: r.get("last") or "", reverse=True)
 
 
 def human(n):
@@ -630,35 +655,52 @@ def cmd_usage(a):
     projects, code = roots()
     key = {"kind": lambda r: r["kind"], "name": lambda r: r.get("name") or "-",
            "day": lambda r: (r.get("last") and _when(r["last"]).strftime("%Y-%m-%d")) or "?",
-           "cwd": lambda r: shown_path(r.get("cwd") or "", projects, code)}[a.by]
+           "cwd": lambda r: shown_path(r.get("cwd") or "", projects, code), "model": None}[a.by]
+
+    def parts(r):
+        """(group, cost, tokens, turns, tools, skills) for each group a row falls in: one, or with --by model one per
+        model (the cost from Claude Code's per-model total, the tokens from the messages; turns and tools stay whole)."""
+        if a.by != "model":
+            return [(key(r), r.get("cost_usd"), r.get("tokens") or {}, r.get("turns") or 0, r.get("tools") or {}, r.get("skills") or {})]
+        bm, cm = r.get("by_model") or {}, r.get("cost_by_model") or {}
+        return [(m, cm.get(m), bm.get(m) or {}, 0, {}, {}) for m in sorted(set(bm) | set(cm))]
+
     groups = {}
     for r in rows:
-        g = groups.setdefault(key(r), {"sessions": 0, "priced": 0, "cost_usd": 0.0, "turns": 0,
-                                       "tokens": dict.fromkeys(TOKENS, 0), "tools": {}, "skills": {}})
-        g["sessions"] += 1
-        g["turns"] += r.get("turns") or 0
-        if isinstance(r.get("cost_usd"), (int, float)):
-            g["priced"] += 1
-            g["cost_usd"] += r["cost_usd"]
-        for k in TOKENS:
-            g["tokens"][k] += (r.get("tokens") or {}).get(k) or 0
-        for f in ("tools", "skills"):
-            for n, c in (r.get(f) or {}).items():
-                g[f][n] = g[f].get(n, 0) + c
+        for name, cost, toks, turns, tools, skills in parts(r):
+            g = groups.setdefault(name, {"sessions": 0, "priced": 0, "cost_usd": 0.0, "turns": 0,
+                                         "tokens": dict.fromkeys(TOKENS, 0), "tools": {}, "skills": {}})
+            g["sessions"] += 1
+            g["turns"] += turns
+            if isinstance(cost, (int, float)):
+                g["priced"] += 1
+                g["cost_usd"] += cost
+            for k in TOKENS:
+                g["tokens"][k] += toks.get(k) or 0
+            for f, src in (("tools", tools), ("skills", skills)):
+                for n, c in src.items():
+                    g[f][n] = g[f].get(n, 0) + c
+    # what ela costs to run (the runner's passes, guest sessions) apart from the owner's own sessions, building included
+    operating = lambda r: r["kind"] == "guest" or r["kind"].startswith("runner")
+    split = {"operating": round(sum(r.get("cost_usd") or 0 for r in rows if operating(r)), 2),
+             "own": round(sum(r.get("cost_usd") or 0 for r in rows if not operating(r)), 2)}
     if a.json:
-        print(json.dumps({"since": since.isoformat(timespec="seconds"), "by": a.by, "groups": groups,
+        print(json.dumps({"since": since.isoformat(timespec="seconds"), "by": a.by, "groups": groups, "split": split,
                           "sessions": [{k: (clean(v) if k == "purpose" and v else v) for k, v in r.items()}
                                        for r in rows]}, ensure_ascii=False, indent=1))
         return 0
     if not rows:
         print(f"no session since {since:%Y-%m-%d %H:%M}", file=sys.stderr)
         return 3
-    cost = sum(g["cost_usd"] for g in groups.values())
-    priced = sum(g["priced"] for g in groups.values())
-    tok = {k: sum(g["tokens"][k] for g in groups.values()) for k in TOKENS}
+    cost = sum(r.get("cost_usd") or 0 for r in rows)
+    priced = sum(1 for r in rows if isinstance(r.get("cost_usd"), (int, float)))
+    tok = {k: sum((r.get("tokens") or {}).get(k) or 0 for r in rows) for k in TOKENS}
     print(f"since {since:%Y-%m-%d %H:%M}: {len(rows)} sessions · ${cost:,.2f} where Claude Code recorded a cost "
           f"({priced} of {len(rows)}) · cache read {human(tok['cache_read'])} · cache write {human(tok['cache_write'])}"
           f" · input {human(tok['input'])} · output {human(tok['output'])}")
+    print(f"running ela (runner passes, guest sessions) ${split['operating']:,.2f} · the owner's own sessions "
+          f"${split['own']:,.2f}. Costs are Claude Code's API-priced figures, not an invoice; a session still open "
+          "shows the cost of its last exit or none, and counts whole on the day of its last message.")
     print(f"\n{'by ' + a.by:<26} {'sessions':>8} {'cost $':>9} {'cache rd':>9} {'cache wr':>9} {'output':>8} {'turns':>6}  top tools")
     for name, g in sorted(groups.items(), key=lambda kv: (-kv[1]["cost_usd"], -kv[1]["tokens"]["cache_read"])):
         top = ", ".join(f"{n} {c}" for n, c in sorted(g["tools"].items(), key=lambda kv: -kv[1])[:4])
@@ -699,7 +741,7 @@ def main():
     l.add_argument("--json", action="store_true")
     u = sub.add_parser("usage", help="what the sessions cost, grouped: tokens, cost, tools and skills from the transcripts")
     u.add_argument("--since", default="7d", help="7d, 48h or YYYY-MM-DD (default 7d)")
-    u.add_argument("--by", choices=("kind", "name", "day", "cwd"), default="kind")
+    u.add_argument("--by", choices=("kind", "name", "day", "cwd", "model"), default="kind")
     u.add_argument("--top", type=int, default=10, help="how many of the costliest sessions to list")
     u.add_argument("--json", action="store_true")
     sub.add_parser("hook-start", help="SessionStart: append a start line (hook JSON on stdin)")
