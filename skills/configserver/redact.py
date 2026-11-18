@@ -40,9 +40,18 @@ _NAMES = (r"(?:x[-_]?)?api[-_]?key|[a-z0-9_-]*token|[a-z0-9_-]*secret|password|p
           r"|access[-_]?key(?:[-_]?id)?|secret[-_]?key|stream[-_]?key|x-amz-(?:signature|credential|security-token)"
           r"|authorization|client[-_]?secret")
 _QUERY_NAMES = _NAMES + r"|key|auth|streamid"
-_SEG = r"[^\s/?#\"'<>,;]+"            # one URL path segment
+
+
+def _val(stop):
+    """A character class for a value that stops at any of `stop`, safe in text that is already JSON: a backslash is
+    taken only with the character it escapes, and never when that character is a quote, so the `\\"` closing a JSON
+    string is left whole and the scrubbed text still parses."""
+    return rf"(?:[^{stop}\\]|\\[^\"'\s])"
+
+
+_SEG = _val(r"\s/?#\"'<>,;") + "+"   # one URL path segment
 _HOSTPART = r"[^\s/?#\"'<>]+"         # authority: host[:port], perhaps user:pass@
-_END = r"(?=$|[?#\s\"'<>,;])"           # the segment is the path's last
+_END = r"(?=$|[?#\s\"'<>,;]|\\[\"'])"  # the segment is the path's last
 _SCRUB = [
     # rtmp://host/app/KEY, rtmps://host:443/rtmp/KEY: the last segment, when an application segment precedes it
     (re.compile(rf"(\brtmp[set]?s?://{_HOSTPART}(?:/{_SEG})+/)(?!{RED}){_SEG}{_END}", re.I), r"\1" + RED),
@@ -50,15 +59,16 @@ _SCRUB = [
     (re.compile(rf"(\bsrt://{_HOSTPART}(?:/{_SEG})*/)(?!{RED}){_SEG}{_END}", re.I), r"\1" + RED),
     # https://host/…/live/KEY[.m3u8]: the segment after a known push path, its media extension kept
     (re.compile(rf"(\bhttps?://{_HOSTPART}(?:/{_SEG})*?/(?:live2?|rtmp|push|publish|ingest)/)(?!{RED})"
-                r"[^\s/?#\"'<>,;.]+", re.I), r"\1" + RED),
+                + _val(r"\s/?#\"'<>,;.") + "+", re.I), r"\1" + RED),
     # YouTube's HLS ingest: https://a.upload.youtube.com/http_upload_hls?cid=KEY&copy=0&file=
-    (re.compile(rf"(upload\.youtube\.com/http_upload_hls\?(?:[^\s#\"'<>]*&)?cid=)(?!{RED})[^&#\s\"'<>]+", re.I),
-     r"\1" + RED),
+    (re.compile(rf"(upload\.youtube\.com/http_upload_hls\?(?:[^\s#\"'<>]*&)?cid=)(?!{RED})"
+                + _val(r"&#\s\"'<>") + "+", re.I), r"\1" + RED),
     # ?key=… &x-api-key=… #access_token=… ;sig=…  (query, fragment, matrix parameters)
-    (re.compile(rf"([?&#;](?:{_QUERY_NAMES})=)(?!{RED})[^&#;\s\"'<>]+", re.I), r"\1" + RED),
-    # "x-api-key": "…"  'token'='…'  apiKey: …  (JSON, YAML, header maps, properties)
-    (re.compile(rf"([\"']?(?<![A-Za-z0-9])(?:{_NAMES})[\"']?\s*[:=]\s*[\"']?)(?!{RED})(?!Bearer\b|Basic\b)"
-                r"[^\s\"',;&}<>]{3,}", re.I), r"\1" + RED),
+    (re.compile(rf"([?&#;](?:{_QUERY_NAMES})=)(?!{RED})" + _val(r"&#;\s\"'<>") + "+", re.I), r"\1" + RED),
+    # "x-api-key": "…"  'token'='…'  apiKey: …  (JSON, YAML, header maps, properties; quotes escaped when inside JSON)
+    (re.compile(rf"((?:\\?[\"'])?(?<![A-Za-z0-9])(?:{_NAMES})(?:\\?[\"'])?\s*[:=]\s*(?:\\?[\"'])?)"
+                rf"(?!{RED})(?!Bearer\b|Basic\b)"
+                + _val(r"\s\"',;&}<>") + "{3,}", re.I), r"\1" + RED),
     # scheme://user:pass@host
     (re.compile(r"([a-z][a-z0-9+.-]*://)[^\s:\"',;{}/?#@<>]+:[^\s@\"',;{}/?#<>]+@", re.I), r"\1" + RED + "@"),
     # Authorization: Bearer … / Basic …

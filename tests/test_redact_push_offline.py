@@ -3,7 +3,7 @@
 application, an srt:// path or streamid, the segment after a known http(s) push path (its media extension kept), and
 YouTube's HLS ingest cid. What is not a key reads as is: an rtmp URL with only its application, a playback URL outside
 the push paths, a file path, a ticket key. Synthetic values built at run time; nothing is read or written."""
-import os, random, string, sys
+import json, os, random, string, sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "skills", "configserver"))
@@ -56,5 +56,26 @@ for label, value in kept:
 user = f"rtmp://pub:{k(12)}@{H}/live/{KEY}"
 out = R.scrub(user)
 check(KEY not in out and "pub:" not in out, "rtmp with user:pass@ and a key: both cut")
+
+# text already JSON (a log line inside a JSON string): the escape of a closing quote is never taken into a value, so
+# the scrubbed text still parses; a value ending in a literal backslash leaves its escaped pair whole
+PW = "s3cr3tPass"
+in_json = [
+    ("srt listener passphrase in a node log line",
+     '[I] {"input":{"url":"srt://0.0.0.0:61003?mode=listener&latency=2000000&passphrase=' + PW
+     + '","streamtype":"extsource"}}', PW),
+    ("a query value ending in a backslash", "x?passphrase=abc\\", "abc"),
+    ("srt path before a quote", 'srt://h:1/KEYabc"', "KEYabc"),
+    ("rtmp key before a quote", 'rtmp://h/live/KEYabc"', "KEYabc"),
+    ("a name: value pair with a backslash", '"token": "abc\\def"', "abc"),
+    ("https push path before a quote", 'https://h/live/KEY123.m3u8"', "KEY123"),
+]
+for label, s, secret in in_json:
+    try:
+        line = json.loads(R.scrub(json.dumps({"line": s}, indent=1)))["line"]
+    except ValueError as e:
+        check(False, f"{label}: scrubbed JSON parses ({e})")
+        continue
+    check(secret not in line, f"{label}: scrubbed JSON parses and the secret is gone")
 
 sys.exit(1 if failures else 0)
