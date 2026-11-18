@@ -1721,7 +1721,7 @@ def vault_notes(vault):
         dirs[:] = sorted(d for d in dirs if not d.startswith(".") and os.path.relpath(os.path.join(top_, d), vault).replace(os.sep, "/")
                          not in (ATTACH, MOVE_SETS_DIR) + RETIRED)
         for f in sorted(fs):
-            if f.endswith(".md"):
+            if f.endswith(".md") and not conflict_copy(f):
                 try:
                     yield os.path.relpath(os.path.join(top_, f), vault).replace(os.sep, "/"), open(os.path.join(top_, f), encoding="utf-8").read()
                 except OSError:
@@ -5324,6 +5324,13 @@ def guidance_id(name, says, nth=1):
     return hashlib.sha256((f"{name}\0{says}" + (f"\0{nth}" if nth > 1 else "")).encode()).hexdigest()[:12]
 
 
+def conflict_copy(name):
+    """A sync tool's conflict copy (Syncthing's `x.sync-conflict-<date>-<time>-<device>.md`): the same note's words again
+    under a new name, never a note of his. Read as his, each of its `ela:` lines is new again (2026-11-17: one meeting
+    note's copies started six sessions on lines already handled)."""
+    return ".sync-conflict-" in name
+
+
 def cmd_guidance(a):
     """The owner's instructions written into his notes: every line starting `ela:` anywhere in the vault (a generated
     note keeps his lines through its rewrite), with a stable id so a job handles each once (ids already in <reports>/ela/
@@ -5345,7 +5352,7 @@ def cmd_guidance(a):
         dirs[:] = [d for d in dirs if not d.startswith(".") and os.path.relpath(os.path.join(top_, d), vault).replace(os.sep, "/") != ATTACH]
         if True:
             for f in sorted(fs):
-                if not f.endswith(".md"):
+                if not f.endswith(".md") or conflict_copy(f):
                     continue
                 p = os.path.join(top_, f)
                 rel = os.path.relpath(p, vault).replace(os.sep, "/")

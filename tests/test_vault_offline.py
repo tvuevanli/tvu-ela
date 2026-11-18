@@ -323,6 +323,16 @@ with tempfile.TemporaryDirectory() as tmp:
     check("ela: lines anywhere in the vault are read as his guidance", sorted(x["says"] for x in g["guidance"])
           == ["1A, post it", "keep an eye on this", "keep the head", "post this to Jira", "probe MH-1 from the replay", "write this to the KB"]
           and "to_learn" not in g)
+    import shutil
+    rv = f"{vault}/reference/{today[:4]}-09-11-review-1.md"
+    shutil.copy(rv, rv[:-3] + ".sync-conflict-20261117-101500-ABCDEFG.md")
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        V.cmd_guidance(types.SimpleNamespace(all=True, json=True))
+    check("a sync tool's conflict copy is not his note: its ela: lines are not read again",
+          not any("sync-conflict" in x["note"] for x in json.loads(buf.getvalue())["guidance"])
+          and not any("sync-conflict" in r for r, _ in V.vault_notes(vault)))
+    os.remove(rv[:-3] + ".sync-conflict-20261117-101500-ABCDEFG.md")
     with open(f"{vault}/reference/{today[:4]}-09-11-review-1.md", "a") as fh:
         fh.write("\n- [x] apply 7, 8 — MH-9: hand it over and assign\n")
     buf = io.StringIO()
