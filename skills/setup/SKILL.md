@@ -62,25 +62,31 @@ invent a path.
 
 ## 2. .env — credentials
 
-Keys and where each comes from when absent:
+Keys and where each comes from when absent. The file keeps its keys grouped in the order of this table, one
+comment line above each group; no Slack id lives in it (people and channels are named in elak's roster).
 
 | key | source |
 |---|---|
 | `JIRA_BASE_URL` `JIRA_EMAIL` `JIRA_TOKEN` | Atlassian account → Security → API tokens |
 | `SLACK_BOT_TOKEN` | the workspace's Slack app → OAuth & Permissions → Bot User OAuth Token (`xoxb-…`) |
 | `SLACK_USER_TOKEN` | optional, only for `mention_post_as: owner` in `site.json` (ADR 0022): the same app → User Token Scopes → `chat:write`, reinstall, User OAuth Token (`xoxp-…`) of the owner's own account; read by `ela slack post --as-owner` and by nothing else |
+| `SLACK_APP_TOKEN` | optional, only for ela-runner's Slack service (Socket Mode): the same app → Basic Information → App-Level Tokens → one token with scope `connections:write` (`xapp-…`); ela's own verbs never read it |
 | `OUTLINE_URL` `OUTLINE_TOKEN` | Outline (kb.tvunetworks.com) → Settings → API tokens |
 | `TVU_OBJECT_SERVICE_HOST` `TVU_CC_BEARER_TOKEN` | Object Service host + a CC bearer token from a logged-in session |
+| `TVU_QA_OBJECT_SERVICE_HOST` | optional: QA's own Object Service host, used when the environment is `qa-N`; prod and test2 share the default one |
 | `FIGMA_TOKEN` | Figma → Settings → Security → Personal access tokens (read scope) |
 | `GITLAB_MEDIA_TOKEN` `GITLAB_WEB_TOKEN` | each GitLab → Preferences → Access Tokens, scope `read_api` only; named by `token_env` in `site.json hosts` — lets `map.py remote` list a whole group |
 | `APIFOX_TOKEN` | Apifox → account settings → personal access token (read); lets `apifox.py` export a project's OpenAPI document. Project ids by name in `<elak>/map/apis.yaml` |
 | `CONFLUENCE_TOKEN` | the web team's Confluence → profile → Personal Access Tokens (read); the host URL goes in `site.json services.confluence.url` |
 | `GOOGLE_TOKEN_FILE` | path to a Google OAuth token JSON with read-only scopes (documents.readonly, drive.readonly) — Helm's grant copied once into the site dir, mode 600 |
-| `UR_ACCESS_KEY` | UR access key — a JSON blob, copied verbatim on one line; `UR_BASE_HOST` (optional, default UR host) and `UR_ENV_ORDER` (optional comma list overriding the probe order `prod3,prod2,test2`) |
+| `UR_ACCESS_KEY` | UR access key — a JSON blob, copied verbatim on one line; `UR_BASE_HOST` (optional, default UR host), `UR_QA_HOST` (optional: QA's host; `-e qa2` exits 2 without it) and `UR_ENV_ORDER` (optional comma list overriding the probe order `prod3,prod2,test2`) |
 | `TVU_SSH_USER` `TVU_SSH_PASSWORD` | box ssh for `graph connect` / `exec` (user defaults to the operate account) |
+| `TVU_ACCOUNT` `TVU_PASSWORD` | the person's own TVU sign-in, for the J2N config UI (`ela j2n`); the token it yields is cached under `<runtime>`. Add the password with `ela secret TVU_PASSWORD` |
 | `SENTRY_URL` `SENTRY_TOKEN` `SENTRY_ORG` | the self-hosted Sentry: an auth token from the account's own API keys, scopes `project:read` (+ `org:read` for `projects`). `SENTRY_ORG` defaults to `sentry`. Crashes are the one class of fact ela cannot see any other way |
 | `TVUTEST_ACCOUNT` `TVUTEST_PASSWORD` `TVUTEST_SID` | release reads (QA GM host): a tvutest account; the login's SID is cached as `TVUTEST_SID` (2 h, refreshed by the script). No prod SID is pasted into `.env`: the prod host is read through a session the person hands over at the CLI (`ela login tvu`), stored only in the site directory — decision elak `blueprint/decisions/2026-09-04-prod-gm-read-through-a-person-login.md` |
 | `TVU_CN_ACCOUNT` `TVU_CN_PASSWORD` | release reads of the China region's GM host (`--host cn`: its bundles and the `prod-N-china` lanes), an account on that host; its address is `site.json services.userservice-cn.url`. Both are optional: without them every release read answers for .com and says once `China host not configured: add …`. `TVU_CN_SID` (optional) is a session used instead of logging in, for the case the account login is not offered there. After adding them: `ela login cn`, then `ela release bundles --host cn --raw` for the names as that host writes them, which the release map's `regions.china.userservice` is written from |
+| `MEDIAHUB_BOT_URL` `MEDIAHUB_BOT_TOKEN` | optional, only for ela-runner: mediahub-bot's HTTP door and its bearer, for the owner's `mhb …` message; ela's own verbs never read them |
+| `ONETHING_SHEET` `ONETHING_WHOM` `ONETHING_PROJECT` `ONETHING_OWNER` | One Thing sheet (`ela onething`): the spreadsheet id, the person's name in the Whom column, the project column (default `MH`), and their Jira and Slack display name (read from Jira when absent) |
 
 Procedure: list which keys are present; for each missing one say where to get it and ask Evan to
 paste it **into the file himself** or hand it to you for a single `printf >>` — then `chmod 600`.
