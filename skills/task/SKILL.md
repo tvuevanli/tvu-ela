@@ -28,11 +28,11 @@ map, optional base lane override.
 - **Evidence over report.** "Tests pass" is verified against the target's own standard (see §4).
 
 ## 0 — site + source
-Read `~/.claude/ela/site.json` (`code`, `work`, `map`, `env`, `elak`). Ticket dumps and prompt files go in `<work>/<KEY>/`.
+Read `~/.claude/ela/site.json` (`code`, `work`, `map`, `elak`). Ticket dumps and prompt files go in `<work>/<KEY>/`.
 The task id is `<key-lower>` when a Jira key is given, else a short kebab slug from the source.
 
 **With a Jira key:**
-`python3 "${CLAUDE_PLUGIN_ROOT}/skills/jira/jira.py" --env-file <env> read <KEY> --deep > <work>/<KEY>/ticket.md`
+`ela jira read <KEY> --deep > <work>/<KEY>/ticket.md`
 → note type, status, parent, subtasks, linked tickets, the layer token in the title (`[App]` `[UI]` …).
 **Route up before going down:** if the ticket plainly crosses layers/areas and has neither subtasks
 nor a plan drafted by `/ela:breakdown` (in `<runtime>/breakdowns/<KEY>/` or already published as Jira

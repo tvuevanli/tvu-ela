@@ -43,10 +43,10 @@ No diagrams, no teaching, no summary of the summary. Dense lines with a citation
   no repository — each is a line in the output, never a gap the reader has to notice.
 
 ## 0 — the ticket and its thread
-`~/.claude/ela/site.json` → `env`, `map`, `published`. Then:
+`~/.claude/ela/site.json` → `map`, `published`. Then:
 ```bash
-JIRA="python3 ${CLAUDE_PLUGIN_ROOT}/skills/jira/jira.py --env-file <env>"
-SLACK="python3 ${CLAUDE_PLUGIN_ROOT}/skills/slack/slack.py --env-file <env>"
+JIRA="ela jira"
+SLACK="ela slack"
 ela links <KEY>                # where to read: its threads (the source link and every thread naming it),
                                # the tickets named with it, builds and lanes, ela's writes; from the index
 $JIRA read <KEY> --deep
@@ -63,7 +63,7 @@ A MediaHub ticket is about a pipeline that either exists or does not, and that f
 of the ticket is evidence and how much is intention.
 
 ```bash
-GRAPH="python3 ${CLAUDE_PLUGIN_ROOT}/skills/graph/graph.py --env-file <env>"
+GRAPH="python3 ${CLAUDE_PLUGIN_ROOT}/skills/graph/graph.py"
 $GRAPH resolve <id>                 # an id in the ticket or the thread — graph, process, object
 $GRAPH graphs <reporter email>      # no id: does the case still exist under the reporter?
 ```

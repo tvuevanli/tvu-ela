@@ -29,13 +29,13 @@ never written down is lost either way.
   read is not a digest — §3 is not optional.
 
 ## 0 — gather
-Read `~/.claude/ela/site.json` → `env`, `map`, `published`. Bind:
+Read `~/.claude/ela/site.json` → `map`, `published`. Bind:
 
 ```bash
-SLACK="python3 ${CLAUDE_PLUGIN_ROOT}/skills/slack/slack.py --env-file <env>"
-JIRA="python3 ${CLAUDE_PLUGIN_ROOT}/skills/jira/jira.py --env-file <env>"
+SLACK="ela slack"
+JIRA="ela jira"
 MAP="python3 ${CLAUDE_PLUGIN_ROOT}/skills/map/map.py"
-TEAM="python3 ${CLAUDE_PLUGIN_ROOT}/skills/team/team.py --env-file <env>"   # or: ela who … · ela team areas
+TEAM="ela team"   # also: ela who …
 
 $SLACK read <permalink>
 $SLACK files <permalink> --thread --out <runtime>/slack-files   # only when a screenshot carries the finding

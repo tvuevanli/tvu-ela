@@ -9,7 +9,7 @@ user-invocable: true
 Self-contained. `gdoc.py` is the capability; `ela gdoc …` or a bare `ela <docs.google.com url>` at the shell.
 
 ```bash
-G="python3 ${CLAUDE_PLUGIN_ROOT}/skills/gdoc/gdoc.py --env-file <env>"   # or: ela gdoc …
+G="ela gdoc"
 $G list [text] [--limit N]     # docs + sheets the account can see, newest first (Drive)
 $G read <url|id>               # a Doc as text — headings, bullets, tables as rows
 $G sheet <url|id> [--gid N]    # a Sheet tab as CSV (the gid in the URL is honoured)

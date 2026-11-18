@@ -31,8 +31,8 @@ Self-contained. Argument: a Slack thread permalink, or a graph id plus the sympt
 
 ## 0 — bind
 ```bash
-S="python3 ${CLAUDE_PLUGIN_ROOT}/skills/slack/slack.py --env-file <env>"
-G="python3 ${CLAUDE_PLUGIN_ROOT}/skills/graph/graph.py --env-file <env>"
+S="ela slack"
+G="python3 ${CLAUDE_PLUGIN_ROOT}/skills/graph/graph.py"
 REG=<elak>/knowledge/products/mediahub/team/agents.yaml
 ```
 From a permalink: `$S read <permalink>` — take the ids and the symptom from the thread, not from Evan's

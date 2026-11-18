@@ -6,7 +6,7 @@ description: Read and write the TVU knowledge base (Outline). Use for a kb.tvune
 # TVU knowledge base (Outline) — read and write
 
 ```bash
-KB="python3 ${CLAUDE_PLUGIN_ROOT}/skills/kb/kb.py --env-file <env>"   # <env> from ~/.claude/ela/site.json
+KB="ela kb"
 ```
 
 Documents are plain markdown in and out. A document is addressed by full URL,
@@ -69,8 +69,8 @@ This is a shared company wiki — every write is outward-facing.
 
 ## Credentials
 
-Read `~/.claude/ela/site.json` → `env` (the path of ela's credential file, mode 600) and pass it as
-`--env-file`. That file is ela's own — copied once from wherever the tokens lived before; nothing
+ela's credential file (mode 600) is the one `~/.claude/ela/site.json` → `env` names; `ela` and the
+script find it themselves, so no `--env-file` is passed. That file is ela's own — copied once from wherever the tokens lived before; nothing
 here depends on another tool's config. The script reads only `OUTLINE_URL / OUTLINE_TOKEN` from it. Missing or expired
 → run `/ela:setup`.
 

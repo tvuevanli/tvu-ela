@@ -64,13 +64,13 @@ the verdict that can be undone — never toward closing something whose problem 
 
 ## 0 — bind
 
-Read `~/.claude/ela/site.json` → `env`, `map`, `published`.
+Read `~/.claude/ela/site.json` → `map`, `published`.
 
 ```bash
-JIRA="python3 ${CLAUDE_PLUGIN_ROOT}/skills/jira/jira.py --env-file <env>"
-MAIL="python3 ${CLAUDE_PLUGIN_ROOT}/skills/mail/mail.py --env-file <env>"
-SLACK="python3 ${CLAUDE_PLUGIN_ROOT}/skills/slack/slack.py --env-file <env>"
-GRAPH="python3 ${CLAUDE_PLUGIN_ROOT}/skills/graph/graph.py --env-file <env>"
+JIRA="ela jira"
+MAIL="ela mail"
+SLACK="ela slack"
+GRAPH="python3 ${CLAUDE_PLUGIN_ROOT}/skills/graph/graph.py"
 ```
 
 Then `/ela:explain <KEY>` for each ticket, and work from its four blocks. On a batch, run explain

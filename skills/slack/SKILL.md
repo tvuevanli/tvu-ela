@@ -6,7 +6,7 @@ user-invocable: true
 
 # Slack — a sense that reads first-hand, plus one write
 
-`SLACK="python3 ${CLAUDE_PLUGIN_ROOT}/skills/slack/slack.py --env-file <env>"`; `$SLACK --help` lists the
+`SLACK="ela slack"`; `$SLACK --help` lists the
 verbs and their flags. `mentions` counts a mention answered when Evan replied after the last one;
 `users` walks the whole workspace, Slack Connect guests included, and takes about a minute.
 
@@ -27,8 +27,8 @@ reply is found under a thread that started before the window.
 
 ## Credentials
 
-Read `~/.claude/ela/site.json` → `env` (the path of ela's credential file, mode 600) and pass it as
-`--env-file`. That file is ela's own — copied once from wherever the tokens lived before; nothing
+ela's credential file (mode 600) is the one `~/.claude/ela/site.json` → `env` names; `ela` and the
+script find it themselves, so no `--env-file` is passed. That file is ela's own — copied once from wherever the tokens lived before; nothing
 here depends on another tool's config. The script reads `SLACK_BOT_TOKEN` from it, `JIRA_EMAIL` for
 `whoami` and the default `--user me` of `mentions` / `unanswered`, and `SLACK_USER_TOKEN` for `post --as-owner` only. Missing or expired → run `/ela:setup`.
 

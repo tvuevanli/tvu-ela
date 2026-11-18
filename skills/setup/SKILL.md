@@ -96,19 +96,19 @@ once, and say so; ela does not keep reading the other file.
 ## 3. Probe every sense (read-only)
 
 ```bash
-ENV=$(python3 -c "import json;print(json.load(open('$HOME/.claude/ela/site.json'))['env'])")
-python3 "${CLAUDE_PLUGIN_ROOT}/skills/jira/jira.py"  --env-file "$ENV" jql 'project = MH ORDER BY updated DESC' --limit 1
-python3 "${CLAUDE_PLUGIN_ROOT}/skills/kb/kb.py"          --env-file "$ENV" search "MediaHub" 2>&1 | head -3
-python3 "${CLAUDE_PLUGIN_ROOT}/skills/figma/figma.py" --env-file "$ENV" me
-python3 "${CLAUDE_PLUGIN_ROOT}/skills/slack/slack.py" --env-file "$ENV" whoami            # auth + JIRA_EMAIL → user id
-python3 "${CLAUDE_PLUGIN_ROOT}/skills/graph/graph.py" --env-file "$ENV" graphs --pages 1 --limit 1     # UR key (graphs of `me` from site.json emails); or: ela graphs
-python3 "${CLAUDE_PLUGIN_ROOT}/skills/release/release.py" --env-file "$ENV" envs           # every userservice host, a line per host not read; or: ela versions
-python3 "${CLAUDE_PLUGIN_ROOT}/skills/release/release.py" --env-file "$ENV" bundles --host cn --limit 1   # the China host; exit 2 = not configured, a state: the line names what to add
-python3 "${CLAUDE_PLUGIN_ROOT}/skills/release/release.py" --env-file "$ENV" builds mediahub-backend --limit 1   # Jenkins; or: ela builds mediahub-backend
-python3 "${CLAUDE_PLUGIN_ROOT}/skills/confluence/confluence.py" --env-file "$ENV" spaces | head -3      # Confluence PAT; or: ela wiki spaces
-python3 "${CLAUDE_PLUGIN_ROOT}/skills/sentry/sentry.py" --env-file "$ENV" projects | head -3            # Sentry token; exit 4 = no credential yet, which is a state, not a fault
-python3 "${CLAUDE_PLUGIN_ROOT}/skills/gdoc/gdoc.py" --env-file "$ENV" list --limit 3                     # Google token refresh + Drive; or: ela gdoc list
-# object: python3 "${CLAUDE_PLUGIN_ROOT}/skills/object/object.py" --env-file "$ENV" get <known id> — the only read; see skills/object/SKILL.md
+# The scripts find the env file from site.json `env` themselves; no `--env-file`, no extraction step.
+python3 "${CLAUDE_PLUGIN_ROOT}/skills/jira/jira.py" jql 'project = MH ORDER BY updated DESC' --limit 1
+python3 "${CLAUDE_PLUGIN_ROOT}/skills/kb/kb.py" search "MediaHub" 2>&1 | head -3
+python3 "${CLAUDE_PLUGIN_ROOT}/skills/figma/figma.py" me
+python3 "${CLAUDE_PLUGIN_ROOT}/skills/slack/slack.py" whoami            # auth + JIRA_EMAIL → user id
+python3 "${CLAUDE_PLUGIN_ROOT}/skills/graph/graph.py" graphs --pages 1 --limit 1     # UR key (graphs of `me` from site.json emails); or: ela graphs
+python3 "${CLAUDE_PLUGIN_ROOT}/skills/release/release.py" envs           # every userservice host, a line per host not read; or: ela versions
+python3 "${CLAUDE_PLUGIN_ROOT}/skills/release/release.py" bundles --host cn --limit 1   # the China host; exit 2 = not configured, a state: the line names what to add
+python3 "${CLAUDE_PLUGIN_ROOT}/skills/release/release.py" builds mediahub-backend --limit 1   # Jenkins; or: ela builds mediahub-backend
+python3 "${CLAUDE_PLUGIN_ROOT}/skills/confluence/confluence.py" spaces | head -3      # Confluence PAT; or: ela wiki spaces
+python3 "${CLAUDE_PLUGIN_ROOT}/skills/sentry/sentry.py" projects | head -3            # Sentry token; exit 4 = no credential yet, which is a state, not a fault
+python3 "${CLAUDE_PLUGIN_ROOT}/skills/gdoc/gdoc.py" list --limit 3                     # Google token refresh + Drive; or: ela gdoc list
+# object: python3 "${CLAUDE_PLUGIN_ROOT}/skills/object/object.py" get <known id> — the only read; see skills/object/SKILL.md
 ```
 
 Report a table: sense · key(s) present · probe result (`ok` / `auth failed` / `unreachable`).

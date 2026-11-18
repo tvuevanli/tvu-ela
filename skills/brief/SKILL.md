@@ -36,10 +36,10 @@ A fact the page needs and no file holds is a **gap**: the judge fills at most on
 read, names it in the page's gaps line (`gaps: read live — ela jira read MH-3871 --fresh, the comment after 17:00`),
 and never re-reads what the files hold (elak `blueprint/decisions/2026-11-04-read-once-close-by-outcome-home-as-an-index.md`).
 
-Read `~/.claude/ela/site.json` → `env`, `map`, `elak`, `published`. The Jira lanes are one call, already saved as
+Read `~/.claude/ela/site.json` → `map`, `elak`, `published`. The Jira lanes are one call, already saved as
 `<date>-brief.json` by the runner; run it only when that file is missing:
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/skills/brief/brief.py" --env-file <env> lanes --json   # or: ela brief --json
+ela brief --json
 ```
 Fields come out of that file, and out of any verb's `--json`, with `ela pick`, never an interpreter one-liner:
 `ela pick --file <date>-brief.json` prints the shape, `ela pick 'lanes[].@key' .count --file <date>-brief.json` one
@@ -48,9 +48,9 @@ line per lane, `ela pick 'lanes.cadence.rows[].key' .status .assignee .flag --fi
 `--where K=V|K!=V|K~V`, `--count`, `--max N`).
 For the per-row follow-ups (§1a, §1b, drafted actions) and the Slack lanes, bind:
 ```bash
-JIRA="python3 ${CLAUDE_PLUGIN_ROOT}/skills/jira/jira.py --env-file <env>"
-SLACK="python3 ${CLAUDE_PLUGIN_ROOT}/skills/slack/slack.py --env-file <env>"
-TEAM="python3 ${CLAUDE_PLUGIN_ROOT}/skills/team/team.py --env-file <env>"   # or: ela who … · ela team areas
+JIRA="ela jira"
+SLACK="ela slack"
+TEAM="ela team"   # also: ela who …
 ```
 The owner's standing constraints — pins and hand checks his rulings put on a lane, each with an expiry — are in
 `<date>-changes.json` (`findings` of kind `constraint_*`) and on the lanes table; the verb itself

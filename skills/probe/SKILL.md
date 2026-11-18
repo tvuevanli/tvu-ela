@@ -40,12 +40,12 @@ its verdict.
   agent with specific questions; the synthesis, the product reading and the drafts stay here.
 
 ## 0 — bind
-Read `~/.claude/ela/site.json` → `env`, `map`, `elak`, `published`.
+Read `~/.claude/ela/site.json` → `map`, `elak`, `published`.
 ```bash
-JIRA="python3 ${CLAUDE_PLUGIN_ROOT}/skills/jira/jira.py --env-file <env>"
-GRAPH="python3 ${CLAUDE_PLUGIN_ROOT}/skills/graph/graph.py --env-file <env>"
+JIRA="ela jira"
+GRAPH="python3 ${CLAUDE_PLUGIN_ROOT}/skills/graph/graph.py"
 MAP="python3 ${CLAUDE_PLUGIN_ROOT}/skills/map/map.py"
-TEAM="python3 ${CLAUDE_PLUGIN_ROOT}/skills/team/team.py --env-file <env>"   # or: ela who … · ela team areas
+TEAM="ela team"   # also: ela who …
 ```
 The owner §3 names is read at that moment, never recalled: the area from
 `<published>/knowledge/products/mediahub/team/layer-classification.md`, the person from `$TEAM who

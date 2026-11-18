@@ -12,7 +12,7 @@ Source: `<elak>/knowledge/people/` — `people.yaml` (identity only) joined by e
 elak `blueprint/principles.md` P6 and elak `blueprint/decisions/2026-09-04-roster-schema-identity-and-responsibilities.md`.
 
 ```bash
-T="python3 ${CLAUDE_PLUGIN_ROOT}/skills/team/team.py --env-file <env>"     # or: ela team … · ela who …
+T="ela team"   # also: ela who …
 $T people [--area ui] [--scope core|related]   # everyone: name · scope · areas · email · slack id · jira accountId
 $T areas                     # every area, who to ask first about it, how many people are in it
 $T who <name>                # one person: identity, then every responsibility they hold; exit 3 when unknown

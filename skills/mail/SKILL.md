@@ -7,7 +7,7 @@ user-invocable: true
 # /ela:mail — a sense that reads Evan's mailbox, read-only
 
 ```bash
-MAIL="python3 ${CLAUDE_PLUGIN_ROOT}/skills/mail/mail.py --env-file <env>"
+MAIL="ela mail"
 $MAIL search 'from:erinzhang after:2026/08/27 subject:(MediaHub)' --limit 20   # Gmail query syntax, newest first
 $MAIL read <message id>            # headers + body as text
 $MAIL thread <thread id>           # every message, oldest first

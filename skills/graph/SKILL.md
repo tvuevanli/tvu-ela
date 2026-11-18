@@ -66,10 +66,10 @@ are only ever read.
   runs them on its own initiative — it proposes the command and stops.
 
 ## 0 — bind
-Read `~/.claude/ela/site.json` → `env`. Then:
+Bind (the scripts find the env file from site.json themselves):
 ```bash
-G="python3 ${CLAUDE_PLUGIN_ROOT}/skills/graph/graph.py --env-file <env>"
-O="python3 ${CLAUDE_PLUGIN_ROOT}/skills/object/object.py --env-file <env>"
+G="python3 ${CLAUDE_PLUGIN_ROOT}/skills/graph/graph.py"
+O="python3 ${CLAUDE_PLUGIN_ROOT}/skills/object/object.py"
 ```
 The env file carries `UR_ACCESS_KEY` (the same key answers on CN and QA), optional `UR_BASE_HOST`, `UR_CN_HOST`
 (the China edge; the script's default is used when unset), `UR_QA_HOST` (QA's host; `-e qa2` exits 2 without it)

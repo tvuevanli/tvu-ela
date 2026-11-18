@@ -9,10 +9,10 @@ The capability is `figma.py` — an L1 atomic CLI (read-only by design: every ca
 This file is the Claude-session adapter; other callers invoke the same script.
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/skills/figma/figma.py" --env-file <env> file <url>          # pages + frames tree
-python3 "${CLAUDE_PLUGIN_ROOT}/skills/figma/figma.py" --env-file <env> node <url>          # node-id= in the URL is honoured
-python3 "${CLAUDE_PLUGIN_ROOT}/skills/figma/figma.py" --env-file <env> comments <url>
-python3 "${CLAUDE_PLUGIN_ROOT}/skills/figma/figma.py" --env-file <env> image <url> --out <dir>   # then Read the png
+ela figma file <url>          # pages + frames tree
+ela figma node <url>          # node-id= in the URL is honoured
+ela figma comments <url>
+ela figma image <url> --out <dir>   # then Read the png
 ```
 
 - Accepts full figma.com URLs (`file/design/board/proto`); `node-id=12-34` means node `12:34`.
@@ -32,6 +32,6 @@ separate, outward-facing action and must not be added to this skill silently.
 
 ## Credentials
 
-Read `~/.claude/ela/site.json` → `env` and pass it as `--env-file`. The script reads only
-`FIGMA_TOKEN` from it (a personal access token). Missing or 403 → run `/ela:setup`
+The env file is the one `~/.claude/ela/site.json` → `env` names, found automatically; no `--env-file`. It must hold
+`FIGMA_TOKEN` (a personal access token). Missing or 403 → run `/ela:setup`
 (token: Figma → Settings → Security → Personal access tokens; read scope is enough).

@@ -11,7 +11,7 @@ description: >
 Self-contained. The L1 script does the calls; this file says when and how to read the answer.
 
 ```bash
-O="python3 ${CLAUDE_PLUGIN_ROOT}/skills/object/object.py --env-file <env>"   # <env> from ~/.claude/ela/site.json
+O="python3 ${CLAUDE_PLUGIN_ROOT}/skills/object/object.py"
 $O get <id>              # object (19 digits) or tangible (16–32 hex); falls through to the other on a miss and says which answered
 $O get <id> -e qa2       # the same read on QA's own Object Service
 ```

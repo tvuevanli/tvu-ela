@@ -25,12 +25,12 @@ one of the ticket's services aborts the run; a mismatch elsewhere is recorded, n
 
 ## 0 — bind
 
-Read `~/.claude/ela/site.json` → `env`, `map`, `runtime`, `mediahub_url`.
+Read `~/.claude/ela/site.json` → `map`, `runtime`, `mediahub_url`.
 
 ```bash
-JIRA="python3 ${CLAUDE_PLUGIN_ROOT}/skills/jira/jira.py --env-file <env>"
-BROWSER="python3 ${CLAUDE_PLUGIN_ROOT}/skills/browser/browser.py --env-file <env>"
-FIXEDIN="python3 ${CLAUDE_PLUGIN_ROOT}/skills/fixedin/fixedin.py --env-file <env>"
+JIRA="ela jira"
+BROWSER="ela browser"
+FIXEDIN="ela fixed-in"
 ```
 
 Nothing in this skill runs on an unproven session or on a lane whose build does not carry the fix (§1).

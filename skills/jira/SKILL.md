@@ -9,7 +9,7 @@ The capability is `jira.py` — an L1 atomic CLI (subcommands, `--json`, exit
 codes 0 ok / 1 API error / 2 validation). This file is the Claude-session
 adapter; other callers (Helm ops, an MCP server) invoke the same script.
 
-`python3 "${CLAUDE_PLUGIN_ROOT}/skills/jira/jira.py" --env-file <env> <verb> …` — `--help` lists the verbs
+`ela jira <verb> …` — `--help` lists the verbs
 and their flags.
 
 ## read
@@ -208,8 +208,8 @@ reason (a breakdown, a route, a revisit, a close); no batch pass over the board.
 
 ## Credentials
 
-Read `~/.claude/ela/site.json` → `env` (the path of ela's credential file, mode 600) and pass it as
-`--env-file`. That file is ela's own — copied once from wherever the tokens lived before; nothing
+ela's credential file (mode 600) is the one `~/.claude/ela/site.json` → `env` names; `ela` and the
+script find it themselves, so no `--env-file` is passed. That file is ela's own — copied once from wherever the tokens lived before; nothing
 here depends on another tool's config. The script reads only `JIRA_BASE_URL / JIRA_EMAIL / JIRA_TOKEN` from it. Missing or expired
 → run `/ela:setup`.
 

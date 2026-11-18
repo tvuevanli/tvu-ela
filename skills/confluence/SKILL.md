@@ -9,7 +9,7 @@ user-invocable: true
 Self-contained. `confluence.py` is the capability; `ela wiki …` at the shell is the same thing.
 
 ```bash
-W="python3 ${CLAUDE_PLUGIN_ROOT}/skills/confluence/confluence.py --env-file <env>"   # or: ela wiki …
+W="ela wiki"
 $W spaces                       # 71 spaces as of 2026-09-03 — MH (Media hub), MG (MediaMesh Graph), OS, RTIL, LR, WEB …
 $W tree MH                      # a space's pages, indented, with ids and last editor
 $W search "SCTE" --space MH     # CQL text search, newest first

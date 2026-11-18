@@ -11,7 +11,7 @@ named in `<elak>/map/apis.yaml` (`ur` → 4296487 today); a numeric id or an `ap
 URL works unnamed.
 
 ```bash
-A="python3 ${CLAUDE_PLUGIN_ROOT}/skills/apifox/apifox.py --env-file <env>"   # or: ela api …
+A="ela api"
 $A projects                         # names, ids, cache state
 $A projects --team all --grep config   # every project the recorded teams hold (ids from apis.yaml `teams:`)
 $A export ur [--refresh]            # the API document, cached a day under ~/.claude/ela/apifox/; says which path read it

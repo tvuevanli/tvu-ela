@@ -31,11 +31,11 @@ framing is first-class input — it often carries the decision the sources lack.
   occurs is the most expensive way to keep a dead ticket alive.
 
 ## 0 — gather
-Read `~/.claude/ela/site.json` (`env`, `map`, `elak`, `published`). Then:
+Read `~/.claude/ela/site.json` (`map`, `elak`, `published`). Then:
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/skills/jira/jira.py"  --env-file <env> read <KEY> --deep   # per key
-python3 "${CLAUDE_PLUGIN_ROOT}/skills/slack/slack.py" --env-file <env> read <permalink>    # per link
+ela jira read <KEY> --deep     # per key
+ela slack read <permalink>     # per link
 ```
 
 A lane's token comes from `<published>/knowledge/products/mediahub/team/layer-classification.md`
@@ -104,14 +104,14 @@ subtasks. Reasoning stays in the plan; tickets get conclusions.
 No ticket yet (the plan's `key` is a slug)? Create the parent first — same gate:
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/skills/jira/jira.py" --env-file <env> create \
+ela jira create \
         --summary '<requirement>' --description '<### Goal · ### Scope (one bullet per lane, then not in scope) · ### Done when; the plan linked under Related>'
 ```
 
 Then for each lane, run the create **without `--apply`** and show the batch:
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/skills/jira/jira.py" --env-file <env> create-subtask \
+ela jira create-subtask \
         --parent <KEY> --summary '<title>' --assignee <owner email> --description '<### Scope · ### Done when>'
 ```
 

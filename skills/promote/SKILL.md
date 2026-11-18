@@ -9,7 +9,7 @@ user-invocable: true
 Self-contained. The script collects and reconciles; this file is the judgement and the invariants.
 
 ```bash
-P="python3 ${CLAUDE_PLUGIN_ROOT}/skills/promote/promote.py --env-file <env>"      # or: ela promote 2.1 qa daily …
+P="ela promote"
 $P report 2.1 qa daily --purpose prod-staging --bundles --out <runtime>/promote   # everything, ranked; JSON + markdown
 $P report 2.1 qa prod --purpose prod-deploy --out <runtime>/promote                # the deploy gate: four fixed sections
 $P lanes|commits|tickets|evidence|bundles 2.1 qa daily                            # one step at a time when arguing with a finding

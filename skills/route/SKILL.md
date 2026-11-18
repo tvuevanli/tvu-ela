@@ -48,7 +48,7 @@ Exit 3: the ticket does not exist; 5: Jira unreadable. Signal words are vocabula
 they seed §1, they never decide it. Then read the ticket itself for what no script extracts: error
 codes, timestamps, environment, what the reporter excluded, linked tickets (prior art):
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/skills/jira/jira.py" --env-file <env> read <KEY> --deep
+ela jira read <KEY> --deep
 ```
 
 ## 0b — read the failure in the logs (a trace id, an email and a moment, a process id)
@@ -115,7 +115,7 @@ repo, questions only.
 - service · owner · evidence (file:line of the emitter + the report's discriminating fact)
 - the layer token that fits, and the dry-run:
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/skills/jira/jira.py" --env-file <env> assign <KEY> --assignee <email|accountId>
+ela jira assign <KEY> --assignee <email|accountId>
 ```
 
 **Not certain** (competing hypotheses across a seam):

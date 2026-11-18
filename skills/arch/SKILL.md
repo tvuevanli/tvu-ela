@@ -43,12 +43,12 @@ once and believed afterwards).
   be shared onward.
 
 ## 0 — bind
-Read `~/.claude/ela/site.json` → `env`, `map`, `elak`, `code`.
+Read `~/.claude/ela/site.json` → `map`, `elak`, `code`.
 ```bash
 DEPS="python3 ${CLAUDE_PLUGIN_ROOT}/skills/map/deps.py"
 MAP="python3 ${CLAUDE_PLUGIN_ROOT}/skills/map/map.py"
-GRAPH="python3 ${CLAUDE_PLUGIN_ROOT}/skills/graph/graph.py --env-file <env>"
-JIRA="python3 ${CLAUDE_PLUGIN_ROOT}/skills/jira/jira.py --env-file <env>"
+GRAPH="python3 ${CLAUDE_PLUGIN_ROOT}/skills/graph/graph.py"
+JIRA="ela jira"
 ```
 **Read Evan's own prior reading first** — `knowledge/products/mediahub/app-dependencies.md`,
 `knowledge/platform/unified-resources/README.md`, `knowledge/platform/media/README.md`, and the

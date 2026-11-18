@@ -22,14 +22,14 @@ seen, no other boxes. The issue is the fact.
 ## Bind
 
 ```bash
-SENTRY="python3 ${CLAUDE_PLUGIN_ROOT}/skills/sentry/sentry.py --env-file <env>"
+SENTRY="ela sentry"
 $SENTRY projects [match]                             # the org's projects
 $SENTRY issues [project] [--query Q] [--since 7d]    # the issue table, worst first
 $SENTRY issue <id> [--frames N]                      # counts, first/last seen, the latest exception and its tags
 $SENTRY events <id>                                  # recent events: when, which box, which version
 ```
 
-`<env>` is `~/.claude/ela/site.json` → `env`. The deployment's URL and the token live there
+The env file is found from `~/.claude/ela/site.json` → `env` automatically. The deployment's URL and the token live there
 (`SENTRY_URL`, `SENTRY_TOKEN`, `SENTRY_ORG`) — **no address belongs in this file or any tracked
 one.** `--since` is Sentry's own `statsPeriod` vocabulary (`24h`, `7d`, `14d`), not ela's `--since`.
 Every subcommand takes `--json`. Exit codes: 0 ok · 2 usage · 3 not found · 4 auth or no credential

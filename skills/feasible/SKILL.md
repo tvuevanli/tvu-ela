@@ -45,11 +45,11 @@ A break at ① or ② is app work. At ③ it is the adapter or its command templ
 an unwired option or a real engine limit — **and those two must be told apart** (see step 4).
 
 ## 0 — bind
-Read `~/.claude/ela/site.json` → `env`, `map`, `elak`.
+Read `~/.claude/ela/site.json` → `map`, `elak`.
 ```bash
-SLACK="python3 ${CLAUDE_PLUGIN_ROOT}/skills/slack/slack.py --env-file <env>"
-JIRA="python3 ${CLAUDE_PLUGIN_ROOT}/skills/jira/jira.py --env-file <env>"
-GRAPH="python3 ${CLAUDE_PLUGIN_ROOT}/skills/graph/graph.py --env-file <env>"
+SLACK="ela slack"
+JIRA="ela jira"
+GRAPH="python3 ${CLAUDE_PLUGIN_ROOT}/skills/graph/graph.py"
 STREAM="python3 ${CLAUDE_PLUGIN_ROOT}/skills/stream/stream.py"
 MAP="python3 ${CLAUDE_PLUGIN_ROOT}/skills/map/map.py"
 ```
