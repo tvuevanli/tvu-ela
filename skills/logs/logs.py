@@ -32,7 +32,7 @@ Source quirks, verified 2026-09-29 and handled here so a caller need not know th
 Hosts and credentials. tvulog: TVU_LOG_BASE (default the tvuuas API on tvulog.tvunetworks.com), the person's TVU
 session from `ela login tvu` (~/.claude/ela/session.json) as the Authorization header and the SID cookie; a refusal
 is recorded on the session and exits 4 naming the command. Observer: TVU_OBSERVER_BASE (default mma1.tvunetworks.com),
-TVU_CC_BEARER_TOKEN. Both from the environment → --env-file → $ELA_ENV_FILE.
+TVU_CC_BEARER_TOKEN. Both from the environment → --env-file → $ELA_ENV_FILE → site.json `env`.
 Exit codes: 0 ok · 2 usage · 3 nothing found (what was searched is printed) · 4 auth · 5 remote error.
 """
 import argparse, datetime, html, json, os, re, signal, sys, urllib.error, urllib.parse, urllib.request

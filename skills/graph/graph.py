@@ -47,7 +47,7 @@ Probe order (first answer wins): UR_ENV_ORDER in the env file (comma-separated),
 then cn2 as the last resort — one more round trip on a miss, so a CN graph is found without `-e`.
 QA (qa2 …) is a separate deployment with its own data, laid out like the edge (env in the path) on the host
 named by UR_QA_HOST; never probed by default: `-e qa2`. The same access key answers there.
-Credentials: UR_ACCESS_KEY (+ UR_BASE_HOST, UR_CN_HOST, UR_QA_HOST) from $UR_ACCESS_KEY → --env-file → $ELA_ENV_FILE.
+Credentials: UR_ACCESS_KEY (+ UR_BASE_HOST, UR_CN_HOST, UR_QA_HOST) from $UR_ACCESS_KEY → --env-file → $ELA_ENV_FILE → site.json `env`.
 Exit codes: 0 ok (a stopped process/graph answered from history counts as ok) · 2 usage · 3 not found on any env
 · 4 auth · 5 remote error.
 """
@@ -80,11 +80,19 @@ def graph_path(gid):
     return f"{J2N}/graphs/{gid}/any"
 
 
+def site_env():
+    """The site's env file, site.json `env`: read only when neither --env-file nor an env-file variable names one."""
+    try:
+        return os.path.expanduser(json.load(open(os.path.expanduser("~/.claude/ela/site.json"))).get("env") or "") or None
+    except (OSError, ValueError, AttributeError):
+        return None
+
+
 def env_value(key, env_file=None):
     v = os.environ.get(key)
     if v:
         return v
-    for path in filter(None, [env_file, os.environ.get("ELA_ENV_FILE")]):
+    for path in [p for p in (env_file, os.environ.get("ELA_ENV_FILE")) if p] or filter(None, [site_env()]):
         try:
             for line in open(path):
                 if line.startswith(key + "="):

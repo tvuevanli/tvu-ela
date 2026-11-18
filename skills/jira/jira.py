@@ -68,10 +68,18 @@ FIXED_IN_FIELD = "customfield_11252"
 FIXED_IN_ENTRY = re.compile(r"^[a-z0-9][a-z0-9-]*@[0-9A-Za-z][0-9A-Za-z.+:_-]*$")
 
 
+def site_env():
+    """The site's env file, site.json `env`: read only when neither --env-file nor an env-file variable names one."""
+    try:
+        return os.path.expanduser(json.load(open(os.path.expanduser("~/.claude/ela/site.json"))).get("env") or "") or None
+    except (OSError, ValueError, AttributeError):
+        return None
+
+
 def load_env(env_file):
     """Resolve credentials: process env wins, then the env file."""
     creds = {k: os.environ.get(k) for k in ENV_KEYS}
-    path = env_file or os.environ.get("JIRA_ENV_FILE") or os.environ.get("ELA_ENV_FILE")
+    path = env_file or os.environ.get("JIRA_ENV_FILE") or os.environ.get("ELA_ENV_FILE") or site_env()
     if path and not all(creds.values()):
         try:
             with open(path, encoding="utf-8") as fh:

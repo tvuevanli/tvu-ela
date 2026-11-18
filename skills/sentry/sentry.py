@@ -14,7 +14,7 @@ leaving a minidump, neither recovers nor reports it, and none of the three contr
 MediaHub, Observer) shows anything wrong. Sentry is where that crash already is. The alert mails Evan
 gets are one event each; this reads the issue — how often, since when, on which boxes, still open.
 
-Credentials, from $SENTRY_URL / $SENTRY_TOKEN → --env-file → $SENTRY_ENV_FILE → $ELA_ENV_FILE:
+Credentials, from $SENTRY_URL / $SENTRY_TOKEN → --env-file → $SENTRY_ENV_FILE → $ELA_ENV_FILE → site.json `env`:
   SENTRY_URL    the deployment's base url          SENTRY_TOKEN  an auth token with project:read
   SENTRY_ORG    the organisation slug (default: read from the url path when it names one)
 No address is written here: the host lives in ela's site config, never in a tracked file.
@@ -28,11 +28,19 @@ EX_USAGE, EX_NOTFOUND, EX_AUTH, EX_REMOTE = 2, 3, 4, 5
 LEVELS = {"fatal": 0, "error": 1, "warning": 2, "info": 3, "debug": 4}
 
 
+def site_env():
+    """The site's env file, site.json `env`: read only when neither --env-file nor an env-file variable names one."""
+    try:
+        return os.path.expanduser(json.load(open(os.path.expanduser("~/.claude/ela/site.json"))).get("env") or "") or None
+    except (OSError, ValueError, AttributeError):
+        return None
+
+
 def env_value(key, env_file=None):
     v = os.environ.get(key)
     if v:
         return v
-    for path in filter(None, [env_file, os.environ.get("SENTRY_ENV_FILE"), os.environ.get("ELA_ENV_FILE")]):
+    for path in [p for p in (env_file, os.environ.get("SENTRY_ENV_FILE"), os.environ.get("ELA_ENV_FILE")) if p] or filter(None, [site_env()]):
         try:
             for line in open(path):
                 if line.startswith(key + "="):

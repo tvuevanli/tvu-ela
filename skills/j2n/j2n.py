@@ -104,11 +104,19 @@ def runtime_dir(s):
                                 os.path.expanduser("~/.ela"))
 
 
+def site_env():
+    """The site's env file, site.json `env`: read only when neither --env-file nor an env-file variable names one."""
+    try:
+        return os.path.expanduser(json.load(open(os.path.expanduser("~/.claude/ela/site.json"))).get("env") or "") or None
+    except (OSError, ValueError, AttributeError):
+        return None
+
+
 def env_value(key, env_file=None):
     v = os.environ.get(key)
     if v:
         return v
-    for path in filter(None, [env_file, os.environ.get("ELA_ENV_FILE")]):
+    for path in [p for p in (env_file, os.environ.get("ELA_ENV_FILE")) if p] or filter(None, [site_env()]):
         try:
             for line in open(path):
                 if line.startswith(key + "="):

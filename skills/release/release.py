@@ -212,7 +212,7 @@ def cn_map():
 
 
 def _env_file(env_file=None):
-    return env_file or os.environ.get("ELA_ENV_FILE") or site().get("env")
+    return env_file or os.environ.get("ELA_ENV_FILE") or site_env()
 
 
 def cn_missing(env_file=None):
@@ -296,11 +296,19 @@ def bundle_lane(name):
     return prod_lane(m.group(1)) if m else None
 
 
+def site_env():
+    """The site's env file, site.json `env`: read only when neither --env-file nor an env-file variable names one."""
+    try:
+        return os.path.expanduser(json.load(open(os.path.expanduser("~/.claude/ela/site.json"))).get("env") or "") or None
+    except (OSError, ValueError, AttributeError):
+        return None
+
+
 def env_value(key, env_file=None):
     v = os.environ.get(key)
     if v:
         return v
-    for path in filter(None, [env_file, os.environ.get("ELA_ENV_FILE")]):
+    for path in [p for p in (env_file, os.environ.get("ELA_ENV_FILE")) if p] or filter(None, [site_env()]):
         try:
             for line in open(path):
                 if line.startswith(key + "="):

@@ -7,6 +7,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FIX = os.path.join(ROOT, "tests", "fixtures", "onething")
 for k in [k for k in os.environ if k.startswith("ONETHING_") or k == "ELA_ENV_FILE"]:
     del os.environ[k]                                   # the site env must not leak into the cases
+os.environ["HOME"] = tempfile.mkdtemp()               # nor the site.json env fallback of the scripts it imports
 sys.path.insert(0, os.path.join(ROOT, "skills", "onething"))
 import onething as O  # noqa: E402
 O.SITE = os.path.join(tempfile.mkdtemp(), "no-site.json")   # no site: no env fallback, no reports root but the one given

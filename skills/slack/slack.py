@@ -32,7 +32,7 @@ the one write, `post`, is a dry run until --apply.
              that fails `check` is flagged in the dry run and refused on --apply.
 
 Exit codes: 0 ok · 1 check found a slip · 2 usage · 4 auth or refused · 5 remote error.
-Credential resolution: $SLACK_BOT_TOKEN → --env-file → $SLACK_ENV_FILE → $ELA_ENV_FILE. The script never stores it.
+Credential resolution: $SLACK_BOT_TOKEN → --env-file → $SLACK_ENV_FILE → $ELA_ENV_FILE → site.json `env`. The script never stores it.
 SLACK_USER_TOKEN resolves the same way and is read by `post --as-owner` only.
 """
 import argparse, html, json, os, re, shutil, signal, sys, time, urllib.error, urllib.parse, urllib.request
@@ -59,11 +59,19 @@ class Transient(Exception):
     """A call that failed for a reason a smaller page or another attempt may fix."""
 
 
+def site_env():
+    """The site's env file, site.json `env`: read only when neither --env-file nor an env-file variable names one."""
+    try:
+        return os.path.expanduser(json.load(open(os.path.expanduser("~/.claude/ela/site.json"))).get("env") or "") or None
+    except (OSError, ValueError, AttributeError):
+        return None
+
+
 def env_value(key, env_file=None):
     v = os.environ.get(key)
     if v:
         return v
-    for path in filter(None, [env_file, os.environ.get("SLACK_ENV_FILE"), os.environ.get("ELA_ENV_FILE")]):
+    for path in [p for p in (env_file, os.environ.get("SLACK_ENV_FILE"), os.environ.get("ELA_ENV_FILE")) if p] or filter(None, [site_env()]):
         try:
             for line in open(path):
                 if line.startswith(key + "="):

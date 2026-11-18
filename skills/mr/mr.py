@@ -15,7 +15,7 @@ Site facts come from ~/.claude/ela/site.json: `hosts` (each host: url, api, matc
 path, never from the directory name (a checkout may be named differently from its remote). No host address
 or token is printed: a host appears by its key, its api as `<api:KEY>`.
 
-Credentials: the host's `token_env` from the environment → --env-file → $ELA_ENV_FILE.
+Credentials: the host's `token_env` from the environment → --env-file → $ELA_ENV_FILE → site.json `env`.
 
 Exit codes: 0 ok · 2 usage · 3 not found · 4 auth or no credential · 5 remote error.
 """
@@ -71,11 +71,19 @@ def remote_url(path):
     return out if code == 0 else None
 
 
+def site_env():
+    """The site's env file, site.json `env`: read only when neither --env-file nor an env-file variable names one."""
+    try:
+        return os.path.expanduser(json.load(open(os.path.expanduser("~/.claude/ela/site.json"))).get("env") or "") or None
+    except (OSError, ValueError, AttributeError):
+        return None
+
+
 def env_value(key, env_file=None):
     v = os.environ.get(key)
     if v:
         return v
-    for path in filter(None, [env_file, os.environ.get("ELA_ENV_FILE")]):
+    for path in [p for p in (env_file, os.environ.get("ELA_ENV_FILE")) if p] or filter(None, [site_env()]):
         try:
             for line in open(path):
                 if line.startswith(key + "="):
