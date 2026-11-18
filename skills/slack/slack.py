@@ -104,7 +104,7 @@ def not_in_channel_hint(tok, ch):
                 f"  Ask someone in the channel to invite the bot, or check the channel id.")
     if c.get("is_private"):
         return (f"{where} is private — a bot cannot add itself.\n"
-                f"  Ask a member to run  /invite @helm  in that channel.")
+                f"  Ask a member to run  /invite @ela  in that channel.")
     return (f"{where} is public and the bot may join it.\n"
             f"  Joining is visible to the channel, so it is not automatic. To join and retry:\n"
             f"    slack.py join {ch}          # then rerun the command\n"
@@ -300,7 +300,7 @@ def channel_missing_hint(tok, ch):
                 f"  Joining is visible to the channel, so it is never automatic:\n"
                 f"    ela slack join {ch}          # then rerun")
     return (f"{ch} is not a public channel of this workspace — it is private, a DM, or archived.\n"
-            f"  A bot cannot add itself to a private channel. Ask a member to run  /invite @helm  there.")
+            f"  A bot cannot add itself to a private channel. Ask a member to run  /invite @ela  there.")
 
 
 def resolve_channel(tok, ref):
