@@ -1570,6 +1570,12 @@ def main():
     a = ap.parse_args()
     # `envs` makes no request: warming TLS in background threads and then exiting mid-handshake
     # segfaults the interpreter on shutdown (intermittently, in OpenSSL) — so do not warm for it.
+    # start/stop change a box's working process and connect/exec open a root shell on it: the owner's own terminal
+    # only. An unattended session (ela-runner's headless and guest jobs set ELA_NO_APPLY) reads, never acts.
+    if a.cmd in ("start", "stop", "connect", "exec") and os.environ.get("ELA_NO_APPLY"):
+        print(f"refused: `{a.cmd}` acts on a box; not inside an unattended session (ELA_NO_APPLY), the owner runs it from his own terminal",
+              file=sys.stderr)
+        sys.exit(2)
     ur = UR(a.env_file, warm=not (a.cmd == "envs" or (a.cmd == "graph" and a.graph_id == "envs")))
     {"graph": cmd_graph, "process": cmd_process, "box": cmd_box, "graphs": cmd_graphs,
      "profile": cmd_profile, "profiles": cmd_profiles, "resolve": cmd_resolve, "usage": cmd_usage, "envs": cmd_envs, "connect": cmd_connect, "exec": cmd_exec, "start": cmd_start, "stop": cmd_stop}[a.cmd](ur, a)
