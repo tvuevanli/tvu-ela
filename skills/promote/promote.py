@@ -485,6 +485,9 @@ def person_area(roster, display_name):
     return ""
 
 
+ALIAS = re.compile(r"[A-Z][A-Z0-9]{1,5}-0\d{1,5}")      # a FloSports-style item id among a ticket's labels (MH-030)
+
+
 def collect_tickets(a, delta, gaps):
     cfg = line_cfg(a.line)
     label = cfg.get("label")
@@ -505,20 +508,26 @@ def collect_tickets(a, delta, gaps):
             if b.get("version"):
                 versions.add((s["service"], b["version"]))
                 in_delta.setdefault(s["service"], set()).add(b["version"])
-    reverse = {}
+    reverse, reverse_fi = {}, {}
     fid = (R.rmap("fixed_in") or {}).get("field") or "customfield_11252"
     cf = re.sub(r"\D", "", fid)
     if versions:
         say(f"jira reverse lookup on {len(versions)} build label(s)")
         clauses = " OR ".join(f'cf[{cf}] ~ "{sl}@{v}"' for sl, v in sorted(versions))
-        ok, d, err = l1("jira", "jql", f"({clauses}) ORDER BY key", "--limit", "500", env_file=a.env_file, timeout=120)
+        ok, d, err = l1("jira", "jql", f"({clauses}) ORDER BY key", "--limit", "500", "--field", fid, env_file=a.env_file, timeout=120)
         if ok:
             for it in d.get("issues") or []:
                 reverse[it.get("key")] = "fixed_in_names_a_delta_build"
+                if "extra" in it:                   # the row's Fixed In, so a loose text match is dropped before a read
+                    raw = (it.get("extra") or {}).get(fid)
+                    if not any(ALIAS.fullmatch(l) for l in it.get("labels") or []):   # an alias may bring commits on the read
+                        reverse_fi[it.get("key")] = parse_fixed_in(adf_text(raw).strip() if raw else "")
         else:
             gaps.append({"kind": "jira_reverse_lookup_failed", "detail": err})
     for k in reverse:
         keys.setdefault(k, {"commits": [], "services": set()})
+    def names_delta_build(fi):
+        return any(e["parsed"] and vlabel(e["parsed"]).split("+")[0] in in_delta.get(e["slug"], ()) for e in fi)
     # the line's label: tickets the release names with no commit in the range — placement says whether they are
     # already on the target (MH-3579 on 2026-11-09: listed as new, on prod-3 since UR Caller 2.1.59)
     labelled, label_keys = set(), set()
@@ -534,9 +543,14 @@ def collect_tickets(a, delta, gaps):
                     keys.setdefault(it["key"], {"commits": [], "services": set()})
         else:
             gaps.append({"kind": "jira_label_lookup_failed", "detail": err})
+    # the text search matches loosely ("2.0.84" finds 2.0.841): a key it alone brought, whose Fixed In names no build in
+    # the range, is dropped here on the search row's Fixed In, the same test the read below applies, without a read
+    loose = [k for k in reverse if k in reverse_fi and not keys[k]["commits"] and k not in label_keys and not names_delta_build(reverse_fi[k])]
+    for k in loose:
+        del keys[k]
     roster = load_roster()
     out = []
-    say(f"jira: reading {len(keys)} ticket(s)")
+    say(f"jira: reading {len(keys)} ticket(s)" + (f" ({len(loose)} loose Fixed In matches dropped unread)" if loose else ""))
     issues = jira_read_all(a.env_file, sorted(keys))
     for k in sorted(keys):
         d = issues[k]
@@ -545,7 +559,7 @@ def collect_tickets(a, delta, gaps):
         f = d.get("fields") or {}
         st = (f.get("status") or {}).get("name"); asg = (f.get("assignee") or {}).get("displayName"); labels = f.get("labels") or []
         # a FloSports-style item id among the labels (MH-030 on MH-3891) is how the range's commits name the ticket
-        for alias in [l for l in labels if re.fullmatch(r"[A-Z][A-Z0-9]{1,5}-0\d{1,5}", l)]:
+        for alias in [l for l in labels if ALIAS.fullmatch(l)]:
             seen = {c["sha"] for c in keys[k]["commits"]}
             for sd in delta["services"]:
                 for c in sd["commits"]:
@@ -556,8 +570,7 @@ def collect_tickets(a, delta, gaps):
         fi_raw = f.get(fid)
         fi_text = adf_text(fi_raw).strip() if fi_raw else ""
         fi = parse_fixed_in(fi_text)
-        if k in reverse and not keys[k]["commits"] and k not in label_keys and not any(
-                e["parsed"] and vlabel(e["parsed"]).split("+")[0] in in_delta.get(e["slug"], ()) for e in fi):
+        if k in reverse and not keys[k]["commits"] and k not in label_keys and not names_delta_build(fi):
             continue                        # the text search matched loosely; its Fixed In names no build in the range
         svcs = sorted(keys[k]["services"])
         flags = []

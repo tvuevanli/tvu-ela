@@ -1025,14 +1025,15 @@ STANDING = {"incidents": "project = MH AND parent = MH-2342 AND statusCategory !
 STANDING_LIMIT = 300
 
 
-def search_rows(creds, jql, limit):
-    """`jql` rows as the verb prints them with --json; pages of 100 followed to `limit`."""
+def search_rows(creds, jql, limit, extra=()):
+    """`jql` rows as the verb prints them with --json; pages of 100 followed to `limit`. `extra`: more field ids read
+    with each row (--field), so a caller can filter on them before reading any issue whole."""
     issues, token = [], None
     while len(issues) < limit:
         params = {
             "jql": jql,
             "maxResults": min(100, limit - len(issues)),
-            "fields": "summary,status,assignee,reporter,issuetype,priority,labels,parent,subtasks,created,updated,duedate",
+            "fields": ",".join(["summary,status,assignee,reporter,issuetype,priority,labels,parent,subtasks,created,updated,duedate", *extra]),
         }
         if token:
             params["nextPageToken"] = token
@@ -1058,20 +1059,23 @@ def standing_queries(creds):
                                                                        "issues": search_rows(creds, OWNER_JQL, 1)})
 
 
-def _jql_path(q, limit):
+def _jql_path(q, limit, extra=()):
     import hashlib
-    return os.path.join(F.store_dir("jira", "queries"), f"jql-{hashlib.sha1(f'{q}|{limit}'.encode()).hexdigest()[:16]}.json")
+    key = f"{q}|{limit}" + (f"|{','.join(sorted(extra))}" if extra else "")
+    return os.path.join(F.store_dir("jira", "queries"), f"jql-{hashlib.sha1(key.encode()).hexdigest()[:16]}.json")
 
 
-def stored_query(jql, limit):
+def stored_query(jql, limit, extra=()):
     """A standing query's rows from the store when its read is fresh and deep enough; any other JQL for the short TTL
     after its last read (the same search is asked several times in one pass); None otherwise."""
     if not F or F.forced_fresh():
         return None
     q = " ".join(jql.split())
-    doc = F.read_json(_jql_path(q, limit))
+    doc = F.read_json(_jql_path(q, limit, extra))
     if doc and F.fresh(doc.get("at"), SHORT_TTL_H):
         return doc
+    if extra:                                   # a standing query's store holds no extra fields
+        return None
     if q == OWNER_JQL and limit == 1:
         doc = F.read_json(os.path.join(F.store_dir("jira"), "owner.json"))
         return doc if doc and F.fresh(doc.get("at"), OWNER_TTL_H) else None
@@ -1084,16 +1088,17 @@ def stored_query(jql, limit):
 
 
 def cmd_jql(creds, args):
-    stored = None if args.fresh else stored_query(args.jql, args.limit)
+    extra = tuple(args.field or ())
+    stored = None if args.fresh else stored_query(args.jql, args.limit, extra)
     if stored is not None:
         issues, read_at = (stored.get("issues") or [])[: args.limit], stored.get("at")
         F.served("jira", read_at, "jql (standing query)")
     else:
-        issues, read_at = search_rows(creds, args.jql, args.limit), datetime.datetime.now().astimezone().isoformat(timespec="seconds")
-        if F and " ".join(args.jql.split()) == OWNER_JQL and args.limit == 1:   # the owner-name query: once a day
+        issues, read_at = search_rows(creds, args.jql, args.limit, extra), datetime.datetime.now().astimezone().isoformat(timespec="seconds")
+        if F and " ".join(args.jql.split()) == OWNER_JQL and args.limit == 1 and not extra:   # the owner-name query: once a day
             F.write_json(os.path.join(F.store_dir("jira"), "owner.json"), {"jql": OWNER_JQL, "limit": 1, "at": read_at, "issues": issues})
         elif F:                                                                  # any other search: once per pass
-            F.write_json(_jql_path(" ".join(args.jql.split()), args.limit), {"jql": args.jql, "limit": args.limit, "at": read_at, "issues": issues})
+            F.write_json(_jql_path(" ".join(args.jql.split()), args.limit, extra), {"jql": args.jql, "limit": args.limit, "at": read_at, "issues": issues})
     if args.json:
         rows = [{
             "key": i.get("key"),
@@ -1109,6 +1114,7 @@ def cmd_jql(creds, args):
             "created": (i.get("fields") or {}).get("created"),
             "updated": (i.get("fields") or {}).get("updated"),
             "due": (i.get("fields") or {}).get("duedate"),
+            **({"extra": {f: (i.get("fields") or {}).get(f) for f in extra}} if extra else {}),
         } for i in issues]
         print(json.dumps({"jql": args.jql, "count": len(rows), "issues": rows, "read_at": read_at},
                          ensure_ascii=False))
@@ -2449,6 +2455,8 @@ def main():
     p.add_argument("jql")
     p.add_argument("--limit", type=int, default=50, help="max rows; pages of 100 are followed up to this")
     p.add_argument("--fresh", action="store_true", help="a standing query: read Jira now instead of the store")
+    p.add_argument("--field", action="append", metavar="ID", help="one more field read with each row, raw under `extra` "
+                                                                  "in --json (customfield_11252); repeatable")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_jql)
 
