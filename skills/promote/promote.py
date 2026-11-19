@@ -452,6 +452,18 @@ def jira_read(env_file, key):
     return d if ok else None
 
 
+JIRA_WORKERS = 6        # reads at once: one report reads hundreds of tickets, and the lanes page runs four reports
+
+
+def jira_read_all(env_file, keys):
+    """{key: issue or None}, read a few at a time: one by one, a line's 400 tickets took four minutes, and the lanes
+    page's four reports together ran past the morning's fifteen-minute cut (2026-11-18)."""
+    from concurrent.futures import ThreadPoolExecutor
+    keys = list(keys)
+    with ThreadPoolExecutor(JIRA_WORKERS) as ex:
+        return dict(zip(keys, ex.map(lambda k: jira_read(env_file, k), keys)))
+
+
 def load_roster():
     """people.yaml joined to responsibilities.yaml — the join lives in the team capability, not here.
     Each person carries a derived `area` (the one they are asked first about, else their first)."""
@@ -525,8 +537,9 @@ def collect_tickets(a, delta, gaps):
     roster = load_roster()
     out = []
     say(f"jira: reading {len(keys)} ticket(s)")
+    issues = jira_read_all(a.env_file, sorted(keys))
     for k in sorted(keys):
-        d = jira_read(a.env_file, k)
+        d = issues[k]
         if not d:
             out.append({"key": k, "exists": False, "commits": keys[k]["commits"], "flags": ["key_not_in_jira"]}); continue
         f = d.get("fields") or {}

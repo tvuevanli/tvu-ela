@@ -200,11 +200,18 @@ def verdict_of(issue, qa=None, key=None):
             "links": links}
 
 
+WORKERS = 6             # reads at once, as promote's own ticket reads
+
+
 def read(keys, env_file=None, fresh=False, follow=True):
+    from concurrent.futures import ThreadPoolExecutor
     qa = qa_names()
     out, seen = {}, set()
+    keys = list(keys)
+    with ThreadPoolExecutor(WORKERS) as ex:     # one at a time, a report's QA verdicts took a minute
+        issues = dict(zip(keys, ex.map(lambda k: jira(k, env_file, fresh), keys)))
     for k in keys:
-        iss = jira(k, env_file, fresh)
+        iss = issues[k]
         if not iss:
             out[k] = {"key": k, "verdict": "unreadable"}
             continue
