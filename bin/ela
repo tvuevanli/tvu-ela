@@ -327,12 +327,21 @@ def site():
 GUARDED_FLAGS = ("--apply", "--write", "--page", "--out", "--env-file", "--join", "--yes")
 
 
-def abbreviated(args):
+def declared(script):
+    """The long flags a capability's script declares; a flag it declares in full is never an abbreviation."""
+    try:
+        return set(re.findall(r"[\"'](--[A-Za-z0-9][A-Za-z0-9-]*)[\"']", open(script, encoding="utf-8").read()))
+    except OSError:
+        return set()
+
+
+def abbreviated(args, script=None):
     if not (os.environ.get("ELA_NO_APPLY") or os.environ.get("ELA_GUEST")):
         return None
+    full = declared(script) if script else set()
     for x in args:
         flag = x.split("=", 1)[0]
-        if flag.startswith("--") and len(flag) > 2:
+        if flag.startswith("--") and len(flag) > 2 and flag not in full:
             for g in GUARDED_FLAGS:
                 if g.startswith(flag) and flag != g:
                     return f"{flag} (write {g} in full)"
@@ -340,10 +349,10 @@ def abbreviated(args):
 
 
 def run(cap, args, env_file):
-    bad = abbreviated(args)
+    script = os.path.join(ROOT, "skills", cap, f"{cap}.py")
+    bad = abbreviated(args, script)
     if bad:
         sys.exit(f"refused: an abbreviated flag inside an unattended session: {bad}")
-    script = os.path.join(ROOT, "skills", cap, f"{cap}.py")
     if not os.path.isfile(script):
         sys.exit(f"capability {cap} has no script yet ({script})")
     argv = ["python3", script, "--env-file", env_file, *args] if cap not in ("map", "reports", "publish", "stream", "runtime", "sessions", "pick") else ["python3", script, *args]
