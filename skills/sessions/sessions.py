@@ -6,6 +6,7 @@
   sessions list [--limit 30] [--json]
   sessions usage [--since 7d|48h|YYYY-MM-DD] [--by kind|name|day|cwd|model] [--top 10] [--json]
   sessions find <word> [<word>…] [--since YYYY-MM-DD] [--limit 20] [--json]
+  sessions here [--json]              this session: its id, its name (/rename) and its transcript
   sessions hook-start | hook-end      the plugin's SessionStart / SessionEnd hooks; hook JSON on stdin
 
 open: a Claude session where the target's rules live, by default a stacked pane in the tab named `workers` (made
@@ -18,6 +19,11 @@ and the commands. Focus returns to the tab named `desk` when there is one.
 
 close: ends a live session by name: TERM to its Claude process, then its pane (`zellij action close-pane
 --pane-id`), and an end line "closed by desk" in the registry. The desk runs it after the worker's closing line.
+
+here: the session a command runs in, so a note it writes can say where it came from (`ela note stamp`). The id
+is the registry's live row for the Claude process above the command, else that process's `--resume`/`--session-id`
+argument, else $CLAUDE_CODE_SESSION_ID or $CLAUDE_SESSION_ID; the name is the transcript's last /rename, else the registry's. Exit 3 when no
+session is found (a command run outside Claude).
 
 list: the registry <runtime>/sessions.jsonl, newest first: name · cwd · started · ended · purpose. The
 hooks append to it (a start line on startup or resume, an end line at SessionEnd); nothing else writes it,
@@ -426,6 +432,74 @@ def claude_pid():
     return os.getppid()
 
 
+UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+
+
+def transcript_of(sid):
+    hits = glob.glob(os.path.join(TRANSCRIPTS, "*", f"{sid}.jsonl"))
+    return max(hits, key=os.path.getmtime) if hits else None
+
+
+def title_of(transcript):
+    """The session's name as /rename last set it (Claude Code's `custom-title` line), or None."""
+    name = None
+    try:
+        for line in open(transcript, encoding="utf-8", errors="replace"):
+            if '"custom-title"' in line:
+                try:
+                    d = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(d, dict) and d.get("type") == "custom-title" and isinstance(d.get("customTitle"), str):
+                    name = " ".join(d["customTitle"].split()) or name      # one line: it becomes a note's property
+    except (OSError, TypeError):
+        pass
+    return name
+
+
+def current():
+    """{id, name, transcript} for the session this command runs in, or None."""
+    pid, sid, row, last = claude_pid(), None, None, None
+    try:                                             # the registry is append-only: the last start this process wrote is
+        for line in open(registry() or "", encoding="utf-8"):   # its session (a /resume inside it, a reused process id)
+            try:
+                e = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(e, dict) and e.get("event") == "start" and e.get("pid") == pid:
+                last = e.get("id")
+    except OSError:
+        pass
+    for r in sessions(unstarted=True):
+        if last and r.get("id") == last and r.get("pid") == pid and not r.get("ended"):
+            sid, row = r["id"], r
+    if not sid:
+        try:
+            cmd = open(f"/proc/{pid}/cmdline", "rb").read().split(b"\0")
+            for i, x in enumerate(cmd[:-1]):
+                if x in (b"--resume", b"-r", b"--session-id") and UUID.fullmatch(cmd[i + 1].decode(errors="replace")):
+                    sid = cmd[i + 1].decode()
+        except OSError:
+            pass
+    if not sid:
+        sid = next((v for v in (os.environ.get(k) or "" for k in ("CLAUDE_CODE_SESSION_ID", "CLAUDE_SESSION_ID")) if UUID.fullmatch(v)), None)
+    if not sid:
+        return None
+    tr = transcript_of(sid)
+    if not row:
+        row = next((r for r in sessions(unstarted=True) if r.get("id") == sid), {})
+    return {"id": sid, "name": title_of(tr) or row.get("name"), "transcript": tr}
+
+
+def cmd_here(a):
+    c = current()
+    if not c:
+        print("session here: not inside a Claude session", file=sys.stderr)
+        return 3
+    print(json.dumps(c, ensure_ascii=False) if a.json else f"{c['id']}\t{c['name'] or '-'}")
+    return 0
+
+
 def cmd_close(a):
     r = live(a.name)
     if not r:
@@ -749,6 +823,8 @@ def main():
     u.add_argument("--by", choices=("kind", "name", "day", "cwd", "model"), default="kind")
     u.add_argument("--top", type=int, default=10, help="how many of the costliest sessions to list")
     u.add_argument("--json", action="store_true")
+    h = sub.add_parser("here", help="this session: its id, its name (/rename) and its transcript")
+    h.add_argument("--json", action="store_true")
     sub.add_parser("hook-start", help="SessionStart: append a start line (hook JSON on stdin)")
     sub.add_parser("hook-end", help="SessionEnd: append an end line (hook JSON on stdin)")
     f = sub.add_parser("find", help="sessions whose first prompt or final answer carries every word")
@@ -763,7 +839,7 @@ def main():
         ap.error("unrecognized arguments: " + " ".join(extra))
     if a.cmd == "find" and a.since and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", a.since):
         ap.error("--since takes YYYY-MM-DD")
-    sys.exit({"find": cmd_find, "open": cmd_open, "close": cmd_close, "list": cmd_list, "usage": cmd_usage,
+    sys.exit({"find": cmd_find, "open": cmd_open, "close": cmd_close, "list": cmd_list, "here": cmd_here, "usage": cmd_usage,
               "hook-start": cmd_hook_start, "hook-end": cmd_hook_end}[a.cmd](a))
 
 

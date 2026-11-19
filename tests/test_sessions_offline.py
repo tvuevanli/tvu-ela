@@ -112,4 +112,42 @@ with tempfile.TemporaryDirectory() as tmp:
     check(end.get("purpose") and "QQQQQQQQ" not in end["purpose"], "the stored purpose is redacted before it is cut")
     check(run(["usage", "--since", "1d", "--by", "model"]).returncode == 0 and "m1" in run(["usage", "--since", "1d", "--by", "model"]).stdout,
           "--by model groups by the message's model")
+    # here: the session a command runs in, from the registry's live row for the process above it; the name is the
+    # transcript's last custom-title line (what /rename writes), else the registry's
+    U1, U2 = "11111111-2222-4333-8444-555555555555", "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+    run(["hook-start"], json.dumps({"session_id": U1, "source": "startup", "cwd": "/h"}), ELA_SESSION_NAME="topic-x")
+    p = run(["here", "--json"])
+    here = json.loads(p.stdout) if p.returncode == 0 else {}
+    check(here == {"id": U1, "name": "topic-x", "transcript": None},
+          "here: the last session this process started, among several live rows; no transcript, the registry's name")
+    t1 = os.path.join(proj, U1 + ".jsonl")
+    open(t1, "w").write("".join(json.dumps(l) + "\n" for l in (
+        {"type": "user", "message": {"content": 'say "custom-title" twice'}},
+        {"type": "custom-title", "customTitle": "first-name", "sessionId": U1},
+        ["custom-title"],
+        {"type": "custom-title", "customTitle": "topic-10-bit\n", "sessionId": U1})) + '{"type":"custom-title", cut\n')
+    here = json.loads(run(["here", "--json"]).stdout)
+    check(here == {"id": U1, "name": "topic-10-bit", "transcript": t1},
+          "here: the name is the transcript's last custom-title line, one line; a line that is not one is passed over")
+    check(run(["here"]).stdout == f"{U1}\ttopic-10-bit\n", "here without --json: the id, a tab, the name")
+    # no live row: the session id of the environment; none at all exits 3 (in process: the test owns the process above)
+    sys.path.insert(0, os.path.dirname(SCRIPT))
+    import sessions as S
+    S.SITE, S.TRANSCRIPTS, S.claude_pid = os.path.join(home, ".claude", "ela", "site.json"), os.path.join(home, ".claude", "projects"), os.getpid
+    kept = {k: os.environ.pop(k, None) for k in ("CLAUDE_CODE_SESSION_ID", "CLAUDE_SESSION_ID")}
+    open(os.path.join(proj, U2 + ".jsonl"), "w").write(json.dumps({"type": "custom-title", "customTitle": "desk-2"}) + "\n")
+    check(S.current() is None and S.cmd_here(type("A", (), {"json": False})()) == 3, "here outside a Claude session finds none and exits 3")
+    os.environ["CLAUDE_SESSION_ID"] = "not-an-id"
+    check(S.current() is None, "a session id that is no UUID is not taken")
+    os.environ["CLAUDE_SESSION_ID"] = U2
+    check(S.current() == {"id": U2, "name": "desk-2", "transcript": os.path.join(proj, U2 + ".jsonl")},
+          "with no live row, the environment's session id; its name from its transcript")
+    open(os.path.join(tmp, "rt", "sessions.jsonl"), "a").write(
+        json.dumps({"event": "start", "id": U1, "at": "2026-11-19T10:00:00+08:00", "pid": os.getpid()}) + "\n"
+        + json.dumps({"event": "end", "id": U1, "at": "2026-11-19T11:00:00+08:00"}) + "\n")
+    check(S.current()["id"] == U2, "a row that has ended is not this session, whatever its process id")
+    for k, v in kept.items():
+        os.environ.pop(k, None)
+        if v is not None:
+            os.environ[k] = v
 sys.exit(fail)

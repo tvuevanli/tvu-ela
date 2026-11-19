@@ -120,7 +120,8 @@ DELETABLE = ("projects", RELEASES, CASES, REF, HISTORY, TO_READ, READINGS, "days
 KEEP_FOREVER = ("brief", "week", "changes")   # the morning pages are the record of what ela told the owner; the rest expires
 PROPS = ("title", "aliases", "type", "date", "kind", "project", "slug", "deadline", "next-step", "customer", "hubspot", "graph", "box",
          "status", "result", "target", "progress", "source",
-         "moves", "next", "ela", "posted", "channels", "keys", "watch", "watched", "last", "language", "by")
+         "moves", "next", "ela", "posted", "channels", "keys", "watch", "watched", "last", "language", "by",
+         "session", "session-name")
 # the whole vocabulary; no tags (ADR 0010)
 MARKS = {"done": DONE, "drop": DONE}   # both close the note where it is and keep it; next says which (no data is lost)
 BUDGET = {"ticket": 700, "topic": 800, "guide": 1200, "board": 1000, "day": 1200, "review": 2500, "decision": 800, "plan": 800, "sprint": 800, "report": 1200,
@@ -1470,7 +1471,9 @@ def spec_text():
            f"a note dated {KEY_RULE_FROM} or later (a hand-written one only while it is live); an earlier note is history, "
            "neither rewritten nor reported. The one exception is a note written for a Chinese-speaking audience (a test "
            "plan for the China QA team): it keeps its body's language, says so with `language: \"zh\"`, and still carries "
-           "an English title, the Chinese one kept as an alias. A body is never translated in place. A note ends with what you should do and how, before the sections ela keeps "
+           "an English title, the Chinese one kept as an alias. A body is never translated in place. A note a session writes "
+           "by hand says which session: `session` (its id) and `session-name` (its /rename name), stamped by `ela note stamp "
+           "PATH`, so `claude --resume <session>` brings the whole conversation back; a note a generator writes is exempt. A note ends with what you should do and how, before the sections ela keeps "
            f"({', '.join(TAIL_ORDER[1:])}, in that order). A deviation is a lint line (`ela vault lint`), never a failure; "
            "an old name or title stays as an alias, so a link and the quick switcher still find the note.", ""]
     for kind, sp in SPECS.items():
@@ -1642,6 +1645,8 @@ def spec_lint(rel, text, generated=False, projects=None):
     cjk = len(CJK.findall(outside_folds(body)))
     if cjk // 2 > units / 3 and (props.get("language") or "en") == "en":   # a note for a Chinese-speaking audience says so
         out.append("body not in English (a note written for a Chinese-speaking audience carries `language: \"zh\"`)")
+    if not generated and not props.get("session") and session_rule_covers(rel, props):
+        out.append("no session: a note written in a session carries `session` and `session-name` (`ela note stamp PATH`)")
     keys = bare_keys(body, projects) if not generated else []       # a generated note's keys are the renderer's, by its project list
     if keys:
         out.append(f"{len(keys)} Jira key{'s' if len(keys) > 1 else ''} not linked ({', '.join(keys[:4])}{', …' if len(keys) > 4 else ''})")
@@ -1666,6 +1671,7 @@ def lint_notes(vault, projects=None):
 
 
 KEY_CLUSTER = re.compile(r"(?<![\w-])[A-Z][A-Z0-9]+-\d+(?:[\s,;/、()]+[A-Z][A-Z0-9]+-\d+){2,}")
+SESSION_RULE_FROM = "2026-11-19"         # the day the session rule was written; a note of an earlier day is history
 KEY_RULE_FROM = "2026-11-12"             # the day the key + title rule was written; a note of an earlier day is history
 
 
@@ -1678,6 +1684,15 @@ def key_rule_covers(rel, props, generated):
     if day and day.group(1) < KEY_RULE_FROM:
         return False
     return generated or not (folder_of(rel) in CLOSED_FOLDERS or is_done(props) or rel.startswith(HISTORY + "/"))
+
+
+def session_rule_covers(rel, props):
+    """A hand-written note of SESSION_RULE_FROM or later, while it is live: a note ela's generators write (`by: ela`)
+    has no conversation behind it, and an earlier or closed note is history."""
+    day = re.match(r"(\d{4}-\d{2}-\d{2})-", os.path.basename(rel))
+    if not day or day.group(1) < SESSION_RULE_FROM or props.get("by") == "ela":
+        return False
+    return not (folder_of(rel) in CLOSED_FOLDERS or is_done(props) or rel.startswith(HISTORY + "/"))
 
 
 def key_cluster_lint(text):
@@ -5288,6 +5303,15 @@ def cmd_note(a):
         fl, body = split_front(text)
         atomic_write(p, "---\n" + "\n".join(fl) + "\n---\n" + with_moves(body, rel, "built", stamp).lstrip("\n"))
         print(f"{rel}: built; waiting for the owner's acceptance")
+    elif a.act == "stamp":
+        sys.path.insert(0, os.path.join(HERE, "..", "sessions"))
+        from sessions import current
+        c = current()
+        if not c:
+            print(f"{rel}: not stamped, no Claude session found above this command", file=sys.stderr); sys.exit(3)   # main drops a verb's return
+        name = (c["name"] or "").replace("\\", "/").replace('"', "'") or None   # set_front writes the value between double quotes, unescaped
+        atomic_write(p, set_front(text, session=c["id"], **{"session-name": name}))
+        print(f"{rel}: session {c['id']} · {name or 'unnamed (/rename, then stamp again)'}")
     elif a.act == "move":
         print(f"{rel} → {move_note(vault, reports, rel, a.to, a.status, a.waits_on, a.wake, a.next)}")
 
@@ -7075,8 +7099,8 @@ def main():
     p.add_argument("path", help="the note's path in the vault, e.g. reference/2026-11-05-review-jira-four-week.md")
     p.add_argument("--to", choices=("drop", "archive", "delete"), default="drop", help="delete: the older name of drop; nothing is deleted")
     p.set_defaults(func=cmd_finish)
-    p = sub.add_parser("note", help="a note's life: claim, release, progress TEXT, built TEXT, move --to building|parked|done|live|drop")
-    p.add_argument("act", choices=("claim", "release", "progress", "built", "move"))
+    p = sub.add_parser("note", help="a note's life: claim, release, stamp (this session's id and name), progress TEXT, built TEXT, move --to building|parked|done|live|drop")
+    p.add_argument("act", choices=("claim", "release", "stamp", "progress", "built", "move"))
     p.add_argument("path", help="the note's path in the vault, e.g. projects/mh-3983-csc-over-mqtt/2026-11-10-plan-mh-3987-app-through-gateway.md")
     p.add_argument("text", nargs="*", help="progress or built: the line to record")
     p.add_argument("--to", choices=("building", "parked", "done", "live", "drop", "in-progress", "archive", "to-read", "readings", "delete"),

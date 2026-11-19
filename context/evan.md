@@ -44,4 +44,6 @@ writes the vault and elak and routes work), and briefs a worker directly only wh
 copying `ela` one line. Permissions are per session: no session approves for another. The plugin's hooks record
 every session, its pane and its process in `<runtime>/sessions.jsonl`; `ela session list` reads it. Fields come out
 of a verb's `--json` or a JSON file with `ela pick <path>… [--file F]` (no path: the shape), never an interpreter
-one-liner: an unattended session's shell allows none.
+one-liner: an unattended session's shell allows none. A vault note a session writes by hand is stamped with
+`ela note stamp PATH` (`session`: its id, `session-name`: its /rename name), so `claude --resume <session>` brings
+back the conversation behind it; `ela vault lint` names one left unstamped (stamp again after a /rename).

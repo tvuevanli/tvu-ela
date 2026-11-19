@@ -1420,6 +1420,64 @@ check("a hand-written note is named only while it is live",
       and not V.key_rule_covers("archive/2026-11-13-one-thing.md", {}, False)
       and not V.key_rule_covers("ela/history/2026-11-12-overview-sections.md", {}, False))
 
+# the session rule: a hand-written note of the rule's day or later says which session wrote it, while it is live
+NO_SESSION = "no session: a note written in a session carries `session` and `session-name` (`ela note stamp PATH`)"
+SID = "d416d8ee-3b6e-436f-8679-fd72b7a95bb2"
+def _note(day, extra=""):
+    return good.replace('date: "2026-11-09"', f'date: "{day}"\n{extra}'.rstrip("\n"))
+check("a live hand-written note of the rule's day without a session is one lint line",
+      V.spec_lint("reference/2026-11-19-mh-1-fixed.md", _note("2026-11-19")) == [NO_SESSION]
+      and V.spec_lint("reference/2026-11-20-mh-1-fixed.md", _note("2026-11-20")) == [NO_SESSION])
+check("a stamped note has none", V.spec_lint("reference/2026-11-19-mh-1-fixed.md", _note("2026-11-19", f'session: "{SID}"\nsession-name: "topic-10-bit"')) == [])
+check("exempt: a note ela's generators write (by: ela, or a file the sync wrote)",
+      V.spec_lint("reference/2026-11-19-mh-1-fixed.md", _note("2026-11-19", 'by: "ela"')) == []
+      and NO_SESSION not in V.spec_lint("reference/2026-11-19-mh-1-fixed.md", _note("2026-11-19"), True))
+check("exempt: a note dated before the rule", V.spec_lint("reference/2026-11-18-mh-1-fixed.md", _note("2026-11-18")) == []
+      and not V.session_rule_covers("reference/2026-11-18-x.md", {}) and not V.session_rule_covers("reference/overview.md", {}))
+check("exempt: a done note, a closed case, a note in the archive or in ela's history",
+      V.spec_lint("reference/2026-11-19-mh-1-fixed.md", _note("2026-11-19", 'status: "done"')) == []
+      and V.session_rule_covers("reference/2026-11-19-x.md", {"status": "live"})
+      and not V.session_rule_covers("cases/2026-11-19-x.md", {"status": "closed"})
+      and not V.session_rule_covers("archive/2026-11-19-x.md", {})
+      and not V.session_rule_covers("ela/history/2026-11-19-x.md", {}))
+check("session and session-name are in the vocabulary, and the readme's standards state the rule",
+      "session" in V.PROPS and "session-name" in V.PROPS and "`ela note stamp PATH`" in V.spec_text())
+with tempfile.TemporaryDirectory() as t:
+    site_was, V.SITE = V.SITE, os.path.join(t, "site.json")
+    json.dump({"vault": t}, open(V.SITE, "w"))
+    os.makedirs(os.path.join(t, "reference"))
+    rel = "reference/2026-11-19-mh-1-fixed.md"
+    open(os.path.join(t, rel), "w", encoding="utf-8").write(_note("2026-11-19"))
+    def stamp(session):
+        sys.modules["sessions"] = types.SimpleNamespace(current=lambda: session)   # the session above the command, fixed
+        try:
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                V.cmd_note(types.SimpleNamespace(act="stamp", path=rel))
+            return 0
+        except SystemExit as e:
+            return e.code
+        finally:
+            del sys.modules["sessions"]
+    def stamped():
+        text = open(os.path.join(t, rel), encoding="utf-8").read()
+        return V.props_of(V.split_front(text)[0]), text
+    code = stamp({"id": SID, "name": "topic-10-bit", "transcript": None})
+    props, text = stamped()
+    check("note stamp writes both properties, keeps the rest of the note, and the lint line is gone",
+          code == 0 and props.get("session") == SID and props.get("session-name") == "topic-10-bit"
+          and props.get("keys") == "MH-1" and text.endswith("**Do.** Ask QA.\n") and V.spec_lint(rel, text) == [])
+    stamp({"id": SID, "name": 'the "10-bit" topic', "transcript": None})
+    props, text = stamped()
+    check("stamping again after a /rename replaces the name; a quote in it cannot break the property",
+          props.get("session-name") == "the '10-bit' topic" and text.count("session-name:") == 1 and text.count("session:") == 1
+          and V.front_breaks(V.split_front(text)[0]) == [])
+    stamp({"id": SID, "name": None, "transcript": None})
+    props, text = stamped()
+    check("a session with no name yet is stamped by its id alone", props.get("session") == SID and "session-name" not in props)
+    before = text
+    check("outside a Claude session nothing is written and the verb exits 3", stamp(None) == 3 and stamped()[1] == before)
+    V.SITE = site_was
+
 lk = V.Linker({}, {}, "https://j", ["MH"])
 check("a key with a leading zero is a customer's id, not a ticket: left unlinked inside a title",
       lk("MH-3891 [FloSports MH-030] Share profiles") == "[MH-3891](https://j/browse/MH-3891) [FloSports MH-030] Share profiles")

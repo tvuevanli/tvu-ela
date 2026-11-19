@@ -119,6 +119,7 @@
                                    live session holds is refused; the layout goes to <runtime>/sessions/; needs zellij
   ela session close <name>         end a live session: its Claude process, then its pane; the registry says closed by desk
   ela session list                 the sessions on this machine, newest first: name, cwd, started, ended, purpose
+  ela session here [--json]        this session's id and /rename name
   ela session usage [--since 7d] [--by kind|name|day|cwd|model] [--top 10] [--json]
                                    what the sessions cost, from Claude Code's transcripts: tokens (cache read and write,
                                    input, output), the recorded cost, turns, tools and skills, grouped; the costliest listed
@@ -204,7 +205,8 @@
   ela vault finish PATH [--to drop|archive]   on your word: close a note into the archive, kept
   ela vault lint [--fix [--apply]]  every note against its type's spec (the readme's Note standards), one line per
                                    deviation; --fix normalises a title's quoting, links and alias, a dry run unless --apply
-  ela note claim|release|progress|built|move PATH   a note's life from any session: claim it, record progress, mark it built, move it
+  ela note claim|release|stamp|progress|built|move PATH   a note's life from any session: claim it, stamp the session
+                                   (id and /rename name) on it, record progress, mark it built, move it
   ela vault marks [--dry-run]      finish the to-read notes whose done or drop box you ticked
   ela vault afterwards [--since D] [--json]   what happened after a note left to-read (its posted threads' replies, its
                                    keys' moves), one dated line a day under its Afterwards; the runner calls it at 13:00, 17:30, 19:00
