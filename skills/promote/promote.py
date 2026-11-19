@@ -159,13 +159,13 @@ def mail_lane_rows(gaps, why, code=None):
 
 
 def read_host(env_file, host, gaps):
-    """All lane rows a host publishes; for the qa host that does not admit ela, the mail rows (mail_lane_rows); None
-    (and a gap) when the host is unreadable."""
+    """All lane rows a host publishes; for the qa host, which is not read, the mail rows (mail_lane_rows); None (and a
+    gap) when the host is unreadable."""
+    if host == "qa":                                        # QA's report mails and the release channel (release.QA_NOT_READ)
+        return mail_lane_rows(gaps, "the QA host is not read")
     try:                                                    # the store answers without a login; a live read logs in
         return R.lane_versions(R.LazyUS(env_file, host))
-    except SystemExit as e:                                 # the qa host answers the login call with exit 4 from the read
-        if host == "qa":
-            return mail_lane_rows(gaps, "qa login failed" if e.code == 4 else f"read failed (exit {e.code})", e.code)
+    except SystemExit as e:
         gaps.append({"kind": "host_unreadable", "host": host, "detail": "no session — run: ela login tvu" if e.code == 4 else f"read failed (exit {e.code})",
                      "exit": e.code}); return None
 
@@ -853,6 +853,8 @@ def collect_bundles(a, gaps):
     for role, key in ((f_role, "from"), (t_role, "to")):
         host = "qa" if role == "qa" else "prod"
         what = f"the official MediaHub {a.line} bundle" if role == "prod" else f"{bl}{toks.get(role, '?')}*"
+        if host == "qa":                                    # the QA host is not read: QA's bundle is not compared
+            gaps.append({"kind": "qa_bundle_not_read", "detail": f"{what}: {R.QA_NOT_READ}"}); continue
         say(f"bundle {what} on {host}")
         try:
             us = R.LazyUS(a.env_file, host)
@@ -863,7 +865,7 @@ def collect_bundles(a, gaps):
             res[key] = {"name": b.get("bundleName"), "id": str(b.get("bundleId")), "created": R.when(b.get("createTime")), "host": host}
             maps[key] = bundle_map(us, b)
         except SystemExit as e:
-            gaps.append({"kind": "host_unreadable", "host": host, "detail": "no session — run: ela login tvu" if host == "prod" else "qa login failed", "exit": e.code})
+            gaps.append({"kind": "host_unreadable", "host": host, "detail": "no session — run: ela login tvu", "exit": e.code})
     if "from" in maps and "to" in maps:
         fm, tm = maps["from"], maps["to"]
         res["saas_rows"] = sorted(n for n in set(fm) | set(tm) if not n.lower().startswith("docker"))   # mirror the lanes; not bundle content

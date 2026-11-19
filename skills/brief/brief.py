@@ -1137,13 +1137,14 @@ def region_lane(subject):
 
 
 def lane_hosts(env):
-    """The release hosts a lanes read asks: qa and prod, and the China region's own host once the site names it and
-    the release map its service ids. Until then China's lanes stand on QA's reports, as before."""
+    """The release hosts a lanes read asks: prod, and the China region's own host once the site names it and the
+    release map its service ids. The QA host is not read (release.QA_NOT_READ): the QA lanes stand on QA's report
+    mails and the release channel, as China's do until its host is named."""
     try:
         china = not R.cn_missing(env[1] if len(env) > 1 else None) and bool(R.host_service_ids("cn"))
     except SystemExit:
         china = False
-    return ("qa", "prod") + (("cn",) if china else ())
+    return ("prod",) + (("cn",) if china else ())
 
 
 def host_lane_rows(env, host, errors):
@@ -1417,7 +1418,7 @@ def changes_facts(args):
         cm["lanes"] = reached.get(cm["sha"], [])
     # bundles created in the window
     bundles = []
-    for host in ("qa", "prod"):
+    for host in ("prod",):                                 # the QA host is not read (release.QA_NOT_READ)
         try:
             for b in run_json(["python3", RELEASE, *env, "bundles", "--host", host, "--limit", "15", "--json"], timeout=120)["bundles"]:
                 if in_window(R.when(b.get("createTime")), win):
@@ -2477,6 +2478,9 @@ def line_matrix(line, args, env, rows, before, tested, pins, cand_doc, errors):
     toks = cfg.get("bundle_lanes") or {}
     for role, lane in zip(roles, lanes):
         host = "qa" if role == "qa" else "prod"
+        if host == "qa":                                    # the QA host is not read (release.QA_NOT_READ)
+            bundle[lane] = {"text": "QA host not read"}
+            continue
         newest = max((built_at(r["version"]) or "" for r in rows if r.get("lane") == lane and is_lane_row(r)), default="")
         try:
             b, how = None, "token"

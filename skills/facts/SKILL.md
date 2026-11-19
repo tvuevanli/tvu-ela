@@ -23,9 +23,9 @@ user-invocable: true
 A verb serves the store while the source's watermark is younger than `ELA_FACTS_MAX_AGE` hours (default 6) and
 says so on stderr with the read time. A gap (a host that refused, Jenkins down) keeps the previous content and is
 recorded in the watermark; the serving verb then answers as the live read would (the lanes' exit 4, an empty
-list) and names the last good read. A host login refused as not admitted is said in the gap (`qa: exit 4, account
-not admitted (0x80060018)`): for the qa host that is the standing state since 2026-11-04, which `ela doctor` names as
-a state and never as a gap to repair; the read is still tried on every pass. `ela facts status` prints each source's
+list) and names the last good read. A host login refused as not admitted is said in the gap (`cn: exit 4, account
+not admitted (0x80060018)`). The qa host is not read at all (release `SKILL.md`): its lanes come from QA's report
+mails and the release channel. `ela facts status` prints each source's
 time, freshness, size and gap.
 
 A chain is proven only by a graph bound to its creator and its gateway; until one is, the row says "last layer

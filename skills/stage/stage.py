@@ -220,7 +220,7 @@ def cache_dir():
 def lane_signature(env_file):
     """A hash of every lane's version on both hosts; any build change on any lane changes it."""
     parts = []
-    for host in ("prod", "qa"):
+    for host in ("prod",):                      # the QA host is not read (release.QA_NOT_READ)
         ok, d, err = P.l1("release", "envs", "--host", host, env_file=env_file, timeout=180)
         rows = (d or {}).get("rows") or []
         parts += sorted(f"{host}:{r.get('service')}:{r.get('lane')}:{r.get('version')}" for r in rows if r.get("lane"))

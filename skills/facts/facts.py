@@ -321,10 +321,10 @@ def refresh_builds(env_file, full):
         if gap:
             gaps.append(f"{job}: {gap}")
     lines = R.rmap("lines") or {}
-    wanted = {("qa", "mh2.1@"), ("prod", "mh2.1@")}
+    wanted = {("prod", "mh2.1@")}                           # the QA host is not read (release.QA_NOT_READ)
     for line, cfg in lines.items():
         if cfg.get("bundle_line"):
-            wanted |= {("qa", cfg["bundle_line"]), ("prod", cfg["bundle_line"])}
+            wanted.add(("prod", cfg["bundle_line"]))
         if (cfg.get("lanes") or {}).get("prod"):
             wanted.add(("prod", f"MediaHub {line}"))
     if cn_state(R, env_file) != "not configured":           # the China host's own list, under its own query and directory

@@ -281,7 +281,7 @@ def lane_rows(env_file, slug, host):
         elif rc == 3:
             _ENVS[(slug, host)] = ([], None)
         elif rc == 4:
-            _ENVS[(slug, host)] = ([], f"{host} lanes unread — no session (ela login {'tvu' if host == 'prod' else 'qa'})")
+            _ENVS[(slug, host)] = ([], f"{host} lanes unread — no session (ela login tvu)")
         else:
             _ENVS[(slug, host)] = ([], f"{host} lanes unread (exit {rc}): {(err or out).strip()[:120]}")
     return _ENVS[(slug, host)]
@@ -395,7 +395,7 @@ def chain(a, key, repos_cache, builds_cache):
     for slug, bs in carriers.items():
         rec["draft"] += draft_values(slug, bs)
         shas, builds, is_anc = found[slug]
-        for host in ("qa", "prod"):
+        for host in ("prod",):                     # the QA host is not read (release.QA_NOT_READ)
             rows, gap = lane_rows(a.env_file, slug, host)
             if gap:
                 if gap not in rec["gaps"]:

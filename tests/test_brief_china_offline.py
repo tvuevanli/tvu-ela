@@ -22,11 +22,11 @@ missing = ["site.json services.userservice-cn.url"]
 R.cn_missing = lambda env_file=None: list(missing)
 
 # ── which hosts a lanes read asks ────────────────────────────────────────────────────────────────────
-check("an unconfigured site reads qa and prod, as before", B.lane_hosts([]) == ("qa", "prod"))
+check("an unconfigured site reads prod only: the QA host is not read", B.lane_hosts([]) == ("prod",))
 missing.clear()
-check("configured but no ids in the map: still qa and prod", B.lane_hosts([]) == ("qa", "prod"))
+check("configured but no ids in the map: still prod only", B.lane_hosts([]) == ("prod",))
 R._MAP["regions"]["china"]["userservice"] = {"service_ids": {"svc": [["mediahub-backend", "backendVersion"]]}}
-check("configured and mapped: the China host joins", B.lane_hosts(["--env-file", "x"]) == ("qa", "prod", "cn"))
+check("configured and mapped: the China host joins", B.lane_hosts(["--env-file", "x"]) == ("prod", "cn"))
 
 CN_ROWS = [{"service": "mediahub-backend", "tag": "MediaHubProd2", "lane": "prod-2-china", "version": "v2.1.26 build256 2026-10-20 08:00:00", "updated": "2026-10-21 09:00"},
            {"service": "mediahub-backend", "tag": "MediaHubGray", "lane": None, "version": "v2.1.30 build260 2026-10-28 08:00:00", "updated": "2026-10-28 09:00"}]
@@ -49,7 +49,7 @@ by = {(r["host"], r.get("lane")): r for r in rows}
 check("Prod2 is two rows, one per host, never one", by[("prod", "prod-2")]["version"].startswith("v1.5.9") and by[("cn", "prod-2-china")]["version"].startswith("v2.1.26"))
 check("a China tag the map does not name is kept out of the lanes and counted", ("cn", None) not in by
       and any(e["source"] == "versions cn" and "1 tag(s)" in e["error"] for e in errors))
-check("a host that refuses leaves the others read", read == {"prod": True, "cn": True} and any(e["source"] == "versions qa" for e in errors))
+check("the QA host is never asked", read == {"prod": True, "cn": True} and not any(c[c.index("--host") + 1] == "qa" for c in asked))
 carried = B.merge_lane_rows([], {}, rows, [], "2026-11-13T10:00:00+08:00")
 check("a China row the next read misses is carried, like the other hosts'", [r["state"] for r in carried if r["host"] == "cn"] == ["carried"])
 

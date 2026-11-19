@@ -133,8 +133,8 @@ check("the three standing searches are indexed", set(idx) == {"release", "test-r
 check("every id is stored once", sorted(f[:-5] for f in os.listdir(F.store_dir("mail", "messages"))) == ["m1", "m2", "m3", "m4"])
 lanes = F.read_json(os.path.join(F.store_dir("lanes"), "envs-prod.json"))
 check("the prod lanes are stored with their read time", lanes and lanes["rows"][0]["lane"] == "prod-3" and lanes.get("at"))
-qa = F.read_json(os.path.join(F.store_dir("lanes"), "envs-qa.json"))
-check("the refused qa host is a gap with its exit code", qa and qa.get("gap", {}).get("exit") == 4 and "qa" in F.watermark("lanes").get("gap", {}).get("why", ""))
+check("the qa host is not read: no store file, no gap", not os.path.exists(os.path.join(F.store_dir("lanes"), "envs-qa.json"))
+      and "qa" not in str(F.watermark("lanes").get("gap") or ""))
 check("Jenkins and the bundles are stored", F.read_json(os.path.join(F.store_dir("builds"), "media-hub-v4.json"))["builds"][0]["number"] == 300
       and F.read_json(os.path.join(F.store_dir("builds", "bundles", "prod"), "mh2.1@.json"))["bundles"])
 
@@ -185,7 +185,6 @@ check("a date-bounded standing query filters by the message date", hit and [r["i
 check("a from: query is not servable", M.servable("after:2026/10/01 (from:qa@example OR subject:(test report MediaHub))") is None)
 check("in:sent is the third standing search", M.stored_search("in:sent newer_than:10d", 20)[0][0]["id"] == "m3")
 check("the prod lanes serve the store", R.stored_envs("prod")["rows"][0]["version"].startswith("v2.1.36"))
-check("the qa gap is served as the live read's exit", (R.stored_envs("qa") or {}).get("gap", {}).get("exit") == 4)
 check("Jenkins serves the store at the stored depth, and deeper when the job has no more builds", R.stored_builds("media-hub-v4", 80) is not None and R.stored_builds("media-hub-v4", 81) is not None)
 F.write_json(os.path.join(F.store_dir("builds"), "media-hub-v4.json"), {"at": F.now_iso(), "job": "media-hub-v4", "service": "x", "limit": 20, "builds": [{}] * 20})
 check("a request deeper than a full stored read is not served", R.stored_builds("media-hub-v4", 21) is None and R.stored_builds("media-hub-v4", 20) is not None)

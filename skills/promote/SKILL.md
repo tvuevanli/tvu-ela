@@ -21,9 +21,9 @@ $P close                                                                        
 ```
 `<line>` is a key of `<elak>/map/release.yaml lines`; `<from>`/`<to>` are lane roles (qa · daily · prod) or lane
 names. Exit 3 means a lane could not be read — for daily/stage/prod that is the person's TVU session: tell Evan
-to type `! ela login tvu` and stop; never read a cache or another system's file instead. The qa host is the exception
-since 2026-11-04 (the QA environment no longer admits ela's account): a QA lane's rows then come from QA's report mails
-and the day's release thread, as the brief keeps them in the last saved lane read (`host: mail`, `reported` or
+to type `! ela login tvu` and stop; never read a cache or another system's file instead. The qa host is not read
+(the QA environment admits no developer account since 2026-11-04; the owner's decision, 2026-11-19): a QA lane's rows
+come from QA's report mails and the release channel, as the brief keeps them in the last saved lane read (`host: mail`, `reported` or
 `built`), the gap `host_from_mail` names the source and its newest time (a medium finding, not a stop), and the
 version table's `source` column says so per service. With no report or release naming the lanes it is unreadable as
 before.

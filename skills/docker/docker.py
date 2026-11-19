@@ -212,6 +212,8 @@ def read_lanes(env, gaps):
                 continue
             host = "qa" if role == "qa" else "prod"
             row = {"line": line, "role": role, "lane": lane, "host": host, "bundle": None, "images": None, "error": None}
+            if host == "qa":                                # not read (release.QA_NOT_READ)
+                out.append(dict(row, error="QA host not read")); continue
             try:
                 got = B.lane_bundles(env, line, role, host, cfg)
                 if got:
@@ -221,7 +223,7 @@ def read_lanes(env, gaps):
                     row["error"] = "no bundle for this lane"
             except (B.LaneError, subprocess.TimeoutExpired, ValueError, KeyError) as e:
                 why = str(e).split("{")[0].strip()[:120] or type(e).__name__
-                row["error"] = "not readable: QA no longer admits ela's account" if host == "qa" else f"not readable: {why}"
+                row["error"] = f"not readable: {why}"
             if row["error"]:
                 gaps.append(f"{lane} ({line} {role}): {row['error']}")
             out.append(row)

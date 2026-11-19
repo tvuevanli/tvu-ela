@@ -2,12 +2,12 @@
 """Release facts, read first-hand — userservice on its three hosts (GM bundles, lane versions), Jenkins (builds), the map.
 L1: subcommands, --json, stdlib only. No store, no scheduler: every answer is the source's current state.
 
-  bundles  [line] [--host qa|prod|cn]     GM bundles for a line prefix (default mh2.1@), newest first; without --host
+  bundles  [line] [--host prod|cn]        GM bundles for a line prefix (default mh2.1@), newest first; without --host
                                           every host, each row with its host and read time; --raw: one host as it answers
-  bundle   <name|id> [--host qa|prod|cn]  a bundle's bill of materials (serviceTagList)
+  bundle   <name|id> [--host prod|cn]     a bundle's bill of materials (serviceTagList)
   bundle-diff <A> <B> [--host-a|--host-b] services added, removed and changed from A to B; A and B are a name, an id
                                           or a prefix (newest match wins, the rule printed); Slack searches suggested
-  envs     [service] [--host qa|prod|cn]  versions per lane; tag names mapped to lanes by <elak>/map/release.yaml hosts
+  envs     [service] [--host prod|cn]     versions per lane; tag names mapped to lanes by <elak>/map/release.yaml hosts
                                           (the China host's by regions.china.userservice); without --host every host;
                                           --raw: one host's service list, or a service's tag records, as it answers
   gateway  [service] [--lane L]           versions userservice does not publish (orchestration), per lane, read through
@@ -198,7 +198,12 @@ def _tag_lane(h, tagname):
 # the release map's regions.china.userservice says so, and only a China lane (prod-N-china); anything else is shown as
 # read and marked unmapped. "Prod2" exists on both hosts and is two environments, so nothing read here is ever looked
 # up in hosts.prod, and its facts are kept in files of their own.
-HOSTS = ("qa", "prod", "cn")
+HOSTS = ("prod", "cn")
+# The QA host is not read: since 2026-11-04 it admits no developer account, and a QA lane's versions and bundle come
+# from QA's report mails and the release channel instead (SKILL.md, "Two hosts, two sessions"). Asking for it is
+# answered with this note and no network call, so no caller spends a login and a retry on a standing refusal.
+QA_NOT_READ = ("the QA host is not read: a QA lane's versions come from QA's report mails and the release channel "
+               "(the QA environment admits no developer account since 2026-11-04)")
 CN_SERVICE = "userservice-cn"
 CN_KEYS = ("TVU_CN_ACCOUNT", "TVU_CN_PASSWORD")
 CN_SID = "TVU_CN_SID"
@@ -481,9 +486,11 @@ def write_refused(path, kind):
 
 class US:
     """userservice on one host. qa and cn: account login, renewed by the script. prod: the person's session or nothing."""
-    def __init__(self, env_file, host="qa"):
-        self.kind = host if host in HOSTS else "qa"
+    def __init__(self, env_file, host="prod"):
+        self.kind = host if host in HOSTS + ("qa",) else "prod"
         self.env_file = env_file
+        if self.kind == "qa":
+            print(QA_NOT_READ, file=sys.stderr); sys.exit(EX_USAGE)
         if self.kind == "cn":
             missing = cn_missing(env_file)
             if missing:
@@ -497,9 +504,6 @@ class US:
             self.sid = s.get("sid") if not s.get("rejected_at") else None
             if not self.sid:
                 _need_login("tvu", "missing" if not s.get("sid") else f"refused at {s.get('rejected_at')}")
-        else:
-            self.host = _service_url("userservice-test")
-            self.sid = env_value("TVUTEST_SID", env_file) or account_login(env_file, self.host)
 
     def call(self, path, payload=None):
         why = write_refused(path, self.kind)
@@ -509,7 +513,7 @@ class US:
         if _auth_failed(st, body):
             if self.kind == "prod":
                 _mark_rejected("tvu"); _need_login("tvu", f"refused (HTTP {st})")
-            keys, what = (CN_KEYS, "China") if self.kind == "cn" else (QA_KEYS, "tvutest")
+            keys, what = CN_KEYS, "China"
             self.sid = account_login(self.env_file, self.host, keys, what)   # an account SID lives two hours; log in again once
             st, body = http(self.host + path, payload, cookie=f"SID={self.sid}")
             if _auth_failed(st, body):
@@ -521,8 +525,8 @@ class US:
 
 class LazyUS:
     """A userservice handle that logs in only when a call is made, so a read the store answers costs no login."""
-    def __init__(self, env_file, host="qa"):
-        self.kind = host if host in HOSTS else "qa"
+    def __init__(self, env_file, host="prod"):
+        self.kind = host if host in HOSTS + ("qa",) else "prod"
         self.env_file, self._us = env_file, None
 
     def call(self, path, payload=None):
@@ -1259,14 +1263,14 @@ def neighbour_maps(env_file, line, cls):
     newest on the line's daily token, prod's pinned official (else the newest MediaHub <line>.N)."""
     cfg = (rmap("lines") or {}).get(line.replace("mh", "").rstrip("@")) or {}
     toks, out = cfg.get("bundle_lanes") or {}, {}
-    want = {"daily": ("qa", "prod"), "prod": ("daily",), "official": ("daily",)}.get(cls, ())
+    want = {"daily": ("prod",), "prod": ("daily",), "official": ("daily",)}.get(cls, ())   # QA's bundle: not read
     for role in want:
         try:
             if role == "prod":
                 us = US(env_file, "prod")
                 b = official_bundle(us, line.replace("mh", "").rstrip("@"))
             else:
-                us = US(env_file, "qa" if role == "qa" else "prod")
+                us = US(env_file, "prod")
                 pre = line + toks.get(role, role)
                 rows = [x for x in bundle_list(us, pre, 50) if str(x.get("bundleName") or "").startswith(pre)]
                 b = max(rows, key=lambda x: str(x.get("createTime") or ""), default=None)
@@ -2043,8 +2047,8 @@ def main():
     ap = argparse.ArgumentParser(description="Release facts, first-hand.")
     ap.add_argument("--env-file")
     sub = ap.add_subparsers(dest="cmd", required=True)
-    HOST_HELP = "qa (tvutest, account login), prod (the person's TVU session; ela login tvu) or cn (the China region's host, account login)"
-    def host_arg(p): p.add_argument("--host", choices=HOSTS, default="qa", help=HOST_HELP)
+    HOST_HELP = "prod (the person's TVU session; ela login tvu) or cn (the China region's host, account login)"
+    def host_arg(p): p.add_argument("--host", choices=HOSTS, default="prod", help=HOST_HELP + "; the QA host is not read")
     def hosts_arg(p): p.add_argument("--host", choices=HOSTS, help=HOST_HELP + "; without it every host is read and each row says which")
     RAW_HELP = "one host's answer as it is, names quoted as read, nothing mapped; needs --host (the first read of the China host)"
     p = sub.add_parser("bundles"); p.add_argument("line", nargs="?", help=f"a name prefix; default {DEFAULT_LINE} (.com) and the map's regions.china.userservice.bundle_line (cn)"); p.add_argument("--limit", type=int, default=50); hosts_arg(p); p.add_argument("--fresh", action="store_true", help="read the host now instead of the store"); p.add_argument("--raw", action="store_true", help=RAW_HELP); p.add_argument("--json", action="store_true")
@@ -2052,7 +2056,7 @@ def main():
     p = sub.add_parser("bundle-diff", help="docker services added, removed and changed between two bundles")
     p.add_argument("a", help="bundle A: exact name, id, or a prefix (mh2.0@rc-s5, or '2.0 rc-s5') — the newest match wins")
     p.add_argument("b", help="bundle B, resolved the same way")
-    for side in ("a", "b"): p.add_argument(f"--host-{side}", choices=HOSTS, default="qa", help=f"host bundle {side.upper()} is read from (default qa)")
+    for side in ("a", "b"): p.add_argument(f"--host-{side}", choices=HOSTS, default="prod", help=f"host bundle {side.upper()} is read from (default prod)")
     p.add_argument("--json", action="store_true")
     p = sub.add_parser("envs"); p.add_argument("service", nargs="?"); hosts_arg(p); p.add_argument("--fresh", action="store_true", help="read the host now instead of the store"); p.add_argument("--raw", action="store_true", help=RAW_HELP + ": its service list, or with a service its tag records"); p.add_argument("--json", action="store_true")
     p = sub.add_parser("gateway", help="versions userservice does not publish (orchestration), read per lane through the API gateways; no login")
@@ -2078,7 +2082,7 @@ def main():
     p.add_argument("--batch", action="store_true", help="the Fixed In appends and labels through the jira verbs; dry run unless --apply")
     p.add_argument("--apply", action="store_true"); p.add_argument("--no-save", action="store_true", help="keep no reading and raise no question")
     p.add_argument("--json", action="store_true")
-    p = sub.add_parser("login"); p.add_argument("target", nargs="?", choices=("qa", "tvu", "cn"), default="qa"); p.add_argument("--force", action="store_true"); p.add_argument("--no-browser", action="store_true"); p.add_argument("--timeout", type=int, default=300); p.add_argument("--json", action="store_true")
+    p = sub.add_parser("login"); p.add_argument("target", nargs="?", choices=("qa", "tvu", "cn"), default="tvu"); p.add_argument("--force", action="store_true"); p.add_argument("--no-browser", action="store_true"); p.add_argument("--timeout", type=int, default=300); p.add_argument("--json", action="store_true")
     p.add_argument("--keepalive", action="store_true", help="tvu: one validation call that renews the session's idle TTL; never logs in, never retries")
     a = ap.parse_args()
     {"bundles": cmd_bundles, "bundle": cmd_bundle, "bundle-diff": cmd_bundle_diff, "envs": cmd_envs, "gateway": cmd_gateway, "builds": cmd_builds, "drift": cmd_drift, "login": cmd_login, "pin": cmd_pin, "unpin": cmd_unpin, "pins": cmd_pins,

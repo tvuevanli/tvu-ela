@@ -19,23 +19,16 @@ check("UR exit 3 (no graphs of mine) is ok", D.classify("ur", 3, "", "no graphs"
 check("Sentry exit 4 is a warn (no token yet)", D.classify("sentry", 4, "", "no SENTRY_TOKEN")[0] == D.WARN)
 st, detail, action = D.classify("browser", 4, "", "no cookies")
 check("browser exit 4 fails with the login action", st == D.FAIL and "ela login tvu --force" in action)
-refusal = "tvutest login failed: HTTP 200 {'errorCode': '0x80060018', 'errorInfo': \"This account hasn't been activated\", 'result': None}"
-st, detail, action = D.classify("lanes", 4, "", refusal)
-check("the QA host not admitting the account is a warn that names the state and where QA versions come from, no action",
-      st == D.WARN and "a state, not a fault" in detail and "2026-11-04" in detail and "report mails" in detail and action == "")
-st, detail, action = D.classify("lanes", 4, "", "tvutest login failed: HTTP 200 {'errorCode': '0x80060004', 'errorInfo': 'wrong password', 'result': None}")
-check("another error code from the QA login still fails, quotes the server and names the keys",
-      st == D.FAIL and "0x80060004" in detail and "TVUTEST_ACCOUNT" in action)
-check("the QA lanes probe with no account in the env file still fails",
-      D.classify("lanes", 4, "", "no TVUTEST_ACCOUNT / TVUTEST_PASSWORD in the env file")[0] == D.FAIL)
-check("the QA lanes probe failing remotely or timing out still fails",
-      D.classify("lanes", 5, "", refusal)[0] == D.FAIL and D.classify("lanes", None, "", "", timeout=30)[0] == D.FAIL)
-check("the same refusal on another host is a failure: only the QA host's is the known state",
-      D.classify("lanes-cn", 4, "", refusal.replace("tvutest", "China"))[0] == D.FAIL)
+refusal = "China login failed: HTTP 200 {'errorCode': '0x80060018', 'errorInfo': \"This account hasn't been activated\", 'result': None}"
+st, detail, action = D.classify("lanes", 4, "", "no tvu session")
+check("the lanes probe without a prod session fails with the login action", st == D.FAIL and action == "ela login tvu")
+check("the lanes probe failing remotely or timing out fails",
+      D.classify("lanes", 5, "", "HTTP 503")[0] == D.FAIL and D.classify("lanes", None, "", "", timeout=30)[0] == D.FAIL)
+check("a refusal on the China host is a failure", D.classify("lanes-cn", 4, "", refusal)[0] == D.FAIL)
 st, detail, action = D.classify("lanes-cn", 2, "", "China host not configured: add site.json services.userservice-cn.url")
 check("the China host not configured is a warn, never a failure", st == D.WARN and "not configured" in detail)
 check("a China login refusal names its key", "TVU_CN_ACCOUNT" in D.classify("lanes-cn", 4, "", "China login failed")[2])
-check("the QA lanes probe names its host, so the every-host default cannot pass for it", D.SENSES["lanes"][1][:3] == ["envs", "--host", "qa"])
+check("the lanes probe reads prod, never the QA host", D.SENSES["lanes"][1][:3] == ["envs", "--host", "prod"])
 cn = D.china_checks(["site.json services.userservice-cn.url", "TVU_CN_ACCOUNT / TVU_CN_PASSWORD in the env file"])
 check("the China host's missing names are one line each, as warns", [c["status"] for c in cn] == [D.WARN, D.WARN]
       and "services.userservice-cn.url" in cn[0]["detail"] and "ela secret TVU_CN_ACCOUNT" in cn[1]["action"] and D.china_checks([]) == [])

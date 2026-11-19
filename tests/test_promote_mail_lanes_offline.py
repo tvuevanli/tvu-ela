@@ -47,8 +47,8 @@ with tempfile.TemporaryDirectory() as d:
         res = P.collect_lanes(a, gaps)
         be = next(s for s in res["services"] if s["service"] == "mediahub-backend")
         ur = next(s for s in res["services"] if s["service"] == "unified-streaming")
-        check("the qa host's login failure is a gap that names the source, not an unreadable host",
-              [g["kind"] for g in gaps] == ["host_from_mail"] and "qa login failed" in gaps[0]["detail"] and "newest 2026-11-04 17:40" in gaps[0]["detail"])
+        check("the qa host is not read: a gap that names the source, not an unreadable host",
+              [g["kind"] for g in gaps] == ["host_from_mail"] and "the QA host is not read" in gaps[0]["detail"] and "newest 2026-11-04 17:40" in gaps[0]["detail"])
         check("the from-lane rows are QA's report and the release, each with its source and time",
               be["from"]["host"] == "mail" and be["from"]["source"] == "QA reported 11-03 19:07" and be["from"]["at"] == REPORTED["at"]
               and ur["from"]["source"] == "built 11-04 17:40 (release thread), no QA report" and be["relation"] == "from_ahead")

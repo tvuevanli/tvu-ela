@@ -86,7 +86,7 @@ check("unconfigured: the .com answer stands, exit 0", code == 0 and {b["host"] f
 check("unconfigured: said once, as a note, never a gap", err.count("China host not configured") == 1 and len(j["notes"]) == 1
       and all(g["host"] != "cn" for g in j["gaps"]) and "services.userservice-cn.url" in j["notes"][0] and "TVU_CN_ACCOUNT" in j["notes"][0])
 check("unconfigured: the China host is never called", not any(u.startswith(URL["cn"]) for u in asked))
-check("a .com host that refuses is a gap beside whole rows", [g["host"] for g in j["gaps"]] == ["qa"] and "not read: qa" in err)
+check("the QA host is not read: never asked, no gap", j["gaps"] == [] and not any(u.startswith(URL["qa"]) for u in asked))
 check("every row says its host and when it was read", all(b.get("host") and b.get("read_at") for b in j["bundles"]))
 code, out, err = run(R.cmd_bundles, host="cn")
 check("unconfigured: --host cn exits 2 with the same line", code == R.EX_USAGE and err.startswith("China host not configured: add ") and not out)
@@ -171,7 +171,7 @@ down.add("cn")
 code, out, err = run(R.cmd_bundles)
 j = json.loads(out)
 check("a failed China read leaves the .com rows whole and says so", code == 0 and [b["bundleName"] for b in j["bundles"]] == ["mh2.1@daily-wed-s1-d60"]
-      and [g["host"] for g in j["gaps"]] == ["qa", "cn"] and "not read: cn — " in err and "the other hosts' rows are whole" in err)
+      and [g["host"] for g in j["gaps"]] == ["cn"] and "not read: cn — " in err and "the other hosts' rows are whole" in err)
 code, out, err = run(R.cmd_envs)
 check("the same for versions", code == 0 and {r["host"] for r in json.loads(out)["rows"]} == {"prod"} and "not read: cn" in err)
 code, out, err = run(R.cmd_bundles, host="cn")
