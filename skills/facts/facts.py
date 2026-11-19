@@ -39,7 +39,7 @@ import argparse, datetime, json, os, sys, time
 HERE = os.path.dirname(os.path.realpath(__file__))
 SKILLS = os.path.dirname(HERE)
 SITE = os.path.expanduser("~/.claude/ela/site.json")
-SOURCES = ("jira", "slack", "mail", "lanes", "builds", "runtime")
+SOURCES = ("jira", "slack", "mail", "lanes", "builds", "runtime", "tvukb")
 EX_USAGE, EX_REMOTE = 2, 5
 JIRA_HORIZON_DAYS = 14          # how far back the Jira sweep keeps changed issues (recent's 7 days, Monday's 72 hours)
 SLACK_HORIZON_DAYS = 8          # the window of parents re-read each pass, so a reply to an older thread is seen
@@ -361,8 +361,42 @@ def refresh_runtime(env_file, full):
             + (f" — gaps: {'; '.join(out['gaps'])}" if out["gaps"] else "") + f", {time.time() - t0:.1f}s")
 
 
+TVUKB = ("media", "tvu-kb")      # the media team's knowledge base checkout, under <code>; skills/tvukb calls its bin/kb
+
+
+def tvukb_checkout():
+    return os.path.join(site().get("code") or os.path.join(site().get("projects", ""), "code"), *TVUKB)
+
+
+def refresh_tvukb(env_file, full):
+    """The tvu-kb checkout brought to its origin: fetch and fast-forward, nothing else. Its build history and catalogue
+    move several times a day (a Jenkins post-build hook commits them), so an image tag read from a stale checkout maps
+    to the wrong commit. Nothing of it is copied into the store: the watermark holds the revision and the read time."""
+    import subprocess
+    t0, path = time.time(), tvukb_checkout()
+    def git(*args, timeout=120):
+        r = subprocess.run(["git", "-C", path, *args], capture_output=True, text=True, timeout=timeout)
+        return r.returncode, (r.stdout or r.stderr).strip()
+    if not os.path.isdir(os.path.join(path, ".git")):
+        raise SystemExit(f"no checkout at <code>/{'/'.join(TVUKB)} (ela map sync clones it)")
+    before = git("rev-parse", "HEAD")[1]
+    rc, out = git("fetch", "-q", "origin")
+    if rc:
+        raise SystemExit(f"fetch failed: {out[-160:]}")
+    branch = git("rev-parse", "--abbrev-ref", "HEAD")[1]
+    rc, out = git("merge", "-q", "--ff-only", f"origin/{branch}")
+    rev = git("rev-parse", "HEAD")[1]
+    set_watermark("tvukb", at=now_iso(), rev=rev, seconds=round(time.time() - t0, 1))
+    if rc:                                                  # local commits or changes: served at its own revision, said
+        set_gap("tvukb", f"not fast-forwarded to origin/{branch}: {out[-160:]}", partial=True)
+    else:
+        clear_gap("tvukb")
+    moved = f"{before[:8]} → {rev[:8]}" if before != rev else f"{rev[:8]}, unchanged"
+    return f"tvukb: {moved}" + (" — not fast-forwarded" if rc else "") + f", {time.time() - t0:.1f}s"
+
+
 REFRESH = {"jira": refresh_jira, "slack": refresh_slack, "mail": refresh_mail, "lanes": refresh_lanes, "builds": refresh_builds,
-           "runtime": refresh_runtime}
+           "runtime": refresh_runtime, "tvukb": refresh_tvukb}
 
 
 def links_update():

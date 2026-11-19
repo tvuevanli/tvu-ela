@@ -113,9 +113,16 @@ def fake_http(url, payload=None, cookie=None, timeout=20):
                              "actions": [{"lastBuiltRevision": {"branch": [{"name": "release", "SHA1": "abc123abc123abc"}]}}]}]}
 R.http = fake_http
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import tvukb_fixture as KBX  # noqa: E402
+kb_work, kb_clone = KBX.make(TMP)
+F.tvukb_checkout = lambda: kb_clone
+
 # ── the first refresh ───────────────────────────────────────────────────────────────────────────────
 class A: env_file = None; source = None; fresh = False; json = False
 F.cmd_refresh(A())
+check("the tvu-kb checkout's revision is its watermark", F.watermark("tvukb").get("rev") == KBX.head(kb_clone) and not F.watermark("tvukb").get("gap"))
+KBX.push(kb_work)
 first = {s: dict(F.watermark(s)) for s in F.SOURCES}
 check("every source has a watermark with a read time", all(first[s].get("at") for s in F.SOURCES))
 check("the links index follows a refresh", len(LINKS_CALLS) == 1)
@@ -142,6 +149,7 @@ check("Jenkins and the bundles are stored", F.read_json(os.path.join(F.store_dir
 before = dict(calls)
 F.cmd_refresh(A())
 second = {s: dict(F.watermark(s)) for s in F.SOURCES}
+check("the next pass fast-forwards the checkout to its origin", KBX.head(kb_clone) == KBX.head(kb_work) and second["tvukb"]["rev"] == KBX.head(kb_work))
 check("the Jira watermark moves forward (since follows the last read)", second["jira"]["since"] >= first["jira"]["since"] and second["jira"]["at"] >= first["jira"]["at"])
 check("no key is re-read when nothing moved since the sweep", second["jira"]["reread"] == 0)
 check("no stored mail is fetched again", calls["mail"] - before["mail"] == 3)

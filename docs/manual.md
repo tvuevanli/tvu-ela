@@ -79,6 +79,7 @@ flowchart LR
 | 「YouTube 源用的人多吗」「有哪些外部用户在用 Web Emulator」：某种节点最近 N 天谁在用、趋势如何（按建 graph 的次数算，不是时长；只读一个环境，prod2 没有 v2 读不到） | `graph` | `ela usage youtube --days 30 --external` · `ela usage --types`（先从数据里找到节点类型名）· `--by day\|user` · `--json` |
 | 有人甩来一个 graph id / process id / object id | `graph` · `object` | `ela 01M1GD1F…` · `ela <32位十六进制>` · `ela <19位数字>` |
 | 「这个修复上 daily 了吗」「prod-3 是什么版本」 | `release` | `ela versions` · `ela bundles` · `ela builds <job>` · `ela drift` |
+| 「prod-3 上的 copier 有没有这个修复」「copier:1.0.90 是哪个 commit 编的」：媒体镜像 tag 或程序版本 → 那次构建的各模块 commit（媒体组的 tvu-kb，在它的 checkout 里跑，每个回答带 `tvu-kb@<sha>`）；再到 ela 自己的 checkout 里按那个 commit 看代码 | `tvukb` | `ela tvukb image copier:1.0.90` · `ela tvukb version <程序> <版本>` · `ela tvukb find mixer` · `ela tvukb status` · `/ela:tvukb` |
 | 从一个 bundle 出发建新 bundle（只建，绝不删）：先看和底版的差异、自动写的说明、各 lane 版本顺序（QA ≥ daily ≥ prod）的警告，我同意后再建，建完按名字读回核对 | `release` | `ela release create --from mh2.1@daily-wed-s1-d45 --set "Docker Encoder=1.0.56"` · 加 `--apply` 才建 |
 | 一条 lane 换了 build，每个服务改了什么、为了什么：每个服务一行（旧版本 → 新版本：用途，最多 15 个词，票号在后），早报会话每个 build 写一次记录，today.md 的 Releases 和 vault 里这条线的 release note 都读它 | `release` | `ela release changes qa-cn3`（或 `QA-AWS3`）· `--json` · `--check <记录文件>` |
 | 一个 build 发完后 Jira 对不对账：每张票有没有覆盖这个 build 版本的 Fixed In（裸版本和 `+BUILD` 算同一个修复）、有没有 release 标签、状态和经办人是不是 thread 里宣布的；revert 并入别的票的，记成开放问题给票的经办人。结果写进 release note 的 Jira gaps 表；同一个 agent 三个 build 犯同一种漏，记成一个开放问题给它的主人，附一段由你发的消息 | `release` | `ela release reconcile qa-cn3 --build 91`（只读）· `--batch`（补写 Fixed In 和标签，只追加，dry run；你说了再 `--apply`）· `--json` |

@@ -24,6 +24,8 @@
   ela gdoc read|sheet|list|info …  Google Docs/Sheets/Drive, read-only; a docs.google.com URL
                                    alone works
   ela kb search|read|tree …        Outline, the knowledge base (its writes are listed below)
+  ela tvukb image|version|find|card|… the media team's tvu-kb, run in its checkout, headed tvu-kb@<sha>:
+                                   a media image tag or program version → the build's module commits
   ela api <verb> …                 Apifox API definitions, read-only: projects|export|tags|list|
                                    read|schema · ela api read ur "GET /v1beta1/graphs/{graphId}"
   ela figma <verb> …               a Figma design first-hand: me|file|node|comments|image
@@ -307,6 +309,7 @@ VERBS = {
     "testlist": ("testlist", "list"), "devlist": ("testlist", "dev"),
     "verify": ("verify", "report"), "verify-plan": ("verify", "plan"),
     "pick": ("pick", None),
+    "tvukb": ("tvukb", None),
 }
 PROMOTE_SUBS = {"lanes", "commits", "delta", "tickets", "evidence", "bundles", "report", "compare-helm", "constraints", "close", "plan", "proof"}
 
