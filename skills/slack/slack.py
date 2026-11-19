@@ -1248,6 +1248,8 @@ def main():
         return cmd_check(a)
     # An unattended session (ela-runner's headless job, ELA_NO_APPLY=1) may read and dry-run, never write:
     # the owner's word for a write is given in the Slack thread and executed by the runner, not by a model.
+    if os.environ.get("ELA_NO_APPLY") and (a.cmd == "join" or getattr(a, "join", False)):
+        print("refused: joining a channel inside an unattended session (ELA_NO_APPLY); the channel sees it, so it is the owner's word", file=sys.stderr); sys.exit(2)
     if os.environ.get("ELA_NO_APPLY") and getattr(a, "apply", False):
         print("refused: --apply inside an unattended session (ELA_NO_APPLY); the dry run above is the answer, the owner's word applies it", file=sys.stderr); sys.exit(2)
     if a.cmd == "post":
