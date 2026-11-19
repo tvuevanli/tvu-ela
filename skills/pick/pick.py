@@ -243,6 +243,10 @@ def main():
     ap.add_argument("--max", type=int, default=0, metavar="N")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args()
+    if a.file and os.environ.get("ELA_GUEST"):           # a guest's files are its scratch: never the owner's home or roots
+        here, target = os.path.realpath(os.getcwd()), os.path.realpath(os.path.expanduser(a.file))
+        if os.path.commonpath([here, target]) != here:
+            die("refused: a guest session reads files in its own working directory only")
     doc = load(a.file)
     conds = conditions(a.where)
     if not a.paths and not (a.where or a.count or a.json):
