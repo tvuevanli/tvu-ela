@@ -2085,6 +2085,12 @@ def main():
     p = sub.add_parser("login"); p.add_argument("target", nargs="?", choices=("qa", "tvu", "cn"), default="tvu"); p.add_argument("--force", action="store_true"); p.add_argument("--no-browser", action="store_true"); p.add_argument("--timeout", type=int, default=300); p.add_argument("--json", action="store_true")
     p.add_argument("--keepalive", action="store_true", help="tvu: one validation call that renews the session's idle TTL; never logs in, never retries")
     a = ap.parse_args()
+    # An unattended session (ELA_NO_APPLY) reads and dry-runs: a bundle create, a pin or a reconcile batch writes to GM
+    # or commits to elak, and runs on the owner's word through the runner's `apply N`, never from a session.
+    if getattr(a, "apply", False) and os.environ.get("ELA_NO_APPLY"):
+        print(f"refused: {a.cmd} --apply inside an unattended session (ELA_NO_APPLY); the dry run is the answer, the owner's word applies it",
+              file=sys.stderr)
+        sys.exit(2)
     {"bundles": cmd_bundles, "bundle": cmd_bundle, "bundle-diff": cmd_bundle_diff, "envs": cmd_envs, "gateway": cmd_gateway, "builds": cmd_builds, "drift": cmd_drift, "login": cmd_login, "pin": cmd_pin, "unpin": cmd_unpin, "pins": cmd_pins,
      "create": cmd_create, "changes": cmd_changes, "reconcile": cmd_reconcile}[a.cmd](a)
 
