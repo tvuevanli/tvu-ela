@@ -1043,6 +1043,12 @@ def main():
     s.add_argument("--json", action="store_true"); s.set_defaults(func=cmd_undo)
     s = sub.add_parser("acts"); s.add_argument("--class", dest="cls"); s.add_argument("--json", action="store_true"); s.set_defaults(func=cmd_acts)
     a = p.parse_args()
+    # A grant, a seed, a correction or an undo moves what ela may later do on its own: the owner's word, carried by the
+    # runner, never an unattended session's (ELA_NO_APPLY), which could otherwise raise its own autonomy.
+    if a.cmd in ("answer", "seed", "correct", "undo") and os.environ.get("ELA_NO_APPLY"):
+        print(f"refused: dry {a.cmd} inside an unattended session (ELA_NO_APPLY); it is the owner's word, run by the runner",
+              file=sys.stderr)
+        sys.exit(2)
     a.func(a)
 
 

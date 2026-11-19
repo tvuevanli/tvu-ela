@@ -3227,6 +3227,9 @@ def answer_by_letter(reports, slot, letter, today, apply=False):
 
 def cmd_answer(a):
     """`ela vault answer N L`: one letter on today's ask N, from anywhere."""
+    if a.apply and os.environ.get("ELA_NO_APPLY"):          # a letter can grant a class: the owner's, never a session's
+        print("refused: vault answer --apply inside an unattended session (ELA_NO_APPLY); the letter is the owner's", file=sys.stderr)
+        sys.exit(2)
     s = json.load(open(SITE))
     try:
         r = answer_by_letter(s.get("reports") or "", a.slot, a.letter, datetime.date.today(), a.apply)
