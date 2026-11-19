@@ -8,6 +8,7 @@
                             per release line (ela ADR 0012), so Helm and the other machines read the owner's pin
   doc <rel> [--reader …]    <elak>/knowledge/<rel> → <published>/knowledge/<rel>, the elak document verbatim through `redact`
   lanes [--sync] [--json]   <reports>/lanes/ (lanes.md, test-list-*, dev-list-*) → <published>/lanes/, for Helm: pages
+                            (with the newest <runtime>/runner/versions-<date>.json, the desk's lane versions, one copy kept)
                             ela generates, not elak sources, so no manifest row; through `redact`, and a file the
                             content guard's rules flag (a credential, a quoted sentence) is refused with its line;
                             --sync then carries lanes/ alone to `published_remote` (typing it is the confirm); a sync
@@ -720,14 +721,16 @@ def cmd_lanes(a):
         os.makedirs(dst, exist_ok=True)
         tmp = os.path.join(dst, f + ".tmp"); open(tmp, "w", encoding="utf-8").write(text); os.replace(tmp, os.path.join(dst, f))
         done.append(f)
+    versions = publish_versions(s, dst)
     synced = None
     if a.sync:
         synced = sync_lanes(dst)
     if a.json:
-        print(json.dumps({"destination": dst, "published": done, "refused": refused, "cut": cut, "synced": synced},
-                         ensure_ascii=False))
+        print(json.dumps({"destination": dst, "published": done, "versions": versions, "refused": refused, "cut": cut,
+                          "synced": synced}, ensure_ascii=False))
     else:
         print(f"published lanes/ ({', '.join(done) or 'nothing'}) → {dst}")
+        print(f"versions: {versions}")
         for c in cut:
             print(f"published {c['file']} with {c['cut']} quotation(s) left out:\n  " + "\n  ".join(c["rows"]))
         for r in refused:
@@ -736,6 +739,34 @@ def cmd_lanes(a):
             print(f"remote: {synced}")
     if refused:
         sys.exit(EX_USAGE)
+
+
+VERSIONS_FILE = re.compile(r"^versions-\d{4}-\d{2}-\d{2}\.json$")
+
+
+def publish_versions(s, dst):
+    """The newest `<runtime>/runner/versions-<date>.json` (written by `ela changes`) → <published>/lanes/, the one dated copy
+    kept, so a host with no desk — the remote Helm — reads the QA lanes the desk recorded from QA's mails (the QA host
+    refuses the tvutest account since 2026-11-04; release SKILL.md, two hosts). Through `redact`; a file the guard flags
+    for a credential is not published. → a one-line outcome, never an exit: the lane pages are the publication."""
+    runner = os.path.join(s.get("runtime") or "", "runner")
+    names = sorted(f for f in os.listdir(runner) if VERSIONS_FILE.match(f)) if os.path.isdir(runner) else []
+    if not names:
+        return "not published: no versions-<date>.json under <runtime>/runner"
+    name = names[-1]
+    text = redact(open(os.path.join(runner, name), encoding="utf-8").read())
+    if any(why != QUOTED for _, why, _ in guard_flags(text, name)):
+        return f"not published: {name} carries what the guard refuses"
+    try:
+        json.loads(text)
+    except ValueError:
+        return f"not published: {name} is not JSON after redaction"
+    os.makedirs(dst, exist_ok=True)
+    tmp = os.path.join(dst, name + ".tmp"); open(tmp, "w", encoding="utf-8").write(text); os.replace(tmp, os.path.join(dst, name))
+    for old in os.listdir(dst):
+        if VERSIONS_FILE.match(old) and old != name:
+            os.remove(os.path.join(dst, old))
+    return f"published {name}"
 
 
 def sync_lanes(dst):
