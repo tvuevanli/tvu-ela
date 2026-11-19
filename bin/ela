@@ -321,7 +321,28 @@ def site():
         sys.exit("no ~/.claude/ela/site.json — run /ela:setup in a Claude session")
 
 
+# argparse accepts an unambiguous prefix of a long flag (`--ou` for `--out`), so a permission rule that matches the
+# full flag is evaded by a shorter spelling. In an unattended or guest session a shortened spelling of a flag that
+# writes, joins or skips a confirm is refused here, once for every verb; the owner's own terminal is unaffected.
+GUARDED_FLAGS = ("--apply", "--write", "--page", "--out", "--env-file", "--join", "--yes")
+
+
+def abbreviated(args):
+    if not (os.environ.get("ELA_NO_APPLY") or os.environ.get("ELA_GUEST")):
+        return None
+    for x in args:
+        flag = x.split("=", 1)[0]
+        if flag.startswith("--") and len(flag) > 2:
+            for g in GUARDED_FLAGS:
+                if g.startswith(flag) and flag != g:
+                    return f"{flag} (write {g} in full)"
+    return None
+
+
 def run(cap, args, env_file):
+    bad = abbreviated(args)
+    if bad:
+        sys.exit(f"refused: an abbreviated flag inside an unattended session: {bad}")
     script = os.path.join(ROOT, "skills", cap, f"{cap}.py")
     if not os.path.isfile(script):
         sys.exit(f"capability {cap} has no script yet ({script})")
