@@ -113,6 +113,8 @@ def main():
     q = sub.add_parser("status"); q.add_argument("--json", action="store_true")
     q = sub.add_parser("clean"); q.add_argument("--work", action="store_true"); q.add_argument("--json", action="store_true")
     a = p.parse_args()
+    if a.cmd == "clean" and os.environ.get("ELA_NO_APPLY"):   # live sessions keep their working directories here
+        print("refused: runtime clean inside an unattended session (ELA_NO_APPLY)", file=sys.stderr); sys.exit(2)
     {"status": cmd_status, "clean": cmd_clean}[a.cmd](a)
 
 
