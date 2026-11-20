@@ -3752,6 +3752,17 @@ def cmd_meeting(args):
     if dated:                                              # its boxes are the list; the records hold what it rules
         n["items"] = [{"text": V.questions_mod().QID.sub("", b["line"]).split("] ", 1)[1].strip(), "ticked": b["ticked"], "under": []}
                       for b in V.questions_mod().boxes(text)]
+    view = None
+    if records and not dated:                              # no page of its own: the meeting is a view of the focus board
+        try:                                               # (vault plan 2026-11-20-plan-one-focus-board-meetings-as-views)
+            sys.path.insert(0, os.path.join(HERE, "..", "focus"))
+            import focus as FB
+            got = FB.board(site, now=now, write=False)
+            view = next((v for v in got["views"] if v["key"] == args.key), None)
+        except Exception as e:                             # noqa: BLE001 — the list is empty, said once
+            print(f"meeting: the focus board was not read — {str(e)[:120]}", file=sys.stderr)
+        if view:
+            n["items"] = [{"text": FB.row_line(r, "", view["date"], short=True)[0][2:], "ticked": False, "under": []} for r in view["rows"]]
     # the note is shown to the team: its title names the meeting and its next date (`MediaHub team sync · Wed
     # 2026-11-11`); a name written by hand on the note is kept, the date moves with the meeting (2026-11-10)
     hand = (V.props_of(n["front"]).get("title") or "").split(" · ")[0].strip()
@@ -3796,10 +3807,11 @@ def cmd_meeting(args):
     slack = f"*{name} · {when:%a %m-%d} {time_}*\n" + "\n".join(("• " + l[2:]) if l.startswith("- ") else l for l in slack_form(body).splitlines())
     today_mmdd = f"{d:%m-%d}"
     # new: raised today, or raised for this meeting (an item shows no `since` on the day it is for)
-    new = [it["text"] for it in n["items"] if V.meeting_fields(it["text"])["since"] in (today_mmdd, None)]
+    new = [] if view else [it["text"] for it in n["items"] if V.meeting_fields(it["text"])["since"] in (today_mmdd, None)]
     count = len(n["items"])
-    note_rel = f"meetings/{os.path.basename(dated)}" if dated else f"meetings/{args.key}.md"
-    pointer = (f"{name} at {time_} · {count} item{'s' if count != 1 else ''} on [[{note_rel[:-3]}]]"
+    note_rel = f"meetings/{os.path.basename(dated)}" if dated else FB.BOARD if view else f"meetings/{args.key}.md"
+    target = FB.view_anchor(view) + "|its rows on the focus board" if view else note_rel[:-3]
+    pointer = (f"{name} at {time_} · {count} item{'s' if count != 1 else ''} on [[{target}]]"
                + (f" · {len(new)} new today" if new else ""))
     thread = None
     try:
