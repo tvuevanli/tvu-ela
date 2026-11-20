@@ -1108,12 +1108,14 @@ with tempfile.TemporaryDirectory() as tmp:
 
 # closed notes by subject (vault in-progress/2026-11-09-kept-notes-by-subject-cases-and-archive.md)
 H = V.home_for
-check("a work note that serves no project has its thing's home by type, else reference",
+check("a work note that serves no project has its thing's home by type, else reference; never loose at the releases/ root",
       H("to-read/2026-11-05-x-timeline.md", {"type": "case"}) == "cases"
-      and H("to-read/2026-10-21-verify-mh-1.md", {"type": "verify"}) == "releases"
-      and H("to-read/2026-10-29-verify-plan-mh-2.md", {"type": "verify-plan"}) == "releases"
+      and H("to-read/2026-10-21-verify-mh-1.md", {"type": "verify"}, lambda k: None) == "reference"
+      and H("to-read/2026-10-29-verify-plan-mh-2.md", {"type": "verify-plan"}, lambda k: None) == "reference"
+      and H("to-read/2026-11-17-verify-mh-3873-daily-wed.md", {"type": "verify"}, lambda k: None) == "releases/2.1"
+      and H("to-read/2026-11-18-verify-mh-3874-qa-cn3-retest.md", {"type": "verify"}, lambda k: None) == "releases/2.1"
       and H("readings/2026-11-02-promote-2-1-daily-wed-to-prod-3.md", {"type": "review"}) == "releases/2.1"
-      and H("readings/2026-11-03-promote-wed-to-prod-3-docker-check.md", {"type": "review"}) == "releases"
+      and H("readings/2026-11-03-promote-wed-to-prod-3-docker-check.md", {"type": "review"}, lambda k: None) == "reference"
       and H("readings/2026-10-28-mh-2-0-region-hotfix-review.md", {"type": "review"}) == "releases/2.0"
       and H("in-progress/2026-10-27-a.md", {"type": "plan", "target": "ela-runner"}) == "ela"
       and H("in-progress/2026-11-04-b.md", {"type": "plan", "target": "the vault's layout and lint"}) == "ela"
@@ -1164,15 +1166,15 @@ with tempfile.TemporaryDirectory() as t:
     check("tidy is retired with layout 5 and points to migrate", "migrate" in buf.getvalue())
 # release lines (mh/releases/<line>/): the line from the title, else the first key's release label, else the root
 L = {"MH-1": "2.1", "MH-2": None, "MH-5": "2.0"}.get
-check("a release note is filed by the line its title names first, else its first key's label, else the root",
+check("a release note is filed by the line its title names first, else its first key's label, else its lane, else reference/ (never the releases/ root)",
       H("readings/2026-11-02-promote-2-1-daily-wed-to-prod-3.md", {"type": "review", "title": "Promote MH 2.1 Wednesday to prod 3"}, L) == "releases/2.1"
       and H("readings/x-deploy-approvals.md", {"type": "review", "title": "Deploy approvals: MH 2.1 to prod 3, MH 2.0 hotfix to prod 8"}, L) == "releases/2.1"
       and H("readings/2026-10-28-mh-2-0-region-hotfix-review.md", {"type": "review", "title": "MH 2.0 hotfix: region"}, L) == "releases/2.0"
       and H("readings/2026-11-09-mh2-1-daily-wed-to-prod-3.md", {"type": "review", "title": "MH 2.1 · daily-wed → prod-3 · release note"}, L) == "releases/2.1"
       and H("to-read/2026-10-21-verify-mh-1.md", {"type": "verify", "title": "MH-1 · FAIL on prod-3", "keys": "MH-1"}, L) == "releases/2.1"
       and H("to-read/v.md", {"type": "verify", "title": "MH-5 · PASS", "keys": ["MH-5", "MH-1"]}, L) == "releases/2.0"
-      and H("to-read/2026-10-29-verify-plan-mh-2.md", {"type": "verify-plan", "keys": "MH-2 MH-1"}, L) == "releases"
-      and H("readings/x-promote.md", {"type": "review", "title": "Promote MediaHub 2.1.15 to prod"}, L) == "releases"
+      and H("to-read/2026-10-29-verify-plan-mh-2.md", {"type": "verify-plan", "keys": "MH-2 MH-1"}, L) == "reference"
+      and H("readings/x-promote.md", {"type": "review", "title": "Promote MediaHub 2.1.15 to prod"}, L) == "reference"
       and H("readings/2026-09-21-audio-mixer-mediabox.md", {"type": "review", "title": "Audio mixer on MediaBox"}, L) == "reference")
 check("a line folder counts as its home: status, lint, folder",
       V.subject_home("releases/2.1") == "releases" and V.folder_of("releases/2.1/x.md") == "releases"

@@ -497,11 +497,25 @@ def home_for(rel, props, line_of_key=None):
         return CASES
     if kind in ("verify", "verify-plan") or (kind == "review" and (RELEASE_NAME.search(re.sub(r"^\d{4}-\d{2}-\d{2}-", "", name))
                                                                    or RELEASE_TITLE.search(props.get("title") or ""))):
-        line = release_line(props, line_of_key, name)
-        return f"{RELEASES}/{line}" if line else RELEASES
+        line = release_line(props, line_of_key, name) or (verify_line(name, props) if kind in ("verify", "verify-plan") else None)
+        return f"{RELEASES}/{line}" if line else REF   # never loose at the releases/ root: a note there serves no line
     if kind in ("plan", "decision", "review") and ELA_TARGET.search(props.get("target") or props.get("title") or ""):
         return ELA
     return REF
+
+
+_LANES = {}
+
+
+def verify_line(name, props):
+    """The line of a verification no key gives a line for, by the lane it ran on: the lane its file name ends with (`2026-11-17-verify-mh-3873-daily-wed` → daily-wed → 2.1), from the release map the line
+    pages use. None when no lane is known."""
+    if lane_lines not in _LANES:
+        _LANES[lane_lines] = lane_lines()
+    lanes = _LANES[lane_lines]
+    m = re.match(r"^(?:\d{4}-\d{2}-\d{2}-)?verify(?:-plan)?-[a-z][a-z0-9]*-\d+-?(.*)$", name or "")
+    lane = lane_by_words(m.group(1), lanes) if m and m.group(1) else None
+    return lanes.get(lane) if lane else None
 
 
 def settle_statuses(vault, dry_run=False):
