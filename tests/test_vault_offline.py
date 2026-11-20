@@ -214,7 +214,7 @@ with tempfile.TemporaryDirectory() as tmp:
     check("the changes page is a day page in reference/days/, linked from today.md", os.path.exists(f"{vault}/reference/days/{today[:4]}/{today}-changes.md")
           and f"[[reference/days/{today[:4]}/{today}-changes|what changed]]" in home)
     check("today.md's footer links neither the board nor recent, retired angles", "[[recent" not in home and "[[board" not in home)
-    tr = open(f"{vault}/releases/2.1/train-2.1.md").read()
+    tr = open(f"{vault}/releases/2.1/lists/train-2.1.md").read()
     check("a line's train page lands in its line's folder as a generated page of its type", 'type: "train"' in tr and "# Train · 2.1" in tr and f'date: "{today}"' in tr)
     check("the morning page points at no recent page", V.RECENT_POINTER not in open(f"{vault}/reference/days/{today[:4]}/{today}-brief.md").read())
     check("a decision carries its title as an alias and a meta line", 'aliases: ["Decision 0"]' in open(dec0).read() and "*decision · " in open(dec0).read())
@@ -879,7 +879,7 @@ with tempfile.TemporaryDirectory() as t:
     open(os.path.join(t, "lanes", "test-list-qa-cn3.md"), "w").write("# Test list · QA-AWS3\n\n*now*\n\n19 open · P1 2 · P2 5 · P3 12 · 4 auto\n\n| P |\n")
     open(os.path.join(t, "lanes", "dev-list-2.1.md"), "w").write("# Dev list · 2.1\n\n78 ticket(s) · 19 with a gap · 3 build change(s)\n")
     open(os.path.join(t, "lanes", "train-2.1.md"), "w").write("# Train\n")
-    check("the lane lists' links are read from the pages' own count lines", V.list_links(t) == lists and V.list_links(os.path.join(t, "none")) == {})
+    check("the lane lists' links are read from the pages' own count lines", V.list_links(t) == {k: v.replace("releases/2.1/", "releases/2.1/lists/") for k, v in lists.items()} and V.list_links(os.path.join(t, "none")) == {})
 hm = V.home(day, datetime.datetime(2026, 10, 28, 11), [], {"actions": [dict(sb, n=4, applied="2026-10-28T09:30:20+0800", permalink="https://x/p4")]})
 check("after the send the Done line lists it, the block is gone",
       "- 4 — QA today on qa-cn3 applied 09:30 (trigger not recorded) · [link](https://x/p4)" in hm and "Send when you tick" not in hm)
@@ -1350,7 +1350,7 @@ check("a release line's record and a build's release note owe no What you should
       and not any("What you should do" in x for x in V.spec_lint("releases/2.1/release-2-1-record.md", rec.replace("2026-11-10", "2026-11-04"))))
 check("a page's links to layout 4's lanes/ go to where layout 5 keeps the page",
       V.layout5_links("see [[lanes/docker|Docker candidates]] and [[lanes/test-list-qa-cn3|QA]]", {"qa-cn3": "2.1"})
-      == "see [[releases/docker|Docker candidates]] and [[releases/2.1/test-list-qa-cn3|QA]]")
+      == "see [[releases/docker|Docker candidates]] and [[releases/2.1/lists/test-list-qa-cn3|QA]]")
 with tempfile.TemporaryDirectory() as rt:
     os.makedirs(os.path.join(rt, "ela")); os.makedirs(os.path.join(rt, "lanes"))
     open(os.path.join(rt, "ela", "2026-11-11-deep-MH-3993.md"), "w").write(

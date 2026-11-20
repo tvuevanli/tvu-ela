@@ -66,7 +66,7 @@ with tempfile.TemporaryDirectory() as t:
           "mh/releases/2.1/release-2-1-record.md" in to and to["mh/releases/2.1/release-2-1-record.md"] == "releases/2.1/release-2-1-record.md"
           and to.get("mh/releases/2.1/2026-11-09-deploy-daily-wed-to-prod-3.md") == "releases/2.1/2026-11-09-deploy-daily-wed-to-prod-3.md")
     check("a line's lists to its folder; a lane no line carries to releases/",
-          to.get("lanes/train-2.1.md") == "releases/2.1/train-2.1.md" and to.get("lanes/test-list-qa-cn3.md") == "releases/2.1/test-list-qa-cn3.md"
+          to.get("lanes/train-2.1.md") == "releases/2.1/lists/train-2.1.md" and to.get("lanes/test-list-qa-cn3.md") == "releases/2.1/lists/test-list-qa-cn3.md"
           and to.get("lanes/test-list-elsewhere.md") == "releases/test-list-elsewhere.md" and to.get("lanes.md") == "releases/lanes.md")
     check("a review that serves no project to reference/, its kind first",
           to.get("mh/2026-11-05-jira-four-week-review.md") == "reference/2026-11-05-review-jira-four-week.md")
@@ -101,7 +101,7 @@ with tempfile.TemporaryDirectory() as t:
     check("no two notes share a name after the move, so a bare link still resolves to one",
           "[[release-2-1-record]]" in open(os.path.join(v, "releases/2.0/release-2-0-record.md")).read())
     check("the manifest says layout 5, keeps the moves for old paths, and follows the files",
-          man["layout"] == 5 and man["moved"]["lanes/train-2.1.md"] == "releases/2.1/train-2.1.md" and man["moved_until"] == "2026-11-25"
+          man["layout"] == 5 and man["moved"]["lanes/train-2.1.md"] == "releases/2.1/lists/train-2.1.md" and man["moved_until"] == "2026-11-25"
           and "reference/days/2026/2026-11-10-brief.md" in man["files"] and "board.md" not in man["files"]
           and man["sources"] == {"reference/days/2026/2026-11-10-brief.md": "runner/2026-11-10-brief.md"})
     log = [json.loads(l) for l in open(os.path.join(reports, "ela", V.MIGRATE_LOG))]

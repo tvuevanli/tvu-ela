@@ -32,8 +32,9 @@ move sets it, never the folder. A vault in another layout is not synced: `vault.
     releases/lanes.md                           the lanes across lines (ela matrix --page)
     releases/<line>/                            a release line: <line>.md the way in (release line.py, rewritten each
                                                 sync: lanes, next promotion, docker differences, one line per build),
-                                                each promote, deploy, docker check and hotfix, verifications, and the
-                                                line's train-<line>.md, dev-list-<line>.md and test-list-<lane>.md
+                                                each live promote, deploy, docker check and hotfix, verifications;
+                                                lists/ the line's train-<line>.md, dev-list-<line>.md and
+                                                test-list-<lane>.md
     cases/<date>-<customer>-<what>.md           one note per customer case (open, answered, closed)
     reference/                                  what serves no single thing: a product review, engineering management,
                                                 the day pages (reference/days/<year>/<date>-brief|changes.md, kept),
@@ -212,7 +213,7 @@ ela writes this vault from first-hand sources, and it holds things and angles (e
 | `today.md` | the one page: facts, at most three asks, today |
 | `meetings/` | one page per meeting, worded for the team |
 | `projects/` | one page per project, `<key>-<slug>.md`; a folder `<key>-<slug>/` once notes sit beside the page |
-| `releases/` | a folder per line: its line page `<line>.md`, the way in (where the line stands, what can move next, what could not be read, its builds); its train, dev and test lists; each promote, deploy and docker check; `lanes.md` across lines |
+| `releases/` | a folder per line: its line page `<line>.md`, the way in (where the line stands, what can move next, what could not be read, its builds), and each live promote and deploy; `lists/` its train, dev and test lists; `lanes.md` across lines |
 | `cases/` | one note per customer case |
 | `reference/` | what serves no single thing: product reviews, the day pages, One Thing, dropped asks |
 | `ela/` | ela's own pages and history |
@@ -808,6 +809,7 @@ def build_records(reports):
         return []
 
 
+LISTS = "lists"           # a line's train, dev list and test lists: releases/<line>/lists/
 LINE_NOTE_KINDS = ("promote", "deploy", "docker", "hotfix", "sync")   # the line page's History: a promotion, a deploy, a check of one
 
 
@@ -954,7 +956,7 @@ LIST_COUNTS = {"qa-today": ("test-list", re.compile(r"(\d+) open(?: · P1 (\d+))
 
 def list_links(reports):
     """{(rule, lane or line): wikilink} for each lane list on disk, the page a send box would send: QA today's test list
-    as [[releases/<line>/test-list-<lane>|N rows, M P1]], Dev today's dev list as [[releases/<line>/dev-list-<line>|N
+    as [[releases/<line>/lists/test-list-<lane>|N rows, M P1]], Dev today's dev list as [[releases/<line>/lists/dev-list-<line>|N
     rows, M with a gap]], the counts read from the page's own count line."""
     out, d = {}, os.path.join(reports or "", "lanes")
     lanes = lane_lines() if os.path.isdir(d) else {}
@@ -5704,7 +5706,7 @@ def top(rel):
     return rel.split("/")[0]
 
 
-LIVING = re.compile(r"^(?:today|home)\.md$|^reference/(?:dropped|one-thing)\.md$|^releases/(?:lanes|[^/]+/(?:train|dev-list|test-list)-[^/]+)\.md$"
+LIVING = re.compile(r"^(?:today|home)\.md$|^reference/(?:dropped|one-thing)\.md$|^releases/(?:lanes|[^/]+/(?:lists/)?(?:train|dev-list|test-list)-[^/]+)\.md$"
                     r"|^releases/test-list-[^/]+\.md$")
 
 
@@ -6281,15 +6283,16 @@ def lane_lines():
 
 def list_home(name, lanes=None):
     """A line's list page in layout 5, from its layout-4 name in lanes/, the name kept so no two notes share one:
-    train-<line> and dev-list-<line> → that line's folder; test-list-<lane> → the folder of the line the lane carries
-    (a China lane's from the map's regions), else releases/."""
+    train-<line> and dev-list-<line> → that line's lists/; test-list-<lane> → the lists/ of the line the lane carries
+    (a China lane's from the map's regions), else releases/. The line folder's root keeps the line page and the live
+    promote notes (vault plan 2026-11-20-plan-one-page-per-release-line, item 4)."""
     m = re.match(r"^(train|dev-list)-(\d+\.\d+)\.md$", name)
     if m:                                                  # the line stays in the name: [[train-2.1]] resolves to one note
-        return f"{RELEASES5}/{m.group(2)}/{name}"
+        return f"{RELEASES5}/{m.group(2)}/{LISTS}/{name}"
     m = re.match(r"^test-list-(.+)\.md$", name)
     if m:
         line = (lanes if lanes is not None else lane_lines()).get(m.group(1))
-        return f"{RELEASES5}/{line}/{name}" if line else f"{RELEASES5}/{name}"
+        return f"{RELEASES5}/{line}/{LISTS}/{name}" if line else f"{RELEASES5}/{name}"
     return f"{RELEASES5}/{name}"
 
 
