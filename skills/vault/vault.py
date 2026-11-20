@@ -1921,7 +1921,7 @@ def lint_notes(vault, projects=None):
 # head runs over its budget or whose detail is not folded; a short key table (a line's lanes) may stay open.
 PRESENT_RULE_FROM = "2026-11-20"
 HEAD_BUDGET = 800        # a page type without a budget of its own
-OPEN_TABLE_ROWS = 6      # a table of more data rows than this is detail
+OPEN_TABLE_ROWS = 8      # a table of more data rows than this is detail; one row a lane of the followed lines stays open
 OPEN_LIST_KEYS = 5       # a run of more list lines naming a ticket than this is a ticket list
 
 

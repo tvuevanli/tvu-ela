@@ -3040,35 +3040,84 @@ def line_section(out, shown):
     return [f"## Line {out['line']} · " + " ← ".join(shown(l) for l in out["lane_ids"]), "", render_matrix(out)] + order + train_lines(out.get("pending"))
 
 
+def fold(title, lines):
+    """Lines as one folded callout (`> [!note]- title`): headings inside become bold lines, blank lines `>`."""
+    out = [f"> [!note]- {title}"]
+    for l in (x for chunk in lines for x in str(chunk).split("\n")):   # a rendered table arrives as one string
+        m = re.match(r"^#{2,6}\s+(.*)$", l)
+        out.append("> " + (f"**{m.group(1)}**" if m else l) if (m or l.strip()) else ">")
+    return out + [""]
+
+
+def line_overview(line, reports, runtime, today):
+    """(rows, gaps, ahead) for the lanes page's head from the line page's own reading (release line.py): per lane its
+    build, since and QA's word; the short names of what could not be read; the lane-ahead sentences. ([], [], []) when
+    the line page cannot be read, and the reason is one gap."""
+    try:
+        sys.path.insert(0, os.path.join(HERE, "..", "release"))
+        import line as LP                                  # noqa: E402 — the line page's reading, one source for both pages
+        d = LP.gather(line, reports, runtime, today)
+    except Exception as e:                                 # a broken line page costs the head's rows for that line only
+        return [], [(f"line {line}", str(e)[:120])], []
+    rows = [(" = ".join(LP.lane_label(x["lane"]) for x in g), g[0]) for g in d["rowsets"]]
+    return rows, d["gaps"], [a["short"] for a in d["ahead"]]
+
+
 def write_lanes_page(outs, site, env, runner, tested, held=()):
-    """<reports>/lanes/lanes.md, rewritten whole: for each followed line (release.yaml lines with decided lanes, newest
-    first) its lanes table with its own next train and any version out of order (QA ≥ daily ≥ prod); then what each
-    lane carries that the next does not, line by line, and the moves of the last two weeks. The vault carries it as
-    lanes.md beside the board."""
+    """<reports>/lanes/lanes.md, rewritten whole, the cross-line overview under the presentation standard (the owner's
+    working preferences, 2026-11-20): the head is one row per line and lane (build, since, QA's word, as each line page
+    reads them), one out-of-order line, one can't-read line and a link to each line page, under 500 words; each line's
+    lanes table with its next train, the QA cycle and lists, what each lane carries that the next does not, and the
+    moves of the last two weeks are folded below it. The vault carries it as releases/lanes.md."""
     reports = site.get("reports") or os.path.join(site.get("projects", ""), "reports")
     runtime = site.get("runtime") or os.path.join(site.get("projects", ""), ".ela")
     now = datetime.datetime.now().astimezone()
     shown = lambda l: LANE_SHOWN.get(l, l)  # noqa: E731
     note = deploy_note(now, day_plan(now.date()))
-    L = ["# The lanes", "", f"*{now:%Y-%m-%d %H:%M} · lines {', '.join(o['line'] for o in outs)}*", f"*{F.read_at_line()}*", "", LEGEND]
+    L = ["# The lanes", "", f"*{now:%Y-%m-%d %H:%M} · lines {', '.join(o['line'] for o in outs)}*", f"*{F.read_at_line()}*", "",
+         "## Now", "", "| line | lane | build | since | QA |", "|---|---|---|---|---|"]
+    gaps, ahead, inv = [], [], []
+    for out in outs:
+        rows, g, a = line_overview(out["line"], reports, runtime, now.date())
+        for name, n in rows:
+            b = (f"build {n['build']}" + (" (mixed)" if n["other"] or (n["none"] and n["build"]) else "")) if n["build"] else \
+                ("before build records" if n["versions"] else "—")
+            L.append(f"| {out['line']} | {name} | {b} | {(n.get('since') or '—')[5:] or '—'} | {n.get('qa') or '—'} |")
+        gaps += [x[0] for x in g if x[0] not in gaps]
+        ahead += [f"{out['line']}: {x}" for x in a]
+        pairs = {}
+        for x in out_of_order(out)[0]:
+            m = re.match(r"^.+?: (\S+) \S+ is below (\S+) ", x)
+            if m:
+                pairs[(m.group(2), m.group(1))] = pairs.get((m.group(2), m.group(1)), 0) + 1
+        inv += [f"{out['line']} {hi} ahead of {lo} on {k} service{'s' if k != 1 else ''}" for (hi, lo), k in pairs.items()]
+    L += ["", "**Out of order:** " + ("; ".join(inv) + "." if inv else "none; every line runs QA ≥ daily ≥ prod.")]
+    L += [""] + [f"- {x}" for x in ahead] + ([""] if ahead else [])
+    L += ["**Can't read:** " + (", ".join(gaps) + "." if gaps else "nothing; every source was read."), ""]
+    L += ["Each line's page holds its detail: " + " · ".join(f"[[releases/{o['line']}/{o['line']}|MediaHub {o['line']}]]" for o in outs), ""]
+    L += ["## Per line", ""]
     for i, out in enumerate(outs):
-        L += [""] + line_section(out, shown)
+        body = [LEGEND, ""] + line_section(out, shown)
         if i == 0:                                          # the QA cycle and the lists follow the morning's line
-            L += (["", note] if note else []) + qa_cycle_block(now, runtime) + list_links(reports)
-    L += ["", "## Differences", ""]
+            body += (["", note] if note else []) + qa_cycle_block(now, runtime) + list_links(reports)
+        L += fold(f"Line {out['line']} · " + " ← ".join(shown(l) for l in out["lane_ids"]) + ": every service on every lane", body)
+    L += ["## Differences", ""]
     import concurrent.futures
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(PAIRS) * len(outs)) as ex:
         futs = [(out["line"], a, b, ex.submit(pair_report, env, a, b, out["line"])) for out in outs for a, b in PAIRS]
         for line, a, b, fu in futs:
             try:
-                L += differences(fu.result(), shown, held, line)
+                diff = differences(fu.result(), shown, held, line)
             except (LaneError, subprocess.TimeoutExpired, ValueError, KeyError) as e:
-                L += [f"### {line} · {a} ahead of {b}", "", f"Not read: {str(e)[:200]}", ""]
+                diff = [f"### {line} · {a} ahead of {b}", "", f"Not read: {str(e)[:200]}", ""]
+            title = re.sub(r"^#+\s*", "", diff[0]) if diff else f"{line} · {a} ahead of {b}"
+            L += fold(title, diff[1:])
     bundles_now = {lane: (c.get("name") if isinstance(c, dict) else None) for out in outs
                    for lane, c in zip(out.get("lane_ids") or [], (out["rows"][0]["cells"] if out["rows"] else []))}
     envf = env[1] if env else site.get("env")
     jira = next((l.split("=", 1)[1].strip() for l in open(envf) if l.startswith("JIRA_BASE_URL=")), "") if envf and os.path.isfile(envf) else ""
-    L += ["## Movements, 14 days", ""] + movements(runtime, reports, tested, now.date(), shown, bundles_now, jira) + [""]
+    L += ["## Movements", ""] + fold(f"Every lane move of the last {MOVES_DAYS} days",
+                                     movements(runtime, reports, tested, now.date(), shown, bundles_now, jira))
     path = os.path.join(reports, "lanes", "lanes.md")
     os.makedirs(os.path.dirname(path), exist_ok=True)
     tmp = path + ".tmp"

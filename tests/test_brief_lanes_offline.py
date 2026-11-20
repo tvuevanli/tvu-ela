@@ -83,16 +83,24 @@ with tempfile.TemporaryDirectory() as d:
     B.pair_report = fake_pair
     path = B.write_lanes_page(outs, site, [], os.path.join(d, ".ela", "runner"), {})
     page = open(path, encoding="utf-8").read()
-    check("the page heads with the lines it follows, then one legend for every symbol", "· lines 2.1, 2.0*" in page
-          and page.count("*Legend: ▲") == 1 and page.index("*Legend:") < page.index("## Line 2.1") and "◐ QA passed part of it" in page)
-    check("one section per line, in order, each with its table",
-          page.index("## Line 2.1 · prod-3 ← daily-wed ← QA-AWS3") < page.index("| | prod-3 | daily-wed | QA-AWS3 | Wednesday (build 78) → prod-3 |")
-          < page.index("## Line 2.0 · prod-8 ← daily-stage ← qa-cn2") < page.index("| | prod-8 | daily-stage | qa-cn2 | hotfix backend 2.0.11 (MH-3640) |"))
-    check("the QA cycle follows the first line only", page.count("*QA cycle*") == 1 and page.index("*QA cycle*") < page.index("## Line 2.0"))
-    check("differences are read for each line's two pairs and headed by line",
+    head = page.split("## Per line")[0]
+    sys.path.insert(0, os.path.join(ROOT, "skills", "vault"))
+    import vault as V  # noqa: E402
+    check("the head: the lines it follows, one row per line and lane, one out-of-order line, one can't-read line, a link to each line page",
+          "· lines 2.1, 2.0*" in head and "| line | lane | build | since | QA |" in head
+          and head.count("**Out of order:**") == 1 and head.count("**Can't read:**") == 1
+          and "[[releases/2.1/2.1|MediaHub 2.1]]" in head and "[[releases/2.0/2.0|MediaHub 2.0]]" in head)
+    check("the head is under 500 words and passes the presentation lint",
+          len(V.outside_folds(page).split()) < 500 and V.present_lint("releases/lanes.md", page, generated=True) == [])
+    check("each line's table is folded, in order, the legend inside it",
+          page.index("> [!note]- Line 2.1 · prod-3 ← daily-wed ← QA-AWS3") < page.index("> | | prod-3 | daily-wed | QA-AWS3 | Wednesday (build 78) → prod-3 |")
+          < page.index("> [!note]- Line 2.0 · prod-8 ← daily-stage ← qa-cn2") < page.index("> | | prod-8 | daily-stage | qa-cn2 | hotfix backend 2.0.11 (MH-3640) |")
+          and page.count("> *Legend: ▲") == 2 and "◐ QA passed part of it" in page)
+    check("the QA cycle follows the first line only", page.count("*QA cycle*") == 1 and page.index("*QA cycle*") < page.index("> [!note]- Line 2.0"))
+    check("differences are read for each line's two pairs, each folded and headed by line",
           sorted(calls) == [("2.0", "daily", "prod"), ("2.0", "qa", "daily"), ("2.1", "daily", "prod"), ("2.1", "qa", "daily")]
-          and "### 2.1 · daily ahead of prod" in page and "### 2.0 · qa ahead of daily" in page)
-    check("one movements table", page.count("## Movements, 14 days") == 1)
+          and "> [!note]- 2.1 · daily ahead of prod" in page and "> [!note]- 2.0 · qa ahead of daily" in page)
+    check("one movements table, folded", page.count("> [!note]- Every lane move of the last 14 days") == 1)
 # the morning's table: unchanged, with one pointer line to the other lines
 buf = io.StringIO()
 with contextlib.redirect_stdout(buf):
