@@ -180,7 +180,9 @@ python3 "${CLAUDE_PLUGIN_ROOT}/skills/promote/note.py" claims <runtime>/promote/
 
 ## 2 — output, in this order
 **One note per promotion** (gap 10). The note is the vault's `releases/<line>/<date>-promote-<from>-to-<to>.md` (the line is the folder's),
-created once and updated in place on every rerun; never a second note for the same train. Services carry their full
+created once and updated in place on every rerun; never a second note for the same train. The vault sync closes it
+(done, next promoted, closed by ela) and moves it to the line's `history/` once the target lane runs what the source
+ran that day; the line page `releases/<line>/<line>.md` lists it under History. Services carry their full
 names (UR Caller, MediaHub backend, MediaHub frontend, Unified Media backend / frontend: `shipcheck.NAMES` until the
 published catalogue carries them), never mx/hub/FE/BE; every Jira key is a link. The Slack text is two parts split by a
 line `---`: (1) what the release brings, for everyone, no ticket ids; (2) what we set for prod: the config table, the
@@ -200,7 +202,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/skills/promote/note.py" lint <vault note> --slack
    read, then `## What you should do` (the recommendation first, each action a box or a ready command, the
    alternative named) and, when something needs his word, `## Waiting for your word` after it; outputs 2 to 4
    quoted beneath it, folded. He reviews it in the vault on his own machine (elak decision 2026-10-23). Terminal text and runtime files are not readable
-   there. The page stays within the vault's review budget of 2,500 words and holds no machine paths; the raw report
+   there. The page stays within 1,200 words above its folds (the vault's budget for a promote or deploy review; per-service and per-ticket detail goes in folded callouts) and holds no machine paths; the raw report
    is not copied, because its commit lists would fail that gate. A rerun for the same line and lanes updates the same note.
    A decision the page touches (a standing constraint, a hold, a plan already in the vault) is linked, never
    restated: one decision, one note; the page says what changed since that note and when it read the bundles.

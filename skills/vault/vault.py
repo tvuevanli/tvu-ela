@@ -1681,6 +1681,14 @@ SPECS = {
         closing="the message paste-ready in a code block, English, mentions written for you to retype; parked once sent, `waits-on` naming who answers and `wake` what brings it back"),
 }
 BUDGET.update({"case": 1200, "draft": 600, "line": 800})
+HOP_BUDGET = 1200        # a promote or deploy review: its detail goes in folded callouts (vault plan 2026-11-20, item 3)
+
+
+def budget_of(kind, rel=""):
+    """A type's reading budget; a promote or deploy review has its own, tighter than a review's."""
+    if kind == "review" and re.match(r"^\d{4}-\d{2}-\d{2}-(?:promote|deploy)-", os.path.basename(rel or "")):
+        return HOP_BUDGET
+    return BUDGET.get(kind)
 PAGES_SPEC = ("home", "today", "dropped", "board", "lanes", "docker", "recent", "one-thing", "test-list", "dev-list", "train", "program", "guide",
               "vocabulary", "system", "constraints", "readme", "services", "questions", "dry", "mention")   # living pages: each one's generator is its spec
 CJK = re.compile(r"[一-鿿　-〿＀-￯]")
@@ -1715,7 +1723,7 @@ def spec_text():
                 + "; status (live or done), next and moves by type",
                 "- **Sections**: " + (" → ".join(secs) or "as its generator writes them"),
                 f"- **Ends with**: {sp['closing']}",
-                f"- **Budget**: {f'{b:,} words' if b else 'none; ' + ('the record is the linked page' if kind.startswith('verify') else 'its items are bounded instead')}"
+                f"- **Budget**: {f'{b:,} words' + (f' ({HOP_BUDGET:,} for a promote or deploy review, its detail folded)' if kind == 'review' else '') if b else 'none; ' + ('the record is the linked page' if kind.startswith('verify') else 'its items are bounded instead')}"
                 " · **Language**: English", ""]
     out += [f"Living pages ({', '.join(PAGES_SPEC)}) are written by their generators, which are their spec."]
     return "\n".join(out)
@@ -1865,7 +1873,7 @@ def spec_lint(rel, text, generated=False, projects=None):
         out.append("no **Do.** line")
     if kind == "day" and props.get("kind") == "brief" and not re.search(r"\*\*Do[.:]\*\*", body):
         out.append("no **Do:** line")
-    b = BUDGET.get(kind)
+    b = budget_of(kind, rel)
     units = reading_units(outside_folds(body))
     if b and units > b * TOLERANCE:
         out.append(f"{units:,} words, budget {b:,} (lint only: nothing is cut)")
@@ -2128,9 +2136,9 @@ def reading_gate(n):
     problems = []
     if not h1(n.body):
         problems.append("no title heading")
-    units = reading_units(outside_folds(n.body))
-    if units > BUDGET[kind] * TOLERANCE:
-        problems.append(f"{units:,} words, budget {BUDGET[kind]:,}" + (" (folded callouts not counted)" if FOLD_RX.search(n.body) else ""))
+    units, b = reading_units(outside_folds(n.body)), budget_of(kind, n.path)
+    if units > b * TOLERANCE:
+        problems.append(f"{units:,} words, budget {b:,}" + (" (folded callouts not counted)" if FOLD_RX.search(n.body) else ""))
     lines = len(n.body.splitlines()) or 1
     code = code_lines(n.body)
     if code > max(12, lines // 4):
