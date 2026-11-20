@@ -2,7 +2,7 @@
 """focus — MediaHub's focus as one board; a meeting is a view of it; rulings become drafted Jira moves. Stdlib only.
 
 L1 capability. The board is meetings/focus.md in the vault, rewritten on every sync: one row per item MediaHub is
-pushing now, Jira priority first, then due date. A row is an open MH ticket at High or Highest or labelled `mh-focus`,
+pushing now, Jira priority first, then due date. A row is an open MH ticket at High or Highest that is being worked,
 a project page, or an open team question (meetings/open-questions.md stays, linked, as the questions' full list; it is
 no longer a page to start from). Every row carries a Jira key or says `no ticket yet`; ela's own work and the owner's
 personal items stay in the vault and never become tickets. A meeting (blueprint/meetings.yaml, enabled, on its
@@ -20,7 +20,7 @@ today.md; nothing reaches Jira before his A.
   resume  SUBJECT [--apply]           end a hold
   holds   [--json]                    every hold, live first
   up      KEY [--why W] [--highest] [--apply]   ask for a priority raise (the session form of `ela: up`)
-  down    KEY [--apply]               ask for the priority back to Medium and `mh-focus` dropped
+  down    KEY [--apply]               ask for the priority back to Medium
   moves   [--apply] [--json]          draft the batch: carried rows, up/down words, rows without a ticket; --apply
                                       stores it as a dry-run batch (Jira is untouched until his A)
   scrum   [--date D] [--mail-file F] [--apply] [--json]
@@ -48,7 +48,6 @@ CREATES_MAX = 3                  # tickets drafted for rows without one, per bat
 FRESH_DAYS = 30                  # a High ticket untouched this long is not being pushed
 PARKED_STATES = ("Backlog", "On Hold", "Blocked")
 PRIORITIES = ("Highest", "High", "Medium", "Low", "Lowest")
-FOCUS_LABEL = "mh-focus"
 CLASS, SCOPE = "focus-moves", "mediahub-focus"
 EX_USAGE, EX_NOTFOUND = 2, 3
 KEY = H.KEY
@@ -140,7 +139,7 @@ def facts_issue(facts, key):
 
 
 def focus_tickets(facts, today, project="MH"):
-    """The open tickets MediaHub is pushing, from the fact store: labelled mh-focus, or High or Highest, out of the
+    """The open tickets MediaHub is pushing, from the fact store: High or Highest (Jira priority says it; no label repeats it), out of the
     backlog and moved in the last FRESH_DAYS days (a High ticket nobody touched since spring is not being pushed)."""
     out, d = [], os.path.join(facts or "", "jira", "issues")
     for f in sorted(os.listdir(d)) if os.path.isdir(d) else []:
@@ -150,11 +149,7 @@ def focus_tickets(facts, today, project="MH"):
             iss = json.load(open(os.path.join(d, f), encoding="utf-8"))
         except (OSError, ValueError):
             continue
-        labels = ((iss.get("fields") or {}).get("labels")) or []
         if not is_open(iss):
-            continue
-        if FOCUS_LABEL in labels:                             # promoted on purpose: on the board whatever its state
-            out.append(iss)
             continue
         moved = str((iss.get("fields") or {}).get("updated") or iss.get("updated") or "")[:10]
         if (field(iss, "priority") in ("Highest", "High") and field(iss, "status") not in PARKED_STATES
@@ -606,18 +601,20 @@ def moves(s, b, today, scrum=None):
             to = "Highest" if w.get("highest") else "High"
             why = f"raised on the owner's word ({w['at']}{': ' + w['why'] if w.get('why') else ''})"
             W.append({"target": k, "command": f"ela jira priority {k} --to {to} --why {q(why)}", "why": why})
-            W.append({"target": k, "command": f"ela jira label {k} --add {FOCUS_LABEL}", "why": "the focus board's label, so the team's Jira board filters the same set"})
             if iss and not field(iss, "duedate"):
                 due = today + datetime.timedelta(days=7)
                 W.append({"target": k, "command": f"ela jira due {k} --date {due.isoformat()} --why {q('a raised ticket carries a date: one week, change it here before A')}",
                           "why": "raised with no due date: a week from today, edit before A"})
             if iss and not field(iss, "assignee"):
-                left.append(f"{k}: raised with no assignee; name one in the review note (`ela jira assign {k} --assignee <email>`)")
+                email = roster_email((r.get("asks") or [{}])[0].get("who")) if r.get("asks") else None
+                if email:
+                    W.append({"target": k, "command": f"ela jira assign {k} --assignee {email}",
+                              "why": "raised with nobody on it: who its question names"})
+                else:
+                    left.append(f"{k}: raised with no assignee; name one in the review note (`ela jira assign {k} --assignee <email>`)")
         else:
             W.append({"target": k, "command": f"ela jira priority {k} --to Medium --why {q('lowered on the owner word ' + w['at'])}",
                       "why": f"down on the owner's word ({w['at']})"})
-            W.append({"target": k, "command": f"ela jira label {k} --remove {FOCUS_LABEL}", "why": "off the focus board"})
-        _ = r
     for x in scrum or []:                                     # the scrum's action items, mapped to rows
         W.append(x)
     for rid, r in rows.items():                               # carried through two meetings: push, not a third carry
@@ -779,10 +776,10 @@ def main():
     p.add_argument("subject"); p.add_argument("--apply", action="store_true"); p.set_defaults(func=cmd_hold, until=None)
     p = sub.add_parser("holds", help="every hold, live first")
     p.add_argument("--json", action="store_true"); p.set_defaults(func=cmd_holds)
-    p = sub.add_parser("up", help="ask for a priority raise on KEY (High, --highest Highest) with mh-focus; a dry run unless --apply")
+    p = sub.add_parser("up", help="ask for a priority raise on KEY (High, --highest Highest), a due date and an assignee when missing; a dry run unless --apply")
     p.add_argument("key"); p.add_argument("--why", default=""); p.add_argument("--highest", action="store_true")
     p.add_argument("--apply", action="store_true"); p.set_defaults(func=cmd_word)
-    p = sub.add_parser("down", help="ask for KEY's priority back to Medium and mh-focus dropped; a dry run unless --apply")
+    p = sub.add_parser("down", help="ask for KEY's priority back to Medium; a dry run unless --apply")
     p.add_argument("key"); p.add_argument("--apply", action="store_true"); p.set_defaults(func=cmd_word)
     p = sub.add_parser("moves", help="draft the batch of Jira moves the board asks for; --apply stores it as a dry-run batch")
     p.add_argument("--apply", action="store_true"); p.add_argument("--json", action="store_true"); p.set_defaults(func=cmd_moves)

@@ -85,7 +85,7 @@ with tempfile.TemporaryDirectory() as t:
     issue(facts, "MH-1", "Highest and due soon", "Highest", due="2026-11-25")
     issue(facts, "MH-2", "High, due later", "High", due="2026-12-20")
     issue(facts, "MH-3", "High, no due date " + "x" * 80, "High", who=None)
-    issue(facts, "MH-4", "Medium but labelled", "Medium", labels=["mh-focus"])
+    issue(facts, "MH-4", "High, labelled", "High", labels=["mh-focus"])
     issue(facts, "MH-5", "High in the backlog", "High", status="Backlog")
     issue(facts, "MH-6", "High untouched since spring", "High", updated="2026-04-01T10:00:00.000+0800")
     issue(facts, "MH-4061", "Seamless switching turns 10-bit into 8-bit", "Highest")
@@ -102,7 +102,7 @@ with tempfile.TemporaryDirectory() as t:
     before = datetime.datetime(2026, 11, 20, 9, 0)
     b = F.board(s, now=before, write=True, doc=DOC)
     rows = b["rows"]
-    check("tickets: mh-focus whatever its priority; High or Highest out of the backlog and moved in thirty days",
+    check("tickets: High or Highest out of the backlog and moved in thirty days; a label adds nothing",
           {"MH-1", "MH-2", "MH-3", "MH-4"} <= set(rows) and not {"MH-5", "MH-6"} & set(rows))
     check("a held ticket leaves the board and its views", "MH-4061" not in rows and "MH-4061" in b["held"])
     ids = [r["id"] for r in F.order(list(rows.values()))]
@@ -144,11 +144,11 @@ with tempfile.TemporaryDirectory() as t:
           and F.read_words(st3, vault, TODAY) == [])
     writes, left = F.moves(s, b3, TODAY)
     cmds = [w["command"] for w in writes]
-    check("up: priority High with the reason, the mh-focus label; a due date when it has none (MH-2 has one)",
+    check("up: priority High with the reason; no label; a due date only when it has none (MH-2 has one)",
           any(c.startswith("ela jira priority MH-2 --to High --why") and "customer demo" in c for c in cmds)
-          and "ela jira label MH-2 --add mh-focus" in cmds and not any(c.startswith("ela jira due MH-2") for c in cmds))
-    check("down: priority back to Medium and mh-focus dropped",
-          any(c.startswith("ela jira priority MH-4 --to Medium") for c in cmds) and "ela jira label MH-4 --remove mh-focus" in cmds)
+          and not any(c.startswith("ela jira label") for c in cmds) and not any(c.startswith("ela jira due MH-2") for c in cmds))
+    check("down: priority back to Medium, nothing else",
+          any(c.startswith("ela jira priority MH-4 --to Medium") for c in cmds) and [c for c in cmds if " MH-4 " in c + " "][1:] == [])
     check("a row carried through two meetings with nobody on it: assigned to who its question names",
           "ela jira assign MH-7 --assignee dev2@example.com" in cmds)
     creates = [c for c in cmds if c.startswith("ela jira create")]

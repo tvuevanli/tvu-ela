@@ -210,9 +210,8 @@ ela writes this vault from first-hand sources, and it holds things and angles (e
   gets a drafted ticket in the next batch (ela's own work and your personal items stay here and never become tickets).
 - `ela: hold <subject or key> [until <date or event>]` anywhere parks a subject on every page ela writes until the
   date or `ela: resume <subject>`; it changes nothing in Jira. `ela: up <key> [why]` drafts priority High (`highest`:
-  Highest) with the `mh-focus` label and a due date if missing (a missing assignee is named for you to fill in the
-  review note); `ela: down <key>` drafts Medium and drops
-  the label. Each is a dry-run batch asked on today.md; Jira moves on your A only.
+  Highest), and a due date and an assignee when missing; `ela: down <key>` drafts Medium. Jira priority is the mark: no
+  label repeats it. Each is a dry-run batch asked on today.md; Jira moves on your A only.
 
 ## Layout
 

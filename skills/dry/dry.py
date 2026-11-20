@@ -97,9 +97,9 @@ CLASSES = {
         "reverse": (("assign", "--assignee"),),
     },
     "focus-moves": {
-        "says": "move tickets on the MediaHub focus board: priority, assignee, due date, a comment, the mh-focus label, "
+        "says": "move tickets on the MediaHub focus board: priority, assignee, due date, a comment, "
                 "or a ticket for a row that has none",
-        "atom": ("jira", "priority+assign+due+comment+label+create"), "noun": ("board move", "board moves"), "ladder": (3,), "base": 3,
+        "atom": ("jira", "priority+assign+due+comment+create"), "noun": ("board move", "board moves"), "ladder": (3,), "base": 3,
         "rule": "the focus board's (ela focus moves, ela focus scrum): his `ela: up` and `ela: down` words; what the scrum's "
                 "Read AI report decided or gave someone, mapped to a row; a row carried through two meetings with no "
                 "ruling; a row with no ticket (never ela's own work or his personal items); one batch, added to until answered",
@@ -107,7 +107,6 @@ CLASSES = {
                    r"|assign " + KEY + r" --assignee \S+"
                    r"|due " + KEY + r" --date \d{4}-\d{2}-\d{2}(?: --why .+)?"
                    r"|comment " + KEY + r" --from-file \S+"
-                   r"|label " + KEY + r" --(?:add|remove) mh-focus"
                    r"|create --project MH --type Task --summary .+)\s*$",
         "case": "the focus board, 2026-11-20 (vault plan 2026-11-20-plan-one-focus-board-meetings-as-views): a summary is a "
                 "report, not evidence; every move is confirmed; a created ticket has no reverse, so the class never climbs",
