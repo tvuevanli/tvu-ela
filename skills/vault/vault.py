@@ -197,8 +197,8 @@ ela writes this vault from first-hand sources, and it holds things and angles (e
 
 - A **thing** is what you track: a project, a release line, a customer case. It has one home, and everything about
   it sits there, its open questions included.
-- An **angle** is the same things told for one reader at one moment: [[today]] for you, a meeting page for a team.
-  It stores nothing of its own.
+- An **angle** is the same things told for one reader at one moment: [[today]] for you, a meeting's rows on
+  [[meetings/focus|the focus board]] for a team. It stores nothing of its own.
 - A work note (a plan, a review, a verification, a draft) is `live` or `done`, a property. Choosing its `next`
   changes that, never its folder; a done note is the record and is never written again.
 - An ask lives once, on its thing. today.md links at most three; one unanswered on three working mornings leaves
@@ -206,6 +206,13 @@ ela writes this vault from first-hand sources, and it holds things and angles (e
 - An ask is a question and two or three lettered options; A is ela's recommendation. Answer with one letter: tick
   the option, or write `ela: A` under the ask (`ela: 2 B` anywhere on the page). `apply N` still means that ask's A.
 - Your `ela:` lines and ticked boxes survive every rewrite. Ask in a session for anything else.
+- Every MediaHub item is tracked in Jira: each row on the focus board carries its key, or says `no ticket yet` and
+  gets a drafted ticket in the next batch (ela's own work and your personal items stay here and never become tickets).
+- `ela: hold <subject or key> [until <date or event>]` anywhere parks a subject on every page ela writes until the
+  date or `ela: resume <subject>`; it changes nothing in Jira. `ela: up <key> [why]` drafts priority High (`highest`:
+  Highest) with the `mh-focus` label and a due date if missing (a missing assignee is named for you to fill in the
+  review note); `ela: down <key>` drafts Medium and drops
+  the label. Each is a dry-run batch asked on today.md; Jira moves on your A only.
 
 ## Layout
 
