@@ -11,6 +11,7 @@ Usage:
     vault.py [--env-file F] sync [--dry-run] [--force] [--json]
     vault.py restore <path>          bring back a note the owner deleted
     vault.py guidance [--all] [--json]   his `ela:` lines anywhere in the vault, each handled once
+    vault.py stamp <path> <id> <mark…> [--fold F]   the watcher's mark after a line it took (`✓ 10:42`)
     vault.py finish <path> [--to drop|archive]   on his word: a note done where it is, kept
     vault.py migrate [--apply] [--slug KEY=WORDS] [--json]   the one pass to layout 5; a dry run unless --apply
     vault.py lint [--fix [--apply]] [--json]   every note against its type's spec; --fix normalises front matter
@@ -5727,6 +5728,66 @@ def guidance_id(name, says, nth=1):
     return hashlib.sha256((f"{name}\0{says}" + (f"\0{nth}" if nth > 1 else "")).encode()).hexdigest()[:12]
 
 
+def line_ids(name, text, source_ticks=()):
+    """His `ela:` lines and ticked boxes in one note, each with its guidance id: [(match, kind, id)]. kind tells a typed
+    line, which a watcher lets settle before taking it up, from a ticked box, a click. The same words written again in
+    the note are a new instruction: the nth repeat has its own id, the first keeps the id it always had, so nothing
+    already handled comes back. A stamp the watcher wrote after a line is not part of its words, so the id stays."""
+    ticks = [x for x in TICKED.finditer(text) if unstamped(x.group(1)) not in source_ticks]
+    found = [(x, "line") for x in his_lines(text)] + [(x, "tick") for x in ticks]
+    times, out = {}, []
+    for m, kind in ((x, k) for x, k in found if x.group(1).strip('"\' ')):
+        w = unstamped(m.group(1))
+        times[w] = times.get(w, 0) + 1
+        out.append((m, kind, guidance_id(name, w, times[w])))
+    return out
+
+
+# The watcher's mark after a line it took (plan 2026-11-20, the vault is the work panel): `✓ 10:42` acted, `✗ 10:42`
+# refused (the reason folded under it), `queued 10:42` a session's job waiting. One short token; the rest is folded.
+STAMP = re.compile(r"[ \t]+(?:[✓✗][ \t]*|queued[ \t]+)\d{1,2}:\d{2}[ \t]*$")
+
+
+def unstamped(words):
+    return STAMP.sub("", words or "").rstrip()
+
+
+def stamp_text(name, text, gid, mark, fold=None):
+    """The note with the line whose guidance id is `gid` stamped `mark` (`✓ 10:42`), and `fold`, a longer result, as a
+    collapsed callout under it. → (text, found). A line stamped already keeps its first stamp."""
+    base = gid.split("-")[0]                               # a merged `apply 2, 3` box: its parts share the line's id
+    hit = next((m for m, _, i in line_ids(name, text) if i == base), None)
+    if not hit:
+        return text, False
+    if STAMP.search(hit.group(0)):
+        return text, True
+    end = hit.end()
+    out = text[:end] + " " + mark.strip()
+    if fold:
+        head, *rest = [l for l in str(fold).strip().splitlines()] or [""]
+        lead = re.match(r"^[ \t]*", hit.group(0)).group(0)
+        out += "\n" + "\n".join([f"{lead}> [!note]- {head.strip()[:120]}"] + [f"{lead}> {l}" if l.strip() else f"{lead}>" for l in rest])
+    return out + text[end:], True
+
+
+def cmd_stamp(a):
+    """`ela vault stamp <note> <id> <mark> [--fold FILE]`: the watcher's mark after a line it took. Written only when the
+    note is the one it read (its modification time unchanged since the read), so a save of his is never overwritten."""
+    vault = json.load(open(SITE))["vault"]
+    rel, p = note_path(vault, a.path)
+    st = os.stat(p)
+    text = open(p, encoding="utf-8").read()
+    fold = open(a.fold, encoding="utf-8").read() if a.fold else None
+    new, found = stamp_text(os.path.basename(rel), text, a.id, " ".join(a.mark), fold)
+    if not found:
+        print(f"{rel}: no line with id {a.id}", file=sys.stderr); sys.exit(3)
+    if new != text:
+        if os.stat(p).st_mtime != st.st_mtime:
+            print(f"{rel}: changed while stamping; not stamped", file=sys.stderr); sys.exit(4)
+        atomic_write(p, new)
+    print(f"{rel}: {' '.join(a.mark)}")
+
+
 def conflict_copy(name):
     """A sync tool's conflict copy (Syncthing's `x.sync-conflict-<date>-<time>-<device>.md`): the same note's words again
     under a new name, never a note of his. Read as his, each of its `ela:` lines is new again (2026-11-17: one meeting
@@ -5760,17 +5821,11 @@ def cmd_guidance(a):
                 p = os.path.join(top_, f)
                 rel = os.path.relpath(p, vault).replace(os.sep, "/")
                 text = open(p, encoding="utf-8").read()
-                ticks = [x for x in TICKED.finditer(text) if x.group(1) not in source_ticks.get(rel, [])]
-                # kind tells a typed line, which a watcher lets settle before taking it up, from a ticked box, a click
-                found = [(x, "line") for x in his_lines(text)] + [(x, "tick") for x in ticks]
                 # a letter on today.md is the option's command; one the sync acts on itself is not the runner's
                 letters = {x["pos"]: x for x in today_letters(text, asks_state)} if rel == TODAY else {}
-                times = {}
-                for m, kind in ((x, k) for x, k in found if x.group(1).strip('"\' ')):
-                    # the same words written again in the note are a new instruction: the nth repeat has its own id, the
-                    # first keeps the id it always had, so nothing already handled comes back
-                    times[m.group(1)] = times.get(m.group(1), 0) + 1
-                    gid = guidance_id(f, m.group(1), times[m.group(1)])
+                for m, kind, gid in line_ids(f, text, source_ticks.get(rel, [])):
+                    if STAMP.search(m.group(0)):          # taken already: the watcher's stamp says when
+                        continue
                     says = m.group(1).strip().strip('"').strip("'")
                     letter = letters.get(m.start())
                     if letter and sync_handles(letter["does"]):
@@ -6075,7 +6130,8 @@ def atomic_write(path, text):
 WROTE_NOW = set()   # the files this process wrote: a fresh modification time there is ela's own, not his edit
 
 
-WRITERS = ("sync", "questions", "marks", "finish", "note", "restore", "setup", "afterwards", "tidy", "lint", "migrate", "rename")   # guidance only reads; lint writes with --fix --apply
+WRITERS = ("sync", "questions", "marks", "finish", "note", "restore", "setup", "afterwards", "tidy", "lint", "migrate", "rename",
+           "stamp")   # guidance only reads; lint writes with --fix --apply
 
 
 def vault_lock():
@@ -6378,8 +6434,10 @@ def cmd_sync(a):
             done_on_disk.add(rel)
             continue
         planned[rel] = keep_choice(planned[rel], dfl, rel)   # the move he chose waits for the watcher, not for this rewrite
-        for m in TICKED.finditer(dbody):                   # a choice he ticked stays ticked when the page is rewritten
-            planned[rel] = re.sub(r"^(\s*" + QUOTE + r"[-*]\s+)\[ \](\s+" + re.escape(m.group(1)) + r"\s*)$", r"\1[x]\2", planned[rel], count=1, flags=re.M)
+        for m in TICKED.finditer(dbody):                   # a choice he ticked stays ticked when the page is rewritten,
+            w = unstamped(m.group(1))                      # with the watcher's stamp when it took it
+            planned[rel] = re.sub(r"^(\s*" + QUOTE + r"[-*]\s+)\[ \](\s+" + re.escape(w) + r")\s*$",
+                                  lambda x: x.group(1) + "[x]" + x.group(2) + m.group(1)[len(w):], planned[rel], count=1, flags=re.M)
         mine = [(section_at(dbody, m.start()), m.group(0).strip()) for m in GUIDE.finditer(dbody) if m.group(0).strip() not in planned[rel]
                 and not (rel == questions_mod().QUESTIONS_PAGE and m.group(0).strip() in qdone["consumed"])   # read: on the record now
                 and not (rel == TODAY and m.group(0).strip() in stale_lines)]                                 # an earlier day's: on its page
@@ -7503,6 +7561,10 @@ def main():
     p.add_argument("--all", action="store_true", help="include instructions already handled")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_guidance)
+    p = sub.add_parser("stamp", help="the watcher's mark after a line it took (`✓ 10:42`, `queued 10:42`), a longer result folded under it")
+    p.add_argument("path"); p.add_argument("id", help="the line's guidance id"); p.add_argument("mark", nargs="+")
+    p.add_argument("--fold", help="a file whose text goes under the line as a collapsed callout, its first line the title")
+    p.set_defaults(func=cmd_stamp)
     p = sub.add_parser("answer", help="one letter on today's ask N (`2 B` from Slack or a session), resolved as a tick on today.md is; dry run unless --apply")
     p.add_argument("slot", type=int); p.add_argument("letter", choices=list("ABCabc"))
     p.add_argument("--apply", action="store_true"); p.add_argument("--json", action="store_true")
