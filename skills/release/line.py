@@ -376,9 +376,9 @@ def gather(line, reports, runtime, today=None, notes=(), builds_ledger=None):
     cycle = qa_cycle(today, runtime) if roles and roles[0] == "qa" else None
     reps = build_reports(tested, cycle, line)
     if not snaps:
-        gaps.append("the lane reads (no versions file under the runtime's runner)")
+        gaps.append(("lane reads", "no versions file under the runtime's runner"))
     elif snaps[-1][0] < today.isoformat():
-        gaps.append(f"today's lane read (the newest is {snaps[-1][0]})")
+        gaps.append(("today's lane read", f"the newest is {snaps[-1][0]}"))
     rows = snaps[-1][1] if snaps else []
     now, by_lane = [], {}
     for role, lane in zip(roles, lanes):
@@ -386,7 +386,7 @@ def gather(line, reports, runtime, today=None, notes=(), builds_ledger=None):
         by_lane[lane] = vers
         base, other, none = lane_builds(vers, idx)
         if role == "qa":
-            gaps.append(f"{lane_label(lane)} itself (the QA host is not read: its versions are what the release mail and QA's report name)")
+            gaps.append((mh_name(lane), f"{lane_label(lane)}: the QA host is not read; its versions are what the release mail and QA's report name"))
         since = lane_since(snaps, lane, vers)
         if role == "qa" and base:                         # a QA lane is not read: it runs a build from the day it was sent
             since = next((r["date"] for r in recs if str(r["build"]) == base), since)
@@ -397,14 +397,15 @@ def gather(line, reports, runtime, today=None, notes=(), builds_ledger=None):
         base, other, none = lane_builds(vers, idx)
         now.append({"lane": lane, "role": "region", "versions": vers, "build": base, "other": other, "none": none,
                     "since": at[:10] or None, "source": f"QA's report {at[5:10]}" if at else None})
-        gaps.append(f"{lane_label(lane)} itself (the .cn host's lanes are not mapped: its versions are what QA's last report names)")
+        gaps.append((mh_name(lane), f"{lane_label(lane)}: the .cn host's lanes are not mapped; its versions are what QA's last report names"))
     for n in now:                                        # QA's word on what each lane runs
         if n["role"] == "qa" and n["build"]:
             rp = reps.get(n["build"])
             due = next((b.get("due") for b in (cycle or {}).get("builds") or [] if str(b.get("build")) == n["build"]), None)
             n["qa"] = (f"{rp['verdict']} {rp['at'][5:10]}" if rp else
-                       f"under test, report due {due[5:]} evening" if due and due >= today.isoformat() else
-                       f"no report on build {n['build']} read" + (f" (was due {due[5:]})" if due else ""))
+                       f"under test, due {due[5:]} evening" if due and due >= today.isoformat() else
+                       f"no report on build {n['build']}" + (f", due {due[5:]}" if due else ""))
+            n["qa_detail"] = [] if rp else [f"QA's report on build {n['build']}" + (f" is due the evening of {due[5:]}" if due else " was not read")]
             continue
         under = {b["build"] for b in (cycle or {}).get("builds") or [] if not reps.get(str(b.get("build")))}
         words, worst, last = [], None, ""
@@ -419,10 +420,12 @@ def gather(line, reports, runtime, today=None, notes=(), builds_ledger=None):
                 words.append(f"{svc_name(s)} {vtext(raw)} under test (build {from_build})")
             elif n["role"] != "region":
                 words.append(f"no QA report names {svc_name(s)} {vtext(raw)}")
+        n["qa_detail"] = words
         if n["role"] == "region":
             n["qa"] = n.get("source") or "no QA report read"
-        else:
-            n["qa"] = " · ".join(([f"{worst} {last[5:10]}"] if worst else []) + words) or "no QA report read"
+        else:                                             # six words at most; each service's exception is in the fold
+            n["qa"] = ((f"{worst} {last[5:10]}" if worst else "no QA report")
+                       + (f"; {len(words)} unreported" if words and worst else ""))
     # a lane ahead of its upstream: which services, and how they got there, one line per lane pair and source
     ahead = []
     order = [n for n in now if n["role"] != "region"]
@@ -442,8 +445,11 @@ def gather(line, reports, runtime, today=None, notes=(), builds_ledger=None):
                       (", past the daily lane (a hotfix to prod)" if lo["role"] == "prod" else "")
             else:
                 how = "QA's report names an older version than the lane runs" if hi["role"] == "qa" else "no build record says how"
-            ahead.append(f"{mh_name(lo['lane'])} is ahead of {mh_name(hi['lane'])} on {what}: {how}"
-                         + (f"; first read so on {lo['since'][5:]}" if lo.get("since") else "") + ".")
+            short = (f"{mh_name(lo['lane'])} is ahead of {mh_name(hi['lane'])}: build {rec['build']} went straight to it"
+                     + (" (a hotfix)." if lo["role"] == "prod" else ".")) if rec else \
+                    f"{mh_name(lo['lane'])} is ahead of {mh_name(hi['lane'])} on {len(items)} service{'s' if len(items) != 1 else ''}."
+            ahead.append({"short": short, "detail": f"{mh_name(lo['lane'])} is ahead of {mh_name(hi['lane'])} on {what}: {how}"
+                          + (f"; first read so on {lo['since'][5:]}" if lo.get("since") else "") + "."})
     # lanes that run the same versions are one row
     rowsets = []
     for n in now:
@@ -459,10 +465,10 @@ def gather(line, reports, runtime, today=None, notes=(), builds_ledger=None):
         rep = load(os.path.join(reports, "promote", f"{line}-{a}-{b}.json"))
         age = report_age(rep, today)
         if rep is None:
-            gaps.append(f"the {a} → {b} promote report (none stored; `ela promote report {line} {a} {b}` writes it)")
+            gaps.append((f"{a} → {b} promote report", f"none stored; `ela promote report {line} {a} {b}` writes it"))
             continue
         if age is not None and age > REPORT_FRESH_DAYS:
-            gaps.append(f"a fresh {a} → {b} promote report (the stored one is {age} days old)")
+            gaps.append((f"fresh {a} → {b} report", f"the stored {a} → {b} promote report is {age} days old"))
         t = ahead_tickets(rep)
         frm, to = cfg["lanes"][a], cfg["lanes"][b]
         if nxt is None and t:
@@ -493,19 +499,19 @@ def gather(line, reports, runtime, today=None, notes=(), builds_ledger=None):
             except ValueError:
                 pass
     except OSError:
-        gaps.append("the docker ledger")
+        gaps.append(("docker ledger", "releases/docker-versions.jsonl under the reports root is unreadable"))
     docker, unread = docker_rows(cands, ledger, line) if cands else ([], [])
     if cands is None:
-        gaps.append("the docker candidates (`ela docker --write` keeps them)")
+        gaps.append(("docker candidates", "none kept; `ela docker --write` keeps them"))
     if unread:
-        gaps.append("docker versions on " + ", ".join(lane_label(l) for l in unread) + " (the QA host is not read)")
+        gaps.append(("docker on " + ", ".join(mh_name(l) for l in unread), "docker versions on " + ", ".join(lane_label(l) for l in unread) + ": the QA host is not read"))
     keys = sorted({k for r in recs for v in r["services"] for k in v.get("keys") or []}
                   | {k for t in ((nxt or {}).get("tickets") or []) for k in [t[0]]}
                   | {k for d in docker for v in d["versions"].values() for k in v["keys"]})
     facts = R.facts_tickets(runtime, keys)
     missing = [k for k in keys if k not in facts]
     if missing:
-        gaps.append(f"{len(missing)} ticket{'s' if len(missing) != 1 else ''} not in the fact store ({', '.join(missing[:3])}{', …' if len(missing) > 3 else ''})")
+        gaps.append((f"titles of {len(missing)} ticket{'s' if len(missing) != 1 else ''}", f"not in the fact store: {', '.join(missing[:6])}{', …' if len(missing) > 6 else ''}"))
     builds = []
     for rec in sorted(recs, key=lambda r: (r["date"], int(re.sub(r"\D", "", str(r["build"])) or 0)), reverse=True):
         rp = reps.get(str(rec["build"]))
@@ -519,12 +525,12 @@ def gather(line, reports, runtime, today=None, notes=(), builds_ledger=None):
         first = min(int(re.sub(r"\D", "", str(r["build"])) or 0) for r in recs)
         lost = [b for b in lost if int(re.sub(r"\D", "", b) or 0) > first]
         if lost:
-            gaps.append(f"build{'s' if len(lost) != 1 else ''} {', '.join(lost)} (sent to QA, no build record written)")
+            gaps.append((f"build{'s' if len(lost) != 1 else ''} {', '.join(lost)}", "sent to QA, no build record written"))
     table = ticket_table(line, runtime, rows, builds_ledger, cfg)
     if table is None:
-        gaps.append(f"the line's tickets (the fact store holds none labelled release:mh-{line})")
+        gaps.append(("tickets", f"the fact store holds none labelled release:mh-{line}"))
     elif builds_ledger and not os.path.isfile(builds_ledger):
-        gaps.append("the builds ledger")
+        gaps.append(("builds ledger", "the builds ledger the site names is not on disk"))
     return {"line": line, "today": today.isoformat(), "rowsets": rowsets, "tickets": table, "ahead": ahead, "gaps": gaps, "next": nxt,
             "pending": pending, "docker": docker, "builds": builds, "facts": facts, "notes": list(notes),
             "read": snaps[-1][0] if snaps else None}
@@ -556,15 +562,25 @@ def render(d):
     L = [f"# MediaHub {line} · where the line stands", "",
          f"*{today} · from the lane read of {d['read'] or '—'}, the build records, QA's reports and the stored promote reports*", "",
          "## Now", "", "| lane | build | since | QA |", "|---|---|---|---|"]
+    detail = []
     for group in d["rowsets"]:
         n = group[0]
         name = " = ".join(lane_label(x["lane"]) for x in group)
-        b = f"build {n['build']}" if n["build"] else ("before the first build record" if n["versions"] else "—")
-        b += "".join(f" · {svc_name(s)} from build {x}" for s, x in n["other"])
-        b += "".join(f" · {svc_name(s)} {vtext(n['versions'][s])} in no build record" for s in n["none"] if n["build"])
+        mixed = n["other"] or (n["none"] and n["build"])
+        b = (f"build {n['build']}" + (" (mixed)" if mixed else "")) if n["build"] else ("before build records" if n["versions"] else "—")
         L.append(f"| {name} | {b} | {(n.get('since') or '—')[5:] or '—'} | {n.get('qa') or '—'} |")
-    L += [""] + [f"- {a}" for a in d["ahead"]] + ([""] if d["ahead"] else [])
-    L += ["**Can't read:** " + ("; ".join(d["gaps"]) + "." if d["gaps"] else "nothing — every source was read."), ""]
+        lines = [f"{svc_name(s)} from build {x}" for s, x in n["other"]] + \
+                [f"{svc_name(s)} {vtext(n['versions'][s])} in no build record" for s in n["none"] if n["build"]] + list(n.get("qa_detail") or [])
+        if lines:
+            detail.append(f"> - **{mh_name(n['lane'])}**: " + "; ".join(lines))
+    detail += [f"> - {a['detail']}" for a in d["ahead"]]
+    L += [""] + [a["short"] for a in d["ahead"]] + ([""] if d["ahead"] else [])
+    if detail:
+        L += ["> [!note]- Per service: builds, QA and the lane ahead"] + detail + [""]
+    gaps = d["gaps"]
+    L += ["**Can't read:** " + (", ".join(g[0] for g in gaps) + "." if gaps else "nothing; every source was read."), ""]
+    if gaps:
+        L += ["> [!note]- Why each could not be read"] + [f"> - **{g[0]}**: {g[1]}" for g in gaps] + [""]
     L += ["## Next promotion", ""]
     nx = d["next"]
     if not nx:
@@ -587,7 +603,7 @@ def render(d):
         if rest:
             L.append(f"- **Not yet passed:** {named(rest, lambda v, w: f' — {VERDICT_WORDS.get(v, v)}')}")
         under = "under test" in (nx.get("qa") or "")
-        when = re.search(r"report due ([\d-]+ evening)", nx.get("qa") or "")
+        when = re.search(r"due ([\d-]+ evening)", nx.get("qa") or "")
         L.append(f"- **Decision:** move {cand} to {mh_name(nx['to'])}" +
                  (f" — after QA's report, due {when.group(1)}." if under and when else
                   " — once the failures are answered." if block else
@@ -600,17 +616,18 @@ def render(d):
         L += [f"> [!note]- Every ticket {mh_name(nx['to'])} does not run yet"] + \
              [f"> - {ticket(k, facts, 80)} — {VERDICT_WORDS.get(v, v)}{(' ' + w[5:]) if w and v in ('pass', 'fail', 'partial') else ''}" for k, _, v, w in t] + [""]
     for p in d["pending"]:
-        if p["past"]:
-            L += [f"*The open promotion record “{p['label']}” is past: {lane_label(p['to'])} already runs its versions or newer.*", ""]
-        elif p.get("waiting") and p["waiting"].get("what"):
+        if not p["past"] and p.get("waiting") and p["waiting"].get("what"):
             w = p["waiting"]
             L += [f"*{p['label']}: waiting on {w['what']}" + (f" since {w['asked']}" if w.get("asked") else "")
                   + (f" ([thread]({w['thread']}))" if w.get("thread") else "") + "*", ""]
     L += ["## Docker", ""]
     if not d["docker"]:
         L += ["Every docker image QA has reported on runs the same version on this line's readable lanes.", ""]
+    folded = []
     for x in d["docker"]:
-        lanes = " · ".join(f"{mh_name(l)} {v}" for l, v in x["lanes"])
+        lanes = " vs ".join(f"{mh_name(l)} {v}" for l, v in x["lanes"])
+        newest = max((v for v in x["versions"]), key=lambda v: vkey(v) or (0,), default=None)
+        L.append(f"- **{x['image']}** · {lanes} · QA report on {newest}: {'yes' if newest and x['versions'][newest]['reports'] else 'no'}")
         parts = []
         for ver, info in sorted(x["versions"].items(), key=lambda kv: vkey(kv[0]) or (0,), reverse=True):
             rep = max(info["reports"], key=lambda r: r.get("at") or "", default=None)
@@ -618,9 +635,9 @@ def render(d):
             what = ", ".join(ticket(k, facts, 50) for k in info["keys"][:2]) or \
                    (f"released {str(info['released'].get('at') or '')[5:10]}, no ticket named" if info.get("released") else "what it changed is not on record")
             parts.append(f"{ver}: {said}; {what}")
-        L.append(f"- **{x['image']}** ({', '.join(x['gm'][:2])}{', …' if len(x['gm']) > 2 else ''}): {lanes} — " + " · ".join(parts))
+        folded.append(f"> - **{x['image']}** ({', '.join(x['gm'][:2])}{', …' if len(x['gm']) > 2 else ''}): " + " · ".join(parts))
     if d["docker"]:
-        L.append("")
+        L += ["", "> [!note]- What each version changed, and its QA report"] + folded + [""]
     L += ["## Builds", ""]
     if not d["builds"]:
         L += ["No build record for this line.", ""]
@@ -654,6 +671,10 @@ def render(d):
                 L.append(f"> *{len(rows_) - len(shown)} older Done tickets in Jira under the label {tt['label']}*")
             L.append("")
     L += ["## History", ""]
+    past = [p for p in d["pending"] if p["past"]]
+    L += [f"- The open promotion record “{p['label']}” is past: {mh_name(p['to'])} already runs its versions or newer." for p in past]
+    if past:
+        L.append("")
     notes = sorted(d["notes"], key=lambda n: (n.get("date") or "", n["rel"]), reverse=True)
     if not notes:
         L += ["No promotion or deploy note yet.", ""]

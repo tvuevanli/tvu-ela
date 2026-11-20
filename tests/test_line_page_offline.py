@@ -115,23 +115,31 @@ with tempfile.TemporaryDirectory() as tmp:
           and "| CN Prod2 (prod-2-china) |" in now)
     check("QA's word: the QA lane's build without a report is under test; a lane's version QA reported shows its verdict",
           re.search(r"\| QA-AWS3 \(qa-cn3\) \| build 99 \| 11-19 \| (under test|no report on build 99)", now) is not None
-          and "| Wednesday (daily-wed) | build 95 | 11-18 | pass 11-17" in now)
+          and "| Wednesday (daily-wed) | build 95 | 11-18 | pass 11-17; 1 unreported |" in now)
     check("a lane ahead of its upstream says why: Prod 3 took build 98 past the daily lane",
           "Prod 3 is ahead of Wednesday on MediaHub Backend 2.1.47 (theirs 2.1.46), UR Caller 2.1.98 (theirs 2.1.95): taken straight from QA-AWS3 build 98, past the daily lane" in now)
     cant = next((l for l in now.splitlines() if l.startswith("**Can't read:**")), "")
-    check("one Can't read line names each gap plainly: the QA host, the China host, the missing promote report, the docker lane",
-          "QA-AWS3 (qa-cn3) itself" in cant and "CN Prod2 (prod-2-china) itself" in cant
-          and "daily → prod promote report (none stored" in cant and "docker versions on QA-AWS3 (qa-cn3)" in cant and cant.count("**Can't read:**") == 1)
+    check("one Can't read line names each gap in 15 words or fewer; why each could not be read is folded under it",
+          cant == "**Can't read:** QA-AWS3, CN Prod2, daily → prod promote report, docker on QA-AWS3, titles of 3 tickets." and len(cant.split()) <= 17
+          and "> [!note]- Why each could not be read\n> - **QA-AWS3**: QA-AWS3 (qa-cn3): the QA host is not read" in now
+          and "> - **daily → prod promote report**: none stored; `ela promote report 2.1 daily prod` writes it" in now)
+    table = [l for l in now.splitlines() if l.startswith("| ") and "---" not in l][1:]
+    check("the lane table is four short cells a lane, QA's word in six words or fewer; the per-service exceptions folded",
+          all(len(l.strip("| ").split(" | ")) == 4 and len(l.strip("| ").split(" | ")[3].split()) <= 6 for l in table)
+          and "> [!note]- Per service: builds, QA and the lane ahead" in now
+          and "> - Prod 3 is ahead of Wednesday on MediaHub Backend 2.1.47 (theirs 2.1.46)" in now)
+    check("the lane ahead of its upstream is one short sentence in the head", "\nProd 3 is ahead of Wednesday: build 98 went straight to it (a hotfix).\n" in now)
+    check("the head passes the presentation lint", V.present_lint("releases/2.1/2.1.md", page, generated=True) == [])
     nxt = page.split("## Next promotion")[1].split("## Docker")[0]
     check("Next promotion: the candidate build, what is ready, what blocks it, the decision",
           "**QA-AWS3 build 99 → Wednesday (daily-wed):** 3 tickets Wednesday does not run; 1 QA passed, 1 failed, 1 without a QA pass" in nxt
           and "**Ready:** MH-4052" in nxt and "**Blocks:** MH-4065" in nxt and "QA fail 11-19" in nxt and "**Decision:** move QA-AWS3 build 99 to Wednesday" in nxt)
-    check("a promotion record its target already passed is said to be past, not shown as the next train",
-          "“Wednesday (build 78) → prod-3” is past" in nxt)
+    check("a promotion record its target already passed is said to be past under History, not in the head",
+          "“Wednesday (build 78) → prod-3” is past" in page.split("## History")[1] and "is past" not in nxt)
     dock = page.split("## Docker")[1].split("## Builds")[0]
     check("Docker: only the image that differs between lanes, each version with its QA report or none and what it changed",
-          "**mixer**" in dock and "copier" not in dock and "Wednesday 1.0.35 · Prod 3 1.0.36" in dock
-          and "1.0.36: no QA report; MH-3984" in dock and "1.0.35: no QA report; released 11-01, no ticket named" in dock)
+          "- **mixer** · Wednesday 1.0.35 vs Prod 3 1.0.36 · QA report on 1.0.36: no" in dock and "copier" not in dock
+          and "> - **mixer** (Docker Switcher): 1.0.36: no QA report; MH-3984" in dock and "1.0.35: no QA report; released 11-01, no ticket named" in dock)
     builds = page.split("## Builds")[1].split("## History")[0]
     lines = [l for l in builds.splitlines() if l.startswith("- ")]
     check("Builds: one line per build of the last two weeks, newest first, each with a block id; the detail folded",
