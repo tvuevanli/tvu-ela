@@ -1489,4 +1489,28 @@ lk = V.Linker({}, {}, "https://j", ["MH"])
 check("a key with a leading zero is a customer's id, not a ticket: left unlinked inside a title",
       lk("MH-3891 [FloSports MH-030] Share profiles") == "[MH-3891](https://j/browse/MH-3891) [FloSports MH-030] Share profiles")
 
+# a verification's record: a link the system opens (Obsidian opens no .html; ela/attachments/ is out of its search),
+# its print copy beside it, its HTML title an alias, its key a property
+with tempfile.TemporaryDirectory() as t:
+    site_was = V.SITE
+    V.SITE = os.path.join(t, "site.json"); json.dump({"vault": "/mnt/d/el.obsidian/ela vault"}, open(V.SITE, "w"))
+    check("a vault file on a WSL mount is linked by its Windows path",
+          V.vault_url("ela/attachments/verify/a b.html") == "file:///D:/el.obsidian/ela%20vault/ela/attachments/verify/a%20b.html")
+    rec = os.path.join(t, "r", "verify", "MH-3873-2026-11-17-daily-wed")
+    os.makedirs(os.path.join(rec, "img"))
+    open(os.path.join(rec, "record.html"), "w").write("<html><head><title>MH-3873 Browser Test</title></head></html>")
+    open(os.path.join(rec, "index.html"), "w").write("<html></html>")
+    open(os.path.join(rec, "MH-3873-print.html"), "w").write("<html></html>")
+    open(os.path.join(rec, "report.md"), "w").write("# MH-3873 · PASS on daily-wed\n\n> [!success] PASS\n\nThe record: `index.html` beside this file.\n")
+    got, files = V.verify_notes(os.path.join(t, "r"))
+    n = got[0]
+    check("the record's link is a file URL, its print copy beside it, never a wikilink to an .html",
+          "[open it](file:///D:/el.obsidian/ela%20vault/ela/attachments/verify/2026-11/mh-3873-2026-11-17-daily-wed/record.html)" in n.body
+          and "· [print](file:///D:/" in n.body and "-print.html)" in n.body and "[[ela/attachments" not in n.body)
+    check("the print copy is copied with the record; index.html is not",
+          any(d.lower().endswith("mh-3873-print.html") for _, d in files) and not any(d.endswith("/index.html") for _, d in files))
+    check("the record's HTML title is an alias and its key a property", n.props.get("aliases") == ["MH-3873 Browser Test"]
+          and n.props.get("keys") == ["MH-3873"] and V.home_for(n.path, dict(n.props, title=n.title), lambda k: None) == "releases/2.1")
+    V.SITE = site_was
+
 sys.exit(1 if failures else 0)

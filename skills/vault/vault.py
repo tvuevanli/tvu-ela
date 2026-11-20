@@ -1258,6 +1258,41 @@ def peek_verdict(path):
     return m.group(1) if m else None
 
 
+def vault_url(rel):
+    """A file in the vault as a link the system opens (a browser for an HTML record): Obsidian opens no .html file
+    itself, and ela/attachments/ is out of its search. The vault's path in site.json, a WSL mount (/mnt/d/…) written
+    as the Windows path Obsidian runs on (file:///D:/…)."""
+    import urllib.parse
+    try:
+        root = json.load(open(SITE)).get("vault") or ""
+    except (OSError, ValueError):
+        root = ""
+    full = os.path.join(root, rel).replace(os.sep, "/")
+    m = re.match(r"^/mnt/([a-z])/(.*)$", full)
+    path = f"{m.group(1).upper()}:/{m.group(2)}" if m else full.lstrip("/")
+    return "file:///" + urllib.parse.quote(path, safe="/:")
+
+
+def record_links(page, prints=(), words="open it"):
+    """The record's page as an external link, its print copy beside it when there is one."""
+    return f"[{words}]({vault_url(page)})" + "".join(f" · [print]({vault_url(x)})" for x in prints[:1])
+
+
+def verify_props(key, extra, path, single):
+    """A verification's own properties: its key (the line it files under comes from it, else the lane in its name), and the
+    record's HTML title among its aliases, so a search for the title the record shows finds the note."""
+    out = {"keys": [key]}                                  # the lane is the file name's (verify_line reads it)
+    for f in ([path] if single else [os.path.join(path, x) for x in ("record.html", "index.html")]):
+        try:
+            m = re.search(r"<title>\s*(.*?)\s*</title>", open(f, encoding="utf-8", errors="replace").read(20000), re.S | re.I)
+        except OSError:
+            continue
+        if m and m.group(1).strip():
+            out["aliases"] = [" ".join(m.group(1).split())]
+            break
+    return out
+
+
 def verify_path(key, date, extra):
     return f"{TO_READ}/{date}-verify-{key.lower()}{extra}.md"
 
@@ -1324,7 +1359,7 @@ def verify_notes(reports, today=None):
             continue                                       # a later run on the same lane replaces this one
         p = os.path.join(vd, name)
         record = f"{ATTACH}/verify/{date[:7]}/{name.lower()}"
-        pdfs, imgs, page = [], [], None
+        pdfs, imgs, page, prints = [], [], None, []
         if single:
             files.append((p, record)); page = record
         else:
@@ -1333,14 +1368,17 @@ def verify_notes(reports, today=None):
                     rel = os.path.relpath(os.path.join(top_, f), p).replace(os.sep, "/")
                     dst = f"{record}/{rel}"
                     low = f.lower()
-                    if low.endswith((".html", ".md")) and low != "record.html" and os.path.isfile(os.path.join(p, "record.html")):
-                        continue                   # index.html and the print copy repeat record.html
+                    if low.endswith((".html", ".md")) and low != "record.html" and not low.endswith("print.html") \
+                            and os.path.isfile(os.path.join(p, "record.html")):
+                        continue                   # index.html repeats record.html; the print copy is linked beside it
                     files.append((os.path.join(top_, f), dst))
                     low = f.lower()
                     if low.endswith(".pdf"):
                         pdfs.append(dst)
                     elif low.endswith((".png", ".jpg", ".jpeg")):
                         imgs.append(dst)
+                    elif low.endswith("print.html") and low not in ("index.html", "record.html"):
+                        prints.append(dst)
                     elif low in ("index.html", "print.html", "record.html") and (page is None or low == "record.html"
                                                                                    or (low == "index.html" and not page.endswith("record.html"))):
                         page = dst             # record.html, images embedded, opens inside Obsidian through HTML Reader
@@ -1348,15 +1386,15 @@ def verify_notes(reports, today=None):
         if md and os.path.isfile(md):                  # the record's own Markdown, written by the verify renderer
             body = open(md, encoding="utf-8").read()
             body = re.sub(r"!\[\[(img/[^\]]+)\]\]", lambda m: f"![[{record}/{m.group(1)}]]", body)
-            body = body.replace("`index.html` beside this file.", f"[[{page}|open it]].") if page else body
+            body = body.replace("`index.html` beside this file.", record_links(page, prints) + ".") if page else body
             vm = re.search(r"\[!\w+\]\s+([A-Z]+)", body)
             title = h1(body) if h1(body) and not h1(body).endswith(date) else (f"{key} · {vm.group(1)}" if vm else f"{key} verification")
             title += f" ({extra.strip('-')})" if extra and " on " not in title.split(" · ")[1] else ""
             if not body.lstrip().startswith("# " + key + " · "):  # an older record's heading: the title takes its place
                 body = re.sub(r"^#[ \t]+.*$", "# " + title, body, count=1, flags=re.M)
             title = " · ".join(title.split(" · ")[:2])     # key and verdict on its lane; the summary is the heading's
-            notes.append(Note(verify_path(key, date, extra), title, body, {"type": "verify", "date": date, **verdict_props(vm.group(1) if vm else None)},
-                              src_rel=f"verify/{name}"))
+            notes.append(Note(verify_path(key, date, extra), title, body, {"type": "verify", "date": date, **verdict_props(vm.group(1) if vm else None),
+                              **verify_props(key, extra, p, single)}, src_rel=f"verify/{name}"))
             continue
         verdict = record_verdict(os.path.join(vd, name) if single else os.path.join(p, os.path.basename(page or "index.html")))
         body = [f"# {key} verification{' · ' + extra.strip('-') if extra else ''}", ""]
@@ -1365,7 +1403,7 @@ def verify_notes(reports, today=None):
         else:
             body += [f"> [!{ {'PASS': 'success', 'FAIL': 'failure', 'BLOCKED': 'warning'}.get(verdict[0], 'info') }] {verdict[0]}"
                      + (f": {verdict[1]}" if verdict[1] else "") + (f" · {verdict[2]}" if verdict[2] else ""), ""]
-        body.append(f"Ticket {key}" + (f" · [[{page}|open the full record]]" if page else ""))
+        body.append(f"Ticket {key}" + (f" · {record_links(page, prints, 'open the full record')}" if page else ""))
         body.append("")
         if pdfs:
             body += [f"![[{pdfs[0]}]]", ""]
@@ -1374,7 +1412,7 @@ def verify_notes(reports, today=None):
             if len(imgs) > 8:
                 body += ["", f"{len(imgs) - 8} more in the full record."]
         notes.append(Note(verify_path(key, date, extra), f"{key} · {verdict[0]}", "\n".join(body) + "\n",
-                          {"type": "verify", "date": date, **verdict_props(verdict[0])}, src_rel=f"verify/{name}"))
+                          {"type": "verify", "date": date, **verdict_props(verdict[0]), **verify_props(key, extra, p, single)}, src_rel=f"verify/{name}"))
     return notes, files
 
 
