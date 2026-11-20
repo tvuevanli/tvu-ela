@@ -46,6 +46,7 @@ python3 tests/test_brief_sprint_offline.py || fail=1
 python3 tests/test_brief_changes_offline.py || fail=1
 python3 tests/test_brief_china_offline.py || fail=1
 python3 tests/test_vault_offline.py || fail=1
+python3 tests/test_vault_line_folder_offline.py || fail=1
 python3 tests/test_vault_migrate_offline.py || fail=1
 python3 tests/test_today_offline.py || fail=1
 python3 tests/test_dry_offline.py || fail=1

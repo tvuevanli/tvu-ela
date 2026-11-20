@@ -34,7 +34,7 @@ move sets it, never the folder. A vault in another layout is not synced: `vault.
                                                 sync: lanes, next promotion, docker differences, one line per build),
                                                 each live promote, deploy, docker check and hotfix, verifications;
                                                 lists/ the line's train-<line>.md, dev-list-<line>.md and
-                                                test-list-<lane>.md
+                                                test-list-<lane>.md; history/ what is done (tidy_releases)
     cases/<date>-<customer>-<what>.md           one note per customer case (open, answered, closed)
     reference/                                  what serves no single thing: a product review, engineering management,
                                                 the day pages (reference/days/<year>/<date>-brief|changes.md, kept),
@@ -213,7 +213,7 @@ ela writes this vault from first-hand sources, and it holds things and angles (e
 | `today.md` | the one page: facts, at most three asks, today |
 | `meetings/` | one page per meeting, worded for the team |
 | `projects/` | one page per project, `<key>-<slug>.md`; a folder `<key>-<slug>/` once notes sit beside the page |
-| `releases/` | a folder per line: its line page `<line>.md`, the way in (where the line stands, what can move next, what could not be read, its builds), and each live promote and deploy; `lists/` its train, dev and test lists; `lanes.md` across lines |
+| `releases/` | a folder per line: its line page `<line>.md`, the way in (where the line stands, what can move next, what could not be read, its builds), and each live promote and deploy; `lists/` its train, dev and test lists; `history/` its builds' old notes, the old record and every closed note (a promote closes itself once its target lane runs the build); `lanes.md` across lines |
 | `cases/` | one note per customer case |
 | `reference/` | what serves no single thing: product reviews, the day pages, One Thing, dropped asks |
 | `ela/` | ela's own pages and history |
@@ -870,6 +870,165 @@ def line_notes(vault, reports, runtime, today, planned=()):
         out.append(Note(line_page_path(line), f"MediaHub {line} · where the line stands", body,
                         {"type": "line", "date": today.isoformat()}, []))
     return out
+
+
+# ── a line's folder: its root shows the line page and live promote notes; the rest is history ────────────────────
+# A build's note, the hand-written record, and any note done are moved to releases/<line>/history/ (the name kept, so a
+# link by name still resolves, and a link by path is rewritten); a promote, deploy or sync note closes itself once its
+# target lane runs what its source lane ran that day, then moves too. Nothing is deleted (vault plan
+# 2026-11-20-plan-one-page-per-release-line, items 2 and 3; decision 2026-11-09: closed notes go to their subject home).
+HISTORY_SUB = "history"
+BUILD_NOTE = re.compile(r"^\d{4}-\d{2}-\d{2}-build-[\w.]+-to-[a-z0-9-]+\.md$")
+HOP_NOTE = re.compile(r"^(\d{4}-\d{2}-\d{2})-(promote|deploy|sync)-(.+)\.md$")
+
+
+def lane_by_words(words, lanes):
+    """The lane a file name's words begin with: `daily-wed-to-prod-3` → daily-wed, `cn-prod-2` → prod-2-china (by its
+    MediaHub name); the longest that fits, None when none does."""
+    sys.path.insert(0, os.path.join(HERE, "..", "release"))
+    import line as LP                                      # noqa: E402
+    flat = words.replace("-", "")
+    best = None
+    for lane in lanes:
+        for form in (lane, slug(LP.mh_name(lane))):
+            if flat.startswith(form.replace("-", "")) and (best is None or len(form) > len(best[1])):
+                best = (lane, form)
+    return best[0] if best else None
+
+
+def hop_promoted(name, reports, runtime):
+    """(promoted, why) for a promote, deploy or sync note named `<date>-<kind>-<from>-to-<to>[-…]`: True when the target
+    lane now runs, for every service the source lane ran on the note's day (or the named build carried), that version or
+    a newer one in its series. None when the name or the reads do not say."""
+    m = HOP_NOTE.match(name)
+    if not m or "-to-" not in m.group(3):
+        return None, "the name names no hop"
+    sys.path.insert(0, os.path.join(HERE, "..", "release"))
+    import line as LP                                      # noqa: E402
+    R = release_mod()
+    lanes = set()
+    for v in (R.rmap("lines") or {}).values():
+        lanes |= {l for l in ((v or {}).get("lanes") or {}).values() if l}
+    for reg in (R.rmap("regions") or {}).values():
+        lanes |= set(((reg or {}).get("lanes") or {}).keys())
+    frm_w, to_w = m.group(3).split("-to-", 1)
+    to = lane_by_words(to_w, lanes)
+    snaps = LP.snapshots(runtime)
+    if not to or not snaps:
+        return None, "the target lane or the lane reads are not known"
+    b = re.fullmatch(r"build-([\w.]+)", frm_w)
+    if b:
+        rec = next((r for r in R.build_records(reports) if str(r["build"]) == b.group(1)), None)
+        src = {LP.record_slug(v["service"]): v["to"] for v in (rec or {}).get("services") or [] if LP.record_slug(v["service"])}
+    else:
+        frm = lane_by_words(frm_w, lanes)
+        day = [rows for d, rows in snaps if d <= m.group(1)] or [snaps[0][1]]
+        src = LP.lane_versions(day[-1], frm) if frm else {}
+    if R.lane_region(to):
+        tgt = LP.tested_by_lane(json.load(open(os.path.join(runtime or "", "runner", "qa-tested.json"))) if os.path.isfile(
+            os.path.join(runtime or "", "runner", "qa-tested.json")) else {}, to)[0]
+    else:
+        tgt = LP.lane_versions(snaps[-1][1], to)
+    pairs = [(s, LP.vkey(v), LP.vkey(tgt.get(s))) for s, v in src.items()]
+    pairs = [(s, a, t) for s, a, t in pairs if a]
+    if not pairs:
+        return None, "the source's versions are not read"
+    short = [s for s, a, t in pairs if not t or t[:2] != a[:2] or t < a]
+    return (not short), ("runs it" if not short else "lacks " + ", ".join(LP.svc_name(s) for s in short))
+
+
+def relocate_links(text, vault):
+    """Wikilinks and Markdown links to a release note by its old path (`releases/<line>/<name>`) pointed at where it is
+    now, its line's history/ or lists/; a link that resolves is left as written. → (text, count)."""
+    n = [0]
+
+    def where(target):
+        m = re.match(r"^(releases/[\d.]+)/([^/]+)$", target)
+        if not m or os.path.isfile(os.path.join(vault, target + ".md")):
+            return None
+        for sub in (HISTORY_SUB, "lists"):
+            if os.path.isfile(os.path.join(vault, m.group(1), sub, m.group(2) + ".md")):
+                return f"{m.group(1)}/{sub}/{m.group(2)}"
+        return None
+
+    def wiki(m):
+        new = where(m.group(2).strip())
+        if not new:
+            return m.group(0)
+        n[0] += 1
+        return m.group(1) + new + (m.group(3) or "") + m.group(4)
+
+    def md(m):
+        new = where(m.group(2)[:-3])
+        if not new:
+            return m.group(0)
+        n[0] += 1
+        return m.group(1) + new + ".md" + m.group(3)
+    return MDLINK.sub(md, WIKI.sub(wiki, text or "")), n[0]
+
+
+def tidy_releases(vault, reports, runtime, dry_run=False, now=None):
+    """Each line folder's root brought to its line page and its live promote notes: a build's note, the record and a
+    done note moved to history/, a promote, deploy or sync note that has landed closed (done, next promoted, closed by
+    ela) and moved. → [(old, new, why)]. Moves are logged as renames, so the records and the sync follow them."""
+    now = now or datetime.datetime.now()
+    out = []
+    root = os.path.join(vault or "", RELEASES)
+    for line in sorted(os.listdir(root)) if os.path.isdir(root) else []:
+        d = os.path.join(root, line)
+        if not re.fullmatch(r"[\d.]+", line) or not os.path.isdir(d):
+            continue
+        for f in sorted(os.listdir(d)):
+            p = os.path.join(d, f)
+            if not f.endswith(".md") or not os.path.isfile(p) or f == f"{line}.md" or re.match(r"^(?:train|dev-list|test-list)-", f):
+                continue
+            try:
+                text = open(p, encoding="utf-8").read()
+            except OSError:
+                continue
+            props = props_of(split_front(text)[0])
+            why = None
+            if BUILD_NOTE.match(f):
+                why = "a build is a line on the line page"
+            elif re.match(r"^release-[\d-]+-record\.md$", f):
+                why = "the line page is the way in"
+            elif is_done(props) or props.get("status") in ("superseded",):
+                why = "done"
+            elif HOP_NOTE.match(f):
+                ok, said = hop_promoted(f, reports, runtime)
+                if ok:
+                    why = f"closed by ela: the target lane {said}"
+                    text = set_front(text, status=DONE, next="promoted", **{"closed-by": "ela"})
+            if not why:
+                continue
+            rel, new = f"{RELEASES}/{line}/{f}", f"{RELEASES}/{line}/{HISTORY_SUB}/{f}"
+            if os.path.exists(os.path.join(vault, new)):
+                continue                                   # a namesake already there: left for the owner, never overwritten
+            out.append((rel, new, why))
+            if dry_run:
+                continue
+            os.makedirs(os.path.join(d, HISTORY_SUB), exist_ok=True)
+            atomic_write(os.path.join(vault, new), text)
+            os.remove(p)
+            log = os.path.join(reports or "", "ela", "vault-removed.jsonl")
+            os.makedirs(os.path.dirname(log), exist_ok=True)
+            with open(log, "a", encoding="utf-8") as fh:
+                fh.write(json.dumps({"at": now.isoformat(timespec="seconds"), "path": rel, "fate": "renamed", "by": "ela",
+                                     "renamed_to": new, "why": why}, ensure_ascii=False) + "\n")
+    return out
+
+
+def relocate_vault_links(vault, dry_run=False):
+    """Every note's links by an old release path rewritten in place (relocate_links); archive/ included, since only a
+    path changes. → [paths changed]."""
+    changed = []
+    for rel, text in vault_notes(vault):
+        new, n = relocate_links(text, vault)
+        if n:
+            changed.append(rel)
+            if not dry_run:
+                atomic_write(os.path.join(vault, rel), new)
+    return changed
 
 
 def reader_heading(body, date):
@@ -4649,6 +4808,7 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since
             planned[n.path] = redact(n.front_text + (with_warning(body, n.held) if n.held else body))
             continue
         body = linker(unwrap(callouts(meta_line(Note(n.path, n.title, tidy_title(n.body), n.props, n.front_lines)))))
+        body = relocate_links(body, s["vault"])[0]         # a source's link by a release note's old path, to where it is now
         if family_of(n.props.get("type")) == "work":
             body = with_moves(body, n.path, n.props.get("type"))
         planned[n.path] = redact(front(n.front_lines, dict(n.props, title=n.title)) + (with_warning(body, n.held) if n.held else body))
@@ -5949,6 +6109,8 @@ def cmd_sync(a):
                      if os.path.isdir(s.get("reports") or "") else (None, {"consumed": [], "closed": [], "new": []}))   # no root: plan stops the sync
     for qi, words in qdone["closed"]:
         print(f"question {qi}: {words}", file=sys.stderr)
+    for old_, new_, why in tidy_releases(vault, s.get("reports") or "", s.get("runtime") or "", a.dry_run, now):
+        print(f"releases: {old_} → {new_} ({why})", file=sys.stderr)
     for fix in settle_statuses(vault, a.dry_run):
         print(f"status: {fix}", file=sys.stderr)
     if not a.dry_run:
@@ -5996,6 +6158,8 @@ def cmd_sync(a):
         for r, dst in moved:
             os.makedirs(os.path.dirname(os.path.join(vault, dst)), exist_ok=True)
             os.replace(os.path.join(vault, r), os.path.join(vault, dst))
+    for r in relocate_vault_links(vault, a.dry_run):       # a link by a release note's old path follows it to history/ or lists/
+        print(f"releases: links followed in {r}", file=sys.stderr)
     # counted from the day the note entered the vault (the manifest's `seen`), not from the day its source was written
     seen = {r: old_seen.get(r) or today.isoformat() for r in planned if r.endswith(".md")}
     now_files = set(planned) | {dst for src, dst in files}
