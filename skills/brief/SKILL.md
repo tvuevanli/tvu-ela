@@ -23,6 +23,11 @@ approves, edits or skips; execution goes through the skill named on the item.
 - **Facts are computed, judgment is written.** Hours since update, routing overdue, "no sub-tasks"
   are computed by `brief.py` (§1) and the slack capability (§2); whether a Slack message is a decision, and how urgent an item is
   relative to another, is this skill's judgment and is written as such.
+- **A held subject asks nothing.** The owner parks a subject with `ela: hold <subject or key> [until X]`
+  (`ela focus holds` lists them; skills/focus/hold.py). `ela brief --json` already leaves held tickets out
+  of every lane and names them under `held`; an item from any other source (a Slack thread, yesterday's
+  cases, a mention) that names a held key or carries a held subject's words is left out the same way. The
+  page says at most one line, `Held: N subjects (see the focus board)`, never the items again.
 - **Nothing is written anywhere.** Not to Jira, not to Slack, not to the knowledge base. The brief is
   the day's view; tomorrow recomputes it.
 

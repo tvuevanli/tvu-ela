@@ -669,6 +669,36 @@ def print_table(name, lane):
     print()
 
 
+def unheld_lanes(lanes, holds=None, today=None):
+    """The lanes less every row whose ticket the owner held (`ela: hold <subject|key>`, skills/focus/hold.py): a held
+    subject asks nothing of him on any page until it is resumed or its date comes. → (lanes, [{key, hold, lanes}])."""
+    try:
+        sys.path.insert(0, os.path.join(HERE, "..", "focus"))
+        import hold as HD
+        if holds is None:
+            holds = HD.for_reports(json.load(open(SITE)).get("reports"), today)
+    except Exception:                                      # noqa: BLE001 — no store: nothing is held
+        return lanes, []
+    out, held = {}, {}
+    for name, lane in lanes.items():
+        rows = lane.get("rows") if isinstance(lane, dict) else None
+        if not isinstance(rows, list):
+            out[name] = lane
+            continue
+        keep = []
+        for r in rows:
+            r_ = r if isinstance(r, dict) else {}
+            text = " ".join(str(r_.get(f) or "") for f in ("summary", "item", "what", "ref", "first_line"))
+            h = HD.holding(holds, [r_["key"]] if r_.get("key") else [], text, today)
+            if h:
+                k = r_.get("key") or h["id"]
+                held.setdefault(k, {"key": k, "hold": HD.label(h), "lanes": []})["lanes"].append(name)
+            else:
+                keep.append(r)
+        out[name] = dict(lane, rows=keep, count=len(keep)) if len(keep) != len(rows) else lane
+    return out, list(held.values())
+
+
 def cmd_lanes(args):
     now = datetime.datetime.now(datetime.timezone.utc)
     want = [args.lane] if args.lane else list(LANES)
@@ -699,9 +729,10 @@ def cmd_lanes(args):
             except LaneError as exc:
                 errors.append({"lane": name, **exc.args[0]})
 
+    lanes, held = unheld_lanes(lanes)
     if args.json:
         print(json.dumps({"generated": now.strftime("%Y-%m-%dT%H:%M:%SZ"), "day": day_plan(datetime.date.today()),
-                          "lanes": lanes, "errors": errors}, ensure_ascii=False))
+                          "lanes": lanes, "held": held, "errors": errors}, ensure_ascii=False))
     else:
         print(f"# brief · jira lanes · {now.strftime('%Y-%m-%d %H:%M')}Z\n")
         for name in want:
