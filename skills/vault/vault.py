@@ -214,6 +214,14 @@ ela writes this vault from first-hand sources, and it holds things and angles (e
   date or `ela: resume <subject>`; it changes nothing in Jira. `ela: up <key> [why]` drafts priority High (`highest`:
   Highest), and a due date and an assignee when missing; `ela: down <key>` drafts Medium. Jira priority is the mark: no
   label repeats it. Each is a dry-run batch asked on today.md; Jira moves on your A only.
+- Every live row takes the same five words, as a box or a bare `ela:` line under the row: `A`/`B` answers it
+  (on a batch's note in ela/dry/, A applies what the note shows), `hold` parks it, `up` and `down` draft its priority,
+  `done` closes the note where it is (`drop` too, kept either way).
+- Read every three minutes, 08:30-19:00 on working days: a line taken shows `✓ 10:42` beside it (`✗` refused, the
+  reason folded under it); one that needs a session shows `queued 10:42`, its answer later under it. Lines written
+  outside those hours are taken the next working morning.
+- A page you changed in the last ten minutes is not rewritten until you stop; a Syncthing conflict copy gives its
+  ticks and `ela:` lines to the live page and is kept in archive/sync-conflicts/.
 
 ## Layout
 
