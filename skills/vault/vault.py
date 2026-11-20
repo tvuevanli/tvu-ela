@@ -5884,6 +5884,20 @@ def cmd_conflicts(a):
     print(f"{'DRY RUN — ' if not a.apply else ''}{len(r)} conflict copies")
 
 
+ROW_SKIP = re.compile(r"^[ \t]*(?:>|#|[-*+][ \t]+\[[ xX]\]|(?:[-*+][ \t]+)?ela[ \t]*[:：])")
+
+
+def row_at(text, pos):
+    """The row a line sits under: the nearest line above it that is neither a box, a quote, a heading nor another
+    `ela:` line, its list marker dropped. A bare verb (`ela: hold`, a ticked `up` box) acts on that row's subject."""
+    for l in reversed(text[:pos].splitlines()):
+        if l.strip() and not ROW_SKIP.match(l):
+            return re.sub(r"^[ \t]*(?:[-*+]|\d+\.)[ \t]+", "", l).strip()[:300]
+        if re.match(r"^[ \t]*#", l):
+            return None
+    return None
+
+
 def conflict_copy(name):
     """A sync tool's conflict copy (Syncthing's `x.sync-conflict-<date>-<time>-<device>.md`): the same note's words again
     under a new name, never a note of his. Read as his, each of its `ela:` lines is new again (2026-11-17: one meeting
@@ -5934,7 +5948,8 @@ def cmd_guidance(a):
                               for i, n in enumerate(re.findall(r"\d+", many.group(1)))] if many else [(gid, says)])
                     for pid, psays in parts:
                         if a.all or pid not in done:
-                            lines.append(dict({"id": pid, "note": rel, "kind": kind, "says": psays, "section": section_at(text, m.start())},
+                            lines.append(dict({"id": pid, "note": rel, "kind": kind, "says": psays, "section": section_at(text, m.start()),
+                                               "row": row_at(text, m.start())},
                                               **({"ask": letter["id"], "letter": letter["letter"]} if letter else {})))
     r = {"guidance": lines,
          "handled_log": os.path.join(reports, "ela", "guidance-handled.jsonl")}

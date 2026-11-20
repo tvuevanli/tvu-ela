@@ -33,6 +33,11 @@ check("each stamp form is recognised", all(V.STAMP.search("ela: x " + m) for m i
       and not V.STAMP.search("ela: meet at 10:42"))
 check("the parts of a merged apply box share the line's id", V.stamp_text("p.md", NOTE, hold_id + "-3", "✓ 10:42")[1])
 
+ROWS = "## Board\n\n- MH-4061 10-bit through the switcher · Waiting\n  - [ ] up\n  ela: hold\n\n## Other\n\nela: down\n"
+check("a bare verb acts on the row above it", V.row_at(ROWS, ROWS.index("ela: hold")) == "MH-4061 10-bit through the switcher · Waiting"
+      and V.row_at(ROWS, ROWS.index("- [ ] up")) == V.row_at(ROWS, ROWS.index("ela: hold")))
+check("a heading ends the search: no row", V.row_at(ROWS, ROWS.index("ela: down")) is None)
+
 # ── guidance leaves a stamped line out ─────────────────────────────────────────────────────────────────────────
 with tempfile.TemporaryDirectory() as d:
     vault, reports = os.path.join(d, "vault"), os.path.join(d, "reports")
@@ -45,6 +50,7 @@ with tempfile.TemporaryDirectory() as d:
         V.cmd_guidance(types.SimpleNamespace(all=False, json=True))
     g = json.loads(buf.getvalue())["guidance"]
     check("guidance lists only what is not stamped", [x["says"] for x in g] == ["Not now"])
+    check("guidance names the row a line sits under", g[0]["row"] == "one")
     with contextlib.redirect_stdout(io.StringIO()):
         V.cmd_stamp(types.SimpleNamespace(path="ela/p.md", id=g[0]["id"], mark=["✓", "10:50"], fold=None))
     check("the stamp verb writes the mark", "- [x] Not now ✓ 10:50" in open(os.path.join(vault, "ela", "p.md")).read())
