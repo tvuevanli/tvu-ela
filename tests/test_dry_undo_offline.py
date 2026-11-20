@@ -190,7 +190,7 @@ with tempfile.TemporaryDirectory() as R:
 
     # ── the check: no grant ask until a class can be undone ─────────────────────────────────────────────
     for c, d in D.CLASSES.items():
-        if not d.get("never"):
+        if not d.get("never") and len(d["ladder"]) > 1:     # a class confirmed for good (ladder (3,)) is never granted
             ok, missing = D.reversible(c)
             check(f"{c}: its reverse atom is in jira.py ({', '.join(v + ' ' + f for v, f in d['reverse'])})", ok and not missing)
     rows = [{"class": "link-named", "verdict": "applied", "as_drafted": True, "at": f"2026-11-0{2 + i // 4}T1{i % 4}:00:00+08:00"} for i in range(12)]
