@@ -221,8 +221,8 @@ rec91 = dict(record("91"), name="2026-11-11-build-91-to-qa-aws3")
 block = V.build_block([], [rec91], datetime.date(2026, 11, 12), TK, "Evan Li")
 lines = block.split("\n")
 ur = next(i for i, l in enumerate(lines) if l.startswith("  - UR Caller"))
-check("build 91: MH-3998 and MH-3987 inline under UR Caller, the rest a count linking its section",
-      lines[ur].endswith("· [[releases/2.1/2026-11-11-build-91-to-qa-aws3#UR Caller|6 more tickets]]")
+check("build 91: MH-3998 and MH-3987 inline under UR Caller, the rest a count linking the build on its line page",
+      lines[ur].endswith("· [[releases/2.1/2.1#^build-91|6 more tickets]]")
       and lines[ur + 1] == "    - MH-3998 SCTE-35 include option on SRT, UDP and RTP destinations · Review · also Unified Media frontend"
       and lines[ur + 2] == "    - MH-3987 [App] Drive CSC sessions through mqtt-gateway instead of direct HTTP · Review")
 check("no service line carries a cluster of keys", not re.search(r"\(MH-\d+ MH-", block))
