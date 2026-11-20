@@ -298,11 +298,13 @@ with tempfile.TemporaryDirectory() as tmp:
     r9 = f"{vault}/reference/{today[:4]}-04-01-decision-3.md"
     check("a note to read carries no ela property for the tables", "\nela:" not in open(r9).read().split("\n---", 1)[0])
     txt = open(r9).read(); open(r9, "w").write(txt.replace('next: ""', 'next: ""\nela: "1A, post it"'))
+    os.utime(r9, (os.path.getmtime(r9) - 660,) * 2)         # his edit settled: a page he changed in the last ten minutes is left to him
     check("a word typed in the old ela property stays, as a line in the note", sync() == 0
           and 'ela: "1A, post it"' in open(r9).read().split("\n---", 1)[1] and open(r9).read().count("1A, post it") == 1)
     txt = open(r9).read(); open(r9, "w").write(re.sub(r'^next: .*$', 'next: "confirm"', txt, count=1, flags=re.M))
     check("the move he chose survives a sync before the watcher acts on it", sync() == 0 and 'next: "confirm"' in open(r9).read())
     txt = open(r9).read(); open(r9, "w").write(txt.replace('next: "confirm"', 'next: "agree"'))
+    os.utime(r9, (os.path.getmtime(r9) - 660,) * 2)
     check("a value the note does not offer is not kept by the rewrite", sync() == 0 and 'next: "agree"' not in open(r9).read().split("\n---", 1)[0])
     bp = f"{vault}/reference/days/{today[:4]}/{today}-brief.md"
     txt = open(bp).read(); open(bp, "w").write(txt.replace("- [ ] probe MH-1", "- [x] probe MH-1"))

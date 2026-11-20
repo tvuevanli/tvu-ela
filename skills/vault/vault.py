@@ -6032,6 +6032,23 @@ def digest(text):
     return hashlib.sha256(text.encode()).hexdigest()[:16]
 
 
+RECENT_EDIT = 600   # seconds: a page he changed this recently is his for now (plan 2026-11-20, no collisions)
+
+
+def his_recent_edit(path, wrote_digest, now=None):
+    """Whether the page on disk is not what the sync last wrote there and was saved within RECENT_EDIT seconds: he
+    (or Syncthing bringing his edit from another device) changed it, so a rewrite now would race him into a conflict
+    copy. Unknown (no digest recorded yet) is not his edit: the record starts with this sync."""
+    if not wrote_digest or os.path.realpath(path) in WROTE_NOW:
+        return False
+    try:
+        if (now or __import__("time").time()) - os.path.getmtime(path) >= RECENT_EDIT:
+            return False
+        return digest(open(path, encoding="utf-8").read()) != wrote_digest
+    except OSError:
+        return False
+
+
 def tmp_path(path):
     """The temporary file beside `path`, dot-prefixed: Obsidian does not list it in recent files or search."""
     d, name = os.path.split(path)
@@ -6051,7 +6068,11 @@ def atomic_write(path, text):
     with open(tmp, "w", encoding="utf-8", newline="") as fh:
         fh.write(text)
     os.replace(tmp, path)
+    WROTE_NOW.add(os.path.realpath(path))
     return True
+
+
+WROTE_NOW = set()   # the files this process wrote: a fresh modification time there is ela's own, not his edit
 
 
 WRITERS = ("sync", "questions", "marks", "finish", "note", "restore", "setup", "afterwards", "tidy", "lint", "migrate", "rename")   # guidance only reads; lint writes with --fix --apply
@@ -6222,7 +6243,7 @@ def cmd_sync(a):
     mpath = os.path.join(vault, MANIFEST)
     old, old_src, old_layout, old_gen, old_seen, old_home = [], {}, None, {}, {}, {}
     old_moved = {"map": {}, "until": None}
-    old_said, old_native = {}, None
+    old_said, old_native, old_wrote = {}, None, {}
     if os.path.exists(mpath):
         try:
             m = json.load(open(mpath))
@@ -6231,6 +6252,7 @@ def cmd_sync(a):
             old_home = m.get("home") or {}
             old_said = m.get("said") or {}
             old_native = m.get("native")
+            old_wrote = m.get("wrote") or {}
             old_moved = {"map": m.get("moved") or {}, "until": m.get("moved_until")}
         except (ValueError, KeyError):
             print("vault: the manifest is unreadable; not synced (remove it deliberately to start over)", file=sys.stderr); sys.exit(3)
@@ -6327,7 +6349,7 @@ def cmd_sync(a):
         if d not in listing:
             listing[d] = set(os.listdir(d)) if os.path.isdir(d) else set()
         return listing[d]
-    wrote, same = [], 0
+    wrote, same, deferred = [], 0, []
     answers = load_answers(s.get("reports") or "") + load_pending(s.get("reports") or "")
     answer_native(vault, answers, a.dry_run)
     jb = next((l.split("=", 1)[1].strip().rstrip("/") for l in open(env) if l.startswith("JIRA_BASE_URL=")), "") \
@@ -6387,6 +6409,8 @@ def cmd_sync(a):
                     same += 1; continue
             except OSError:
                 pass
+            if his_recent_edit(p, old_wrote.get(rel)):     # he is editing it: left to him, rewritten on the next pass
+                deferred.append(rel); continue
         wrote.append(rel)
         if a.dry_run:
             continue
@@ -6441,6 +6465,8 @@ def cmd_sync(a):
         atomic_write(mpath, json.dumps({"synced": now.isoformat(timespec="seconds"), "layout": LAYOUT, "files": sorted(now_files - done_on_disk),
                                         "sources": {n.path: n.src_rel for n in notes if n.src_rel},
                                         "generated": {r: digest(t) for r, t in planned.items() if r.endswith(".base")},
+                                        "wrote": {r: (old_wrote.get(r) if r in deferred else digest(t)) for r, t in planned.items()
+                                                  if r.endswith(".md") and (r not in deferred or old_wrote.get(r))},
                                         "seen": {r: d for r, d in seen.items() if r in planned},
                                         "home": {"open": is_open, "looked": looked, "before": before},
                                         "moved": moved_paths(old_moved, today), "moved_until": old_moved.get("until"),
@@ -6466,7 +6492,7 @@ def cmd_sync(a):
          "answered": [{"from": f, "to": t} for f, t in answered],
          "rolled": [{"note": f, "date": d, "to": t} for f, d, t in rolled], "closed": closed,
          "left_in_retired": left, "notes": len(planned), "written": len(wrote), "unchanged": same, "files_copied": copied,
-         "removed": gone, "held": held, "warnings": warnings, "projects": [{"note": p, "project": k} for p, k in inferred]}
+         "removed": gone, "held": held, "warnings": warnings, "deferred": deferred, "projects": [{"note": p, "project": k} for p, k in inferred]}
     if a.json:
         print(json.dumps(r, ensure_ascii=False)); return
     print(f"{'DRY RUN — ' if a.dry_run else ''}vault: {counts['generated']} generated · {counts['in_place']} in place · "
@@ -6474,6 +6500,8 @@ def cmd_sync(a):
           f"{copied} files copied, {len(moved)} moved, {len(gone)} removed, {len(held)} under a warning")
     for f, t in moved:
         print(f"  moved {f} → {t}")
+    for r in deferred:
+        print(f"  left for now, you changed it in the last {RECENT_EDIT // 60} minutes: {r}")
     for r in left:
         print(f"  left for the owner (retired folder, no longer synced): {r}")
     for g in gone[:20]:
