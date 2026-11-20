@@ -30,9 +30,10 @@ move sets it, never the folder. A vault in another layout is not synced: `vault.
                                                 Deadline); projects/<key>-<slug>/ holds the page and its notes once
                                                 they sit beside it; `ela project list|show|new|keys`
     releases/lanes.md                           the lanes across lines (ela matrix --page)
-    releases/<line>/                            a release line: release-<line>-record.md the way in, each promote,
-                                                deploy, docker check and hotfix, verifications, and the line's
-                                                train-<line>.md, dev-list-<line>.md and test-list-<lane>.md
+    releases/<line>/                            a release line: <line>.md the way in (release line.py, rewritten each
+                                                sync: lanes, next promotion, docker differences, one line per build),
+                                                each promote, deploy, docker check and hotfix, verifications, and the
+                                                line's train-<line>.md, dev-list-<line>.md and test-list-<lane>.md
     cases/<date>-<customer>-<what>.md           one note per customer case (open, answered, closed)
     reference/                                  what serves no single thing: a product review, engineering management,
                                                 the day pages (reference/days/<year>/<date>-brief|changes.md, kept),
@@ -130,7 +131,7 @@ BUDGET = {"ticket": 700, "topic": 800, "guide": 1200, "board": 1000, "day": 1200
 # A type outside it, or a family outside its folders, is a lint line on the sync, never a failure.
 TYPE_FAMILY = {"decision": "decision", "plan": "plan", "sprint": "plan",
                "ticket": "reading", "review": "reading", "verify": "reading", "verify-plan": "reading",
-               "home": "page", "today": "page", "dropped": "page", "board": "page", "lanes": "page", "docker": "page", "recent": "page", "one-thing": "page", "test-list": "page", "dev-list": "page", "train": "page", "program": "page",
+               "home": "page", "today": "page", "dropped": "page", "board": "page", "lanes": "page", "docker": "page", "recent": "page", "one-thing": "page", "test-list": "page", "dev-list": "page", "train": "page", "program": "page", "line": "page",
                "guide": "page", "vocabulary": "page", "system": "page", "constraints": "page", "readme": "page", "meeting": "page",
                "report": "page", "project": "page", "services": "page", "questions": "page",
                "day": "day", "reader": "day", "case": "case", "draft": "draft"}
@@ -211,7 +212,7 @@ ela writes this vault from first-hand sources, and it holds things and angles (e
 | `today.md` | the one page: facts, at most three asks, today |
 | `meetings/` | one page per meeting, worded for the team |
 | `projects/` | one page per project, `<key>-<slug>.md`; a folder `<key>-<slug>/` once notes sit beside the page |
-| `releases/` | a folder per line: its record, train, dev and test lists, each promote, deploy and docker check; `lanes.md` across lines |
+| `releases/` | a folder per line: its line page `<line>.md`, the way in (where the line stands, what can move next, what could not be read, its builds); its train, dev and test lists; each promote, deploy and docker check; `lanes.md` across lines |
 | `cases/` | one note per customer case |
 | `reference/` | what serves no single thing: product reviews, the day pages, One Thing, dropped asks |
 | `ela/` | ela's own pages and history |
@@ -712,14 +713,8 @@ def report_notes(reports, today, runtime=None, helm=None):
         label = {"brief": "Morning brief", "week": "The week", "changes": "What changed"}[m.group(2)]
         notes.append(Note(f"{DAYS}/{m.group(1)[:4]}/{m.group(1)}-{m.group(2)}.md", f"{label} · {d:%a} {m.group(1)}", body,
                           {"type": "day", "date": m.group(1), "kind": m.group(2)}, fl, src_rel=f"runner/{f}"))
-    for rec in build_records(reports):                    # a build a lane took: its release note, written once (source vault)
-        R = release_mod()
-        reading = R.reconcile_mod().saved_reading(reports, rec)   # its Jira gaps, as `ela release reconcile` last read them
-        tickets = R.facts_tickets(runtime, [k for v in rec["services"] for k in v.get("keys") or []])
-        notes.append(Note(f"{RELEASES}/{rec['line']}/{rec['name']}.md", R.build_title(rec), R.build_note(rec, reading, tickets, R.helm_compare(rec, runtime, helm)),
-                          {"type": "report", "date": rec["date"], "status": "decided", "source": "vault",
-                           "keys": sorted({k for v in rec["services"] for k in v.get("keys") or []})}, [],
-                          src_rel=f"releases/{rec['line']}/{rec['name']}.json"))
+    # a build a lane took has no note of its own any more: it is a line on its line's page, its detail folded
+    # (line_notes, vault plan 2026-11-20-plan-one-page-per-release-line); the notes written before stay in history/
     # the board, recent and the constraints page are angles nothing consumed: their verbs render them on demand, their
     # sources stay under the reports root, and the vault no longer carries them (ADR 0015)
     lp = os.path.join(reports, "lanes", "lanes.md")
@@ -811,6 +806,68 @@ def build_records(reports):
     except Exception as e:                                 # a broken import costs the build block, said once
         print(f"builds: not read — {str(e)[:120]}", file=sys.stderr)
         return []
+
+
+LINE_NOTE_KINDS = ("promote", "deploy", "docker", "hotfix", "sync")   # the line page's History: a promotion, a deploy, a check of one
+
+
+def line_page_path(line):
+    return f"{RELEASES}/{line}/{line}.md"
+
+
+def build_link(b):
+    """Where a build's detail is read: its line on its line page (`releases/<line>/<line>#^build-<n>`)."""
+    sys.path.insert(0, os.path.join(HERE, "..", "release"))
+    import line as LP                                      # noqa: E402
+    return f"{line_page_path(b['line'])[:-3]}#^{LP.block_id(b['build'])}"
+
+
+def line_history(vault, line):
+    """[{rel, title, date, status}] of a line's promotion, deploy, docker, hotfix and sync notes, at its folder's root
+    and in its history/."""
+    out = []
+    for sub in ("", "history"):
+        d = os.path.join(vault or "", RELEASES, line, sub)
+        for f in sorted(os.listdir(d)) if os.path.isdir(d) else []:
+            m = re.match(r"^(\d{4}-\d{2}-\d{2})-(" + "|".join(LINE_NOTE_KINDS) + r")-", f)
+            if not m or not f.endswith(".md"):
+                continue
+            try:
+                props = props_of(split_front(open(os.path.join(d, f), encoding="utf-8").read(4000))[0])
+            except OSError:
+                continue
+            rel = "/".join(x for x in (RELEASES, line, sub, f) if x)
+            out.append({"rel": rel, "title": plain(props.get("title") or "") or f[:-3], "date": m.group(1),
+                        "status": short_status(props.get("status")) if props.get("status") else None})
+    return out
+
+
+def line_notes(vault, reports, runtime, today, planned=()):
+    """One page per followed release line, releases/<line>/<line>.md, rewritten every sync from local files (release
+    line.py): where it stands, the next promotion, the docker differences, its builds, its history. A line the release
+    map follows (lanes and a decision) and the vault has a folder for, or one with build records, gets one; a broken
+    read costs the page, said once."""
+    try:
+        R = release_mod()
+        sys.path.insert(0, os.path.join(HERE, "..", "release"))
+        import line as LP                                  # noqa: E402
+        held = {m.group(1) for m in (re.match(rf"^{RELEASES}/([\d.]+)/", p) for p in planned) if m}
+        lines = {k for k, v in (R.rmap("lines") or {}).items() if isinstance(v, dict) and v.get("lanes") and v.get("decided")
+                 and (k in held or os.path.isdir(os.path.join(vault or "", RELEASES, k)))}   # a followed line the vault files notes under
+        lines |= {str(r.get("line")) for r in R.build_records(reports)}
+    except (Exception, SystemExit) as e:
+        print(f"line pages: not written — {str(e)[:120]}", file=sys.stderr)
+        return []
+    out = []
+    for line in sorted(lines):
+        try:
+            body = LP.render(LP.gather(line, reports, runtime, today, line_history(vault, line)))
+        except Exception as e:                             # one line's broken source costs that page only
+            print(f"line page {line}: not written — {str(e)[:120]}", file=sys.stderr)
+            continue
+        out.append(Note(line_page_path(line), f"MediaHub {line} · where the line stands", body,
+                        {"type": "line", "date": today.isoformat()}, []))
+    return out
 
 
 def reader_heading(body, date):
@@ -1445,6 +1502,15 @@ SPECS = {
         title=(r"^The reader · \d{4}-\d{2}-\d{2}$", "`The reader · <date>`"),
         required=("date",), optional=(),
         sections=("Learned",), closing=f"## Learned, at most {LEARNED_MAX} lines; more goes to a decision note"),
+    "line": dict(
+        kind="one release line read as one page: where it stands, what can move next, what could not be read",
+        name=(r"^releases/([\d.]+)/\1\.md$", "`releases/<line>/<line>.md`, one per line, rewritten on every sync"),
+        title=(r"^MediaHub [\d.]+ · ", "`MediaHub <line> · where the line stands`"),
+        required=("date",), optional=("source",),
+        sections=("Now", "Next promotion", "Docker", "Builds", "History"),
+        closing="Now: one row per lane (its MediaHub name, the UR environment in brackets; two lanes on the same versions one row), "
+                "a lane ahead of its upstream said why, then one **Can't read:** line naming each gap. Builds: one line per build, "
+                "its detail in a folded callout; older builds and notes folded. Nothing to rule: the decision is named under Next promotion"),
     "draft": dict(
         kind="a message you send under your own name: a Slack post or reply, a Jira comment, a mail",
         name=(rf"^{THING}/{DATED}-(?:slack|jira|mail)-draft\.md$", "`<date>-<slug>-<slack|jira|mail>-draft.md` in its thing's folder"),
@@ -1453,7 +1519,7 @@ SPECS = {
         sections=("Root message", "Thread replies?", "Not for this post?"),
         closing="the message paste-ready in a code block, English, mentions written for you to retype; parked once sent, `waits-on` naming who answers and `wake` what brings it back"),
 }
-BUDGET.update({"case": 1200, "draft": 600})
+BUDGET.update({"case": 1200, "draft": 600, "line": 800})
 PAGES_SPEC = ("home", "today", "dropped", "board", "lanes", "docker", "recent", "one-thing", "test-list", "dev-list", "train", "program", "guide",
               "vocabulary", "system", "constraints", "readme", "services", "questions", "dry", "mention")   # living pages: each one's generator is its spec
 CJK = re.compile(r"[一-鿿　-〿＀-￯]")
@@ -1564,7 +1630,7 @@ def link_keys(body, jira_base, projects=None):
 
 
 # a release line's record and the release note of a build it took: what happened, with nothing to rule
-RELEASE_RECORD = re.compile(r"^releases/[\d.]+/(?:release-[\d-]+-record|\d{4}-\d{2}-\d{2}-build-[\w.]+-to-[a-z0-9-]+)\.md$")
+RELEASE_RECORD = re.compile(r"^releases/([\d.]+)/(?:(?:history/)?(?:release-[\d-]+-record|\d{4}-\d{2}-\d{2}-build-[\w.]+-to-[a-z0-9-]+)|\1)\.md$")
 
 
 def undated(kind, rel, text):
@@ -3057,8 +3123,8 @@ def build_block(notes, builds, today, tickets=None, owner=""):
     for b in recent:
         if room <= 0:
             break
-        note = f"{RELEASES}/{b['line']}/{b['name']}"
-        heads.append(f"{b.get('lane_name') or b['lane']} took build {b['build']} ([[{note}|release note]])")
+        note = build_link(b)
+        heads.append(f"{b.get('lane_name') or b['lane']} took build {b['build']} ([[{note}|on the line page]])")
         svcs = b.get("services") or []
         shown = svcs if len(svcs) <= room else svcs[:max(room - 1, 1)]
         pick = inline_tickets(b, tickets, owner, met)
@@ -3072,7 +3138,7 @@ def build_block(notes, builds, today, tickets=None, owner=""):
             budget -= len(inline)
             placed.update(inline)
             rest = len([k for k in keys if k not in inline and not (k in placed and k in pick)])
-            more = f" · [[{note}#{v['service']}|{rest} {'more ' if inline else ''}ticket{'s' if rest != 1 else ''}]]" if rest else ""
+            more = f" · [[{note}|{rest} {'more ' if inline else ''}ticket{'s' if rest != 1 else ''}]]" if rest else ""
             rows.append(f"  - {v['service']} {R.service_move(v)}: {' '.join(str(v['for']).split())}{more}")
             rows += [f"    - {R.ticket_line(k, tickets.get(k), who=False)}"
                      + (" · also " + ", ".join(s for s in carriers[k] if s != v["service"]) if len(carriers.get(k, [])) > 1 else "")
@@ -4169,9 +4235,9 @@ def stand_lines(builds, today):
         if not lane or lane in seen or not (lo <= (b.get("date") or "") <= today.isoformat()):
             continue
         seen.add(lane)
-        note = f"{RELEASES}/{b['line']}/{b['name']}" if b.get("line") and b.get("name") else None
+        note = build_link(b) if b.get("line") and b.get("build") else None
         out.append(f"{lane} runs {b.get('line') or '?'} build {b.get('build')}, taken {b['date'][5:]}"
-                   + (f" ([[{note}|release note]])" if note else ""))
+                   + (f" ([[{note}|on the line page]])" if note else ""))
     return out[:STAND_LANES]
 
 
@@ -4500,6 +4566,7 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since
     notes = [n for n in notes if n.path not in removed and not (n.src_rel and n.src_rel in removed_src)]
     native = native_notes(s["vault"])
     native_paths = {n.path.lower() for n in native}
+    notes += line_notes(s["vault"], reports, s.get("runtime"), today, [n.path for n in notes])   # each release line's one page
     notes = [n for n in notes if n.path.lower() not in native_paths]
     native_warn = []
     for n in native:                                       # a page ela writes in place is not gated, only checked
@@ -4964,7 +5031,10 @@ def release_notes_native(vault, reports, runtime, linker=None, dry_run=False, he
     R = release_mod()
     out = []
     for rec in build_records(reports):
-        rel = f"{RELEASES}/{rec['line']}/{rec['name']}.md"
+        rel = next((r for r in (f"{RELEASES}/{rec['line']}/history/{rec['name']}.md", f"{RELEASES}/{rec['line']}/{rec['name']}.md")
+                    if os.path.isfile(os.path.join(vault, r))), None)
+        if rel is None:                                    # a build since 2026-11-20 has no note: its line page carries it
+            continue
         p = os.path.join(vault, rel)
         try:
             text = open(p, encoding="utf-8").read()
@@ -5932,8 +6002,9 @@ def cmd_sync(a):
         # path); the owner's own finishing and the archive are already out of the count, and single folders shrink by
         # design (to-read empties as he reads)
         native_lower = {p.lower() for p in native_paths}
-        had = sum(1 for r in old if r.endswith(".md") and r not in removed and r.lower() not in native_lower)
-        after = sum(1 for r in planned if r.endswith(".md"))
+        standing = re.compile(rf"^{RELEASES}/([\d.]+)/\1\.md$")   # a line page is written whatever its sources hold
+        had = sum(1 for r in old if r.endswith(".md") and r not in removed and r.lower() not in native_lower and not standing.match(r))
+        after = sum(1 for r in planned if r.endswith(".md") and not standing.match(r))
         if had >= 10 and after < had / 2:
             print(f"vault: not synced — the notes would shrink from {had} to {after}; --force if that is intended", file=sys.stderr)
             sys.exit(3)

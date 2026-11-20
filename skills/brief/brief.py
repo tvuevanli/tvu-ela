@@ -2748,15 +2748,16 @@ def is_ticket(k):
 
 
 def move_note(r, recs):
-    """(note path, service heading) of the build note that carries a moves row: a build record of the same lane whose
-    service of that name moved to that version; None when no record names the move."""
+    """(line page path, block) where the build that carries a moves row is read: a build record of the same lane whose
+    service of that name moved to that version, its line on the line page (a build has no note of its own since
+    2026-11-20); None when no record names the move."""
     ver = version_text(r["to"])
     for rec in recs:
         if (rec.get("lane_name") or rec.get("lane")) != r["lane"] and LANE_SHOWN.get(rec.get("lane"), rec.get("lane")) != r["lane"]:
             continue
         for v in rec.get("services") or []:
             if version_text(v.get("to")) == ver and mail_slug(v.get("service")) == r["service"]:
-                return f"releases/{rec['line']}/{rec['name']}", v["service"]
+                return f"releases/{rec['line']}/{rec['line']}", "^build-" + re.sub(r"[^a-z0-9-]+", "-", str(rec.get("build") or "").lower()).strip("-")
     return None
 
 

@@ -50,8 +50,8 @@ with tempfile.TemporaryDirectory() as tmp:
     page = V.today_page(WED, [day("2026-11-10"), day("2026-11-11")], {"builds": recs})
     facts = page.split("## Facts")[1].split("## Needs you")[0]
     rows = [l for l in facts.splitlines() if l.startswith("  - ")]
-    check("today.md: the Releases fact is build 90, four service lines, linking its note",
-          "QA-AWS3 took build 90 ([[releases/2.1/2026-11-10-build-90-to-qa-aws3|release note]])" in facts and len(rows) == 4
+    check("today.md: the Releases fact is build 90, four service lines, linking its line on the line page",
+          "QA-AWS3 took build 90 ([[releases/2.1/2.1#^build-90|on the line page]])" in facts and len(rows) == 4
           and "Prod 3 caught up" not in facts)
     full = types.SimpleNamespace(path="reference/days/2026/2026-11-11-changes.md", title="x", props={"type": "day", "kind": "changes", "date": "2026-11-11"},
                                  body="## Releases and versions\n\nProd 3 caught up.\n\n## Docker services\n\nQA's 1.0.26 report clears tvu_live_transmit.\n\n"

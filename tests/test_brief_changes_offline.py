@@ -297,14 +297,14 @@ check("a zero-led id in a title or a commit subject is not a ticket key",
 row = {"lane": "QA-AWS3", "service": "unified-streaming", "to": "2.1.91 build 382",
        "tickets": {"MH-046", "MH-3873", "MH-3887", "MH-3891", "MH-3926", "MH-3940"}}
 fx = {"MH-3873": {"summary": "Overlay cleanup leaves a 4K buffer " + "x" * 80, "status": "Review"}, "MH-3887": {"summary": "FloSports | API key", "status": "Done"}}
-recs = [{"line": "2.1", "lane": "qa-cn3", "lane_name": "QA-AWS3", "name": "2026-11-11-build-91-to-qa-aws3",
+recs = [{"line": "2.1", "lane": "qa-cn3", "lane_name": "QA-AWS3", "name": "2026-11-11-build-91-to-qa-aws3", "build": "91",
          "services": [{"service": "UR Caller", "from": "2.1.90", "to": "2.1.91", "keys": ["MH-3873"]}]}]
 cell = B.move_tickets(row, fx, recs)
 check("a moves row names at most three tickets, each key with its title; a zero-led id is not a ticket",
       cell.startswith("MH-3873 Overlay cleanup leaves a 4K buffer …<br>MH-3887 FloSports / API key<br>MH-3891 (not in the fact store)<br>")
       and "MH-046" not in cell)
-check("the rest are a count linking the service's section of the build note",
-      cell.endswith("<br>[[releases/2.1/2026-11-11-build-91-to-qa-aws3#UR Caller\\|2 more]]"))
+check("the rest are a count linking the build's line on its line page",
+      cell.endswith("<br>[[releases/2.1/2.1#^build-91\\|2 more]]"))
 check("without a build note the count links the same keys in Jira; three or fewer need no count",
       B.move_tickets(dict(row, lane="daily-wed"), fx, recs, "https://j").endswith("<br>[2 more](https://j/issues/?jql=key%20in%20(MH-3926%2CMH-3940))")
       and B.move_tickets(dict(row, tickets={"MH-3887", "MH-012"}), fx, recs) == "MH-3887 FloSports / API key"

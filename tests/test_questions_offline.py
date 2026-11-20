@@ -290,7 +290,7 @@ B = [{"line": "2.1", "lane": "qa-cn3", "lane_name": "QA-AWS3", "build": "91", "d
      {"line": "2.1", "lane": "qa-cn3", "lane_name": "QA-AWS3", "build": "90", "date": "2026-11-10", "name": "2026-11-10-build-90-to-qa-aws3"},
      {"line": "2.1", "lane": "prod-3", "lane_name": "prod-3", "build": "88", "date": "2026-10-01", "name": "2026-10-01-build-88-to-prod-3"}]
 check("Where things stand: each lane's newest build in two weeks, linked; an older one is left out",
-      V.stand_lines(B, datetime.date(2026, 11, 12)) == ["QA-AWS3 runs 2.1 build 91, taken 11-11 ([[releases/2.1/2026-11-11-build-91-to-qa-aws3|release note]])"])
+      V.stand_lines(B, datetime.date(2026, 11, 12)) == ["QA-AWS3 runs 2.1 build 91, taken 11-11 ([[releases/2.1/2.1#^build-91|on the line page]])"])
 with tempfile.TemporaryDirectory() as t:
     vault, reports, facts = (os.path.join(t, x) for x in ("vault", "reports", "facts"))
     os.makedirs(os.path.join(vault, "meetings")); os.makedirs(os.path.join(facts, "jira", "issues")); os.makedirs(os.path.join(reports, "releases", "2.1"))
