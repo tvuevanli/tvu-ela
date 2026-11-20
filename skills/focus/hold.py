@@ -164,11 +164,27 @@ def seed(st, today):
 
 
 def line_id(rel, text):
+    """The id lines were read under before the vault watcher (2026-11-20); still honoured, so nothing acts twice."""
     return hashlib.sha1(f"{rel}|{' '.join(text.split())}".encode()).hexdigest()[:12]
 
 
+# the vault watcher stamps each line it handled: `✓ 11:42`, `✗ 11:42`, or `queued`
+STAMP = re.compile(r"\s*(?:[\u2713\u2717]\s*\d{1,2}:\d{2}|\bqueued\b).*$")
+
+
+def unstamped(rest):
+    return " ".join(STAMP.sub("", rest or "").split())
+
+
+def word_key(rel, verb, rest):
+    """One line's key, shared with the vault watcher (`--where <rel>#…`): the note, the verb and the rest of the line,
+    spaces collapsed, any stamp stripped. Whoever reads a line first, the other finds it read."""
+    return "w-" + hashlib.sha1(f"{rel.split('#', 1)[0]}|{verb.lower()}|{unstamped(rest)}".encode()).hexdigest()[:12]
+
+
 def vault_words(vault, verbs=("hold", "resume", "up", "down")):
-    """Every `ela: hold|resume|up|down` line in the vault, in the order written: [(mtime, rel, line no, verb, rest, id)].
+    """Every unstamped `ela: hold|resume|up|down` line in the vault, in the order written: [(mtime, rel, line no, verb,
+    rest, key, old id)].
     The archive is read too: a note moved there keeps the word it carried."""
     out = []
     for top, dirs, files in os.walk(vault or ""):
@@ -187,16 +203,17 @@ def vault_words(vault, verbs=("hold", "resume", "up", "down")):
             mt = os.path.getmtime(p)
             for m in WORD.finditer(text):
                 verb = m.group(1).lower()
-                if verb in verbs and m.group(2).strip():
-                    out.append((mt, rel, text.count("\n", 0, m.start()), verb, m.group(2).strip(), line_id(rel, m.group(0))))
+                if verb in verbs and m.group(2).strip() and not STAMP.search(m.group(2)):   # stamped: the watcher's
+                    out.append((mt, rel, text.count("\n", 0, m.start()), verb, m.group(2).strip(),
+                                word_key(rel, verb, m.group(2)), line_id(rel, m.group(0))))
     return sorted(out)
 
 
 def read_vault(st, vault, today):
     """His hold and resume lines not read before, applied in the order written. → [(verb, subject, hold or None, rel)]."""
     did = []
-    for _, rel, _, verb, rest, lid in vault_words(vault, ("hold", "resume")):
-        if lid in st["read"]:
+    for _, rel, _, verb, rest, lid, old in vault_words(vault, ("hold", "resume")):
+        if lid in st["read"] or old in st["read"]:
             continue
         st["read"][lid] = today.isoformat()
         subject, until = split_subject(rest)

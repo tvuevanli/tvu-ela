@@ -208,6 +208,33 @@ with tempfile.TemporaryDirectory() as t:
         else {"subject": "s", "body": body})})())
     check("the report is found by its day through `ela mail` (a stub here: no mail is read)", found and "action_items:[" in found["body"])
 
+# ── the vault watcher's calls: `ela focus <verb> <rest> --where <rel>#… --json` ──────────────────────────────────
+import contextlib, io, types  # noqa: E402
+with tempfile.TemporaryDirectory() as t:
+    reports, vault = os.path.join(t, "reports"), os.path.join(t, "vault")
+    os.makedirs(os.path.join(vault, "reference"))
+    F.site = lambda: {"reports": reports, "vault": vault, "runtime": t}
+
+    def call(fn, cmd, words, where=None, apply=True, **kw):
+        a = types.SimpleNamespace(cmd=cmd, subject=words, key=words, until=None, where=where, apply=apply, json=True, why="", highest=False, **kw)
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            fn(a)
+        return json.loads(buf.getvalue())
+    r1 = call(F.cmd_hold, "hold", ["MH-3510", "(HTML", "module)", "until", "2026-12-15"], "reference/a.md#L3")
+    r2 = call(F.cmd_hold, "hold", ["MH-3510", "(HTML", "module)", "until", "2026-12-15", "\u2713", "11:42"], "reference/a.md#x9")
+    check("hold through the watcher: taken once; the same line again (stamped, another anchor) is already read",
+          r1["ok"] and not r1["already"] and r1["until"] == "2026-12-15" and r2 == {"ok": True, "already": True, "verb": "hold", "subject": "MH-3510 (HTML module) until 2026-12-15 \u2713 11:42"})
+    r3 = call(F.cmd_hold, "resume", ["nothing", "like", "this"], "reference/a.md#L4")
+    check("resume of nothing held: ok false with its reason, not an error", r3["ok"] is False and "nothing held" in r3["why"])
+    open(os.path.join(vault, "reference", "a.md"), "w").write("- ela: hold MH-3510 (HTML module) until 2026-12-15\n- ela: hold MH-9 stamped \u2713 11:40\n")
+    st, did = H.refresh(reports, vault, TODAY)
+    check("the sync's own scan finds the watcher's line already read, and skips a stamped one", did == [] and "MH-9" not in H.held_keys(st, TODAY))
+    r4 = call(F.cmd_word, "up", ["MH-77", "the", "demo", "moved", "highest"], "reference/a.md#L5", apply=False)
+    check("up through the watcher: the key, the reason and highest read from the line", r4["ok"] and r4["key"] == "MH-77" and r4["batch"] is None)
+    r5 = call(F.cmd_word, "down", ["no", "key", "here"], "reference/a.md#L6", apply=False)
+    check("a line with no ticket key: ok false", r5["ok"] is False and "no ticket key" in r5["why"])
+
 # ── the brief and today.md leave held subjects out ────────────────────────────────────────────────────────────────
 sys.path.insert(0, os.path.join(ROOT, "skills", "brief"))
 import brief as B  # noqa: E402

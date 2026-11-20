@@ -516,24 +516,24 @@ def owner_name(facts):
 def read_words(st, vault, today):
     """His `ela: up KEY [why]` and `ela: down KEY` lines, each stored once. → the new ones."""
     new = []
-    for _, rel, _, verb, rest, lid in H.vault_words(vault, ("up", "down")):
-        if lid in st["words"]:
+    for _, rel, _, verb, rest, lid, old in H.vault_words(vault, ("up", "down")):
+        if lid in st["words"] or old in st["words"]:
             continue
-        ks = H.keys_in(rest)
-        if not ks:
-            continue
-        why = KEY.sub("", rest).strip(" -—:·")
-        st["words"][lid] = {"verb": verb, "key": ks[0], "why": why, "highest": bool(re.search(r"\bhighest\b", rest, re.I)),
-                            "at": today.isoformat(), "where": rel}
-        new.append(st["words"][lid])
+        w = word(verb, rest, today, rel)
+        if w:
+            st["words"][lid] = w
+            new.append(w)
     return new
 
 
-def say(st, verb, key, why="", highest=False, today=None, where="session"):
-    today = today or datetime.date.today()
-    lid = hashlib.sha1(f"{where}|{verb}|{key}|{why}|{today}".encode()).hexdigest()[:12]
-    st["words"][lid] = {"verb": verb, "key": key, "why": why, "highest": highest, "at": today.isoformat(), "where": where}
-    return st["words"][lid]
+def word(verb, rest, today, where):
+    """An up or down line's word: its first key, its reason, `highest` when it says so; None without a key."""
+    ks = H.keys_in(rest)
+    if not ks:
+        return None
+    rest = H.unstamped(rest)
+    return {"verb": verb, "key": ks[0], "why": KEY.sub("", re.sub(r"\bhighest\b", "", rest, flags=re.I)).strip(" -—:·"),
+            "highest": bool(re.search(r"\bhighest\b", rest, re.I)), "at": today.isoformat(), "where": where}
 
 
 # ── moves: the one batch ──────────────────────────────────────────────────────────────────────────────────────────
@@ -707,18 +707,39 @@ def cmd_board(a):
                                                   + ", ".join(f"{v['key']} {v['date']:%m-%d} {len(v['rows'])} rows" for v in b["views"])])
 
 
+def said(a, out, lines):
+    """A verb's answer: the JSON the vault watcher reads (ok:false is exit 0, its `why` the reason), else a line."""
+    if getattr(a, "json", False):
+        print(json.dumps(out, ensure_ascii=False))
+    else:
+        print("\n".join(lines), file=sys.stdout if out.get("ok") else sys.stderr)
+        if not out.get("ok"):
+            sys.exit(EX_NOTFOUND)
+
+
 def cmd_hold(a):
+    """`ela focus hold|resume <rest of the line> [--until X] [--where <rel>#…] [--apply] [--json]`."""
     s = site()
     today = datetime.date.today()
+    rest = " ".join(a.subject)
     st = H.load(s.get("reports"))
     H.seed(st, today)
-    h = H.put_hold(st, a.subject, a.until, today, "session") if a.cmd == "hold" else H.resume(st, a.subject, today, "session")
+    key = H.word_key(a.where, a.cmd, rest) if a.where else None
+    if key and key in st["read"]:
+        return said(a, {"ok": True, "already": True, "verb": a.cmd, "subject": rest}, [f"{a.cmd}: already read ({a.where})"])
+    subject, until = H.split_subject(H.unstamped(rest))
+    until = a.until or until
+    where = a.where.split("#", 1)[0] if a.where else "session"
+    h = H.put_hold(st, subject, until, today, where) if a.cmd == "hold" else H.resume(st, subject, today, where)
     if not h:
-        print(f"{a.cmd}: nothing {'to hold' if a.cmd == 'hold' else 'held'} by {a.subject!r}", file=sys.stderr)
-        sys.exit(EX_NOTFOUND)
+        why = f"nothing {'to hold' if a.cmd == 'hold' else 'held'} by {subject!r}"
+        return said(a, {"ok": False, "already": False, "verb": a.cmd, "subject": subject, "why": why}, [f"{a.cmd}: {why}"])
+    if key:
+        st["read"][key] = today.isoformat()
     if a.apply:
         H.save(s.get("reports"), st)
-    print(f"{'held' if a.cmd == 'hold' else 'resumed'}: {H.label(h)}" + ("" if a.apply else " (dry run; --apply stores it)"))
+    return said(a, {"ok": True, "already": False, "verb": a.cmd, "subject": h["subject"], "until": h.get("until"), "applied": a.apply},
+                [f"{'held' if a.cmd == 'hold' else 'resumed'}: {H.label(h)}" + ("" if a.apply else " (dry run; --apply stores it)")])
 
 
 def cmd_holds(a):
@@ -729,16 +750,27 @@ def cmd_holds(a):
 
 
 def cmd_word(a):
+    """`ela focus up|down <KEY and reason> [--why W] [--highest] [--where <rel>#…] [--apply] [--json]`: the word is stored and,
+    with --apply, the batch is drafted at once, so today.md asks it on the next sync."""
     s = site()
+    today = datetime.date.today()
+    rest = " ".join(a.key)
     st = load(s.get("reports"))
-    k = (H.keys_in(a.key) or [None])[0]
-    if not k:
-        print(f"{a.cmd}: {a.key!r} is not a ticket key", file=sys.stderr); sys.exit(EX_USAGE)
-    w = say(st, a.cmd, k, getattr(a, "why", "") or "", getattr(a, "highest", False))
+    key = H.word_key(a.where, a.cmd, rest) if a.where else None
+    if key and key in st["words"]:
+        return said(a, {"ok": True, "already": True, "verb": a.cmd, "key": st["words"][key]["key"], "batch": st["words"][key].get("batched")},
+                    [f"{a.cmd}: already read ({a.where})"])
+    w = word(a.cmd, rest + (" " + a.why if getattr(a, "why", "") else "") + (" highest" if getattr(a, "highest", False) else ""),
+             today, a.where.split("#", 1)[0] if a.where else "session")
+    if not w:
+        return said(a, {"ok": False, "already": False, "verb": a.cmd, "why": f"no ticket key in {rest!r}"}, [f"{a.cmd}: no ticket key in {rest!r}"])
+    st["words"][key or hashlib.sha1(f"session|{a.cmd}|{rest}|{today}".encode()).hexdigest()[:12]] = w
+    batch = None
     if a.apply:
         save(s.get("reports"), st)
-    print(f"{a.cmd} {k}: drafted into the next batch on `ela focus moves --apply`" + ("" if a.apply else " (dry run; --apply stores the word)"))
-    _ = w
+        batch = run_moves(s, True)["batch"]
+    return said(a, {"ok": True, "already": False, "verb": a.cmd, "key": w["key"], "batch": batch, "applied": a.apply},
+                [f"{a.cmd} {w['key']}: " + (f"in batch {batch}, asked on today.md" if batch else "dry run; --apply stores it and drafts the batch")])
 
 
 def run_moves(s, apply, scrum=None, now=None, ruled=None):
@@ -770,17 +802,22 @@ def main():
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("board", help="the board and its meeting views; --write writes meetings/focus.md")
     p.add_argument("--write", action="store_true"); p.add_argument("--json", action="store_true"); p.set_defaults(func=cmd_board)
-    p = sub.add_parser("hold", help="park a subject on every page: SUBJECT [--until DATE|EVENT]; a dry run unless --apply")
-    p.add_argument("subject"); p.add_argument("--until"); p.add_argument("--apply", action="store_true"); p.set_defaults(func=cmd_hold)
+    WHERE = "the vault watcher's `<note rel>#<line>`: the line read once, whoever reads it first"
+    p = sub.add_parser("hold", help="park a subject on every page: SUBJECT [until DATE|EVENT]; a dry run unless --apply")
+    p.add_argument("subject", nargs="+"); p.add_argument("--until"); p.add_argument("--where", help=WHERE)
+    p.add_argument("--apply", action="store_true"); p.add_argument("--json", action="store_true"); p.set_defaults(func=cmd_hold)
     p = sub.add_parser("resume", help="end a hold; a dry run unless --apply")
-    p.add_argument("subject"); p.add_argument("--apply", action="store_true"); p.set_defaults(func=cmd_hold, until=None)
+    p.add_argument("subject", nargs="+"); p.add_argument("--where", help=WHERE)
+    p.add_argument("--apply", action="store_true"); p.add_argument("--json", action="store_true"); p.set_defaults(func=cmd_hold, until=None)
     p = sub.add_parser("holds", help="every hold, live first")
     p.add_argument("--json", action="store_true"); p.set_defaults(func=cmd_holds)
     p = sub.add_parser("up", help="ask for a priority raise on KEY (High, --highest Highest), a due date and an assignee when missing; a dry run unless --apply")
-    p.add_argument("key"); p.add_argument("--why", default=""); p.add_argument("--highest", action="store_true")
-    p.add_argument("--apply", action="store_true"); p.set_defaults(func=cmd_word)
+    p.add_argument("key", nargs="+"); p.add_argument("--why", default=""); p.add_argument("--highest", action="store_true")
+    p.add_argument("--where", help=WHERE); p.add_argument("--apply", action="store_true"); p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_word)
     p = sub.add_parser("down", help="ask for KEY's priority back to Medium; a dry run unless --apply")
-    p.add_argument("key"); p.add_argument("--apply", action="store_true"); p.set_defaults(func=cmd_word)
+    p.add_argument("key", nargs="+"); p.add_argument("--where", help=WHERE); p.add_argument("--apply", action="store_true")
+    p.add_argument("--json", action="store_true"); p.set_defaults(func=cmd_word)
     p = sub.add_parser("moves", help="draft the batch of Jira moves the board asks for; --apply stores it as a dry-run batch")
     p.add_argument("--apply", action="store_true"); p.add_argument("--json", action="store_true"); p.set_defaults(func=cmd_moves)
     p = sub.add_parser("scrum", help="after the scrum: its Read AI report from mail, mapped to rows, drafted into the batch")
