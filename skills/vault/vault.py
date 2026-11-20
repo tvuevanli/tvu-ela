@@ -1713,7 +1713,12 @@ def spec_text():
            "an English title, the Chinese one kept as an alias. A body is never translated in place. A note a session writes "
            "by hand says which session: `session` (its id) and `session-name` (its /rename name), stamped by `ela note stamp "
            "PATH`, so `claude --resume <session>` brings the whole conversation back; a note a generator writes is exempt. A note ends with what you should do and how, before the sections ela keeps "
-           f"({', '.join(TAIL_ORDER[1:])}, in that order). A deviation is a lint line (`ela vault lint`), never a failure; "
+           f"({', '.join(TAIL_ORDER[1:])}, in that order). Every page shows the short, important part and folds the rest: "
+           "it leads with the few facts and the one decision that matter, as plain lines; tables, per-service rows, ticket "
+           "lists, evidence and sources sit below them in folded callouts (`> [!note]-`) or behind a link to the record, and "
+           "are never removed, so a reader who stops after the head has what he needs and can open anything he doubts. Lint "
+           f"names a page whose head runs over its budget ({HEAD_BUDGET:,} words for a page without one), a table of more than "
+           f"{OPEN_TABLE_ROWS} rows or a list of more than {OPEN_LIST_KEYS} tickets outside a fold. A deviation is a lint line (`ela vault lint`), never a failure; "
            "an old name or title stays as an alias, so a link and the quick switcher still find the note.", ""]
     for kind, sp in SPECS.items():
         b = BUDGET.get(kind)
@@ -1901,11 +1906,54 @@ def lint_notes(vault, projects=None):
         gen = set()
     out = []
     for rel, text in vault_notes(vault):
-        found = front_breaks(split_front(text)[0]) + spec_lint(rel, text, rel in gen, projects) + own_lines_lint(text)
+        found = front_breaks(split_front(text)[0]) + spec_lint(rel, text, rel in gen, projects) + own_lines_lint(text) \
+            + present_lint(rel, text, rel in gen)
         if key_rule_covers(rel, props_of(split_front(text)[0]), rel in gen):
             found += key_cluster_lint(text)
         if found:
             out.append((rel, rel in gen, found))
+    return out
+
+
+# The presentation standard (the owner's working preferences, 2026-11-20, "Show the short, important part; fold the
+# rest"): a page leads with the few facts and the one decision as plain lines; tables, per-service rows, ticket lists,
+# evidence and sources sit below it in folded callouts or behind a link, never removed. The lint names a page whose
+# head runs over its budget or whose detail is not folded; a short key table (a line's lanes) may stay open.
+PRESENT_RULE_FROM = "2026-11-20"
+HEAD_BUDGET = 800        # a page type without a budget of its own
+OPEN_TABLE_ROWS = 6      # a table of more data rows than this is detail
+OPEN_LIST_KEYS = 5       # a run of more list lines naming a ticket than this is a ticket list
+
+
+def present_lint(rel, text, generated=False):
+    """The presentation standard on one note: [] when its head is within budget and its detail folded. A generated
+    page and a live note of PRESENT_RULE_FROM or later are read; a done note is the record, an older one history."""
+    fl, body = split_front(text)
+    props = props_of(fl)
+    if not generated and (is_done(props) or (props.get("date") or "")[:10] < PRESENT_RULE_FROM or folder_of(rel) in CLOSED_FOLDERS):
+        return []
+    kind = props.get("type")
+    out, head = [], outside_folds(body)
+    if kind not in BUDGET and budget_of(kind, rel) is None:      # a type with a budget is held to it by spec_lint
+        units = reading_units(head)
+        if units > HEAD_BUDGET * TOLERANCE:
+            out.append(f"head of {units:,} words above the folds, budget {HEAD_BUDGET:,}: fold the detail")
+    rows = keys = 0
+    for line in head.splitlines() + [""]:
+        if re.match(r"^\s*\|", line):
+            rows += 0 if re.match(r"^\s*\|[\s|:-]+\|\s*$", line) else 1
+        else:
+            if rows - 1 > OPEN_TABLE_ROWS:
+                out.append(f"a table of {rows - 1} rows outside a fold: fold it (`> [!note]-`) under one plain line")
+            rows = 0
+        if re.match(r"^\s*(?:[-*+]|\d+[.)])\s", line) and KEY_RX.search(line):
+            keys += 1
+        elif line.strip():
+            if keys > OPEN_LIST_KEYS:
+                out.append(f"a list of {keys} tickets outside a fold: name the count, fold the list")
+            keys = 0
+    if keys > OPEN_LIST_KEYS:
+        out.append(f"a list of {keys} tickets outside a fold: name the count, fold the list")
     return out
 
 

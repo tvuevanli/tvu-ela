@@ -83,5 +83,22 @@ os.unlink(fh.name)
 check("action states keep the fold: the owner's own line is quoted under its box, the applied one ticked with its time",
       "> - [ ] apply 4 — comment on MH-3\n> - [x] I handled it myself — not apply 4 · you commented in Jira 09:40" in out
       and "> - [x] apply 5 — post the status · applied 10:18" in out)
+# the presentation standard: the head short, the detail folded (working preferences 2026-11-20)
+table = "\n".join(["| a | b |", "|---|---|"] + [f"| r{i} | x |" for i in range(9)])
+keys = "\n".join(f"- MH-{100 + i} a ticket" for i in range(7))
+page = f'---\ntype: "lanes"\ndate: "2026-11-20"\n---\n# The lanes\n\n{table}\n\n{keys}\n'
+found = V.present_lint("releases/lanes.md", page, generated=True)
+check("a generated page with a 9-row table and a 7-ticket list outside a fold is named twice",
+      any("a table of 9 rows outside a fold" in x for x in found) and any("a list of 7 tickets outside a fold" in x for x in found))
+folded = page.replace(table, "Nine rows.\n\n" + "\n".join("> " + l if i else "> [!note]- the rows\n> " + l for i, l in enumerate(table.splitlines()))) \
+             .replace(keys, "Seven tickets.\n\n> [!note]- the tickets\n" + "\n".join("> " + l for l in keys.splitlines()))
+check("the same detail folded under a plain line passes", V.present_lint("releases/lanes.md", folded, generated=True) == [])
+check("a four-row key table may stay open", V.present_lint("x/p.md", page.replace(table, "\n".join(table.splitlines()[:6])).replace(keys, ""), True) == [])
+check("a long head on a page without a budget is named",
+      any("head of" in x for x in V.present_lint("x/p.md", page.replace(keys, "word " * 900), True)))
+check("a done note, or a note dated before the rule, is the record: not read",
+      V.present_lint("reference/r.md", page.replace('type: "lanes"', 'type: "review"\nstatus: "done"'), False) == []
+      and V.present_lint("reference/r.md", page.replace("2026-11-20", "2026-11-19"), False) == [])
+check("the readme's note standards state the rule", "Every page shows the short, important part and folds the rest" in V.spec_text())
 print(f"{len(failures)} failures" if failures else "page fold: all checks passed")
 sys.exit(1 if failures else 0)
