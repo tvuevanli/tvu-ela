@@ -12,6 +12,7 @@ Usage:
     vault.py restore <path>          bring back a note the owner deleted
     vault.py guidance [--all] [--json]   his `ela:` lines anywhere in the vault, each handled once
     vault.py stamp <path> <id> <mark…> [--fold F]   the watcher's mark after a line it took (`✓ 10:42`)
+    vault.py conflicts [--apply] [--json]   Syncthing's conflict copies merged into the live page and kept
     vault.py finish <path> [--to drop|archive]   on his word: a note done where it is, kept
     vault.py migrate [--apply] [--slug KEY=WORDS] [--json]   the one pass to layout 5; a dry run unless --apply
     vault.py lint [--fix [--apply]] [--json]   every note against its type's spec; --fix normalises front matter
@@ -5788,6 +5789,98 @@ def cmd_stamp(a):
     print(f"{rel}: {' '.join(a.mark)}")
 
 
+CONFLICT_NAME = re.compile(r"^(?P<stem>.+?)\.sync-conflict-\d{8}-\d{6}(?:-[A-Za-z0-9]+)?(?P<ext>\.md)$")
+CONFLICTS = f"{ARCHIVE}/sync-conflicts"
+SETTLED = 120                                              # seconds both files must sit unsaved before a merge
+
+
+def merge_conflict(copy_text, live_text):
+    """His word in a conflict copy carried into the live page: each `ela:` line of his the page lacks, at the end of the
+    section it was written under, and each box he ticked there ticked here too (written in when the page has no such
+    box). Other lines the copy has and the page lacks are counted, not carried: prose is his to merge. → (text, carried,
+    left)."""
+    have = {l.strip() for l in live_text.splitlines()}
+    _, cbody = split_front(copy_text)
+    out, carried, lines = live_text, [], []
+    for m in his_lines(copy_text):
+        line = m.group(0).strip()
+        if line not in have and line not in [l for _, l in lines]:
+            lines.append((section_at(cbody, cbody.find(line)) if line in cbody else None, line))
+    for m in TICKED.finditer(copy_text):
+        label = m.group(1)
+        if re.search(r"^[ \t]*" + QUOTE + r"[-*][ \t]+\[[xX]\][ \t]+" + re.escape(label) + r"[ \t]*$", out, re.M):
+            continue
+        box = re.compile(r"^([ \t]*" + QUOTE + r"[-*][ \t]+)\[ \]([ \t]+" + re.escape(label) + r"[ \t]*)$", re.M)
+        if box.search(out):
+            out = box.sub(r"\1[x]\2", out, count=1); carried.append(m.group(0).strip())
+        elif m.group(0).strip() not in [l for _, l in lines]:
+            lines.append((section_at(cbody, cbody.find(m.group(0).strip())), m.group(0).strip()))
+    if lines:
+        out = place_lines(out, lines)
+        carried += [l for _, l in lines]
+    taken = {l for l in carried}
+    left = [l for l in cbody.splitlines() if l.strip() and l.strip() not in have and l.strip() not in taken
+            and not re.match(r"^[ \t]*" + QUOTE + r"[-*][ \t]+\[[ xX]\]", l) and not GUIDE.match(l)]
+    return out, carried, left
+
+
+def merge_conflicts(vault, now=None, dry_run=False):
+    """Each Syncthing conflict copy (`x.sync-conflict-<date>-<time>-<device>.md`) settled: his ticks and `ela:` lines
+    carried into the live page, the copy kept in archive/sync-conflicts/, never deleted. Lines it holds that cannot be
+    carried (his own prose there) are named on the live page in a folded note linking the kept copy. A copy whose
+    page is gone, or either file saved in the last SETTLED seconds, waits. → [{copy, live, carried, left, to}]."""
+    import time as _t
+    now = now or _t.time()
+    out = []
+    try:                                                   # a generated page's other lines are ela's old text: not his to lose
+        man = json.load(open(os.path.join(vault, MANIFEST)))
+        generated = set(man.get("files") or []) - set(man.get("native") or [])
+    except (OSError, ValueError):
+        generated = set()
+    for top_, dirs, fs in os.walk(vault):
+        dirs[:] = [d for d in dirs if not d.startswith(".") and
+                   os.path.relpath(os.path.join(top_, d), vault).replace(os.sep, "/") != CONFLICTS]
+        for f in sorted(fs):
+            m = CONFLICT_NAME.match(f)
+            if not m:
+                continue
+            cp, lp = os.path.join(top_, f), os.path.join(top_, m.group("stem") + m.group("ext"))
+            rel = os.path.relpath(cp, vault).replace(os.sep, "/")
+            live = os.path.relpath(lp, vault).replace(os.sep, "/")
+            if not os.path.isfile(lp):
+                out.append({"copy": rel, "live": live, "carried": [], "left": [], "to": None, "waits": "the page is gone"}); continue
+            if any(now - os.path.getmtime(x) < SETTLED for x in (cp, lp)):
+                out.append({"copy": rel, "live": live, "carried": [], "left": [], "to": None, "waits": "saved just now"}); continue
+            ctext, ltext = open(cp, encoding="utf-8").read(), open(lp, encoding="utf-8").read()
+            new, carried, left = merge_conflict(ctext, ltext)
+            left = [] if live in generated else left
+            to = os.path.relpath(free_path(os.path.join(vault, CONFLICTS), f), vault).replace(os.sep, "/")
+            if left:
+                at = datetime.datetime.fromtimestamp(now).strftime("%H:%M")
+                new = new.rstrip("\n") + "\n\n" + "\n".join(
+                    [f"> [!note]- a conflict copy had {len(left)} line{'s' if len(left) != 1 else ''} not carried · {at}",
+                     f"> Kept as [[{to[:-3]}|the copy]]; merge by hand what should stay."] + [f"> {l.strip()[:160]}" for l in left[:12]]) + "\n"
+            if not dry_run:
+                if new != ltext:
+                    atomic_write(lp, new)
+                os.makedirs(os.path.dirname(os.path.join(vault, to)), exist_ok=True)
+                os.replace(cp, os.path.join(vault, to))
+            out.append({"copy": rel, "live": live, "carried": carried, "left": left, "to": to})
+    return out
+
+
+def cmd_conflicts(a):
+    """`ela vault conflicts [--apply] [--json]`: the conflict copies merged and kept (a dry run unless --apply)."""
+    vault = json.load(open(SITE))["vault"]
+    r = merge_conflicts(vault, dry_run=not a.apply)
+    if a.json:
+        print(json.dumps({"conflicts": r, "dry_run": not a.apply}, ensure_ascii=False)); return
+    for c in r:
+        print(f"{c['copy']}: " + (f"waits, {c['waits']}" if c.get("waits") else
+              f"{len(c['carried'])} carried into {c['live']}, {len(c['left'])} named there, kept as {c['to']}"))
+    print(f"{'DRY RUN — ' if not a.apply else ''}{len(r)} conflict copies")
+
+
 def conflict_copy(name):
     """A sync tool's conflict copy (Syncthing's `x.sync-conflict-<date>-<time>-<device>.md`): the same note's words again
     under a new name, never a note of his. Read as his, each of its `ela:` lines is new again (2026-11-17: one meeting
@@ -6131,7 +6224,7 @@ WROTE_NOW = set()   # the files this process wrote: a fresh modification time th
 
 
 WRITERS = ("sync", "questions", "marks", "finish", "note", "restore", "setup", "afterwards", "tidy", "lint", "migrate", "rename",
-           "stamp")   # guidance only reads; lint writes with --fix --apply
+           "stamp", "conflicts")   # guidance only reads; lint writes with --fix --apply
 
 
 def vault_lock():
@@ -7565,6 +7658,9 @@ def main():
     p.add_argument("path"); p.add_argument("id", help="the line's guidance id"); p.add_argument("mark", nargs="+")
     p.add_argument("--fold", help="a file whose text goes under the line as a collapsed callout, its first line the title")
     p.set_defaults(func=cmd_stamp)
+    p = sub.add_parser("conflicts", help="Syncthing's conflict copies: his ticks and `ela:` lines carried into the live page, the copy kept in archive/sync-conflicts/")
+    p.add_argument("--apply", action="store_true"); p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_conflicts)
     p = sub.add_parser("answer", help="one letter on today's ask N (`2 B` from Slack or a session), resolved as a tick on today.md is; dry run unless --apply")
     p.add_argument("slot", type=int); p.add_argument("letter", choices=list("ABCabc"))
     p.add_argument("--apply", action="store_true"); p.add_argument("--json", action="store_true")

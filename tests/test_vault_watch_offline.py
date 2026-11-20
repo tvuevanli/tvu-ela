@@ -62,5 +62,37 @@ with tempfile.TemporaryDirectory() as d:
     V.atomic_write(p, "ela rewrote it in this run\n")
     check("ela's own write earlier in the same run is not his edit", not V.his_recent_edit(p, mine))
 
+# ── a Syncthing conflict copy ──────────────────────────────────────────────────────────────────────────────────
+LIVE = "---\ntitle: \"Sync\"\ntype: \"meeting\"\n---\n# Sync\n\n## Items\n\n- [ ] MH-1 raise\n- [ ] MH-2 raise\n\n## Notes\n\nfirst\n"
+COPY = LIVE.replace("- [ ] MH-1 raise", "- [x] MH-1 raise").replace("first\n", "first\nela: drop MH-2\nmy own sentence\n") \
+    + "- [x] a box only the copy has\n"
+with tempfile.TemporaryDirectory() as vault:
+    os.makedirs(os.path.join(vault, "meetings"))
+    lp = os.path.join(vault, "meetings", "sync.md")
+    cname = "sync.sync-conflict-20261117-104812-ABCDEFG.md"
+    cp = os.path.join(vault, "meetings", cname)
+    open(lp, "w").write(LIVE); open(cp, "w").write(COPY)
+    check("a copy saved just now waits", V.merge_conflicts(vault, dry_run=True)[0].get("waits") == "saved just now")
+    old = time.time() - 600
+    for x in (lp, cp):
+        os.utime(x, (old, old))
+    r = V.merge_conflicts(vault)
+    text = open(lp).read()
+    check("his tick in the copy is ticked on the live page", "- [x] MH-1 raise" in text and "- [ ] MH-2 raise" in text)
+    check("his ela: line is carried under the section it was written in",
+          text.index("ela: drop MH-2") > text.index("## Notes"))
+    check("a box the page lacks is written in", "- [x] a box only the copy has" in text)
+    check("his prose is not carried but named in a fold that links the kept copy",
+          "my own sentence" in text.split("[!note]-")[1] and "[[archive/sync-conflicts/" + cname[:-3] + "|the copy]]" in text
+          and r[0]["left"] == ["my own sentence"])
+    check("the copy is kept in archive/sync-conflicts/, never deleted",
+          not os.path.exists(cp) and os.path.isfile(os.path.join(vault, "archive", "sync-conflicts", cname)))
+    check("a merged copy is not merged again", V.merge_conflicts(vault) == [])
+    # a generated page: the copy's other lines are ela's old text, not his
+    open(cp, "w").write(COPY); os.utime(cp, (old, old)); os.utime(lp, (old, old))
+    json.dump({"files": ["meetings/sync.md"], "native": []}, open(os.path.join(vault, V.MANIFEST), "w"))
+    r = V.merge_conflicts(vault)
+    check("on a generated page nothing but his word is named", r[0]["left"] == [] and r[0]["to"].endswith("-2.md"))
+
 print(f"\n{len(failures)} failure(s)" if failures else "\nall ok")
 sys.exit(1 if failures else 0)
