@@ -4951,7 +4951,9 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since
     dcands, dry_facts = dry_asks(reports, today, asks_state, dry_run)
     mcands = mention_asks(reports, today)                  # a person waiting on him leads the drafted writes
     qcands, cands = unheld(qcands, focus.get("holds"), today), unheld(cands, focus.get("holds"), today)   # a held subject asks nothing
-    shown, more, _, asks_state = settle_asks(asks_state, qcands + mcands + dcands + cands, today)
+    # a batch of drafted writes (the focus board's moves among them) comes before a question's carry nudge: the board
+    # turns a question carried through two meetings into a Jira move, which the nudge only asks about
+    shown, more, _, asks_state = settle_asks(asks_state, mcands + dcands + qcands + cands, today)
     for v in asks_state.values():                          # the slots are today's page's: yesterday's numbers mean nothing
         for k in ("slot", "options"):
             v.pop(k, None)
