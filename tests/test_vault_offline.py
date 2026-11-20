@@ -1352,19 +1352,22 @@ check("a release line's record and a build's release note owe no What you should
       and not any("What you should do" in x for x in V.spec_lint("releases/2.1/release-2-1-record.md", rec.replace("2026-11-10", "2026-11-04"))))
 check("a page's links to layout 4's lanes/ go to where layout 5 keeps the page",
       V.layout5_links("see [[lanes/docker|Docker candidates]] and [[lanes/test-list-qa-cn3|QA]]", {"qa-cn3": "2.1"})
-      == "see [[releases/docker|Docker candidates]] and [[releases/2.1/lists/test-list-qa-cn3|QA]]")
+      == "see [[releases/media-docker-services|Docker candidates]] and [[releases/2.1/lists/test-list-qa-cn3|QA]]")
 with tempfile.TemporaryDirectory() as rt:
     os.makedirs(os.path.join(rt, "ela")); os.makedirs(os.path.join(rt, "lanes"))
     open(os.path.join(rt, "ela", "2026-11-11-deep-MH-3993.md"), "w").write(
         "# [MH-3993](https://j/browse/MH-3993) · Graphics Insertion missing at 4K — no fix exists\n\n**Do.** hand it over.\n")
-    open(os.path.join(rt, "lanes", "docker.md"), "w").write("# Docker candidates\n\n*2026-11-11*\n")
+    open(os.path.join(rt, "lanes", "media-docker-services.md"), "w").write("# Media docker services · 2.1\n\n*2026-11-11*\n")
     got = {n.path: n for n in V.report_notes(rt, datetime.date(2026, 11, 11))}
     deep = next((n for p_, n in got.items() if p_.endswith("2026-11-11-deep-mh-3993.md")), None)
     page = V.front([], dict(deep.props, title=deep.title)) + deep.body if deep else ""
-    check("the deep reading: a plain title among its aliases, its key set; the docker page placed in releases/",
+    check("the deep reading: a plain title among its aliases, its key set; the docker page placed in releases/ under its own name",
           deep is not None and deep.title.startswith("MH-3993 · Graphics") and deep.props["keys"] == ["MH-3993"]
           and V.spec_lint("reference/2026-11-11-deep-mh-3993.md", page) == []
-          and "releases/docker.md" in got and not V.type_lint("releases/docker.md", "docker"))
+          and "releases/media-docker-services.md" in got and not V.type_lint("releases/media-docker-services.md", "docker")
+          and got["releases/media-docker-services.md"].title == "Media docker services · 2.1"
+          and 'aliases: ["Media docker services · 2.1", "mds", "docker", "Docker candidates"]'
+          in V.front([], dict(got["releases/media-docker-services.md"].props, title=got["releases/media-docker-services.md"].title)))
 
 # a note of the vault's own gone without a verb keeps a trace: a row in the deletion log, with its backup copy
 with tempfile.TemporaryDirectory() as t:

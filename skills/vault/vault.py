@@ -585,7 +585,8 @@ def front(existing, props):
     if not props.get("date") and (src.get("decided") or src.get("written")):
         props["date"] = (src.get("decided") or src.get("written"))[:10]
     if props.get("title") and props.get("type") not in ("home", "readme"):
-        props["aliases"] = [props["title"]]                # the quick switcher matches an alias, not a heading
+        # the quick switcher matches an alias, not a heading; a page's older names follow its title (a renamed page)
+        props["aliases"] = [props["title"]] + [x for x in as_list(props.get("aliases") or []) if x != props["title"]]
     lines = [f"{k}: {json.dumps(keys_list(props[k]) if k == 'keys' else as_list(props[k]) if k in ('channels', 'posted') else props[k], ensure_ascii=False)}"
              for k in PROPS if props.get(k) or props.get(k) is False
              or (k == "next" and props.get(k) == "")]   # an empty next field, ready for his word
@@ -739,10 +740,11 @@ def report_notes(reports, today, runtime=None, helm=None):
     ld = os.path.join(reports, "lanes")
     lanes = lane_lines()
     for f in sorted(os.listdir(ld)) if os.path.isdir(ld) else []:   # what QA verifies per lane, what is in development per line
-        if f == "docker.md":                               # the docker candidates, linked from the day pages
+        if f == "media-docker-services.md":                # which docker versions can move, linked from the day pages
             fl, body = split_front(open(os.path.join(ld, f), encoding="utf-8").read())
             dm = re.search(r"\*(\d{4}-\d{2}-\d{2})", body)
-            notes.append(Note(DOCKER_PAGE, "Docker candidates", body, {"type": "docker", "date": dm.group(1) if dm else None}, fl,
+            notes.append(Note(DOCKER_PAGE, h1(body) or "Media docker services", body,
+                              {"type": "docker", "date": dm.group(1) if dm else None, "aliases": DOCKER_ALIASES}, fl,
                               src_rel=f"lanes/{f}"))
             continue
         m = re.match(r"^(test-list|dev-list|train)-(.+)\.md$", f)
@@ -1058,7 +1060,8 @@ def reader_heading(body, date):
     return body[:m.start()] + f"# {want}{sub}" + body[m.end():]
 
 
-LANES_PAGE, ONE_THING, DOCKER_PAGE = f"{RELEASES}/lanes.md", f"{REF}/one-thing.md", f"{RELEASES}/docker.md"
+LANES_PAGE, ONE_THING, DOCKER_PAGE = f"{RELEASES}/lanes.md", f"{REF}/one-thing.md", f"{RELEASES}/media-docker-services.md"
+DOCKER_ALIASES = ["mds", "docker", "Docker candidates"]   # the page's older names: links and the switcher keep working
 OLD_LANE_LINK = re.compile(r"\[\[lanes/([^\]|#]+)")
 
 
@@ -6783,6 +6786,8 @@ def list_home(name, lanes=None):
     if m:
         line = (lanes if lanes is not None else lane_lines()).get(m.group(1))
         return f"{RELEASES5}/{line}/{LISTS}/{name}" if line else f"{RELEASES5}/{name}"
+    if name == "docker.md":                                # renamed 2026-11-20: Media docker services
+        return DOCKER_PAGE
     return f"{RELEASES5}/{name}"
 
 
