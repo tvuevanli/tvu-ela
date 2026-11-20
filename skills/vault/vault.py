@@ -1047,6 +1047,38 @@ def tidy_releases(vault, reports, runtime, dry_run=False, now=None):
     return out
 
 
+def tidy_dry(vault, reports, dry_run=False, now=None, batches=None):
+    """A dry-run batch's note in ela/dry/ whose batch is no longer open (applied, dropped, superseded, expired) moved
+    to archive/dry/, kept as he left it, never deleted; did.md and an open batch's note stay. A note whose batch the
+    store does not know is left alone. Logged as a rename, so the sync follows it. → [(old, new, why)]."""
+    now = now or datetime.datetime.now()
+    d = os.path.join(vault or "", ELA, "dry")
+    if batches is None:
+        try:
+            batches = {b["id"]: b for b in dry_mod().batches(reports)}
+        except Exception:                                  # noqa: BLE001 — a broken store moves nothing
+            return []
+    out = []
+    for f in sorted(os.listdir(d)) if os.path.isdir(d) else []:
+        b = batches.get(f[:-3]) if f.endswith(".md") else None
+        if not b or b.get("state") == "open":
+            continue
+        rel = f"{ELA}/dry/{f}"
+        new = os.path.relpath(free_path(os.path.join(vault, ARCHIVE, "dry"), f), vault).replace(os.sep, "/")
+        why = f"the batch is {b.get('state') or 'closed'}" + (f" by {b['superseded_by']}" if b.get("superseded_by") else "")
+        out.append((rel, new, why))
+        if dry_run:
+            continue
+        os.makedirs(os.path.join(vault, ARCHIVE, "dry"), exist_ok=True)
+        os.replace(os.path.join(d, f), os.path.join(vault, new))
+        log = os.path.join(reports or "", "ela", "vault-removed.jsonl")
+        os.makedirs(os.path.dirname(log), exist_ok=True)
+        with open(log, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps({"at": now.isoformat(timespec="seconds"), "path": rel, "fate": "renamed", "by": "ela",
+                                 "renamed_to": new, "why": why}, ensure_ascii=False) + "\n")
+    return out
+
+
 def relocate_vault_links(vault, dry_run=False):
     """Every note's links by an old release path rewritten in place (relocate_links); archive/ included, since only a
     path changes. → [paths changed]."""
@@ -6498,6 +6530,8 @@ def cmd_sync(a):
         print(f"meetings: {old_} → {new_}", file=sys.stderr)
     for old_, new_, why in tidy_releases(vault, s.get("reports") or "", s.get("runtime") or "", a.dry_run, now):
         print(f"releases: {old_} → {new_} ({why})", file=sys.stderr)
+    for old_, new_, why in tidy_dry(vault, s.get("reports") or "", a.dry_run, now):
+        print(f"dry: {old_} → {new_} ({why})", file=sys.stderr)
     for fix in settle_statuses(vault, a.dry_run):
         print(f"status: {fix}", file=sys.stderr)
     if not a.dry_run:

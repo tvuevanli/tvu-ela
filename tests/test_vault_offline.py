@@ -1513,4 +1513,23 @@ with tempfile.TemporaryDirectory() as t:
           and n.props.get("keys") == ["MH-3873"] and V.home_for(n.path, dict(n.props, title=n.title), lambda k: None) == "releases/2.1")
     V.SITE = site_was
 
+# a dry-run batch's note leaves ela/dry/ for archive/dry/ once its batch is no longer open; never deleted
+with tempfile.TemporaryDirectory() as t:
+    v, r = os.path.join(t, "v"), os.path.join(t, "r")
+    os.makedirs(os.path.join(v, "ela", "dry")); os.makedirs(os.path.join(v, "archive", "dry"))
+    for f in ("b-open.md", "b-gone.md", "b-sup.md", "did.md", "b-unknown.md"):
+        open(os.path.join(v, "ela", "dry", f), "w").write("# " + f + "\n~~1. `x`~~ struck by him\n")
+    open(os.path.join(v, "archive", "dry", "b-sup.md"), "w").write("an older namesake\n")
+    B = {"b-open": {"state": "open"}, "b-gone": {"state": "applied"}, "b-sup": {"state": "superseded", "superseded_by": "b-open"}}
+    got = V.tidy_dry(v, r, batches=B)
+    check("a closed batch's note moves to archive/dry/ as he left it; an open one, did.md and an unknown one stay",
+          sorted(o for o, _, _ in got) == ["ela/dry/b-gone.md", "ela/dry/b-sup.md"]
+          and sorted(os.listdir(os.path.join(v, "ela", "dry"))) == ["b-open.md", "b-unknown.md", "did.md"]
+          and "struck by him" in open(os.path.join(v, "archive", "dry", "b-gone.md")).read())
+    check("a namesake in the archive is never overwritten, and each move is logged as a rename",
+          open(os.path.join(v, "archive", "dry", "b-sup.md")).read() == "an older namesake\n"
+          and os.path.isfile(os.path.join(v, "archive", "dry", "b-sup-2.md"))
+          and [json.loads(l)["fate"] for l in open(os.path.join(r, "ela", "vault-removed.jsonl"))] == ["renamed", "renamed"]
+          and "superseded by b-open" in got[1][2])
+
 sys.exit(1 if failures else 0)
