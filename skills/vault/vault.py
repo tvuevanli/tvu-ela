@@ -863,7 +863,11 @@ def line_notes(vault, reports, runtime, today, planned=()):
     out = []
     for line in sorted(lines):
         try:
-            body = LP.render(LP.gather(line, reports, runtime, today, line_history(vault, line)))
+            try:
+                ledger = json.load(open(SITE)).get("builds_ledger")
+            except (OSError, ValueError):
+                ledger = None
+            body = LP.render(LP.gather(line, reports, runtime, today, line_history(vault, line), builds_ledger=ledger))
         except Exception as e:                             # one line's broken source costs that page only
             print(f"line page {line}: not written — {str(e)[:120]}", file=sys.stderr)
             continue

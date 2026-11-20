@@ -262,7 +262,100 @@ def docker_rows(cands, ledger, line):
     return out, sorted(unread)
 
 
-def gather(line, reports, runtime, today=None, notes=()):
+STATE_ORDER = ("In Progress", "Review", "QA", "Not started", "Done")
+DONE_SHOWN = 40                                   # Done rows in the folded table, newest first; the rest are a Jira search
+
+
+def state_group(status):
+    """A Jira status as the release page groups it: In Progress, Review, QA, Not started, Done (Cancelled and the
+    like are Done: nothing more ships)."""
+    name = str((status or {}).get("name") or "")
+    cat = str(((status or {}).get("statusCategory") or {}).get("key") or "")
+    low = name.lower()
+    if re.search(r"\bqa\b|test", low):
+        return "QA"
+    if low == "review":
+        return "Review"
+    if cat == "done":
+        return "Done"
+    if cat == "indeterminate":
+        return "In Progress"
+    return "Not started"
+
+
+def ledger_links(path):
+    """{key: [(service, version, env)]} the builds ledger ties to each ticket (service_change_ticket); {} unreadable."""
+    try:
+        import sqlite3
+        c = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        rows = c.execute("select t.ticket_key, s.service_key, s.version_norm, s.env from service_change_ticket t "
+                         "join service_change s on s.change_uid = t.change_uid").fetchall()
+        c.close()
+    except Exception:
+        return {}
+    out = {}
+    for k, svc, ver, env in rows:
+        out.setdefault(k, []).append((svc, ver, env))
+    return out
+
+
+def ticket_table(line, runtime, rows, ledger=None, cfg=None):
+    """The line's tickets as Helm's release page shows them, from the fact store's Jira issues (labelled
+    release:mh-<line>) and the builds ledger: each with its state group, assignee, due date, Fixed In and the furthest
+    lane its Fixed In runs on; and the fields-health figure of decision 2026-11-02 over the open tickets (one release
+    label, an assignee, a due date once past Not started, a Fixed In once in Review or QA) and the Done ones (a Fixed
+    In unless cancelled). → {tickets, health} or None when the fact store holds none."""
+    cfg = cfg if cfg is not None else ((R.rmap("lines") or {}).get(str(line)) or {})
+    label = cfg.get("label") or f"release:mh-{line}"
+    d = os.path.join(runtime or "", "facts", "jira", "issues")
+    try:
+        sys.path.insert(0, os.path.join(HERE, "..", "recent"))
+        import recent as RC  # noqa: E402 — the Fixed In field's entries and where they stand on a line
+        import jira as J     # noqa: E402
+    except Exception:
+        return None
+    versions = RC.lane_versions(rows)
+    links = ledger_links(ledger) if ledger else {}
+    out = []
+    for f in sorted(os.listdir(d)) if os.path.isdir(d) else []:
+        issue = load(os.path.join(d, f))
+        flds = (issue or {}).get("fields") or {}
+        labels = flds.get("labels") or []
+        if label not in labels:
+            continue
+        entries = RC.fixed_in_entries(flds.get(J.FIXED_IN_FIELD))
+        stands = RC.stands_at(entries, versions, cfg)["text"] if entries else None
+        if not stands and links.get(issue["key"]):
+            svc, ver, env = links[issue["key"]][-1]
+            stands = f"built: {svc} {ver}" + (f" on {env}" if env else "")
+        group = state_group(flds.get("status"))
+        status = str((flds.get("status") or {}).get("name") or "")
+        lines_ = [l for l in labels if l.startswith("release:mh-")]
+        misses = []
+        if len(lines_) != 1:
+            misses.append("label")
+        if group != "Done" and not flds.get("assignee"):
+            misses.append("assignee")
+        if group in ("In Progress", "Review", "QA") and not flds.get("duedate"):
+            misses.append("due date")
+        if (group in ("Review", "QA") or (group == "Done" and status.lower() not in ("cancelled", "closed ambigous", "won't do"))) and not entries:
+            misses.append("Fixed In")
+        out.append({"key": issue["key"], "summary": flds.get("summary") or "", "group": group, "status": status,
+                    "assignee": ((flds.get("assignee") or {}).get("displayName") if isinstance(flds.get("assignee"), dict) else flds.get("assignee")) or "",
+                    "due": flds.get("duedate") or "", "fixed_in": [f"{s_}@{v}" if v else s_ for s_, v in entries],
+                    "lane": stands or ("dev" if group != "Done" else "—"), "updated": str(issue.get("updated") or flds.get("updated") or ""),
+                    "misses": misses})
+    if not out:
+        return None
+    missed = {}
+    for t in out:
+        for m in t["misses"]:
+            missed[m] = missed.get(m, 0) + 1
+    ok = sum(1 for t in out if not t["misses"])
+    return {"tickets": out, "label": label, "health": {"ok": ok, "of": len(out), "missed": missed}}
+
+
+def gather(line, reports, runtime, today=None, notes=(), builds_ledger=None):
     """Every fact the page shows, read from local files; `notes` are the line's promotion and deploy notes in the vault
     as [{rel, title, date, status}]. → dict (the page is render(dict))."""
     today = today or datetime.date.today()
@@ -427,7 +520,12 @@ def gather(line, reports, runtime, today=None, notes=()):
         lost = [b for b in lost if int(re.sub(r"\D", "", b) or 0) > first]
         if lost:
             gaps.append(f"build{'s' if len(lost) != 1 else ''} {', '.join(lost)} (sent to QA, no build record written)")
-    return {"line": line, "today": today.isoformat(), "rowsets": rowsets, "ahead": ahead, "gaps": gaps, "next": nxt,
+    table = ticket_table(line, runtime, rows, builds_ledger, cfg)
+    if table is None:
+        gaps.append(f"the line's tickets (the fact store holds none labelled release:mh-{line})")
+    elif builds_ledger and not os.path.isfile(builds_ledger):
+        gaps.append("the builds ledger")
+    return {"line": line, "today": today.isoformat(), "rowsets": rowsets, "tickets": table, "ahead": ahead, "gaps": gaps, "next": nxt,
             "pending": pending, "docker": docker, "builds": builds, "facts": facts, "notes": list(notes),
             "read": snaps[-1][0] if snaps else None}
 
@@ -537,6 +635,24 @@ def render(d):
     if old:
         L += [f"> [!note]- {len(old)} older build{'s' if len(old) != 1 else ''}"] + \
              [f"> - {b['rec']['date'][5:]} · build {b['rec']['build']} → {lane_label(b['rec']['lane'])} · {b['qa']}" for b in old] + [""]
+    tt = d.get("tickets")
+    if tt:
+        h = tt["health"]
+        L += ["## Tickets", "", f"{h['of']} tickets labelled {tt['label']} · fields health {round(100 * h['ok'] / h['of'])}% "
+              f"({h['ok']} of {h['of']} with every field right" + ("; missing: " + ", ".join(f"{k} {n}" for k, n in sorted(h["missed"].items(), key=lambda kv: -kv[1])) if h["missed"] else "")
+              + ")", ""]
+        for g in STATE_ORDER:
+            rows_ = sorted((t for t in tt["tickets"] if t["group"] == g), key=lambda t: t["updated"], reverse=True)
+            if not rows_:
+                continue
+            shown = rows_[:DONE_SHOWN] if g == "Done" else rows_
+            L += [f"> [!note]- {g} · {len(rows_)}", "> | ticket | status | assignee | due | lane | Fixed In |", "> |---|---|---|---|---|---|"]
+            L += [f"> | {ticket(t['key'], facts, 60) if t['key'] in facts else t['key'] + ' ' + R.ticket_title(t['summary'], 60)} | {t['status']} | "
+                  f"{t['assignee'] or '**none**'} | {t['due'][5:] or ('**none**' if 'due date' in t['misses'] else '—')} | {t['lane']} | "
+                  f"{', '.join(t['fixed_in']) or ('**none**' if 'Fixed In' in t['misses'] else '—')} |" for t in shown]
+            if len(rows_) > len(shown):
+                L.append(f"> *{len(rows_) - len(shown)} older Done tickets in Jira under the label {tt['label']}*")
+            L.append("")
     L += ["## History", ""]
     notes = sorted(d["notes"], key=lambda n: (n.get("date") or "", n["rel"]), reverse=True)
     if not notes:
@@ -560,7 +676,7 @@ def main():
     except (OSError, ValueError) as e:
         print(f"site.json: {e}", file=sys.stderr); sys.exit(2)
     reports = s.get("reports") or os.path.join(s.get("projects", ""), "reports")
-    d = gather(a.line, reports, s.get("runtime"))
+    d = gather(a.line, reports, s.get("runtime"), builds_ledger=s.get("builds_ledger"))
     if a.json:
         d = dict(d, builds=[{"build": b["rec"]["build"], "date": b["rec"]["date"], "qa": b["qa"]} for b in d["builds"]])
         print(json.dumps(d, ensure_ascii=False, indent=1, default=str)); return

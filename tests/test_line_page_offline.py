@@ -96,6 +96,15 @@ with tempfile.TemporaryDirectory() as tmp:
                       "subject": "Project mixer build 9 & docker.tvunetworks.com/tvurtc/mixer:1.0.36 release", "claims": [{"key": "MH-3984"}]}) + "\n" +
           json.dumps({"image": "mixer", "version": "1.0.35", "at": "2026-11-01 10:00", "source": "mail y", "by": "a developer",
                       "subject": "Project mixer build 8 & docker.tvunetworks.com/tvurtc/mixer:1.0.35 release", "claims": []}) + "\n")
+    def issue(key, status, cat, labels, assignee=True, due=None, fixed=None):
+        f = {"summary": f"summary of {key}", "status": {"name": status, "statusCategory": {"key": cat}}, "labels": labels,
+             "assignee": {"displayName": "a developer"} if assignee else None, "duedate": due, "customfield_11252": fixed}
+        write(os.path.join(runtime, "facts", "jira", "issues", f"{key}.json"), {"key": key, "fields": f, "updated": "2026-11-19T10:00:00Z"})
+    issue("MH-4052", "Review", "indeterminate", ["release:mh-2.1"], due="2026-11-21", fixed="mediahub-backend@2.1.47")
+    issue("MH-4065", "In Progress", "indeterminate", ["release:mh-2.1"], assignee=False)
+    issue("MH-3855", "Done", "done", ["release:mh-2.1", "release:mh-2.0"], fixed="unified-streaming@2.1.80")
+    issue("MH-9999", "Done", "done", ["release:mh-2.0"])
+    R._MAP["lines"]["2.1"]["label"] = "release:mh-2.1"
     notes = [{"rel": "releases/2.1/history/2026-11-17-promote-daily-wed-to-prod-3.md", "title": "MH 2.1 · Wednesday → Prod 3", "date": "2026-11-17", "status": "done"},
              {"rel": "releases/2.1/2026-11-12-sync-prod-3-to-cn-prod-2.md", "title": "MediaHub 2.1 · prod-3 → CN Prod2", "date": "2026-11-12", "status": "live"}]
     d = LP.gather("2.1", reports, runtime, TODAY, notes)
@@ -128,7 +137,7 @@ with tempfile.TemporaryDirectory() as tmp:
     check("Builds: one line per build of the last two weeks, newest first, each with a block id; the detail folded",
           [re.search(r"build (\d+)", l).group(1) for l in lines] == ["99", "98", "95"] and lines[0].endswith("^build-99")
           and "> [!note]- Build 99: what each service carries" in builds and "> **MediaHub Backend** 2.1.47 → 2.1.48 · Self-managed EIP admin backend" in builds
-          and "> - MH-4065 (not in the fact store)" in builds and "> Build 99 is under test." in builds)
+          and "> - MH-4065 summary of MH-4065" in builds and "> Build 99 is under test." in builds)
     check("a build older than two weeks is folded, not dropped", "> [!note]- 1 older build" in builds and "build 80" in builds)
     check("a service heading inside the fold is set apart, never read as part of the ticket list above it",
           "> - MH-4016 (not in the fact store)\n>\n> **UR Caller**" in builds)
@@ -136,6 +145,13 @@ with tempfile.TemporaryDirectory() as tmp:
     check("History: one line per promotion or deploy, linking its note, newest first",
           hist.index("2026-11-17-promote-daily-wed-to-prod-3") < hist.index("2026-11-12-sync-prod-3-to-cn-prod-2")
           and "[[releases/2.1/history/2026-11-17-promote-daily-wed-to-prod-3|MH 2.1 · Wednesday → Prod 3]] · done" in hist)
+    tix = page.split("## Tickets")[1].split("## History")[0]
+    check("Tickets: the line's labelled tickets only, by state, folded, with a fields-health figure naming what is missing",
+          "3 tickets labelled release:mh-2.1 · fields health 33% (1 of 3 with every field right; missing:" in tix
+          and "assignee 1" in tix and "due date 1" in tix and "label 1" in tix and "MH-9999" not in tix
+          and "> [!note]- In Progress · 1" in tix and "> [!note]- Review · 1" in tix and "> [!note]- Done · 1" in tix
+          and tix.index("In Progress ·") < tix.index("Review ·") < tix.index("Done ·")
+          and "| Review | a developer | 11-21 | prod-3 | mediahub-backend@2.1.47 |" in tix)
     check("at most 800 words above the fold", len(V.outside_folds(page).split()) <= 800)
     linked, _ = V.link_keys(page, "https://jira.example/browse".rsplit("/browse", 1)[0], None)
     check("every Jira key a link once the vault's linker has run", not V.bare_keys(linked) and "[MH-4052](https://jira.example/browse/MH-4052)" in linked)
