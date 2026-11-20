@@ -538,8 +538,16 @@ def commands_of(b):
 def make_batch(reports, cls, scope, writes, left, today):
     """The batch for one class and scope. An unanswered batch from an earlier day is carried, not asked again: the
     same writes return it under its own id (its note keeps his strikes); different writes supersede it, and the new
-    batch is the one asked. Either way one batch per class and scope stays open."""
+    batch is the one asked. Either way one batch per class and scope stays open. A selection with nothing left to write
+    (the links were made by hand, say) closes the open batch for that class and scope as `settled`, with a record line,
+    so its ask leaves today.md: every reader compares the state to `open`, as for a superseded one."""
     if not writes:
+        for p in batches(reports):
+            if p.get("state") == "open" and p.get("class") == cls and p.get("scope") == scope:
+                p.update(state="settled", settled_at=now_iso())
+                save_batch(reports, p)
+                append(reports, {"at": now_iso(), "class": cls, "verdict": "settled", "target": scope, "batch": p["id"],
+                                 "source": "batch", "how": "the day's selection found nothing left to write"})
         return None
     bid = f"{today.isoformat()}-{cls}-{scope}"
     old = load_batch(reports, bid)

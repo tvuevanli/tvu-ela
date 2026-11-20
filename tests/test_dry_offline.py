@@ -248,6 +248,11 @@ with tempfile.TemporaryDirectory() as R:
           and sorted(V.dry_pages(R, R, MON)) == sorted(["ela/dry/did.md", f"ela/dry/{b3['id']}.md"]))
     check("another scope is not touched", D.make_batch(R, "link-named", "MH-1", writes, left, MON)["id"] != b3["id"]
           and D.load_batch(R, b3["id"])["state"] == "open")
+    check("nothing left to write: the open batch closes as settled, one record line, and its ask leaves today.md",
+          D.make_batch(R, "link-named", "MH-3735", [], [], MON) is None and D.load_batch(R, b3["id"])["state"] == "settled"
+          and [r["batch"] for r in D.record(R) if r.get("verdict") == "settled"] == [b3["id"]]
+          and not any(x.get("batch") == b3["id"] for x in D.asks(R, MON))
+          and D.answer(R, f"dry:{b3['id']}", "A", apply=True, runner=lambda c, a: (0, ""))["did"] == ["already settled"])
 
 print(f"{len(failures)} failed" if failures else "all passed")
 sys.exit(1 if failures else 0)
