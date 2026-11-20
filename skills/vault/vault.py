@@ -24,7 +24,8 @@ move sets it, never the folder. A vault in another layout is not synced: `vault.
 `--apply` makes it; for 14 days an old path given to a verb is read as its new one.
     today.md                                    the one page: facts, at most three asks, today (ADR 0014); home.md
                                                 points to it until 2026-11-25
-    meetings/<audience>.md                      one page per meeting, team-facing
+    meetings/focus.md                           the focus board (skills/focus/focus.py): a meeting is a view of it;
+                                                meetings/open-questions.md every team question, linked from it
     projects/<key>-<slug>.md                    a project's page: the desk's head above the sync's first heading, the
                                                 tail below (Where it stands, Notes, Keys and threads, Afterwards,
                                                 Deadline); projects/<key>-<slug>/ holds the page and its notes once
@@ -211,7 +212,7 @@ ela writes this vault from first-hand sources, and it holds things and angles (e
 | entry | holds |
 |---|---|
 | `today.md` | the one page: facts, at most three asks, today |
-| `meetings/` | one page per meeting, worded for the team |
+| `meetings/` | `focus.md`, the focus board: one row per item MediaHub is pushing, Jira priority then due date, each meeting a view of it (at most seven rows), held subjects in one folded line; `open-questions.md`, every team question, linked from the board; a dated meeting page is history in `archive/meetings/` |
 | `projects/` | one page per project, `<key>-<slug>.md`; a folder `<key>-<slug>/` once notes sit beside the page |
 | `releases/` | a folder per line: its line page `<line>.md`, the way in (where the line stands, what can move next, what could not be read, its builds), and each live promote and deploy; `lists/` its train, dev and test lists; `history/` its builds' old notes, the old record and every closed note (a promote closes itself once its target lane runs the build); `lanes.md` across lines |
 | `cases/` | one note per customer case |
@@ -1649,8 +1650,9 @@ SPECS = {
         closing="## Next step in the head (`next-step` is the line Home may name); the tail from Waiting for your word is the sync's"),
     "meeting": dict(
         kind="what you raise at one meeting, and what it ruled",
-        name=(rf"^(?:meetings/(?:{DATED}|(?!\d{{8}}-){SLUG})|archive/meetings-{SLUG}-\d{{4}}-\d{{2}}|archive/{SLUG})\.md$",
-              "`meetings/<yyyy-mm-dd>-<key>.md`, the verb's `meetings/<key>.md`; older months `archive/meetings-<key>-<yyyy-mm>.md`"),
+        name=(rf"^(?:meetings/(?:{DATED}|(?!\d{{8}}-){SLUG})|archive/meetings/{DATED}|archive/meetings-{SLUG}-\d{{4}}-\d{{2}}|archive/{SLUG})\.md$",
+              "history only since 2026-11-20 (a meeting is a view of meetings/focus.md): `archive/meetings/<yyyy-mm-dd>-<key>.md`; "
+              "older months `archive/meetings-<key>-<yyyy-mm>.md`"),
         title=(r" · |^Review list$", "`<meeting> · <day and date>`"),
         required=(), optional=("date", "status", "keys", "source", "by"),
         sections=("To raise?", "Ruled?"),                 # Ruled comes after the meeting; a dated note has its own sections (ADR 0016)
@@ -2632,6 +2634,8 @@ def project_note(key, text, vault, notes, today, jira_base="", ticket=None, ques
             if (r.get("thing") or {}).get("ref") == facts["path"] and not all(x.startswith(facts["path"] + "#") for x in r["sources"]):
                 asked.append(Q.line(r, jira_base) + (f" · {r['who']}" if r.get("who") else "") +
                              f" · {Q.waited(r, today)} · [[{Q.QUESTIONS_PAGE[:-3]}#^{r['id']}|on the list]]")
+    hs = focus_mod().H.for_reports(reports_root(), today)
+    asked = [x for x in asked if not focus_mod().H.holding(hs, text=x, today=today)]   # held: on no page until resumed
     tail = project_tail(facts, rows, today, jira_base, meeting_outcomes(notes, facts["keys"], today), asked, titles)
     n = Note(facts["path"], facts["title"], facts["head"] + "\n" + tail, {"type": "project", "date": want["date"], "deadline": want["deadline"]})
     n.front_text, n.head, n.tail, n.facts, n.rows = fm, facts["head"] + "\n", tail, facts, rows
@@ -3619,6 +3623,51 @@ def mention_mod():
     return MN
 
 
+def focus_mod():
+    sys.path.insert(0, os.path.join(HERE, "..", "focus"))
+    import focus as F                                      # noqa: E402 — the focus board, its views and the holds
+    return F
+
+
+def reports_root():
+    try:
+        return json.load(open(SITE)).get("reports") or ""
+    except (OSError, ValueError):
+        return ""
+
+
+def focus_pass(s, questions=None, dry_run=False):
+    """The focus board for this sync (meetings/focus.md): the holds brought up to date from his lines, the rows and
+    each meeting's view, his `ela: up` and `ela: down` words, and the moves they ask for stored as one dry-run batch
+    (asked on today.md through the dry asks). → {text, line, views: {meeting key: link target}, holds}. A broken
+    source costs the board only, said once."""
+    try:
+        F = focus_mod()
+        now = datetime.datetime.now()
+        holds, _ = F.H.refresh(s.get("reports") or "", s.get("vault"), now.date(), write=not dry_run)
+        b = F.board(s, now=now, write=False, qstate=questions, holds=holds)
+        F.read_words(b["state"], s.get("vault"), now.date())
+        writes, left = F.moves(s, b, now.date())
+        if not dry_run:
+            F.store_batch(s, writes, left, now.date(), b["state"])
+            F.save(s.get("reports") or "", b["state"])
+        held = len(F.H.active(holds, now.date()))
+        line = (f"- [[{F.BOARD[:-3]}|The focus board]]: {len(b['rows'])} rows" + (f", {held} held" if held else "")
+                + f" · every team question on [[{F.QUESTIONS_PAGE[:-3]}|open questions]]")
+        return {"text": b["text"], "line": line, "views": {v["key"]: F.view_anchor(v) for v in b["views"]}, "holds": holds}
+    except Exception as e:                                 # noqa: BLE001 — the rest of the sync goes on
+        print(f"focus board: not written — {str(e)[:160]}", file=sys.stderr)
+        return {}
+
+
+def unheld(cands, holds, today):
+    """Asks whose subject is not held."""
+    if not holds:
+        return cands
+    H = focus_mod().H
+    return [c for c in cands if not H.holding(holds, text=c.get("text") or "", today=today)]
+
+
 def dry_mod():
     sys.path.insert(0, os.path.join(HERE, "..", "dry"))
     import dry as D                                        # noqa: E402 — the class records' one reader and writer
@@ -3656,14 +3705,16 @@ def today_page(today, notes, desk=None, shown=(), more=0, dropped=0, questions_l
     soon = [a for a in acts if a.get("tier") == 2 and not (a.get("applied") or a.get("vetoed") or a.get("failed"))]
     hold = desk.get("hold")
     day = []
-    notes_today = sorted((n for n in notes if n.props.get("type") == "meeting" and (n.props.get("date") or "")[:10] == iso),
+    notes_today = sorted((n for n in notes if n.props.get("type") == "meeting" and (n.props.get("date") or "")[:10] == iso
+                          and n.path.startswith(MEETINGS + "/")),   # an archived page is history, not today's meeting
                          key=lambda n: n.path)
     for n in notes_today:                                  # the meeting's own note, dated today, by its title
         day.append(f"- [[{n.path[:-3]}|{n.title}]]")
     have = {os.path.basename(n.path)[:-3] for n in notes_today}
+    views = desk.get("views") or {}
     for m in [m for m in desk.get("meetings") or [] if m.get("key") not in have] if not notes_today else []:
-        note = f"{MEETINGS}/{m['key']}" if m.get("key") else None
-        day.append(f"- {m.get('time')} {m.get('name')}" + (f" → [[{note}|its list]]" if note else ""))
+        note = views.get(m.get("key"))                     # a meeting is a view of the focus board (ADR 0015)
+        day.append(f"- {m.get('time')} {m.get('name')}" + (f" → [[{note}|its rows on the board]]" if note else ""))
     projects = [n.facts for n in notes if n.props.get("type") == "project" and getattr(n, "facts", None)]
     for f in projects:
         if f.get("days") is not None and 0 <= f["days"] <= PROJECT_SOON_DAYS:
@@ -4349,8 +4400,8 @@ def questions_pass(vault, reports, facts, now, meetings=(), jira="", seeds=(), d
         if k:
             page_keys[rel] = k
     Q.hold(state, issue, page_keys, owner)
-    build_meeting_notes(vault, state, now, meetings, issue, owner, jira, dry_run, stand=stand_lines(build_records(reports), today),
-                        waiting=mention_waiting(reports))
+    # no page per meeting any more: a meeting is a view of the focus board, meetings/focus.md (focus.py; vault plan
+    # 2026-11-20-plan-one-focus-board-meetings-as-views); build_meeting_notes stays for a dated note written by hand
     for n in Q.nudges(state, today):                       # listed at three meetings: the message he can send, drafted
         r = state["questions"][n["id"]]
         dr = Q.draft(r, owner.split()[0] if owner else "")
@@ -4460,6 +4511,24 @@ def stand_lines(builds, today):
         out.append(f"{lane} runs {b.get('line') or '?'} build {b.get('build')}, taken {b['date'][5:]}"
                    + (f" ([[{note}|on the line page]])" if note else ""))
     return out[:STAND_LANES]
+
+
+def archive_meeting_pages(vault, reports, dry_run=False):
+    """Each dated meeting page, meetings/<yyyy-mm-dd>-<key>.md, moved to archive/meetings/ under its own name: a meeting
+    is a view of the focus board now, and a page per meeting is history (kept, never deleted). The move is rename_note's,
+    so links and the question records follow it. → [(old, new)]."""
+    d, out = os.path.join(vault, MEETINGS), []
+    for f in sorted(os.listdir(d)) if os.path.isdir(d) else []:
+        if not re.match(r"^\d{4}-\d{2}-\d{2}-.+\.md$", f):
+            continue
+        old, new = f"{MEETINGS}/{f}", f"{ARCHIVE}/{MEETINGS}/{f}"
+        if os.path.exists(os.path.join(vault, new)):
+            print(f"meetings: {new} exists; {old} left where it is", file=sys.stderr)
+            continue
+        if not dry_run:
+            rename_note(vault, reports, old, new, True)
+        out.append((old, new))
+    return out
 
 
 def build_meeting_notes(vault, state, now, meetings, issue, owner="", jira="", dry_run=False, stand=None, waiting=None):
@@ -4872,12 +4941,16 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since
         if family_of(n.props.get("type")) == "work":
             body = with_moves(body, n.path, n.props.get("type"))
         planned[n.path] = redact(front(n.front_lines, dict(n.props, title=n.title)) + (with_warning(body, n.held) if n.held else body))
+    focus = focus_pass(s, questions, dry_run)                # the board, its views, the holds and the batch of its moves
+    if focus.get("text"):
+        planned[focus_mod().BOARD] = focus["text"]
     asks_state = load_asks(reports)
     settle_letters(s["vault"], reports, asks_state, today, dry_run)   # his letters the sync acts on itself, before the asks are counted
     cands = ask_candidates(today, week_actions(reports, today), notes + native)
     qcands = question_asks(questions, today, week_actions(reports, today)) if questions else []
     dcands, dry_facts = dry_asks(reports, today, asks_state, dry_run)
     mcands = mention_asks(reports, today)                  # a person waiting on him leads the drafted writes
+    qcands, cands = unheld(qcands, focus.get("holds"), today), unheld(cands, focus.get("holds"), today)   # a held subject asks nothing
     shown, more, _, asks_state = settle_asks(asks_state, qcands + mcands + dcands + cands, today)
     for v in asks_state.values():                          # the slots are today's page's: yesterday's numbers mean nothing
         for k in ("slot", "options"):
@@ -4906,6 +4979,8 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since
         nm = next_meeting(meeting_book()[0], today, aud) if aud else None
         label = (("sync" if "sync" in (nm[0] or "") else nm[1]), nm[2]) if nm else None
         qline = Q.today_line(questions, today, label, jira_base)
+    if focus.get("line"):                                  # the board is the way in; open-questions.md stays, linked from it
+        qline = focus["line"]
     builds = build_records(reports)
     day_brief = f"{DAYS}/{today:%Y}/{today.isoformat()}-brief.md"
     if day_brief in planned:                               # the morning page: boxes only on the asks today.md shows
@@ -4914,7 +4989,8 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since
     planned[TODAY] = redact(front([], {"type": "today", "date": today.isoformat()}) + linker(today_page(today, notes + native, {
         "actions": week_actions(reports, today), "hold": tier2_hold(reports, today.isoformat()), "lists": list_links(reports),
         "meetings": meetings, "builds": builds, "tickets": release_mod().facts_tickets(s.get("runtime"), [k for b in builds for v in b["services"] for k in v.get("keys") or []]),
-        "owner": owner_name(os.path.join(s.get("runtime") or "", "facts")), "dry_facts": dry_facts}, shown, more, dropped, questions_line=qline)))
+        "owner": owner_name(os.path.join(s.get("runtime") or "", "facts")), "dry_facts": dry_facts, "views": focus.get("views")},
+        shown, more, dropped, questions_line=qline)))
     planned.update(dry_pages(s["vault"], reports, today))
     planned.update(mention_pages(reports, today))
     if questions:
@@ -6169,6 +6245,8 @@ def cmd_sync(a):
                      if os.path.isdir(s.get("reports") or "") else (None, {"consumed": [], "closed": [], "new": []}))   # no root: plan stops the sync
     for qi, words in qdone["closed"]:
         print(f"question {qi}: {words}", file=sys.stderr)
+    for old_, new_ in archive_meeting_pages(vault, s.get("reports") or "", a.dry_run):
+        print(f"meetings: {old_} → {new_}", file=sys.stderr)
     for old_, new_, why in tidy_releases(vault, s.get("reports") or "", s.get("runtime") or "", a.dry_run, now):
         print(f"releases: {old_} → {new_} ({why})", file=sys.stderr)
     for fix in settle_statuses(vault, a.dry_run):
@@ -6228,7 +6306,8 @@ def cmd_sync(a):
         # path); the owner's own finishing and the archive are already out of the count, and single folders shrink by
         # design (to-read empties as he reads)
         native_lower = {p.lower() for p in native_paths}
-        standing = re.compile(rf"^{RELEASES}/([\d.]+)/\1\.md$")   # a line page is written whatever its sources hold
+        # a line page and the focus board are written whatever their sources hold
+        standing = re.compile(rf"^(?:{RELEASES}/([\d.]+)/\1|{MEETINGS}/focus)\.md$")
         had = sum(1 for r in old if r.endswith(".md") and r not in removed and r.lower() not in native_lower and not standing.match(r))
         after = sum(1 for r in planned if r.endswith(".md") and not standing.match(r))
         if had >= 10 and after < had / 2:

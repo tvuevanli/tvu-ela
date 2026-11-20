@@ -190,13 +190,8 @@ with tempfile.TemporaryDirectory() as t:
           line.startswith("- [ ] CN vs COM ([MH-3752](https://j/browse/MH-3752)): What must be on CN for 11/21")
           and "· **CN release lead** with UR lead · waiting 31 days · 2 meetings" in line and line in part1
           and 0 < part1.count("- [ ] ") <= Q.CARRIED_MAX and "…" not in text)
-    built = sorted(f for f in os.listdir(os.path.join(vault, "meetings")) if f.startswith("2026-12"))
-    note = open(os.path.join(vault, "meetings", built[0])).read() if built else ""
-    page_ids = re.findall(r"\^(q-[0-9a-f]{6})", part1)
-    note_ids = re.findall(r"\^(q-[0-9a-f]{6})", note.split("## Carried", 1)[1].split("\n## ", 1)[0]) if "## Carried" in note else []
-    check("the built meeting note's Carried is the page's part one: same lines, same order",
-          note_ids and note_ids == [i for i in page_ids if i in note_ids]
-          and all(l in part1 for l in note.split("## Carried", 1)[1].split("\n## ", 1)[0].splitlines() if l.startswith("- [ ]")))
+    check("no page per meeting is built: a meeting is a view of the focus board",
+          not [f for f in os.listdir(os.path.join(vault, "meetings")) if f.startswith("2026-12")])
     tl = Q.today_line(state, later.date(), ("sync", datetime.date(2026, 12, 15)), "https://j")
     check("today's one line: how many, the longest waiting and its days, the next sync, the page linked",
           tl.startswith("- [[meetings/open-questions|") and re.search(r"longest waiting: \[MH-\d+\]\(https://j/browse/MH-\d+\), 31 days", tl) and tl.endswith("next sync Tue"))
@@ -274,16 +269,13 @@ with tempfile.TemporaryDirectory() as t:
     check("on the day of his own note, nothing is built over it", sorted(os.listdir(os.path.join(vault, "meetings"))) == ["2026-11-12-sync-eng-qa.md"])
     evening = datetime.datetime(2026, 11, 12, 19, 0, tzinfo=tz)
     V.questions_pass(vault, reports, facts, evening, book, "https://j")
-    built = os.path.join(vault, "meetings", "2026-11-17-sync-eng-qa-ux.md")
-    text = open(built).read()
-    heads = re.findall(r"^## (.+)$", text, re.M)
-    check("after it, the next one is built: dated, by ela, Where things stand, a focus topic with its state, then what waits on him, then the rest",
-          'date: "2026-11-17"' in text and 'by: "ela"' in text and heads[0] == "Where things stand" and heads[1].startswith("1. CN upgrade — [MH-3752]")
-          and "In Progress · carried by CN release lead" in text and heads[-2:] == ["Waiting on you", "Raised once"]
-          and re.search(r"^- \[ \] .*· 1 meeting \^q-[0-9a-f]{6}$", text, re.M) and open(hand).read().endswith("app lead\n"))
-    open(built, "a").write("\nmy own line\n")
-    V.questions_pass(vault, reports, facts, evening + datetime.timedelta(hours=1), book, "https://j")
-    check("a built note he edited is his: not rebuilt", open(built).read().endswith("my own line\n"))
+    check("after it, nothing is built for the next meeting; his own note stays as written",
+          sorted(os.listdir(os.path.join(vault, "meetings"))) == ["2026-11-12-sync-eng-qa.md"] and open(hand).read().endswith("app lead\n"))
+    moved = V.archive_meeting_pages(vault, reports)
+    check("a dated meeting page moves to archive/meetings/ under its own name, kept",
+          moved == [("meetings/2026-11-12-sync-eng-qa.md", "archive/meetings/2026-11-12-sync-eng-qa.md")]
+          and os.path.exists(os.path.join(vault, "archive", "meetings", "2026-11-12-sync-eng-qa.md"))
+          and not os.path.exists(hand))
 
 # Where things stand on a built note: the lanes' newest builds (the generator's facts block, missing on 11-11's copy)
 B = [{"line": "2.1", "lane": "qa-cn3", "lane_name": "QA-AWS3", "build": "91", "date": "2026-11-11", "name": "2026-11-11-build-91-to-qa-aws3"},
@@ -300,12 +292,8 @@ with tempfile.TemporaryDirectory() as t:
     tz = datetime.datetime.now().astimezone().tzinfo
     book = [{"key": "scrum-pm", "name": "Scrum with the PM", "weekdays": ["Fri"], "time": "10:00"}]
     V.questions_pass(vault, reports, facts, datetime.datetime(2026, 11, 12, 19, 0, tzinfo=tz), book, "https://j")
-    built = open(os.path.join(vault, "meetings", "2026-11-13-scrum-pm.md")).read()
-    check("a built meeting note opens with Where things stand, from the build records",
-          re.findall(r"^## (.+)$", built, re.M)[:1] == ["Where things stand"] and "- QA-AWS3 runs 2.1 build 91, taken 11-11" in built)
-    V.questions_pass(vault, reports, facts, datetime.datetime(2026, 11, 13, 19, 0, tzinfo=tz), book, "https://j")
-    check("after the meeting, the closed note keeps its Where things stand",
-          "## Where things stand" in open(os.path.join(vault, "meetings", "2026-11-13-scrum-pm.md")).read())
+    check("no meeting note is built from the build records either",
+          not os.path.exists(os.path.join(vault, "meetings", "2026-11-13-scrum-pm.md")))
 
 # waiting since the earliest evidence, not the day ela first read the question
 with tempfile.TemporaryDirectory() as t:
