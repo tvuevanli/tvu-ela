@@ -4526,7 +4526,7 @@ def archive_meeting_pages(vault, reports, dry_run=False):
             print(f"meetings: {new} exists; {old} left where it is", file=sys.stderr)
             continue
         if not dry_run:
-            rename_note(vault, reports, old, new, True)
+            rename_note(vault, reports, old, new, True, by="ela")
         out.append((old, new))
     return out
 
@@ -7028,7 +7028,7 @@ def name_breaks(rel, text):
     return None
 
 
-def rename_note(vault, reports, old, new, apply):
+def rename_note(vault, reports, old, new, apply, by="owner"):
     """One note renamed in one step (ADR 0017): moved, its old name kept as an alias, links to it rewritten, a
     `renamed_to` row in the close log, the records followed. → {links: [files], records: [(record, what)], warn}."""
     p_old, p_new = os.path.join(vault, old), os.path.join(vault, new)
@@ -7047,7 +7047,7 @@ def rename_note(vault, reports, old, new, apply):
     os.makedirs(os.path.dirname(log), exist_ok=True)
     with open(log, "a", encoding="utf-8") as fh:
         fh.write(json.dumps({"at": datetime.datetime.now().isoformat(timespec="seconds"), "path": old, "fate": "renamed",
-                             "by": "owner", "renamed_to": new}, ensure_ascii=False) + "\n")
+                             "by": by, "renamed_to": new}, ensure_ascii=False) + "\n")
     out["records"] = follow_records(vault, reports, renames(vault, reports), True)
     return out
 
