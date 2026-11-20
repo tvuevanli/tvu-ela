@@ -230,5 +230,24 @@ with tempfile.TemporaryDirectory() as T:
         if saved is not None:
             os.environ["JIRA_EMAIL"] = saved
 
+# an unanswered batch is carried across mornings: same writes keep one batch; changed writes supersede the old one
+with tempfile.TemporaryDirectory() as R:
+    THU, FRI, MON = datetime.date(2026, 11, 12), datetime.date(2026, 11, 13), datetime.date(2026, 11, 16)
+    writes, left = D.select_link_named(parent, children, before="2026-11-12T13:18:00+08:00")
+    b1 = D.make_batch(R, "link-named", "MH-3735", writes, left, THU)
+    b2 = D.make_batch(R, "link-named", "MH-3735", list(reversed(writes)), left, FRI)
+    check("two days, the same writes: one batch, carried under its first id, one ask",
+          b2["id"] == b1["id"] and len(D.batches(R)) == 1 and [x["id"] for x in D.asks(R, FRI, ask_state={})] == [f"dry:{b1['id']}"])
+    b3 = D.make_batch(R, "link-named", "MH-3735", writes[:2], left, MON)
+    old = D.load_batch(R, b1["id"])
+    check("changed writes: the old batch is superseded by the new one, and only the new one is asked",
+          b3["id"] != b1["id"] and old["state"] == "superseded" and old["superseded_by"] == b3["id"]
+          and [x["id"] for x in D.asks(R, MON, ask_state={})] == [f"dry:{b3['id']}"])
+    check("a superseded batch is not open to an answer, nor to the vault's notes",
+          D.answer(R, f"dry:{b1['id']}", "A", apply=True, runner=lambda c, a: (0, ""))["did"] == [f"already superseded by {b3['id']}"]
+          and sorted(V.dry_pages(R, R, MON)) == sorted(["ela/dry/did.md", f"ela/dry/{b3['id']}.md"]))
+    check("another scope is not touched", D.make_batch(R, "link-named", "MH-1", writes, left, MON)["id"] != b3["id"]
+          and D.load_batch(R, b3["id"])["state"] == "open")
+
 print(f"{len(failures)} failed" if failures else "all passed")
 sys.exit(1 if failures else 0)

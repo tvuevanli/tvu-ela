@@ -531,15 +531,35 @@ def parse_ts(s):
         return datetime.datetime.min.replace(tzinfo=TZ)
 
 
+def commands_of(b):
+    return sorted(" ".join(w["command"].split()) for w in b.get("writes") or [])
+
+
 def make_batch(reports, cls, scope, writes, left, today):
+    """The batch for one class and scope. An unanswered batch from an earlier day is carried, not asked again: the
+    same writes return it under its own id (its note keeps his strikes); different writes supersede it, and the new
+    batch is the one asked. Either way one batch per class and scope stays open."""
     if not writes:
         return None
     bid = f"{today.isoformat()}-{cls}-{scope}"
     old = load_batch(reports, bid)
     if old and old.get("state") != "open":
         return old                                         # answered today already: the same batch is not asked twice
-    b = {"id": bid, "class": cls, "scope": scope, "made": now_iso(), "state": "open", "writes": writes, "left_out": left}
-    save_batch(reports, b)
+    prior = [b for b in batches(reports) if b.get("state") == "open" and b.get("class") == cls and b.get("scope") == scope
+             and b["id"] != bid]
+    want = sorted(" ".join(w["command"].split()) for w in writes)
+    carry = next((b for b in reversed(prior) if commands_of(b) == want), None)
+    if carry:
+        carry.update(carried=today.isoformat(), left_out=left)
+        save_batch(reports, carry)
+        b = carry
+    else:
+        b = {"id": bid, "class": cls, "scope": scope, "made": now_iso(), "state": "open", "writes": writes, "left_out": left}
+        save_batch(reports, b)
+    for p in prior:
+        if p is not carry:
+            p.update(state="superseded", superseded_by=b["id"], superseded_at=now_iso())
+            save_batch(reports, p)
     return b
 
 
@@ -573,7 +593,8 @@ def answer(reports, aid, letter, note_text=None, apply=False, runner=run_write, 
         if letter not in "AB":
             raise ValueError(f"{aid} offers A or B, not {letter}")
         if b.get("state") != "open":
-            return {"ask": aid, "letter": letter, "did": [f"already {b['state']}"]}
+            return {"ask": aid, "letter": letter, "did": [f"already {b['state']}"
+                                                          + (f" by {b['superseded_by']}" if b.get("superseded_by") else "")]}
         did = []
         if letter == "B":
             for w in b["writes"]:
