@@ -2040,6 +2040,19 @@ def cmd_changes(a):
             print("\n".join(f"    {ticket_line(k, facts.get(k))}" for k in v.get("keys") or []))
 
 
+def cmd_line(a):
+    """The line page (line.py), printed: what the vault writes as releases/<line>/<line>.md."""
+    sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+    import line as LP                                          # noqa: E402
+    s = site()
+    reports = s.get("reports") or os.path.join(s.get("projects", ""), "reports")
+    d = LP.gather(a.line, reports, s.get("runtime"))
+    if a.json:
+        print(json.dumps(dict(d, builds=[{"build": b["rec"]["build"], "date": b["rec"]["date"], "qa": b["qa"]} for b in d["builds"]]),
+                         ensure_ascii=False, indent=1, default=str)); return
+    print(LP.render(d), end="")
+
+
 def main():
     sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "configserver"))
     import redact; redact.guard_output()  # a credential inside a remote payload never reaches the terminal
@@ -2082,6 +2095,8 @@ def main():
     p.add_argument("--batch", action="store_true", help="the Fixed In appends and labels through the jira verbs; dry run unless --apply")
     p.add_argument("--apply", action="store_true"); p.add_argument("--no-save", action="store_true", help="keep no reading and raise no question")
     p.add_argument("--json", action="store_true")
+    p = sub.add_parser("line", help="one release line as one page: lanes, next promotion, docker differences, builds, history (local files only)")
+    p.add_argument("line"); p.add_argument("--json", action="store_true")
     p = sub.add_parser("login"); p.add_argument("target", nargs="?", choices=("qa", "tvu", "cn"), default="tvu"); p.add_argument("--force", action="store_true"); p.add_argument("--no-browser", action="store_true"); p.add_argument("--timeout", type=int, default=300); p.add_argument("--json", action="store_true")
     p.add_argument("--keepalive", action="store_true", help="tvu: one validation call that renews the session's idle TTL; never logs in, never retries")
     a = ap.parse_args()
@@ -2092,7 +2107,7 @@ def main():
               file=sys.stderr)
         sys.exit(2)
     {"bundles": cmd_bundles, "bundle": cmd_bundle, "bundle-diff": cmd_bundle_diff, "envs": cmd_envs, "gateway": cmd_gateway, "builds": cmd_builds, "drift": cmd_drift, "login": cmd_login, "pin": cmd_pin, "unpin": cmd_unpin, "pins": cmd_pins,
-     "create": cmd_create, "changes": cmd_changes, "reconcile": cmd_reconcile}[a.cmd](a)
+     "create": cmd_create, "changes": cmd_changes, "reconcile": cmd_reconcile, "line": cmd_line}[a.cmd](a)
 
 
 if __name__ == "__main__":

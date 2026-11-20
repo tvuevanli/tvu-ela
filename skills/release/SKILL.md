@@ -104,6 +104,12 @@ lanes each release line uses — all in `<elak>/map/release.yaml` (origin per bl
   message drafted for the owner of ela to send. `--batch` is the one write path: per ticket a `jira fixed-in --add`
   and a `jira label --add`, dry run unless `--apply`, refused under `ELA_NO_APPLY`. ela posts nothing in the release
   thread; the engineers' agents keep doing the Jira side, ela checks it.
+- **One line, one page.** `$R line <line>` renders what the vault writes as `releases/<line>/<line>.md` on every sync,
+  from local files only (the build records, the lane reads, QA's reports per version, the stored promote reports, the
+  docker candidates and ledger): each lane in MediaHub naming with its UR environment in brackets, its build, since
+  when and QA's word; a lane ahead of its upstream and how it got there; the next promotion; the docker images that
+  differ between lanes; one line per build with its detail folded; one line per promotion or deploy note. A source it
+  cannot read is named on its one `Can't read` line, never filled in. A build has no note of its own any more.
 - **Prod's bundle is the newest official one** (`MediaHub <M.m>.N [(qualifier)]`, `MediaHub <M.m> rcN`, anchored; a
   side bundle such as "Docker Only" or "pre" never counts). `$R pin <line> <bundle> --why "…"` only holds prod on an
   older official on purpose, `$R unpin <line>` lifts it (ADR 0013); an rc bundle is special-purpose, not a lane (owner's
