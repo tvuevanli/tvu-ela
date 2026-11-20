@@ -2501,6 +2501,8 @@ def line_matrix(line, args, env, rows, before, tested, pins, cand_doc, errors):
         except (LaneError, subprocess.TimeoutExpired, ValueError) as e:
             bundle[lane] = {"text": "not read"}
             errors.append({"source": f"bundles {host} ({line})", "error": str(e)[:200]})
+    if cand and rec and is_past(cand, rows, rec.get("to")):   # its target already runs it or newer: not a next train
+        cand, rec = None, dict(rec, past=True)
     prev = (before or {}).get("rows")
     table = [bundle_row(bundle, lanes, cand)]
     same = []
@@ -2963,8 +2965,12 @@ def list_links(reports):
 
 def train_lines(rec):
     """What the pending record says beyond its versions, under the line's table: a candidate kept from the last readable
-    run (stale), what is open before the train leaves, the notes, and who it waits on (the ask's time and thread)."""
+    run (stale), what is open before the train leaves, the notes, and who it waits on (the ask's time and thread). A
+    record whose target already runs its versions is one line saying so, nothing of a train that left."""
     rec = rec or {}
+    if rec.get("past"):
+        return ["", f"*The open promotion record “{(rec.get('candidate') or {}).get('label') or rec.get('to')}” is past: "
+                    f"{LANE_SHOWN.get(rec.get('to'), rec.get('to'))} already runs its versions or newer. The line page carries the next one.*"]
     cand = rec.get("candidate") or {}
     L = []
     if rec.get("plan"):                                     # a planned promotion: the day, the condition, the carried keys, the checks
@@ -2985,11 +2991,51 @@ def train_lines(rec):
     return L
 
 
+def ahead_why(out, recs=None):
+    """{out-of-order line: why}: the lane that is ahead, how it got there — the QA build that carried that version, taken
+    past the daily lane when the lane ahead is prod (a hotfix), or a QA lane whose report names an older version than a
+    build since sent to it."""
+    inv, _ = out_of_order(out)
+    if not inv:
+        return {}
+    try:
+        recs = R.build_records(json.load(open(SITE)).get("reports") or "") if recs is None else recs
+    except (OSError, ValueError):
+        recs = []
+    def carried(service, ver):
+        pv = R.parse_version(ver)
+        for rec in recs:
+            for v in rec.get("services") or []:
+                if mail_slug(v.get("service")) == service and pv and (R.parse_version(v.get("to")) or ())[:3] == tuple(pv[:3]):
+                    return rec
+        return None
+    out_ = {}
+    roles = {l: i for i, l in enumerate(out.get("lane_ids") or [])}          # prod, daily, qa
+    for x in inv:
+        m = re.match(r"^(.+?): (\S+) (\S+) is below (\S+) (\S+)$", x)
+        if not m:
+            continue
+        lo_lane, hi_lane, hi_ver = m.group(2), m.group(4), m.group(5)
+        svc = next((r["service"] for r in out["rows"] if r["row"] == m.group(1)), m.group(1))
+        rec = carried(svc, hi_ver)
+        lo_role = next((i for l, i in roles.items() if LANE_SHOWN.get(l, l) == lo_lane), None)
+        hi_role = next((i for l, i in roles.items() if LANE_SHOWN.get(l, l) == hi_lane), None)
+        if lo_role == 2:                                   # the QA lane looks behind: its versions are QA's report's
+            out_[x] = (f"{lo_lane}'s versions are what QA's last report names; build {rec['build']} ({rec['date'][5:]}) carries "
+                       f"{hi_ver.split('+')[0]} to it" if rec else f"{lo_lane}'s versions are what QA's last report names")
+        elif rec:
+            out_[x] = (f"{hi_lane} took {rec.get('lane_name') or rec.get('lane') or 'QA'} build {rec['build']}'s version straight" + (", past the daily lane (a hotfix to prod)" if hi_role == 0 else ""))
+        else:
+            out_[x] = f"no build record says how {hi_lane} got {hi_ver}"
+    return out_
+
+
 def line_section(out, shown):
     """One line's part of the page: its heading, the table, the order check, and the pending train's open items and
     the approval it waits on."""
     inv, und = out_of_order(out)
-    order = (["", "**Out of order** (versions run QA ≥ daily ≥ prod):", ""] + [f"- {x}" for x in inv]) if inv else \
+    why = ahead_why(out)
+    order = (["", "**Out of order** (versions run QA ≥ daily ≥ prod):", ""] + [f"- {x}" + (f" — {why[x]}" if why.get(x) else "") for x in inv]) if inv else \
             ["", "*Every lane in order: QA ≥ daily ≥ prod*" + (f" *({und} pair{'s' if und != 1 else ''} in two series, not compared)*" if und else "")]
     return [f"## Line {out['line']} · " + " ← ".join(shown(l) for l in out["lane_ids"]), "", render_matrix(out)] + order + train_lines(out.get("pending"))
 
@@ -3004,7 +3050,7 @@ def write_lanes_page(outs, site, env, runner, tested, held=()):
     now = datetime.datetime.now().astimezone()
     shown = lambda l: LANE_SHOWN.get(l, l)  # noqa: E731
     note = deploy_note(now, day_plan(now.date()))
-    L = ["# The lanes", "", f"*{now:%Y-%m-%d %H:%M} · lines {', '.join(o['line'] for o in outs)}*", f"*{F.read_at_line()}*"]
+    L = ["# The lanes", "", f"*{now:%Y-%m-%d %H:%M} · lines {', '.join(o['line'] for o in outs)}*", f"*{F.read_at_line()}*", "", LEGEND]
     for i, out in enumerate(outs):
         L += [""] + line_section(out, shown)
         if i == 0:                                          # the QA cycle and the lists follow the morning's line
@@ -3059,6 +3105,20 @@ def region_line(g):
             + (f" · differs: {diff}" if diff else " · the same versions"))
 
 
+def is_past(cand, rows, to):
+    """Whether a pending promotion's target lane already runs every version its candidate names, or newer in the same
+    series: the promotion happened or was overtaken, and the column would show a train that left."""
+    want = {s: (c.get("version") if isinstance(c, dict) else c) for s, c in (cand.get("versions") or {}).items()}
+    want = {s: R.parse_version(str(v)) for s, v in want.items() if v and not (isinstance(cand["versions"][s], dict) and cand["versions"][s].get("awaiting"))}
+    if not want or not to:
+        return False
+    for s, w in want.items():
+        have = next((R.parse_version(r["version"]) for r in rows if r.get("lane") == to and r.get("service") == s and r.get("version") and is_lane_row(r)), None)
+        if not w or not have or have[:2] != w[:2] or tuple(have[:4]) < tuple(w[:4]):
+            return False
+    return True
+
+
 def bundle_row(bundle, lanes, cand):
     """The media-bundle row: one cell per lane, and one for the next train when there is a candidate (its bundle when
     it names one, a dash otherwise), so the row has as many cells as the table has columns."""
@@ -3076,17 +3136,42 @@ def candidate_cell(c):
     return {"text": str(v or "—"), "version": v}
 
 
+LEGEND = ("*Legend: ▲ moved since yesterday, (was …) the version before · ✓ QA passed this exact version (date) · ◐ QA passed "
+          "part of it (date) · ○ no QA report names it · +N the build number · patch a patch build · 🔒 held by a pin · ⛔ "
+          "past its pin · gateway read live through the API gateway · `a = b` two lanes on the same versions, one column*")
+
+
+def lane_groups(out):
+    """[[column index, …]]: the lanes that run the same version of every service shown, one column each; the next-train
+    column stays its own. A lane with no version read is never merged."""
+    n = len(out.get("lane_ids") or out["lanes"])
+    rows = [r for r in out["rows"] if r.get("service")]
+    groups = []
+    for i in range(len(out["lanes"])):
+        if i >= n:
+            groups.append([i]); continue
+        vs = [r["cells"][i].get("version") for r in rows]
+        g = next((g for g in groups if g[0] < n and rows and all(vs) and vs == [r["cells"][g[0]].get("version") for r in rows]), None)
+        (g.append(i) if g else groups.append([i]))
+    return groups
+
+
 def render_matrix(out):
-    L = ["| | " + " | ".join(out["lanes"]) + " |", "|---|" + "---|" * len(out["lanes"])]
+    groups = lane_groups(out)
+    head = [" = ".join(out["lanes"][i] for i in g) for g in groups]
+    L = ["| | " + " | ".join(head) + " |", "|---|" + "---|" * len(head)]
     for r in out["rows"]:
-        L.append(f"| {r['row']} | " + " | ".join(c["text"] for c in r["cells"]) + " |")
+        cells = []
+        for g in groups:
+            texts = list(dict.fromkeys(r["cells"][i]["text"] for i in g))
+            cells.append(texts[0] if r.get("service") or len(texts) == 1 else " / ".join(texts))
+        L.append(f"| {r['row']} | " + " | ".join(cells) + " |")
     if out["same"]:
         L += ["", f"*{len(out['same'])} more the same on every lane: " + "; ".join(out["same"]) + "*"]
     for g in out.get("regions") or []:
         L += ["", region_line(g)]
     for src in out.get("sources") or []:                    # a lane not read now says where its versions are from
         L += ["", f"*{src}*"]
-    L += ["", "*▲ moved since yesterday · ✓ QA passed this exact version (date) · ◐ partly · ○ no QA report names it · 🔒 a pin held · ⛔ over · gateway: read live through the API gateway*"]
     if out["gate"]:
         g = out["gate"]
         L += ["", f"prod candidate: {g['stop']} stop · {g['high']} high (promote report `{os.path.basename(g['report'])}`, "

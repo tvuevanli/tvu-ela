@@ -27,14 +27,14 @@ check("a bundle name finds its lane through its line's tokens",
 
 def row(service, lane, version, host="prod"):
     return {"service": service, "lane": lane, "version": version, "host": host, "tag": ""}
-rows = [row("mediahub-backend", "prod-3", "v2.1.36 build267"), row("mediahub-backend", "daily-wed", "v2.1.36 build267"), row("mediahub-backend", "qa-cn3", "v2.1.38 build269", "qa"),
+rows = [row("mediahub-backend", "prod-3", "v2.1.36 build267"), row("mediahub-backend", "daily-wed", "v2.1.37 build268"), row("mediahub-backend", "qa-cn3", "v2.1.38 build269", "qa"),
         row("mediahub-backend", "prod-8", "v2.0.10 build261"), row("mediahub-backend", "daily-stage", "v2.0.10 build261"), row("mediahub-backend", "qa-cn2", "v2.0.11 build268", "qa"),
         row("mediahub-frontend", "prod-8", "v2.2.72.18 build166"), row("mediahub-frontend", "daily-stage", "v2.2.72.16 build141"), row("mediahub-frontend", "qa-cn2", "v2.2.72.18 build166", "qa")]
 def no_read(cmd, timeout=600):
     raise B.LaneError("offline")
 B.run_json = no_read
 pending = {"2.1|daily-wed|prod-3": {"line": "2.1", "from": "daily-wed", "to": "prod-3", "closed": False, "refreshed": "r", "report": "/r/a.json",
-                                   "candidate": {"label": "Wednesday (build 78) → prod-3", "versions": {"mediahub-backend": {"version": "2.1.36+267"}}, "bundle": "mh2.1@daily-wed-s2-d47"}},
+                                   "candidate": {"label": "Wednesday (build 78) → prod-3", "versions": {"mediahub-backend": {"version": "2.1.37+268"}}, "bundle": "mh2.1@daily-wed-s2-d47"}},
            "2.0|qa-cn2|prod-8": {"line": "2.0", "from": "qa-cn2", "to": "prod-8", "closed": False, "refreshed": "r", "report": "/r/b.json",
                                  "candidate": {"label": "hotfix backend 2.0.11 (MH-3640)", "versions": {"mediahub-backend": {"version": "2.0.11+268"}}}}}
 args = types.SimpleNamespace(promote_report=None)
@@ -43,7 +43,7 @@ outs = [B.line_matrix(l, args, [], rows, None, {}, {}, pending, errors) for l in
 check("each line's table has its own lanes and its own next train from its pending record",
       outs[0]["lanes"] == ["prod-3", "daily-wed", "QA-AWS3", "Wednesday (build 78) → prod-3"] and outs[1]["lanes"] == ["prod-8", "daily-stage", "qa-cn2", "hotfix backend 2.0.11 (MH-3640)"])
 be = lambda o: next(r for r in o["rows"] if r.get("service") == "mediahub-backend")  # noqa: E731
-check("the next-train cell is the record's version", be(outs[0])["cells"][3]["version"] == "2.1.36+267" and be(outs[1])["cells"][3]["version"] == "2.0.11+268")
+check("the next-train cell is the record's version", be(outs[0])["cells"][3]["version"] == "2.1.37+268" and be(outs[1])["cells"][3]["version"] == "2.0.11+268")
 check("the bundle row carries the candidate's bundle when it names one, a dash otherwise",
       outs[0]["rows"][0]["cells"][3]["text"] == "mh2.1@daily-wed-s2-d47" and outs[1]["rows"][0]["cells"][3]["text"] == "—")
 check("an unreadable bundle list is 'not read', never blank", outs[1]["rows"][0]["cells"][0]["text"] == "not read" and any(e["source"].startswith("bundles") for e in errors))
@@ -51,6 +51,21 @@ check("a stage frontend behind prod is an inversion in 2.0's section only",
       B.out_of_order(outs[1])[0] == ["mediahub-frontend: daily-stage 2.2.72.16+141 is below prod-8 2.2.72.18+166"] and B.out_of_order(outs[0])[0] == [])
 old_shape = {"line": "2.1", "from": "daily-wed", "to": "prod-3", "closed": False, "candidate": {"label": "next train → prod-3", "versions": {}}}
 o = B.line_matrix("2.0", args, [], rows, None, {}, {}, old_shape, [])
+past = dict(pending, **{"2.1|daily-wed|prod-3": dict(pending["2.1|daily-wed|prod-3"], candidate=dict(pending["2.1|daily-wed|prod-3"]["candidate"],
+            versions={"mediahub-backend": {"version": "2.1.35+266"}}))})
+gone = B.line_matrix("2.1", args, [], rows, None, {}, {}, past, [])
+check("a promotion record whose target already runs its versions has no column, and says it is past in one line",
+      gone["lanes"] == ["prod-3", "daily-wed", "QA-AWS3"] and gone["pending"].get("past")
+      and "is past: prod-3 already runs its versions or newer" in "\n".join(B.train_lines(gone["pending"])) and "Open before" not in "\n".join(B.train_lines(gone["pending"])))
+check("two lanes on the same versions are one column, the bundle cells joined",
+      B.render_matrix(dict(outs[1], same=[], gate=None, lanes=outs[1]["lanes"][:3], rows=[dict(r, cells=r["cells"][:3]) for r in outs[1]["rows"]
+                                                                                        if r.get("service") != "mediahub-backend"]))
+      .startswith("| | prod-8 = qa-cn2 | daily-stage |"))
+check("an inversion says why: the build that carried the version, past the daily lane when prod is ahead",
+      B.ahead_why({"lanes": ["prod-3", "daily-wed", "QA-AWS3"], "lane_ids": ["prod-3", "daily-wed", "qa-cn3"], "rows": [
+          {"row": "mediahub-backend", "service": "mediahub-backend", "cells": [{"version": "2.1.47+279"}, {"version": "2.1.46+278"}, {"version": "2.1.48"}]}]},
+          [{"build": "98", "date": "2026-11-18", "services": [{"service": "MediaHub Backend", "to": "2.1.47"}]}])
+      == {"mediahub-backend: daily-wed 2.1.46+278 is below prod-3 2.1.47+279": "prod-3 took QA build 98's version straight, past the daily lane (a hotfix to prod)"})
 check("the old single-record file gives another line no next train", o["lanes"] == ["prod-8", "daily-stage", "qa-cn2"] and o["pending"] is None)
 plain = B.line_matrix("2.1", args, [], rows, None, {}, {}, {"label": "a plain file", "versions": {"mediahub-backend": "2.1.36+267"}}, [])
 check("a plain {label, versions} file still names the morning's line", plain["lanes"][-1] == "a plain file")
@@ -68,7 +83,8 @@ with tempfile.TemporaryDirectory() as d:
     B.pair_report = fake_pair
     path = B.write_lanes_page(outs, site, [], os.path.join(d, ".ela", "runner"), {})
     page = open(path, encoding="utf-8").read()
-    check("the page heads with the lines it follows", "· lines 2.1, 2.0*" in page)
+    check("the page heads with the lines it follows, then one legend for every symbol", "· lines 2.1, 2.0*" in page
+          and page.count("*Legend: ▲") == 1 and page.index("*Legend:") < page.index("## Line 2.1") and "◐ QA passed part of it" in page)
     check("one section per line, in order, each with its table",
           page.index("## Line 2.1 · prod-3 ← daily-wed ← QA-AWS3") < page.index("| | prod-3 | daily-wed | QA-AWS3 | Wednesday (build 78) → prod-3 |")
           < page.index("## Line 2.0 · prod-8 ← daily-stage ← qa-cn2") < page.index("| | prod-8 | daily-stage | qa-cn2 | hotfix backend 2.0.11 (MH-3640) |"))
