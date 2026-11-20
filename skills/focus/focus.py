@@ -263,7 +263,7 @@ def build_rows(vault, reports, facts, today, qstate=None, owner=""):
                                                   "questions": [], "asks": [], "audiences": [], "next": "", "own": bool(own), "project": None,
                                                   "since": (q.get("first") or {}).get("date")})
         r["questions"].append(q["id"])
-        said = Q.sentence(q)
+        said = Q.counted(Q.sentence(q), q)                    # a run of keys reads as its count, linking its note
         if lead:                                              # the row already names its ticket: the key is not said again
             said = re.sub(r"^" + re.escape(lead) + r"\s*(?:—|:|-)?\s*", "", said)
         r["asks"].append(dict(q, said=said[:1].upper() + said[1:]))
