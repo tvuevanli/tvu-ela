@@ -50,7 +50,7 @@ read; nothing is written there.
 Config: <elak>/map/release.yaml (service ids per host, tag→lane maps, Jenkins job → service, release lines).
 Exit codes: 0 ok · 2 usage · 3 not found · 4 auth · 5 remote error.
 """
-import argparse, contextlib, datetime, hashlib, io, json, os, re, shutil, signal, ssl, subprocess, sys, urllib.error, urllib.parse, urllib.request
+import argparse, contextlib, datetime, glob, hashlib, io, json, os, re, shutil, signal, ssl, subprocess, sys, urllib.error, urllib.parse, urllib.request
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
@@ -685,11 +685,35 @@ def _ensure_cert():
 CHROME_WIN = "/mnt/c/Program Files/Google/Chrome/Application/chrome.exe"
 
 
-def _chrome_argv(url, profile=None):
-    """Google Chrome on the Windows side of WSL, else a Linux Chrome. `profile` names a profile directory of ela's own,
-    so a second account signs in without the owner's cookies (his evanli session lives in his everyday profile)."""
+CHROME_STATE_WIN = "/mnt/c/Users/{user}/AppData/Local/Google/Chrome/User Data/Local State"
+
+
+def _chrome_profile_for(account):
+    """The owner's own Chrome profile signed in to `account` (Windows Chrome's Local State), or None. His browsers
+    (2026-11-23): Edge, the default, for everyday daily and prod; Chrome with one profile for the test account and one
+    for evanli kept apart from Edge, where dev is signed in."""
+    if not account:
+        return None
+    for path in glob.glob(CHROME_STATE_WIN.format(user="*")):
+        try:
+            cache = (json.load(open(path, encoding="utf-8")).get("profile") or {}).get("info_cache") or {}
+        except (OSError, ValueError):
+            continue
+        for directory, info in cache.items():
+            if str(info.get("user_name") or "").lower() == account.lower():
+                return directory
+    return None
+
+
+def _chrome_argv(url, profile=None, account=None):
+    """Google Chrome on the Windows side of WSL, else a Linux Chrome. With `account`, the owner's own Chrome profile
+    signed in to it, when there is one; else `profile` names a profile directory of ela's own, so a second account
+    signs in without the owner's cookies (his everyday browser holds his prod session)."""
     if os.path.isfile(CHROME_WIN):
         argv = [CHROME_WIN]
+        own = _chrome_profile_for(account)
+        if own:
+            return argv + [f"--profile-directory={own}", "--new-window", url]
         if profile:
             r = subprocess.run(["/mnt/c/WINDOWS/system32/cmd.exe", "/c", "echo", "%LOCALAPPDATA%"], cwd="/mnt/c", capture_output=True, text=True)
             base = r.stdout.strip()
@@ -704,9 +728,9 @@ def _chrome_argv(url, profile=None):
     return None
 
 
-def _open_browser(url, browser=None, profile=None):
+def _open_browser(url, browser=None, profile=None, account=None):
     if browser == "chrome":
-        argv = _chrome_argv(url, profile)
+        argv = _chrome_argv(url, profile, account)
         if not argv:
             print("Google Chrome not found (Windows side or Linux)", file=sys.stderr); return False
         subprocess.Popen(argv, cwd="/mnt/c" if argv[0] == CHROME_WIN else None, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -799,7 +823,9 @@ def login_tvu(env_file, force=False, timeout=300, json_out=False, open_browser=T
         print(f"cannot listen on 127.0.0.1:{port}: {e} — set `login_port` in ~/.claude/ela/site.json "
               f"(or $ELA_LOGIN_PORT) to a free port", file=sys.stderr); sys.exit(EX_REMOTE)
     srv.socket = ctx.wrap_socket(srv.socket, server_side=True); srv.timeout = 1
-    opened = _open_browser(url, browser, {"tvu-test": "test", "tvu-com-test": "test", "tvu-dev": "dev"}.get(key)) if open_browser else False
+    # the test account signs in in his Chrome profile of that account, dev in his Chrome profile of his own account
+    account = env_value("TVU_TEST_ACCOUNT", env_file) if key in ("tvu-test", "tvu-com-test") else owner if key == "tvu-dev" else None
+    opened = _open_browser(url, browser, {"tvu-test": "test", "tvu-com-test": "test", "tvu-dev": "dev"}.get(key), account) if open_browser else False
     print(f"waiting for the browser at {url}  ({'opened' if opened else 'open it yourself'}; hosts: 127.0.0.1 {LOGIN_HOST}; up to {timeout}s)", file=sys.stderr)
     if cur.get("lifetimes_s"):
         print(f"previous session lifetimes: {', '.join(str(round(x/3600, 1)) + 'h' for x in cur['lifetimes_s'][-5:])}", file=sys.stderr)
