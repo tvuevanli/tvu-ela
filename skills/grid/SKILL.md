@@ -12,7 +12,9 @@ receiver, which is a LinuxR or, for MediaHub, the `grid_decoder` (playeroftvu). 
 reach, labels each line **checked**, **inferred** or **not checked**, and names the first link that is down.
 
 ```
-ela grid <object id>          the fullest answer: includes the MediaHub graphs and the decoder process
+ela grid <object id>          the fullest answer: includes the MediaHub graphs and the decoder process; a destination
+                              object is followed to its graph's source object (--email <owner> when J2N needs it)
+ela grid <graph id>           the object its grid_decoder reads; a stopped or deleted graph works
 ela grid <sender name>        exact GCS device name (the sender's, e.g. R_1D85, not the MediaHub source name)
 ela grid <16-hex PID>         every enabled encoder of that sender
 ela grid <32-hex source id>   PID + resource (…01 pack · …02 SDI · …03 MediaHub)

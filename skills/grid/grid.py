@@ -110,8 +110,34 @@ class Grid:
                 "age_h": round((datetime.datetime.now(datetime.timezone.utc) - seen).total_seconds() / 3600, 1) if seen else None}
 
 
-def from_object(oid, env_file):
-    """object id → (source id, object name, graphs) through the Object Service; None when it holds no [X] tangible."""
+def graph_py(args, env_file):
+    """graph.py's JSON for one call, or None. UR is read through ela's own graph capability, never twice over."""
+    argv = ["python3", os.path.join(os.path.dirname(HERE), "graph", "graph.py")] + (["--env-file", env_file] if env_file else []) + args
+    try:
+        return json.loads(subprocess.run(argv, capture_output=True, text=True, timeout=200).stdout)
+    except (subprocess.TimeoutExpired, ValueError):
+        return None
+
+
+def sources_of_graph(gid, env_file):
+    """26-char graph id → the object ids its grid_decoder nodes read (params.objectId), stopped graphs included."""
+    d = graph_py(["graph", gid, "--raw"], env_file) or {}
+    nodes = (d.get("spec") or {}).get("nodes") or []
+    return list(dict.fromkeys(str(((n.get("spec") or {}).get("params") or {}).get("objectId"))
+                              for n in nodes if (n.get("spec") or {}).get("type") == "grid_decoder"
+                              and ((n.get("spec") or {}).get("params") or {}).get("objectId")))
+
+
+def sources_of_destination(oid, env_file, email=None):
+    """A destination object → the source objects of the graphs that carry it as their business object (J2N v2)."""
+    d = graph_py(["resolve", oid, "--json"] + (["--email", email] if email else []), env_file) or {}
+    return list(dict.fromkeys(str(g.get("object_id")) for res in d.get("results") or [] for g in res.get("graphs") or []
+                              if str(g.get("business_id")) == oid and g.get("object_id") and str(g.get("object_id")) != oid))
+
+
+def from_object(oid, env_file, email=None, _via=None):
+    """object id → (source id, object name, x name, graphs, decoders, via). A destination is followed to its graphs'
+    source object once; an object that is neither exits 3 naming what was tried."""
     sys.path.insert(0, os.path.join(os.path.dirname(HERE), "object"))
     import object as objsvc
     svc = objsvc.OS_(env_file)
@@ -120,19 +146,24 @@ def from_object(oid, env_file):
         print(f"object {oid}: not found in the Object Service", file=sys.stderr); sys.exit(EX_NOTFOUND)
     o = objsvc.summarise_object(r)
     xs = [t for t in o["tangibles"] if (t["type"] or "").upper() == "X"]
+    if not xs and _via is None:
+        for src in sources_of_destination(oid, env_file, email):
+            got = from_object(src, env_file, email, _via=f"destination {oid} ({o['name']})")
+            if got:
+                return got
+        print(f"object {oid} ({o['name']}, {o['type']}) holds no Grid [X] tangible, and J2N names no graph carrying it whose "
+              f"source does. Give the graph id (`ela grid <graph id>`; a stopped graph works), or --email <owner>.", file=sys.stderr)
+        sys.exit(EX_NOTFOUND)
     if not xs:
-        print(f"object {oid} ({o['name']}) holds no Grid [X] tangible: not a Grid source", file=sys.stderr); sys.exit(EX_NOTFOUND)
+        return None
     decoders = [t["tangible_id"] for t in o["tangibles"] if (t["type"] or "").upper() == "SHM" and "grid_decoder" in (t["name"] or "")]
-    return xs[0]["tangible_id"].lower(), o["name"], xs[0]["name"], o["graphs"], decoders
+    return xs[0]["tangible_id"].lower(), o["name"], xs[0]["name"], o["graphs"], decoders, _via, oid
 
 
 def decoder(pid, env_file):
     """One MediaHub grid_decoder process through graph.py (UR): status and what it receives. None when UR has no record."""
-    argv = ["python3", os.path.join(os.path.dirname(HERE), "graph", "graph.py")] + (["--env-file", env_file] if env_file else []) + ["process", pid, "--json"]
-    try:
-        out = subprocess.run(argv, capture_output=True, text=True, timeout=120).stdout
-        d = json.loads(out)
-    except (subprocess.TimeoutExpired, ValueError):
+    d = graph_py(["process", pid, "--json"], env_file)
+    if not isinstance(d, dict):
         return None
     v = d.get("video") or {}
     return {"process": pid, "status": d.get("status"), "env": d.get("env"), "graph": d.get("graph_id"), "image": d.get("image"),
@@ -140,13 +171,21 @@ def decoder(pid, env_file):
             "dropped": v.get("droppedFrames"), "error_rate_60s": d.get("error_rate_60s")}
 
 
-def resolve(g, ident, env_file):
+def resolve(g, ident, env_file, email=None):
     """→ dict(pid, sources [32 hex], how, object fields)."""
     out = {"input": ident, "object": None}
+    if re.fullmatch(r"[0-9A-Z]{26}", ident):                # a graph: the object its grid_decoder reads
+        objs = sources_of_graph(ident, env_file)
+        if not objs:
+            print(f"graph {ident}: UR has no such graph, or it holds no grid_decoder with an objectId", file=sys.stderr); sys.exit(EX_NOTFOUND)
+        ident, via = objs[0], f"graph {ident}"
+    else:
+        via = None
     if re.fullmatch(r"\d{19}", ident):
-        sid, oname, xname, graphs, decoders = from_object(ident, env_file)
-        out.update(pid=sid[:16], sources=[sid], how=f"object {ident} → [X] {sid}",
-                   object={"id": ident, "name": oname, "x_name": xname, "graphs": graphs, "decoders": decoders})
+        sid, oname, xname, graphs, decoders, dvia, soid = from_object(ident, env_file, email)
+        how = " → ".join(x for x in (via, dvia, f"source object {soid}", f"[X] {sid}") if x)
+        out.update(pid=sid[:16], sources=[sid], how=how,
+                   object={"id": soid, "name": oname, "x_name": xname, "graphs": graphs, "decoders": decoders})
     elif re.fullmatch(r"[0-9a-fA-F]{32}", ident):
         out.update(pid=ident[:16].lower(), sources=[ident.lower()], how="source id")
     elif re.fullmatch(r"[0-9a-fA-F]{16}", ident):
@@ -196,7 +235,7 @@ def breaks(r):
 
 def cmd_source(a):
     g = Grid(a.region)
-    r = resolve(g, a.id, a.env_file)
+    r = resolve(g, a.id, a.env_file, a.email)
     r["region"] = a.region
     r["sender"] = g.device(r["pid"])
     r["encoders"] = g.encoders(r["pid"])
@@ -277,8 +316,9 @@ def main():
     ap = argparse.ArgumentParser(description="Grid source, end to end, read-only: sender · encoders · GCS routes · receivers · where it breaks.")
     ap.add_argument("--env-file")
     sub = ap.add_subparsers(dest="cmd", required=True)
-    p = sub.add_parser("source", help="a Grid source by name, sender PID (16 hex), source id (32 hex) or object id (19 digits)")
+    p = sub.add_parser("source", help="a Grid source by name, sender PID (16 hex), source id (32 hex), object id (19 digits, a destination is followed to its source) or graph id (26)")
     p.add_argument("id"); p.add_argument("--region", choices=("com", "cn"), default="com"); p.add_argument("--json", action="store_true")
+    p.add_argument("--email", help="the owner's email: lets a destination object be found in J2N's list by owner")
     a = ap.parse_args()
     {"source": cmd_source}[a.cmd](a)
 
