@@ -16,7 +16,7 @@ content, every entry stamped with the time it was read:
             users.json · watermark.json
   mail/     index.json (the three standing searches over a rolling 21 days, ids newest first) · messages/<id>.json
             (fetched once per id; a message never changes) · threads/<id>.json · watermark.json
-  lanes/    envs-<host>.json · gateway.json · watermark.json
+  lanes/    envs-<host>.json · gateway.json · dev-ahead.json (dev's docker images above daily and prod) · watermark.json
   runtime/  lanes.json (per followed lane and service: the profile chain, how it was proven, the keys a one-profile
             read gets wrong) · proofs.json (a graph bound to its UR Caller instance and gateway) · initconfig-<lane>.json
   builds/   <job>.json (Jenkins, 80 builds) · bundles/<host>/<line>.json · bundles/detail/<id>.json · watermark.json
@@ -301,6 +301,10 @@ def refresh_lanes(env_file, full):
     parts.append(f"gateway {len(rows) if rows is not None else 'gap'}")
     if gap:
         gaps.append(f"gateway: {gap}")
+    rows, gap = R.refresh_dev_ahead(env_file)              # dev against daily and prod: the morning page's dev line
+    parts.append(f"dev ahead {len(rows) if rows is not None else 'gap'}")
+    if gap:
+        gaps.append(f"dev: {gap}")
     set_watermark("lanes", at=now_iso(), seconds=round(time.time() - t0, 1))
     if gaps:
         set_gap("lanes", "; ".join(gaps), partial=True)

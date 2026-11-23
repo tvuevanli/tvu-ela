@@ -1739,6 +1739,29 @@ def sync_dev(env_file, sources, line, host="prod"):
     return srcs, out
 
 
+def dev_ahead_path():
+    return os.path.join(F.store_dir("lanes"), "dev-ahead.json")
+
+
+def refresh_dev_ahead(env_file, line="2.1"):
+    """`ela facts refresh`: the services where dev runs above daily and prod, kept in lanes/dev-ahead.json for the
+    morning page; (rows, gap). Skipped, never a gap, while the site has no dev host."""
+    if not (site().get("services") or {}).get(DEV_SERVICE):
+        return [], None
+    got, gap = _refresh_read(lambda: sync_dev(env_file, ["daily", "prod"], line))
+    if gap:
+        prev = F.read_json(dev_ahead_path(), {}) or {}
+        prev["gap"] = {"at": F.now_iso(), "why": gap}
+        F.write_json(dev_ahead_path(), prev)
+        return None, gap
+    srcs, rows = got
+    ahead = [{k: r.get(k) for k in ("service", "dev", "sources", "by")} for r in rows if r.get("ahead")]
+    F.write_json(dev_ahead_path(), {"at": F.now_iso(), "sources": [{k: x[k] for k in ("ref", "name")} for x in srcs],
+                                    "compared": len(rows), "behind_refused": sum(1 for r in rows if str(r["state"]).startswith("refused")),
+                                    "ahead": ahead})
+    return ahead, None
+
+
 def cmd_sync_dev(a):
     srcs, rows = sync_dev(a.env_file, a.sources or ["daily", "prod"], a.line, a.host)
     rows_shown = [r for r in rows if r.get("ahead")] if a.ahead else rows

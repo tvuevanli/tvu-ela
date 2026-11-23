@@ -3370,6 +3370,25 @@ def settle_asks(state, cands, today):
     return live, waiting, dropped_now, state
 
 
+def dev_ahead_line(runtime, now=None, max_age_h=30):
+    """The Dev fact: each docker service where dev runs above daily and prod, from <runtime>/facts/lanes/dev-ahead.json
+    (`ela facts refresh`, release.sync_dev); None when nothing is ahead, the read is older than a day, or it failed.
+    Who put it there comes from the audit of dev writes, and says "by hand in GM" until that audit exists."""
+    try:
+        doc = json.load(open(os.path.join(runtime or "", "facts", "lanes", "dev-ahead.json"), encoding="utf-8"))
+        at = datetime.datetime.fromisoformat(str(doc.get("at")).replace("Z", "+00:00"))
+    except (OSError, ValueError, TypeError):
+        return None
+    now = now or datetime.datetime.now(datetime.timezone.utc)
+    if (now - at).total_seconds() > max_age_h * 3600 or not doc.get("ahead"):
+        return None
+    tag = lambda img: str(img or "").rsplit(":", 1)[-1]
+    items = [f"{r['service'].removeprefix('Docker ')} {tag((r.get('dev') or {}).get('image'))} ({r.get('by') or 'by hand in GM'})"
+             for r in doc["ahead"]]
+    shown = "; ".join(items[:3]) + (f"; {len(items) - 3} more" if len(items) > 3 else "")
+    return f"ahead of daily and prod: {shown} — `ela release sync-dev --ahead`."
+
+
 def fact_lines(notes, limit=4):
     """The newest What-changed page's first line per section that changes the picture (releases, docker services, QA,
     tickets, code): [(label, line)], with the page's date."""
@@ -3792,6 +3811,8 @@ def today_page(today, notes, desk=None, shown=(), more=0, dropped=0, questions_l
     block = build_block(notes, desk.get("builds") or [], today, desk.get("tickets"), desk.get("owner") or "")
     if block:                                              # a lane took a build: the Releases fact is the build, by service
         facts = [("Releases and versions", block)] + [f for f in facts if f[0] != "Releases and versions"]
+    if desk.get("dev_ahead"):                              # dev above daily and prod: someone put a version there
+        facts = [f for f in facts if f[0] != "Dev"] + [("Dev", desk["dev_ahead"])]
     facts = [("Done by ela", l) for l in desk.get("dry_facts") or []] + facts   # ela's own acts and falls lead: never cut
     briefs = sorted((n for n in notes if n.props.get("type") == "day" and n.props.get("kind") == "brief"),
                     key=lambda n: n.props.get("date") or "", reverse=True)
@@ -5094,7 +5115,8 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since
     planned[TODAY] = redact(front([], {"type": "today", "date": today.isoformat()}) + linker(today_page(today, notes + native, {
         "actions": week_actions(reports, today), "hold": tier2_hold(reports, today.isoformat()), "lists": list_links(reports),
         "meetings": meetings, "builds": builds, "tickets": release_mod().facts_tickets(s.get("runtime"), [k for b in builds for v in b["services"] for k in v.get("keys") or []]),
-        "owner": owner_name(os.path.join(s.get("runtime") or "", "facts")), "dry_facts": dry_facts, "views": focus.get("views")},
+        "owner": owner_name(os.path.join(s.get("runtime") or "", "facts")), "dry_facts": dry_facts, "views": focus.get("views"),
+        "dev_ahead": dev_ahead_line(s.get("runtime"))},
         shown, more, dropped, questions_line=qline)))
     planned.update(dry_pages(s["vault"], reports, today))
     planned.update(mention_pages(reports, today))
