@@ -5,6 +5,10 @@ L1: subcommands, --json, stdlib; the driver is browser.js (Playwright, node) bes
   setup [--url U] [--url-qa U]  install playwright into <runtime>/browser (no root; the system libraries are the
                        owner's `playwright install-deps`), record the product URLs in site.json `mediahub_url` (the
                        gateway with the test, daily and prod lanes) and `mediahub_url_qa` (the QA deployment)
+  login --host prod --as test
+                       a second prod account for product tests (TVU_TEST_ACCOUNT / TVU_TEST_PASSWORD in the site env
+                       file), signed in through the same user-service page and kept under session.json `tvu-test`;
+                       env, shot and run take --as test to act as it. The owner's own session stays untouched
   login --host qa      ela's own session on the QA deployment: the test account (TVUTEST_ACCOUNT / TVUTEST_PASSWORD)
                        signs in through the user service's page, every cookie on the QA domain is kept in
                        session.json under `qa`. The prod session is the owner's own (`ela login tvu`), never this
@@ -234,7 +238,12 @@ def host_of(lane, host=None):
     return "qa" if (lane or "").startswith("qa") else "prod"
 
 
-def node(cmd, *args, timeout=240, host="prod", env_file=None):
+# Accounts a browser run may act as on prod. The owner's own session (`ela login tvu`) is the default; `--as test` is a
+# second account for product tests, signed in by `login --host prod --as test` and kept under its own session key.
+ACCOUNTS = {"test": ("tvu-test", "TVU_TEST_ACCOUNT", "TVU_TEST_PASSWORD")}
+
+
+def node(cmd, *args, timeout=240, host="prod", env_file=None, account=None):
     np = node_path()
     if not np:
         print("playwright is not installed for ela — run: ela browser setup", file=sys.stderr); sys.exit(EX_UNPROVEN)
@@ -242,11 +251,18 @@ def node(cmd, *args, timeout=240, host="prod", env_file=None):
     if not url:
         print(f"site.json has no `{'mediahub_url_qa' if host == 'qa' else 'mediahub_url'}` — run: ela browser setup {'--url-qa' if host == 'qa' else '--url'} <product url>", file=sys.stderr); sys.exit(EX_USAGE)
     env = dict(os.environ, NODE_PATH=np, ELA_BROWSER_HOST=host)
-    if host == "qa" and cmd == "login":
-        for k in ("TVUTEST_ACCOUNT", "TVUTEST_PASSWORD"):
+    keys = ("TVUTEST_ACCOUNT", "TVUTEST_PASSWORD")
+    if account:
+        if host != "prod":
+            print("--as applies to the prod host only", file=sys.stderr); sys.exit(EX_USAGE)
+        session, *keys = ACCOUNTS[account]
+        env["ELA_BROWSER_SESSION"] = session
+    if cmd == "login":
+        for name, k in zip(("ELA_LOGIN_ACCOUNT", "ELA_LOGIN_PASSWORD"), keys):
             v = R.env_value(k, env_file)
-            if v:
-                env[k] = v
+            if not v:
+                print(f"no {k} in the site env file", file=sys.stderr); sys.exit(EX_USAGE)
+            env[name] = v
     tz = timezone()
     if tz:
         env["ELA_TZ"] = tz
@@ -286,10 +302,11 @@ def cmd_setup(a):
 
 
 def cmd_login(a):
-    if a.host != "qa":
-        print("the prod session is the owner's own: ela login tvu --force", file=sys.stderr); sys.exit(EX_USAGE)
-    d = node("login", host="qa", env_file=a.env_file)
-    print(json.dumps(d) if a.json else f"qa session stored: {d.get('cookies')} cookies, landed {d.get('landed')}")
+    if a.host == "prod" and not a.as_:
+        print("the prod session is the owner's own: ela login tvu --force (a test account: --as test)", file=sys.stderr); sys.exit(EX_USAGE)
+    d = node("login", host=a.host, env_file=a.env_file, account=a.as_)
+    who = f"{a.host}" + (f" as {a.as_}" if a.as_ else "")
+    print(json.dumps(d) if a.json else f"{who} session stored: {d.get('cookies')} cookies, landed {d.get('landed')}")
 
 
 def keep_initconfig(init, res, env_file):
@@ -315,7 +332,7 @@ def cmd_env(a):
     shot = os.path.join(os.path.realpath(a.shots), "version-panel.png") if a.shots else None
     if shot:
         os.makedirs(os.path.dirname(shot), exist_ok=True)
-    d = node("env", *(["--shot", shot] if shot else []), host=host)
+    d = node("env", *(["--shot", shot] if shot else []), host=host, account=a.as_)
     parsed = parse_panel(d.get("panel") or "", host)
     res = {"url": d.get("url"), "panel": d.get("panel"), "sections": parsed["sections"], "lanes": parsed["lanes"], "proven": parsed["proven"],
            "lane": a.lane, "host": host, "compare": [], "verdict": None, "clock": d.get("clock"), "key": a.key, "fix_lanes": lanes, "fix_gaps": gaps,
@@ -371,7 +388,7 @@ def cmd_env(a):
 
 
 def cmd_shot(a):
-    d = node("shot", "--out", a.out, *(["--full", "1"] if a.full else []), host=a.host or "prod")
+    d = node("shot", "--out", a.out, *(["--full", "1"] if a.full else []), host=a.host or "prod", account=a.as_)
     # the product path is appended to the product url by the driver's caller: here the driver takes the full url
     print(json.dumps(d) if a.json else f"screenshot: {d.get('out')}")
 
@@ -394,7 +411,7 @@ def cmd_run(a):
         extra += ["--phase", a.phase]
     if a.state:
         extra += ["--state", os.path.realpath(a.state)]
-    d = node("run", "--script", script, "--shots", shots, *extra, timeout=a.timeout, host=a.host or "prod")
+    d = node("run", "--script", script, "--shots", shots, *extra, timeout=a.timeout, host=a.host or "prod", account=a.as_)
     if a.json:
         print(json.dumps(d, ensure_ascii=False))
     else:
@@ -414,11 +431,11 @@ def main():
     ap.add_argument("--env-file")
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("setup", help="install playwright into the runtime directory (no root) and record the product urls"); p.add_argument("--url"); p.add_argument("--url-qa")
-    p = sub.add_parser("login", help="ela's own session on the QA deployment with the test account"); p.add_argument("--host", choices=("qa",), default="qa"); p.add_argument("--json", action="store_true")
-    p = sub.add_parser("env", help="the version panel, compared with the release map: the environment proof"); p.add_argument("--lane", help="prod-3, prod-8 … (default: the lane the panel names)"); p.add_argument("--key", help="a ticket: its fix must be on the panel's lane (ela fixed-in), else exit 6"); p.add_argument("--shots", help="directory for version-panel.png, the panel as read"); p.add_argument("--json", action="store_true"); p.add_argument("--host", choices=("prod", "qa"), help="qa: the QA deployment with ela's own session (default from the lane prefix)")
-    p = sub.add_parser("shot", help="screenshot the product"); p.add_argument("--out", required=True); p.add_argument("--full", action="store_true"); p.add_argument("--host", choices=("prod", "qa")); p.add_argument("--json", action="store_true")
+    p = sub.add_parser("login", help="sign a test account in: the QA deployment's, or prod's second account (--host prod --as test)"); p.add_argument("--host", choices=("qa", "prod"), default="qa"); p.add_argument("--json", action="store_true"); p.add_argument("--as", dest="as_", choices=sorted(ACCOUNTS), help="prod only: act as a second account (TVU_TEST_ACCOUNT / TVU_TEST_PASSWORD), its own session")
+    p = sub.add_parser("env", help="the version panel, compared with the release map: the environment proof"); p.add_argument("--lane", help="prod-3, prod-8 … (default: the lane the panel names)"); p.add_argument("--key", help="a ticket: its fix must be on the panel's lane (ela fixed-in), else exit 6"); p.add_argument("--shots", help="directory for version-panel.png, the panel as read"); p.add_argument("--json", action="store_true"); p.add_argument("--host", choices=("prod", "qa"), help="qa: the QA deployment with ela's own session (default from the lane prefix)"); p.add_argument("--as", dest="as_", choices=sorted(ACCOUNTS), help="prod only: act as a second account (TVU_TEST_ACCOUNT / TVU_TEST_PASSWORD), its own session")
+    p = sub.add_parser("shot", help="screenshot the product"); p.add_argument("--out", required=True); p.add_argument("--full", action="store_true"); p.add_argument("--host", choices=("prod", "qa")); p.add_argument("--json", action="store_true"); p.add_argument("--as", dest="as_", choices=sorted(ACCOUNTS), help="prod only: act as a second account (TVU_TEST_ACCOUNT / TVU_TEST_PASSWORD), its own session")
     p = sub.add_parser("pdf", help="print a local html page to PDF"); p.add_argument("html"); p.add_argument("--out", required=True); p.add_argument("--json", action="store_true")
-    p = sub.add_parser("run", help="run one case script and print its result"); p.add_argument("script"); p.add_argument("--shots"); p.add_argument("--phase", help="create | observe: one script, two runs over --state"); p.add_argument("--state", help="json file the phases share"); p.add_argument("--timeout", type=int, default=240, help="seconds the run may take (default 240)"); p.add_argument("--host", choices=("prod", "qa")); p.add_argument("--json", action="store_true")
+    p = sub.add_parser("run", help="run one case script and print its result"); p.add_argument("script"); p.add_argument("--shots"); p.add_argument("--phase", help="create | observe: one script, two runs over --state"); p.add_argument("--state", help="json file the phases share"); p.add_argument("--timeout", type=int, default=240, help="seconds the run may take (default 240)"); p.add_argument("--host", choices=("prod", "qa")); p.add_argument("--json", action="store_true"); p.add_argument("--as", dest="as_", choices=sorted(ACCOUNTS), help="prod only: act as a second account (TVU_TEST_ACCOUNT / TVU_TEST_PASSWORD), its own session")
     a = ap.parse_args()
     {"setup": cmd_setup, "login": cmd_login, "env": cmd_env, "shot": cmd_shot, "pdf": cmd_pdf, "run": cmd_run}[a.cmd](a)
 

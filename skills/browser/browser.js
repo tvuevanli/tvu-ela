@@ -12,20 +12,22 @@ const SITE = path.join(process.env.HOME, ".claude", "ela");
 // `browser.js login` below. Each session's cookies live under their own key in session.json and are set on their own
 // domain; the gateway routes by per-user tag cookies, so a SID alone lands on the default lane and proves nothing.
 const HOST = process.env.ELA_BROWSER_HOST === "qa" ? "qa" : "prod";
-const SESSION_KEY = HOST === "qa" ? "qa" : "tvu";
+// A second account on prod (`--as test`) keeps its own key, so a test run never replaces the owner's session.
+const SESSION_KEY = process.env.ELA_BROWSER_SESSION || (HOST === "qa" ? "qa" : "tvu");
 const DOMAIN = process.env.ELA_BROWSER_DOMAIN || (HOST === "qa" ? ".tvutest.com" : ".tvunetworks.com");
 
 function cookies() {
   const s = (JSON.parse(fs.readFileSync(path.join(SITE, "session.json"), "utf8"))[SESSION_KEY]) || {};
-  if (!s.cookies || !Object.keys(s.cookies).length) throw new Error(`no ${SESSION_KEY} cookies in session.json — run: ` + (HOST === "qa" ? "ela browser login --host qa" : "ela login tvu --force"));
+  if (!s.cookies || !Object.keys(s.cookies).length) throw new Error(`no ${SESSION_KEY} cookies in session.json — run: ` + (HOST === "qa" ? "ela browser login --host qa" : SESSION_KEY === "tvu" ? "ela login tvu --force" : "ela browser login --host prod --as test"));
   return Object.entries(s.cookies).map(([name, value]) => ({ name, value, domain: DOMAIN, path: "/", secure: name === "SID" }));
 }
 
-// The QA deployment's own login: the user service's sign-in page (account + password fields, a Sign In button),
-// reached by opening the product without a session; every cookie on the QA domain is kept afterwards.
+// The user service's sign-in page (account + password fields, a Sign In button), reached by opening the product
+// without a session; every cookie on the host's domain is kept afterwards under SESSION_KEY. Used for the QA
+// deployment's test account and for the prod test account; browser.py passes the credentials in the environment.
 async function login(url) {
-  const account = process.env.TVUTEST_ACCOUNT, password = process.env.TVUTEST_PASSWORD;
-  if (!account || !password) throw new Error("TVUTEST_ACCOUNT / TVUTEST_PASSWORD missing");
+  const account = process.env.ELA_LOGIN_ACCOUNT, password = process.env.ELA_LOGIN_PASSWORD;
+  if (!account || !password) throw new Error("login account / password missing from the site env file");
   const b = await chromium.launch();
   const ctx = await b.newContext({ ignoreHTTPSErrors: true, viewport: { width: 1600, height: 1000 } });
   const p = await ctx.newPage();
@@ -41,7 +43,7 @@ async function login(url) {
     for (const c of await ctx.cookies()) if (c.domain.endsWith(DOMAIN.replace(/^\./, ""))) jar[c.name] = c.value;
     const file = path.join(SITE, "session.json");
     const all = JSON.parse(fs.readFileSync(file, "utf8"));
-    all[SESSION_KEY] = { cookies: jar, obtained_at: new Date().toISOString(), source: "browser login (test account)", account };
+    all[SESSION_KEY] = { cookies: jar, obtained_at: new Date().toISOString(), source: `browser login (${SESSION_KEY})`, account };
     fs.writeFileSync(file, JSON.stringify(all, null, 2));
     return { landed: p.url(), cookies: Object.keys(jar).length };
   } finally { await b.close(); }
