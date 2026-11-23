@@ -43,6 +43,8 @@
                                    (default) · test2 · cn2; no type: the types seen, with counts
   ela envs                         the UR probe order
   ela object <id>                  object or tangible
+  ela grid <name|pid|source|object> a Grid source end to end, read-only: sender (CC) · encoders and
+                                   routes (GCS) · paired receivers live on it · where it breaks; --region cn
   ela stream probe <url>           what a stream carries: PMT · PCR · PID table · codec
                                    (m3u8 · .ts · srt:// · udp://)
   ela stream diff <a> <b>          two streams, field by field
@@ -316,6 +318,7 @@ VERBS = {
     "verify": ("verify", "report"), "verify-plan": ("verify", "plan"),
     "pick": ("pick", None),
     "tvukb": ("tvukb", None),
+    "grid": ("grid", "source"),
 }
 PROMOTE_SUBS = {"lanes", "commits", "delta", "tickets", "evidence", "bundles", "report", "compare-helm", "constraints", "close", "plan", "proof"}
 
