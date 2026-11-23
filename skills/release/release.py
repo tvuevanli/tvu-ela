@@ -30,6 +30,9 @@ L1: subcommands, --json, stdlib only. No store, no scheduler: every answer is th
                                           SID after Google SSO (a paste field is the fallback); stored in
                                           ~/.claude/ela/session.json (mode 600) with obtained_at; the first refusal
                                           records rejected_at so the session's real lifetime is measured.
+  login tvu --host dev                    the owner's own session on dev (MH dev + UR dev2), same browser sign-in on
+                                          Chrome under a profile of ela's own, stored as session.json `dev`; never
+                                          touches `tvu`. Read it with --host dev on bundle and bundle-diff.
   login tvu --keepalive                   one validation call to user-auth, which renews the session's idle TTL; never
                                           logs in, never retries. 0 renewed · 4 refused (recorded) or already refused ·
                                           5 network. A systemd user timer runs it every 30 min (skills/release/keepalive/).
@@ -41,6 +44,9 @@ cn = site.json services.userservice-cn, account login (TVU_CN_ACCOUNT / TVU_CN_P
 the China region's bundles and lanes (prod-N-china). Its names mean a lane only where the map's
 regions.china.userservice says so; anything else is shown as read, marked unmapped. While the site lacks those names,
 a read of every host answers for .com and says once what to add; --host cn exits 2 with the same line.
+dev = site.json services.userservice-dev (MH dev + UR dev2), the owner's own session on dev — `ela login tvu --host dev`,
+session.json `dev`, apart from prod's `tvu`. Read with --host dev on bundle, bundle-diff and drift, never in an every-host
+read; nothing is written there.
 Config: <elak>/map/release.yaml (service ids per host, tag→lane maps, Jenkins job → service, release lines).
 Exit codes: 0 ok · 2 usage · 3 not found · 4 auth · 5 remote error.
 """
@@ -199,6 +205,10 @@ def _tag_lane(h, tagname):
 # read and marked unmapped. "Prod2" exists on both hosts and is two environments, so nothing read here is ever looked
 # up in hosts.prod, and its facts are kept in files of their own.
 HOSTS = ("prod", "cn")
+# dev (MH dev + UR dev2) is read on its own and never in an "every host" read: it is no release lane, and its session
+# is the owner's sign-in on dev, kept under session.json `dev` beside prod's `tvu` and never mixed with it.
+DEV_SERVICE = "userservice-dev"
+READ_HOSTS = HOSTS + ("dev",)
 # The QA host is not read: since 2026-11-04 it admits no developer account, and a QA lane's versions and bundle come
 # from QA's report mails and the release channel instead (SKILL.md, "Two hosts, two sessions"). Asking for it is
 # answered with this note and no network call, so no caller spends a login and a retry on a standing refusal.
@@ -436,14 +446,34 @@ def _now():
     return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+# One name per deployment: the owner's own sign-in is `tvu-<deployment>` (com: .com daily and prod; cn; dev), a test
+# account is `tvu-<deployment>-test` (com: product tests on prod; qa: the QA lines, which take test accounts only).
+# The old names still read: on load each old key is the same object as its new one, and on save only new names stay,
+# so a verb that still says `tvu` or `cn` keeps working while the file holds one name per sign-in.
+SESSION_NAMES = {"tvu": "tvu-com", "cn": "tvu-cn", "dev": "tvu-dev", "tvu-test": "tvu-com-test", "qa": "tvu-qa-test"}
+
+
 def _load_sessions():
     try:
-        return json.load(open(SESSION_FILE))
+        d = json.load(open(SESSION_FILE))
     except Exception:
         return {}
+    for old, new in SESSION_NAMES.items():                 # a writer outside ela (Helm's SID mirror) may still use
+        a, b = d.get(old), d.get(new)                       # the old name: the later sign-in of the two wins
+        if isinstance(a, dict) and (not isinstance(b, dict) or str(a.get("obtained_at") or "") > str(b.get("obtained_at") or "")):
+            d[new] = a
+        if new in d:
+            d[old] = d[new]
+    return d
 
 
 def _save_sessions(d):
+    d = dict(d)
+    for old, new in SESSION_NAMES.items():                 # a write under an old name is the new name's value
+        if old in d:
+            v = d.pop(old)
+            if v is not d.get(new):
+                d[new] = v
     os.makedirs(os.path.dirname(SESSION_FILE), exist_ok=True)
     tmp = SESSION_FILE + ".tmp"
     with open(tmp, "w") as fh:
@@ -464,8 +494,11 @@ def _mark_rejected(kind):
         d[kind] = s; _save_sessions(d)
 
 
+LOGIN_CMD = {"tvu": "ela login tvu", "dev": "ela login tvu --host dev", "tvu-test": "ela login tvu --as test"}
+
+
 def _need_login(kind, why):
-    print(f"{kind} session {why} — run: ela login {kind}", file=sys.stderr); sys.exit(EX_AUTH)
+    print(f"{kind} session {why} — run: {LOGIN_CMD.get(kind, 'ela login ' + kind)}", file=sys.stderr); sys.exit(EX_AUTH)
 
 
 # ela creates bundles and writes nothing else to userservice: no delete, update or bind. The reads POST too
@@ -487,7 +520,7 @@ def write_refused(path, kind):
 class US:
     """userservice on one host. qa and cn: account login, renewed by the script. prod: the person's session or nothing."""
     def __init__(self, env_file, host="prod"):
-        self.kind = host if host in HOSTS + ("qa",) else "prod"
+        self.kind = host if host in READ_HOSTS + ("qa",) else "prod"
         self.env_file = env_file
         if self.kind == "qa":
             print(QA_NOT_READ, file=sys.stderr); sys.exit(EX_USAGE)
@@ -498,12 +531,13 @@ class US:
             self.env_file = env_file = _env_file(env_file)
             self.host = _service_url(CN_SERVICE)
             self.sid = env_value(CN_SID, env_file) or account_login(env_file, self.host, CN_KEYS, "China")
-        elif self.kind == "prod":
-            self.host = _service_url("userservice")
-            s = _load_sessions().get("tvu") or {}
+        else:                                              # prod and dev: the owner's browser session, each its own
+            self.session = "tvu" if self.kind == "prod" else "dev"
+            self.host = _service_url("userservice" if self.kind == "prod" else DEV_SERVICE)
+            s = _load_sessions().get(self.session) or {}
             self.sid = s.get("sid") if not s.get("rejected_at") else None
             if not self.sid:
-                _need_login("tvu", "missing" if not s.get("sid") else f"refused at {s.get('rejected_at')}")
+                _need_login(self.session, "missing" if not s.get("sid") else f"refused at {s.get('rejected_at')}")
 
     def call(self, path, payload=None):
         why = write_refused(path, self.kind)
@@ -511,8 +545,8 @@ class US:
             print(f"userservice: refused: {why}", file=sys.stderr); sys.exit(EX_USAGE)
         st, body = http(self.host + path, payload, cookie=f"SID={self.sid}")
         if _auth_failed(st, body):
-            if self.kind == "prod":
-                _mark_rejected("tvu"); _need_login("tvu", f"refused (HTTP {st})")
+            if self.kind in ("prod", "dev"):
+                _mark_rejected(self.session); _need_login(self.session, f"refused (HTTP {st})")
             keys, what = CN_KEYS, "China"
             self.sid = account_login(self.env_file, self.host, keys, what)   # an account SID lives two hours; log in again once
             st, body = http(self.host + path, payload, cookie=f"SID={self.sid}")
@@ -526,7 +560,7 @@ class US:
 class LazyUS:
     """A userservice handle that logs in only when a call is made, so a read the store answers costs no login."""
     def __init__(self, env_file, host="prod"):
-        self.kind = host if host in HOSTS + ("qa",) else "prod"
+        self.kind = host if host in READ_HOSTS + ("qa",) else "prod"
         self.env_file, self._us = env_file, None
 
     def call(self, path, payload=None):
@@ -685,12 +719,15 @@ input{{width:100%;padding:8px;font:inherit}} button{{padding:8px 16px;font:inher
 
 
 def login_tvu(env_file, force=False, timeout=300, json_out=False, open_browser=True, key="tvu", browser=None):
-    """key: the session.json entry — `tvu` is the owner's own; `tvu-test` the second account product tests act as
-    (ela browser --as test). A test login opens Chrome on a profile of ela's own so the owner's cookies stay out."""
-    host_url = _service_url("userservice")
+    """key: the session.json entry — `tvu` is the owner's own on .com (daily, prod); `dev` the owner's own on dev,
+    proven by a bundle row on dev's userservice; `tvu-test` the second account product tests act as (ela browser
+    --as test). dev and test open Chrome on a profile of ela's own: the SID cookie is one name on .tvunetworks.com,
+    so a dev sign-in in the everyday profile would replace the prod one."""
+    host_url = _service_url(DEV_SERVICE if key == "dev" else "userservice")
     owner = (env_value("TVU_ACCOUNT", env_file) or "").lower()
     sessions = _load_sessions(); cur = sessions.get(key) or {}
-    valid = (lambda sid: _sid_email(env_file, sid) != "?") if key != "tvu" else (lambda sid: _validate_sid(host_url, sid))
+    test = key == "tvu-test"
+    valid = (lambda sid: _sid_email(env_file, sid) != "?") if test else (lambda sid: _validate_sid(host_url, sid))
     if cur.get("sid") and not cur.get("rejected_at") and not force and valid(cur["sid"]):
         msg = {"tvu": "valid", "obtained_at": cur.get("obtained_at"), "source": cur.get("source")}
         print(json.dumps(msg) if json_out else f"{key} session still valid (obtained {cur.get('obtained_at')}, {cur.get('source')}); --force to replace"); return
@@ -710,7 +747,7 @@ def login_tvu(env_file, force=False, timeout=300, json_out=False, open_browser=T
         def _accept(self, sid, source, cookies=None):
             # The owner's check reads a bundle row, which an ordinary account may not read; a test account is proven
             # by the user-auth service naming whose session it is, and must not be the owner's own session.
-            if key != "tvu":
+            if test:
                 who = _sid_email(env_file, sid)
                 if who.lower() == owner:
                     self._send(f'<p class="bad">This browser is signed in as the owner ({who}), not the test account. '
@@ -753,7 +790,7 @@ def login_tvu(env_file, force=False, timeout=300, json_out=False, open_browser=T
         print(f"cannot listen on 127.0.0.1:{port}: {e} — set `login_port` in ~/.claude/ela/site.json "
               f"(or $ELA_LOGIN_PORT) to a free port", file=sys.stderr); sys.exit(EX_REMOTE)
     srv.socket = ctx.wrap_socket(srv.socket, server_side=True); srv.timeout = 1
-    opened = _open_browser(url, browser, key.split("-", 1)[1] if "-" in key else None) if open_browser else False
+    opened = _open_browser(url, browser, {"tvu-test": "test", "dev": "dev"}.get(key)) if open_browser else False
     print(f"waiting for the browser at {url}  ({'opened' if opened else 'open it yourself'}; hosts: 127.0.0.1 {LOGIN_HOST}; up to {timeout}s)", file=sys.stderr)
     if cur.get("lifetimes_s"):
         print(f"previous session lifetimes: {', '.join(str(round(x/3600, 1)) + 'h' for x in cur['lifetimes_s'][-5:])}", file=sys.stderr)
@@ -766,17 +803,20 @@ def login_tvu(env_file, force=False, timeout=300, json_out=False, open_browser=T
     srv.server_close()
     if not state["sid"]:
         print("no session collected before the timeout", file=sys.stderr); sys.exit(EX_AUTH)
-    email = _sid_email(env_file, state["sid"])
-    sessions[key] = {"sid": state["sid"], "obtained_at": _now(), "rejected_at": None, "source": state["source"],
+    # whose session: the user-auth service of the host it came from (dev's lives under its userservice)
+    email = _sid_email(env_file, state["sid"], (host_url + "/userAuth") if key == "dev" else None)
+    sessions = _load_sessions()                             # re-read: another reader may have marked a session meanwhile
+    sessions[key] = {**{k: v for k, v in cur.items() if k not in ("sid", "obtained_at", "rejected_at", "source", "cookies", "lifetimes_s", "account")},
+                     "sid": state["sid"], "obtained_at": _now(), "rejected_at": None, "source": state["source"],
                      "cookies": state["cookies"], "lifetimes_s": cur.get("lifetimes_s") or [], "account": email}
     _save_sessions(sessions)
     msg = {key: "stored", "obtained_at": sessions[key]["obtained_at"], "source": state["source"], "account": email}
     print(json.dumps(msg) if json_out else f"{key} session stored for {email} ({state['source']}, {msg['obtained_at']})")
 
 
-def _sid_email(env_file, sid):
+def _sid_email(env_file, sid, base=None):
     """Whose session a SID is: the user-auth service's GetInfoJSON, the call keepalive makes. '?' when it cannot say."""
-    base = (env_value("TVU_USER_AUTH_BASE", env_file) or USER_AUTH_DEFAULT).rstrip("/")
+    base = (base or env_value("TVU_USER_AUTH_BASE", env_file) or USER_AUTH_DEFAULT).rstrip("/")
     req = urllib.request.Request(base + "/main/GetInfoJSON", data=urllib.parse.urlencode({"session": sid}).encode(),
                                  headers={"Accept": "application/json", "Content-Type": "application/x-www-form-urlencoded"}, method="POST")
     try:
@@ -850,7 +890,7 @@ def refresh_bundles(env_file, host, line, limit):
 
 def bundle_detail(us, bundle_id, fresh=False):
     # a China bundle's detail is kept under its own host: an id is unique on one userservice, not across two
-    where = ("cn", "detail") if us.kind == "cn" else ("detail",)
+    where = (us.kind, "detail") if us.kind in ("cn", "dev") else ("detail",)
     path = os.path.join(F.store_dir("builds", "bundles", *where), f"{_safe(bundle_id)}.json") if F else None
     doc = F.read_json(path) if path else None
     if doc and not fresh and _store_fresh() and F.fresh(doc.get("at")):
@@ -1767,13 +1807,16 @@ def cmd_drift(a):
 
 
 def cmd_login(a):
+    if a.host == "dev" and (a.target != "tvu" or a.as_ or a.keepalive):
+        print("--host dev is the owner's own sign-in on dev, nothing else: ela login tvu --host dev", file=sys.stderr); sys.exit(EX_USAGE)
     if a.keepalive:
         if a.target != "tvu":
             print("--keepalive applies to the tvu session only: ela login tvu --keepalive", file=sys.stderr); sys.exit(EX_USAGE)
         keepalive_tvu(a.env_file, json_out=a.json)
     if a.target == "tvu":
+        key = "tvu-test" if a.as_ == "test" else "dev" if a.host == "dev" else "tvu"
         login_tvu(a.env_file, force=a.force, timeout=a.timeout, json_out=a.json, open_browser=not a.no_browser,
-                  key="tvu-test" if a.as_ == "test" else "tvu", browser=a.browser or ("chrome" if a.as_ else None)); return
+                  key=key, browser=a.browser or ("chrome" if key != "tvu" else None)); return
     if a.target == "cn":                                    # proves the address and the account; the session id is never shown
         missing = cn_missing(a.env_file)
         if missing:
@@ -2117,8 +2160,9 @@ def main():
     ap = argparse.ArgumentParser(description="Release facts, first-hand.")
     ap.add_argument("--env-file")
     sub = ap.add_subparsers(dest="cmd", required=True)
-    HOST_HELP = "prod (the person's TVU session; ela login tvu) or cn (the China region's host, account login)"
-    def host_arg(p): p.add_argument("--host", choices=HOSTS, default="prod", help=HOST_HELP + "; the QA host is not read")
+    HOST_HELP = ("prod (the person's TVU session; ela login tvu), cn (the China region's host, account login) "
+                 "or dev (MH dev + UR dev2; the person's dev session, ela login tvu --host dev)")
+    def host_arg(p): p.add_argument("--host", choices=READ_HOSTS, default="prod", help=HOST_HELP + "; the QA host is not read")
     def hosts_arg(p): p.add_argument("--host", choices=HOSTS, help=HOST_HELP + "; without it every host is read and each row says which")
     RAW_HELP = "one host's answer as it is, names quoted as read, nothing mapped; needs --host (the first read of the China host)"
     p = sub.add_parser("bundles"); p.add_argument("line", nargs="?", help=f"a name prefix; default {DEFAULT_LINE} (.com) and the map's regions.china.userservice.bundle_line (cn)"); p.add_argument("--limit", type=int, default=50); hosts_arg(p); p.add_argument("--fresh", action="store_true", help="read the host now instead of the store"); p.add_argument("--raw", action="store_true", help=RAW_HELP); p.add_argument("--json", action="store_true")
@@ -2126,7 +2170,7 @@ def main():
     p = sub.add_parser("bundle-diff", help="docker services added, removed and changed between two bundles")
     p.add_argument("a", help="bundle A: exact name, id, or a prefix (mh2.0@rc-s5, or '2.0 rc-s5') — the newest match wins")
     p.add_argument("b", help="bundle B, resolved the same way")
-    for side in ("a", "b"): p.add_argument(f"--host-{side}", choices=HOSTS, default="prod", help=f"host bundle {side.upper()} is read from (default prod)")
+    for side in ("a", "b"): p.add_argument(f"--host-{side}", choices=READ_HOSTS, default="prod", help=f"host bundle {side.upper()} is read from (default prod)")
     p.add_argument("--json", action="store_true")
     p = sub.add_parser("envs"); p.add_argument("service", nargs="?"); hosts_arg(p); p.add_argument("--fresh", action="store_true", help="read the host now instead of the store"); p.add_argument("--raw", action="store_true", help=RAW_HELP + ": its service list, or with a service its tag records"); p.add_argument("--json", action="store_true")
     p = sub.add_parser("gateway", help="versions userservice does not publish (orchestration), read per lane through the API gateways; no login")
@@ -2158,6 +2202,7 @@ def main():
     p.add_argument("--keepalive", action="store_true", help="tvu: one validation call that renews the session's idle TTL; never logs in, never retries")
     p.add_argument("--as", dest="as_", choices=("test",), help="tvu: sign in the second account product tests act as (session `tvu-test`, ela browser --as test); opens Chrome on ela's own profile")
     p.add_argument("--browser", choices=("chrome",), help="open the sign-in page in Google Chrome instead of the default browser")
+    p.add_argument("--host", choices=("prod", "dev"), default="prod", help="tvu: dev signs the owner in on dev (session `dev`, kept apart from prod's `tvu`); opens Chrome on ela's own profile")
     a = ap.parse_args()
     # An unattended session (ELA_NO_APPLY) reads and dry-runs: a bundle create, a pin or a reconcile batch writes to GM
     # or commits to elak, and runs on the owner's word through the runner's `apply N`, never from a session.
