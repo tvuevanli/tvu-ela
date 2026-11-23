@@ -10,6 +10,20 @@ Self-contained. All reads go through `ela logs` (`${CLAUDE_PLUGIN_ROOT}/skills/l
 needs `ela login tvu`, and exit 4 names it.
 
 ## Invariants
+- **Small reads, one at a time.** Start at a few minutes around a named moment (±2–10 min), with a server-side
+  filter (`--grep`) and a small `--limit` (20), and read the result before the next read. Loki's 4 hours per call
+  is the server's ceiling, not a window to ask for; an unfiltered read is refused past 30 minutes. A wide unfiltered
+  pull loads the log server and buries the line wanted (MH-4049: a 16-hour pull, then four 4-hour pulls of 5,000
+  progress lines).
+- **Prove, don't sweep.** Before reading a range window by window, look for an invariant that covers it from two
+  lines: libsrt socket ids fall by one per new socket (srtcore/api.cpp:315, v1.5.4), so the same id at both ends
+  of a span proves no connection in between; `total N` on a `max_clients 1` listener says who was connected at
+  that instant. In MH-4049 a planned 35-window sweep became two lines.
+- **State at T is the last event before T with nothing unread between.** "No events in this window" is not "not
+  connected"; a span nobody read is NOT checked.
+- **Times in UTC, with the source's zone named.** `ela logs` prints UTC and local (UTC+8). An Outlook "Sent:" is
+  the sender's zone and a screenshot header the viewer's; when a zone is unknown, carry both readings, check both
+  and say which the evidence favours and why.
 - **A running timeline, from the first read, not only at the end.** While an investigation runs, keep one table,
   `UTC | event | source | status`, oldest first: each event with the read that shows it, status `checked` (read
   first-hand), `inferred` (follows from reads, not read itself) or `NOT checked`, and every span nobody read as a
