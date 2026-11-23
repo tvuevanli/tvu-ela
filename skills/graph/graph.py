@@ -1510,6 +1510,76 @@ def cmd_envs(ur, a):
     print(f"aliases: {short} · p<N> → prod<N> · prod-N/test-N/qa-N → prodN/testN/qaN")
 
 
+# A fresh cloud box is the precondition of a cold-start test: whether a region has none right now decides whether the
+# next start opens a new one. A TVU region key (americas · apac · cn · europe) expands, in UR resourcepool's TVU routing
+# table, to an ordered list of real locations; each location's live cloud boxes come from the same service. Both reads
+# are GETs (ResourceController GetCloudBoxes; the vendor catalog), nothing is reserved or created.
+RP = "/resourcepool/api"
+
+
+def _tvu_targets(ur, env, region):
+    st, body = ur.get(env, f"{RP}/v1/resource/vendors/tvu")
+    if st != 200 or not isinstance(body, dict):
+        print(f"{env}: TVU routing table unreadable (HTTP {st})", file=sys.stderr); sys.exit(EX_REMOTE)
+    out = []
+    for r in body.get("regions") or []:
+        if region in ("all", r.get("region")):
+            for z in r.get("zones") or []:
+                for t in z.get("targets") or []:
+                    out.append((r.get("region"), t.get("vendor"), t.get("region"), t.get("zone")))
+    return out, body.get("version")
+
+
+def _cloudbox_count(ur, env, region):
+    targets, version = _tvu_targets(ur, env, region)
+    rows = []
+    for key, vendor, reg, zone in targets:
+        st, body = ur.get(env, f"{RP}/v2/resource/cloudbox/{vendor}/{reg}/{zone}")
+        boxes = body if st == 200 and isinstance(body, list) else None
+        rows.append({"region_key": key, "vendor": vendor, "region": reg, "zone": zone, "status": st,
+                     "boxes": [{"box_id": b.get("id"), "instance_id": b.get("instanceId"), "created_at": b.get("createdAt"),
+                                "idle_since": b.get("idleSince"), "cpu_left": (b.get("remainingResource") or {}).get("cpu"),
+                                "cpu_total": (b.get("hostResource") or {}).get("cpu")} for b in (boxes or [])]})
+    total = sum(len(r["boxes"]) for r in rows)
+    unread = [r for r in rows if r["status"] != 200]
+    return {"env": env, "region": region, "routing_version": version, "total": total, "unread": len(unread), "locations": rows}
+
+
+def cmd_cloudboxes(ur, a):
+    """Live cloud boxes per location of a TVU region key, in routing order; --wait polls until none is left."""
+    import time
+    env = normalise(a.env or "prod9")
+    region = a.region.lower()
+    deadline = time.time() + a.timeout
+    while True:
+        res = _cloudbox_count(ur, env, region)
+        res["read_at"] = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        if not a.wait or (res["total"] == 0 and not res["unread"]) or time.time() >= deadline:
+            break
+        print(f"{res['read_at']}  {env_tag(env) if 'env_tag' in globals() else env} {region}: {res['total']} box(es) — waiting", file=sys.stderr)
+        time.sleep(max(15, a.interval))
+    if a.json:
+        print(json.dumps(res, ensure_ascii=False)); return
+    head = env_tag(env) if "env_tag" in globals() else env
+    print(f"# cloud boxes · {head} · region {region} · read {res['read_at']} · routing table {res['routing_version'] or '?'}")
+    for r in res["locations"]:
+        loc = f"{r['region_key']:<9}{r['vendor']} {r['zone']}"
+        if r["status"] != 200:
+            print(f"  {loc:<38} unread (HTTP {r['status']})"); continue
+        print(f"  {loc:<38} {len(r['boxes'])}")
+        for b in r["boxes"]:
+            busy = "idle" if b["cpu_left"] == b["cpu_total"] else f"busy {b['cpu_total'] - b['cpu_left']}/{b['cpu_total']} cpu"
+            print(f"      {b['box_id']}  {b['instance_id']}  created {str(b['created_at'])[:19]}  idle since {str(b['idle_since'])[:19]}  {busy}")
+    if res["unread"]:
+        print(f"→ {res['unread']} location(s) unread: the answer is incomplete"); sys.exit(EX_REMOTE)
+    if res["total"] == 0:
+        print(f"→ no cloud box in {region} on {env}: the next TVU-Hosted start there opens a new box")
+    else:
+        print(f"→ {res['total']} live box(es): the next start may reuse one; --wait polls until they are reclaimed")
+        if a.wait:
+            sys.exit(EX_NOTFOUND)
+
+
 def main():
     sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "configserver"))
     import redact; redact.guard_output()  # a credential inside a remote payload never reaches the terminal
@@ -1567,6 +1637,13 @@ def main():
     p.add_argument("--by", choices=["week", "day", "user"], default="week", help="the breakdown: per-week trend + top users (default), per-day trend, or every user with first and last day")
     p.add_argument("--json", action="store_true", help="every counted graph: email, domain, graph id, created_at, app, business_type")
     p = sub.add_parser("envs"); p.add_argument("--json", action="store_true")
+    p = sub.add_parser("cloudboxes", help="live cloud boxes per location of a TVU region, in routing order: is a start a cold start?")
+    p.add_argument("region", nargs="?", default="cn", help="TVU region key: cn (default) · americas · apac · europe · all")
+    p.add_argument("-e", "--env", help="UR env, default prod9 (prod3, test2, qa2 …)")
+    p.add_argument("--wait", action="store_true", help="poll until the region has no box (exit 0), or until --timeout (exit 3)")
+    p.add_argument("--interval", type=int, default=60, help="seconds between polls with --wait (min 15, default 60)")
+    p.add_argument("--timeout", type=int, default=1800, help="seconds --wait may take (default 1800)")
+    p.add_argument("--json", action="store_true")
     a = ap.parse_args()
     # `envs` makes no request: warming TLS in background threads and then exiting mid-handshake
     # segfaults the interpreter on shutdown (intermittently, in OpenSSL) — so do not warm for it.
@@ -1578,7 +1655,7 @@ def main():
         sys.exit(2)
     ur = UR(a.env_file, warm=not (a.cmd == "envs" or (a.cmd == "graph" and a.graph_id == "envs")))
     {"graph": cmd_graph, "process": cmd_process, "box": cmd_box, "graphs": cmd_graphs,
-     "profile": cmd_profile, "profiles": cmd_profiles, "resolve": cmd_resolve, "usage": cmd_usage, "envs": cmd_envs, "connect": cmd_connect, "exec": cmd_exec, "start": cmd_start, "stop": cmd_stop}[a.cmd](ur, a)
+     "profile": cmd_profile, "profiles": cmd_profiles, "resolve": cmd_resolve, "usage": cmd_usage, "envs": cmd_envs, "cloudboxes": cmd_cloudboxes, "connect": cmd_connect, "exec": cmd_exec, "start": cmd_start, "stop": cmd_stop}[a.cmd](ur, a)
 
 
 if __name__ == "__main__":

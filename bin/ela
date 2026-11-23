@@ -282,7 +282,7 @@ SITE = os.path.expanduser("~/.claude/ela/site.json")
 # verb → (capability, subcommand or None = pass verb through)
 VERBS = {
     "graph": ("graph", "graph"), "process": ("graph", "process"), "box": ("graph", "box"),
-    "graphs": ("graph", "graphs"), "resolve": ("graph", "resolve"), "envs": ("graph", "envs"), "usage": ("graph", "usage"),
+    "graphs": ("graph", "graphs"), "resolve": ("graph", "resolve"), "envs": ("graph", "envs"), "cloudboxes": ("graph", "cloudboxes"), "usage": ("graph", "usage"),
     "connect": ("graph", "connect"), "exec": ("graph", "exec"), "start": ("graph", "start"), "stop": ("graph", "stop"),
     "jira": ("jira", None), "slack": ("slack", None), "object": ("object", "get"),
     "find": ("map", "find"), "where": ("map", "where"), "probe": ("map", "probe"), "clone": ("map", "clone"),
