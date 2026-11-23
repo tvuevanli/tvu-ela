@@ -77,9 +77,14 @@ lanes each release line uses — all in `<elak>/map/release.yaml` (origin per bl
   it), `service not on dev`, or `refused: …` (two dev services of one name, two dev tags of one image, a source row
   without a full image reference, a tag list that did not read three times); nothing is guessed. `▲` marks dev above
   every source, with who put it there from the audit; `--ahead --json` feeds today.md's Dev line.
+- **Dev upgrades first; `sync-dev` is the bootstrap and catch-up.** From 2026-11-23 a new image lands on dev as the
+  next docker set (`mh2.1@dev-d58`, …) and reaches QA, daily and prod later under the same d number, so dev ahead of
+  daily is the normal state, a fact and not an alarm. A dev bundle is docker-only and named `mh<line>@dev-d<M>` (in
+  a daily name s<N> is the SaaS set and d<M> the docker set). Dev counts its own: M is the next number among dev's
+  bundles of the line (the first is `mh2.1@dev-d1`), and the source is said in the description and the audit. Copying daily or prod onto dev was needed once, the first time.
 - **The dev write: image tags, then one bundle, on the owner's word.** `$R sync-dev "<source>" [--name N] --apply`
   registers each `tag to add` with `tag/dockerVersion/add` (GM's own "add docker version" form: the service and the
-  image reference, nothing else), reads the tag back, then creates `mh<line>@dev-docker-<source>` with every service
+  image reference, nothing else), reads the tag back, then creates `mh<line>@dev-d<M>` with every service
   dev can run and verifies it as `create` does. It stops at the first refusal and says what it made; it deletes
   nothing, edits no tag, moves no default and binds no user, so nobody on dev runs anything new until someone assigns
   the bundle in GM. Every apply, whatever its outcome, is one line in `<runtime>/audit/dev-writes.jsonl` (who, when,

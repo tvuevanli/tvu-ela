@@ -13,7 +13,7 @@ L1: subcommands, --json, stdlib only. No store, no scheduler: every answer is th
   sync-dev [daily|prod|bundle …] [--ahead]  dev's docker images (each service's default tag on dev) against the
                                           sources, matched by service name and image: same, on dev under another tag,
                                           tag to add, or refused when ambiguous; ▲ where dev runs above every source
-  sync-dev <bundle> [--name N] [--apply]  one source: the docker-only dev bundle mh<line>@dev-docker-<source>; --apply
+  sync-dev <bundle> [--name N] [--apply]  one source: the docker-only dev bundle mh<line>@dev-d<M>; --apply
                                           adds the image tags dev lacks (dev only), creates the bundle, reads it back,
                                           and writes one audit line; binds nobody
   gateway  [service] [--lane L]           versions userservice does not publish (orchestration), per lane, read through
@@ -1296,7 +1296,7 @@ def name_rules(line):
     return [("daily", re.compile(rf"^{ln}@daily-[a-z]+-s\d+-d\d+$")), ("daily", re.compile(rf"^{ln}@stage-s\d+-d\d+$")),
             ("prod", re.compile(rf"^{ln}@(?:rc|beta|ga)-s\d+-d\d+$")),
             ("official", re.compile(rf"^MediaHub {mm}\.\d+(?: \([^()]+\))?$")), ("official", re.compile(rf"^MediaHub {mm} rc\d+$")),
-            ("dev", re.compile(rf"^{ln}@dev-docker-[a-z0-9][a-z0-9.-]*$"))]
+            ("dev", re.compile(rf"^{ln}@dev-d\d+$"))]
 
 
 def is_official(name, line, region=""):
@@ -1818,11 +1818,12 @@ def refresh_dev_ahead(env_file, line="2.1"):
     return ahead, None
 
 
-def dev_bundle_name(line, source_name):
-    """mh<line>@dev-docker-<source>: 'MediaHub 2.1.19' → mh2.1@dev-docker-2.1.19, 'mh2.1@daily-wed-s2-d57' →
-    mh2.1@dev-docker-daily-wed-s2-d57 (the owner's proposal of 2026-11-23; the line, the lane, the scope, the source)."""
-    src = source_name.split("@", 1)[1] if "@" in source_name else re.sub(r"^MediaHub\s+", "", source_name)
-    return f"mh{line}@dev-docker-" + re.sub(r"[^a-z0-9.]+", "-", src.lower()).strip("-.")
+def dev_bundle_name(line, dev_names):
+    """mh<line>@dev-d<M>, M the next docker-set number among dev's own bundles of the line: a dev bundle is
+    docker-only, so it carries a d number alone, and dev counts its own (daily keeps its numbering; the owner's ruling
+    of 2026-11-23). The first is mh2.1@dev-d1; the source is said in the description and the audit, not the name."""
+    ns = [int(m.group(1)) for n in dev_names if (m := re.fullmatch(rf"mh{re.escape(line)}@dev-d(\d+)", str(n or "")))]
+    return f"mh{line}@dev-d{max(ns, default=0) + 1}"
 
 
 def dev_plan(rows):
@@ -1873,13 +1874,13 @@ def sync_dev_apply(dev, src, rows, name, by):
 def cmd_sync_dev(a):
     srcs, rows = sync_dev(a.env_file, a.sources or ["daily", "prod"], a.line, a.host)
     keep, add, left = dev_plan(rows)
-    name = a.name or dev_bundle_name(a.line, srcs[0]["name"])
+    dev = US(a.env_file, "dev")
+    name = a.name or dev_bundle_name(a.line, [b.get("bundleName") for b in bundle_list(dev, f"mh{a.line}@dev-d", 50, fresh=True)])
     if a.apply or a.name:
         if len(srcs) != 1:
             print("sync-dev: a dev bundle is made from one source; name it alone", file=sys.stderr); sys.exit(EX_USAGE)
         if name_class(name, f"mh{a.line}@") != "dev":
-            print(f"sync-dev: {name!r} is not a dev bundle name (mh{a.line}@dev-docker-<source>)", file=sys.stderr); sys.exit(EX_USAGE)
-    dev = US(a.env_file, "dev")
+            print(f"sync-dev: {name!r} is not a dev bundle name (mh{a.line}@dev-d<M>)", file=sys.stderr); sys.exit(EX_USAGE)
     exists = len(srcs) == 1 and any(str(b.get("bundleName")) == name for b in bundle_list(dev, name, 50, fresh=True))
     if a.apply:
         if exists:
@@ -1917,7 +1918,7 @@ def cmd_sync_dev(a):
           f"{len(add)} image tag(s) to add · {len(refused)} refused · {sum(1 for r in rows if r['state'] == 'service not on dev')} not on dev · "
           f"{sum(1 for r in rows if r.get('ahead'))} dev ahead of every source")
     if len(srcs) == 1:
-        print(f"bundle {name} on dev: {len(keep)} service(s)" + (" — ALREADY EXISTS, an apply is refused" if exists else "")
+        print(f"bundle {name} on dev (source {srcs[0]['name']}, said in its description): {len(keep)} service(s)" + (" — ALREADY EXISTS, an apply is refused" if exists else "")
               + (f"; left out: {', '.join(r['service'] + ' (' + r['state'] + ')' for r in left)}" if left else "")
               + f". The write: {len(add)} × POST {DOCKER_TAG_ADD} on dev, then {BUNDLE_CREATE}; --apply on the owner's word")
 
@@ -2511,7 +2512,7 @@ def main():
     p.add_argument("sources", nargs="*", help="daily | prod | a bundle name, prefix or id; the first is the target; default: daily prod")
     p.add_argument("--line", default="2.1", help="release line for daily and prod (default 2.1)"); p.add_argument("--host", choices=HOSTS, default="prod", help="host the sources are read from")
     p.add_argument("--ahead", action="store_true", help="only the services where dev runs above every source"); p.add_argument("--json", action="store_true")
-    p.add_argument("--name", help="the dev bundle's name; default mh<line>@dev-docker-<source>")
+    p.add_argument("--name", help="the dev bundle's name; default mh<line>@dev-d<M>, M the next number among dev's own")
     p.add_argument("--by", help="who asked, for the audit (default the dev session's account)")
     p.add_argument("--apply", action="store_true", help="register the images dev lacks, then create the docker-only dev bundle and read it back; one source only")
     p = sub.add_parser("line", help="one release line as one page: lanes, next promotion, docker differences, builds, history (local files only)")

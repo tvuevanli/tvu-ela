@@ -29,9 +29,10 @@ check("on dev: a bundle and an image tag, nothing else", W(R.BUNDLE_CREATE, "dev
                                      "/userGroup/user-group/tag/setDefaultTag", "/userGroup/user-group/tag/dockerVersion/batchAddVersion",
                                      "/userGroup/user-group/tag/dockerVersion/delete", "/userGroup/user-group/tag/dockerVersion/edit")))
 check("an image tag is never added off dev", all(W(R.DOCKER_TAG_ADD, k) for k in ("prod", "cn", "qa")))
-check("a dev bundle name, from its source", R.dev_bundle_name("2.1", "MediaHub 2.1.19") == "mh2.1@dev-docker-2.1.19"
-      and R.dev_bundle_name("2.1", "mh2.1@daily-wed-s2-d57") == "mh2.1@dev-docker-daily-wed-s2-d57"
-      and R.name_class("mh2.1@dev-docker-2.1.19", "mh2.1@") == "dev" and R.name_class("mh2.1@dev-2.1.19", "mh2.1@") is None)
+check("a dev bundle counts its own docker sets", R.dev_bundle_name("2.1", []) == "mh2.1@dev-d1"
+      and R.dev_bundle_name("2.1", ["mh2.1@dev-d1", "mh2.1@dev-d3", "mh2.1@dev-d3x", "mh2.0@dev-d9", "tonya1"]) == "mh2.1@dev-d4"
+      and R.name_class("mh2.1@dev-d57", "mh2.1@") == "dev" and R.name_class("mh2.1@dev-s2-d57", "mh2.1@") is None
+      and R.name_class("mh2.1@dev-docker-2.1.19", "mh2.1@") is None)
 rows = [{"service": "a", "state": "same", "use_tag_id": "t1"}, {"service": "b", "state": R.TAG_TO_ADD},
         {"service": "c", "state": "service not on dev"}, {"service": "d", "state": "refused: 2 dev tags carry this image"},
         {"service": "e", "state": "on dev as tag x", "use_tag_id": "t2"}]
