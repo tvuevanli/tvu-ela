@@ -26,6 +26,17 @@ the lane (default prod-3)? It is §fix below in place of §1–§4; "deployed" i
 its verdict.
 
 ## Invariants
+- **Every claim carries its label: checked (the line quoted), inferred, or not checked.** Only checked claims go
+  to a customer. In MH-4049 "SMS never pulled 61519" rested on an hour of windows; one more window found SMS
+  connecting at 09:23:58 and the claim was withdrawn.
+- **The customer's own artefact first.** Read their mail, screenshot and exact question before a counterpart's
+  summary: an agent may answer a neighbouring question, or end its window before the decisive event.
+- **An address is identified through RIPE or ARIN RDAP (netname, registrant), never guessed.** Unresolved stays
+  unresolved, said so.
+- **A UI label is read in the code before it is called unknown** (MH-4049: "Other" is recent Closed or Rejected
+  SRT events, media-hub-front statusInfo.vue:81, en.js:917).
+- **Never connect to a customer's live output to check it.** A single-caller listener (`max_clients 1`) may
+  refuse us or drop the customer. Current state comes from logs, Observer or the owner, never from the wire.
 - **A running timeline, from the first read, not only at the end.** While an investigation runs, keep one table,
   `UTC | event | source | status`, oldest first: each event with the read that shows it, status `checked` (read
   first-hand), `inferred` (follows from reads, not read itself) or `NOT checked`, and every span nobody read as a

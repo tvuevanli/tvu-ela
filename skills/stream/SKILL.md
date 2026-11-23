@@ -82,6 +82,9 @@ and gives a windowed bitrate estimate; a non-TS container has no PIDs and no ser
 was transported.
 
 ## Invariants
+- **Never a customer's live output.** A probe is a caller: on a single-caller listener (`max_clients 1`) it may
+  be refused or drop the customer's own connection. Probe our own copiers and test outputs; a customer's current
+  state comes from logs, Observer or the owner (MH-4049, 2026-11-23).
 - **A live HLS window is seconds wide.** A media playlist typically lists 5 × 2s segments, so
   resolving a segment in one call and fetching it in the next races the window and 404s. `probe`
   resolves and downloads in one pass — never hand-assemble the two steps.
