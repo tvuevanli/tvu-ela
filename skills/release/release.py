@@ -44,7 +44,7 @@ a read of every host answers for .com and says once what to add; --host cn exits
 Config: <elak>/map/release.yaml (service ids per host, tag→lane maps, Jenkins job → service, release lines).
 Exit codes: 0 ok · 2 usage · 3 not found · 4 auth · 5 remote error.
 """
-import argparse, contextlib, datetime, hashlib, io, json, os, re, signal, ssl, subprocess, sys, urllib.error, urllib.parse, urllib.request
+import argparse, contextlib, datetime, hashlib, io, json, os, re, shutil, signal, ssl, subprocess, sys, urllib.error, urllib.parse, urllib.request
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
@@ -639,7 +639,35 @@ def _ensure_cert():
     return crt, key
 
 
-def _open_browser(url):
+CHROME_WIN = "/mnt/c/Program Files/Google/Chrome/Application/chrome.exe"
+
+
+def _chrome_argv(url, profile=None):
+    """Google Chrome on the Windows side of WSL, else a Linux Chrome. `profile` names a profile directory of ela's own,
+    so a second account signs in without the owner's cookies (his evanli session lives in his everyday profile)."""
+    if os.path.isfile(CHROME_WIN):
+        argv = [CHROME_WIN]
+        if profile:
+            r = subprocess.run(["/mnt/c/WINDOWS/system32/cmd.exe", "/c", "echo", "%LOCALAPPDATA%"], cwd="/mnt/c", capture_output=True, text=True)
+            base = r.stdout.strip()
+            if base and "%" not in base:
+                argv.append(f"--user-data-dir={base}\\ela\\chrome-{profile}")
+        return argv + ["--new-window", url]
+    for name in ("google-chrome", "google-chrome-stable"):
+        exe = shutil.which(name)
+        if exe:
+            extra = [f"--user-data-dir={os.path.expanduser(f'~/.claude/ela/chrome-{profile}')}"] if profile else []
+            return [exe, *extra, "--new-window", url]
+    return None
+
+
+def _open_browser(url, browser=None, profile=None):
+    if browser == "chrome":
+        argv = _chrome_argv(url, profile)
+        if not argv:
+            print("Google Chrome not found (Windows side or Linux)", file=sys.stderr); return False
+        subprocess.Popen(argv, cwd="/mnt/c" if argv[0] == CHROME_WIN else None, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return True
     for argv, cwd in ((["/mnt/c/WINDOWS/system32/cmd.exe", "/c", "start", "", url], "/mnt/c"), (["xdg-open", url], None), (["open", url], None)):
         if os.path.isfile(argv[0]) or argv[0] in ("xdg-open", "open"):
             try:
@@ -656,12 +684,14 @@ input{{width:100%;padding:8px;font:inherit}} button{{padding:8px 16px;font:inher
 <h2>ela · TVU session</h2>{body}"""
 
 
-def login_tvu(env_file, force=False, timeout=300, json_out=False, open_browser=True):
+def login_tvu(env_file, force=False, timeout=300, json_out=False, open_browser=True, key="tvu", browser=None):
+    """key: the session.json entry — `tvu` is the owner's own; `tvu-test` the second account product tests act as
+    (ela browser --as test). A test login opens Chrome on a profile of ela's own so the owner's cookies stay out."""
     host_url = _service_url("userservice")
-    sessions = _load_sessions(); cur = sessions.get("tvu") or {}
+    sessions = _load_sessions(); cur = sessions.get(key) or {}
     if cur.get("sid") and not cur.get("rejected_at") and not force and _validate_sid(host_url, cur["sid"]):
         msg = {"tvu": "valid", "obtained_at": cur.get("obtained_at"), "source": cur.get("source")}
-        print(json.dumps(msg) if json_out else f"tvu session still valid (obtained {cur.get('obtained_at')}, {cur.get('source')}); --force to replace"); return
+        print(json.dumps(msg) if json_out else f"{key} session still valid (obtained {cur.get('obtained_at')}, {cur.get('source')}); --force to replace"); return
     crt, key = _ensure_cert()
     port = _login_port()
     url = f"https://{LOGIN_HOST}:{port}/"
@@ -711,7 +741,7 @@ def login_tvu(env_file, force=False, timeout=300, json_out=False, open_browser=T
         print(f"cannot listen on 127.0.0.1:{port}: {e} — set `login_port` in ~/.claude/ela/site.json "
               f"(or $ELA_LOGIN_PORT) to a free port", file=sys.stderr); sys.exit(EX_REMOTE)
     srv.socket = ctx.wrap_socket(srv.socket, server_side=True); srv.timeout = 1
-    opened = _open_browser(url) if open_browser else False
+    opened = _open_browser(url, browser, key.split("-", 1)[1] if "-" in key else None) if open_browser else False
     print(f"waiting for the browser at {url}  ({'opened' if opened else 'open it yourself'}; hosts: 127.0.0.1 {LOGIN_HOST}; up to {timeout}s)", file=sys.stderr)
     if cur.get("lifetimes_s"):
         print(f"previous session lifetimes: {', '.join(str(round(x/3600, 1)) + 'h' for x in cur['lifetimes_s'][-5:])}", file=sys.stderr)
@@ -724,11 +754,25 @@ def login_tvu(env_file, force=False, timeout=300, json_out=False, open_browser=T
     srv.server_close()
     if not state["sid"]:
         print("no session collected before the timeout", file=sys.stderr); sys.exit(EX_AUTH)
-    sessions["tvu"] = {"sid": state["sid"], "obtained_at": _now(), "rejected_at": None, "source": state["source"],
-                        "cookies": state["cookies"], "lifetimes_s": cur.get("lifetimes_s") or []}
+    email = _sid_email(env_file, state["sid"])
+    sessions[key] = {"sid": state["sid"], "obtained_at": _now(), "rejected_at": None, "source": state["source"],
+                     "cookies": state["cookies"], "lifetimes_s": cur.get("lifetimes_s") or [], "account": email}
     _save_sessions(sessions)
-    msg = {"tvu": "stored", "obtained_at": sessions["tvu"]["obtained_at"], "source": state["source"]}
-    print(json.dumps(msg) if json_out else f"TVU session stored ({state['source']}, {msg['obtained_at']}) — ela versions --host prod")
+    msg = {key: "stored", "obtained_at": sessions[key]["obtained_at"], "source": state["source"], "account": email}
+    print(json.dumps(msg) if json_out else f"{key} session stored for {email} ({state['source']}, {msg['obtained_at']})")
+
+
+def _sid_email(env_file, sid):
+    """Whose session a SID is: the user-auth service's GetInfoJSON, the call keepalive makes. '?' when it cannot say."""
+    base = (env_value("TVU_USER_AUTH_BASE", env_file) or USER_AUTH_DEFAULT).rstrip("/")
+    req = urllib.request.Request(base + "/main/GetInfoJSON", data=urllib.parse.urlencode({"session": sid}).encode(),
+                                 headers={"Accept": "application/json", "Content-Type": "application/x-www-form-urlencoded"}, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=15) as r:
+            body = json.loads(r.read())
+        return ((body.get("user") or {}).get("email")) or "?"
+    except Exception:
+        return "?"
 
 
 # ── bundles ──────────────────────────────────────────────────────────────────
@@ -1716,7 +1760,8 @@ def cmd_login(a):
             print("--keepalive applies to the tvu session only: ela login tvu --keepalive", file=sys.stderr); sys.exit(EX_USAGE)
         keepalive_tvu(a.env_file, json_out=a.json)
     if a.target == "tvu":
-        login_tvu(a.env_file, force=a.force, timeout=a.timeout, json_out=a.json, open_browser=not a.no_browser); return
+        login_tvu(a.env_file, force=a.force, timeout=a.timeout, json_out=a.json, open_browser=not a.no_browser,
+                  key="tvu-test" if a.as_ == "test" else "tvu", browser=a.browser or ("chrome" if a.as_ else None)); return
     if a.target == "cn":                                    # proves the address and the account; the session id is never shown
         missing = cn_missing(a.env_file)
         if missing:
@@ -2099,6 +2144,8 @@ def main():
     p.add_argument("line"); p.add_argument("--json", action="store_true")
     p = sub.add_parser("login"); p.add_argument("target", nargs="?", choices=("qa", "tvu", "cn"), default="tvu"); p.add_argument("--force", action="store_true"); p.add_argument("--no-browser", action="store_true"); p.add_argument("--timeout", type=int, default=300); p.add_argument("--json", action="store_true")
     p.add_argument("--keepalive", action="store_true", help="tvu: one validation call that renews the session's idle TTL; never logs in, never retries")
+    p.add_argument("--as", dest="as_", choices=("test",), help="tvu: sign in the second account product tests act as (session `tvu-test`, ela browser --as test); opens Chrome on ela's own profile")
+    p.add_argument("--browser", choices=("chrome",), help="open the sign-in page in Google Chrome instead of the default browser")
     a = ap.parse_args()
     # An unattended session (ELA_NO_APPLY) reads and dry-runs: a bundle create, a pin or a reconcile batch writes to GM
     # or commits to elak, and runs on the owner's word through the runner's `apply N`, never from a session.
