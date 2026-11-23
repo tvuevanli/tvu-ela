@@ -45,7 +45,8 @@ EX_USAGE, EX_NOTFOUND, EX_AUTH, EX_REMOTE = 2, 3, 4, 5
 UAS_DEFAULT = "https://tvulog.tvunetworks.com/tvuuas"
 OBSERVER_DEFAULT = "https://mma1.tvunetworks.com"
 PROCESS_WINDOW = datetime.timedelta(days=7)
-LOKI_WINDOW = datetime.timedelta(hours=4)
+LOKI_WINDOW = datetime.timedelta(hours=4)          # the server's ceiling per call, not a window to ask for
+LOKI_UNFILTERED = datetime.timedelta(minutes=30)   # the widest read without a server-side filter
 UTC = datetime.timezone.utc
 OK_CODES = {"0x0", "0", "200", "0x00"}
 UNITS = {"ms": "milliseconds", "s": "seconds", "m": "minutes", "h": "hours", "d": "days"}
@@ -420,6 +421,11 @@ def cmd_loki(a):
         e = datetime.datetime.now(UTC); s = e - parse_span(a.since)
     if e - s > LOKI_WINDOW:
         die("Loki answers at most 4 hours per call; narrow the window", EX_USAGE)
+    # An unfiltered read pulls every line of a busy service: the costly one for the log server, and the one that
+    # buries the line asked for. Without a server-side filter it is held to a short window (MH-4049, 2026-11-23).
+    if not (a.grep or (a.query and "|=" in a.query)) and e - s > LOKI_UNFILTERED:
+        die(f"an unfiltered Loki read is at most {int(LOKI_UNFILTERED.total_seconds() // 60)} minutes: add --grep (a filter "
+            "on the server) or narrow the window around the moment", EX_USAGE)
     if a.query:
         q = a.query
     else:
