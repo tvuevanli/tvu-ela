@@ -55,6 +55,7 @@ python3 tests/test_focus_offline.py || fail=1
 python3 tests/test_dry_undo_offline.py || fail=1
 python3 tests/test_mention_offline.py || fail=1
 python3 tests/test_mention_post_offline.py || fail=1
+python3 tests/test_improve_offline.py || fail=1
 python3 tests/test_release_changes_offline.py || fail=1
 python3 tests/test_line_page_offline.py || fail=1
 python3 tests/test_release_reconcile_offline.py || fail=1

@@ -3571,8 +3571,9 @@ def sync_handles(does):
     """Whether the sync acts on this letter itself (nothing leaves ela): a drop, a no-op, or a dry answer that writes
     nothing live. The rest goes to the runner through `ela vault guidance`."""
     return (does is None or does == "drop" or (does.startswith("ela dry answer ") and "--apply" not in does)
-            or (does.startswith("ela mention answer ") and "--shown" not in does))   # a letter on a held mention: a record, and
+            or (does.startswith("ela mention answer ") and "--shown" not in does)   # a letter on a held mention: a record, and
                                                            # dry-run batches at most; an A that posts (ADR 0022) is the runner's
+            or does.startswith("ela improve answer "))     # a letter on an improvement item: a record only (ADR 0023)
 
 
 def settle_letters(vault, reports, state, today, dry_run=False):
@@ -3603,6 +3604,12 @@ def settle_one(reports, state, aid, letter, does, today, dry_run=False):
         try:
             MN = mention_mod()
             MN.answer(reports, parts[3], parts[4], lambda: MN.site_context(reports))
+        except (KeyError, ValueError):
+            return False
+    if does and does.startswith("ela improve answer ") and not dry_run:
+        parts = does.split()
+        try:
+            improve_mod().answer(reports, parts[3], parts[4], today)
         except (KeyError, ValueError):
             return False
     v["answered"] = {"letter": letter, "at": today.isoformat()}
@@ -3715,6 +3722,23 @@ def mention_asks(reports, today):
         return []
     return [{"id": x["id"], "text": x["question"], "whole": True, "options": x["options"], "link": x["link"], "sig": x["sig"],
              "first": today.isoformat()} for x in got]
+
+
+def improve_asks(reports, today):
+    """The improvement items that take an ordinary ask slot on today.md (ADR 0023): a fix a colleague would see, not
+    yet answered; his options A go · B drop it. A broken store costs these asks only."""
+    try:
+        got = improve_mod().asks(reports)
+    except Exception:                                      # noqa: BLE001 — the page is written without them
+        return []
+    return [{"id": x["id"], "text": x["question"], "whole": True, "options": x["options"], "sig": x["sig"],
+             "first": today.isoformat()} for x in got]
+
+
+def improve_mod():
+    sys.path.insert(0, os.path.join(HERE, "..", "improve"))
+    import improve as IM                                   # noqa: E402 — the improvement store's one reader and writer
+    return IM
 
 
 def mention_pages(reports, today):
@@ -5074,10 +5098,11 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since
     qcands = question_asks(questions, today, week_actions(reports, today)) if questions else []
     dcands, dry_facts = dry_asks(reports, today, asks_state, dry_run)
     mcands = mention_asks(reports, today)                  # a person waiting on him leads the drafted writes
+    icands = improve_asks(reports, today)                  # then the improvements that wait for his word
     qcands, cands = unheld(qcands, focus.get("holds"), today), unheld(cands, focus.get("holds"), today)   # a held subject asks nothing
     # a batch of drafted writes (the focus board's moves among them) comes before a question's carry nudge: the board
     # turns a question carried through two meetings into a Jira move, which the nudge only asks about
-    shown, more, _, asks_state = settle_asks(asks_state, mcands + dcands + qcands + cands, today)
+    shown, more, _, asks_state = settle_asks(asks_state, mcands + dcands + icands + qcands + cands, today)
     for v in asks_state.values():                          # the slots are today's page's: yesterday's numbers mean nothing
         for k in ("slot", "options"):
             v.pop(k, None)
