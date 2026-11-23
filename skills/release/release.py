@@ -31,8 +31,8 @@ L1: subcommands, --json, stdlib only. No store, no scheduler: every answer is th
                                           ~/.claude/ela/session.json (mode 600) with obtained_at; the first refusal
                                           records rejected_at so the session's real lifetime is measured.
   login tvu --host dev                    the owner's own session on dev (MH dev + UR dev2), same browser sign-in on
-                                          Chrome under a profile of ela's own, stored as session.json `dev`; never
-                                          touches `tvu`. Read it with --host dev on bundle and bundle-diff.
+                                          Chrome under a profile of ela's own, stored as session.json `tvu-dev`; never
+                                          touches `tvu-com`. Read it with --host dev on bundle and bundle-diff.
   login tvu --keepalive                   one validation call to user-auth, which renews the session's idle TTL; never
                                           logs in, never retries. 0 renewed · 4 refused (recorded) or already refused ·
                                           5 network. A systemd user timer runs it every 30 min (skills/release/keepalive/).
@@ -45,7 +45,7 @@ the China region's bundles and lanes (prod-N-china). Its names mean a lane only 
 regions.china.userservice says so; anything else is shown as read, marked unmapped. While the site lacks those names,
 a read of every host answers for .com and says once what to add; --host cn exits 2 with the same line.
 dev = site.json services.userservice-dev (MH dev + UR dev2), the owner's own session on dev — `ela login tvu --host dev`,
-session.json `dev`, apart from prod's `tvu`. Read with --host dev on bundle, bundle-diff and drift, never in an every-host
+session.json `tvu-dev`, apart from prod's `tvu-com`. Read with --host dev on bundle, bundle-diff and drift, never in an every-host
 read; nothing is written there.
 Config: <elak>/map/release.yaml (service ids per host, tag→lane maps, Jenkins job → service, release lines).
 Exit codes: 0 ok · 2 usage · 3 not found · 4 auth · 5 remote error.
@@ -206,7 +206,7 @@ def _tag_lane(h, tagname):
 # up in hosts.prod, and its facts are kept in files of their own.
 HOSTS = ("prod", "cn")
 # dev (MH dev + UR dev2) is read on its own and never in an "every host" read: it is no release lane, and its session
-# is the owner's sign-in on dev, kept under session.json `dev` beside prod's `tvu` and never mixed with it.
+# is the owner's sign-in on dev, kept under session.json `tvu-dev` beside prod's `tvu-com` and never mixed with it.
 DEV_SERVICE = "userservice-dev"
 READ_HOSTS = HOSTS + ("dev",)
 # The QA host is not read: since 2026-11-04 it admits no developer account, and a QA lane's versions and bundle come
@@ -449,7 +449,9 @@ def _now():
 # One name per deployment: the owner's own sign-in is `tvu-<deployment>` (com: .com daily and prod; cn; dev), a test
 # account is `tvu-<deployment>-test` (com: product tests on prod; qa: the QA lines, which take test accounts only).
 # The old names still read: on load each old key is the same object as its new one, and on save only new names stay,
-# so a verb that still says `tvu` or `cn` keeps working while the file holds one name per sign-in.
+# so a verb that still says `tvu` or `cn` keeps working while the file holds one name per sign-in. `tvu` is kept for
+# good as the short name of `tvu-com` (the owner's word, 2026-11-23): .com is the sign-in meant when none is named,
+# and `ela login tvu` stays the command for it.
 SESSION_NAMES = {"tvu": "tvu-com", "cn": "tvu-cn", "dev": "tvu-dev", "tvu-test": "tvu-com-test", "qa": "tvu-qa-test"}
 
 
@@ -494,7 +496,8 @@ def _mark_rejected(kind):
         d[kind] = s; _save_sessions(d)
 
 
-LOGIN_CMD = {"tvu": "ela login tvu", "dev": "ela login tvu --host dev", "tvu-test": "ela login tvu --as test"}
+LOGIN_CMD = {"tvu-com": "ela login tvu", "tvu-dev": "ela login tvu --host dev", "tvu-com-test": "ela login tvu --as test",
+             "tvu": "ela login tvu", "dev": "ela login tvu --host dev", "tvu-test": "ela login tvu --as test"}
 
 
 def _need_login(kind, why):
@@ -532,7 +535,7 @@ class US:
             self.host = _service_url(CN_SERVICE)
             self.sid = env_value(CN_SID, env_file) or account_login(env_file, self.host, CN_KEYS, "China")
         else:                                              # prod and dev: the owner's browser session, each its own
-            self.session = "tvu" if self.kind == "prod" else "dev"
+            self.session = "tvu-com" if self.kind == "prod" else "tvu-dev"
             self.host = _service_url("userservice" if self.kind == "prod" else DEV_SERVICE)
             s = _load_sessions().get(self.session) or {}
             self.sid = s.get("sid") if not s.get("rejected_at") else None
@@ -719,11 +722,11 @@ input{{width:100%;padding:8px;font:inherit}} button{{padding:8px 16px;font:inher
 
 
 def login_tvu(env_file, force=False, timeout=300, json_out=False, open_browser=True, key="tvu", browser=None):
-    """key: the session.json entry — `tvu` is the owner's own on .com (daily, prod); `dev` the owner's own on dev,
+    """key: the session.json entry — `tvu` is the owner's own on .com (daily, prod); `tvu-dev` the owner's own on dev,
     proven by a bundle row on dev's userservice; `tvu-test` the second account product tests act as (ela browser
     --as test). dev and test open Chrome on a profile of ela's own: the SID cookie is one name on .tvunetworks.com,
     so a dev sign-in in the everyday profile would replace the prod one."""
-    host_url = _service_url(DEV_SERVICE if key == "dev" else "userservice")
+    host_url = _service_url(DEV_SERVICE if key == "tvu-dev" else "userservice")
     owner = (env_value("TVU_ACCOUNT", env_file) or "").lower()
     sessions = _load_sessions(); cur = sessions.get(key) or {}
     test = key == "tvu-test"
@@ -790,7 +793,7 @@ def login_tvu(env_file, force=False, timeout=300, json_out=False, open_browser=T
         print(f"cannot listen on 127.0.0.1:{port}: {e} — set `login_port` in ~/.claude/ela/site.json "
               f"(or $ELA_LOGIN_PORT) to a free port", file=sys.stderr); sys.exit(EX_REMOTE)
     srv.socket = ctx.wrap_socket(srv.socket, server_side=True); srv.timeout = 1
-    opened = _open_browser(url, browser, {"tvu-test": "test", "dev": "dev"}.get(key)) if open_browser else False
+    opened = _open_browser(url, browser, {"tvu-test": "test", "tvu-com-test": "test", "tvu-dev": "dev"}.get(key)) if open_browser else False
     print(f"waiting for the browser at {url}  ({'opened' if opened else 'open it yourself'}; hosts: 127.0.0.1 {LOGIN_HOST}; up to {timeout}s)", file=sys.stderr)
     if cur.get("lifetimes_s"):
         print(f"previous session lifetimes: {', '.join(str(round(x/3600, 1)) + 'h' for x in cur['lifetimes_s'][-5:])}", file=sys.stderr)
@@ -804,7 +807,7 @@ def login_tvu(env_file, force=False, timeout=300, json_out=False, open_browser=T
     if not state["sid"]:
         print("no session collected before the timeout", file=sys.stderr); sys.exit(EX_AUTH)
     # whose session: the user-auth service of the host it came from (dev's lives under its userservice)
-    email = _sid_email(env_file, state["sid"], (host_url + "/userAuth") if key == "dev" else None)
+    email = _sid_email(env_file, state["sid"], (host_url + "/userAuth") if key == "tvu-dev" else None)
     sessions = _load_sessions()                             # re-read: another reader may have marked a session meanwhile
     sessions[key] = {**{k: v for k, v in cur.items() if k not in ("sid", "obtained_at", "rejected_at", "source", "cookies", "lifetimes_s", "account")},
                      "sid": state["sid"], "obtained_at": _now(), "rejected_at": None, "source": state["source"],
@@ -1814,7 +1817,7 @@ def cmd_login(a):
             print("--keepalive applies to the tvu session only: ela login tvu --keepalive", file=sys.stderr); sys.exit(EX_USAGE)
         keepalive_tvu(a.env_file, json_out=a.json)
     if a.target == "tvu":
-        key = "tvu-test" if a.as_ == "test" else "dev" if a.host == "dev" else "tvu"
+        key = "tvu-test" if a.as_ == "test" else "tvu-dev" if a.host == "dev" else "tvu"
         login_tvu(a.env_file, force=a.force, timeout=a.timeout, json_out=a.json, open_browser=not a.no_browser,
                   key=key, browser=a.browser or ("chrome" if key != "tvu" else None)); return
     if a.target == "cn":                                    # proves the address and the account; the session id is never shown
@@ -2202,7 +2205,7 @@ def main():
     p.add_argument("--keepalive", action="store_true", help="tvu: one validation call that renews the session's idle TTL; never logs in, never retries")
     p.add_argument("--as", dest="as_", choices=("test",), help="tvu: sign in the second account product tests act as (session `tvu-test`, ela browser --as test); opens Chrome on ela's own profile")
     p.add_argument("--browser", choices=("chrome",), help="open the sign-in page in Google Chrome instead of the default browser")
-    p.add_argument("--host", choices=("prod", "dev"), default="prod", help="tvu: dev signs the owner in on dev (session `dev`, kept apart from prod's `tvu`); opens Chrome on ela's own profile")
+    p.add_argument("--host", choices=("prod", "dev"), default="prod", help="tvu: dev signs the owner in on dev (session `tvu-dev`, kept apart from prod's `tvu-com`); opens Chrome on ela's own profile")
     a = ap.parse_args()
     # An unattended session (ELA_NO_APPLY) reads and dry-runs: a bundle create, a pin or a reconcile batch writes to GM
     # or commits to elak, and runs on the owner's word through the runner's `apply N`, never from a session.
