@@ -1,6 +1,6 @@
 ---
 name: grid
-description: A Grid source end to end, read-only — sender, GCS routes, receivers, the MediaHub decoder, where it breaks. Use when a Grid input shows disconnected (main and backup alike), when a graph's first node is grid_decoder, for a Grid sender's name or PID, or to see which receiver pulls a Grid source.
+description: A Grid source end to end, read-only. Use for a disconnected Grid input or a grid_decoder graph.
 user-invocable: true
 ---
 
