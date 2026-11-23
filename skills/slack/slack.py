@@ -1103,6 +1103,13 @@ def cmd_post(tok, a):
     send_tok, handle, owner = tok, me.get("user"), None
     if as_owner:
         send_tok, owner, handle = owner_identity(tok, a.env_file)
+    # A post the bot sends to a channel on the owner's behalf copies him, so a colleague's reply reaches him and he
+    # sees what went out under the bot's name. Not under his own name (--as-owner), not a direct message, and not the
+    # team gates' daily posts, which are his own routine; --no-cc leaves it out.
+    if not as_owner and not a.dm and not a.team_day_post and not a.team_thread and not getattr(a, "no_cc", False):
+        uid = whoami(tok, a.env_file)
+        if uid and f"<@{uid}>" not in text:
+            text = f"{text}\n(cc <@{uid}>)"
     # idempotency: the same text from this identity already in the last 20 messages of the target → refuse
     recent = (call("conversations.replies", tok, channel=ch, ts=thread_ts, limit=20) if thread_ts
               else call("conversations.history", tok, channel=ch, limit=20))["messages"]
@@ -1229,6 +1236,7 @@ def main():
     p.add_argument("--text"); p.add_argument("--file", help="markdown/text file, or - for stdin")
     p.add_argument("--dm", help="me · an email · a user id — a direct message instead of a channel")
     p.add_argument("--apply", action="store_true", help="actually send; without it nothing leaves the machine")
+    p.add_argument("--no-cc", action="store_true", help="leave out the owner's cc on a post sent as the bot to a channel")
     p.add_argument("--as-owner", action="store_true", help="send under the owner's own name with SLACK_USER_TOKEN (user scope "
                    "chat:write); refused, never sent as the bot, when the token is missing, not his, or lacks the scope")
     p.add_argument("--preview", action="store_true", help="DM the text to the owner, headed with its target, instead of "
