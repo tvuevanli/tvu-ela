@@ -8,7 +8,9 @@ had to follow up twice, a vault line that needed a second round, a timer that fa
   digest --date D [--json]      the day's signals, deterministic: mediahub-bot's runs (verdict, confidence, gaps, the
                                 thread's permalink, how many runs the thread took), ela's jobs (his Slack asks, his
                                 vault lines, mentions; follow-ups in one thread; failed and stuck jobs; failed units),
-                                his feedback, and the improvement items still open
+                                his feedback, the improvement items still open, and the day's token spend by kind
+                                of session (the transcripts modified that day: turns, fresh input, cache read, a
+                                cost-weighted equivalent, the peak context of a turn, files one session read over 3 times)
   add FILE --date D             the items an evening session proposed (a JSON list), checked and stored; an item that
                                 names `same_as` an open one is counted as seen again, not stored twice
   list [--open] [--json]        the store
@@ -34,6 +36,9 @@ WHO = ("ela", "owner")
 DAILY_MAX = 3                                              # items a day may add or see again: the section is read, not skimmed
 STUCK_S = 2 * 3600                                         # a job still `running` this long after it started is stuck
 TEXT_MAX = 400
+TRANSCRIPTS = os.path.expanduser("~/.claude/projects")
+REREAD = 3                                                 # a file read more often than this in one session is named
+W_CREATE, W_READ = 1.25, 0.1                               # cache creation and cache read, priced against fresh input
 EX_USAGE, EX_NOTFOUND = 2, 3
 
 
@@ -199,7 +204,114 @@ def feedback(reports, day):
             for r in jsonl(os.path.join(reports, "ela", "feedback.jsonl")) if local_day(r.get("at")) == day]
 
 
-def digest(day, reports=None, runtime=None, data=None, now=None):
+RUNNER_DIR = re.compile(r"-ela-runner-sessions-(.*)$")
+READ_CMD = re.compile(r"^\s*(?:cat|head|tail|sed\s+-n\s+\S+)\s+(?:-\S+\s+)*([^\s|;&<>()]+)\s*$")
+CD_CMD = re.compile(r"^\s*cd\s+([^\s;&|]+)\s*$")
+
+
+def shell_reads(command):
+    """The files a shell command reads whole or by range (cat, head, tail, sed -n), each segment of it, a relative
+    path joined to the directory a `cd` before it named."""
+    out, here = [], ""
+    for seg in re.split(r"\n|;|&&|\|\||\|", command or ""):
+        c = CD_CMD.match(seg)
+        if c:
+            here = os.path.expanduser(c.group(1)); continue
+        m = READ_CMD.match(seg)
+        if m and "." in os.path.basename(m.group(1)) and not m.group(1).startswith("-"):
+            f = os.path.expanduser(m.group(1))
+            out.append(os.path.normpath(os.path.join(here, f)) if here and not f.startswith(("/", "$")) else f)
+    return out
+
+
+def session_kind(dirname, cwd, projects):
+    """A transcript's kind: a runner session's directory name with its date, ticket keys and thread ids stripped (its
+    first four words); a guest session is `ela-guest`; an interactive one is its cwd, the projects root by name."""
+    m = RUNNER_DIR.search(dirname)
+    if m:
+        name = re.sub(r"\d{4}-\d{2}-\d{2}(?:-\d{4,6})?", "", m.group(1))
+        name = re.sub(r"thread-[A-Z0-9]+-[\d-]+", "thread", name)
+        name = re.sub(r"[A-Z][A-Z0-9]+-\d+", "", name)
+        words = [w for w in name.split("-") if w]
+        return "runner:" + ("-".join(words[:4]) or "?")
+    if "-ela-guest-" in dirname:
+        return "ela-guest"
+    return where(cwd, projects) or dirname
+
+
+def where(path, projects):
+    if projects and path and (path == projects or path.startswith(projects.rstrip("/") + "/")):
+        return "<projects>" + path[len(projects.rstrip("/")):]
+    return path
+
+
+def transcript(path, projects):
+    """One session's spend: {turns, input, create, read, output, peak, reads: {file: n}, cwd}. A response written as
+    several rows (one per content block) is one turn, counted once by its message id."""
+    seen, out, reads = set(), {"turns": 0, "input": 0, "create": 0, "read": 0, "output": 0, "peak": 0, "cwd": ""}, {}
+    for r in jsonl(path):
+        if r.get("cwd") and not out["cwd"]:
+            out["cwd"] = r["cwd"]
+        if r.get("type") != "assistant":
+            continue
+        m = r.get("message") or {}
+        for b in m.get("content") or []:
+            if not isinstance(b, dict) or b.get("type") != "tool_use":
+                continue
+            x = b.get("input") or {}
+            files = [x["file_path"]] if b.get("name") == "Read" and x.get("file_path") else \
+                shell_reads(str(x.get("command") or "")) if b.get("name") == "Bash" else []
+            for f in files:
+                reads[f] = reads.get(f, 0) + 1
+        key = m.get("id") or r.get("requestId") or r.get("uuid")
+        u = m.get("usage")
+        if not u or key in seen:
+            continue
+        seen.add(key)
+        i, c, rd = (int(u.get(k) or 0) for k in ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens"))
+        out["turns"] += 1
+        out["input"] += i; out["create"] += c; out["read"] += rd; out["output"] += int(u.get("output_tokens") or 0)
+        out["peak"] = max(out["peak"], i + c + rd)
+    out["reads"] = {where(f, projects): n for f, n in reads.items() if n > REREAD}
+    return out
+
+
+def tokens(day, root=None, projects=None):
+    """The day's token spend by kind of session, from the transcripts modified that day, heaviest first: sessions,
+    turns, fresh input (input + cache creation), cache read, weighted (input + 1.25 × creation + 0.1 × read, a cost
+    equivalent in input tokens), its share of the day, the peak context of one turn, and each file one session read more
+    than three times (the most reads in one session)."""
+    root = root or TRANSCRIPTS
+    projects = projects if projects is not None else (site().get("projects") or "")
+    kinds = {}
+    for p in glob.glob(os.path.join(root, "*", "*.jsonl")):
+        try:
+            if datetime.date.fromtimestamp(os.path.getmtime(p)).isoformat() != day:
+                continue
+        except OSError:
+            continue
+        t = transcript(p, projects)
+        if not t["turns"]:
+            continue
+        k = kinds.setdefault(session_kind(os.path.basename(os.path.dirname(p)), t["cwd"], projects),
+                             {"sessions": 0, "turns": 0, "fresh": 0, "cache_read": 0, "output": 0, "weighted": 0.0,
+                              "peak_context": 0, "turns_max": 0, "rereads": {}})
+        k["sessions"] += 1
+        k["turns"] += t["turns"]; k["turns_max"] = max(k["turns_max"], t["turns"])
+        k["fresh"] += t["input"] + t["create"]; k["cache_read"] += t["read"]; k["output"] += t["output"]
+        k["weighted"] += t["input"] + W_CREATE * t["create"] + W_READ * t["read"]
+        k["peak_context"] = max(k["peak_context"], t["peak"])
+        for f, n in t["reads"].items():
+            k["rereads"][f] = max(k["rereads"].get(f, 0), n)
+    total = sum(k["weighted"] for k in kinds.values()) or 1
+    rows = []
+    for name, k in sorted(kinds.items(), key=lambda kv: -kv[1]["weighted"]):
+        rows.append(dict(k, kind=name, weighted=round(k["weighted"]), share=round(k["weighted"] / total, 3),
+                         rereads=dict(sorted(k["rereads"].items(), key=lambda fn: -fn[1]))))
+    return {"weighted_total": round(sum(k["weighted"] for k in kinds.values())), "kinds": rows}
+
+
+def digest(day, reports=None, runtime=None, data=None, now=None, transcripts=None, projects=None):
     reports, runtime, data = reports or reports_root(), runtime or runtime_root(), data or mhbot_data()
     return {"date": day,
             "mediahub_bot": mhbot_runs(data, day),
@@ -207,7 +319,8 @@ def digest(day, reports=None, runtime=None, data=None, now=None):
             "failed_units": failed_units(runtime, day),
             "feedback": feedback(reports, day),
             "open_items": [{k: v for k, v in r.items() if k in ("id", "area", "problem", "fix", "who", "state", "seen")}
-                           for r in load(reports).values() if r["state"] in ("open", "go")]}
+                           for r in load(reports).values() if r["state"] in ("open", "go")],
+            "tokens": tokens(day, transcripts, projects)}
 
 
 # ---- the store -----------------------------------------------------------------------------------------------------
@@ -379,6 +492,11 @@ def main(argv=None):
             print(f"{day}: mediahub-bot {len(d['mediahub_bot'])} tasks · ela asks {len(e['asks'])}, follow-up threads "
                   f"{len(e['follow_ups'])}, failed jobs {len(e['failed'])}, stuck {len(e['stuck'])} · failed units "
                   f"{len(d['failed_units'])} · feedback {len(d['feedback'])} · open items {len(d['open_items'])}")
+            t = d["tokens"]
+            print(f"tokens: {t['weighted_total']:,} weighted" + "".join(
+                f"\n  {k['share']:>5.0%}  {k['kind']}: {k['sessions']} sessions, {k['turns']} turns, peak {k['peak_context']:,}"
+                + (f", re-read {', '.join(f'{os.path.basename(f)}×{n}' for f, n in list(k['rereads'].items())[:3])}" if k["rereads"] else "")
+                for k in t["kinds"][:6]))
     elif a.cmd == "add":
         try:
             ids = add(reports, json.load(open(a.file, encoding="utf-8")), day)

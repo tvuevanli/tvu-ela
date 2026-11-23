@@ -52,7 +52,46 @@ with tempfile.TemporaryDirectory() as tmp:
     with open(os.path.join(R, "ela", "feedback.jsonl"), "w") as f:
         f.write(json.dumps({"at": stamp(14), "from": "owner", "text": "the bot answer was too long"}) + "\n")
 
-    d = I.digest(DAY, R, RT, DATA, now=datetime.datetime.fromisoformat(stamp(18)))
+    # ---- transcripts: two development sessions in one checkout, a runner pass, yesterday's session left out ----------
+    TR, PROJ = os.path.join(tmp, "transcripts"), "/p"
+    def turn(mid, i, c, r, tools=()):
+        return {"type": "assistant", "cwd": f"{PROJ}/ela", "message": {"id": mid, "usage": {
+            "input_tokens": i, "cache_creation_input_tokens": c, "cache_read_input_tokens": r, "output_tokens": 10},
+            "content": [{"type": "tool_use", "name": n, "input": x} for n, x in tools]}}
+    def session(dirname, name, rows, day=DAY):
+        os.makedirs(os.path.join(TR, dirname), exist_ok=True)
+        p = os.path.join(TR, dirname, name)
+        with open(p, "w") as f:
+            f.write("\n".join(json.dumps(r) for r in rows) + "\n")
+        t = datetime.datetime.fromisoformat(stamp(12, day=day)).timestamp()
+        os.utime(p, (t, t))
+    big = os.path.join(PROJ, "ela", "skills", "vault", "vault.py")
+    reads = [("Read", {"file_path": big}), ("Bash", {"command": "cd /p/ela; sed -n 10,90p skills/vault/vault.py | head"}),
+             ("Bash", {"command": "cat /p/ela/README.md && grep -n x skills/vault/vault.py"})]
+    session("-p-ela", "a.jsonl", [{"type": "user", "cwd": f"{PROJ}/ela"},
+                                  turn("m1", 2, 1000, 0, reads[:2]), turn("m1", 2, 1000, 0, reads[2:]),   # one response, two rows
+                                  turn("m2", 1, 100, 300000, reads[:2]), turn("m3", 1, 100, 1000, [])])
+    session("-p-ela", "b.jsonl", [turn("n1", 4, 400, 4000, [])])
+    session("-p--ela-runner-sessions-2026-11-20-deep-MH-4061", "c.jsonl", [turn("r1", 10, 0, 0, [])])
+    session("-p--ela-runner-sessions--thread-C0DEV-1763600000-000100", "e.jsonl", [turn("r2", 5, 0, 0, [])])
+    session("-p-ela", "old.jsonl", [turn("o1", 999, 0, 0, [])], day="2026-11-19")
+    tk = I.tokens(DAY, TR, PROJ)
+    k = {x["kind"]: x for x in tk["kinds"]}
+    dev = k.get("<projects>/ela") or {}
+    check("tokens: kinds by cwd and by the runner's directory, dates, keys and thread ids stripped",
+          sorted(k) == ["<projects>/ela", "runner:deep", "runner:thread"])
+    check("tokens: one response written as two rows is one turn; yesterday's transcript left out",
+          dev.get("sessions") == 2 and dev.get("turns") == 4)
+    check("tokens: fresh input, cache read, the weighted equivalent and the peak context",
+          dev["fresh"] == 2 + 1000 + 1 + 100 + 1 + 100 + 4 + 400 and dev["cache_read"] == 305000
+          and dev["weighted"] == round(8 + 1.25 * 1600 + 0.1 * 305000) and dev["peak_context"] == 300101)
+    check("tokens: a file read more than three times in one session is named, by the projects root",
+          dev["rereads"] == {"<projects>/ela/skills/vault/vault.py": 4})
+    check("tokens: the heaviest kind first, shares of the day", tk["kinds"][0]["kind"] == "<projects>/ela"
+          and abs(sum(x["share"] for x in tk["kinds"]) - 1) < 0.01)
+
+    d = I.digest(DAY, R, RT, DATA, now=datetime.datetime.fromisoformat(stamp(18)), transcripts=TR, projects=PROJ)
+    check("digest: the tokens block is part of the day's signals", d["tokens"] == tk)
     bot = {t["task"]: t for t in d["mediahub_bot"]}
     check("digest: the day's bot tasks only, accepted and done joined by task", sorted(bot) == ["t1", "t2"]
           and bot["t1"]["lane"] == "prod-3" and bot["t1"]["verdict"] == "found" and bot["t1"]["gaps"] == ["no log for the box"])
