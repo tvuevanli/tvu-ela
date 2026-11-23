@@ -688,11 +688,13 @@ def login_tvu(env_file, force=False, timeout=300, json_out=False, open_browser=T
     """key: the session.json entry — `tvu` is the owner's own; `tvu-test` the second account product tests act as
     (ela browser --as test). A test login opens Chrome on a profile of ela's own so the owner's cookies stay out."""
     host_url = _service_url("userservice")
+    owner = (env_value("TVU_ACCOUNT", env_file) or "").lower()
     sessions = _load_sessions(); cur = sessions.get(key) or {}
-    if cur.get("sid") and not cur.get("rejected_at") and not force and _validate_sid(host_url, cur["sid"]):
+    valid = (lambda sid: _sid_email(env_file, sid) != "?") if key != "tvu" else (lambda sid: _validate_sid(host_url, sid))
+    if cur.get("sid") and not cur.get("rejected_at") and not force and valid(cur["sid"]):
         msg = {"tvu": "valid", "obtained_at": cur.get("obtained_at"), "source": cur.get("source")}
         print(json.dumps(msg) if json_out else f"{key} session still valid (obtained {cur.get('obtained_at')}, {cur.get('source')}); --force to replace"); return
-    crt, key = _ensure_cert()
+    crt, tls_key = _ensure_cert()
     port = _login_port()
     url = f"https://{LOGIN_HOST}:{port}/"
     state = {"sid": None, "source": None, "note": "", "cookies": {}}
@@ -706,7 +708,17 @@ def login_tvu(env_file, force=False, timeout=300, json_out=False, open_browser=T
             self.send_response(code); self.send_header("Content-Type", "text/html; charset=utf-8"); self.send_header("Content-Length", str(len(data))); self.end_headers(); self.wfile.write(data)
 
         def _accept(self, sid, source, cookies=None):
-            if _validate_sid(host_url, sid):
+            # The owner's check reads a bundle row, which an ordinary account may not read; a test account is proven
+            # by the user-auth service naming whose session it is, and must not be the owner's own session.
+            if key != "tvu":
+                who = _sid_email(env_file, sid)
+                if who.lower() == owner:
+                    self._send(f'<p class="bad">This browser is signed in as the owner ({who}), not the test account. '
+                               f'Sign out of userservice here, sign in as the test account, then reload.</p>', 409); return True
+                ok = who != "?"
+            else:
+                ok = _validate_sid(host_url, sid)
+            if ok:
                 state["sid"], state["source"], state["cookies"] = sid, source, cookies or {}
                 self._send('<p class="ok">✓ TVU session stored in ~/.claude/ela/session.json. You can close this tab.</p>'); return True
             return False
@@ -734,7 +746,7 @@ def login_tvu(env_file, force=False, timeout=300, json_out=False, open_browser=T
                 return
             self._send('<p class="bad">userservice refused that SID.</p><p><a href="/">Back</a></p>', 400)
 
-    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER); ctx.load_cert_chain(crt, key)
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER); ctx.load_cert_chain(crt, tls_key)
     try:
         srv = HTTPServer(("127.0.0.1", port), H)
     except OSError as e:
