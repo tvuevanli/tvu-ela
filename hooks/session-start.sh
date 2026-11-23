@@ -67,4 +67,14 @@ elif cwd.startswith(code_root + "/"):
 else:
     print(f"cwd {cwd} is not inside any surveyed checkout. Only ela's own rules apply here.")
 PY
+
+# The desk: an owner session started in the projects root (not a runner job) hears the improvements ela should carry
+# out next (ADR 0023), one line from the store, a local read; any failure prints nothing.
+if [ -z "${ELA_RUNNER_JOB:-}" ]; then
+  PROJ="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("projects") or "")' "$SITE" 2>/dev/null || true)"
+  if [ -n "$PROJ" ] && [ "${CWD%/}" = "${PROJ%/}" ]; then
+    LINE="$(timeout 5 python3 "$ROOT/skills/improve/improve.py" pending 2>/dev/null || true)"
+    [ -n "$LINE" ] && { echo; echo "$LINE"; }
+  fi
+fi
 exit 0
