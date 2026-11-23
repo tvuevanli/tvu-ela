@@ -10,6 +10,10 @@ L1: subcommands, --json, stdlib only. No store, no scheduler: every answer is th
   envs     [service] [--host prod|cn]     versions per lane; tag names mapped to lanes by <elak>/map/release.yaml hosts
                                           (the China host's by regions.china.userservice); without --host every host;
                                           --raw: one host's service list, or a service's tag records, as it answers
+  sync-dev [daily|prod|bundle …] [--ahead]  dev's docker images (each service's default tag on dev) against the
+                                          sources, matched by service name and image: same, on dev under another tag,
+                                          or refused (no dev tag carries it); ▲ where dev runs above every source.
+                                          Read-only; the write waits on vault ela/2026-11-23-plan-release-sync-dev.md
   gateway  [service] [--lane L]           versions userservice does not publish (orchestration), per lane, read through
                                           the API gateway named in <elak>/map/release.yaml gateway_versions; no login.
                                           A lane that does not answer or parse is UNDETERMINED, never "not deployed"
@@ -1648,6 +1652,114 @@ def refresh_gateway():
         return None, f"exit {e.code}"
 
 
+# ── dev against daily and prod: docker images, read-only ────────────────────────────────────────────
+# Dev's GM names its tags as slots ("backup", "default", "Production5"), not versions, and the image is in
+# backendVersion; a service's isDefault tag is what an account without a dev bundle runs (read first-hand 2026-11-23:
+# Docker Rtmp Decoder's default "backup" carries playeroftvu:1.0.48). So dev is matched by service name and by image,
+# never by tag name or id. Nothing is written: the plan for a write is vault ela/2026-11-23-plan-release-sync-dev.md.
+
+def _image(ref):
+    """'host/ns/repo:tag' → (repo path, tag); a value without a colon is a bare tag of an unknown repo."""
+    ref = str(ref or "").strip()
+    repo, _, tag = ref.rpartition(":") if ":" in ref.split("/")[-1] else (ref, "", "")
+    return (repo, tag) if tag else ("", ref)
+
+
+def _image_order(tag):
+    """A docker tag's numbers in order ('8.13.6build164-ubuntu' → (8, 13, 6, 164)); () when it has none."""
+    return tuple(int(n) for n in re.findall(r"\d+", str(tag or "")))
+
+
+def image_cmp(a, b):
+    """-1, 0, 1 for two image refs of one repo; None when they are not comparable (another repo, or no numbers)."""
+    (ra, ta), (rb, tb) = _image(a), _image(b)
+    if ra and rb and ra != rb:
+        return None
+    if ta == tb:
+        return 0
+    oa, ob = _image_order(ta), _image_order(tb)
+    if not oa or not ob or oa == ob:
+        return None
+    return (oa > ob) - (oa < ob)
+
+
+def sync_source(us, ref, line):
+    """(bundle id, name, how) for a source: `prod` (the line's official, pinned or newest), `daily` (the newest daily
+    or stage bundle of the line), or a bundle name, prefix or id."""
+    if ref == "prod":
+        b = official_bundle(us, line)
+        if not b:
+            print(f"sync-dev: no official MediaHub {line} bundle on {us.kind}", file=sys.stderr); sys.exit(EX_NOTFOUND)
+        return str(b["bundleId"]), str(b["bundleName"]), "prod official"
+    if ref == "daily":
+        rows = [b for b in bundle_list(us, f"mh{line}@", 50) if name_class(str(b.get("bundleName") or ""), f"mh{line}@") == "daily"]
+        if not rows:
+            print(f"sync-dev: no daily bundle of mh{line}@ on {us.kind}", file=sys.stderr); sys.exit(EX_NOTFOUND)
+        b = max(rows, key=lambda x: str(x.get("createTime") or ""))
+        return str(b["bundleId"]), str(b["bundleName"]), "newest daily"
+    bid, name, rule = resolve_bundle_loose(us, ref)
+    return bid, name, rule
+
+
+def sync_dev(env_file, sources, line, host="prod"):
+    """Dev's docker images against one or more source bundles. The first source is the target a sync would take;
+    `ahead` is a dev image above every source's image of the same repo."""
+    src_us, dev = US(env_file, host), US(env_file, "dev")
+    srcs = []
+    for ref in sources:
+        bid, name, how = sync_source(src_us, ref, line)
+        rows = [i for i in bundle_detail(src_us, bid).get("serviceTagList") or [] if str(i.get("serviceName") or "").startswith("Docker")]
+        srcs.append({"ref": ref, "name": name, "id": bid, "how": how,
+                     "images": {str(i["serviceName"]).strip(): str(i.get("backendVersion") or i.get("defaultBackendVersion") or "") for i in rows}})
+    dev_ids = {str(x.get("serviceName") or "").strip().lower(): x.get("serviceId") for x in _entries(dev.call("/userGroup/user-group/service/list?showInternalFlag=true"))}
+    out = []
+    for svc in sorted(set().union(*(s["images"] for s in srcs))):
+        want = srcs[0]["images"].get(svc)
+        row = {"service": svc, "sources": {s["ref"]: s["images"].get(svc) for s in srcs}, "target": want}
+        sid = dev_ids.get(svc.lower())
+        if not sid:
+            out.append({**row, "state": "service not on dev", "dev": None}); continue
+        tags = _entries(dev.call(f"/userGroup/user-group/tag/getTagVersionList?serviceId={urllib.parse.quote(str(sid))}"))
+        default = next((t for t in tags if str(t.get("isDefault")) == "1"), None)
+        now = str((default or {}).get("backendVersion") or "") or None
+        row["dev"] = {"tag": (default or {}).get("tagName"), "image": now, "tags": len(tags)}
+        carrying = [str(t.get("tagName")) for t in tags if want and str(t.get("backendVersion") or "") == want]
+        if not want:
+            state = "not in target"
+        elif now == want:
+            state = "same"
+        elif carrying:
+            state = f"on dev as tag {carrying[0]}" + (f" (+{len(carrying) - 1})" if len(carrying) > 1 else "")
+        else:
+            state = "refused: no dev tag carries this image"
+        cmps = [image_cmp(now, s["images"].get(svc)) for s in srcs if s["images"].get(svc)]
+        row["ahead"] = bool(now) and bool(cmps) and all(c == 1 for c in cmps)
+        row["by"] = None                                    # the audit of dev writes does not exist yet: by hand in GM
+        out.append({**row, "state": state})
+    return srcs, out
+
+
+def cmd_sync_dev(a):
+    srcs, rows = sync_dev(a.env_file, a.sources or ["daily", "prod"], a.line, a.host)
+    rows_shown = [r for r in rows if r.get("ahead")] if a.ahead else rows
+    refused = [r for r in rows if str(r["state"]).startswith("refused")]
+    if a.json:
+        print(json.dumps({"dry_run": True, "sources": [{k: s[k] for k in ("ref", "name", "id", "how")} for s in srcs],
+                          "rows": rows_shown, "refused": len(refused), "ahead": sum(1 for r in rows if r.get("ahead")),
+                          "dev_basis": "each service's default tag on dev (what an account without a dev bundle runs)"}, ensure_ascii=False)); return
+    print(f"# dry run: dev's docker images against {', '.join(f'{s['name']} ({s['how']})' for s in srcs)}; "
+          f"target {srcs[0]['name']}; dev = each service's default tag; nothing is written")
+    tag = lambda v: _image(v)[1] if v else "—"
+    for r in rows_shown:
+        d = r.get("dev") or {}
+        others = "  ".join(f"{k}={tag(v)}" for k, v in list(r["sources"].items())[1:])
+        print(f"  {r['service']:<40} dev {tag(d.get('image')):<26} ({str(d.get('tag') or '—')[:14]:<14}) → {tag(r['target']):<26} "
+              f"{r['state']}{'  ▲ dev ahead' if r.get('ahead') else ''}{'  ' + others if others else ''}")
+    same = sum(1 for r in rows if r["state"] == "same")
+    print(f"{len(rows)} service(s): {same} same · {sum(1 for r in rows if str(r['state']).startswith('on dev'))} on dev under another tag · "
+          f"{len(refused)} refused (image not on dev) · {sum(1 for r in rows if r.get('ahead'))} dev ahead of every source")
+
+
 def cmd_gateway(a):
     want = (a.service or "").lower()
     if want and not any(want in s for s in rmap("gateway_versions")):
@@ -2233,6 +2345,10 @@ def main():
     p.add_argument("--batch", action="store_true", help="the Fixed In appends and labels through the jira verbs; dry run unless --apply")
     p.add_argument("--apply", action="store_true"); p.add_argument("--no-save", action="store_true", help="keep no reading and raise no question")
     p.add_argument("--json", action="store_true")
+    p = sub.add_parser("sync-dev", help="dev's docker images against daily and prod (or named bundles): the dry run of a sync and what dev runs ahead; read-only")
+    p.add_argument("sources", nargs="*", help="daily | prod | a bundle name, prefix or id; the first is the target; default: daily prod")
+    p.add_argument("--line", default="2.1", help="release line for daily and prod (default 2.1)"); p.add_argument("--host", choices=HOSTS, default="prod", help="host the sources are read from")
+    p.add_argument("--ahead", action="store_true", help="only the services where dev runs above every source"); p.add_argument("--json", action="store_true")
     p = sub.add_parser("line", help="one release line as one page: lanes, next promotion, docker differences, builds, history (local files only)")
     p.add_argument("line"); p.add_argument("--json", action="store_true")
     p = sub.add_parser("login"); p.add_argument("target", nargs="?", choices=("qa", "tvu", "cn"), default="tvu"); p.add_argument("--force", action="store_true"); p.add_argument("--no-browser", action="store_true"); p.add_argument("--timeout", type=int, default=300); p.add_argument("--json", action="store_true")
@@ -2248,7 +2364,7 @@ def main():
               file=sys.stderr)
         sys.exit(2)
     {"bundles": cmd_bundles, "bundle": cmd_bundle, "bundle-diff": cmd_bundle_diff, "envs": cmd_envs, "gateway": cmd_gateway, "builds": cmd_builds, "drift": cmd_drift, "login": cmd_login, "pin": cmd_pin, "unpin": cmd_unpin, "pins": cmd_pins,
-     "create": cmd_create, "changes": cmd_changes, "reconcile": cmd_reconcile, "line": cmd_line}[a.cmd](a)
+     "create": cmd_create, "sync-dev": cmd_sync_dev, "changes": cmd_changes, "reconcile": cmd_reconcile, "line": cmd_line}[a.cmd](a)
 
 
 if __name__ == "__main__":

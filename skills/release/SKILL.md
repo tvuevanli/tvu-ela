@@ -70,6 +70,11 @@ lanes each release line uses — all in `<elak>/map/release.yaml` (origin per bl
   `SID` cookie has one name across the company domain and a dev sign-in in the everyday profile would replace the
   prod one. Dev is no release lane, so an every-host read leaves it out. One session per deployment: `tvu-com` (.com
   daily and prod), `tvu-cn`, `tvu-dev`; test accounts only for test lines (`tvu-qa-test`, `tvu-com-test`).
+- **`sync-dev` compares dev's docker images with daily and prod, and writes nothing.** Dev's GM names its tags as
+  slots (`backup`, `default`, `Production5`), and the image lives in `backendVersion`. The `isDefault` tag is what an
+  account without a dev bundle runs. So dev is matched by service name and image, never by tag name or id. Each
+  row is `same`, `on dev as tag X` (a dev bundle could select it), or `refused` (no dev tag carries the image; ela
+  does not create one). `▲` marks dev above every source. `--ahead --json` is the input for the summary's dev line.
 - **Without `--host`, `bundles` and `envs` read every host.** Each row carries `host` and `read_at` (text: a header
   per host with its read time). A host that does not answer is one `not read: <host> — <why>` line on stderr and an
   entry in `gaps`; the other hosts' rows are whole and the exit is 0. While the site lacks the China names the answer
