@@ -936,7 +936,8 @@ def slack_send(env_file, link, text, as_owner, mention):
     → {permalink, ts, channel, as}. Raises Refused with slack.py's own reason."""
     S = slack_mod()
     a = argparse.Namespace(target=link, text=text, file=None, dm=None, apply=True, preview=False, team_thread=False,
-                           team_day_post=False, json=True, env_file=env_file, as_owner=as_owner, mention=mention)
+                           team_day_post=False, json=True, env_file=env_file, as_owner=as_owner, mention=mention,
+                           no_cc=True)                    # his own answer in a thread that mentioned him: no cc to himself
     out, err = io.StringIO(), io.StringIO()
     try:
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
