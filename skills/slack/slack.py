@@ -887,6 +887,29 @@ def write_who():
     return {"session": session, "job": e.get("ELA_RUNNER_JOB") or None, "action": e.get("ELA_ACTION") or None, "word": word}
 
 
+def preview_thread(tok, dm, topic):
+    """The owner's DM keeps one thread per topic (by default the target), and every preview for it is a reply there,
+    so a run of drafts does not flood the DM. The topic → parent map lives under <runtime> (working state); a lost map
+    only starts a new thread."""
+    path = os.path.join(os.path.dirname(default_out_dir()), "slack", "preview-threads.json")
+    try:
+        threads = json.load(open(path))
+    except (OSError, ValueError):
+        threads = {}
+    cur = threads.get(topic)
+    if cur and cur.get("dm") == dm:
+        return cur["ts"]
+    d = post_json("chat.postMessage", tok, {"channel": dm, "text": f"*Previews* · {topic}\n_each draft for this is a reply in this thread_",
+                                             "unfurl_links": False, "unfurl_media": False})
+    threads[topic] = {"dm": dm, "ts": d["ts"], "at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w") as fh:
+        json.dump(threads, fh, indent=1, ensure_ascii=False)
+    os.replace(tmp, path)
+    return d["ts"]
+
+
 def log_write(where, link, chars, sent_as=None, mention=None):
     """One line per message sent, so the owner's brief can say what ela did (<reports>/ela/writes.jsonl, shared with
     the jira capability's log). `sent_as`: the handle it left under; `mention`: the mention it answers. Never fatal."""
@@ -1130,8 +1153,10 @@ def cmd_post(tok, a):
         uid = whoami(tok, a.env_file)
         dm = call("conversations.open", tok, users=uid)["channel"]["id"]
         head = f"_Preview, not sent — would post as @{handle} {where}_"
-        d = post_json("chat.postMessage", tok, {"channel": dm, "text": f"{head}\n\n{text}", "unfurl_links": False, "unfurl_media": False})
-        link = permalink_of(d["channel"], d["ts"])
+        parent = preview_thread(tok, dm, a.topic or where)
+        d = post_json("chat.postMessage", tok, {"channel": dm, "text": f"{head}\n\n{text}", "thread_ts": parent,
+                                                 "unfurl_links": False, "unfurl_media": False})
+        link = permalink_of(d["channel"], d["ts"]) + f"?thread_ts={parent}&cid={dm}"
         log_write(f"preview to owner of: {where}", link, len(text))
         print(json.dumps({"preview": True, "where": where, "permalink": link, "slips": slips}) if a.json
               else f"preview DM'd to the owner  {link}" + "".join(f"\n  mrkdwn: {w}" for w in slips))
@@ -1240,7 +1265,8 @@ def main():
     p.add_argument("--as-owner", action="store_true", help="send under the owner's own name with SLACK_USER_TOKEN (user scope "
                    "chat:write); refused, never sent as the bot, when the token is missing, not his, or lacks the scope")
     p.add_argument("--preview", action="store_true", help="DM the text to the owner, headed with its target, instead of "
-                   "sending it there: how it renders in Slack is judged in Slack")
+                   "sending it there: how it renders in Slack is judged in Slack. Previews for one topic go into one DM thread")
+    p.add_argument("--topic", help="--preview: the DM thread the preview joins (default: the target), e.g. a ticket key")
     p.add_argument("--team-thread", action="store_true", help="refuse unless the target is a thread in a team channel "
                    "(" + ", ".join(TEAM_CHANNELS) + "): the gate of a tier-2 action")
     p.add_argument("--team-day-post", action="store_true", help="refuse unless the target is a team channel by name, top "
