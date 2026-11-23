@@ -24,6 +24,22 @@ check("delete, update and bind are refused, by path", all(W(p, "prod") for p in 
 check("reads pass, the POSTed page read included", all(W(p, "prod") is None for p in (
     "/userGroup/user-group/tagBundle/page", "/userGroup/user-group/tagBundle/getDetail?bundleId=1",
     "/userGroup/user-group/tag/getTagVersionList?serviceId=x", "/userGroup/user-group/service/list?showInternalFlag=true")))
+check("on dev: a bundle and an image tag, nothing else", W(R.BUNDLE_CREATE, "dev") is None and W(R.DOCKER_TAG_ADD, "dev") is None
+      and all(W(p, "dev") for p in ("/userGroup/user-group/tag/add", "/userGroup/user-group/tag/del", "/userGroup/user-group/tag/edit",
+                                     "/userGroup/user-group/tag/setDefaultTag", "/userGroup/user-group/tag/dockerVersion/batchAddVersion",
+                                     "/userGroup/user-group/tag/dockerVersion/delete", "/userGroup/user-group/tag/dockerVersion/edit")))
+check("an image tag is never added off dev", all(W(R.DOCKER_TAG_ADD, k) for k in ("prod", "cn", "qa")))
+check("a dev bundle name, from its source", R.dev_bundle_name("2.1", "MediaHub 2.1.19") == "mh2.1@dev-docker-2.1.19"
+      and R.dev_bundle_name("2.1", "mh2.1@daily-wed-s2-d57") == "mh2.1@dev-docker-daily-wed-s2-d57"
+      and R.name_class("mh2.1@dev-docker-2.1.19", "mh2.1@") == "dev" and R.name_class("mh2.1@dev-2.1.19", "mh2.1@") is None)
+rows = [{"service": "a", "state": "same", "use_tag_id": "t1"}, {"service": "b", "state": R.TAG_TO_ADD},
+        {"service": "c", "state": "service not on dev"}, {"service": "d", "state": "refused: 2 dev tags carry this image"},
+        {"service": "e", "state": "on dev as tag x", "use_tag_id": "t2"}]
+keep, add, left = R.dev_plan(rows)
+check("the dev bundle keeps what dev can run; the rest is listed, never guessed", [r["service"] for r in keep] == ["a", "b", "e"]
+      and [r["service"] for r in add] == ["b"] and [r["service"] for r in left] == ["c", "d"])
+check("images compare within one repo only", R.image_cmp("r/p:1.0.76", "r/p:1.0.48") == 1 and R.image_cmp("r/p:1.0.1", "r/q:1.0.2") is None
+      and R.image_cmp("r/p:latest", "r/p:1.0.1") is None)
 calls = []
 R.http = lambda *a, **k: calls.append(a) or (200, {})
 us = object.__new__(R.US); us.kind, us.host, us.sid, us.env_file = "prod", "https://h", "s", None

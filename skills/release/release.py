@@ -12,8 +12,10 @@ L1: subcommands, --json, stdlib only. No store, no scheduler: every answer is th
                                           --raw: one host's service list, or a service's tag records, as it answers
   sync-dev [daily|prod|bundle …] [--ahead]  dev's docker images (each service's default tag on dev) against the
                                           sources, matched by service name and image: same, on dev under another tag,
-                                          or refused (no dev tag carries it); ▲ where dev runs above every source.
-                                          Read-only; the write waits on vault ela/2026-11-23-plan-release-sync-dev.md
+                                          tag to add, or refused when ambiguous; ▲ where dev runs above every source
+  sync-dev <bundle> [--name N] [--apply]  one source: the docker-only dev bundle mh<line>@dev-docker-<source>; --apply
+                                          adds the image tags dev lacks (dev only), creates the bundle, reads it back,
+                                          and writes one audit line; binds nobody
   gateway  [service] [--lane L]           versions userservice does not publish (orchestration), per lane, read through
                                           the API gateway named in <elak>/map/release.yaml gateway_versions; no login.
                                           A lane that does not answer or parse is UNDETERMINED, never "not deployed"
@@ -514,19 +516,23 @@ def _need_login(kind, why):
     print(f"{kind} session {why} — run: {LOGIN_CMD.get(kind, 'ela login ' + kind)}", file=sys.stderr); sys.exit(EX_AUTH)
 
 
-# ela creates bundles and writes nothing else to userservice: no delete, update or bind. The reads POST too
-# (/tagBundle/page), so the guard is by path, never by method.
-WRITE_PATHS = {"/userGroup/user-group/tagBundle/create"}
-WRITE_RX = re.compile(r"delete|remove|update|edit|modify|save|batch|bind|apply|switch|create", re.I)
+# ela creates bundles, and on dev registers a docker image as a tag; it writes nothing else to userservice: no
+# delete, update, edit, default switch or bind. The reads POST too (/tagBundle/page), so the guard is by path, never
+# by method. Where each write may go: a bundle on prod or dev, an image tag on dev only (sync-dev; the owner's ruling
+# of 2026-11-23, vault ela/2026-11-23-plan-release-sync-dev.md).
+BUNDLE_CREATE, DOCKER_TAG_ADD = "/userGroup/user-group/tagBundle/create", "/userGroup/user-group/tag/dockerVersion/add"
+WRITE_HOSTS = {BUNDLE_CREATE: ("prod", "dev"), DOCKER_TAG_ADD: ("dev",)}
+WRITE_PATHS = set(WRITE_HOSTS)
+WRITE_RX = re.compile(r"delete|remove|update|edit|modify|save|batch|bind|apply|switch|create|/add|setDefault|del\b", re.I)
 
 
 def write_refused(path, kind):
     """Why a userservice call may not go out, or None: a write path outside the allowlist, or a create off prod."""
     bare = path.split("?", 1)[0]
     if WRITE_RX.search(bare) and bare not in WRITE_PATHS:
-        return f"{bare} is a write ela does not make (the only write is {', '.join(sorted(WRITE_PATHS))})"
-    if bare in WRITE_PATHS and kind != "prod":
-        return f"{bare} is made on the prod host only (daily, rc and official bundles live there)"
+        return f"{bare} is a write ela does not make (the only writes are {', '.join(sorted(WRITE_PATHS))})"
+    if bare in WRITE_PATHS and kind not in WRITE_HOSTS[bare]:
+        return f"{bare} is made on {' and '.join(WRITE_HOSTS[bare])} only, never on {kind}"
     return None
 
 
@@ -1289,7 +1295,8 @@ def name_rules(line):
     ln, mm = re.escape(f"mh{ver}"), re.escape(ver)
     return [("daily", re.compile(rf"^{ln}@daily-[a-z]+-s\d+-d\d+$")), ("daily", re.compile(rf"^{ln}@stage-s\d+-d\d+$")),
             ("prod", re.compile(rf"^{ln}@(?:rc|beta|ga)-s\d+-d\d+$")),
-            ("official", re.compile(rf"^MediaHub {mm}\.\d+(?: \([^()]+\))?$")), ("official", re.compile(rf"^MediaHub {mm} rc\d+$"))]
+            ("official", re.compile(rf"^MediaHub {mm}\.\d+(?: \([^()]+\))?$")), ("official", re.compile(rf"^MediaHub {mm} rc\d+$")),
+            ("dev", re.compile(rf"^{ln}@dev-docker-[a-z0-9][a-z0-9.-]*$"))]
 
 
 def is_official(name, line, region=""):
@@ -1426,6 +1433,8 @@ def cmd_create(a):
     line = base.split("@")[0] + "@" if "@" in base else "mh" + (re.search(r"(\d+\.\d+)", base) or [None, ""])[1] + "@"
     name = a.name or next_name(base)
     cls = name_class(name or "", line)
+    if cls == "dev":
+        print(f"create: {name!r} is a dev bundle; dev bundles are made by sync-dev on the dev host", file=sys.stderr); sys.exit(EX_USAGE)
     if not cls:
         print(f"create: {name!r} is not a bundle name the owner uses (daily-<day>-sN-dM, stage-sN-dM, rc|beta|ga-sN-dM, "
               "MediaHub M.m.N, MediaHub M.m rcN); temporary bundles have no name form yet", file=sys.stderr); sys.exit(EX_USAGE)
@@ -1701,40 +1710,87 @@ def sync_source(us, ref, line):
     return bid, name, rule
 
 
+TAG_TO_ADD = "tag to add"                                   # the image is real (a source bundle runs it) and not on dev
+
+
+def dev_audit_path():
+    return os.path.join(site().get("runtime") or os.path.expanduser("~/.claude/ela"), "audit", "dev-writes.jsonl")
+
+
+def dev_audit():
+    """(service, image) → the latest apply that put it on dev: {by, at, bundle}."""
+    out = {}
+    try:
+        lines = open(dev_audit_path(), encoding="utf-8").read().splitlines()
+    except OSError:
+        return out
+    for l in lines:
+        try: e = json.loads(l)
+        except ValueError: continue
+        for t in e.get("tags_added") or []:
+            out[(t.get("service"), t.get("image"))] = {"by": e.get("by"), "at": e.get("at"), "bundle": e.get("bundle")}
+    return out
+
+
 def sync_dev(env_file, sources, line, host="prod"):
-    """Dev's docker images against one or more source bundles. The first source is the target a sync would take;
-    `ahead` is a dev image above every source's image of the same repo."""
+    """Dev's docker images against one or more source bundles, docker services only. The first source is the target:
+    each of its services is `same` (dev's default tag runs it), `on dev as tag X` (another dev tag carries it),
+    `tag to add` (no dev tag carries it; a sync registers it), `service not on dev`, or `refused: …` where the source
+    or dev is ambiguous; nothing is guessed. `ahead` is a dev image above every source's image of the same repo."""
     src_us, dev = US(env_file, host), US(env_file, "dev")
     srcs = []
     for ref in sources:
         bid, name, how = sync_source(src_us, ref, line)
         rows = [i for i in bundle_detail(src_us, bid).get("serviceTagList") or [] if str(i.get("serviceName") or "").startswith("Docker")]
         srcs.append({"ref": ref, "name": name, "id": bid, "how": how,
-                     "images": {str(i["serviceName"]).strip(): str(i.get("backendVersion") or i.get("defaultBackendVersion") or "") for i in rows}})
-    dev_ids = {str(x.get("serviceName") or "").strip().lower(): x.get("serviceId") for x in _entries(dev.call("/userGroup/user-group/service/list?showInternalFlag=true"))}
-    out = []
+                     "images": {str(i["serviceName"]).strip(): str(i.get("backendVersion") or i.get("defaultBackendVersion") or "").strip() for i in rows}})
+    dev_ids = {}
+    for x in _entries(dev.call("/userGroup/user-group/service/list?showInternalFlag=true")):
+        dev_ids.setdefault(str(x.get("serviceName") or "").strip().lower(), []).append(x.get("serviceId"))
+    audit, out = dev_audit(), []
     for svc in sorted(set().union(*(s["images"] for s in srcs))):
         want = srcs[0]["images"].get(svc)
-        row = {"service": svc, "sources": {s["ref"]: s["images"].get(svc) for s in srcs}, "target": want}
-        sid = dev_ids.get(svc.lower())
-        if not sid:
-            out.append({**row, "state": "service not on dev", "dev": None}); continue
-        tags = _entries(dev.call(f"/userGroup/user-group/tag/getTagVersionList?serviceId={urllib.parse.quote(str(sid))}"))
+        row = {"service": svc, "sources": {s["ref"]: s["images"].get(svc) for s in srcs}, "target": want, "dev": None, "ahead": False, "by": None}
+        ids = dev_ids.get(svc.lower()) or []
+        if not ids:
+            out.append({**row, "state": "service not on dev"}); continue
+        if len(ids) > 1:
+            out.append({**row, "state": f"refused: {len(ids)} dev services are named {svc}"}); continue
+        tags, why = None, ""
+        for _ in range(3):                                  # dev's GM answers this read 500 now and then (seen 2026-11-23)
+            said = io.StringIO()
+            try:
+                with contextlib.redirect_stderr(said):
+                    tags = _entries(dev.call(f"/userGroup/user-group/tag/getTagVersionList?serviceId={urllib.parse.quote(str(ids[0]))}"))
+                break
+            except SystemExit as e:
+                if e.code == EX_AUTH:
+                    sys.stderr.write(said.getvalue()); raise
+                why = (re.search(r"HTTP \d+", said.getvalue()) or [f"exit {e.code}"])[0]
+        if tags is None:
+            out.append({**row, "state": f"refused: dev's tag list did not read three times ({why})"}); continue
         default = next((t for t in tags if str(t.get("isDefault")) == "1"), None)
-        now = str((default or {}).get("backendVersion") or "") or None
-        row["dev"] = {"tag": (default or {}).get("tagName"), "image": now, "tags": len(tags)}
-        carrying = [str(t.get("tagName")) for t in tags if want and str(t.get("backendVersion") or "") == want]
-        if not want:
+        now = str((default or {}).get("backendVersion") or "").strip() or None
+        carrying = [t for t in tags if want and str(t.get("backendVersion") or "").strip() == want]
+        row["dev"] = {"service_id": ids[0], "tag": (default or {}).get("tagName"), "tag_id": (default or {}).get("id"),
+                      "image": now, "tags": len(tags)}
+        if want is not None and srcs[0]["images"].get(svc) is not None and not want:
+            state = "refused: the source names no image"
+        elif want and not _image(want)[0]:
+            state = f"refused: {want!r} is not a full image reference"
+        elif not want:
             state = "not in target"
         elif now == want:
-            state = "same"
+            state, row["use_tag_id"] = "same", (default or {}).get("id")
+        elif len(carrying) == 1:
+            state, row["use_tag_id"] = f"on dev as tag {carrying[0].get('tagName')}", carrying[0].get("id")
         elif carrying:
-            state = f"on dev as tag {carrying[0]}" + (f" (+{len(carrying) - 1})" if len(carrying) > 1 else "")
+            state = f"refused: {len(carrying)} dev tags carry this image ({', '.join(str(t.get('tagName')) for t in carrying)})"
         else:
-            state = "refused: no dev tag carries this image"
+            state = TAG_TO_ADD
         cmps = [image_cmp(now, s["images"].get(svc)) for s in srcs if s["images"].get(svc)]
         row["ahead"] = bool(now) and bool(cmps) and all(c == 1 for c in cmps)
-        row["by"] = None                                    # the audit of dev writes does not exist yet: by hand in GM
+        row["by"] = audit.get((svc, now)) if now else None  # None: put there by hand in GM, before or outside ela
         out.append({**row, "state": state})
     return srcs, out
 
@@ -1757,18 +1813,95 @@ def refresh_dev_ahead(env_file, line="2.1"):
     srcs, rows = got
     ahead = [{k: r.get(k) for k in ("service", "dev", "sources", "by")} for r in rows if r.get("ahead")]
     F.write_json(dev_ahead_path(), {"at": F.now_iso(), "sources": [{k: x[k] for k in ("ref", "name")} for x in srcs],
-                                    "compared": len(rows), "behind_refused": sum(1 for r in rows if str(r["state"]).startswith("refused")),
+                                    "compared": len(rows), "behind_to_add": sum(1 for r in rows if r["state"] == TAG_TO_ADD),
                                     "ahead": ahead})
     return ahead, None
 
 
+def dev_bundle_name(line, source_name):
+    """mh<line>@dev-docker-<source>: 'MediaHub 2.1.19' → mh2.1@dev-docker-2.1.19, 'mh2.1@daily-wed-s2-d57' →
+    mh2.1@dev-docker-daily-wed-s2-d57 (the owner's proposal of 2026-11-23; the line, the lane, the scope, the source)."""
+    src = source_name.split("@", 1)[1] if "@" in source_name else re.sub(r"^MediaHub\s+", "", source_name)
+    return f"mh{line}@dev-docker-" + re.sub(r"[^a-z0-9.]+", "-", src.lower()).strip("-.")
+
+
+def dev_plan(rows):
+    """(bundle rows, tags to add, left out): every target service dev can run, by the tag it would use."""
+    keep = [r for r in rows if r.get("use_tag_id") or r["state"] == TAG_TO_ADD]
+    return keep, [r for r in keep if r["state"] == TAG_TO_ADD], [r for r in rows if r not in keep and r["state"] != "not in target"]
+
+
+def sync_dev_apply(dev, src, rows, name, by):
+    """Register each image dev lacks, then create the docker-only bundle and read it back. Stops at the first refusal
+    and says what was done; ela deletes nothing it made. One audit line per apply, whatever its outcome."""
+    keep, add, _ = dev_plan(rows)
+    entry = {"at": _now(), "by": by, "source": src["name"], "source_id": src["id"], "bundle": name, "tags_added": [], "bundle_id": None, "verified": False}
+
+    def done(code, msg):
+        os.makedirs(os.path.dirname(dev_audit_path()), exist_ok=True)
+        with open(dev_audit_path(), "a", encoding="utf-8") as fh:
+            fh.write(json.dumps({**entry, "outcome": msg}, ensure_ascii=False) + "\n")
+        return code, msg, entry
+
+    for r in add:
+        sid = r["dev"]["service_id"]
+        body = dev.call(DOCKER_TAG_ADD, {"serviceId": sid, "targetClient": r["target"], "description": f"ela sync-dev from {src['name']}"})
+        if not (isinstance(body, dict) and str(body.get("errorCode")) == "0x0"):
+            return done(EX_REMOTE, f"GM refused the tag for {r['service']}: {(body or {}).get('errorCode') if isinstance(body, dict) else body} "
+                                   f"{(body or {}).get('errorInfo') if isinstance(body, dict) else ''}")
+        tags = _entries(dev.call(f"/userGroup/user-group/tag/getTagVersionList?serviceId={urllib.parse.quote(str(sid))}"))
+        hit = [t for t in tags if str(t.get("backendVersion") or "").strip() == r["target"]]
+        if len(hit) != 1:
+            return done(EX_REMOTE, f"{r['service']}: after the add, {len(hit)} dev tags carry {r['target']}; stopped")
+        r["use_tag_id"] = hit[0].get("id")
+        entry["tags_added"].append({"service": r["service"], "image": r["target"], "tag": hit[0].get("tagName"), "tag_id": r["use_tag_id"]})
+    desc = f"docker only, from {src['name']} by ela sync-dev ({by}); {len(add)} image tag(s) added"[:DESC_MAX]
+    payload = {"bundleName": name, "description": desc,
+               "serviceTagList": [{"serviceId": r["dev"]["service_id"], "tagId": r["use_tag_id"]} for r in keep]}
+    new_id, why = bundle_created(dev.call(BUNDLE_CREATE, payload))
+    if why:
+        return done(EX_REMOTE, f"GM refused the bundle {name}: {why}")
+    entry["bundle_id"] = new_id
+    detail = bundle_detail(dev, new_id, fresh=True)
+    got = {(str(i.get("serviceId")), str(i.get("tagId"))) for i in detail.get("serviceTagList") or []}
+    meant = {(str(x["serviceId"]), str(x["tagId"])) for x in payload["serviceTagList"]}
+    entry["verified"] = got == meant and str(detail.get("bundleName") or name) == name
+    return done(0 if entry["verified"] else EX_REMOTE,
+                "created and verified" if entry["verified"] else f"created; read-back differs ({len(meant - got)} missing, {len(got - meant)} extra)")
+
+
 def cmd_sync_dev(a):
     srcs, rows = sync_dev(a.env_file, a.sources or ["daily", "prod"], a.line, a.host)
+    keep, add, left = dev_plan(rows)
+    name = a.name or dev_bundle_name(a.line, srcs[0]["name"])
+    if a.apply or a.name:
+        if len(srcs) != 1:
+            print("sync-dev: a dev bundle is made from one source; name it alone", file=sys.stderr); sys.exit(EX_USAGE)
+        if name_class(name, f"mh{a.line}@") != "dev":
+            print(f"sync-dev: {name!r} is not a dev bundle name (mh{a.line}@dev-docker-<source>)", file=sys.stderr); sys.exit(EX_USAGE)
+    dev = US(a.env_file, "dev")
+    exists = len(srcs) == 1 and any(str(b.get("bundleName")) == name for b in bundle_list(dev, name, 50, fresh=True))
+    if a.apply:
+        if exists:
+            print(f"sync-dev: {name!r} already exists on dev; ela never replaces a bundle", file=sys.stderr); sys.exit(EX_USAGE)
+        if not keep:
+            print("sync-dev: nothing dev can run from this source; no bundle", file=sys.stderr); sys.exit(EX_NOTFOUND)
+        by = a.by or ((_load_sessions().get("tvu-dev") or {}).get("account")) or "?"
+        code, msg, entry = sync_dev_apply(dev, srcs[0], rows, name, by)
+        if a.json:
+            print(json.dumps({**entry, "outcome": msg}, ensure_ascii=False))
+        else:
+            print(f"# {msg}: {name} on dev — {len(entry['tags_added'])} image tag(s) added, bundle {entry['bundle_id'] or '—'}; audit {dev_audit_path()}")
+            for t in entry["tags_added"]:
+                print(f"  added    {t['service']:<40} {t['image']}  (tag {t['tag']})")
+        sys.exit(code)
     rows_shown = [r for r in rows if r.get("ahead")] if a.ahead else rows
     refused = [r for r in rows if str(r["state"]).startswith("refused")]
     if a.json:
         print(json.dumps({"dry_run": True, "sources": [{k: s[k] for k in ("ref", "name", "id", "how")} for s in srcs],
-                          "rows": rows_shown, "refused": len(refused), "ahead": sum(1 for r in rows if r.get("ahead")),
+                          "rows": rows_shown, "refused": len(refused), "to_add": len(add), "ahead": sum(1 for r in rows if r.get("ahead")),
+                          "bundle": {"name": name if len(srcs) == 1 else None, "exists": exists, "services": len(keep),
+                                     "left_out": [{"service": r["service"], "state": r["state"]} for r in left]},
                           "dev_basis": "each service's default tag on dev (what an account without a dev bundle runs)"}, ensure_ascii=False)); return
     print(f"# dry run: dev's docker images against {', '.join(f'{s['name']} ({s['how']})' for s in srcs)}; "
           f"target {srcs[0]['name']}; dev = each service's default tag; nothing is written")
@@ -1776,11 +1909,17 @@ def cmd_sync_dev(a):
     for r in rows_shown:
         d = r.get("dev") or {}
         others = "  ".join(f"{k}={tag(v)}" for k, v in list(r["sources"].items())[1:])
+        by = f"  (put there by {r['by']['by']} {str(r['by']['at'])[:10]})" if r.get("by") else ""
         print(f"  {r['service']:<40} dev {tag(d.get('image')):<26} ({str(d.get('tag') or '—')[:14]:<14}) → {tag(r['target']):<26} "
-              f"{r['state']}{'  ▲ dev ahead' if r.get('ahead') else ''}{'  ' + others if others else ''}")
+              f"{r['state']}{'  ▲ dev ahead' + by if r.get('ahead') else ''}{'  ' + others if others else ''}")
     same = sum(1 for r in rows if r["state"] == "same")
     print(f"{len(rows)} service(s): {same} same · {sum(1 for r in rows if str(r['state']).startswith('on dev'))} on dev under another tag · "
-          f"{len(refused)} refused (image not on dev) · {sum(1 for r in rows if r.get('ahead'))} dev ahead of every source")
+          f"{len(add)} image tag(s) to add · {len(refused)} refused · {sum(1 for r in rows if r['state'] == 'service not on dev')} not on dev · "
+          f"{sum(1 for r in rows if r.get('ahead'))} dev ahead of every source")
+    if len(srcs) == 1:
+        print(f"bundle {name} on dev: {len(keep)} service(s)" + (" — ALREADY EXISTS, an apply is refused" if exists else "")
+              + (f"; left out: {', '.join(r['service'] + ' (' + r['state'] + ')' for r in left)}" if left else "")
+              + f". The write: {len(add)} × POST {DOCKER_TAG_ADD} on dev, then {BUNDLE_CREATE}; --apply on the owner's word")
 
 
 def cmd_gateway(a):
@@ -2372,6 +2511,9 @@ def main():
     p.add_argument("sources", nargs="*", help="daily | prod | a bundle name, prefix or id; the first is the target; default: daily prod")
     p.add_argument("--line", default="2.1", help="release line for daily and prod (default 2.1)"); p.add_argument("--host", choices=HOSTS, default="prod", help="host the sources are read from")
     p.add_argument("--ahead", action="store_true", help="only the services where dev runs above every source"); p.add_argument("--json", action="store_true")
+    p.add_argument("--name", help="the dev bundle's name; default mh<line>@dev-docker-<source>")
+    p.add_argument("--by", help="who asked, for the audit (default the dev session's account)")
+    p.add_argument("--apply", action="store_true", help="register the images dev lacks, then create the docker-only dev bundle and read it back; one source only")
     p = sub.add_parser("line", help="one release line as one page: lanes, next promotion, docker differences, builds, history (local files only)")
     p.add_argument("line"); p.add_argument("--json", action="store_true")
     p = sub.add_parser("login"); p.add_argument("target", nargs="?", choices=("qa", "tvu", "cn"), default="tvu"); p.add_argument("--force", action="store_true"); p.add_argument("--no-browser", action="store_true"); p.add_argument("--timeout", type=int, default=300); p.add_argument("--json", action="store_true")

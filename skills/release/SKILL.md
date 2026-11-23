@@ -70,16 +70,25 @@ lanes each release line uses — all in `<elak>/map/release.yaml` (origin per bl
   `SID` cookie has one name across the company domain and a dev sign-in in the everyday profile would replace the
   prod one. Dev is no release lane, so an every-host read leaves it out. One session per deployment: `tvu-com` (.com
   daily and prod), `tvu-cn`, `tvu-dev`; test accounts only for test lines (`tvu-qa-test`, `tvu-com-test`).
-- **`sync-dev` compares dev's docker images with daily and prod, and writes nothing.** Dev's GM names its tags as
-  slots (`backup`, `default`, `Production5`), and the image lives in `backendVersion`. The `isDefault` tag is what an
-  account without a dev bundle runs. So dev is matched by service name and image, never by tag name or id. Each
-  row is `same`, `on dev as tag X` (a dev bundle could select it), or `refused` (no dev tag carries the image; ela
-  does not create one). `▲` marks dev above every source. `--ahead --json` is the input for the summary's dev line.
+- **`sync-dev` compares dev's docker images with daily and prod; with one source it plans a docker-only dev bundle.**
+  Dev's GM names its tags as slots (`backup`, `default`, `Production5`), and the image lives in `backendVersion`. The
+  `isDefault` tag is what an account without a dev bundle runs. So dev is matched by service name and image, never by
+  tag name or id. Each row is `same`, `on dev as tag X`, `tag to add` (the source runs the image and no dev tag carries
+  it), `service not on dev`, or `refused: …` (two dev services of one name, two dev tags of one image, a source row
+  without a full image reference, a tag list that did not read three times); nothing is guessed. `▲` marks dev above
+  every source, with who put it there from the audit; `--ahead --json` feeds today.md's Dev line.
+- **The dev write: image tags, then one bundle, on the owner's word.** `$R sync-dev "<source>" [--name N] --apply`
+  registers each `tag to add` with `tag/dockerVersion/add` (GM's own "add docker version" form: the service and the
+  image reference, nothing else), reads the tag back, then creates `mh<line>@dev-docker-<source>` with every service
+  dev can run and verifies it as `create` does. It stops at the first refusal and says what it made; it deletes
+  nothing, edits no tag, moves no default and binds no user, so nobody on dev runs anything new until someone assigns
+  the bundle in GM. Every apply, whatever its outcome, is one line in `<runtime>/audit/dev-writes.jsonl` (who, when,
+  source, tags added, bundle id, verified). The guard admits the tag add on dev only and a bundle on prod or dev.
 - **Without `--host`, `bundles` and `envs` read every host.** Each row carries `host` and `read_at` (text: a header
   per host with its read time). A host that does not answer is one `not read: <host> — <why>` line on stderr and an
   entry in `gaps`; the other hosts' rows are whole and the exit is 0. While the site lacks the China names the answer
   is the .com one plus one line, `China host not configured: add …`; `--host cn` exits 2 with that line. `bundle`,
-  `bundle-diff` and `drift` read one host (default qa) and take `cn` like the others; `create` and `pin` stay on prod.
+  `bundle-diff` and `drift` read one host (default qa) and take `cn` like the others; `create` and `pin` stay on prod; dev's one write is `sync-dev --apply`.
 - **Orchestration's lane version comes from the gateway, not userservice.** `$R gateway [service] [--lane L]` reads
   `GET <gateway><path>` per lane from `<elak>/map/release.yaml` `gateway_versions` (path, token per lane, the site.json
   `services` key of each lane's gateway); the body is a plain string (`v4.0.206 build79 2026-10-27 08:34:39`, from
