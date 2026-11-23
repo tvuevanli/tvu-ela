@@ -809,6 +809,8 @@ def login_tvu(env_file, force=False, timeout=300, json_out=False, open_browser=T
     # whose session: the user-auth service of the host it came from (dev's lives under its userservice)
     email = _sid_email(env_file, state["sid"], (host_url + "/userAuth") if key == "tvu-dev" else None)
     sessions = _load_sessions()                             # re-read: another reader may have marked a session meanwhile
+    for old in [o_ for o_, n_ in SESSION_NAMES.items() if key in (o_, n_)]:
+        sessions.pop(old, None)                             # the alias holds the old object; on save it would win
     sessions[key] = {**{k: v for k, v in cur.items() if k not in ("sid", "obtained_at", "rejected_at", "source", "cookies", "lifetimes_s", "account")},
                      "sid": state["sid"], "obtained_at": _now(), "rejected_at": None, "source": state["source"],
                      "cookies": state["cookies"], "lifetimes_s": cur.get("lifetimes_s") or [], "account": email}

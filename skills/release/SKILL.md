@@ -65,11 +65,11 @@ lanes each release line uses — all in `<elak>/map/release.yaml` (origin per bl
   `bundles/cn/`). `$R bundles --host cn --raw` and `$R envs --host cn --raw [service]` print the host's answer with
   the names quoted, nothing mapped: the read that says which map lines to write.
 - **Dev is read on its own, under the owner's own dev session.** `--host dev` on `bundle`, `bundle-diff` and
-  `drift` reads `site.json services.userservice-dev` (MH dev + UR dev2) with session.json `dev`, which
+  `drift` reads `site.json services.userservice-dev` (MH dev + UR dev2) with session.json `tvu-dev`, which
   `ela login tvu --host dev` stores by the same browser sign-in. Chrome opens on a profile of ela's own, because the
   `SID` cookie has one name across the company domain and a dev sign-in in the everyday profile would replace the
-  prod one. Dev is no release lane, so an every-host read leaves it out. One session per deployment: `tvu` (.com
-  daily and prod), `cn`, `dev`; test accounts only for test lines (`qa`, `tvu-test`).
+  prod one. Dev is no release lane, so an every-host read leaves it out. One session per deployment: `tvu-com` (.com
+  daily and prod), `tvu-cn`, `tvu-dev`; test accounts only for test lines (`tvu-qa-test`, `tvu-com-test`).
 - **Without `--host`, `bundles` and `envs` read every host.** Each row carries `host` and `read_at` (text: a header
   per host with its read time). A host that does not answer is one `not read: <host> — <why>` line on stderr and an
   entry in `gaps`; the other hosts' rows are whole and the exit is 0. While the site lacks the China names the answer
