@@ -205,6 +205,14 @@
                                    mention_post_as is ela or owner (ADR 0022; off: you paste it); it is the one
                                    verb that writes to Slack; supersede marks the Slack actions drafted for a
                                    closed mention's thread
+  ela improve digest|add|list|answer|done|section|pending
+                                   what the assistant as a whole should do better (ADR 0023): digest --date D the
+                                   day's signals (mediahub-bot's runs, ela's jobs and follow-ups, failed units, his
+                                   feedback); add FILE --date D at most three proposed items, checked; an item whose
+                                   fix a colleague would see waits for your letter on today.md (answer <id> A|B), one
+                                   inside ela starts as go; done <id> --what TEXT once it lands; section --date D the
+                                   reader page's Improve lines; pending one line for the desk session. Nothing is
+                                   deleted, nothing written live
   ela vault sync [--dry-run]       regenerate the owner's Obsidian vault: day pages, readings, verifications,
                                    decisions and plans; a note over its reading budget carries a warning;
                                    a note you delete is done and stays deleted (ela vault restore PATH)
@@ -306,7 +314,7 @@ VERBS = {
     "mr": ("mr", "create"), "mr-preflight": ("mr", "preflight"),
     "sessions": ("sessions", "find"), "session": ("sessions", None),
     "route": ("route", "facts"),
-    "dry": ("dry", None), "mention": ("mention", None),
+    "dry": ("dry", None), "mention": ("mention", None), "improve": ("improve", None),
     "fixed-in": ("fixedin", "draft"),
     "links": ("links", None),
     "stage": ("stage", "queue"),
