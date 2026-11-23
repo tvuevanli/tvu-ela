@@ -452,6 +452,7 @@ def _now():
 # so a verb that still says `tvu` or `cn` keeps working while the file holds one name per sign-in. `tvu` is kept for
 # good as the short name of `tvu-com` (the owner's word, 2026-11-23): .com is the sign-in meant when none is named,
 # and `ela login tvu` stays the command for it.
+_LOADED = {}                                              # each new name's object as the last load returned it
 SESSION_NAMES = {"tvu": "tvu-com", "cn": "tvu-cn", "dev": "tvu-dev", "tvu-test": "tvu-com-test", "qa": "tvu-qa-test"}
 
 
@@ -466,16 +467,21 @@ def _load_sessions():
             d[new] = a
         if new in d:
             d[old] = d[new]
+        _LOADED[new] = d.get(new)
     return d
 
 
 def _save_sessions(d):
+    """Only new names are written. Of an old name and its new one, the one a verb changed since the load wins: the
+    two are one object at load, so whichever no longer is that object is the fresh write (a write under the new name
+    is never undone by the stale alias, and a write under an old name still lands)."""
     d = dict(d)
-    for old, new in SESSION_NAMES.items():                 # a write under an old name is the new name's value
+    for old, new in SESSION_NAMES.items():
         if old in d:
-            v = d.pop(old)
-            if v is not d.get(new):
-                d[new] = v
+            a, b = d.pop(old), d.get(new)
+            loaded = _LOADED.get(new)
+            if b is None or (a is not b and b is loaded):     # only the old name was written to
+                d[new] = a
     os.makedirs(os.path.dirname(SESSION_FILE), exist_ok=True)
     tmp = SESSION_FILE + ".tmp"
     with open(tmp, "w") as fh:
