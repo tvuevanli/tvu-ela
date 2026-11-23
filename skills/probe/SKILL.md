@@ -26,6 +26,11 @@ the lane (default prod-3)? It is §fix below in place of §1–§4; "deployed" i
 its verdict.
 
 ## Invariants
+- **A running timeline, from the first read, not only at the end.** While an investigation runs, keep one table,
+  `UTC | event | source | status`, oldest first: each event with the read that shows it, status `checked` (read
+  first-hand), `inferred` (follows from reads, not read itself) or `NOT checked`, and every span nobody read as a
+  `NOT checked` row of its own. Show it with each progress report; the answer's timeline is its last state. In Slack
+  it goes in the detail as one fenced block with aligned columns (mrkdwn has no tables); in a vault note, a table.
 - **Code before people.** The 2026-09-02 MH-3568 investigation found the cause in `addScteStream`
   defaulting to 1 only because it read the copier code instead of asking. Route only after the code
   has been read, or when the code cannot be reached — and say which.
