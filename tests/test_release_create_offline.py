@@ -41,6 +41,12 @@ check("the dev bundle keeps what dev can run; the rest is listed, never guessed"
       and [r["service"] for r in add] == ["b"] and [r["service"] for r in left] == ["c", "d"])
 check("images compare within one repo only", R.image_cmp("r/p:1.0.76", "r/p:1.0.48") == 1 and R.image_cmp("r/p:1.0.1", "r/q:1.0.2") is None
       and R.image_cmp("r/p:latest", "r/p:1.0.1") is None)
+_sleep, R.time.sleep = R.time.sleep, lambda s: None
+seen = iter([[], [], ["t"]])
+check("a read-back waits for a tag dev lists late", R._settled(lambda: next(seen), bool) == ["t"])
+n = []
+check("and gives up after its tries with the last answer", R._settled(lambda: n.append(1) or [], bool) == [] and len(n) == R.READBACK_TRIES)
+R.time.sleep = _sleep
 calls = []
 R.http = lambda *a, **k: calls.append(a) or (200, {})
 us = object.__new__(R.US); us.kind, us.host, us.sid, us.env_file = "prod", "https://h", "s", None

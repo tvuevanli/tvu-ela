@@ -56,7 +56,7 @@ read; nothing is written there.
 Config: <elak>/map/release.yaml (service ids per host, tag→lane maps, Jenkins job → service, release lines).
 Exit codes: 0 ok · 2 usage · 3 not found · 4 auth · 5 remote error.
 """
-import argparse, contextlib, datetime, glob, hashlib, io, json, os, re, shutil, signal, ssl, subprocess, sys, urllib.error, urllib.parse, urllib.request
+import argparse, contextlib, datetime, glob, hashlib, io, json, os, re, shutil, signal, ssl, subprocess, sys, time, urllib.error, urllib.parse, urllib.request
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
@@ -1832,6 +1832,18 @@ def dev_plan(rows):
     return keep, [r for r in keep if r["state"] == TAG_TO_ADD], [r for r in rows if r not in keep and r["state"] != "not in target"]
 
 
+READBACK_TRIES, READBACK_WAIT_S = 6, 2     # dev's GM shows a new tag a moment after the add answers (2026-11-23 09:25Z)
+
+
+def _settled(read, ok):
+    """read() until ok(result), READBACK_TRIES times READBACK_WAIT_S apart; the last result either way."""
+    for i in range(READBACK_TRIES):
+        got = read()
+        if ok(got) or i == READBACK_TRIES - 1:
+            return got
+        time.sleep(READBACK_WAIT_S)
+
+
 def sync_dev_apply(dev, src, rows, name, by):
     """Register each image dev lacks, then create the docker-only bundle and read it back. Stops at the first refusal
     and says what was done; ela deletes nothing it made. One audit line per apply, whatever its outcome."""
@@ -1850,10 +1862,12 @@ def sync_dev_apply(dev, src, rows, name, by):
         if not (isinstance(body, dict) and str(body.get("errorCode")) == "0x0"):
             return done(EX_REMOTE, f"GM refused the tag for {r['service']}: {(body or {}).get('errorCode') if isinstance(body, dict) else body} "
                                    f"{(body or {}).get('errorInfo') if isinstance(body, dict) else ''}")
-        tags = _entries(dev.call(f"/userGroup/user-group/tag/getTagVersionList?serviceId={urllib.parse.quote(str(sid))}"))
-        hit = [t for t in tags if str(t.get("backendVersion") or "").strip() == r["target"]]
+        carry = lambda: [t for t in _entries(dev.call(f"/userGroup/user-group/tag/getTagVersionList?serviceId={urllib.parse.quote(str(sid))}"))
+                         if str(t.get("backendVersion") or "").strip() == r["target"]]
+        hit = _settled(carry, lambda h: len(h) >= 1)
         if len(hit) != 1:
-            return done(EX_REMOTE, f"{r['service']}: after the add, {len(hit)} dev tags carry {r['target']}; stopped")
+            return done(EX_REMOTE, f"{r['service']}: {READBACK_TRIES * READBACK_WAIT_S}s after the add, {len(hit)} dev tags carry "
+                                   f"{r['target']}; stopped (the add answered 0x0, so it may still appear: a dry run says)")
         r["use_tag_id"] = hit[0].get("id")
         entry["tags_added"].append({"service": r["service"], "image": r["target"], "tag": hit[0].get("tagName"), "tag_id": r["use_tag_id"]})
     desc = f"docker only, from {src['name']} by ela sync-dev ({by}); {len(add)} image tag(s) added"[:DESC_MAX]
@@ -1863,9 +1877,10 @@ def sync_dev_apply(dev, src, rows, name, by):
     if why:
         return done(EX_REMOTE, f"GM refused the bundle {name}: {why}")
     entry["bundle_id"] = new_id
-    detail = bundle_detail(dev, new_id, fresh=True)
-    got = {(str(i.get("serviceId")), str(i.get("tagId"))) for i in detail.get("serviceTagList") or []}
     meant = {(str(x["serviceId"]), str(x["tagId"])) for x in payload["serviceTagList"]}
+    pairs = lambda d: {(str(i.get("serviceId")), str(i.get("tagId"))) for i in d.get("serviceTagList") or []}
+    detail = _settled(lambda: bundle_detail(dev, new_id, fresh=True), lambda d: pairs(d) == meant)
+    got = pairs(detail)
     entry["verified"] = got == meant and str(detail.get("bundleName") or name) == name
     return done(0 if entry["verified"] else EX_REMOTE,
                 "created and verified" if entry["verified"] else f"created; read-back differs ({len(meant - got)} missing, {len(got - meant)} extra)")
