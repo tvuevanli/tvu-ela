@@ -69,6 +69,11 @@ EDGES = {"UR_CN_HOST": ("https://ur.tvunetworks.cn", {"cn2": ("prod2", "CN Prod2
 # in the path (qa2/j2n/…, qa2/pilot/…) on a host that is not the edge's. The host comes from UR_QA_HOST in the
 # env file only; QA envs are never probed by default — reached with `-e qa2`.
 QA_ENV = re.compile(r"qa\d+")
+# The development UR deployments are not behind the edge at all: each service answers on its own internal address,
+# at its root (no env segment, no service prefix). The env file names one base URL per env and service, e.g.
+# UR_DEV_PILOT, UR_DEV2_RESOURCEPOOL; a path's first segment (/pilot, /resourcepool, /j2n) picks the service.
+DEV_ENVS = ("dev", "dev2")
+DEV_SERVICES = ("pilot", "resourcepool", "j2n")
 # J2N publishes every graph route twice, as /v1beta1/… and /api/v1-beta1/… — one family here, the /api one.
 J2N, J2N2, PILOT = "/j2n/api/v1-beta1", "/j2n/api/v2", "/pilot/api/v1"
 J2N_NEUTRAL = "/j2n/v1beta1"      # the neutral family; the only route that exists there alone is emails/…/graphs
@@ -117,6 +122,8 @@ class UR:
             host = (env_value(key, env_file) or default).rstrip("/")
             self.edges.update({e: (host, seg, label) for e, (seg, label) in envs.items()})
         self.qa_host = (env_value("UR_QA_HOST", env_file) or "").rstrip("/")
+        self.dev = {e: {svc: (env_value(f"UR_{e.upper()}_{svc.upper()}", env_file) or "").rstrip("/") for svc in DEV_SERVICES}
+                    for e in DEV_ENVS}
         order = env_value("UR_ENV_ORDER", env_file)
         self.order = [e.strip() for e in order.split(",") if e.strip()] if order else DEFAULT_ORDER
         self.pools = {}                            # host → idle connections; the .com edge is warmed, CN on first use
@@ -131,6 +138,14 @@ class UR:
         if env in self.edges:
             host, seg, _ = self.edges[env]
             return host, f"/{seg}{path}"
+        if env in DEV_ENVS:
+            svc, _, rest = path.lstrip("/").partition("/")
+            base = self.dev[env].get(svc)
+            if not base:
+                print(f"{env}: no address for its {svc or '?'} service — set UR_{env.upper()}_{(svc or 'PILOT').upper()} in the env file",
+                      file=sys.stderr); sys.exit(EX_USAGE)
+            u = urllib.parse.urlparse(base)
+            return f"{u.scheme}://{u.netloc}", f"{u.path}/{rest}"
         if QA_ENV.fullmatch(env):
             if not self.qa_host:
                 print(f"{env} is a QA env: set UR_QA_HOST in the env file", file=sys.stderr); sys.exit(EX_USAGE)
