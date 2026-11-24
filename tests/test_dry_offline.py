@@ -371,5 +371,35 @@ with tempfile.TemporaryDirectory() as R:
     check("one struck, one edited: the same verdicts as a note without context",
           [(w["n"], v) for w, v, _ in D.read_note(b, hand)] == [(1, "cancelled"), (2, "applied"), (3, "edited")])
 
+# a batch whose writes failed is `failed`, not `applied`, and stays answerable: A again retries only what did not land
+with tempfile.TemporaryDirectory() as R:
+    ws = [{"n": 1, "target": "q:1", "command": "ela jira create --project MH --type Task --summary one", "why": "row"},
+          {"n": 2, "target": "q:2", "command": "ela jira create --project MH --type Task --summary two", "why": "row"},
+          {"n": 3, "target": "q:3", "command": "ela jira create --project MH --type Task --summary three", "why": "row"}]
+    b = D.make_batch(R, "focus-moves", "mediahub-focus", ws, [], THU)
+    aid = f"dry:{b['id']}"
+    res = D.answer(R, aid, "A", apply=True, runner=lambda c, ap: (2, "refused: a Task ela creates carries Goal"))
+    check("every write failed: the batch is failed, nothing recorded as applied",
+          D.load_batch(R, b["id"])["state"] == "failed" and not D.record(R) and any("1 applied: failed" in d for d in res["did"]))
+    res = D.answer(R, aid, "A", apply=True, runner=lambda c, ap: (0, "created MH-1") if "two" in c else (2, "refused"))
+    st = D.load_batch(R, b["id"])
+    check("a re-answer retries it, not 'already applied'; one lands, the batch stays failed for the other two",
+          not any(d.startswith("already") for d in res["did"]) and st["state"] == "failed"
+          and [w.get("outcome") for w in st["writes"]] == ["failed", "landed", "failed"]
+          and [r["target"] for r in D.record(R)] == ["q:2"])
+    calls = []
+    D.answer(R, aid, "A", apply=True, runner=lambda c, ap: (calls.append(c) or (0, "created")))
+    st = D.load_batch(R, b["id"])
+    check("the third answer runs only the two that failed; then the batch is applied and settled",
+          calls == [ws[0]["command"], ws[2]["command"]] and st["state"] == "applied"
+          and sorted(r["target"] for r in D.record(R)) == ["q:1", "q:2", "q:3"]
+          and D.answer(R, aid, "A", apply=True, runner=lambda c, ap: (0, ""))["did"] == ["already applied"])
+    b2 = D.make_batch(R, "focus-moves", "other", ws[:2], [], THU)
+    D.answer(R, f"dry:{b2['id']}", "A", apply=True, runner=lambda c, ap: (0, "") if "one" in c else (2, "no"))
+    res = D.answer(R, f"dry:{b2['id']}", "B")
+    check("B on a partly failed batch drops only the write that failed; the landed one stays applied",
+          res["did"] == ["dropped 1"] and D.load_batch(R, b2["id"])["state"] == "dropped"
+          and [(r["target"], r["verdict"]) for r in D.record(R) if r.get("batch") == b2["id"]] == [("q:1", "applied"), ("q:2", "cancelled")])
+
 print(f"{len(failures)} failed" if failures else "all passed")
 sys.exit(1 if failures else 0)

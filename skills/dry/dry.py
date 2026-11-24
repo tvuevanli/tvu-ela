@@ -744,11 +744,13 @@ def act(reports, cls, scope, writes, today, apply=False, runner=None, now=None):
     did, ok = [], True
     for w in writes:
         if not ok:
+            w["outcome"] = "skipped"
             did.append(f"{w['n']} skipped: an earlier write of the set failed"); continue
         a_id = act_id(bid, w["n"])
         code, out = (runner(w["command"], apply) if runner else
                      run_write(w["command"], apply, action=a_id, word=f"{cls} (tier 1 by decision)", cls=cls, own=True))
         ok = code == 0
+        w["outcome"] = "landed" if ok else "failed"
         did.append(f"{w['n']} {'applied' if apply else 'dry run'}: {'ok' if ok else 'failed'} — "
                    f"{(out.splitlines() or [''])[-1]}"[:300])
         if apply and ok:
@@ -756,7 +758,8 @@ def act(reports, cls, scope, writes, today, apply=False, runner=None, now=None):
                              "command": w["command"], "why": w.get("why"), "batch": bid, "act": a_id, "source": "tier1"})
     if apply:
         save_batch(reports, {"id": bid, "class": cls, "scope": scope, "made": now_iso(now), "state": "applied" if ok else "failed",
-                             "writes": [{k: w[k] for k in ("n", "target", "command", "why")} for w in writes], "left_out": [],
+                             "writes": [{k: w[k] for k in ("n", "target", "command", "why", "outcome") if k in w} for w in writes],
+                             "left_out": [],
                              "answered": {"letter": None, "at": now_iso(now), "by": "tier 1 by decision"}})
     return {"batch": bid, "state": ("applied" if ok else "failed") if apply else "dry run", "ok": ok, "did": did}
 
@@ -836,34 +839,45 @@ def answer(reports, aid, letter, note_text=None, apply=False, runner=run_write, 
             raise KeyError(aid)
         if letter not in "AB":
             raise ValueError(f"{aid} offers A or B, not {letter}")
-        if b.get("state") != "open":
+        if b.get("state") not in ("open", "failed"):
             return {"ask": aid, "letter": letter, "did": [f"already {b['state']}"
                                                           + (f" by {b['superseded_by']}" if b.get("superseded_by") else "")]}
         did = []
+        # a failed batch is answered again for the writes that failed; what landed or was struck is settled
+        pending = [w for w in b["writes"] if b["state"] == "open" or w.get("outcome") not in ("landed", "struck")]
         if letter == "B":
-            for w in b["writes"]:
+            for w in pending:
                 append(reports, {"at": now_iso(now), "class": b["class"], "verdict": "cancelled", "letter": "B", "target": w["target"],
                                  "command": w["command"], "batch": b["id"], "source": "batch"})
             b["state"] = "dropped"
-            did.append(f"dropped {len(b['writes'])}")
+            did.append(f"dropped {len(pending)}")
         else:
             plan = read_note(b, note_text) if note_text is not None else [(w, "applied", w["command"]) for w in b["writes"]]
+            plan = [(w, v, c) for w, v, c in plan if w in pending]
+            failed = 0
             for w, verdict, cmd in plan:
                 if verdict == "cancelled":
                     if apply:
                         append(reports, {"at": now_iso(now), "class": b["class"], "verdict": "cancelled", "letter": "A", "target": w["target"],
                                          "command": w["command"], "batch": b["id"], "source": "batch", "how": "struck"})
+                        w["outcome"] = "struck"
                     did.append(f"{w['n']} left out"); continue
                 code, out = (run_write(cmd, apply, action=act_id(b["id"], w["n"]), word=f"answer {aid} {letter}", cls=b["class"])
                              if runner is run_write else runner(cmd, apply))
+                failed += code != 0
                 did.append(f"{w['n']} {'applied' if apply else 'dry run'}{' as edited' if verdict == 'edited' else ''}: "
                            f"{'ok' if code == 0 else 'failed'} — {out.splitlines()[-1] if out else ''}"[:200])
+                if apply:
+                    w["outcome"] = "landed" if code == 0 else "failed"
                 if apply and code == 0:
                     append(reports, {"at": now_iso(now), "class": b["class"], "verdict": verdict, "letter": "A", "target": w["target"],
                                      "command": cmd, "drafted": w["command"], "as_drafted": verdict == "applied",
                                      "batch": b["id"], "act": act_id(b["id"], w["n"]), "source": "batch"})
             if apply:
-                b["state"] = "applied"
+                # a write that failed keeps the batch answerable: `failed`, and a later A retries only those writes
+                b["state"] = "failed" if failed else "applied"
+                if failed:
+                    did.append(f"{failed} failed: the batch stays answerable, and A again retries only those")
         if apply or letter == "B":
             b["answered"] = {"letter": letter, "at": now_iso(now)}
             save_batch(reports, b)
