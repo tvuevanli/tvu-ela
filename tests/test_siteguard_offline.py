@@ -25,7 +25,9 @@ with tempfile.TemporaryDirectory() as tmp:
     link = os.path.join(tmp, "notes.md"); os.symlink(env, link)
 
     def run(skill, script, *args):
-        e = dict(os.environ, HOME=home); e.pop("ELA_ENV_FILE", None)
+        # no credential is inherited: $SLACK_BOT_TOKEN and its kind outrank the env file this test writes
+        e = {k: v for k, v in os.environ.items() if not k.endswith(("_TOKEN", "_KEY", "_SECRET", "_PASSWORD", "_PASS", "_ENV_FILE"))}
+        e["HOME"] = home
         r = subprocess.run(["python3", os.path.join(ROOT, "skills", skill, script), *args], input="", capture_output=True, text=True, env=e)
         return r.returncode, r.stdout + r.stderr
 
@@ -71,8 +73,11 @@ with tempfile.TemporaryDirectory() as tmp:
         for where, argv in (("a channel", ["#x"]), ("a thread", ["https://w.invalid/archives/C0123456789/p1700000000000100"]), ("a channel preview", ["#x", "--preview"])):
             c, out = run("slack", "slack.py", "--env-file", env, "post", *argv, "--text", text)
             check(c == 2 and "refused" in out and word in out and "--dm me" in out and "svc.invalid" not in out and BOX not in out, f"slack post to {where}: {name} is refused, before any call", (c, out[-300:]))
-    c, out = run("slack", "slack.py", "--env-file", env, "post", "--dm", "me", "--text", "the graph is on ur.svc.invalid, page at http://localhost:3000")
-    check("refused" not in out, "the owner's own DM is not refused for an address (the run goes on to Slack, which this test does not reach)", (c, out[-300:]))
+    # the same env file without the Slack token: past the guard the run stops at the missing token, before any call
+    bare = os.path.join(tmp, "no-slack-token.env")
+    open(bare, "w").write("".join(l for l in open(env) if not l.startswith("SLACK_BOT_TOKEN=")))
+    c, out = run("slack", "slack.py", "--env-file", bare, "post", "--dm", "me", "--text", "the graph is on ur.svc.invalid, page at http://localhost:3000")
+    check("refused" not in out and "no SLACK_BOT_TOKEN" in out, "the owner's own DM is not refused for an address (the run stops at the missing token, never at Slack)", (c, out[-300:]))
     c, out = run("slack", "slack.py", "--env-file", env, "post", "--dm", "me", "--text", f"use {DECOY}")
     check(c == 2 and "JIRA_TOKEN" in out, "a credential is refused in the owner's own DM too", (c, out[-200:]))
 print("siteguard: " + ("FAILED" if fail else "passed"))
