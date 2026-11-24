@@ -161,7 +161,7 @@ flowchart TD
 | `kb` | Outline 全文搜索、目录树、一篇正文 | 「KB 里写过没有」 |
 | `confluence` | web 团队 wiki（`ela wiki …`） | web 团队的实现细节和 QA 手法 |
 | `gdoc` | Google Docs / Sheets / Drive（只读） | 别人共享的服务表、owner 表 |
-| `apifox` | 一个项目的 OpenAPI、某个操作的参数与返回；客户读的公开 API 文档（`public`）（`ela api …`） | 「UR 这个接口收什么」「公开文档怎么写的」 |
+| `apifox` | 一个项目的 OpenAPI、某个操作的参数与返回；客户读的公开 API 文档（`public`），及两份契约的差异 `diff`（`ela api …`） | 「UR 这个接口收什么」「公开文档和 Apifox 哪里不一样」 |
 | `graph` | `ela graph <id>` 节点表（按 pipeline 顺序）· `ela process <id>` 进程实时记录 · `ela box <id>` 容量与负载 · `ela graphs [me\|邮箱]` 某人的 graph · `ela resolve <id>` 按形状认 · `ela usage <type>` 某种节点谁在用 · `ela envs` 探测顺序 · `ela cloudboxes [cn] [-e prod9] [--wait]` 某个 TVU region 各位置现有的云机器（冷启动复现前确认为 0）；`ela connect` / `ela exec` 进 box，`ela start` / `ela stop` 发送端进程（y/N） | 事故第一跳：这条流跑在哪、哪个盒子 |
 | `object` | object 与 tangible | 从一个对象反查它在哪些 graph 里 |
 | `grid` | Grid 源一条链只读：发送端（CC 设备记录）· 编码器配置和配对（GCS 的 `/gcsApi/`，按设计不需登录）· 配对的接收端是否正收这个源（超过 30 天没上报的标为残留配对）· object id 给出时 MediaHub 的 `grid_decoder` 进程；绝不调 `getXmlFile?type=r`（会改写接收端 IP）。读不到的：输入信号、LinuxR 内部 Grid 状态、GCS 登录后的 Relay 视图（你的账号没有 Grid Server 权限） | 「Grid 源断了，断在哪」 |

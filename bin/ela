@@ -27,8 +27,9 @@
   ela tvukb image|version|find|card|… the media team's tvu-kb, run in its checkout, headed tvu-kb@<sha>:
                                    a media image tag or program version → the build's module commits
   ela api <verb> …                 API definitions, read-only — Apifox projects and the public doc
-                                   (public): projects|export|tags|list|read|schema ·
-                                   ela api read ur "GET /v1beta1/graphs/{graphId}"
+                                   (public): projects|export|tags|list|read|schema|diff ·
+                                   ela api read ur "GET /v1beta1/graphs/{graphId}" ·
+                                   ela api diff public 4283785 --tag "MediaHub API"
   ela figma <verb> …               a Figma design first-hand: me|file|node|comments|image
   ela sentry <verb> …              crashes and errors, read-only: projects|issues|issue|events
  graphs & streams

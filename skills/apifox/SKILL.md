@@ -22,6 +22,7 @@ $A read ur "GET /v1beta1/graphs/{graphId}"   # one operation: parameters, reques
 $A schema ur GraphSpec              # one component schema
 $A tags public                      # the public API doc, same verbs (name from apis.yaml `docs:`)
 $A read public createSourceObject   # one public endpoint, with its doc page link
+$A diff public 4283785 --tag "MediaHub API"   # public vs a team's declaration: one-sided operations, mismatches
 ```
 
 ## The public API doc
@@ -35,10 +36,19 @@ as they do for Apifox, with the folder path as tag.
   documented one. A refused or missing session exits 4 with that command. The `el` SID cached for the QA
   host (`TVUTEST_SID`) gets a 302 on the doc site.
 - **Lazy.** The site has no export ela can read with the stdlib: `tags`/`list` read only the catalog page;
-  `read` fetches the endpoints it prints; `export` and `schema` fetch the whole doc, six at a time
+  `read` fetches the endpoints it prints; `export`, `schema` and `diff` fetch their scope, six at a time
   (the MediaHub API folder, ~90 pages, takes about a minute and a half cold). Catalog and pages are cached
   a day under `~/.claude/ela/apifox/public/`.
 - **Only the doc host**, redirects never followed; nothing the docs describe is ever called.
+
+## Diff
+`diff A B [--tag T] [--tag-b T]` compares two contracts operation by operation. Paths match exactly, then
+by a segment-aligned suffix (a gateway prefix on one side) when exactly one operation on each side fits;
+path-parameter names are ignored, and ambiguity stays unmatched. It reports operations on one side only
+(B's outside every folder A has are counted, not listed), the same name at different paths, and for
+matched pairs: parameters (auth and transport headers excepted) and top-level body fields one-sided,
+required or typed differently. What it finds is a question for the owning team, not a verdict on either
+side: the public doc can be ahead of a stale declaration as easily as behind.
 
 ## Two read paths, one output
 1. **Export** — the Open API's `export-openapi`, OpenAPI 3.1 with folders as tags. It needs maintainer

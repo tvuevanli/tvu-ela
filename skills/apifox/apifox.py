@@ -9,6 +9,8 @@
   read    <project> <ref>           one operation in full: parameters, request body, responses — ref = path, operationId,
                                     "METHOD path", or a summary fragment (unique match required)
   schema  <project> <Name>          one component schema, $refs resolved two levels deep
+  diff    <a> <b> [--tag T] [--tag-b T]   two contracts compared: operations on one side only, the same name at
+                                    another path, parameter and body-field mismatches of matched operations
 
 <project> may also be the public API doc customers read (`public`, apis.yaml `docs:`, or its URL): pubdoc.py.
 
@@ -580,6 +582,168 @@ def cmd_schema(a):
     print(f"# {name}"); print("\n".join(compact_schema(s, 1)) or json.dumps(s, ensure_ascii=False)[:800])
 
 
+# ── diff ──────────────────────────────────────────────────────────────────────
+# Two contracts of one API — typically what customers read (public) and what a team declares (an Apifox
+# project) — compared operation by operation. Paths match exactly first; then by segment-aligned suffix, since
+# one side often carries a gateway prefix (/mediahub/api/v2/… against /api/v2/…). A suffix that fits several
+# operations is not guessed: both stay unmatched. Auth and transport headers are not compared.
+
+QUIET_HEADERS = {"sid", "authorization", "content-type", "accept", "x-access-token"}
+
+
+def _segs(path):
+    return [("{}" if re.fullmatch(r"\{[^}]*\}", x) else x.lower()) for x in path.strip("/").split("/") if x]
+
+
+def _scoped(d, tag):
+    t = (tag or "").lower()
+    return [(m, p, op) for m, p, op in ops(d) if not t or any(t == x.lower() or x.lower().startswith(t + "/") for x in op.get("tags") or [])]
+
+
+def _params(op):
+    out = {}
+    for x in op.get("parameters") or []:
+        if isinstance(x, dict) and x.get("name") and not (x.get("in") == "header" and x["name"].lower() in QUIET_HEADERS):
+            out[(x.get("in"), x["name"])] = {"required": bool(x.get("required")), "type": (x.get("schema") or {}).get("type") or ""}
+    return out
+
+
+def _body(d, op):
+    for media in ((op.get("requestBody") or {}).get("content") or {}).values():
+        s = deref(d, media.get("schema") or {}, 1)
+        if s.get("type") == "array" and isinstance(s.get("items"), dict):
+            s = deref(d, s["items"], 1)
+        return {k: {"type": (v or {}).get("type") or (v or {}).get("$schema") or "", "required": k in (s.get("required") or [])}
+                for k, v in (s.get("properties") or {}).items()}
+    return None
+
+
+def compare_ops(da, a_op, db, b_op):
+    """The differences of one matched pair, as lines (empty when they agree)."""
+    out = []
+    pa, pb = _params(a_op), _params(b_op)
+    for k in sorted(set(pa) | set(pb)):
+        where, name = k
+        if k not in pb:
+            out.append(f"param {name} ({where}): only in A"); continue
+        if k not in pa:
+            out.append(f"param {name} ({where}): only in B"); continue
+        if pa[k]["required"] != pb[k]["required"]:
+            out.append(f"param {name} ({where}): required A {'yes' if pa[k]['required'] else 'no'}, B {'yes' if pb[k]['required'] else 'no'}")
+        if pa[k]["type"] and pb[k]["type"] and pa[k]["type"] != pb[k]["type"]:
+            out.append(f"param {name} ({where}): type A {pa[k]['type']}, B {pb[k]['type']}")
+    ba, bb = _body(da, a_op), _body(db, b_op)
+    if (ba is None) != (bb is None):
+        out.append(f"request body: only in {'A' if ba is not None else 'B'}")
+    elif ba is not None:
+        only_a, only_b = sorted(set(ba) - set(bb)), sorted(set(bb) - set(ba))
+        if only_a:
+            out.append(f"body fields only in A: {', '.join(only_a)}")
+        if only_b:
+            out.append(f"body fields only in B: {', '.join(only_b)}")
+        for k in sorted(set(ba) & set(bb)):
+            if ba[k]["required"] != bb[k]["required"]:
+                out.append(f"body field {k}: required A {'yes' if ba[k]['required'] else 'no'}, B {'yes' if bb[k]['required'] else 'no'}")
+            if ba[k]["type"] and bb[k]["type"] and ba[k]["type"] != bb[k]["type"]:
+                out.append(f"body field {k}: type A {ba[k]['type']}, B {bb[k]['type']}")
+    return out
+
+
+def match_ops(A, B):
+    """(pairs [(a, b, how)], only_a, only_b). a/b are (METHOD, path, op)."""
+    bkey = {}
+    for x in B:
+        bkey.setdefault((x[0], tuple(_segs(x[1]))), []).append(x)
+    pairs, rest_a, used = [], [], set()
+    for x in A:
+        hit = [y for y in bkey.get((x[0], tuple(_segs(x[1]))), []) if id(y) not in used]
+        if len(hit) == 1:
+            pairs.append((x, hit[0], "exact")); used.add(id(hit[0]))
+        else:
+            rest_a.append(x)
+    rest_b = [y for y in B if id(y) not in used]
+    def fits(x, y):
+        sa, sb = _segs(x[1]), _segs(y[1]); n = min(len(sa), len(sb))
+        return x[0] == y[0] and n >= 2 and sa[-n:] == sb[-n:]
+    cand = {id(x): [y for y in rest_b if fits(x, y)] for x in rest_a}
+    claims = {}
+    for x in rest_a:
+        for y in cand[id(x)]:
+            claims[id(y)] = claims.get(id(y), 0) + 1
+    still_a = []
+    for x in rest_a:      # a suffix pair only when each side has exactly one candidate
+        c = cand[id(x)]
+        if len(c) == 1 and claims[id(c[0])] == 1:
+            pairs.append((x, c[0], "suffix")); rest_b.remove(c[0])
+        else:
+            still_a.append(x)
+    return pairs, still_a, rest_b
+
+
+def cmd_diff(a):
+    tag_a, tag_b = a.tag, a.tag_b if a.tag_b is not None else None
+    hyd = (lambda e: not tag_a or "/".join(e["folder"]).lower() == tag_a.lower() or "/".join(e["folder"]).lower().startswith(tag_a.lower() + "/"))
+    da, _, _, la = document(a.a, a.env_file, hyd)
+    hyd_b = (lambda e: not tag_b or "/".join(e["folder"]).lower() == tag_b.lower() or "/".join(e["folder"]).lower().startswith(tag_b.lower() + "/"))
+    db, _, _, lb = document(a.b, a.env_file, hyd_b)
+    A, B = _scoped(da, tag_a), _scoped(db, tag_b)
+    if not A:
+        print(f"A ({a.a}) has no operations under tag {tag_a!r}", file=sys.stderr); sys.exit(EX_NOTFOUND)
+    pairs, only_a, only_b = match_ops(A, B)
+    diffs = [(x, y, how, compare_ops(da, x[2], db, y[2])) for x, y, how in pairs]
+    # B's operations outside every folder A also has (feign, admin … on an internal project) are counted, not listed
+    leaves = {t.rsplit("/", 1)[-1].lower() for _, _, o in A for t in o.get("tags") or []}
+    shared = lambda o: tag_b is not None or any(t.rsplit("/", 1)[-1].lower() in leaves for t in o.get("tags") or [])
+    elsewhere = {}
+    for _, _, o in only_b:
+        if not shared(o):
+            k = "/".join(o.get("tags") or []) or "(untagged)"; elsewhere[k] = elsewhere.get(k, 0) + 1
+    # an operation under the same name on both sides but at different paths: drift worth its own line
+    name = lambda o: (o.get("operationId") or o.get("summary") or "").strip().lower()
+    nb = {}
+    for y in only_b:
+        if name(y[2]):
+            nb.setdefault(name(y[2]), []).append(y)
+    renamed = [(x, nb[name(x[2])][0]) for x in only_a if len(nb.get(name(x[2]), [])) == 1]
+    title = lambda d, l: f"{(d.get('info') or {}).get('title')} ({l})"
+    rec = {"A": {"source": title(da, la), "tag": tag_a, "operations": len(A)}, "B": {"source": title(db, lb), "tag": tag_b, "operations": len(B)},
+           "matched": len(pairs), "matched_by_suffix": sum(1 for p in pairs if p[2] == "suffix"),
+           "only_in_A": [{"method": m, "path": p, "summary": o.get("summary") or "", "doc": o.get("x-ela-slug")} for m, p, o in only_a],
+           "only_in_B": [{"method": m, "path": p, "summary": o.get("summary") or "", "tag": "/".join(o.get("tags") or [])} for m, p, o in only_b
+                         if shared(o)],
+           "only_in_B_elsewhere": elsewhere,
+           "same_name_other_path": [{"name": x[2].get("summary") or "", "A": f"{x[0]} {x[1]}", "B": f"{y[0]} {y[1]}"} for x, y in renamed],
+           "mismatched": [{"A": f"{x[0]} {x[1]}", "B": f"{y[0]} {y[1]}", "how": how, "summary": x[2].get("summary") or "", "differences": dd}
+                          for x, y, how, dd in diffs if dd]}
+    if a.json:
+        print(json.dumps(rec, ensure_ascii=False)); return
+    print(f"A  {rec['A']['source']}" + (f" · tag {tag_a}" if tag_a else "") + f" · {len(A)} operations")
+    print(f"B  {rec['B']['source']}" + (f" · tag {tag_b}" if tag_b else "") + f" · {len(B)} operations")
+    print(f"matched {len(pairs)} ({rec['matched_by_suffix']} by path suffix) · only in A {len(only_a)} · only in B {len(only_b)} · "
+          f"differing {len(rec['mismatched'])}")
+    if only_a:
+        print(f"\n## only in A ({len(only_a)})")
+        for r in rec["only_in_A"]:
+            print(f"  {r['method']:<7} {r['path']:<58} {r['summary'][:40]}")
+    if rec["only_in_B"]:
+        print(f"\n## only in B, in folders A also has ({len(rec['only_in_B'])})")
+        for r in rec["only_in_B"]:
+            print(f"  {r['method']:<7} {r['path']:<58} {r['summary'][:40]}  [{r['tag']}]")
+    if elsewhere:
+        print(f"\n## only in B, folders A does not have ({sum(elsewhere.values())}): "
+              + " · ".join(f"{k} {n}" for k, n in sorted(elsewhere.items(), key=lambda x: -x[1])))
+    if renamed:
+        print(f"\n## same name, different path ({len(renamed)})")
+        for r in rec["same_name_other_path"]:
+            print(f"  {r['name'][:40]}: A {r['A']}  ·  B {r['B']}")
+    if rec["mismatched"]:
+        print(f"\n## matched, differing ({len(rec['mismatched'])})")
+        for r in rec["mismatched"]:
+            print(f"  {r['A']}" + (f"  ↔  {r['B']}" if r["how"] == "suffix" else "") + f"  · {r['summary'][:40]}")
+            for line in r["differences"]:
+                print(f"      {line}")
+
+
 def main():
     sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "configserver"))
     import redact; redact.guard_output()  # a credential inside a remote payload never reaches the terminal
@@ -593,8 +757,11 @@ def main():
     p = sub.add_parser("list"); p.add_argument("project"); p.add_argument("--tag"); p.add_argument("--grep"); p.add_argument("--json", action="store_true")
     p = sub.add_parser("read"); p.add_argument("project"); p.add_argument("ref"); p.add_argument("--all", action="store_true", help="print every match instead of asking"); p.add_argument("--json", action="store_true")
     p = sub.add_parser("schema"); p.add_argument("project"); p.add_argument("name"); p.add_argument("--json", action="store_true")
+    p = sub.add_parser("diff", help="two contracts compared: operations in one only, parameter and body mismatches")
+    p.add_argument("a"); p.add_argument("b"); p.add_argument("--tag", help="A's folder (e.g. 'MediaHub API'), its subfolders included")
+    p.add_argument("--tag-b", help="B's folder; default all of B"); p.add_argument("--json", action="store_true")
     a = ap.parse_args()
-    {"projects": cmd_projects, "export": cmd_export, "tags": cmd_tags, "list": cmd_list, "read": cmd_read, "schema": cmd_schema}[a.cmd](a)
+    {"projects": cmd_projects, "export": cmd_export, "tags": cmd_tags, "list": cmd_list, "read": cmd_read, "schema": cmd_schema, "diff": cmd_diff}[a.cmd](a)
 
 
 if __name__ == "__main__":

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""apifox public doc, offline: the turbo-stream decode (a number stored at an index is a number, not a
-reference), the page payload scan, the host guard, the catalog walk, and the shared converter. Synthetic data; no network, no session."""
+"""apifox public doc and diff, offline: the turbo-stream decode (a number stored at an index is a number, not a
+reference), the page payload scan, the host guard, the catalog walk, the shared converter, and the diff's matching
+(exact, by unique path suffix, ambiguity left unmatched) and comparison. Synthetic data; no network, no session."""
 import json, os, sys, tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -87,6 +88,35 @@ with tempfile.TemporaryDirectory() as t:
           op["requestBody"]["content"]["application/json"]["schema"] == {"$ref": "#/components/schemas/ConnectParam"}
           and "ConnectParam" in full["components"]["schemas"])
     check("the catalog keeps docs and folders", {e["kind"] for e in full["x-ela-catalog"]} == {"folder", "doc", "endpoint"})
+
+# ── diff ──────────────────────────────────────────────────────────────────────
+def o(**kw):
+    return {"summary": kw.pop("summary", ""), "tags": kw.pop("tags", []), **kw}
+
+
+Aops = [("POST", "/mediahub/api/v2/route/connect", o()), ("GET", "/mediahub/api/v1/schedule/{id}", o()),
+        ("GET", "/x/a/list", o()), ("GET", "/y/a/list", o()), ("DELETE", "/only/public", o())]
+Bops = [("POST", "/mediahub/api/v2/route/connect", o()), ("GET", "/api/v1/schedule/{scheduleId}", o()),
+        ("GET", "/a/list", o()), ("PUT", "/only/internal", o())]
+pairs, only_a, only_b = A.match_ops(Aops, Bops)
+how = {(x[1], y[1]): h for x, y, h in pairs}
+check("exact match", how.get(("/mediahub/api/v2/route/connect", "/mediahub/api/v2/route/connect")) == "exact")
+check("suffix match across a gateway prefix, path parameter names ignored",
+      how.get(("/mediahub/api/v1/schedule/{id}", "/api/v1/schedule/{scheduleId}")) == "suffix")
+check("a suffix two operations claim is not guessed", not any(y[1] == "/a/list" for _, y, _ in pairs) and len(only_a) == 3)
+check("the rest is reported on its side", [x[1] for x in only_b] == ["/a/list", "/only/internal"])
+
+d = {"components": {"schemas": {"P": {"type": "object", "properties": {"a": {"type": "string"}, "b": {"type": "integer"}}, "required": ["a"]}}}}
+oa = {"parameters": [{"name": "id", "in": "query", "required": True, "schema": {"type": "string"}}, {"name": "SID", "in": "header"}],
+      "requestBody": {"content": {"application/json": {"schema": {"$ref": "#/components/schemas/P"}}}}}
+ob = {"parameters": [{"name": "id", "in": "query", "required": False, "schema": {"type": "integer"}}],
+      "requestBody": {"content": {"application/json": {"schema": {"type": "object", "properties": {"a": {"type": "string"}, "c": {"type": "string"}},
+                                                                       "required": ["a", "c"]}}}}}
+lines = A.compare_ops(d, oa, d, ob)
+check("required and type differences of a parameter", "param id (query): required A yes, B no" in lines and "param id (query): type A string, B integer" in lines)
+check("the SID header is not compared", not any("SID" in x for x in lines))
+check("body fields only on one side, through a $ref", "body fields only in A: b" in lines and "body fields only in B: c" in lines)
+check("agreeing operations produce nothing", A.compare_ops(d, oa, d, oa) == [])
 
 print(f"\n{len(failures)} failed" if failures else "\nall passed")
 sys.exit(1 if failures else 0)
