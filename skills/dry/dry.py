@@ -367,11 +367,32 @@ def grant_ask(cls, j, st_c):
             "to_tier": to, "sig": hashlib.sha256(aid.encode()).hexdigest()[:12]}
 
 
+def unsettled(b):
+    """The writes an answer still has to make: all of an open batch's; of a failed batch, those that did not land and
+    were not struck."""
+    return [w for w in b["writes"] if b.get("state") == "open" or w.get("outcome") not in ("landed", "struck")]
+
+
+def ask_id(b):
+    """A batch's ask: `dry:<batch>` while open; `dry:<batch>:retry` once failed, a new ask on today.md whose three
+    mornings start when it first shows, not when the batch was first asked."""
+    return f"dry:{b['id']}" + (":retry" if b.get("state") == "failed" else "")
+
+
 def batch_ask(b):
     d = CLASSES[b["class"]]
     n = len(b["writes"])
     noun = d["noun"][0] if n == 1 else d["noun"][1]
-    aid = f"dry:{b['id']}"
+    aid = ask_id(b)
+    if b.get("state") == "failed":                         # the writes that failed reach him: retry or drop them
+        bad = unsettled(b)
+        return {"id": aid, "kind": "batch", "class": b["class"], "batch": b["id"],
+                "question": f"{len(bad)} of {n} {noun} for {b['scope']} failed ({b['class']}: {d['says']}).",
+                "record": "; ".join(f"{w['n']} {w['target']}: {w.get('reason') or 'no reason kept'}" for w in bad),
+                "link": note_rel(b["id"]),
+                "options": [option("A", "retry the failed writes", f"ela dry answer {aid} A --apply", True),
+                            option("B", "drop them", f"ela dry answer {aid} B")],
+                "sig": hashlib.sha256(json.dumps(bad, sort_keys=True).encode()).hexdigest()[:12]}
     return {"id": aid, "kind": "batch", "class": b["class"], "batch": b["id"],
             "question": f"{n} {noun} ready for {b['scope']}: {d['says']}.",
             "link": note_rel(b["id"]),
@@ -382,7 +403,8 @@ def batch_ask(b):
 
 
 def asks(reports, today=None, commit=False, ask_state=None):
-    """The asks for today.md, batches first (work waiting), then grant asks. With commit, an expired or dropped ask is
+    """The asks for today.md, batches first (work waiting: an open batch, or a failed one asked as retry or drop),
+    then grant asks. With commit, an expired or dropped ask is
     recorded (a batch: expired unanswered; a grant: the ask returns after ten more clean runs) and each new grant ask is
     stored as open. `ask_state` is the vault's <reports>/ela/asks.json, read when not given."""
     today = today or datetime.datetime.now(TZ).date()
@@ -394,7 +416,7 @@ def asks(reports, today=None, commit=False, ask_state=None):
             ask_state = {}
     settle_expired(reports, st, ask_state, commit)
     rows = record(reports)
-    out = [batch_ask(b) for b in batches(reports) if b.get("state") == "open"]
+    out = [batch_ask(b) for b in batches(reports) if b.get("state") in ("open", "failed")]
     for cls in CLASSES:
         if grant_due(cls, rows, st[cls]):
             j = judged(cls, rows, st[cls])
@@ -409,14 +431,15 @@ def asks(reports, today=None, commit=False, ask_state=None):
 
 
 def settle_expired(reports, st, ask_state, commit):
-    """An ask the vault dropped after three mornings with no answer: a batch is recorded expired unanswered, once per
-    write; a grant ask is marked expired, which lets it return after ten more clean runs."""
+    """An ask the vault dropped after three mornings with no answer: a batch, open or failed, is recorded expired
+    unanswered, once per write it still had to make; a grant ask is marked expired, which lets it return after ten more clean runs."""
     for b in batches(reports):
-        s = ask_state.get(f"dry:{b['id']}") or {}
-        if b.get("state") == "open" and s.get("dropped"):
+        s = ask_state.get(ask_id(b)) or {}
+        if b.get("state") in ("open", "failed") and s.get("dropped"):
+            left = unsettled(b)
             b["state"] = "expired"
             if commit:
-                for w in b["writes"]:
+                for w in left:
                     append(reports, {"at": now_iso(), "class": b["class"], "verdict": "expired", "target": w["target"],
                                      "command": w["command"], "batch": b["id"], "source": "batch"})
                 save_batch(reports, b)
@@ -751,6 +774,8 @@ def act(reports, cls, scope, writes, today, apply=False, runner=None, now=None):
                      run_write(w["command"], apply, action=a_id, word=f"{cls} (tier 1 by decision)", cls=cls, own=True))
         ok = code == 0
         w["outcome"] = "landed" if ok else "failed"
+        if not ok:
+            w["reason"] = (out.splitlines() or ["no output"])[-1][:200]
         did.append(f"{w['n']} {'applied' if apply else 'dry run'}: {'ok' if ok else 'failed'} — "
                    f"{(out.splitlines() or [''])[-1]}"[:300])
         if apply and ok:
@@ -758,7 +783,7 @@ def act(reports, cls, scope, writes, today, apply=False, runner=None, now=None):
                              "command": w["command"], "why": w.get("why"), "batch": bid, "act": a_id, "source": "tier1"})
     if apply:
         save_batch(reports, {"id": bid, "class": cls, "scope": scope, "made": now_iso(now), "state": "applied" if ok else "failed",
-                             "writes": [{k: w[k] for k in ("n", "target", "command", "why", "outcome") if k in w} for w in writes],
+                             "writes": [{k: w[k] for k in ("n", "target", "command", "why", "outcome", "reason") if k in w} for w in writes],
                              "left_out": [],
                              "answered": {"letter": None, "at": now_iso(now), "by": "tier 1 by decision"}})
     return {"batch": bid, "state": ("applied" if ok else "failed") if apply else "dry run", "ok": ok, "did": did}
@@ -834,7 +859,7 @@ def answer(reports, aid, letter, note_text=None, apply=False, runner=run_write, 
     letter = letter.upper()
     st = load_state(reports)
     if aid.startswith("dry:"):
-        b = load_batch(reports, aid[4:])
+        b = load_batch(reports, aid[4:].removesuffix(":retry"))
         if not b:
             raise KeyError(aid)
         if letter not in "AB":
@@ -844,7 +869,7 @@ def answer(reports, aid, letter, note_text=None, apply=False, runner=run_write, 
                                                           + (f" by {b['superseded_by']}" if b.get("superseded_by") else "")]}
         did = []
         # a failed batch is answered again for the writes that failed; what landed or was struck is settled
-        pending = [w for w in b["writes"] if b["state"] == "open" or w.get("outcome") not in ("landed", "struck")]
+        pending = unsettled(b)
         if letter == "B":
             for w in pending:
                 append(reports, {"at": now_iso(now), "class": b["class"], "verdict": "cancelled", "letter": "B", "target": w["target"],
@@ -869,6 +894,10 @@ def answer(reports, aid, letter, note_text=None, apply=False, runner=run_write, 
                            f"{'ok' if code == 0 else 'failed'} — {out.splitlines()[-1] if out else ''}"[:200])
                 if apply:
                     w["outcome"] = "landed" if code == 0 else "failed"
+                    if code:
+                        w["reason"] = (out.splitlines() or ["no output"])[-1][:200]
+                    else:
+                        w.pop("reason", None)
                 if apply and code == 0:
                     append(reports, {"at": now_iso(now), "class": b["class"], "verdict": verdict, "letter": "A", "target": w["target"],
                                      "command": cmd, "drafted": w["command"], "as_drafted": verdict == "applied",

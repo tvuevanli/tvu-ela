@@ -401,5 +401,31 @@ with tempfile.TemporaryDirectory() as R:
           res["did"] == ["dropped 1"] and D.load_batch(R, b2["id"])["state"] == "dropped"
           and [(r["target"], r["verdict"]) for r in D.record(R) if r.get("batch") == b2["id"]] == [("q:1", "applied"), ("q:2", "cancelled")])
 
+# a failed batch reaches him: one ask on today.md naming the writes that failed and why; A retries only those
+with tempfile.TemporaryDirectory() as R:
+    ws = [{"n": i, "target": f"q:{i}", "command": f"ela jira create --project MH --type Task --summary s{i}", "why": "row"} for i in (1, 2, 3)]
+    b = D.make_batch(R, "focus-moves", "mediahub-focus", ws, [], THU)
+    D.answer(R, f"dry:{b['id']}", "A", apply=True,
+             runner=lambda c, ap: (0, "created MH-9") if "s2" in c else (2, "DRY RUN\nrefused: a Task ela creates carries Goal"))
+    a = D.asks(R, THU, ask_state={})
+    x = a[0] if len(a) == 1 else {}
+    check("a failed batch is one ask: its own id, the class, which writes failed, each with its reason",
+          x.get("id") == f"dry:{b['id']}:retry" and x["question"].startswith("2 of 3 board moves for mediahub-focus failed (focus-moves")
+          and x["record"] == "1 q:1: refused: a Task ela creates carries Goal; 3 q:3: refused: a Task ela creates carries Goal")
+    check("its options: A retry the failed writes (recommended), B drop them",
+          [(o["letter"], o["text"], o["recommended"]) for o in x["options"]] == [("A", "retry the failed writes", True), ("B", "drop them", False)]
+          and x["options"][0]["does"] == f"ela dry answer dry:{b['id']}:retry A --apply"
+          and x["options"][1]["does"] == f"ela dry answer dry:{b['id']}:retry B")
+    calls = []
+    D.answer(R, x["id"], "A", apply=True, runner=lambda c, ap: (calls.append(c) or (0, "created")))
+    check("A on the retry ask runs only the failed writes; the batch is applied and leaves today.md",
+          calls == [ws[0]["command"], ws[2]["command"]] and D.load_batch(R, b["id"])["state"] == "applied" and D.asks(R, THU, ask_state={}) == [])
+    b2 = D.make_batch(R, "focus-moves", "other", ws[:2], [], THU)
+    D.answer(R, f"dry:{b2['id']}", "A", apply=True, runner=lambda c, ap: (0, "") if "s1" in c else (2, "no"))
+    D.asks(R, THU, commit=True, ask_state={f"dry:{b2['id']}:retry": {"dropped": "2026-11-28"}})
+    check("three mornings unanswered: the failed batch expires like an open one, the unlanded write recorded expired",
+          D.load_batch(R, b2["id"])["state"] == "expired"
+          and [(r["target"], r["verdict"]) for r in D.record(R) if r.get("batch") == b2["id"]] == [("q:1", "applied"), ("q:2", "expired")])
+
 print(f"{len(failures)} failed" if failures else "all passed")
 sys.exit(1 if failures else 0)
