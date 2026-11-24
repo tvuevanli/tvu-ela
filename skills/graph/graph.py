@@ -65,6 +65,13 @@ ALIASES = {"p": "prod", "t": "test", "t2": "test2", "t1": "test1", "cn": "cn2", 
 # CN Prod2 is `cn2` in the data and `/prod2` on the host. The host's root is another J2N instance that lists
 # only its own graphs; it is not an env here. env var → (default host, {env: (path segment, label)}).
 EDGES = {"UR_CN_HOST": ("https://ur.tvunetworks.cn", {"cn2": ("prod2", "CN Prod2")})}
+# What a header says beside the env code, so the two Prod2s are never read as one.
+ENV_LABELS = {"prod2": "COM Prod2", **{e: label for _, envs in EDGES.values() for e, (_, label) in envs.items()}}
+
+
+def env_tag(env):
+    """`cn2` → `cn2 · CN Prod2`; an env with no label prints as itself."""
+    return f"{env} · {ENV_LABELS[env]}" if env in ENV_LABELS else (env or "?")
 # QA is a deployment of its own (its own J2N, Pilot, profile store and boxes) laid out like the edge: the env is
 # in the path (qa2/j2n/…, qa2/pilot/…) on a host that is not the edge's. The host comes from UR_QA_HOST in the
 # env file only; QA envs are never probed by default — reached with `-e qa2`.
@@ -548,7 +555,7 @@ def box_location(n):
 
 def print_graph(a, via, g):
     title = " · ".join(x for x in [g["business_type"], g["business_name"], g["email"]] if x)
-    print(_c(BOLD, f"Graph: {g['graph_id'] or a.graph_id}") + f"  env {g['env'] or '?'} (answered via {via})  {g['phase']}  {title}")
+    print(_c(BOLD, f"Graph: {g['graph_id'] or a.graph_id}") + f"  env {env_tag(g['env'])} (answered via {via})  {g['phase']}  {title}")
     if g["object_id"]:
         age = f"  ({_age(g['created_at'], g['deleted_at'])} old)" if g["created_at"] and not g["deleted_at"] else ""
         print(_c(DIM, f"object {g['object_id']}  business {g['business_id']}  app {g['app']}  created {g['created_at'][:19]}{age}"))
@@ -740,7 +747,7 @@ def cmd_process(ur, a):
     p = parse_process(body)
     if a.json:
         print(json.dumps(dict(via=via, **p), ensure_ascii=False)); return
-    print(f"# process {a.process_id}  env {p['env'] or '?'} (answered via {via})")
+    print(f"# process {a.process_id}  env {env_tag(p['env'])} (answered via {via})")
     for k in ("type", "status", "graph_id", "node", "app", "owner", "image", "box_id", "public_ip", "private_ip",
               "control_port", "container", "url", "cross_zone_url", "created_at"):
         if p.get(k) not in ("", 0, None):

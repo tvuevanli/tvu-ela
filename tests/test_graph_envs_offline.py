@@ -29,6 +29,9 @@ check("the default probe is the .com edge first, cn2 last", ur.order == ["prod3"
 check("no QA env is probed by default", not any(G.QA_ENV.fullmatch(e) for e in ur.order))
 check("the root of the CN host is not an env", "cn" not in ur.edges and all(seg for _, seg, _ in ur.edges.values()))
 
+check("a header tells the two Prod2s apart", G.env_tag("cn2") == "cn2 · CN Prod2" and G.env_tag("prod2") == "prod2 · COM Prod2")
+check("an env with no label prints as itself; none prints ?", G.env_tag("prod3") == "prod3" and G.env_tag("") == "?" and G.env_tag(None) == "?")
+
 os.environ["UR_ENV_ORDER"] = "test2,prod3"
 check("UR_ENV_ORDER replaces the whole order", G.UR(None, warm=False).order == ["test2", "prod3"])
 del os.environ["UR_ENV_ORDER"]
