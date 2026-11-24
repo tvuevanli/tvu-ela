@@ -43,6 +43,14 @@ needs `ela login tvu`, and exit 4 names it.
   box where it does not, with the UR team's help only for access to the box. A handoff names the media team for it,
   not UR (mh-bot answer of 2026-11-24 in #prj_dev_mediahub named UR for a copier's container log; the copier's media
   owner read it on the box and found the hang).
+- **A chain is cleared node by node, upstream first, each on its own box.** Before a downstream node is blamed,
+  the node feeding it is shown to produce (its own log lines, its frame or byte counters moving) or named unread;
+  "the box sends no logs" is said of the box that was probed, never of every box in the chain. A node that is
+  unread because its box ships nothing has one next read: its owner on the box, and where the owner has a bot of
+  their own in the agent registry, that bot through `/ela:ask`, the owner copied (2026-11-24, a `grid_decoder` →
+  `srt_copier` destination: the answer left the decoder unread and called both boxes silent after probing only
+  the copier's; the copier's owner's bot read both on the box, found the decoder writing its SHM normally and
+  the copier hung, in under three minutes).
 - **Loki has a process's text, not every body it wrote.** The syncer ships only lines carrying the
   `[YYYYMMDD hh:mm:ss.mmm L]` prefix, so a multi-line body written without it (the copier's `sent metrics
   json: {`, `send SRT conn status: {`; decoderMediaBox's `…,json:`) arrives as its first line only. `loki`
