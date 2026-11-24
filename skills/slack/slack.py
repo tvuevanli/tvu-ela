@@ -875,15 +875,17 @@ def table_block(body):
 
 
 def text_blocks(text, limit=2900):
-    """mrkdwn as section blocks of whole lines, each within a section's limit."""
+    """mrkdwn as section blocks of whole lines, each within a section's limit; a line longer than that is split across
+    blocks, never cut."""
     out, cur = [], ""
-    for line in text.split("\n"):
+    lines = [p for line in text.split("\n") for p in ([line[i:i + limit] for i in range(0, len(line), limit)] or [""])]
+    for line in lines:
         if cur and len(cur) + 1 + len(line) > limit:
             out.append(cur); cur = line
         else:
             cur = f"{cur}\n{line}" if cur else line
     out.append(cur)
-    return [{"type": "section", "text": {"type": "mrkdwn", "text": t[:3000]}} for t in out if t.strip()]
+    return [{"type": "section", "text": {"type": "mrkdwn", "text": t}} for t in out if t.strip()]
 
 
 def with_table(text):
