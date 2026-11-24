@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # ela verification: every script compiles, every capability answers --help, the guard's cases pass.
 set -u
+export ELA_TEST=1   # a live verb refuses unless the tool it would reach is a stub under the temp directory
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"; cd "$ROOT"; fail=0
 python3 -m py_compile bin/ela $(find skills -name '*.py') || fail=1
 for s in skills/*/*.py; do

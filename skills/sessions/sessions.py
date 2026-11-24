@@ -33,6 +33,9 @@ are removed. Any failed step refuses with its reason and leaves main where it wa
 close: ends a live session by name: TERM to its Claude process, then its pane (`zellij action close-pane
 --pane-id`), and an end line "closed by desk" in the registry. The desk runs it after the worker's closing line.
 
+Under a test (ELA_TEST=1, exported by tests/run.sh) a live open or close refuses, exit 2, unless the zellij on PATH
+lies under the temp directory: a test reaches only a stub, never the owner's zellij or a real Claude session.
+
 here: the session a command runs in, so a note it writes can say where it came from (`ela note stamp`). The id
 is the registry's live row for the Claude process above the command, else that process's `--resume`/`--session-id`
 argument, else $CLAUDE_CODE_SESSION_ID or $CLAUDE_SESSION_ID; the name is the transcript's last /rename, else the registry's. Exit 3 when no
@@ -62,7 +65,7 @@ Not printed: tool results of any kind, any other prompt or answer. Every printed
 
 Exit codes: 0 ok · 2 usage · 3 nothing found / unknown target · 4 land refused · 5 zellij or git failed.
 """
-import argparse, datetime, glob, json, os, re, shlex, subprocess, sys
+import argparse, datetime, glob, json, os, re, shlex, shutil, subprocess, sys, tempfile
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "publish"))
 from publish import redact   # one rule for addresses, defined once (publish.py)
@@ -394,7 +397,23 @@ def live(name):
     return next((r for r in sessions() if r["name"] == name and not r["ended"] and r.get("pid") and alive(r["pid"])), None)
 
 
+def test_refusal():
+    """Under a test (ELA_TEST=1, which tests/run.sh exports), the reason a live open or close must not run: the zellij
+    on PATH is not a stub under the temp directory, so it would reach the owner's real session; None when it may."""
+    if os.environ.get("ELA_TEST") != "1":
+        return None
+    z, tmp = shutil.which("zellij"), os.path.realpath(tempfile.gettempdir())
+    if z and os.path.commonpath([os.path.realpath(z), tmp]) == tmp:
+        return None
+    return (f"ELA_TEST=1 and the zellij on PATH ({z or 'none'}) is not a stub under {tmp}: a test never reaches "
+            "the real zellij or starts a Claude session")
+
+
 def cmd_open(a):
+    why = None if a.dry_run else test_refusal()   # first: a live open under test touches neither git nor zellij
+    if why:
+        print(f"session open: {why}", file=sys.stderr)
+        return 2
     cwd, name = target_dir(a.target)
     if not cwd:
         print(f"session open: {name}", file=sys.stderr)
@@ -691,6 +710,10 @@ def cmd_close(a):
     if a.dry_run:
         print("\n".join(steps))
         return 0
+    why = test_refusal()
+    if why:
+        print(f"session close: {why}", file=sys.stderr)
+        return 2
     try:
         os.kill(int(r["pid"]), 15)
     except (OSError, ValueError) as e:

@@ -118,6 +118,11 @@ with tempfile.TemporaryDirectory() as tmp:
           "open on the ela checkout by path: a worktree on evan/N from main, the worker there; dry run creates nothing")
     p = run(["open", "ela", "--in-place", "--dry-run", "--tab", "--name", "look", "x"])
     check(f'cwd="{ela}"' in p.stdout and "worktree add" not in p.stdout, "--in-place opens the shared checkout")
+    p = run(["open", "ela", "--tab", "--name", "w2", "x"], stub=False, ZELLIJ_SESSION_NAME="t", PATH=os.path.join(tmp, "none"))
+    check(p.returncode == 2 and "ELA_TEST=1" in p.stderr and not os.path.exists(os.path.join(work, "w2")),
+          "under ELA_TEST a live open whose zellij is no stub under the temp directory refuses before the worktree")
+    p = run(["close", "busy"], stub=False, ZELLIJ_SESSION_NAME="t", PATH=os.path.join(tmp, "none"))
+    check(p.returncode == 2 and "ELA_TEST=1" in p.stderr, "and so does a live close: no TERM, no pane closed")
     p = run(["open", "ela", "--tab", "--name", "w1", "x"], ZELLIJ_SESSION_NAME="t")
     check(p.returncode == 0 and git(wt, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip() == "evan/w1",
           "open creates the worktree on evan/N before starting the worker")
