@@ -92,6 +92,7 @@ flowchart LR
 | 这票的 Fixed In 该填什么，证据在哪；确认后写进去 | `fixedin` · `jira` | `ela fixed-in MH-xxxx` → `ela jira fixed-in MH-xxxx --add '<slug>@<version>; …'`（dry run，你说了再 `--apply`；只追加） |
 | 「这个接口有哪些参数」 | `apifox` | `ela api read ur "GET /v1beta1/graphs/{graphId}"` |
 | 「输出流里到底带了什么」 | `stream` | `ela stream probe <url>` · `ela stream diff <a> <b>` |
+| 声道映射（左右反转、两边一样、静音、恢复默认）在输出上到底生效没有：录一段输出，按片算左右声道各自的 RMS、L−R、相关系数和每个声道是否静音；哪个声道在响是事实，是不是要的映射对照源的左右来读 | `stream` | `ela stream audio '<srt url>' --seconds 20` · `ela stream audio rec.ts -v` · `--slice 0.2` · `--json` |
 | 「Slack 里谁提过 X」「什么时候 revert 的」「这周期有没有 hotfix」 | `slack` | `ela slack search 'revert|hotfix' --since 2026-09-10 --channels prj_dev_mediahub`（第二次起走缓存，秒级） |
 | 一批票要清账：哪些能推出 build、哪些只有声明、哪些要问 owner | `fixedin` | `ela fixed-in --jql '…'`（结尾按四组汇总） |
 | 「这事以前写过没有」 | `kb` · `confluence` · `gdoc` | `ela kb search …` · `ela wiki search …` · `ela gdoc <链接>` |
@@ -164,7 +165,7 @@ flowchart TD
 | `graph` | `ela graph <id>` 节点表（按 pipeline 顺序）· `ela process <id>` 进程实时记录 · `ela box <id>` 容量与负载 · `ela graphs [me\|邮箱]` 某人的 graph · `ela resolve <id>` 按形状认 · `ela usage <type>` 某种节点谁在用 · `ela envs` 探测顺序 · `ela cloudboxes [cn] [-e prod9] [--wait]` 某个 TVU region 各位置现有的云机器（冷启动复现前确认为 0）；`ela connect` / `ela exec` 进 box，`ela start` / `ela stop` 发送端进程（y/N） | 事故第一跳：这条流跑在哪、哪个盒子 |
 | `object` | object 与 tangible | 从一个对象反查它在哪些 graph 里 |
 | `grid` | Grid 源一条链只读：发送端（CC 设备记录）· 编码器配置和配对（GCS 的 `/gcsApi/`，按设计不需登录）· 配对的接收端是否正收这个源（超过 30 天没上报的标为残留配对）· object id 给出时 MediaHub 的 `grid_decoder` 进程；绝不调 `getXmlFile?type=r`（会改写接收端 IP）。读不到的：输入信号、LinuxR 内部 Grid 状态、GCS 登录后的 Relay 视图（你的账号没有 Grid Server 权限） | 「Grid 源断了，断在哪」 |
-| `stream` | 线上流的 PID 表、编码、分辨率；两条流逐字段比 | 「PID 生效了吗」「这两条流差在哪」 |
+| `stream` | 线上流的 PID 表、编码、分辨率；两条流逐字段比；左右声道各自响不响 | 「PID 生效了吗」「这两条流差在哪」「声道反转生效了吗」 |
 | `release` | `ela bundles` GM bundle 列表 · `ela bundle <name>` 物料单 · `ela versions` 各 lane 版本 · `ela builds <job>` Jenkins 构建 · `ela drift` 漂移；`ela bundles` 和 `ela versions` 不带 `--host` 时三个 host 都读（qa、prod、cn 即中国区自己的 host），每行标明读自哪个 host、什么时候读的，某个 host 读不到只说一行，其余照常；中国区 host 上的名字只有 release map 的 `regions.china.userservice` 写明了才对应到 lane（`prod-2-china`，显示为 CN Prod2），否则原样显示并标 unmapped；`ela bundles --host cn --raw` 看它的原始名字；没配置时只多一行「China host not configured」，.com 的答案不受影响；prod 用 `ela login tvu` 拿你自己的会话；`ela login tvu --keepalive` 续期（不登录、不重试），装成 systemd 用户 timer 每 30 分钟跑一次，安装命令见 release 的 SKILL.md | 「这个修复上哪个环境了」 |
 | `team` | 花名册第一手：`who` · `areas` · `emails` · `check` 对照 Slack | 派票或 @ 人之前 |
 | `figma` | 设计文件结构、节点文本、评论、截图 | 设计稿贴进来的时候 |

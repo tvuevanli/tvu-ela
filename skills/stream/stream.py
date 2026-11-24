@@ -7,7 +7,7 @@ reads the stream. ffprobe is the sense; this adds what makes it usable on live M
 an HLS media playlist rolls its window in seconds, so a segment named in one call is a 404 in
 the next — `probe` resolves and fetches in one pass.
 """
-import argparse, json, os, re, shutil, subprocess, sys, tempfile, urllib.parse, urllib.request
+import argparse, array, json, math, os, re, shutil, subprocess, sys, tempfile, urllib.parse, urllib.request
 
 EX_OK, EX_USAGE, EX_MISSING, EX_REMOTE = 0, 2, 3, 5
 UA = "ela-stream/1.0"
@@ -363,9 +363,113 @@ def cmd_diff(a):
               f"{str(vb if vb is not None else '—'):<24}{mark}")
 
 
+# --- audio: which channel carries the sound, slice by slice -----------------------------------------------------
+# An audio remapping (swap L/R, both the same, mute) is proved by the output, not by the API answer: on 2026-11-24 every
+# remap call answered OK while it was being applied on another environment. A capture is decoded to 16-bit stereo PCM
+# and cut into slices; each slice gives RMS per channel, the RMS of L−R, their correlation and a silence verdict per
+# channel. Which channel is loud is the fact; whether that is the remap asked for is read against the source's layout.
+RATE = 48000
+SILENT_DB = -60.0       # below this a channel is silent (a muted output reads -99, the floor)
+SAME_DB = -60.0         # L−R below this, with both channels sounding, is one signal on both
+FLOOR_DB = -99.0
+
+
+def db(sum_sq, n):
+    """dBFS of a sum of squares over n 16-bit samples, floored at -99."""
+    return FLOOR_DB if not n or sum_sq <= 0 else max(FLOOR_DB, 10 * math.log10(sum_sq / n / 32768.0 ** 2))
+
+
+def pcm_of(target, seconds=None, track=0, host=None, timeout=60):
+    """Interleaved stereo s16le samples. A .pcm / .s16 / .raw file is read as is (48 kHz stereo s16le); anything else
+    is decoded by ffmpeg — a .ts file, or a live srt:// udp:// URL for --seconds."""
+    if re.search(r"\.(pcm|s16|raw)$", target, re.I) and not is_network(target):
+        raw = open(target, "rb").read()
+    else:
+        src = as_caller(target, host) if is_network(target) else target
+        cmd = [need("ffmpeg"), "-hide_banner", "-nostdin", "-loglevel", "error", "-i", src]
+        if seconds:
+            cmd += ["-t", str(seconds)]
+        cmd += ["-map", f"0:a:{track}", "-f", "s16le", "-ac", "2", "-ar", str(RATE), "-"]
+        print(f"decoding {src}" + (f" for {seconds:g}s" if seconds else ""), file=sys.stderr)
+        try:
+            p = subprocess.run(cmd, capture_output=True, timeout=timeout + (seconds or 0))
+        except subprocess.TimeoutExpired:
+            print(f"ffmpeg timed out on {src}", file=sys.stderr); sys.exit(EX_REMOTE)
+        if p.returncode != 0 and not p.stdout:
+            print(f"ffmpeg failed: {p.stderr.decode('utf-8', 'replace').strip()[:400]}", file=sys.stderr); sys.exit(EX_REMOTE)
+        raw = p.stdout
+    a = array.array("h")
+    a.frombytes(raw[:len(raw) // 4 * 4])
+    if sys.byteorder == "big":
+        a.byteswap()
+    return a
+
+
+def loud(l_db, r_db, d_db):
+    """One slice's verdict: silent · L=R · L · R · both."""
+    ls, rs = l_db < SILENT_DB, r_db < SILENT_DB
+    if ls and rs:
+        return "silent"
+    if not ls and not rs and d_db < SAME_DB:
+        return "L=R"
+    if rs:
+        return "L"
+    if ls:
+        return "R"
+    return "both"
+
+
+def audio_slices(a, slice_s=0.2, rate=RATE):
+    """Interleaved stereo samples → per-slice rows and a summary over the whole capture."""
+    per = max(1, int(rate * slice_s))
+    n = len(a) // 2
+    rows, tl, tr, td, tlr = [], 0, 0, 0, 0
+    for i in range(n // per):
+        sl = sr = sd = slr = 0
+        for j in range(2 * i * per, 2 * (i + 1) * per, 2):
+            l, r = a[j], a[j + 1]
+            sl += l * l; sr += r * r; slr += l * r
+            d = l - r; sd += d * d
+        tl += sl; tr += sr; td += sd; tlr += slr
+        corr = slr / math.sqrt(sl * sr) if sl and sr else None
+        L, R, D = db(sl, per), db(sr, per), db(sd, per)
+        rows.append({"t": round(i * slice_s, 3), "L_db": round(L, 1), "R_db": round(R, 1), "LmR_db": round(D, 1),
+                     "corr": None if corr is None else round(corr, 3),
+                     "L_silent": L < SILENT_DB, "R_silent": R < SILENT_DB, "loud": loud(L, R, D)})
+    k = len(rows) * per
+    counts = {}
+    for r in rows:
+        counts[r["loud"]] = counts.get(r["loud"], 0) + 1
+    L, R, D = db(tl, k), db(tr, k), db(td, k)
+    summary = {"seconds": round(n / rate, 2), "slices": len(rows), "slice_s": slice_s,
+               "L_db": round(L, 1), "R_db": round(R, 1), "LmR_db": round(D, 1),
+               "corr": round(tlr / math.sqrt(tl * tr), 3) if tl and tr else None,
+               "L_silent": L < SILENT_DB, "R_silent": R < SILENT_DB, "loud": counts}
+    return rows, summary
+
+
+def cmd_audio(a):
+    pcm = pcm_of(a.target, a.seconds, a.track, a.host, a.timeout)
+    rows, summ = audio_slices(pcm, a.slice)
+    if not rows:
+        print("no audio decoded (no audio track, or the capture is shorter than one slice)", file=sys.stderr); sys.exit(EX_REMOTE)
+    if a.json:
+        print(json.dumps({"target": a.target, "summary": summ, "slices": rows}, ensure_ascii=False)); return
+    print(f"# {a.target}  audio track {a.track}  {summ['seconds']}s in {summ['slices']} slices of {a.slice:g}s")
+    if a.verbose:
+        print(f"{'t':>6} {'L dB':>7} {'R dB':>7} {'L-R dB':>7} {'corr':>6}  loud")
+        for r in rows:
+            c = "" if r["corr"] is None else f"{r['corr']:.2f}"
+            print(f"{r['t']:6.1f} {r['L_db']:7.1f} {r['R_db']:7.1f} {r['LmR_db']:7.1f} {c:>6}  {r['loud']}")
+    sil = lambda x: "silent" if x else "sounding"
+    print(f"L {summ['L_db']:.1f} dB ({sil(summ['L_silent'])}) · R {summ['R_db']:.1f} dB ({sil(summ['R_silent'])}) · "
+          f"L−R {summ['LmR_db']:.1f} dB · corr {summ['corr'] if summ['corr'] is not None else '-'}")
+    print("slices by loud channel: " + " · ".join(f"{k} {v}" for k, v in sorted(summ["loud"].items(), key=lambda kv: -kv[1])))
+
+
 def main():
     ap = argparse.ArgumentParser(
-        description="What a stream actually carries: PMT/PCR/PID and codec, read off the wire.",
+        description="What a stream actually carries: PMT/PCR/PID and codec, and which channel sounds, read off the wire.",
         epilog="Quote the target: an SRT or UDP URL's `&` parameters are shell separators otherwise, "
                "and the URL is silently truncated. The line printed before each read shows what arrived.")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -388,8 +492,19 @@ def main():
     p.add_argument("--only-diffs", action="store_true", dest="only_diffs",
                    help="print only the rows that differ — that list is the gap")
     p.add_argument("--json", action="store_true")
+    p = sub.add_parser("audio", help="which channel carries the sound, per slice: RMS L/R, L−R, correlation, silence")
+    p.add_argument("target", help=".ts file, .pcm/.s16 (48 kHz stereo s16le), or a live srt:// udp:// URL")
+    p.add_argument("--seconds", type=float, help="how much to decode (a live URL needs it; default: the whole file)")
+    p.add_argument("--slice", type=float, default=0.2, help="slice length in seconds (default 0.2)")
+    p.add_argument("--track", type=int, default=0, help="which audio track (default 0)")
+    p.add_argument("--host", help="box ip for a listener/bind address (srt)")
+    p.add_argument("--timeout", type=float, default=60)
+    p.add_argument("-v", "--verbose", action="store_true", help="one line per slice")
+    p.add_argument("--json", action="store_true")
     a = ap.parse_args()
-    {"probe": cmd_probe, "diff": cmd_diff}[a.cmd](a)
+    if a.cmd == "audio" and is_network(a.target) and not a.seconds:
+        ap.error("a live URL needs --seconds")
+    {"probe": cmd_probe, "diff": cmd_diff, "audio": cmd_audio}[a.cmd](a)
 
 
 if __name__ == "__main__":

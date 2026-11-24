@@ -48,6 +48,8 @@
   ela stream probe <url>           what a stream carries: PMT · PCR · PID table · codec
                                    (m3u8 · .ts · srt:// · udp://)
   ela stream diff <a> <b>          two streams, field by field
+  ela stream audio <ts|url>        which channel sounds, per slice: RMS L/R · L−R · correlation · silence
+                                   (a remap checked on the output; a live URL takes --seconds)
  logs
   ela logs chain <traceId>         read-only: a trace's hops, the first failing one marked
   ela logs java|calls …            own lines: java --trace T|--app A --at T; calls --server S --at T

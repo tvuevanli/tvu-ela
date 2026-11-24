@@ -1,6 +1,6 @@
 ---
 name: stream
-description: What a MediaHub stream actually carries, read off the wire — HLS, a .ts segment, SRT or UDP. Use for "PID 生效了吗", "输出是什么编码", "这两条流差在哪", verifying a copier change, or checking an output against its profile.
+description: What a MediaHub stream actually carries, read off the wire — HLS, a .ts segment, SRT or UDP. Use for "PID 生效了吗", "输出是什么编码", "这两条流差在哪", a copier change, an output against its profile, or a channel remap.
 user-invocable: true
 ---
 
@@ -18,11 +18,12 @@ that has not been read off the wire is a hypothesis.
 ```bash
 STREAM="python3 ${CLAUDE_PLUGIN_ROOT}/skills/stream/stream.py"
 ```
-Needs `ffprobe` on PATH. No credentials: the outputs this reads are the ones a viewer can reach.
+Needs `ffprobe` (and `ffmpeg` for `audio`) on PATH. No credentials: the outputs this reads are the ones a viewer can reach.
 
 ```bash
 $STREAM probe <target>       # PMT · PCR · PID table · codec
 $STREAM diff  <a> <b>        # the two, field by field
+$STREAM audio <target>       # which channel sounds, per slice (below)
 ```
 Both take `--json`, `--segment first|last|newest` (which HLS segment), `--host` (below),
 `--seconds` (how much of a live feed to look at, default 8) and `--timeout` (default 45).
@@ -80,6 +81,23 @@ one output dropped a track.
 Protocol and container each remove different things: a live pull has no duration, cannot be seeked
 and gives a windowed bitrate estimate; a non-TS container has no PIDs and no service tags however it
 was transported.
+
+## What `audio` is for
+
+A channel remapping (swap L/R, both the same, mute, back to default) is proved on the output, not by
+the call that applied it: every remap call can answer OK while it is applied on another environment.
+
+```bash
+$STREAM audio '<srt url>' --seconds 20     # a live output; or a recorded .ts / a .pcm (48 kHz stereo s16le)
+$STREAM audio rec.ts -v --slice 0.2        # one line per slice
+```
+
+Per slice: RMS of L and of R (dBFS), RMS of L−R, their correlation, and which channel sounds —
+`L` · `R` · `both` · `L=R` (both sounding, L−R below -60 dB) · `silent` (both below -60 dB). The
+summary gives the same over the whole capture and counts the slices by verdict. Which channel sounds
+is the fact; whether it is the remap asked for is read against the source's own layout (a source
+that alternates left and right shows the alternation reversed when swapped). Stdlib only: ffmpeg
+decodes, Python counts.
 
 ## Invariants
 - **Never a customer's live output.** A probe is a caller: on a single-caller listener (`max_clients 1`) it may
