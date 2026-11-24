@@ -124,6 +124,13 @@ through the publish gate.
    session keeps to one concern and closes when it is done. Reason: each turn re-reads the whole
    context from cache, so one whole read of `vault.py` is paid again on every turn after it; on
    2026-11-20 four long ela sessions were about 80% of the day's weighted tokens (`ela improve digest`).
+10. ela and ela-runner are changed only in a worktree; the main checkout receives fast-forward merges
+   only. `ela session open ela|runner --name N` makes `<work>/N/<repo>` on branch `evan/N`;
+   `ela session land N` rebases, runs `tests/run.sh`, fast-forwards main when no dirty file there
+   overlaps, pushes and removes the worktree. Reason: every `ela` command, the runner and every
+   session run the main checkout, so an unfinished edit there is production; on 2026-11-24 a
+   half-written `skills/vault/vault.py` was live for a minute and a runner sync in that minute wrote
+   twelve vault notes with broken front matter.
 
 ## Gate — one-way asks
 
