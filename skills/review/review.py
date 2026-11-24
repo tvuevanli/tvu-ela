@@ -14,7 +14,8 @@ replay compares what ela said on day D with what the sources show now: a `sure` 
 (moved back, reopened, a QA fail after it), a status, assignee or Fixed In a facts line stated that Jira did not
 hold when the page was written, a drafted Fixed In clear of an empty field, a version the morning page called moved that the next lane read did
 not hold, a nudge drafted for someone who had already answered, and an applied action after which the ticket did
-not change for a working day. It writes <reports>/review/<D>-replay.json and prints one summary line for the facts
+not change for a working day. It also samples up to five of the day's signed writes (ela's own tier-1 acts) for the
+evening reader to audit: does the reason each signed comment gave hold? It writes <reports>/review/<D>-replay.json and prints one summary line for the facts
 page. Exit 3 when Jira could not be read (the rows it could read are still written).
 
 reader serves the evening session that reads the morning page as the owner would (skills/brief/SKILL.md §reader):
@@ -25,7 +26,7 @@ findings the next morning's judge reads.
 
 Reads files and Jira only; nothing is posted or ticked.
 """
-import argparse, datetime, glob, json, os, re, subprocess, sys
+import argparse, datetime, glob, hashlib, json, os, re, subprocess, sys
 
 HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "brief"))
@@ -715,6 +716,53 @@ def jira_fields(keys, e):
     return out, gaps
 
 
+SIGNED_SAMPLE = 5                                       # signed writes audited a day (decision 2026-11-24, amendment on learning)
+AUDITS = ("holds", "fails", "unclear")                  # the reader's word on a sampled write's reason
+
+
+def signed_sample(reports, date, n=SIGNED_SAMPLE):
+    """Up to n of the day's signed writes, ela's own tier-1 acts in the dry record, for the evening reader to check the
+    reason each comment gave against the ticket as it now stands. The sample is fixed by the day and the act, so a
+    rerun audits the same writes. → [{kind: audit, act, rule, key, said, now}]."""
+    try:
+        f = open(os.path.join(reports, "ela", "dry", "record.jsonl"), encoding="utf-8")
+    except OSError:
+        return []
+    rows = []
+    with f:
+        for line in f:
+            try:
+                r = json.loads(line)
+            except ValueError:
+                continue
+            if r.get("source") == "tier1" and r.get("act") and str(r.get("at") or "")[:10] == date:
+                rows.append(r)
+    pick = sorted(rows, key=lambda r: hashlib.sha1(f"{date}\n{r['act']}".encode()).hexdigest())[:n]
+    return [{"kind": "audit", "act": r["act"], "rule": r.get("class"), "key": r.get("target"),
+             "said": f"{r.get('class')} {r['act']}: {(r.get('why') or r.get('command') or '')[:200]}",
+             "now": f"read {r.get('target')} first-hand: does the reason the signed comment gave hold?"} for r in sorted(pick, key=lambda r: r["act"])]
+
+
+def to_audit(reports, date):
+    """The sampled writes the replay put up for the reader: {act: row}."""
+    try:
+        rows = json.load(open(os.path.join(reports, "review", f"{date}-replay.json"), encoding="utf-8")).get("rows") or []
+    except (OSError, ValueError, AttributeError):
+        return {}
+    return {r["act"]: r for r in rows if r.get("kind") == "audit" and r.get("act")}
+
+
+def audited_rows(text):
+    """The reader file's audit table: {act: (word, line)} from rows `| act <id> | holds / fails / unclear | line |`."""
+    out = {}
+    for line in text.splitlines():
+        cells = [c.strip() for c in re.split(r"(?<!\\)\|", line.strip())[1:-1]]
+        m = re.match(r"act\s+`?([^`\s]+)`?$", cells[0], re.I) if len(cells) >= 3 else None
+        if m:
+            out[m.group(1)] = (cells[1].lower(), cells[2])
+    return out
+
+
 COUNT_NAMES = (("sure_contradicted", "sure reading contradicted", "sure readings contradicted"),
                ("field_wrong", "field claim wrong", "field claims wrong"),
                ("version_miscalled", "version miscalled", "versions miscalled"),
@@ -764,10 +812,11 @@ def replay(date, site_, e, me, now=None):
     at = datetime.datetime.fromtimestamp(os.path.getmtime(page_path)).astimezone() if os.path.isfile(page_path) else now
     rows = contradicted(sure, issues, qa) + wrong_fields(claims, actions, fields, issues, at, aliases) + miscalled(page, snap) \
         + answered_nudges(actions, issues, me) + applied_no_change(actions, issues, me, now) + reverts(actions, issues, me, now) \
-        + replies(actions, issues, me, e, gaps)
+        + replies(actions, issues, me, e, gaps) + signed_sample(reports, date)
     counts = {k: sum(r["kind"] == k for r in rows) for k, _, _ in COUNT_NAMES}
     return {"date": date, "at": now.isoformat(timespec="seconds"), "counts": counts, "rows": rows,
             "read": {"sure_readings": len(sure), "field_claims": len(claims), "actions": len(actions), "called_moves": len(called_moves(page)),
+                     "signed_sampled": sum(r["kind"] == "audit" for r in rows),
                      "snapshot": (snap or {}).get("date")},
             "gaps": gaps, "summary": summary(date, counts)}
 
@@ -859,11 +908,21 @@ def without_learned(reader):
     return reader[:m.start()] if m else reader
 
 
-def reader_check(page, reader, judge=None):
+def reader_check(page, reader, judge=None, audit=None):
     """Gaps in a reader file against its page: an item with no verdict or two, a verdict outside the set, an empty
-    line, a missing page line; and each reply the replay found after a tier-1 or tier-2 action without its judgment."""
+    line, a missing page line; each reply the replay found after a tier-1 or tier-2 action without its judgment; and
+    each sampled signed write without its word."""
     fails = []
     reader = without_learned(reader)
+    done = audited_rows(reader)
+    for a in sorted(audit or {}):
+        w = done.get(a)
+        if not w:
+            fails.append(f"act {a}: the sampled write is not audited (| act {a} | {' or '.join(AUDITS)} | line |)")
+        elif w[0] not in AUDITS:
+            fails.append(f"act {a}: word {w[0]!r} is not one of {', '.join(AUDITS)}")
+        elif not w[1]:
+            fails.append(f"act {a}: a word without its line")
     got = judged_rows(reader)
     for n in sorted(judge or {}):
         j = got.get(n)
@@ -897,7 +956,7 @@ def reader_check(page, reader, judge=None):
 KINDS = {"wrong": "wrong", "handed back": "handed-back", "question": "question"}
 
 
-def reader_findings(page, reader, judge=None):
+def reader_findings(page, reader, judge=None, audit=None):
     """The reader file as findings the next morning's judge takes as input: one per item read wrong, handed back or
     left as a question, and one for what he would skip: [{kind, item, key, what}]. Tickable and noise items are not
     findings; noise is already what Skipped says. A reply judged to contradict a tier-1 or tier-2 action is a
@@ -910,6 +969,13 @@ def reader_findings(page, reader, judge=None):
         if j == "contradicts" and rows:
             out.append({"kind": "correction", "how": "reply", "rule": rows[0].get("rule"), "key": rows[0].get("key"),
                         "item": None, "what": line or rows[0].get("now")})
+    for a, (w, line) in sorted(audited_rows(reader).items()):
+        row = (audit or {}).get(a)
+        if row and w == "fails":                        # the reason did not hold: a correction on the class, as a reply is
+            out.append({"kind": "correction", "how": "audit", "rule": row.get("rule"), "key": row.get("key"), "act": a,
+                        "item": None, "what": line})
+        elif row and w == "unclear":
+            out.append({"kind": "question", "item": None, "key": row.get("key"), "act": a, "what": line})
     for r in reader_rows(reader):
         if r["verdict"] in KINDS:
             k = keys.get(r["n"]) or B.keys_in(r["item"])
@@ -944,16 +1010,16 @@ def cmd_reader(args):
         page = open(page_path, encoding="utf-8").read()
     except OSError:
         print(f"reader: no morning page {page_path}", file=sys.stderr); sys.exit(2)
-    judge = to_judge(reports, args.date)
+    judge, audit = to_judge(reports, args.date), to_audit(reports, args.date)
     if args.check:
         try:
             reader = open(out_path, encoding="utf-8").read()
-            fails = reader_check(page, reader, judge)
+            fails = reader_check(page, reader, judge, audit)
         except OSError:
             reader, fails = None, [f"no reader file {out_path}"]
         if not fails:                                   # the next morning's judge reads these (brief SKILL §3b)
             with open(out_path[:-3] + ".json", "w", encoding="utf-8") as f:
-                json.dump(reader_findings(page, reader, judge), f, ensure_ascii=False, indent=1)
+                json.dump(reader_findings(page, reader, judge, audit), f, ensure_ascii=False, indent=1)
             update_tiers(reports, args.date)            # a contradicting reply counts toward its rule's demotion
         print(json.dumps({"reader": out_path, "failures": fails}, ensure_ascii=False) if args.json else "\n".join(fails))
         sys.exit(1 if fails else 0)
@@ -964,7 +1030,8 @@ def cmd_reader(args):
            "lint": lint(page, *context(page_path, page)[:4]),
            "rules": [os.path.expanduser("~/.claude/ela/working-with-evan.md"), "skills/brief/SKILL.md §reader"],
            "repeated": repeated_verdicts(reports, args.date),
-           "judge": {str(n): [r["now"] for r in rows] for n, rows in judge.items()}, "judgments": list(JUDGMENTS)}
+           "judge": {str(n): [r["now"] for r in rows] for n, rows in judge.items()}, "judgments": list(JUDGMENTS),
+           "audit": {a: r["said"] for a, r in audit.items()}, "audits": list(AUDITS)}
     if args.json:
         print(json.dumps(ctx, ensure_ascii=False, indent=1))
     else:
@@ -975,6 +1042,8 @@ def cmd_reader(args):
             print(f"  lint: {f}")
         for n, says in ctx["judge"].items():
             print(f"  judge action {n}: " + " | ".join(says))
+        for a, said in ctx["audit"].items():
+            print(f"  audit act {a}: {said}")
 
 
 def main():

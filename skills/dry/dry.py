@@ -990,7 +990,7 @@ def fold_corrections(reports):
         for r in rows or []:
             if isinstance(r, dict) and r.get("kind") == "correction" and r.get("rule") in CLASSES and (day, r.get("key"), r["rule"]) not in seen:
                 seen.add((day, r.get("key"), r["rule"]))
-                correct(reports, r["rule"], r.get("how") or "correction", r.get("key"), (r.get("now") or "")[:120],
+                correct(reports, r["rule"], r.get("how") or "correction", r.get("key"), (r.get("now") or r.get("what") or "")[:120],
                         now=datetime.datetime.fromisoformat(day + "T21:00:00+08:00"))
 
 

@@ -922,6 +922,13 @@ action N | contradicts / agrees / unrelated | line |`; the check fails an unjudg
 is a correction on that action's rule. Replay and the passing check write `<reports>/review/tiers.json`: each rule's
 corrections in the last seven days, and `demoted` once there are three, which the morning reads (§3).
 
+**Signed writes, sampled.** Replay also puts up to five of the day's signed writes (ela's own tier-1 acts in the dry
+record) before the reader, fixed by the day and the act; `ela review reader` prints each as `audit act <id>`. The reader
+reads the ticket first-hand and judges whether the reason the signed comment gave holds, under an `## Audit` heading, one
+row per act, `| act <id> | holds / fails / unclear | line |`; the check fails an unaudited one. `fails` is a correction on
+the act's class, its line the cause (it returns the class to confirm and reaches the improve digest); `unclear` is a
+question for the morning (decision 2026-11-24, amendment on learning from ela's own writes).
+
 ## 4 — what this skill does not do
 - Post, comment, transition, assign, create, or write a file. The drafted actions name the skill
   or the jira capability's write atoms that will, behind their own confirm.

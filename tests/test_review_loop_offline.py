@@ -6,11 +6,12 @@ case to the corpus; a dry-run vault pass reads but records nothing; the improve 
 by cause; an improve item carrying a corpus case waits for his letter, and A admits it. Nothing reaches Jira."""
 import datetime, json, os, sys, tempfile
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-for d in ("dry", "vault", "improve"):
+for d in ("dry", "vault", "improve", "review"):
     sys.path.insert(0, os.path.join(ROOT, "skills", d))
 import dry as D  # noqa: E402
 import vault as V  # noqa: E402
 import improve as I  # noqa: E402
+import review as RV  # noqa: E402
 
 RT = tempfile.TemporaryDirectory()
 D.site = lambda: {"runtime": RT.name}
@@ -96,6 +97,34 @@ with tempfile.TemporaryDirectory() as tmp:
     check("and it is an ask on today.md", [a["id"] for a in I.asks(R)] == [f"improve:{iid}"])
     I.answer(R, iid, "A", DAY)
     check("A admits the case", sorted(c["source"] for c in I.corpus(R)) == ["did.md", f"improve:{iid}"])
+
+# ---- review replay: a sample of the day's signed writes, audited by the reader -------------------------------------------
+with tempfile.TemporaryDirectory() as R:
+    for k in range(1, 8):
+        D.act(R, "board-watch", f"MH-{k}", [{"target": f"MH-{k}", "command": f"ela jira comment MH-{k} --from-file /tmp/x.md",
+                                            "why": f"MH-{k}: stalled past its threshold"}], DAY, apply=True, runner=OK, now=NOW)
+    got = RV.signed_sample(R, D_)
+    check("at most five of the day's signed writes are sampled", len(got) == 5 and all(g["kind"] == "audit" for g in got))
+    check("the sample is the same on a rerun", [g["act"] for g in RV.signed_sample(R, D_)] == [g["act"] for g in got])
+    check("another day's writes are not sampled", RV.signed_sample(R, "2000-01-01") == [])
+    os.makedirs(os.path.join(R, "review"))
+    json.dump({"rows": got}, open(os.path.join(R, "review", f"{D_}-replay.json"), "w"))
+    audit = RV.to_audit(R, D_)
+    acts = sorted(audit)
+    lines = ["## Audit", "", "| act | word | line |", "|---|---|---|"] + [f"| act {acts[0]} | fails | the ticket was moved yesterday, not stalled |",
+             f"| act {acts[1]} | unclear | the threshold is not on the ticket |"] + [f"| act {a} | holds | stalled 9 days |" for a in acts[2:4]]
+    fails = RV.reader_check("", "\n".join(lines), {}, audit)
+    check("an unaudited sampled write fails the check", any(acts[4] in f for f in fails) and not any(acts[0] in f for f in fails))
+    found = RV.reader_findings("", "\n".join(lines), {}, audit)
+    corr = [f for f in found if f["kind"] == "correction"]
+    check("fails is a correction on the class, its line the cause",
+          [(f["rule"], f["how"], f["what"]) for f in corr] == [("board-watch", "audit", "the ticket was moved yesterday, not stalled")])
+    check("unclear is a question", [f["act"] for f in found if f["kind"] == "question"] == [acts[1]])
+    json.dump(found, open(os.path.join(R, "review", f"{D_}-reader.json"), "w"))
+    D.fold_corrections(R)
+    row = [r for r in D.record(R) if r.get("how") == "audit"]
+    check("folded, the audit returns the class to confirm with its cause on record",
+          D.load_state(R)["board-watch"]["tier"] == 3 and row and row[0]["note"] == "the ticket was moved yesterday, not stalled")
 
 if failures:
     print(f"\n{len(failures)} failed"); sys.exit(1)
