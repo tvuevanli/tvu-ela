@@ -3,7 +3,7 @@
 L1: subcommands, --json, stdlib only, read-only. A sense: it reports what the logs say; which service owns the
 failure is /ela:route's judgment.
 
-  chain <traceId> [--days N]                    process-log records of one trace, time-ordered, one line per HTTP
+  chain <traceId> [--at T | --since 5m]        process-log records of one trace, time-ordered, one line per HTTP
                                                 hop (inbound and outbound): time, callee, method, path, status, ms,
                                                 errorCode from the reply; the first failing hop is marked. -v: params
                                                 and result
@@ -11,10 +11,15 @@ failure is /ela:route's judgment.
   java  --app <appname> --at <time> [--window 5s] [--env E] [--level L] [--grep text]…
                                                 one service's lines around a moment — the pivot when a trace breaks:
                                                 a service the trace id did not reach still logged the failure second
-  calls --server <serverName> | --email <addr>  --at <time> [--window 10s] [--grep text]…
+  calls --server <serverName> | --email <addr>  [--at <time> [--window 10s] | --since 5m] [--grep text]…
                                                 process-log records around a moment for one service or one user
-  loki  --pid <processId> | --service S | --query LogQL  [--since 1h | --from T --to T | --at T --window W] [--grep text]…
+  loki  --pid <processId> | --service S | --query LogQL  [--since 5m | --from T --to T | --at T --window W] [--grep text]…
                                                 Loki lines through Observer (media services, by process id)
+
+Windows. A process-log or Loki read covers the last 5 minutes by default, or a few minutes around `--at`. A wider
+window is read only with `--wide "<reason>"`, and the reason is printed on the result: the limits on the shared log
+servers are mh-bot's to enforce, and ela reads wide when the case needs it and says why. A Loki read names one
+process or one service; a query over every service is refused, `--wide` or not.
 
 Times. `--at`, `--from`, `--to` take `YYYY-MM-DD HH:MM:SS[.fff]` (read as UTC unless an offset is given), ISO 8601,
 or epoch seconds/milliseconds. Every line prints UTC and the machine's local time. The java-log stores UTC strings;
@@ -25,9 +30,9 @@ Source quirks, verified 2026-09-29 and handled here so a caller need not know th
     (the call returns every row). `chain` filters on peerId.
   - the java-log filter key is `traceId` (camel case); `traceid` is ignored. Its `message` filter does not match ids,
     so `--grep` filters on the client.
-  - process-log windows are at most 7 days per call; `chain --days` over 7 is read in 7-day slices.
+  - process-log windows are at most 7 days per call; a wider `chain` is read in 7-day slices.
   - display names (`serverName`, `peerId`) sometimes arrive wrapped in HTML; tags are stripped.
-  - Loki windows are at most 4 hours.
+  - Loki windows are at most 4 hours per call, the server's ceiling, `--wide` or not.
 
 Hosts and credentials. tvulog: TVU_LOG_BASE (default the tvuuas API on tvulog.tvunetworks.com), the person's TVU
 session from `ela login tvu` (~/.claude/ela/session.json) as the Authorization header and the SID cookie; a refusal
@@ -44,8 +49,11 @@ import release as R  # noqa: E402  — the person's TVU session: reader, refusal
 EX_USAGE, EX_NOTFOUND, EX_AUTH, EX_REMOTE = 2, 3, 4, 5
 UAS_DEFAULT = "https://tvulog.tvunetworks.com/tvuuas"
 OBSERVER_DEFAULT = "https://mma1.tvunetworks.com"
-PROCESS_WINDOW = datetime.timedelta(days=7)
+PROCESS_WINDOW = datetime.timedelta(days=7)        # the server's ceiling per call, not a window to ask for
 LOKI_WINDOW = datetime.timedelta(hours=4)          # the server's ceiling per call, not a window to ask for
+# A read is narrow by default and wide on a stated reason. The owner's ruling: the limits on the shared log servers
+# are mh-bot's to enforce; ela stays flexible, and a wide read carries its reason on the result.
+READ_WINDOW = datetime.timedelta(minutes=5)        # the default read, and the widest without --wide
 LOKI_UNFILTERED = datetime.timedelta(minutes=30)   # the widest read without a server-side filter
 UTC = datetime.timezone.utc
 OK_CODES = {"0x0", "0", "200", "0x00"}
@@ -127,6 +135,36 @@ def window(a, default_span):
     if e <= s:
         die("the window ends before it starts", EX_USAGE)
     return s, e
+
+
+def read_window(a, at_span):
+    """The window of a process-log or Loki read → (start, end, wide reason or None). `--at`/`--from`/`--to`, else the
+    last `--since` (default 5m). Wider than READ_WINDOW only with `--wide "<reason>"`."""
+    w = window(a, at_span)
+    if w:
+        s, e = w
+    else:
+        e = now(); s = e - parse_span(a.since)
+    reason = (a.wide or "").strip() or None
+    if a.wide is not None and not reason:
+        die('--wide needs a reason: --wide "<why this case needs more than 5 minutes>"', EX_USAGE)
+    if e - s > READ_WINDOW and not reason:
+        die(f"this read covers {span_text(e - s)}; a read is {span_text(READ_WINDOW)} by default. Narrow it around "
+            f'the moment (--at T), or read wide with --wide "<reason>", which is printed on the result', EX_USAGE)
+    return s, e, reason
+
+
+def span_text(d):
+    m = d.total_seconds() / 60
+    return f"{m:g} minutes" if m < 120 else f"{m / 60:g} hours" if m < 2880 else f"{m / 1440:g} days"
+
+
+def now():
+    return datetime.datetime.now(UTC)
+
+
+def wide_line(reason, s, e):
+    return f"wide read ({span_text(e - s)}): {reason}" if reason else None
 
 
 # ── transport ────────────────────────────────────────────────────────────────
@@ -258,8 +296,8 @@ def first_failing(hops):
 
 
 def cmd_chain(a):
+    start, end, reason = read_window(a, "2m")
     uas = UAS(a.env_file)
-    end = datetime.datetime.now(UTC); start = end - datetime.timedelta(days=a.days)
     recs, s = [], start
     while s < end:
         e = min(s + PROCESS_WINDOW, end)
@@ -267,14 +305,16 @@ def cmd_chain(a):
         recs += got; s = e
     searched = f"process-log peerId={a.trace} from {show_time(start)} to {show_time(end)}"
     if not recs:
-        die(f"no process-log records — searched {searched}. The trace id may not have been propagated, "
-            f"or the call is older than --days {a.days}", EX_NOTFOUND)
+        die(f"no process-log records — searched {searched}. The trace id may not have been propagated, or the call "
+            f"ran outside the window: give the moment with --at", EX_NOTFOUND)
     hops = sorted((hop(r) for r in recs), key=lambda h: (h["time"] or start))
     first = first_failing(hops)
     if a.json:
-        print(json.dumps({"trace": a.trace, "searched": searched, "hops": [hop_json(h) for h in hops],
+        print(json.dumps({"trace": a.trace, "searched": searched, "wide": reason, "hops": [hop_json(h) for h in hops],
                           "first_failing": hops.index(first) if first else None}, ensure_ascii=False, indent=1, default=str))
         return
+    if reason:
+        print(wide_line(reason, start, end))
     print(f"trace {a.trace} · {len(hops)} hop(s) · ✗ failed (status ≥ 400 or a non-0x0 errorCode in the reply)")
     print_hops(hops, a.verbose, first)
     if first:
@@ -287,7 +327,7 @@ def cmd_chain(a):
 def cmd_calls(a):
     if not (a.server or a.email):
         die("calls needs --server <serverName> or --email <address>", EX_USAGE)
-    s, e = window(a, "10s") or die("calls needs --at <time> (or --from/--to)", EX_USAGE)
+    s, e, reason = read_window(a, "10s")
     if e - s > PROCESS_WINDOW:
         die("the process-log answers at most 7 days per call; narrow the window", EX_USAGE)
     uas = UAS(a.env_file)
@@ -300,8 +340,11 @@ def cmd_calls(a):
     if not hops:
         die(f"no process-log records — searched {searched}", EX_NOTFOUND)
     if a.json:
-        print(json.dumps({"searched": searched, "total": total, "hops": [hop_json(h) for h in hops]}, ensure_ascii=False, indent=1, default=str))
+        print(json.dumps({"searched": searched, "wide": reason, "total": total, "hops": [hop_json(h) for h in hops]},
+                         ensure_ascii=False, indent=1, default=str))
         return
+    if reason:
+        print(wide_line(reason, s, e))
     print(f"{len(hops)} record(s){'' if total is not None else ' (limit reached — narrow the window)'} · {searched}")
     print_hops(hops, a.verbose)
 
@@ -407,20 +450,24 @@ def mark_cut_bodies(lines, filtered):
     return n
 
 
+# One service or one process: an exact service_name, or a process_id filter. `service_name=~".+"` alone is every service.
+ONE_SOURCE = re.compile(r'service_name\s*=\s*["`][^"`]+["`]|process_id\s*=\s*["`][^"`]+["`]')
+
+
 def cmd_loki(a):
     if not (a.pid or a.service or a.query):
         die("loki needs --pid, --service or --query", EX_USAGE)
+    if a.query and not ONE_SOURCE.search(a.query):
+        die("a Loki read names one service or one process: an all-services query is refused, --wide or not. Use "
+            '--service S or --pid P, or a --query with service_name="S" or process_id = `P`. Which services ship '
+            "logs is read from code and config, not surveyed through Loki", EX_USAGE)
     tok = R.env_value("TVU_CC_BEARER_TOKEN", a.env_file)
     if not tok:
         die("no TVU_CC_BEARER_TOKEN (env, $ELA_ENV_FILE, or --env-file) — /ela:setup", EX_AUTH)
     base = (R.env_value("TVU_OBSERVER_BASE", a.env_file) or OBSERVER_DEFAULT).rstrip("/")
-    w = window(a, "5m")
-    if w:
-        s, e = w
-    else:
-        e = datetime.datetime.now(UTC); s = e - parse_span(a.since)
+    s, e, reason = read_window(a, "2m")
     if e - s > LOKI_WINDOW:
-        die("Loki answers at most 4 hours per call; narrow the window", EX_USAGE)
+        die("Loki answers at most 4 hours per call, --wide or not; narrow the window", EX_USAGE)
     # An unfiltered read pulls every line of a busy service: the costly one for the log server, and the one that
     # buries the line asked for. Without a server-side filter it is held to a short window (MH-4049, 2026-11-23).
     if not (a.grep or (a.query and "|=" in a.query)) and e - s > LOKI_UNFILTERED:
@@ -472,10 +519,12 @@ def cmd_loki(a):
                 f"{cut} line(s) open a multi-line body not shown here — filtered out by this query, or not "
                 f"synced to Loki; re-read the same moment without --grep or line filters to tell")
     if a.json:
-        print(json.dumps({"searched": searched, "body_cut_note": note,
+        print(json.dumps({"searched": searched, "wide": reason, "body_cut_note": note,
                           "lines": [{**l, "time": l["time"].isoformat() if l["time"] else None} for l in lines]},
                          ensure_ascii=False, indent=1))
         return
+    if reason:
+        print(wide_line(reason, s, e))
     print(f"{len(lines)} line(s){' (limit reached)' if len(lines) >= a.limit else ''} · {searched}")
     for l in lines:
         mark = {True: "  ⟂ body not in Loki", None: "  ⟂? body not shown"}.get(l["body_cut"], "")
@@ -499,23 +548,28 @@ def main():
         p.add_argument("--width", type=int, default=240, help="characters of a line shown without -v")
         p.add_argument("--json", action="store_true")
 
-    def moment(p, span):
+    def moment(p, span, grep=True):
         p.add_argument("--at", help="the moment (UTC unless an offset is given)")
         p.add_argument("--window", help=f"± around --at (default {span})")
         p.add_argument("--from", dest="frm"); p.add_argument("--to")
-        p.add_argument("--grep", action="append", help="keep lines containing this text (repeatable; all must match)")
+        if grep:
+            p.add_argument("--grep", action="append", help="keep lines containing this text (repeatable; all must match)")
+
+    def recent(p):
+        p.add_argument("--since", default="5m", help="the last N without --at (default 5m)")
+        p.add_argument("--wide", metavar="REASON", help="read wider than 5 minutes; the reason is printed on the result")
 
     p = sub.add_parser("chain", help="process-log records of one trace, the first failing hop marked")
-    p.add_argument("trace"); p.add_argument("--days", type=int, default=7, help="how far back (default 7)"); common(p, 500)
+    p.add_argument("trace"); moment(p, "2m", grep=False); recent(p); common(p, 500)
     p = sub.add_parser("java", help="java-log lines by trace, or by app around a moment")
     p.add_argument("--trace"); p.add_argument("--app"); p.add_argument("--env"); p.add_argument("--level")
     p.add_argument("--date", help="a UTC day, YYYY-MM-DD"); p.add_argument("--days", type=int, default=1)
     p.add_argument("--stack", type=int, default=40, help="stack lines shown with -v"); moment(p, "5s"); common(p, 300)
     p = sub.add_parser("calls", help="process-log records around a moment for one service or user")
-    p.add_argument("--server"); p.add_argument("--email"); moment(p, "10s"); common(p, 300)
+    p.add_argument("--server"); p.add_argument("--email"); moment(p, "10s"); recent(p); common(p, 300)
     p = sub.add_parser("loki", help="Loki lines through Observer")
     p.add_argument("--pid"); p.add_argument("--service"); p.add_argument("--query")
-    p.add_argument("--since", default="1h"); moment(p, "5m"); common(p, 500)
+    moment(p, "2m"); recent(p); common(p, 500)
     a = ap.parse_args()
     {"chain": cmd_chain, "java": cmd_java, "calls": cmd_calls, "loki": cmd_loki}[a.cmd](a)
 
