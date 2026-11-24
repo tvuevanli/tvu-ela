@@ -64,7 +64,7 @@ reaction; none is to be added silently.
   glance takes a marker from one fixed set: ✅ verified · ⬜ no verdict · 🟠 medium-or-worse open bug · ⚪ low bug.
   Emphasis guides the eye, sparingly: the one fact to take away in bold, once a message; a name, id, parameter or
   command a reader may copy in `code`; a next step for several parties one line each, `• *Party:* what to check`.
-  A table goes in a fence with cells split by `|` and a header row: `post` sends it as Slack's table block (bold
+  A table goes in a fence with cells split by `|`, a header row and a divider row under it (`---|---`): `post` sends it as Slack's table block (bold
   header, ✅ / 🟠 / ⬜ before a `status` cell of checked / inferred / NOT checked, long columns wrapped), the first
   table of a message only, and the fence as written when Slack refuses the block.
   `$SLACK check --text "…" | --file f|-` is the test (exit 1, each slip named with its line; `--fix` prints the
