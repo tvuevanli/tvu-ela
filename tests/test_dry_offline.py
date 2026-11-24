@@ -54,6 +54,12 @@ with tempfile.TemporaryDirectory() as R:
     check("a subtask of a proposed ticket is left out, named; one already linked is not proposed; a later comment is not read",
           any("MH-3986" in x and "MH-3983" in x for x in left) and "MH-3990" not in [t for t, _ in got]
           and "EDPP-2847" not in [t for t, _ in got])
+    sp = dict(parent, key="MH-3568", fields=dict(parent["fields"], issuelinks=[], comment={"comments": []},
+              description={"type": "doc", "content": [{"type": "paragraph", "content": [{"type": "text",
+              "text": "SCTE-35 PID 500 declared with no SCTE-35 injected; SCTE-104 too. See MH-3998."}]}]}))
+    sw, sl = D.select_link_named(sp, {"SCTE-35": issue("SCTE-35"), "MH-3998": issue("MH-3998")})
+    check("a standard's name (SCTE-35, SCTE-104) is not a ticket named, even when a Jira ticket carries it",
+          [w["target"] for w in sw] == ["MH-3998"] and not any("SCTE" in x for x in sl))
     check("every write is a command the class admits", all(__import__("re").match(D.CLASSES["link-named"]["command"], w["command"]) for w in writes))
     check("a parent he does not own is not the class's", not D.owns(dict(parent, fields=dict(parent["fields"], assignee={"emailAddress": "x@y"})), OWNER))
     b = D.make_batch(R, "link-named", "MH-3735", writes, left, THU)

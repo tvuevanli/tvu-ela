@@ -49,6 +49,15 @@ SITE = os.path.expanduser("~/.claude/ela/site.json")
 TZ = datetime.timezone(datetime.timedelta(hours=8))
 KEY = r"[A-Z][A-Z0-9]+-\d+"
 KEY_RX = re.compile(r"\b" + KEY + r"\b")
+# A standard's name has a ticket key's shape: SCTE-35, SMPTE-2110, ISO-8601. A Jira project may carry the same
+# letters (SCTE-35 is a real, unrelated ticket), so text naming one is never a ticket named (MH-3568, 2026-11-24).
+STANDARDS = {"SCTE", "SMPTE", "ST", "ISO", "IEC", "RFC", "ITU", "AES", "EBU", "ETSI", "ATSC", "DVB", "IEEE", "CEA",
+             "CTA", "ANSI", "MPEG", "HEVC", "AVC", "UTF", "SHA", "TLS", "HTTP", "IPV"}
+
+
+def ticket_keys(text):
+    """The ticket keys a text names: KEY_RX's matches less a standard's name."""
+    return [k for k in KEY_RX.findall(text or "") if k.split("-")[0] not in STANDARDS]
 EX_USAGE, EX_NOTFOUND, EX_REMOTE = 2, 3, 5
 MATURE_RUNS, MATURE_DAYS = 10, 3              # ten clean runs over at least three days (the brief of 2026-11-12)
 ASK_AGAIN_AFTER = 10                          # an unanswered or declined grant ask returns after ten more clean runs
@@ -530,7 +539,7 @@ def select_link_named(parent, children, before=None):
     named, order = {}, []
     for who, at, text in texts:
         for line in (text or "").split("\n"):
-            for k in KEY_RX.findall(line):
+            for k in ticket_keys(line):
                 if k == pk or k in named:
                     continue
                 rel = bool(re.search(r"\brelate[sd]?\b|相关", line, re.I))
@@ -1030,8 +1039,8 @@ def cmd_draft(a):
             c = json.load(open(p, encoding="utf-8"))
             children[c["key"]] = c
         if not a.issue_file:
-            for k in sorted(set(KEY_RX.findall(json.dumps((parent.get("fields") or {}).get("comment"))))
-                            | set(KEY_RX.findall(json.dumps((parent.get("fields") or {}).get("description"))))):
+            for k in sorted(set(ticket_keys(json.dumps((parent.get("fields") or {}).get("comment"))))
+                            | set(ticket_keys(json.dumps((parent.get("fields") or {}).get("description"))))):
                 if k != parent["key"] and k not in children:
                     c = read_issue(k, env)
                     if c:
