@@ -119,6 +119,11 @@ through the publish gate.
 8. People appear as roles. A tracked file names a role and the area it owns; individual performance
    and private circumstances are not engineering material. Attribution of a design choice to a dated
    ADR is authority, not deliberation.
+9. Context is paid on every turn. A file over 1,500 lines (`vault.py`, `brief.py`, `jira.py`) is located
+   with grep and read by line range, never whole, and re-read only when it has changed. A worker
+   session keeps to one concern and closes when it is done. Reason: each turn re-reads the whole
+   context from cache, so one whole read of `vault.py` is paid again on every turn after it; on
+   2026-11-20 four long ela sessions were about 80% of the day's weighted tokens (`ela improve digest`).
 
 ## Gate — one-way asks
 
