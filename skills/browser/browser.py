@@ -209,9 +209,18 @@ def parse_panel(text, host="prod"):
 # login (audiomixer0=am0) put the chain on prod. Every cookie the session carries, bar the SID and analytics, is
 # recorded; which value is which environment is read first-hand from the product bot's environment file under <code>
 # (each environment's `cookie`, with its `group`), never a table of ela's own. Audio Mixer is the first service it
-# names; a cookie it does not name is reported raw with its environment unknown.
+# names; a cookie it does not name is reported with its environment unknown. A value is printed only when it has the
+# shape of a routing token, a short env code (am0, 02cmtest, 13mhmxprod3); any other cookie is listed by name only,
+# and the load balancer's stickiness and third-party trackers (seen on the live run of 2026-11-24) are dropped.
 ROUTING_TABLE = os.path.join("bot", "producer-bot", "config", "envs.json")
-NOT_ROUTING_RX = re.compile(r"^(SID|_.*|hubspotutk|userLanguage)$")
+NOT_ROUTING_RX = re.compile(r"^(SID|_.*|hubspotutk|userLanguage|AWSALB.*|bscookie|bcookie|lidc|li_.*|UserMatchHistory|"
+                            r"AnalyticsSyncHistory|test_cookie)$")
+ENV_CODE_RX = re.compile(r"^(?=[a-z0-9]*\d)[a-z0-9]{2,16}$")
+
+
+def shown(name, value):
+    """The cookie as the report may carry it: name=value for a routing token, the name alone otherwise."""
+    return f"{name}={value}" if isinstance(value, str) and ENV_CODE_RX.match(value) else name
 
 
 def routing_table(path=None):
@@ -272,7 +281,7 @@ def routing(cookies, lane, host="prod", table=None, touches=()):
         if NOT_ROUTING_RX.match(name):
             continue
         touched = any(name.lower().startswith(t.lower()) for t in touches if t)
-        row = {"cookie": f"{name}={value}", "env": None, "group": None, "touched": touched, "verdict": "recorded"}
+        row = {"cookie": shown(name, value), "env": None, "group": None, "touched": touched, "verdict": "recorded"}
         if host != "prod":
             row["why"] = "the file describes the .com gateway, not this deployment"
         elif table is None:

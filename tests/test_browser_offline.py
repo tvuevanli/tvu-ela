@@ -79,5 +79,21 @@ check("a mismatch is unproven, naming the cookie, its environment and the new lo
       g.startswith("unproven") and "audiomixer5=am5 routes to daily-fri" in g and "ela login tvu --force" in g)
 check("nothing off: no routing verdict", B.unproven_routing(B.routing({"audiomixer0": "am0"}, "prod-3", "prod", t), "prod-3", "x") is None)
 
+# the live run of 2026-11-24 (env --as test --touches audiomixer): no value leaves the proof unless it is an env code
+LIVE = {"audiomixer0": "am0", "mediahub02": "02cmtest", "mediahub13": "13mhmxprod3", "AWSALB": "Zm9vYmFyYmF6+/q=",
+        "AWSALBCORS": "Zm9vYmFyYmF6+/q=", "bscookie": "\"v=1&2026\"", "bcookie": "\"v=2&abc\"", "lidc": "\"b=VB12:s=V\"",
+        "li_sugr": "6a0f-77c1", "UserMatchHistory": "AQKx9", "AnalyticsSyncHistory": "AQJy7", "test_cookie": "CheckForPermission",
+        "someflag": "Bearer-ey.long.opaque.token.value", "SID": "secret"}
+rows = B.routing(LIVE, "prod-3", "prod", t, ("audiomixer",))
+cks = [r["cookie"] for r in rows]
+check("load-balancer and third-party cookies are dropped from the proof",
+      not any(c.split("=")[0] in ("AWSALB", "AWSALBCORS", "bscookie", "bcookie", "lidc", "li_sugr", "UserMatchHistory",
+                                  "AnalyticsSyncHistory", "test_cookie", "SID") for c in cks))
+check("an env code keeps its value; an unknown cookie is named only",
+      cks == ["audiomixer0=am0", "mediahub02=02cmtest", "mediahub13=13mhmxprod3", "someflag"])
+blob = json.dumps(rows) + (B.unproven_routing(rows, "prod-3", "x") or "")
+check("no other value reaches --json or the verdict", not any(x in blob for x in ("Zm9v", "v=1", "v=2", "VB12", "6a0f", "AQK", "AQJ",
+                                                                                  "CheckFor", "Bearer", "secret")))
+
 print("browser: all offline checks passed" if not failures else f"browser: {len(failures)} check(s) failed")
 sys.exit(1 if failures else 0)
