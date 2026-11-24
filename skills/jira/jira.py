@@ -1668,8 +1668,11 @@ CJK = re.compile(r"[㐀-鿿]")
 
 
 def own_initiative(env=None):
-    """Whether the write running now is one ela makes on its own initiative (its class says so)."""
-    return (env if env is not None else os.environ).get("ELA_CLASS") in OWN_INITIATIVE
+    """Whether the write running now is one ela makes on its own initiative: its class says so, or `ela dry` runs it as
+    a tier-1 act (ELA_OWN=1: link-named and parent-status since the same decision; the same classes answered on the
+    owner's letter are his word and carry no note)."""
+    e = env if env is not None else os.environ
+    return e.get("ELA_CLASS") in OWN_INITIATIVE or e.get("ELA_OWN") == "1"
 
 
 def signature(name):

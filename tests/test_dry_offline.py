@@ -136,6 +136,14 @@ with tempfile.TemporaryDirectory() as R:
           and ("message-to-person", "applied", None) in by)
     check("seed: comments are not attributed to a class", not any(r.get("target") in ("MH-4", "MH-9") for r in rows))
 
+# The grant machinery is replayed on link-named as it stood before the decision of 2026-11-24 made it tier 1: at confirm,
+# earning its way up (the path it takes again after a correction returns it to confirm).
+DECIDED, D.DECIDED = D.DECIDED, {}
+def at_confirm(R, cls):
+    st = D.load_state(R)
+    st[cls]["tier"] = 3
+    D.save_state(R, st)
+
 def drive(R, cls, n, start=datetime.date(2026, 11, 2), per_day=4):
     for i in range(n):
         d = start + datetime.timedelta(days=i // per_day)
@@ -143,6 +151,7 @@ def drive(R, cls, n, start=datetime.date(2026, 11, 2), per_day=4):
                      "letter": "A", "target": f"MH-{100 + i}", "source": "batch"})
 
 with tempfile.TemporaryDirectory() as R:
+    at_confirm(R, "link-named")
     FRI = datetime.date(2026, 11, 13)
     drive(R, "link-named", 9)
     check("nine clean runs: no grant ask", not [x for x in D.asks(R, FRI, commit=True, ask_state={}) if x["kind"] == "grant"])
@@ -203,6 +212,7 @@ with tempfile.TemporaryDirectory() as R, tempfile.TemporaryDirectory() as out:
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "skills", "vault"))
 import vault as V  # noqa: E402
 with tempfile.TemporaryDirectory() as R, tempfile.TemporaryDirectory() as VT:
+    at_confirm(R, "link-named")
     THU = datetime.date(2026, 11, 12)
     writes, left = D.select_link_named(parent, children, before="2026-11-12T13:18:00+08:00")
     b = D.make_batch(R, "link-named", "MH-3735", writes, left, THU)
@@ -246,6 +256,49 @@ with tempfile.TemporaryDirectory() as R, tempfile.TemporaryDirectory() as VT:
           and "`ela: undo 1`" in V.dry_pages(VT, R, datetime.date(2026, 11, 16))["ela/dry/did.md"])
     page = V.today_page(datetime.date(2026, 11, 16), [], {"dry_facts": facts}, [])
     check("a fall is said on today.md under Facts", "- **Done by ela:** link-named is back to your confirm (word: the owner's ela: line against a link)." in page)
+
+D.DECIDED = DECIDED
+
+# Vault plan 2026-11-24 step 3, under the decision of 2026-11-24 (ela watches the MH board and acts on Jira, signing each
+# write): link-named and parent-status are ela's own writes, not asks; a correction returns them to confirm.
+with tempfile.TemporaryDirectory() as R, tempfile.TemporaryDirectory() as out:
+    os.makedirs(os.path.join(R, "ela", "dry"), exist_ok=True)
+    json.dump({"link-named": {"tier": 3, "history": []}, "parent-status": {"tier": 3, "history": []}},
+              open(os.path.join(R, "ela", "dry", "classes.json"), "w"))
+    st = D.load_state(R)
+    check("the decision moves a stored tier 3 to tier 1 once, with its event",
+          st["link-named"]["tier"] == 1 and st["parent-status"]["tier"] == 1
+          and st["link-named"]["history"][-1]["event"] == "decided" and not D.grant_due("link-named", [], st["link-named"]))
+    THU = datetime.date(2026, 11, 12)
+    old = D.make_batch(R, "link-named", "MH-3735", [{"n": 1, "target": "MH-1", "command": "ela jira link MH-3735 MH-1 --type contains", "why": "w"}], [], THU)
+    writes, left = D.select_link_named(parent, children, before="2026-11-12T13:18:00+08:00")
+    ran = []
+    def fake(cmd, apply):
+        ran.append((cmd, apply)); return 0, "ok"
+    TUE = datetime.date(2026, 11, 24)
+    r = D.place(R, "link-named", "MH-3735", writes, left, TUE, apply=True, out_dir=out, runner=fake)
+    check("tier 1: the set is written, not asked; yesterday's open batch for the scope settles",
+          r["state"] == "applied" and len(ran) == 4 and all(a for _, a in ran)
+          and D.load_batch(R, old["id"])["state"] == "settled" and not [x for x in D.asks(R, TUE, ask_state={}) if x["kind"] == "batch"])
+    note = open(ran[0][0].split("--note-file ")[1]).read()
+    check("each link carries its note file, a command the class admits; the note says what was linked and why, in English",
+          all("--note-file " in c and __import__("re").match(D.CLASSES["link-named"]["command"], c) for c, _ in ran)
+          and note.startswith("Linked EDPP-3311 to MH-3735 (MH-3735 contains EDPP-3311): this ticket names it"))
+    _, lst = D.did(R, TUE.isoformat())
+    check("listed for ela/dry/did.md, each act by its batch and line", [a for a, _, _ in lst] == [f"{TUE}-link-named-MH-3735#{n}" for n in range(1, 5)])
+    check("one set a scope a day: a second pass the same day writes nothing",
+          D.place(R, "link-named", "MH-3735", writes, left, TUE, apply=True, out_dir=out, runner=fake)["state"] == "refused" and len(ran) == 4)
+    n = D.correct(R, "link-named", "correction", "MH-3735", "a reply disputing a link", now=datetime.datetime(2026, 11, 24, 16, tzinfo=D.TZ))
+    WED = datetime.date(2026, 11, 25)
+    r = D.place(R, "link-named", "MH-3735", writes, left, WED, apply=True, out_dir=out, runner=fake)
+    check("a correction returns the class to confirm and the decision does not undo the fall: the next set is asked",
+          "back to your confirm" in n and D.load_state(R)["link-named"]["tier"] == 3 and r["state"] == "open" and len(ran) == 4
+          and [x["id"] for x in D.asks(R, WED, ask_state={}) if x["kind"] == "batch"] == [f"dry:{r['batch']}"])
+    p = issue("MH-3735", issuelinks=[link(1, "contains", "MH-3983", "Review")], comment={"comments": []})
+    w, _ = D.select_parent_status(p, OWNER, TUE, out)
+    r = D.place(R, "parent-status", "MH-3735", w, [], TUE, apply=False, runner=fake)
+    check("parent-status at tier 1: its comment goes through the act path (a dry run without --apply), no batch asked",
+          r["state"] == "dry run" and ran[-1] == (w[0]["command"], False) and not D.load_batch(R, f"{TUE}-parent-status-MH-3735"))
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "skills", "brief"))
 import brief as B  # noqa: E402

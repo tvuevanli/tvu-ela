@@ -789,6 +789,11 @@ def follow(r, text, thread_keys, ctx, source="reply"):
                     writes, left = D.select_link_named(parent, kids)
                 else:
                     writes, left = D.select_parent_status(parent, ctx["owner"], ctx["today"], os.path.join(ctx["runtime"], "dry", ctx["today"].isoformat()))
+                if cls in D.TIER1_BY_DECISION and D.load_state(ctx["reports"])[cls]["tier"] == 1:
+                    # ela's own writes since the decision of 2026-11-24: the morning `ela dry draft … --apply` writes
+                    # them, signed, and lists them in ela/dry/did.md; nothing is asked here
+                    out["by_class"].setdefault(cls, []).append({"key": k, "batch": None, "own": True, "writes": len(writes), "left_out": left})
+                    continue
                 b = D.make_batch(ctx["reports"], cls, k, writes, left, ctx["today"])
                 out["by_class"].setdefault(cls, []).append({"key": k, "batch": b["id"] if b else None, "writes": len(writes), "left_out": left})
         elif cls == "assign-by-rule":
@@ -819,7 +824,8 @@ def follow_lines(f):
     L = []
     for cls, rows in (f.get("by_class") or {}).items():
         for x in rows:
-            L.append(f"  {cls}: {x['key']} — " + (f"{x['writes']} dry run(s), batch {x['batch']}" if x["batch"] else
+            L.append(f"  {cls}: {x['key']} — " + (f"{x['writes']} write(s) ela makes itself at the morning pass, signed" if x.get("own") and x["writes"] else
+                                                   f"{x['writes']} dry run(s), batch {x['batch']}" if x["batch"] else
                                                    "nothing to write" + (f" ({'; '.join(x['left_out'])})" if x["left_out"] else "")))
     L += [f"  ticket draft: {p}" for p in f.get("tickets") or []]
     L += [f"  not acted on — {u}" for u in f.get("unmapped") or []]

@@ -133,14 +133,16 @@ with tempfile.TemporaryDirectory() as t:
     check("not granted: a class at tier 1 is refused", any("needs a tier-1 rule" in x for x in B.tier_check(lp, la, {}, None, B.granted_rules(t))))
     st = DR.load_state(t); st["link-named"]["tier"] = 1; st["close"]["tier"] = 1; DR.save_state(t, st)
     g = B.granted_rules(t)
-    check("granted: admitted at tier 1 by its command pattern; a class tier 3 names by rule is never admitted",
-          B.tier_check(lp, la, {}, None, g) == [] and "close" not in g)
+    check("tier 1 by decision (2026-11-24) is not a grant: link-named is written by `ela dry draft --apply`, signed, "
+          "never drafted by the brief; a class tier 3 names by rule is never admitted",
+          any("needs a tier-1 rule" in x for x in B.tier_check(lp, la, {}, None, g)) and "link-named" not in g and "close" not in g)
     ra = [{"n": 1, "tier": 1, "rule": "release-reconcile", "evidence": "builds 90, 91 against Jira", "command": "ela release reconcile qa-aws3 --build 90 --build 91 --batch"}]
     rp = "- done 1 — builds 90, 91: Fixed In and labels · evidence: builds 90, 91 against Jira\n"
     check("a pending rule stays tier 3 until granted; granted, the release batch is admitted at tier 1",
           any("until the owner promotes it" in x for x in B.tier_check(rp, ra, {}, None, g)))
     st["release-reconcile"]["tier"] = 1; DR.save_state(t, st)
     check("granted release-reconcile passes at tier 1", B.tier_check(rp, ra, {}, None, B.granted_rules(t)) == [])
-    bad = [dict(la[0], command="ela jira link MH-3735 MH-3983 --type blocks")]
-    check("granted, but a command outside the class is refused", any("not what rule link-named admits" in x for x in B.tier_check(lp, bad, {}, None, g)))
+    bad = [dict(ra[0], command="ela release reconcile qa-aws3 --build 90 --apply")]
+    check("granted, but a command outside the class is refused",
+          any("not what rule release-reconcile admits" in x for x in B.tier_check(rp, bad, {}, None, B.granted_rules(t))))
 sys.exit(1 if failures else 0)

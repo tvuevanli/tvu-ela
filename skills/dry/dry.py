@@ -14,9 +14,12 @@ names by rule (NEVER) is recorded but never proposed.
   status  [--json]                       each class: its record, its tier, what is one step from maturity
   seed    [--apply] [--json]             the record from history: writes.jsonl, the runner's actions files, the ask
                                          state; dry run prints the counts, --apply writes record-seed.jsonl (idempotent)
-  draft   <class> <KEY> [--issue-file F] [--child-file F …] [--json]
-                                         read the parent (or the given files), select the targets by the class's rule,
-                                         store one batch; nothing is written anywhere else
+  draft   <class> <KEY> [--issue-file F] [--child-file F …] [--apply] [--json]
+                                         read the parent (or the given files), select the targets by the class's rule.
+                                         link-named and parent-status are tier 1 by decision (2026-11-24): the set is
+                                         ela's own write, each link with its signed note, a dry run unless --apply, and
+                                         listed in ela/dry/did.md with its undo; after a correction returns the class
+                                         to confirm, one batch is stored and asked on today.md instead
   batch   <id> [--json]                  one batch: its writes, each the exact command
   asks    [--date D] [--json]            the asks this pass puts on today.md: one per class with waiting writes, one
                                          grant ask per mature class, in the A/B/C shape
@@ -86,20 +89,22 @@ ASK_AGAIN_AFTER = 10                          # an unanswered or declined grant 
 CLASSES = {
     "link-named": {
         "says": "link a child to a parent you own when a comment on the parent names it",
-        "atom": ("jira", "link"), "noun": ("link", "links"), "ladder": (3, 1), "base": 3,
+        "atom": ("jira", "link"), "noun": ("link", "links"), "ladder": (3, 1), "base": 1,
         "rule": "a ticket named in the parent's description or comments, not linked to it yet, and not a subtask of a "
                 "ticket linked or proposed; `contains`, or `relates to` when the naming line says related",
-        "command": r"^ela jira link " + KEY + r" " + KEY + r" --type (?:contains|\"?relates to\"?)\s*$",
-        "case": "MH-3735, 2026-11-12: links approved as a kind in one sentence",
+        "command": r"^ela jira link " + KEY + r" " + KEY + r" --type (?:contains|\"?relates to\"?)(?: --note-file \S+)?\s*$",
+        "case": "MH-3735, 2026-11-12: links approved as a kind in one sentence; tier 1 by the decision of 2026-11-24 "
+                "(ela watches the MH board and acts on Jira, signing each write), each link announced by a signed note",
         "reverse": (("unlink", "--id"),),
     },
     "parent-status": {
         "says": "a status comment on a parent you own, from its children's states",
-        "atom": ("jira", "comment"), "noun": ("status comment", "status comments"), "ladder": (3, 1), "base": 3,
+        "atom": ("jira", "comment"), "noun": ("status comment", "status comments"), "ladder": (3, 1), "base": 1,
         "rule": "the parent's contained children, one line each with its status, when a status differs from his last "
                 "status comment on the parent",
         "command": r"^ela jira comment " + KEY + r" --from-file \S+\s*$",
-        "case": "MH-3735, 2026-11-12: 'update the parent' after the links",
+        "case": "MH-3735, 2026-11-12: 'update the parent' after the links; tier 1 by the decision of 2026-11-24, the "
+                "comment signed",
         "reverse": (("comment-delete", "--id"),),
     },
     "release-reconcile": {
@@ -157,7 +162,11 @@ CLASSES = {
         "reverse": (("assign", "--assignee"), ("comment-delete", "--id"), ("unlink", "--id")),
     },
 }
-TIER1_BY_DECISION = ("board-watch",)   # written at the pass that decides them, each act on record with its undo
+TIER1_BY_DECISION = ("board-watch", "link-named", "parent-status")   # written at the pass that decides them, each act on record with its undo
+# The decision that moved a class to tier 1 after it had a stored tier: applied once (a `decided` event), so a later
+# correction's fall to confirm stands (vault plan 2026-11-24-plan-today-opens-with-what-the-day-is-about, step 3).
+DECIDED = {"link-named": ("2026-11-24T00:00:00+08:00", "decision 2026-11-24-ela-watches-the-mh-board-and-acts-on-jira-signing-each-write"),
+           "parent-status": ("2026-11-24T00:00:00+08:00", "decision 2026-11-24-ela-watches-the-mh-board-and-acts-on-jira-signing-each-write")}
 # tier 3 by rule (decision 2026-10-29): recorded, never proposed for a grant
 NEVER = {
     "message-to-person": "a message to a person",
@@ -230,6 +239,9 @@ def load_state(reports):
         x = st.setdefault(c, {})
         x.setdefault("tier", d["base"])
         x.setdefault("history", [])
+        if c in DECIDED and not any(h.get("event") in ("decided", "fell") and h.get("at", "") >= DECIDED[c][0] for h in x["history"]):
+            was, x["tier"] = x["tier"], d["base"]
+            x["history"].append({"at": DECIDED[c][0], "event": "decided", "from": was, "to": d["base"], "why": DECIDED[c][1]})
     return st
 
 
@@ -735,7 +747,7 @@ def act(reports, cls, scope, writes, today, apply=False, runner=None, now=None):
             did.append(f"{w['n']} skipped: an earlier write of the set failed"); continue
         a_id = act_id(bid, w["n"])
         code, out = (runner(w["command"], apply) if runner else
-                     run_write(w["command"], apply, action=a_id, word=f"{cls} (tier 1 by decision)", cls=cls))
+                     run_write(w["command"], apply, action=a_id, word=f"{cls} (tier 1 by decision)", cls=cls, own=True))
         ok = code == 0
         did.append(f"{w['n']} {'applied' if apply else 'dry run'}: {'ok' if ok else 'failed'} — "
                    f"{(out.splitlines() or [''])[-1]}"[:300])
@@ -747,6 +759,40 @@ def act(reports, cls, scope, writes, today, apply=False, runner=None, now=None):
                              "writes": [{k: w[k] for k in ("n", "target", "command", "why")} for w in writes], "left_out": [],
                              "answered": {"letter": None, "at": now_iso(now), "by": "tier 1 by decision"}})
     return {"batch": bid, "state": ("applied" if ok else "failed") if apply else "dry run", "ok": ok, "did": did}
+
+
+def link_note(scope, w):
+    """The signed note a link ela makes on its own carries (jira.py signs it): what was linked and why, in English."""
+    m = re.search(r"--type (\"[^\"]+\"|\S+)", w["command"])
+    t = (m.group(1) if m else "contains").strip('"')
+    return (f"Linked {w['target']} to {scope} ({scope} {t} {w['target']}): this ticket names it — {w['why']}. "
+            f"If the link is wrong, remove it or reply here, and ela stops linking on its own.")
+
+
+def place(reports, cls, scope, writes, left, today, apply=False, out_dir=None, runner=None):
+    """Where a selection goes (link-named, parent-status; vault plan 2026-11-24 step 3). At tier 1 by decision it is
+    ela's own set: an open batch of the class and scope settles, each link gets its signed note file, and `act` writes
+    it (a dry run unless `apply`), listed in ela/dry/did.md with its undo. Back at confirm after a correction (tier 3),
+    it is an ordinary batch, asked on today.md. → {"batch": id or None, "state", "did": [...], "left_out"}."""
+    if cls in TIER1_BY_DECISION and load_state(reports)[cls]["tier"] == 1:
+        if apply:
+            make_batch(reports, cls, scope, [], left, today)          # yesterday's open ask for this scope leaves today.md
+        if not writes:
+            return {"batch": None, "state": "nothing to write", "did": [], "left_out": left}
+        if cls == "link-named":
+            d = out_dir or os.path.join(site().get("runtime") or os.path.join(reports, "..", ".ela"), "dry", today.isoformat())
+            os.makedirs(d, exist_ok=True)
+            signed = []
+            for w in writes:
+                f = os.path.join(d, f"{scope}-link-{w['target']}.txt")
+                atomic_write(f, link_note(scope, w) + "\n")
+                signed.append(dict(w, command=f"{w['command']} --note-file {f}"))
+            writes = signed
+        r = act(reports, cls, scope, writes, today, apply=apply, runner=runner)
+        return dict(r, left_out=left)
+    b = make_batch(reports, cls, scope, writes, left, today)
+    return {"batch": b["id"] if b else None, "state": b["state"] if b else "nothing to write",
+            "did": [f"{len(b['writes'])} write(s) asked on today.md"] if b else [], "left_out": left}
 
 
 def tier1_done(reports, day):
@@ -762,7 +808,7 @@ def tier1_done(reports, day):
 
 
 # ── the answer ────────────────────────────────────────────────────────────────────────────────────────────────
-def run_write(command, apply, action=None, word=None, cls=None):
+def run_write(command, apply, action=None, word=None, cls=None, own=False):
     """One write through its own capability: `ela jira …` becomes jira.py; --apply only when the answer carried it.
     The write log records the batch and the answer it ran under (ELA_ACTION, ELA_WORD); the act (ELA_ACT, the same
     id) and its class (ELA_CLASS) go with the before-state jira.py keeps, so `ela dry undo` can find it. `command`
@@ -774,7 +820,7 @@ def run_write(command, apply, action=None, word=None, cls=None):
     env = os.environ.get("ELA_ENV_FILE") or site().get("env")
     cmd = ["python3", JIRA] + (["--env-file", env] if env else []) + argv[2:] + (["--apply"] if apply else [])
     env = dict(os.environ, **({"ELA_ACTION": action, "ELA_ACT": action} if action else {}), **({"ELA_WORD": word} if word else {}),
-               **({"ELA_CLASS": cls} if cls else {}))
+               **({"ELA_CLASS": cls} if cls else {}), **({"ELA_OWN": "1"} if own else {}))
     p = subprocess.run(cmd, capture_output=True, text=True, timeout=300, env=env)
     return p.returncode, (p.stdout + p.stderr).strip()
 
@@ -1154,6 +1200,7 @@ def cmd_draft(a):
     if not owns(parent, owner):
         emit(a, {"batch": None, "why": "not his"}, [f"{a.key}: not assigned to the owner; the class covers parents he owns"]); return
     today = datetime.date.fromisoformat(a.date) if a.date else datetime.datetime.now(TZ).date()
+    od = os.path.join(a.out_dir or os.path.join(site().get("runtime") or os.path.join(r, "..", ".ela"), "dry"), today.isoformat())
     if a.cls == "link-named":
         children = {}
         for p in a.child_file or []:
@@ -1168,12 +1215,12 @@ def cmd_draft(a):
                         children[k] = c
         writes, left = select_link_named(parent, children, before=a.before)
     else:
-        runtime = site().get("runtime") or os.path.join(r, "..", ".ela")
-        writes, left = select_parent_status(parent, owner, today, os.path.join(a.out_dir or os.path.join(runtime, "dry"), today.isoformat()))
-    b = make_batch(r, a.cls, parent["key"], writes, left, today)
-    emit(a, {"batch": b, "left_out": left},
-         [f"batch {b['id']}: {len(b['writes'])} write(s), state {b['state']}"] + [f"  {w['n']}. {w['command']} — {w['why']}" for w in b["writes"]]
-         + [f"  left out: {x}" for x in left] if b else [f"{a.key}: nothing to draft"] + [f"  left out: {x}" for x in left])
+        writes, left = select_parent_status(parent, owner, today, od)
+    res = place(r, a.cls, parent["key"], writes, left, today, apply=a.apply, out_dir=od)
+    emit(a, dict(res, writes=writes),
+         [f"{a.cls} {parent['key']}: {res['state']}" + (f" ({res['batch']})" if res.get("batch") else "")]
+         + [f"  {w['n']}. {w['command']} — {w['why']}" for w in writes] + [f"  {x}" for x in res.get("did") or []]
+         + [f"  left out: {x}" for x in left])
 
 
 def cmd_batch(a):
@@ -1253,6 +1300,7 @@ def main():
     s = sub.add_parser("draft"); s.add_argument("cls", choices=sorted(CLASSES)); s.add_argument("key")
     s.add_argument("--issue-file"); s.add_argument("--child-file", nargs="*"); s.add_argument("--owner", help="the owner's Jira email or name (default JIRA_EMAIL, from the environment or the env file)")
     s.add_argument("--before", help="read only comments before this ISO time (a replay)"); s.add_argument("--date"); s.add_argument("--out-dir")
+    s.add_argument("--apply", action="store_true", help="at tier 1 (by decision) write the set, each link signed; otherwise a dry run")
     s.add_argument("--json", action="store_true"); s.set_defaults(func=cmd_draft)
     s = sub.add_parser("batch"); s.add_argument("id"); s.add_argument("--json", action="store_true"); s.set_defaults(func=cmd_batch)
     s = sub.add_parser("asks"); s.add_argument("--date"); s.add_argument("--json", action="store_true"); s.set_defaults(func=cmd_asks)

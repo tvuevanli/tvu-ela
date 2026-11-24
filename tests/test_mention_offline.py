@@ -110,12 +110,11 @@ with tempfile.TemporaryDirectory() as tmp:
     check("his reply closes the mention for ela, inside the window", recs[a1]["state"] == "replied" and recs[a1]["in_window"] and a1 not in todo(at(11, 0)))
     check("link-named: one batch on the parent he owns, from the tickets its text names",
           [(x["key"], x["writes"]) for x in f["by_class"].get("link-named", [])] == [("MH-3735", 3)])
-    b = json.load(open(os.path.join(R, "ela", "dry", "batches", f"2026-11-12-link-named-MH-3735.json")))
-    check("the batch is a dry run in dry's store, each write the exact command",
-          b["state"] == "open" and [w["command"] for w in b["writes"]] == ["ela jira link MH-3735 MH-3983 --type contains",
-                                                                          "ela jira link MH-3735 MH-3842 --type contains",
-                                                                          'ela jira link MH-3735 MH-3869 --type "relates to"'])
-    check("parent-status: a status comment batch on the same parent", [(x["key"], x["writes"]) for x in f["by_class"].get("parent-status", [])] == [("MH-3735", 1)])
+    check("link-named is ela's own since the decision of 2026-11-24: no batch is asked, the morning pass writes it, signed",
+          f["by_class"]["link-named"][0]["own"] and f["by_class"]["link-named"][0]["batch"] is None
+          and not os.path.exists(os.path.join(R, "ela", "dry", "batches", "2026-11-12-link-named-MH-3735.json"))
+          and "ela makes itself at the morning pass" in "\n".join(M.follow_lines(f)))
+    check("parent-status: a status comment on the same parent, ela's own as well", [(x["key"], x["writes"], x.get("own")) for x in f["by_class"].get("parent-status", [])] == [("MH-3735", 1, True)])
     asg = f["by_class"].get("assign-by-rule", [])
     check("assign-by-rule: the person he named, by the roster's email",
           len(asg) == 1 and json.load(open(os.path.join(R, "ela", "dry", "batches", asg[0]["batch"] + ".json")))["writes"][0]["command"]
