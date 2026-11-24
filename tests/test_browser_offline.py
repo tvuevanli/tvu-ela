@@ -51,5 +51,26 @@ B.lane_suffixes = lambda host="prod": {"aws-cn3-env": "qa-cn3", "AWSCN3": "qa-cn
 q = B.parse_panel("TVU MediaHub (ENV: aws-cn3-env)\nBeta\nFrontend: v2.2.116 build171 2026-10-19\nBackend: v2.1.32 build263 2026-10-20\nUnified Resources Caller (ENV: AWSCN3)\nBackend: v2.1.74 build364", "qa")
 check("the QA deployment's ENV names map to lanes by whole tag name", q["lanes"].get("qa-cn3") == 2 and q["proven"])
 
+# service routing: a routing cookie resolved through the bot's environment file (a fixture of its shape here)
+import json, tempfile  # noqa: E402
+TABLE = {"_notes": ["x"], "com": {"group": "production", "versions": {"audiomixer": {"fe": {"rigs": {
+            "prod1": {"cookie": "audiomixer0=am0"}, "am-a": {"cookie": "audiomixer00=am00"}}}}}},
+         "daily-fri": {"group": "daily", "versions": {"audiomixer": {"fe": {"cookie": "audiomixer5=am5"}}}}}
+with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
+    json.dump(TABLE, f)
+t = B.routing_table(f.name); os.unlink(f.name)
+check("the table resolves a rig by name and a daily by its environment",
+      t["audiomixer0"]["am0"] == ("com/prod1", "production") and t["audiomixer5"]["am5"] == ("daily-fri", "daily"))
+check("no table file is None", B.routing_table("/nonexistent/envs.json") is None)
+v = lambda ck, lane, host="prod", table=t: [r["verdict"] for r in B.routing(ck, lane, host, table)]
+check("a prod rig on a prod lane is ok; an unrouted audiomixer cookie is recorded",
+      v({"audiomixer0": "am0", "audiomixer02": "a02central1", "SID": "x"}, "prod-3") == ["ok", "recorded"])
+check("am5 on a prod lane routes elsewhere (2026-11-24)", v({"audiomixer5": "am5"}, "prod-3") == ["elsewhere"])
+check("am5 on daily-fri is its own rig", v({"audiomixer5": "am5"}, "daily-fri") == ["ok"])
+check("a value the table does not name is unknown", v({"audiomixer0": "am9"}, "prod-3") == ["unknown"])
+check("no readable table makes a routing cookie unknown", v({"audiomixer0": "am0"}, "prod-3", table=None) == ["unknown"])
+check("the QA deployment records only", v({"audiomixer1": "am1"}, "qa-cn2", "qa") == ["recorded"])
+check("a lane the table names nothing for records only", v({"audiomixer5": "am5"}, "daily-test2") == ["recorded"])
+
 print("browser: all offline checks passed" if not failures else f"browser: {len(failures)} check(s) failed")
 sys.exit(1 if failures else 0)

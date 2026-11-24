@@ -18,7 +18,9 @@ L1: subcommands, --json, stdlib; the driver is browser.js (Playwright, node) bes
                        panel does not list but the session reaches through the gateway (the scheduler,
                        tvu-aioc-service, GET /base/version) are read on the same session and recorded beside it —
                        the account's lane by construction, no map entry to match. --shots D keeps version-panel.png,
-                       the panel as read. Exit 4 when the
+                       the panel as read. Each service-routing cookie the session holds after the panel (audiomixer*)
+                       is resolved to the rig it routes to through the product bot's environment file under <code>; a
+                       rig off the panel's lane, or a value the file does not name, is unproven: log in again. Exit 4 when the
                        panel carries no ENV (the session cookies are stale or missing: `ela login tvu --force`), exit 3
                        when a service of the lane disagrees with the map. --key: the lanes carrying the ticket's fix
                        (`ela fixed-in`, ancestry) are read first; exit 6 when the panel's lane is not one of them —
@@ -198,6 +200,92 @@ def parse_panel(text, host="prod"):
     return {"sections": sections, "lanes": lanes, "proven": any(s["env"] for s in sections)}
 
 
+# Service routing. The version panel proves the bundle's lane, but the gateway routes each service by its own tag
+# cookie, so a session can sit on prod-3 while its Audio Mixer requests go to a daily rig: on 2026-11-24 the cookie
+# audiomixer5=am5 sent them to audiomixer_us_fri through /mqtt-gateway-test while the panel said MediaHubProd3, and
+# only a fresh login (audiomixer0=am0) put the chain on prod. Which cookie value is which rig is read first-hand from
+# the product bot's environment file under <code> (each environment's `cookie`, with its `group`), never a table of
+# ela's own; a routing cookie it does not resolve is an unknown environment, which is not proven.
+ROUTING_TABLE = os.path.join("bot", "producer-bot", "config", "envs.json")
+ROUTING_RX = re.compile(r"^audiomixer", re.I)
+
+
+def routing_table(path=None):
+    """{cookie name: {value: (environment, group)}} from the bot's envs.json; None when it cannot be read."""
+    path = path or os.path.join(site().get("code") or "", ROUTING_TABLE)
+    try:
+        d = json.load(open(path))
+    except (OSError, ValueError):
+        return None
+    out = {}
+    def walk(o, env, group):
+        if isinstance(o, dict):
+            c = o.get("cookie")
+            if isinstance(c, str) and "=" in c:
+                name, value = c.split("=", 1)
+                out.setdefault(name.strip(), {})[value.strip()] = (env, group)
+            for v in o.values():
+                walk(v, env, group)
+        elif isinstance(o, list):
+            for v in o:
+                walk(v, env, group)
+    for env, cfg in d.items():
+        if not env.startswith("_") and isinstance(cfg, dict):
+            # a rig under `com` (prod1, am-a …) is named by its own key: walk the rigs one level down to keep it
+            for svc in (cfg.get("versions") or {}).values():
+                for part in (svc or {}).values():
+                    rigs = (part or {}).get("rigs") if isinstance(part, dict) else None
+                    if isinstance(rigs, dict):
+                        for rig, rc in rigs.items():
+                            walk(rc, f"{env}/{rig}", cfg.get("group"))
+            walk({k: v for k, v in cfg.items() if k != "versions"}, env, cfg.get("group"))
+            for svc in (cfg.get("versions") or {}).values():
+                for part in (svc or {}).values():
+                    if isinstance(part, dict):
+                        walk({k: v for k, v in part.items() if k != "rigs"}, env, cfg.get("group"))
+    return out
+
+
+def expected_env(lane):
+    """What a routing cookie must resolve to for the lane: a prod lane any production rig, a daily weekday lane its own
+    environment; None where the table names no environment for the lane (QA, the test and stage dailies, China)."""
+    lane = lane or ""
+    if re.fullmatch(r"prod-\d+", lane):
+        return ("group", "production")
+    if re.fullmatch(r"daily-(mon|tue|wed|thu|fri|sat|sun)", lane):
+        return ("env", lane)
+    return None
+
+
+def routing(cookies, lane, host="prod", table=None):
+    """Each routing cookie with the environment it resolves to and a verdict: ok · elsewhere · unknown · recorded.
+    The table describes the .com gateway; on the QA deployment, or for a lane it names no environment for, a cookie is
+    recorded only. A cookie name the table does not route by (audiomixer02) is recorded, not held against the run."""
+    rows = []
+    want = expected_env(lane) if host == "prod" else None
+    for name, value in sorted((cookies or {}).items()):
+        if not ROUTING_RX.match(name):
+            continue
+        row = {"cookie": f"{name}={value}", "env": None, "group": None, "verdict": "recorded"}
+        if host != "prod":
+            row["why"] = "the table covers the .com gateway, not this deployment"
+        elif table is None:
+            row["verdict"], row["why"] = "unknown", "the routing table could not be read (" + ROUTING_TABLE + " under <code>)"
+        elif name not in table:
+            row["why"] = "not a routing cookie in the table"
+        elif value not in table[name]:
+            row["verdict"], row["why"] = "unknown", "a value the table does not name"
+        else:
+            row["env"], row["group"] = table[name][value]
+            if want is None:
+                row["why"] = "the table names no environment for this lane"
+            else:
+                ok = (row["group"] == want[1]) if want[0] == "group" else (row["env"] == want[1])
+                row["verdict"] = "ok" if ok else "elsewhere"
+        rows.append(row)
+    return rows
+
+
 def compare(parsed, lane, env_file, host="prod"):
     """Each panel service against `release envs --host <host>` for the lane: match · differs · unread."""
     out = []
@@ -356,6 +444,13 @@ def cmd_env(a):
             for slug, v in res["services"].items():
                 res["compare"].append({"slug": slug, "panel": v.get("version"), "panel_lane": None, "lane": lane, "map": None,
                                        "verdict": "recorded" if v.get("version") else "unreachable", "via": f"gateway {v.get('path') or ''}".strip()})
+            res["routing"] = routing(d.get("routing"), lane, host, routing_table() if host == "prod" else None)
+            off = [r for r in res["routing"] if r["verdict"] in ("elsewhere", "unknown")]
+            if off and res["verdict"] == "proven":
+                relogin = "ela browser login --host prod --as test" if a.as_ else "ela login tvu --force"
+                res["verdict"] = "unproven: service routing — " + "; ".join(
+                    f"{r['cookie']} routes to {r['env']} ({r['group']}), not {lane}" if r["verdict"] == "elsewhere"
+                    else f"{r['cookie']} routes to an unknown environment ({r['why']})" for r in off) + f" — log in again: {relogin}"
             if a.key and res["verdict"] == "proven":
                 res["fix_verdict"] = fix_verdict(lane, lanes, gaps)
                 if res["fix_verdict"]:
@@ -374,6 +469,8 @@ def cmd_env(a):
         print()
         for c in res["compare"]:
             print(f"  {c['slug']:<26} panel {c['panel']:<24} map[{c['lane']}] {str(c['map']):<28} {c['verdict']}")
+        for r in res.get("routing") or []:
+            print(f"  routing {r['cookie']:<24} {(r['env'] or '-'):<22} {r['verdict']}" + (f"  ({r['why']})" if r.get("why") else ""))
         if res["clock"]:
             print(f"clock: {res['clock'].get('tz')} {res['clock'].get('now')}")
         if a.key:
