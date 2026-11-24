@@ -45,20 +45,20 @@ needs `ela login tvu`, and exit 4 names it.
 - **Times are UTC.** Output prints UTC and local; the java-log's clock is UTC, so `--at` is UTC unless
   an offset is given.
 - **Only a box that ships its logs is in Loki, and a module's log is the media team's.** A MediaBox-version box
-  ships its media containers' lines to Loki; another box ships none, so an empty `loki --pid` says nothing until a
-  line from any process of that box shows it ships. A media docker service's log (decoder, copier, encoder, mixer
-  and the rest) is read and explained by the media team, whoever's tool read it: in Loki where the box ships, on the
-  box where it does not, with the UR team's help only for access to the box. A handoff names the media team for it,
-  not UR (mh-bot answer of 2026-11-24 in #prj_dev_mediahub named UR for a copier's container log; the copier's media
-  owner read it on the box and found the hang).
+  ships its media containers' lines to Loki; another box ships none. An empty `loki --pid` therefore says nothing
+  until a line from that same process (the named pid, at another moment) shows its lines reach Loki; a line from
+  another process on the box shows only that the box ships. A media docker service's log (decoder, copier,
+  encoder, mixer and the rest) is read and explained by the media team, whoever's tool read it: in Loki where the
+  box ships, on the box where it does not, with the UR team's help only for access to the box. A handoff names the
+  media team for it, not UR: UR can open the box but cannot judge the module's lines, so a handoff to UR adds a hop
+  before the one reader who can.
 - **A chain is cleared node by node, upstream first, each on its own box.** Before a downstream node is blamed,
   the node feeding it is shown to produce (its own log lines, its frame or byte counters moving) or named unread;
-  "the box sends no logs" is said of the box that was probed, never of every box in the chain. A node that is
-  unread because its box ships nothing has one next read: its owner on the box, and where the owner has a bot of
-  their own in the agent registry, that bot through `/ela:ask`, the owner copied (2026-11-24, a `grid_decoder` →
-  `srt_copier` destination: the answer left the decoder unread and called both boxes silent after probing only
-  the copier's; the copier's owner's bot read both on the box, found the decoder writing its SHM normally and
-  the copier hung, in under three minutes).
+  "no logs" is said of the process that was probed, never of the other nodes in the chain. The nodes of one chain
+  (a `grid_decoder` feeding an `srt_copier`) may run on different boxes that ship differently, so one probe says
+  nothing about the rest, and an upstream node left unread and taken as healthy sends the fix to the wrong owner.
+  A node that is unread because its box ships nothing has one next read: its owner on the box, and where the owner
+  has a bot of their own in the agent registry, that bot through `/ela:ask`, the owner copied.
 - **Loki has a process's text, not every body it wrote.** The syncer ships only lines carrying the
   `[YYYYMMDD hh:mm:ss.mmm L]` prefix, so a multi-line body written without it (the copier's `sent metrics
   json: {`, `send SRT conn status: {`; decoderMediaBox's `…,json:`) arrives as its first line only. `loki`
