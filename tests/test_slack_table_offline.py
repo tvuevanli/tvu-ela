@@ -28,6 +28,8 @@ check("a status cell leads with its mark, worst word first",
 check("a long column wraps, a short one does not", [c["is_wrapped"] for c in t.get("column_settings", [])] == [False, True, False, False])
 check("a bordered table needs no divider", len((S.table_block("| a | b |\n| 1 | 2 |") or {}).get("rows", [])) == 2)
 check("a psql divider counts", len((S.table_block("a | b\n---+---\n1 | 2") or {}).get("rows", [])) == 2)
+check("a data row of dashes is kept, only the header's divider dropped",
+      [[c["text"] for c in r] for r in (S.table_block("a | b\n---|---\n- | -\n1 | 2") or {}).get("rows", [])[1:]] == [["-", "-"], ["1", "2"]])
 check("a divider row is dropped", len(S.table_block("a | b\n---|---\n1 | 2").get("rows")) == 2)
 for name, body in (("a log excerpt", "```\nTraceback: x | y\n---|---\n  line two\n```"), ("one row", "```\n| only | one |\n```"),
                    ("over 100 rows", "```\na | b\n---|---\n" + "a | b\n" * 100 + "```"), ("past 10,000 characters", "```\na | b\n---|---\n" + ("x" * 6000 + " | y\n") * 2 + "```"),

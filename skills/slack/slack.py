@@ -840,7 +840,6 @@ def cmd_unanswered(tok, a):
 
 
 FENCE = re.compile(r"```[^\n`]*\n(.*?)\n?```", re.S)
-TABLE_RULE = re.compile(r"^[\s|:+-]+$")                 # a divider row: |---|:--| or ----+----
 SEP_CELL = re.compile(r"^:?-+:?$")
 TABLE_ROWS, TABLE_COLS, TABLE_CHARS, WRAP_AT = 100, 20, 10000, 30   # Slack's table block limits; a longer column wraps
 STATUS_MARKS = (("not checked", "⬜"), ("inferred", "🟠"), ("checked", "✅"))
@@ -856,9 +855,10 @@ def table_block(body):
     row under the header or a `|` at each line's edge, as Slack's own table block: the header bold, a status cell led by its mark, a long column wrapped. → the block, or None when it
     is not such a table or is past Slack's limits (it is then sent as the fence it was)."""
     lines = [line for line in body.splitlines() if line.strip()]
-    if not (len(lines) > 1 and is_separator(lines[1])) and not all(l.strip().startswith("|") or l.strip().endswith("|") for l in lines):
+    divided = len(lines) > 1 and is_separator(lines[1])
+    if not divided and not all(l.strip().startswith("|") or l.strip().endswith("|") for l in lines):
         return None                                     # `|` alone is a shell pipeline as often as a table
-    rows = [[c.strip() for c in line.strip().strip("|").split("|")] for line in lines if not TABLE_RULE.match(line)]
+    rows = [[c.strip() for c in line.strip().strip("|").split("|")] for line in (lines[:1] + lines[2:] if divided else lines)]
     if len(rows) < 2 or len(rows) > TABLE_ROWS or not 2 <= len(rows[0]) <= TABLE_COLS or any(len(r) != len(rows[0]) for r in rows):
         return None
     if sum(len(c) + 2 for r in rows for c in r) > TABLE_CHARS:
