@@ -110,6 +110,7 @@ python3 tests/test_graph_usage_offline.py || fail=1
 python3 tests/test_brief_qa_lanes_offline.py || fail=1
 python3 tests/test_promote_mail_lanes_offline.py || fail=1
 python3 tests/test_facts_offline.py || fail=1
+python3 tests/test_proposals_offline.py || fail=1
 python3 tests/test_tvukb_offline.py || fail=1
 python3 tests/test_links_offline.py || fail=1
 python3 tests/test_runtime_chain_offline.py || fail=1

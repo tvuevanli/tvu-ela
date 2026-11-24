@@ -29,6 +29,8 @@ Lanes (project MH) and the flags computed per row, UTC now:
   waiting    what the owner waits on, last 10 days: tickets he or ela assigned with no move by the assignee since, his
              last-word Jira comment, Slack thread or sent mail that asks something · working_days_silent, threshold
              (2 for a ticket he routed, 3 otherwise), due
+  proposals  mediahub-bot's knowledge proposals ela first saw in the window (24 hours, 72 on a Monday), from the fact
+             store (`ela facts refresh`, source proposals): claim, evidence, source, thread · older, state, gap
 
 Output: --json → {"generated", "lanes": {<lane>: {"rows", "count", …}}, "errors": [{lane, query, exit, stderr}]}.
 A lane that could not be read is in `errors`, never an empty lane. No writes anywhere.
@@ -110,7 +112,7 @@ PROJECT = "project = MH AND "
 UMBRELLA = "MH-2342"
 RED_H, YELLOW_H, OVERDUE_H = 48, 24, 4
 PREFIX = re.compile(r"^\[(Infra|UR|J2N|Media|App|UI|QA|Design|AI)\]")  # J2N: titles from before [UR] replaced it
-LANES = ("overdue", "due_week", "intake", "cadence", "triage", "breakdown", "incidents", "backlog", "yours", "waiting", "tracked", "carried")
+LANES = ("overdue", "due_week", "intake", "cadence", "triage", "breakdown", "incidents", "backlog", "yours", "waiting", "tracked", "carried", "proposals")
 
 # JQL as SKILL.md §1 states it; `project = MH AND ` is prepended to each.
 Q = {
@@ -433,6 +435,21 @@ def lane_tracked(env, limit, now):
             "high_untouched": {"count": len(high), "oldest": [f["key"] for f in high[:3]]}}
 
 
+def lane_proposals(env, limit, now):
+    """mediahub-bot's knowledge proposals first seen over the brief's window, each a draft for the owner to rule on;
+    read from the store, never from Slack or the bot's directory (skills/facts/proposals.py). A route the store could
+    not read is the lane's gap, never an empty lane said as nothing proposed."""
+    sys.path.insert(0, os.path.join(HERE, "..", "facts"))
+    import proposals as P  # noqa: E402
+    hours = 72 if now.astimezone().weekday() == 0 else 24
+    wm = F.watermark("proposals")
+    rows = P.rows(hours, now.astimezone())
+    keep = ("key", "claim", "evidence", "source", "thread", "routes", "post", "seen_at", "posted_at", "written_at")
+    return {"rows": [{k: r[k] for k in keep if r.get(k)} for r in rows][:limit], "count": len(rows), "hours": hours,
+            "older": len(P.rows()) - len(rows), "read_at": wm.get("at"), "state": wm.get("state") or (None if wm.get("at") else "never read"),
+            "gap": (wm.get("gap") or {}).get("why")}
+
+
 def needs_you(page):
     """The items under a brief page's Needs you: [(ticket keys of the heading and its facts line, heading words)].
     The facts line is the first non-empty line under the heading."""
@@ -638,6 +655,13 @@ def print_table(name, lane):
         for r in lane["rows"]:
             print(f"  {r['key']:<10} {r['class']}  {r['first_line'][:110]}")
         print(); return
+    if name == "proposals":
+        for r in lane["rows"]:
+            print(f"  {r['source']:<8} {r['claim'][:110]}\n           evidence: {(r.get('evidence') or '—')[:100]}\n           thread: {r.get('thread') or '—'}")
+        for what in ("state", "gap"):
+            if lane.get(what):
+                print(f"  {what}: {lane[what][:140]}")
+        print(); return
     if name == "waiting":
         for r in lane["rows"]:
             flag = "WOKE" if r.get("woke") else "DUE" if r["due"] else ""
@@ -703,7 +727,7 @@ def cmd_lanes(args):
     now = datetime.datetime.now(datetime.timezone.utc)
     want = [args.lane] if args.lane else list(LANES)
     fns = {"intake": lane_intake, "triage": lane_triage, "breakdown": lane_breakdown, "incidents": lane_incidents, "backlog": lane_backlog,
-           "waiting": lane_waiting, "tracked": lane_tracked, "carried": lane_carried,
+           "waiting": lane_waiting, "tracked": lane_tracked, "carried": lane_carried, "proposals": lane_proposals,
            "overdue": lane_due("overdue"), "due_week": lane_due("due_week")}
     lanes, errors = {}, []
 

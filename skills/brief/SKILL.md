@@ -199,6 +199,7 @@ a standing gap, not a lane: `$SLACK channels --all <word>` finds them and joinin
 | **reports** | top-level messages in the last 24h whose author is a bot or whose text carries a report marker (`report`, `日报`, `测试报告`, `release note`, `(1/`) | which are Evan's to digest (MediaHub QA daily, release/service test reports) vs noise | "digest" → `/ela:digest <permalink>` |
 | **waiting** | `mentions` rows with `answered: false`, oldest first | the thread's role from the assessment below (act · reply · FYI · none), with its reason. Product, QA and integration partners waiting > 1 working day rank at the top of act and reply | act or reply: the drafted action or a one-line reply (Evan posts it; the slack capability's `post` is dry-run and confirm-gated); FYI: one line under *FYI*; none: counted only |
 | **monologues** | `unanswered` rows older than 24h | a spec or a question nobody picked up is a routing gap, not a Slack curiosity | name who should have answered → route, or "convert to ticket" → `$JIRA create --summary … --description …` dry-run |
+| **proposals** | `lanes.proposals` (`ela brief --lane proposals`): mediahub-bot's knowledge proposals ela first saw in the brief's window (24h, 72h on a Monday), from the fact store — claim, evidence, source (a person in the thread, or a read the bot made), the thread link, the routes; `older` counts those seen before; `state` or `gap` says a route was not configured or not read | does the claim hold against elak's knowledge, the map or the code, and is it knowledge (what others act on) or one thread's circumstance? A claim from a read the bot made is checked against that read where ela can; one from a person is that person's word, said so | one class-D item per proposal worth his word: `- [ ] 记下来 — <the claim in elak's words> → <elak>/knowledge/<path>` and `- [ ] drop — <why>`, the recommended first; on his 记下来 the session writes the file in elak and he commits it (ADR 0001, 0011); a proposal that contradicts elak names the line it contradicts; the rest one line in the lanes table. A gap is in the page's gaps line, never "no proposals" |
 | **decisions** | Evan's own replies in the 7-day window that rule something (Chinese cues: 先…再…, 不做, 不改, 我来, 就这样, 既然…; English: `Let's …`, `we will not`, `decided`) in threads whose text carries **no** Jira key | is it a durable decision others act on? | "record" → the ruling as a fact in `<elak>/knowledge/products/mediahub/` via Evan's word (a decision others act on is knowledge about the product, not a log of a conversation — (elak `blueprint/principles.md` P1), or `$JIRA comment <key> --text '<the ruling, verbatim, with the permalink>'` dry-run |
 
 ### 2a — what a thread needs from Evan
@@ -261,11 +262,11 @@ Changes page drafts nothing.
 
 ## 3 — rank and write
 
-**One list of what needs his word, merged by key.** The items under *Needs you* come from five sources, read as
+**One list of what needs his word, merged by key.** The items under *Needs you* come from these sources, read as
 facts and never re-derived: this skill's own lanes (§1, §2); the findings of `ela changes --json`
 (`<runtime>/runner/<date>-changes.json`, `findings[]`, each with its `rank`); the waiting lane (`ela brief --json`,
 `lanes.waiting`, the F items, the vault's parked notes among them); the tracked tickets' changes (`lanes.tracked`, from the
-runner's refresh log `<runtime>/runner/ticket-findings.jsonl`); the vault notes waiting for his `next` (Home's waiting table, `ela vault guidance`);
+runner's refresh log `<runtime>/runner/ticket-findings.jsonl`); the vault notes waiting for his `next` (Home's waiting table, `ela vault guidance`); mediahub-bot's knowledge proposals (`lanes.proposals`, §2);
 and the sprint items at risk or off (§0). A key that comes from several sources is **one item**. Its facts line
 takes the most first-hand status: QA's verdict, then the version on the lane, then the Jira status. Its action is
 the single strongest one: a drafted write, then a decision, then a reply, then a nudge. At most eight items; the

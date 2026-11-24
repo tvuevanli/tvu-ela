@@ -4,6 +4,7 @@
   facts.py [--env-file F] refresh [--source jira|slack|mail|lanes|builds]... [--fresh] [--json]
   facts.py status [--json]
   facts.py runtime refresh|show|prove <graph>|initconfig …   lane runtime facts (runtime.py)
+  facts.py proposals show [--hours N] [--json]   mediahub-bot's knowledge proposals (proposals.py)
 
 The store is `<runtime>/facts/` (site.json `runtime`), one directory per source with a watermark file and the
 content, every entry stamped with the time it was read:
@@ -19,6 +20,8 @@ content, every entry stamped with the time it was read:
   lanes/    envs-<host>.json · gateway.json · dev-ahead.json (dev's docker images above daily and prod) · watermark.json
   runtime/  lanes.json (per followed lane and service: the profile chain, how it was proven, the keys a one-profile
             read gets wrong) · proofs.json (a graph bound to its UR Caller instance and gateway) · initconfig-<lane>.json
+  proposals/ proposals.json (mediahub-bot's knowledge proposals, one record per claim, from its channel and its files
+            directory as site.json `knowledge_proposals` names them; the brief's `proposals` lane reads it)
   builds/   <job>.json (Jenkins, 80 builds) · bundles/<host>/<line>.json · bundles/detail/<id>.json · watermark.json
 
 `refresh` is incremental and idempotent: each source reads forward from its watermark; a second refresh in the same
@@ -39,7 +42,7 @@ import argparse, datetime, json, os, sys, time
 HERE = os.path.dirname(os.path.realpath(__file__))
 SKILLS = os.path.dirname(HERE)
 SITE = os.path.expanduser("~/.claude/ela/site.json")
-SOURCES = ("jira", "slack", "mail", "lanes", "builds", "runtime", "tvukb")
+SOURCES = ("jira", "slack", "mail", "lanes", "builds", "runtime", "tvukb", "proposals")
 EX_USAGE, EX_REMOTE = 2, 5
 JIRA_HORIZON_DAYS = 14          # how far back the Jira sweep keeps changed issues (recent's 7 days, Monday's 72 hours)
 SLACK_HORIZON_DAYS = 8          # the window of parents re-read each pass, so a reply to an older thread is seen
@@ -399,8 +402,27 @@ def refresh_tvukb(env_file, full):
     return f"tvukb: {moved}" + (" — not fast-forwarded" if rc else "") + f", {time.time() - t0:.1f}s"
 
 
+def refresh_proposals(env_file, full):
+    """mediahub-bot's knowledge proposals, from its channel and its files directory (proposals.py). A route left unset
+    is a state; a route set and unreadable is a gap while the other is still read; every configured route failing is
+    the source not read."""
+    sys.path.insert(0, HERE)
+    import proposals as P  # noqa: E402
+    t0 = time.time()
+    out = P.refresh(env_file, site())
+    set_watermark("proposals", at=now_iso(), state=out["state"], new=out["new"], count=out["count"], seconds=round(time.time() - t0, 1))
+    channel, directory = P.config(site())
+    if out["gaps"] and len(out["gaps"]) == len([r for r in (channel, directory) if r]):
+        raise RuntimeError("; ".join(out["gaps"]))
+    if out["gaps"]:
+        set_gap("proposals", "; ".join(out["gaps"])[:300], partial=True)
+    else:
+        clear_gap("proposals")
+    return out["line"] + f", {time.time() - t0:.1f}s"
+
+
 REFRESH = {"jira": refresh_jira, "slack": refresh_slack, "mail": refresh_mail, "lanes": refresh_lanes, "builds": refresh_builds,
-           "runtime": refresh_runtime, "tvukb": refresh_tvukb}
+           "runtime": refresh_runtime, "tvukb": refresh_tvukb, "proposals": refresh_proposals}
 
 
 def links_update():
@@ -479,6 +501,9 @@ def main():
     p.add_argument("rest", nargs=argparse.REMAINDER)
     p.set_defaults(func=lambda a: os.execvp("python3", ["python3", os.path.join(HERE, "runtime.py")]
                                             + (["--env-file", a.env_file] if a.env_file else []) + a.rest))
+    p = sub.add_parser("proposals", help="mediahub-bot's knowledge proposals: show (proposals.py)", add_help=False)
+    p.add_argument("rest", nargs=argparse.REMAINDER)
+    p.set_defaults(func=lambda a: os.execvp("python3", ["python3", os.path.join(HERE, "proposals.py")] + a.rest))
     a = ap.parse_args()
     a.func(a)
 
