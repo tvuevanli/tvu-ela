@@ -3,6 +3,22 @@
 set -u
 export ELA_TEST=1   # a live verb refuses unless the tool it would reach is a stub under the temp directory
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"; cd "$ROOT"; fail=0
+# Tripwire: nothing a test starts reaches a live system. The tools that would leave the machine or start a session
+# are stubs first on PATH, and every Python refuses a non-loopback connect (tests/tripwire/sitecustomize.py); each
+# hit is logged with the test that made it, and any hit fails the run.
+export ELA_TRIPWIRE="$(mktemp -d)"; trap 'rm -rf "$ELA_TRIPWIRE"' EXIT
+mkdir "$ELA_TRIPWIRE/bin"
+for t in claude zellij ssh scp curl wget; do
+  printf '#!/bin/sh\necho "${ELA_TEST_NAME:-?}: %s $*" >> "%s/hits"\necho "tripwire: %s is a stub under tests/run.sh" >&2\nexit 97\n' \
+    "$t" "$ELA_TRIPWIRE" "$t" > "$ELA_TRIPWIRE/bin/$t"
+  chmod +x "$ELA_TRIPWIRE/bin/$t"
+done
+# A credential in the caller's environment outranks every env file a test writes ($SLACK_BOT_TOKEN before --env-file):
+# none is inherited.
+for v in $(env | sed -n 's/^\([A-Za-z_][A-Za-z0-9_]*\)=.*/\1/p' | grep -E '(_TOKEN|_KEY|_SECRET|_PASSWORD|_PASS|_ENV_FILE)$'); do
+  unset "$v"
+done
+export PATH="$ELA_TRIPWIRE/bin:$PATH" PYTHONPATH="$ROOT/tests/tripwire${PYTHONPATH:+:$PYTHONPATH}"
 python3 -m py_compile bin/ela $(find skills -name '*.py') || fail=1
 for s in skills/*/*.py; do
   case "$s" in */deps.py) continue;; esac
@@ -115,5 +131,8 @@ python3 tests/test_siteguard_offline.py || fail=1
 python3 tests/test_env_fallback_offline.py || fail=1
 python3 tests/test_lang_tag_offline.py || fail=1
 python3 tests/test_vault_name_offline.py || fail=1
+if [ -s "$ELA_TRIPWIRE/hits" ]; then
+  echo "tripwire: a test reached for a live system:"; sort -u "$ELA_TRIPWIRE/hits" | sed 's/^/  /'; fail=1
+fi
 [ $fail -eq 0 ] && echo "ela: verification passed" || echo "ela: verification FAILED"
 exit $fail
