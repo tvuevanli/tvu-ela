@@ -26,12 +26,19 @@ act (the writes, one set per ticket a day, through `ela dry`'s tier-1 class boar
 comment that jira.py signs and checks), ask (the owner's topic: today.md and his ela DM, `asks`/`dm`), or none.
 Never by ela, always an ask: a terminal status, a Slack post under his name, a customer channel, anything about people.
 
+A reply after ela's signed comment is judged too: the session marks each one the scan lists as disputing the comment or
+not, and only a plain `"disputes": false` is agreement (unsure, or no mark, counts as a dispute). A dispute is a
+correction under the demotion rule: `ela dry`'s record takes verdict corrected with the act id and the reply's link,
+board-watch returns to confirm, the reply becomes an ask on today.md naming the ticket and the reply, and ela posts no
+comment on that ticket for DISPUTE_QUIET_DAYS.
+
   scan    [--date D] [--write] [--json]         every tracked ticket against the last pass; the triggered ones,
                                                 the owner's first; --write stores the pass (<reports>/ela/watch.json,
                                                 <reports>/ela/watch/<date>-scan.json)
   prompt  [--date D] [--json]                   the session's input: each triggered ticket, its triggers and facts
   decide  --from FILE [--date D] [--apply] [--json]
-                                                the session's decisions checked and carried: acts run through
+                                                the session's decisions checked and carried: replies judged (a dispute
+                                                recorded as a correction and asked), acts run through
                                                 `ela dry` (each a dry run unless --apply), asks stored as topics,
                                                 and the owner's answered asks carried out; nothing is applied
                                                 without --apply
@@ -44,7 +51,7 @@ Never by ela, always an ask: a terminal status, a Slack post under his name, a c
                                                 dry run unless --apply (a notification to him, not a post under his name)
 
 Store: <reports>/ela/watch.json (per ticket: the last pass's snapshot, pending triggers, the last decision, the day of
-its last set of writes, the comments ela said), <reports>/ela/watch/<date>-scan.json, <reports>/ela/watch-topics.json,
+its last set of writes, the comments ela said, the replies judged, the day a reply disputed ela), <reports>/ela/watch/<date>-scan.json, <reports>/ela/watch-topics.json,
 <reports>/ela/drafts/watch/ (each comment's text, the file a write names).
 Exit codes: 0 ok · 2 usage · 3 not found.
 """
@@ -68,6 +75,7 @@ STALL_DAYS = {"In Progress": 2, "Reopened": 2, "Review": 5, "Blocked": 7, "On Ho
 ACTIVE = ("In Progress", "Review", "Reopened")
 MOVED_MARGIN = datetime.timedelta(minutes=15)   # ela's own write moves the ticket: within this, it is not a move
 MAX_PER_PASS = int(os.environ.get("ELA_WATCH_MAX") or 25)   # the session's load in one pass (the runner caps the rollout); the rest wait, the owner's first
+DISPUTE_QUIET_DAYS = 7                         # no comment from ela on a ticket where a reply disputed it, for this long
 VERBS = ("assign", "transition", "priority", "due", "link")
 SPRINT_FIELD = "customfield_10020"
 DONE = ("Done", "Cancelled", "Closed", "Failed", "Closed Ambigous")
@@ -342,17 +350,77 @@ def clip(text, n):
     return t if len(t) <= n else t[:n].rsplit(" ", 1)[0] + " …"
 
 
-def scan(facts, reports, now, holds=None, lines=None, owner=None, write=False):
-    """One pass. → {date, tracked, skipped: {legacy, held, done_today}, triggered: [row], waiting: [keys]}."""
+# ── replies to ela's signed comments ──────────────────────────────────────────────────────────────────────────────
+def replies_to_ela(iss):
+    """Each comment after a signed ela comment, a person's (a bot's copy aside), with the signed comment it follows:
+    [(ela's comment, reply)]."""
+    out, last = [], None
+    for c in comments(iss):
+        if is_ela(c):
+            last = c
+        elif last is not None and not is_bot(c):
+            out.append((last, c))
+    return out
+
+
+def act_of(reports, key, at):
+    """The board-watch act on record that ela's comment at `at` carried: the latest tier-1 row for the ticket written at
+    or before it (within MOVED_MARGIN). → the record row, or None."""
+    t, best = parse_ts(at), None
+    for r in dry_mod().record(reports):
+        if r.get("source") != "tier1" or r.get("target") != key or not r.get("act"):
+            continue
+        ra = parse_ts(r.get("at"))
+        if t is None or ra is None or ra <= t + MOVED_MARGIN:
+            best = r
+    return best
+
+
+def reply_id(c):
+    return str(c.get("id") or c.get("created") or "")
+
+
+def reply_link(base, key, cid):
+    return f"{base}/browse/{key}?focusedCommentId={cid}" if base else f"{key} comment {cid}"
+
+
+def quiet_until(rec):
+    """The day ela may comment again on a ticket where a reply disputed it, or None when it is not quiet."""
+    d = rec.get("disputed")
+    return (datetime.date.fromisoformat(d) + datetime.timedelta(days=DISPUTE_QUIET_DAYS)).isoformat() if d else None
+
+
+def ela_replies(iss, rec, reports, base):
+    """The replies to ela's signed comments on a ticket that no pass has judged yet, each with the act it answers."""
+    key, judged, out = iss["key"], set(rec.get("judged") or []), []
+    for ec, c in replies_to_ela(iss):
+        rid = reply_id(c)
+        if not rid or rid in judged:
+            continue
+        a = act_of(reports, key, ec.get("created")) or {}
+        out.append({"key": key, "reply": rid, "by": name(c.get("author")), "at": str(c.get("created") or "")[:16],
+                    "text": clip(text_of(c.get("body")), 500), "link": reply_link(base, key, rid),
+                    "ela_comment": clip(J.unsigned(text_of(ec.get("body"))), 300), "ela_at": str(ec.get("created") or "")[:16],
+                    "act": a.get("act"), "class": a.get("class") or CLASS, "summary": fields(iss).get("summary") or ""})
+    return out
+
+
+def scan(facts, reports, now, holds=None, lines=None, owner=None, write=False, base=None):
+    """One pass. → {date, tracked, skipped: {legacy, held, done_today}, triggered: [row], waiting: [keys], replies:
+    [the replies to ela's signed comments not judged yet]}. `base` the Jira URL a reply's link starts with."""
     st = load_state(reports)
     owner = owner_of(facts) if owner is None else owner
     holds = H.for_reports(reports, now.date()) if holds is None else holds
     lines = current_lines() if lines is None else lines
     today = now.date().isoformat()
-    rows, skipped, tracked = [], {"legacy": 0, "held": [], "done_today": []}, 0
+    rows, skipped, tracked, replies = [], {"legacy": 0, "held": [], "done_today": []}, 0, []
     for iss in open_tickets(facts):
         key = iss["key"]
         rec = st["tickets"].setdefault(key, {"first": today})
+        if any(is_ela(c) for c in comments(iss)):
+            if base is None:
+                base = jira_base()
+            replies += ela_replies(iss, rec, reports, base)
         prev = rec.get("snap")
         pend = [p for p in rec.get("pending") or []]
         new = change_triggers(iss, prev, owner)
@@ -378,11 +446,13 @@ def scan(facts, reports, now, holds=None, lines=None, owner=None, write=False):
                      "assignee": name(f.get("assignee")) or None, "priority": name(f.get("priority")), "due": f.get("duedate"),
                      "labels": f.get("labels") or [], "updated": str(f.get("updated") or "")[:16],
                      "owner_held": is_owner(f.get("assignee"), owner), "chinese": J.chinese(ticket_text(iss)),
+                     "quiet_until": quiet_until(rec) if (quiet_until(rec) or "") > today else None,
                      "triggers": [{"kind": k, "says": s} for k, s in trig]})
     rows.sort(key=lambda r: (not r["owner_held"], ("Highest", "High", "Medium", "Low", "Lowest").index(r["priority"])
                              if r["priority"] in ("Highest", "High", "Medium", "Low", "Lowest") else 5, r["key"]))
     out = {"date": today, "at": now.isoformat(timespec="seconds"), "tracked": tracked, "skipped": skipped,
-           "triggered": rows[:MAX_PER_PASS], "waiting": [r["key"] for r in rows[MAX_PER_PASS:]], "owner": owner.get("name")}
+           "triggered": rows[:MAX_PER_PASS], "waiting": [r["key"] for r in rows[MAX_PER_PASS:]], "owner": owner.get("name"),
+           "replies": replies}
     if write:
         st["passes"] = (st["passes"] + [{"at": out["at"], "tracked": tracked, "triggered": len(rows)}])[-60:]
         write_json(state_path(reports), st)
@@ -411,13 +481,22 @@ def prompt_text(scanned, rows, decisions_path):
     for r in rows:
         L += [f"## {r['key']} · {r['summary']}",
               f"{r['status']} · {r['assignee'] or 'nobody'} · {r['priority']}" + (f" · due {r['due']}" if r.get("due") else "")
-              + (" · the owner's ticket" if r["owner_held"] else "") + (" · the ticket's text is Chinese" if r["chinese"] else ""),
+              + (" · the owner's ticket" if r["owner_held"] else "") + (" · the ticket's text is Chinese" if r["chinese"] else "")
+              + (f" · a reply disputed ela: no comment until {r['quiet_until']} (ask or none)" if r.get("quiet_until") else ""),
               ""] + [f"- trigger {t['kind']}: {t['says']}" for t in r["triggers"]]
         if r.get("description"):
             L += ["", f"Description: {r['description']}"]
         L += [""] + [f"> {c['at']} {c['by']}{' (ela)' if c['ela'] else ''}: {c['text']}" for c in r["comments"]] + [""]
     if scanned.get("waiting"):
         L += [f"Waiting for the next pass: {', '.join(scanned['waiting'])}", ""]
+    if scanned.get("replies"):
+        L += ["# Replies to ela's signed comments", "",
+              "For each, add {\"key\", \"reply\", \"disputes\": true | false | \"unsure\"} to the file's \"replies\" list: "
+              "does it dispute what ela's comment said or did? Conservatively: false only when the reply plainly agrees, "
+              "thanks, or answers without contesting; when unsure, it is a dispute.", ""]
+        for x in scanned["replies"]:
+            L += [f"## {x['key']} · reply {x['reply']} · {x['link']}",
+                  f"> {x['ela_at']} ela: {x['ela_comment']}", f"> {x['at']} {x['by']}: {x['text']}", ""]
     return "\n".join(L)
 
 
@@ -458,6 +537,9 @@ def check_act(key, d, iss, rec, today):
     """Why a decision to act may not go out, or None."""
     if rec.get("acted") == today:
         return "one set of writes a day: this ticket had its set today"
+    if (quiet_until(rec) or "") > today:
+        return (f"a reply disputed ela's comment here on {rec['disputed']}: no comment from ela until {quiet_until(rec)}; "
+                "an ask or none")
     writes = d.get("writes") or []
     for w in writes:
         if w.get("verb") not in VERBS:
@@ -534,6 +616,7 @@ def decide(decisions, scanned, facts, reports, now, apply=False, runner=None):
     st, topics = load_state(reports), load_topics(reports)
     due = {r["key"]: r for r in scanned.get("triggered") or []}
     out = {"date": today.isoformat(), "acts": [], "asks": [], "none": [], "refused": [], "answered": []}
+    out.update(judge_replies(decisions, scanned, st, topics, reports, now, apply))
     for d in decisions.get("decisions") or []:
         key, verdict = d.get("key"), d.get("verdict")
         if key not in due:
@@ -573,6 +656,51 @@ def decide(decisions, scanned, facts, reports, now, apply=False, runner=None):
     if apply:
         write_json(state_path(reports), st)
         write_json(topics_path(reports), topics)
+    return out
+
+
+def disputes(mark):
+    """Whether the session's mark on a reply counts as a dispute: anything but a plain false (unsure is a dispute)."""
+    return mark is not False
+
+
+def judge_replies(decisions, scanned, st, topics, reports, now, apply):
+    """The session's marks on the replies the scan listed. Agreement is recorded as judged. A dispute is a correction:
+    `ela dry`'s record takes verdict corrected (the act id, the reply's link) and the class returns to confirm; the
+    reply becomes the owner's ask; the ticket is quiet for DISPUTE_QUIET_DAYS. A reply the session did not mark waits
+    for the next pass. → {disputes, agreed, refused_replies}."""
+    D, today = dry_mod(), now.date().isoformat()
+    listed = {(r["key"], str(r["reply"])): r for r in scanned.get("replies") or []}
+    out = {"disputes": [], "agreed": [], "refused_replies": []}
+    for j in decisions.get("replies") or []:
+        r = listed.get((j.get("key"), str(j.get("reply"))))
+        if not r:
+            out["refused_replies"].append({"key": j.get("key"), "reply": j.get("reply"), "why": "not a reply today's scan listed"})
+            continue
+        rec = st["tickets"].setdefault(r["key"], {"first": today})
+        if r["reply"] in (rec.get("judged") or []):
+            continue
+        rec.setdefault("judged", []).append(r["reply"])
+        if not disputes(j.get("disputes")):
+            out["agreed"].append({"key": r["key"], "reply": r["reply"], "by": r["by"]})
+            continue
+        rec["disputed"] = today
+        until = quiet_until(rec)
+        tid = f"{topic_id(r['key'])}:reply-{r['reply']}"
+        undo = f"`ela dry undo {r['act']} --apply`" if r.get("act") else "on the ticket"
+        topics["topics"].setdefault(tid, {
+            "id": tid, "key": r["key"], "summary": r.get("summary") or "",
+            "question": (f"{r['by']} disputed ela's comment ({r['link']}): \u201c{clip(r['text'], 160)}\u201d. "
+                         f"{r['class']} is back at your confirm and ela stays off the ticket until {until}. What now?"),
+            "options": [{"letter": "A", "text": "leave it to the thread on the ticket", "writes": [], "comment": ""},
+                        {"letter": "B", "text": f"undo ela's act {undo}", "writes": [], "comment": ""}],
+            "first": today, "asked": today, "thread": None, "posted": {}, "closed": None})
+        notice = None
+        if apply:
+            notice = D.correct(reports, r["class"], "correction", ref=r.get("act") or r["key"],
+                               note=f"{r['by']} disputed ela's comment on {r['key']}: {r['link']}", now=now)
+        out["disputes"].append({"key": r["key"], "reply": r["reply"], "by": r["by"], "link": r["link"], "act": r.get("act"),
+                                "class": r["class"], "topic": tid, "quiet_until": until, "notice": notice})
     return out
 
 
@@ -773,7 +901,8 @@ def cmd_scan(a):
     got = scan(facts, reports, now_tz(), write=a.write)
     emit(a, got, [f"{got['tracked']} tracked · {got['skipped']['legacy']} legacy · {len(got['skipped']['held'])} held · "
                   f"{len(got['skipped']['done_today'])} written today · {len(got['triggered'])} due a decision"
-                  + (f" · {len(got['waiting'])} waiting" if got["waiting"] else "")]
+                  + (f" · {len(got['waiting'])} waiting" if got["waiting"] else "")
+                  + (f" · {len(got['replies'])} repl{'ies' if len(got['replies']) != 1 else 'y'} to ela to judge" if got["replies"] else "")]
          + [f"- {r['key']} {'(yours) ' if r['owner_held'] else ''}{clip(r['summary'], 60)} — "
             + "; ".join(f"{t['kind']}: {t['says']}" for t in r["triggers"]) for r in got["triggered"]]
          + ([] if a.write else ["dry run; --write stores the pass"]))
@@ -794,7 +923,8 @@ def cmd_prompt(a):
     rows = prompt_rows(got, facts)
     path = decisions_path(reports, day.isoformat())
     if a.json:
-        print(json.dumps({"date": got["date"], "decisions_file": path, "tickets": rows, "waiting": got.get("waiting")},
+        print(json.dumps({"date": got["date"], "decisions_file": path, "tickets": rows, "waiting": got.get("waiting"),
+                          "replies": got.get("replies") or []},
                          ensure_ascii=False, indent=1))
     else:
         print(prompt_text(got, rows, path))
@@ -814,7 +944,11 @@ def cmd_decide(a):
     if decisions is None:
         print(f"no decisions in {path}", file=sys.stderr); sys.exit(EX_NOTFOUND)
     r = decide(decisions, got, facts, reports, now, apply=a.apply)
-    emit(a, r, [f"{x['key']}: act — {x['state']}" + "".join(f"\n    {d}" for d in x["did"]) for x in r["acts"]]
+    emit(a, r, [f"{x['key']}: reply {x['reply']} by {x['by']} disputes ela — corrected {x['act'] or x['key']}, asked as "
+                f"{x['topic']}, no comment until {x['quiet_until']}" for x in r["disputes"]]
+         + [f"{x['key']}: reply {x['reply']} by {x['by']} agrees" for x in r["agreed"]]
+         + [f"{x['key']}: reply {x['reply']} refused — {x['why']}" for x in r["refused_replies"]]
+         + [f"{x['key']}: act — {x['state']}" + "".join(f"\n    {d}" for d in x["did"]) for x in r["acts"]]
          + [f"{x['key']}: ask — {x['question']}" for x in r["asks"]] + [f"{x['key']}: nothing due — {x['why']}" for x in r["none"]]
          + [f"{x['key']}: refused — {x['why']}" for x in r["refused"]]
          + [f"{x['topic']}: the owner's letter — {x.get('state') or x.get('refused')}" for x in r["answered"]]

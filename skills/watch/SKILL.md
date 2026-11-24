@@ -45,6 +45,15 @@ How to read the triggers:
 | answered | carry the answer: the next step it implies (assign, status, a reply) |
 | changed | respond to the change: a reopen to its assignee, a question to the owner answered or asked |
 
+## Replies to ela's comments
+
+The prompt's last section lists each reply after a comment ela signed that no pass has judged. Mark each: does it
+dispute what ela's comment said or did (the change was wrong, the evidence is wrong, it is not theirs, undo it)?
+Conservatively: `false` only when the reply plainly agrees, thanks, or carries on without contesting; when unsure, it
+is a dispute (`"unsure"` or `true`). A dispute is recorded as a correction: board-watch returns to the owner's confirm,
+the reply becomes his ask, and ela posts no comment on that ticket for 7 days (the prompt marks such a ticket; decide
+ask or none for it). Do not answer the reply yourself.
+
 ## The comment
 
 - What changed and why, in two or three sentences, to the reader on the ticket. Cite evidence (a build, a
@@ -70,7 +79,9 @@ Write `<reports>/ela/watch/<date>-decisions.json` (the prompt names the path):
    "options": [{"letter": "A", "text": "keep it in Review for QA"},
                {"letter": "B", "text": "you close it yourself"}]},
   {"key": "MH-4", "verdict": "none", "why": "the reviewer answered in Slack; nothing is waiting"}
-]}
+ ],
+ "replies": [{"key": "MH-5", "reply": "10234", "disputes": false},
+             {"key": "MH-6", "reply": "10240", "disputes": "unsure"}]}
 ```
 
 Then run `ela watch decide --from <that file>`: a dry run that checks every decision against the gates
