@@ -62,6 +62,11 @@ reaction; none is to be added silently.
   character: beside CJK text `*bold*` and `_italic_` take a space on both sides. An aligned table goes in a ```
   block with padded columns. One item per line, the key first and a few words after it; a status read at a
   glance takes a marker from one fixed set: ✅ verified · ⬜ no verdict · 🟠 medium-or-worse open bug · ⚪ low bug.
+  Emphasis guides the eye, sparingly: the one fact to take away in bold, once a message; a name, id, parameter or
+  command a reader may copy in `code`; a next step for several parties one line each, `• *Party:* what to check`.
+  A table goes in a fence with cells split by `|` and a header row: `post` sends it as Slack's table block (bold
+  header, ✅ / 🟠 / ⬜ before a `status` cell of checked / inferred / NOT checked, long columns wrapped), the first
+  table of a message only, and the fence as written when Slack refuses the block.
   `$SLACK check --text "…" | --file f|-` is the test (exit 1, each slip named with its line; `--fix` prints the
   text with every mechanical repair made, a `- item` line written as `• item` and a nested item flattened where
   it stood, and exits 1 only when a pipe table remains). `post` runs the same check:

@@ -839,6 +839,72 @@ def cmd_unanswered(tok, a):
     report_unread(unread)
 
 
+FENCE = re.compile(r"```[^\n`]*\n(.*?)\n?```", re.S)
+TABLE_RULE = re.compile(r"^[\s|:+-]+$")                 # a divider row: |---|:--| or ----+----
+TABLE_ROWS, TABLE_COLS, TABLE_CHARS, WRAP_AT = 100, 20, 10000, 30   # Slack's table block limits; a longer column wraps
+STATUS_MARKS = (("not checked", "⬜"), ("inferred", "🟠"), ("checked", "✅"))
+
+
+def table_block(body):
+    """A fenced block whose lines are cells split by `|` (the timeline: UTC | event | source | status) as Slack's own
+    table block: the header bold, a status cell led by its mark, a long column wrapped. → the block, or None when it
+    is not such a table or is past Slack's limits (it is then sent as the fence it was)."""
+    rows = [[c.strip() for c in line.strip().strip("|").split("|")]
+            for line in body.splitlines() if line.strip() and not TABLE_RULE.match(line)]
+    if len(rows) < 2 or len(rows) > TABLE_ROWS or not 2 <= len(rows[0]) <= TABLE_COLS or any(len(r) != len(rows[0]) for r in rows):
+        return None
+    if sum(len(c) + 2 for r in rows for c in r) > TABLE_CHARS:
+        return None
+    heads = [h.lower() for h in rows[0]]
+    status = heads.index("status") if "status" in heads else None
+    mark = lambda t: next((f"{m} {t}" for w, m in STATUS_MARKS if t.lower().startswith(w)), t)
+    bold = lambda t: {"type": "rich_text", "elements": [{"type": "rich_text_section",
+                                                         "elements": [{"type": "text", "text": t or " ", "style": {"bold": True}}]}]}
+    raw = lambda t: {"type": "raw_text", "text": t or " "}
+    out = [[bold(c) for c in rows[0]]] + [[raw(mark(c) if i == status else c) for i, c in enumerate(r)] for r in rows[1:]]
+    return {"type": "table", "rows": out,
+            "column_settings": [{"is_wrapped": max(len(r[i]) for r in rows) > WRAP_AT} for i in range(len(rows[0]))]}
+
+
+def text_blocks(text, limit=2900):
+    """mrkdwn as section blocks of whole lines, each within a section's limit."""
+    out, cur = [], ""
+    for line in text.split("\n"):
+        if cur and len(cur) + 1 + len(line) > limit:
+            out.append(cur); cur = line
+        else:
+            cur = f"{cur}\n{line}" if cur else line
+    out.append(cur)
+    return [{"type": "section", "text": {"type": "mrkdwn", "text": t[:3000]}} for t in out if t.strip()]
+
+
+def with_table(text):
+    """→ the blocks that show the text's first fenced table as a table block (one a message: Slack counts every cell of
+    a message against one limit), or None when it has none; `text` itself still goes as the notification fallback."""
+    m = next((m for m in FENCE.finditer(text) if table_block(m.group(1))), None)
+    if not m:
+        return None
+    blocks = text_blocks(text[:m.start()].strip("\n")) + [table_block(m.group(1))] + text_blocks(text[m.end():].strip("\n"))
+    return blocks if len(blocks) <= 50 else None
+
+
+def send(tok, payload):
+    """chat.postMessage, with the text's table as a table block when it has one; a table Slack refuses goes as the fence."""
+    blocks = with_table(payload.get("text") or "")
+    if blocks:
+        req = urllib.request.Request(API + "chat.postMessage", data=json.dumps({**payload, "blocks": blocks}).encode(), method="POST",
+                                     headers={"Authorization": f"Bearer {tok}", "Content-Type": "application/json; charset=utf-8"})
+        try:
+            with urllib.request.urlopen(req, timeout=60) as r:
+                d = json.load(r)
+            if d.get("ok"):
+                return d
+            print(f"slack refused the table block ({d.get('error')}): sent as the fenced block", file=sys.stderr)
+        except Exception as e:
+            print(f"slack table block: {e!r}: sent as the fenced block", file=sys.stderr)
+    return post_json("chat.postMessage", tok, payload)
+
+
 def post_json(method, tok, payload):
     req = urllib.request.Request(API + method, data=json.dumps(payload).encode(), method="POST",
                                  headers={"Authorization": f"Bearer {tok}", "Content-Type": "application/json; charset=utf-8"})
@@ -1154,8 +1220,8 @@ def cmd_post(tok, a):
         dm = call("conversations.open", tok, users=uid)["channel"]["id"]
         head = f"_Preview, not sent — would post as @{handle} {where}_"
         parent = preview_thread(tok, dm, a.topic or where)
-        d = post_json("chat.postMessage", tok, {"channel": dm, "text": f"{head}\n\n{text}", "thread_ts": parent,
-                                                 "unfurl_links": False, "unfurl_media": False})
+        d = send(tok, {"channel": dm, "text": f"{head}\n\n{text}", "thread_ts": parent,
+                       "unfurl_links": False, "unfurl_media": False})
         link = permalink_of(d["channel"], d["ts"]) + f"?thread_ts={parent}&cid={dm}"
         log_write(f"preview to owner of: {where}", link, len(text))
         print(json.dumps({"preview": True, "where": where, "permalink": link, "slips": slips}) if a.json
@@ -1173,7 +1239,7 @@ def cmd_post(tok, a):
     payload = {"channel": ch, "text": text, "unfurl_links": False, "unfurl_media": False}
     if thread_ts:
         payload["thread_ts"] = thread_ts
-    d = post_json("chat.postMessage", send_tok, payload)
+    d = send(send_tok, payload)
     link = permalink_of(d["channel"], d["ts"])
     log_write(where, link, len(text), handle, getattr(a, "mention", None))
     print(json.dumps({"posted": True, "as": handle, "as_owner": as_owner, "channel": d["channel"], "ts": d["ts"], "thread_ts": thread_ts, "permalink": link})

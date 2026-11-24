@@ -28,13 +28,21 @@ needs `ela login tvu`, and exit 4 names it.
   `UTC | event | source | status`, oldest first: each event with the read that shows it, status `checked` (read
   first-hand), `inferred` (follows from reads, not read itself) or `NOT checked`, and every span nobody read as a
   `NOT checked` row of its own. Show it with each progress report; the answer's timeline is its last state. In Slack
-  it goes in the detail as one fenced block with aligned columns (mrkdwn has no tables); in a vault note, a table.
+  it goes in the detail as one fenced block with aligned columns, cells split by `|`, which `ela slack post` sends as
+  Slack's table block (the fence stays when Slack refuses it); in a vault note, a table.
 - **Read-only over other teams' runtimes.** Logs are read; log levels, restarts and config refreshes
   are the owner's to do, and appear in a handoff as a request, never as an action taken.
 - **Absence under a trace is never evidence of absence.** A service that did not receive the trace id
   logs under its own; say which reads came back empty.
 - **Times are UTC.** Output prints UTC and local; the java-log's clock is UTC, so `--at` is UTC unless
   an offset is given.
+- **Only a box that ships its logs is in Loki, and a module's log is the media team's.** A MediaBox-version box
+  ships its media containers' lines to Loki; another box ships none, so an empty `loki --pid` says nothing until a
+  line from any process of that box shows it ships. A media docker service's log (decoder, copier, encoder, mixer
+  and the rest) is read and explained by the media team, whoever's tool read it: in Loki where the box ships, on the
+  box where it does not, with the UR team's help only for access to the box. A handoff names the media team for it,
+  not UR (mh-bot answer of 2026-11-24 in #prj_dev_mediahub named UR for a copier's container log; the copier's media
+  owner read it on the box and found the hang).
 - **Loki has a process's text, not every body it wrote.** The syncer ships only lines carrying the
   `[YYYYMMDD hh:mm:ss.mmm L]` prefix, so a multi-line body written without it (the copier's `sent metrics
   json: {`, `send SRT conn status: {`; decoderMediaBox's `…,json:`) arrives as its first line only. `loki`
