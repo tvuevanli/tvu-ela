@@ -209,8 +209,8 @@
                                    what the assistant as a whole should do better (ADR 0023): digest --date D the
                                    day's signals (mediahub-bot's runs, ela's jobs and follow-ups, failed units, his
                                    feedback, token spend by kind of session and files re-read); add FILE --date D at most three proposed items, checked; an item whose
-                                   fix a colleague would see waits for your letter on today.md (answer <id> A|B), one
-                                   inside ela starts as go; done <id> --what TEXT once it lands; section --date D the
+                                   fix would send, post or write to Jira waits for your letter on today.md (answer
+                                   <id> A|B, ADR 0024); any other, a bot's answers included, starts as go; done <id> --what TEXT once it lands; section --date D the
                                    reader page's Improve lines; pending one line for the desk session. Nothing is
                                    deleted, nothing written live
   ela vault sync [--dry-run]       regenerate the owner's Obsidian vault: day pages, readings, verifications,

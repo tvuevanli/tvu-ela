@@ -3725,8 +3725,8 @@ def mention_asks(reports, today):
 
 
 def improve_asks(reports, today):
-    """The improvement items that take an ordinary ask slot on today.md (ADR 0023): a fix a colleague would see, not
-    yet answered; his options A go · B drop it. A broken store costs these asks only."""
+    """The improvement items that take an ordinary ask slot on today.md (ADR 0023, 0024): a fix that would send, post
+    or write to Jira, not yet answered; his options A go · B drop it. A broken store costs these asks only."""
     try:
         got = improve_mod().asks(reports)
     except Exception:                                      # noqa: BLE001 — the page is written without them

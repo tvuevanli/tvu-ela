@@ -19,10 +19,10 @@ had to follow up twice, a vault line that needed a second round, a timer that fa
   section --date D              the reader page's `## Improve` lines for that day
   pending                       one line for the desk session: the items ela should carry out next
 
-An item: {id, area, problem, evidence, fix, who, first, seen, state}. `area` is one of AREAS. `who` is `ela` when the
-fix is inside ela, the runner, the vault or Helm's ela-backed parts (ela decides and builds it, and reports the
-outcome); `owner` when the fix changes what a colleague sees (mediahub-bot's answers, a post, a Jira habit), which
-takes his word as an ask on today.md. States: open → go (his A, or `ela` items from the start) → done; or dropped.
+An item: {id, area, problem, evidence, fix, who, first, seen, state}. `area` is one of AREAS. `who` is `owner` only
+when carrying the fix out would send or post something, or write to Jira (ADR 0024): it takes his word as an ask on
+today.md. Everything else is `ela`, a change to how mediahub-bot or the ela bot answers included: ela builds it under
+the target repository's rules and reports the outcome. States: open → go (his A, or `ela` items from the start) → done; or dropped.
 Nothing is deleted (the no-data-lost rule): a dropped item stays in the store with the day and the letter.
 
 Store: <reports>/ela/improve.json. mediahub-bot's run log: site.json `mhbot_data`, else MHBOT_ROOT/data, else
@@ -441,7 +441,8 @@ def section(reports, day):
 
 
 def asks(reports, today=None):
-    """The items that take an ordinary ask slot on today.md: those whose fix a colleague would see, not yet answered."""
+    """The items that take an ordinary ask slot on today.md: those whose fix would send, post or write to Jira (ADR
+    0024), not yet answered."""
     out = []
     for r in sorted(load(reports).values(), key=lambda r: r["first"]):
         if r["who"] != "owner" or r["state"] != "open":

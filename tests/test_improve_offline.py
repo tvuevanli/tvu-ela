@@ -2,7 +2,7 @@
 """The improvement loop, offline, on a temp reports root and a temp mediahub-bot data directory (ADR 0023): the digest
 joins a bot task's accepted and done rows, links its thread and counts the runs the thread took, and counts ela's
 follow-ups in one thread; `add` checks a day's items (at most three, a closed area and who, a known same_as) and
-counts an item seen again instead of storing it twice; an item inside ela starts as go, one a colleague would see
+counts an item seen again instead of storing it twice; an item that writes nothing live starts as go, one that would post, send or write to Jira
 waits for his letter; A is go, B drops it and keeps it, a second letter is refused; the section leads with his items;
 only his open items are asks, and on today.md such an ask is a candidate whose letter the sync settles itself. Nothing
 reaches Slack or Jira."""
@@ -121,7 +121,7 @@ with tempfile.TemporaryDirectory() as tmp:
     check("add: an unknown who refused", "who" in refused([item(who="team")]))
     check("add: an unknown same_as refused", "same_as" in refused([{"same_as": "ela-00000000"}]))
     check("add: a refused list stores nothing", I.load(R) == {})
-    ids = I.add(R, [item(), item(area="mediahub-bot", who="owner", problem="answers run long", fix="cap the summary at five lines")], DAY)
+    ids = I.add(R, [item(), item(area="ela-bot", who="owner", problem="threads left without a summary", fix="post a one-line summary to the team channel")], DAY)
     recs = I.load(R)
     a_ela, a_owner = ids
     check("add: an ela item starts go, an owner item open", recs[a_ela]["state"] == "go" and recs[a_owner]["state"] == "open")
@@ -133,7 +133,7 @@ with tempfile.TemporaryDirectory() as tmp:
 
     # ---- section, pending, asks --------------------------------------------------------------------------------
     sec = I.section(R, DAY)
-    check("section: his item first, then ela's", len(sec) == 2 and "*mediahub-bot*" in sec[0] and "needs your word" in sec[0]
+    check("section: his item first, then ela's", len(sec) == 2 and "*ela-bot*" in sec[0] and "needs your word" in sec[0]
           and "ela carries it out" in sec[1])
     check("section: a day with nothing says so", I.section(R, "2026-11-01") == ["- Nothing to improve today."])
     check("pending: the go item for the desk", a_ela in I.pending(R) and a_owner not in I.pending(R))
@@ -151,7 +151,7 @@ with tempfile.TemporaryDirectory() as tmp:
     st[c["id"]].update(slot=1, options={o["letter"]: o["does"] for o in c["options"]})
     VT = os.path.join(tmp, "vault")
     os.makedirs(VT)
-    open(os.path.join(VT, V.TODAY), "w").write("## Needs you\n\n1. mediahub-bot: answers run long\nela: B\n")
+    open(os.path.join(VT, V.TODAY), "w").write("## Needs you\n\n1. ela-bot: threads left without a summary\nela: B\n")
     done = V.settle_letters(VT, R, st, today)
     recs = I.load(R)
     check("today.md: his B is settled by the sync once, the item dropped and kept",
@@ -163,7 +163,7 @@ with tempfile.TemporaryDirectory() as tmp:
     check("a broken store costs the improvement asks only", V.improve_asks(BR, today) == [])
 
     # ---- answer and done ---------------------------------------------------------------------------------------
-    b = I.add(R, [item(area="vault", who="owner", problem="a vault line took two rounds", fix="read the note first")], NEXT)[0]
+    b = I.add(R, [item(area="runner", who="owner", problem="a fixed ticket stays open a day", fix="close it in Jira from the evening pass")], NEXT)[0]
     check("answer: A is go", I.answer(R, b, "A")["state"] == "go")
     try:
         I.answer(R, b, "B"); second = False
