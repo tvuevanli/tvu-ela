@@ -209,7 +209,14 @@ def fetch_member(pid, tok):
             elif key.startswith("apiDetail."):
                 folder_of[key.split(".", 1)[1]] = "/".join(trail)
     walk(tree, [])
+    return to_openapi(info.get("name") if isinstance(info, dict) else None, pid, details, folder_of, schemas)
 
+
+def to_openapi(title, pid, details, folder_of, schemas):
+    """Operations in the Apifox/Apidog client shape (api-details: method, path, parameters by place, requestBody,
+    responses) → the OpenAPI-like dict the export yields. Shared by the member read and the public doc, whose
+    pages carry the same shape. `folder_of` maps an operation id to its folder path; `schemas` is a list of
+    {id, name, jsonSchema}."""
     # component schemas: web refs are "#/definitions/<schema id>" or "#/components/schemas/<name>"; both end up by name
     names, comps = {}, {}
     for s in schemas:
@@ -275,7 +282,6 @@ def fetch_member(pid, tok):
         if rb:
             op["requestBody"] = rb
         paths.setdefault(path, {})[method] = fix_refs(op)
-    title = info.get("name") if isinstance(info, dict) else None
     tag_names = sorted({t for item in paths.values() for op in item.values() for t in op["tags"]})
     return {"openapi": "3.1.0", "info": {"title": title or f"project {pid}"}, "tags": [{"name": t} for t in tag_names], "paths": paths,
             "components": {"schemas": fix_refs(comps)}, "x-ela-dropped-duplicates": dropped}
