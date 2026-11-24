@@ -7,11 +7,11 @@ L1: subcommands, --json, stdlib; the driver is browser.js (Playwright, node) bes
                        gateway with the test, daily and prod lanes) and `mediahub_url_qa` (the QA deployment)
   login --host prod --as test
                        a second prod account for product tests (TVU_TEST_ACCOUNT / TVU_TEST_PASSWORD in the site env
-                       file), signed in through the same user-service page and kept under session.json `tvu-test`;
+                       file), signed in through the same user-service page and kept under session.json `tvu-com-test`;
                        env, shot and run take --as test to act as it. The owner's own session stays untouched
   login --host qa      ela's own session on the QA deployment: the test account (TVUTEST_ACCOUNT / TVUTEST_PASSWORD)
                        signs in through the user service's page, every cookie on the QA domain is kept in
-                       session.json under `qa`. The prod session is the owner's own (`ela login tvu`), never this
+                       session.json under `tvu-qa-test`. The prod session is the owner's own (`ela login tvu`), never this
   env [--lane L] [--key K] [--shots D]
                        open the product, read the version panel (every service's ENV and build) and compare it
                        with the release map for the lane: the environment proof a browser result needs. Services the
@@ -240,7 +240,7 @@ def host_of(lane, host=None):
 
 # Accounts a browser run may act as on prod. The owner's own session (`ela login tvu`) is the default; `--as test` is a
 # second account for product tests, signed in by `login --host prod --as test` and kept under its own session key.
-ACCOUNTS = {"test": ("tvu-test", "TVU_TEST_ACCOUNT", "TVU_TEST_PASSWORD")}
+ACCOUNTS = {"test": ("tvu-com-test", "TVU_TEST_ACCOUNT", "TVU_TEST_PASSWORD")}
 
 
 def node(cmd, *args, timeout=240, host="prod", env_file=None, account=None):

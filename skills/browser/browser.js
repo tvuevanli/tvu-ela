@@ -13,12 +13,12 @@ const SITE = path.join(process.env.HOME, ".claude", "ela");
 // domain; the gateway routes by per-user tag cookies, so a SID alone lands on the default lane and proves nothing.
 const HOST = process.env.ELA_BROWSER_HOST === "qa" ? "qa" : "prod";
 // A second account on prod (`--as test`) keeps its own key, so a test run never replaces the owner's session.
-const SESSION_KEY = process.env.ELA_BROWSER_SESSION || (HOST === "qa" ? "qa" : "tvu");
+const SESSION_KEY = process.env.ELA_BROWSER_SESSION || (HOST === "qa" ? "tvu-qa-test" : "tvu-com");
 const DOMAIN = process.env.ELA_BROWSER_DOMAIN || (HOST === "qa" ? ".tvutest.com" : ".tvunetworks.com");
 
 function cookies() {
   const s = (JSON.parse(fs.readFileSync(path.join(SITE, "session.json"), "utf8"))[SESSION_KEY]) || {};
-  if (!s.cookies || !Object.keys(s.cookies).length) throw new Error(`no ${SESSION_KEY} cookies in session.json — run: ` + (HOST === "qa" ? "ela browser login --host qa" : SESSION_KEY === "tvu" ? "ela login tvu --force" : "ela browser login --host prod --as test"));
+  if (!s.cookies || !Object.keys(s.cookies).length) throw new Error(`no ${SESSION_KEY} cookies in session.json — run: ` + (HOST === "qa" ? "ela browser login --host qa" : SESSION_KEY === "tvu-com" ? "ela login tvu --force" : "ela browser login --host prod --as test"));
   return Object.entries(s.cookies).map(([name, value]) => ({ name, value, domain: DOMAIN, path: "/", secure: name === "SID" }));
 }
 
