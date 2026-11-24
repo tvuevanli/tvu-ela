@@ -842,7 +842,7 @@ def cmd_unanswered(tok, a):
 FENCE = re.compile(r"```[^\n`]*\n(.*?)\n?```", re.S)
 SEP_CELL = re.compile(r"^:?-+:?$")
 TABLE_ROWS, TABLE_COLS, TABLE_CHARS, WRAP_AT = 100, 20, 10000, 30   # Slack's table block limits; a longer column wraps
-STATUS_MARKS = (("not checked", "⬜"), ("inferred", "🟠"), ("checked", "✅"))
+STATUS_MARKS = {"not checked": "⬜", "inferred": "🟠", "checked": "✅"}   # the timeline's closed vocabulary
 
 
 def is_separator(line):
@@ -865,7 +865,7 @@ def table_block(body):
         return None
     heads = [h.lower() for h in rows[0]]
     status = heads.index("status") if "status" in heads else None
-    mark = lambda t: next((f"{m} {t}" for w, m in STATUS_MARKS if t.lower().startswith(w)), t)
+    mark = lambda t: f"{STATUS_MARKS[t.lower()]} {t}" if t.lower() in STATUS_MARKS else t   # the word exactly: "checked (rate inferred)" is unmarked
     bold = lambda t: {"type": "rich_text", "elements": [{"type": "rich_text_section",
                                                          "elements": [{"type": "text", "text": t or " ", "style": {"bold": True}}]}]}
     raw = lambda t: {"type": "raw_text", "text": t or " "}

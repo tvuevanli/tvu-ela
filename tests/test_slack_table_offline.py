@@ -23,8 +23,8 @@ b = S.with_table(T)
 check("text, table, text", [x["type"] for x in b or []] == ["section", "table", "section"], b)
 t = (b or [{}, {}])[1]
 check("the header is bold", t.get("rows", [[{}]])[0][0].get("elements", [{}])[0].get("elements", [{}])[0].get("style") == {"bold": True})
-check("a status cell leads with its mark, worst word first",
-      [r[3]["text"] for r in t.get("rows", [])[1:]] == ["✅ checked", "✅ checked (rate inferred)", "⬜ NOT checked"])
+check("a status cell leads with its mark, only for the exact word",
+      [r[3]["text"] for r in t.get("rows", [])[1:]] == ["✅ checked", "checked (rate inferred)", "⬜ NOT checked"])
 check("a long column wraps, a short one does not", [c["is_wrapped"] for c in t.get("column_settings", [])] == [False, True, False, False])
 check("a bordered table needs no divider", len((S.table_block("| a | b |\n| 1 | 2 |") or {}).get("rows", [])) == 2)
 check("a psql divider counts", len((S.table_block("a | b\n---+---\n1 | 2") or {}).get("rows", [])) == 2)
