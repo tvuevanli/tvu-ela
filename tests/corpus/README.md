@@ -22,5 +22,7 @@ harvest is improve's; this directory holds the format and the cases.
 ```
 
 `rejected.target` is the ticket the pinned write named; `rejected.type`, when present, narrows it to one link type
-(`contains`), so a later proposal of the same ticket under another type is not a repeat. Texts are reduced to the
+(`contains`), so a later proposal of the same ticket under another type is not a repeat. `rejected.refused: "standard"`
+pins a proposal for its form, not its target: a write for that target repeats it only when jira.py's description
+standard refuses it (a focus-board row still gets its ticket, as a tracking ticket). Texts are reduced to the
 lines that produced the proposal; hosts are `example.atlassian.net`; people appear as roles.

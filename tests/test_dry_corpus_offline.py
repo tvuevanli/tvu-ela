@@ -6,6 +6,11 @@ import datetime, glob, json, os, re, sys, tempfile
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "skills", "dry"))
 import dry as D  # noqa: E402
+sys.path.insert(0, os.path.join(ROOT, "skills", "focus"))
+import focus as F  # noqa: E402
+sys.path.insert(0, os.path.join(ROOT, "skills", "jira"))
+import jira as J  # noqa: E402
+import argparse, contextlib, io, shlex  # noqa: E402
 
 CORPUS = os.path.join(ROOT, "tests", "corpus")
 OUT = tempfile.TemporaryDirectory()
@@ -19,7 +24,12 @@ def parent_status(i):
     return D.select_parent_status(i["parent"], i.get("owner"), datetime.date.fromisoformat(i["today"]), OUT.name)
 
 
-SELECTORS = {"link-named": link_named, "parent-status": parent_status}
+def focus_moves(i):
+    s = {"reports": OUT.name, "runtime": OUT.name}
+    return F.moves(s, {"rows": i["rows"], "all": i["rows"], "state": {"words": {}}}, datetime.date.fromisoformat(i["today"]))
+
+
+SELECTORS = {"link-named": link_named, "parent-status": parent_status, "focus-moves": focus_moves}
 failures = []
 
 
@@ -29,10 +39,29 @@ def check(name, cond):
         failures.append(name)
 
 
+def standard_refuses(command):
+    """Whether jira.py's description standard refuses this create, dry run or --apply alike."""
+    argv = shlex.split(command)
+    if argv[:3] != ["ela", "jira", "create"]:
+        return False
+    opt = {k: argv[n + 1] for n, k in enumerate(argv[:-1]) if k.startswith("--")}
+    a = argparse.Namespace(apply=False, description=opt.get("--description"), nonstandard=opt.get("--nonstandard"))
+    try:
+        with contextlib.redirect_stderr(io.StringIO()):
+            J._standard_gate(a, opt.get("--type") or "Task", {})
+    except SystemExit:
+        return True
+    return False
+
+
 def repeats(case, writes):
     r = case["rejected"]
     for w in writes:
         if w.get("target") != r["target"]:
+            continue
+        if r.get("refused") == "standard":                 # pinned for its form, not its target: the row still gets a ticket
+            if standard_refuses(w["command"]):
+                return w["command"]
             continue
         typ = (re.search(r"--type (\"[^\"]+\"|\S+)", w["command"]) or [None, ""])[1].strip('"')
         if not r.get("type") or r["type"] == typ:
@@ -56,7 +85,7 @@ for p in cases:
     writes, _ = SELECTORS[cls](case["input"])
     hit = repeats(case, writes)
     check(f"{name}: not proposed again ({case['cause']})" + (f" — proposed: {hit}" if hit else ""), hit is None)
-check("the corpus holds at least the seed cases", len(cases) >= 2)
+check("the corpus holds at least the seed cases", len(cases) >= 3)
 
 print(f"\n{len(failures)} failure(s)" if failures else "\nall passed")
 sys.exit(1 if failures else 0)

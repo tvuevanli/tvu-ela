@@ -170,6 +170,8 @@ with tempfile.TemporaryDirectory() as t:
     check("a row with no ticket gets a drafted ticket, its question in the description; ela's own and his own never do",
           len(creates) == 2 and any("freeze-frame" in c and "--assignee acc-dev2" in c for c in creates)
           and any("Super Bowl" in c for c in creates) and not any("andyBot" in c or "tidy-up" in c for c in creates))
+    check("a row's ticket is a tracking ticket: the create says --nonstandard and why, so the standard does not refuse it",
+          all(shlex.split(c)[-2:] == ["--nonstandard", F.TRACKING] for c in creates))
     rx = re.compile(D.CLASSES["focus-moves"]["command"])
     check("every write is one line the class admits, and parses as a shell command",
           all(rx.match(c) and "\n" not in c and shlex.split(c)[:2] == ["ela", "jira"] for c in cmds))

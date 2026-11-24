@@ -1,0 +1,22 @@
+{
+ "class": "focus-moves",
+ "origin": "2026-11-24-focus-moves-mediahub-focus#2",
+ "cause": "a bare Task the description standard refuses; a row's ticket only tracks it",
+ "word": "his --nonstandard edit to lines 2 and 3 of the batch's review note, and the tracking-ticket rule he set, 2026-11-24",
+ "rejected": {
+  "target": "q:q-b30b1e",
+  "refused": "standard"
+ },
+ "input": {
+  "today": "2026-11-24",
+  "rows": {
+   "q:q-b30b1e": {
+    "id": "q:q-b30b1e",
+    "title": "DR failover",
+    "asks": [{"said": "a held last frame never fails over; add a Freeze Frame failover trigger after the POC?",
+              "first": {"where": "meetings/scrum-pm.md", "date": "2026-11-20"}}],
+    "carried": []
+   }
+  }
+ }
+}

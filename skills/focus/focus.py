@@ -52,6 +52,10 @@ FRESH_DAYS = 30                  # a High ticket untouched this long is not bein
 PARKED_STATES = ("Backlog", "On Hold", "Blocked")
 PRIORITIES = ("Highest", "High", "Medium", "Low", "Lowest")
 CLASS, SCOPE = "focus-moves", "mediahub-focus"
+# A row's ticket only tracks it: details are decided when he picks it up, and the row is done once the ticket exists
+# (the owner's rule, 2026-11-24). So the create is free-form by his word, and says so; a bare Task is otherwise
+# refused by the description standard (dry 2026-11-24-focus-moves-mediahub-focus).
+TRACKING = "tracking ticket for a focus-board row; details are decided when it is picked up"
 EX_USAGE, EX_NOTFOUND = 2, 3
 KEY = H.KEY
 OWN_SOURCES = ("ela/", "releases/agents/")   # a question raised on ela's own pages is ela's work: never a ticket
@@ -688,7 +692,8 @@ def moves(s, b, today, scrum=None):
                 + "".join(f"\nThread: {u}" for u in re.findall(r"https://[\w.-]+\.slack\.com/archives/\S+", " ".join(q0.get("sources") or []) + " " + (q0.get("raw") or ""))))
         who = roster_assignee(r.get("owner"))
         W.append({"target": r["id"], "command": f"ela jira create --project MH --type Task --summary {q(summary)} --description {q(desc)}"
-                  + (f" --assignee {who}" if who else ""), "why": "a board row with no ticket: Jira is where MH items are tracked"})
+                  + (f" --assignee {who}" if who else "") + f" --nonstandard {q(TRACKING)}",
+                  "why": "a board row with no ticket: Jira is where MH items are tracked"})
     if len(creates) > CREATES_MAX:
         left.append(f"{len(creates) - CREATES_MAX} more rows without a ticket wait for the next batch")
     try:                                                      # what the open batch already asks stays in it: one batch, added to
