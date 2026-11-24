@@ -18,9 +18,11 @@ L1: subcommands, --json, stdlib; the driver is browser.js (Playwright, node) bes
                        panel does not list but the session reaches through the gateway (the scheduler,
                        tvu-aioc-service, GET /base/version) are read on the same session and recorded beside it —
                        the account's lane by construction, no map entry to match. --shots D keeps version-panel.png,
-                       the panel as read. Each service-routing cookie the session holds after the panel (audiomixer*)
-                       is resolved to the rig it routes to through the product bot's environment file under <code>; a
-                       rig off the panel's lane, or a value the file does not name, is unproven: log in again. Exit 4 when the
+                       the panel as read. Every service-routing cookie the session holds after the panel is recorded
+                       and resolved, where the product bot's environment file under <code> names it, to the environment
+                       it routes to (elak knowledge/platform/gateway/environments.md); one off the panel's lane is
+                       unproven, never failed: log in again. --touches audiomixer,… names the services the test
+                       touches: an environment unknown for one of them is unproven too. Exit 4 when the
                        panel carries no ENV (the session cookies are stale or missing: `ela login tvu --force`), exit 3
                        when a service of the lane disagrees with the map. --key: the lanes carrying the ticket's fix
                        (`ela fixed-in`, ancestry) are read first; exit 6 when the panel's lane is not one of them —
@@ -200,14 +202,16 @@ def parse_panel(text, host="prod"):
     return {"sections": sections, "lanes": lanes, "proven": any(s["env"] for s in sections)}
 
 
-# Service routing. The version panel proves the bundle's lane, but the gateway routes each service by its own tag
-# cookie, so a session can sit on prod-3 while its Audio Mixer requests go to a daily rig: on 2026-11-24 the cookie
-# audiomixer5=am5 sent them to audiomixer_us_fri through /mqtt-gateway-test while the panel said MediaHubProd3, and
-# only a fresh login (audiomixer0=am0) put the chain on prod. Which cookie value is which rig is read first-hand from
-# the product bot's environment file under <code> (each environment's `cookie`, with its `group`), never a table of
-# ela's own; a routing cookie it does not resolve is an unknown environment, which is not proven.
+# Service routing (elak knowledge/platform/gateway/environments.md). Every SaaS service picks its environment per
+# account, and the browser carries one tag cookie per service from its login; the gateway routes each request by it. So
+# the version panel proves MediaHub's lane and nothing about the other services: on 2026-11-24 the panel said
+# MediaHubProd3 while audiomixer5=am5 sent every remap to audiomixer_us_fri through /mqtt-gateway-test, and only a new
+# login (audiomixer0=am0) put the chain on prod. Every cookie the session carries, bar the SID and analytics, is
+# recorded; which value is which environment is read first-hand from the product bot's environment file under <code>
+# (each environment's `cookie`, with its `group`), never a table of ela's own. Audio Mixer is the first service it
+# names; a cookie it does not name is reported raw with its environment unknown.
 ROUTING_TABLE = os.path.join("bot", "producer-bot", "config", "envs.json")
-ROUTING_RX = re.compile(r"^audiomixer", re.I)
+NOT_ROUTING_RX = re.compile(r"^(SID|_.*|hubspotutk|userLanguage)$")
 
 
 def routing_table(path=None):
@@ -257,33 +261,47 @@ def expected_env(lane):
     return None
 
 
-def routing(cookies, lane, host="prod", table=None):
-    """Each routing cookie with the environment it resolves to and a verdict: ok · elsewhere · unknown · recorded.
-    The table describes the .com gateway; on the QA deployment, or for a lane it names no environment for, a cookie is
-    recorded only. A cookie name the table does not route by (audiomixer02) is recorded, not held against the run."""
+def routing(cookies, lane, host="prod", table=None, touches=()):
+    """Each routing cookie with the environment it resolves to, and a verdict:
+    ok · elsewhere (resolved, off the lane: not proven) · unknown (not resolved: not proven when the test touches the
+    service, a cookie name starting with one of `touches`) · recorded (unknown for a service the test does not touch,
+    or nothing to compare: the QA deployment, whose gateway the file does not describe, or a lane it names nothing for)."""
     rows = []
     want = expected_env(lane) if host == "prod" else None
     for name, value in sorted((cookies or {}).items()):
-        if not ROUTING_RX.match(name):
+        if NOT_ROUTING_RX.match(name):
             continue
-        row = {"cookie": f"{name}={value}", "env": None, "group": None, "verdict": "recorded"}
+        touched = any(name.lower().startswith(t.lower()) for t in touches if t)
+        row = {"cookie": f"{name}={value}", "env": None, "group": None, "touched": touched, "verdict": "recorded"}
         if host != "prod":
-            row["why"] = "the table covers the .com gateway, not this deployment"
+            row["why"] = "the file describes the .com gateway, not this deployment"
         elif table is None:
-            row["verdict"], row["why"] = "unknown", "the routing table could not be read (" + ROUTING_TABLE + " under <code>)"
-        elif name not in table:
-            row["why"] = "not a routing cookie in the table"
-        elif value not in table[name]:
-            row["verdict"], row["why"] = "unknown", "a value the table does not name"
+            row["verdict"], row["why"] = "unknown", f"env unknown: the routing file could not be read ({ROUTING_TABLE} under <code>)"
+        elif name not in table or value not in table[name]:
+            row["verdict"] = "unknown"
+            row["why"] = "env unknown: " + ("a value the file does not name" if name in table else "a cookie the file does not name")
         else:
             row["env"], row["group"] = table[name][value]
             if want is None:
-                row["why"] = "the table names no environment for this lane"
+                row["why"] = "the file names no environment for this lane"
             else:
                 ok = (row["group"] == want[1]) if want[0] == "group" else (row["env"] == want[1])
                 row["verdict"] = "ok" if ok else "elsewhere"
+        if row["verdict"] == "unknown" and not touched:
+            row["verdict"] = "recorded"
         rows.append(row)
     return rows
+
+
+def unproven_routing(rows, lane, relogin):
+    """The verdict a routing gap gives the run, or None: a mismatch is not proven, never failed — log in again."""
+    off = [r for r in rows if r["verdict"] in ("elsewhere", "unknown")]
+    if not off:
+        return None
+    return "unproven: service routing — " + "; ".join(
+        f"{r['cookie']} routes to {r['env']} ({r['group']}), not {lane}" if r["verdict"] == "elsewhere"
+        else f"{r['cookie']}, a service the test touches: {r['why']}" for r in off) + f" — log in again: {relogin}" + \
+        " (a media node also needs a new graph)"
 
 
 def compare(parsed, lane, env_file, host="prod"):
@@ -444,13 +462,11 @@ def cmd_env(a):
             for slug, v in res["services"].items():
                 res["compare"].append({"slug": slug, "panel": v.get("version"), "panel_lane": None, "lane": lane, "map": None,
                                        "verdict": "recorded" if v.get("version") else "unreachable", "via": f"gateway {v.get('path') or ''}".strip()})
-            res["routing"] = routing(d.get("routing"), lane, host, routing_table() if host == "prod" else None)
-            off = [r for r in res["routing"] if r["verdict"] in ("elsewhere", "unknown")]
-            if off and res["verdict"] == "proven":
-                relogin = "ela browser login --host prod --as test" if a.as_ else "ela login tvu --force"
-                res["verdict"] = "unproven: service routing — " + "; ".join(
-                    f"{r['cookie']} routes to {r['env']} ({r['group']}), not {lane}" if r["verdict"] == "elsewhere"
-                    else f"{r['cookie']} routes to an unknown environment ({r['why']})" for r in off) + f" — log in again: {relogin}"
+            touches = [t.strip() for t in (a.touches or "").split(",") if t.strip()]
+            res["routing"] = routing(d.get("routing"), lane, host, routing_table() if host == "prod" else None, touches)
+            gap = unproven_routing(res["routing"], lane, "ela browser login --host prod --as test" if a.as_ else "ela login tvu --force")
+            if gap and res["verdict"] == "proven":
+                res["verdict"] = gap
             if a.key and res["verdict"] == "proven":
                 res["fix_verdict"] = fix_verdict(lane, lanes, gaps)
                 if res["fix_verdict"]:
@@ -469,8 +485,13 @@ def cmd_env(a):
         print()
         for c in res["compare"]:
             print(f"  {c['slug']:<26} panel {c['panel']:<24} map[{c['lane']}] {str(c['map']):<28} {c['verdict']}")
-        for r in res.get("routing") or []:
-            print(f"  routing {r['cookie']:<24} {(r['env'] or '-'):<22} {r['verdict']}" + (f"  ({r['why']})" if r.get("why") else ""))
+        rows = res.get("routing") or []
+        for r in rows:
+            if r["env"] or r["verdict"] != "recorded" or r["touched"]:
+                print(f"  routing {r['cookie']:<28} {(r['env'] or '-'):<14} {r['verdict']}" + (f"  ({r['why']})" if r.get("why") else ""))
+        rest = [r["cookie"] for r in rows if not (r["env"] or r["verdict"] != "recorded" or r["touched"])]
+        if rest:
+            print(f"  routing, env unknown, not touched: {' '.join(rest)}")
         if res["clock"]:
             print(f"clock: {res['clock'].get('tz')} {res['clock'].get('now')}")
         if a.key:
@@ -529,7 +550,7 @@ def main():
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("setup", help="install playwright into the runtime directory (no root) and record the product urls"); p.add_argument("--url"); p.add_argument("--url-qa")
     p = sub.add_parser("login", help="sign a test account in: the QA deployment's, or prod's second account (--host prod --as test)"); p.add_argument("--host", choices=("qa", "prod"), default="qa"); p.add_argument("--json", action="store_true"); p.add_argument("--as", dest="as_", choices=sorted(ACCOUNTS), help="prod only: act as a second account (TVU_TEST_ACCOUNT / TVU_TEST_PASSWORD), its own session")
-    p = sub.add_parser("env", help="the version panel, compared with the release map: the environment proof"); p.add_argument("--lane", help="prod-3, prod-8 … (default: the lane the panel names)"); p.add_argument("--key", help="a ticket: its fix must be on the panel's lane (ela fixed-in), else exit 6"); p.add_argument("--shots", help="directory for version-panel.png, the panel as read"); p.add_argument("--json", action="store_true"); p.add_argument("--host", choices=("prod", "qa"), help="qa: the QA deployment with ela's own session (default from the lane prefix)"); p.add_argument("--as", dest="as_", choices=sorted(ACCOUNTS), help="prod only: act as a second account (TVU_TEST_ACCOUNT / TVU_TEST_PASSWORD), its own session")
+    p = sub.add_parser("env", help="the version panel, compared with the release map: the environment proof"); p.add_argument("--lane", help="prod-3, prod-8 … (default: the lane the panel names)"); p.add_argument("--key", help="a ticket: its fix must be on the panel's lane (ela fixed-in), else exit 6"); p.add_argument("--shots", help="directory for version-panel.png, the panel as read"); p.add_argument("--touches", help="the services the test touches, as cookie-name prefixes (audiomixer,producer): an unresolved environment for one of them is unproven"); p.add_argument("--json", action="store_true"); p.add_argument("--host", choices=("prod", "qa"), help="qa: the QA deployment with ela's own session (default from the lane prefix)"); p.add_argument("--as", dest="as_", choices=sorted(ACCOUNTS), help="prod only: act as a second account (TVU_TEST_ACCOUNT / TVU_TEST_PASSWORD), its own session")
     p = sub.add_parser("shot", help="screenshot the product"); p.add_argument("--out", required=True); p.add_argument("--full", action="store_true"); p.add_argument("--host", choices=("prod", "qa")); p.add_argument("--json", action="store_true"); p.add_argument("--as", dest="as_", choices=sorted(ACCOUNTS), help="prod only: act as a second account (TVU_TEST_ACCOUNT / TVU_TEST_PASSWORD), its own session")
     p = sub.add_parser("pdf", help="print a local html page to PDF"); p.add_argument("html"); p.add_argument("--out", required=True); p.add_argument("--json", action="store_true")
     p = sub.add_parser("run", help="run one case script and print its result"); p.add_argument("script"); p.add_argument("--shots"); p.add_argument("--phase", help="create | observe: one script, two runs over --state"); p.add_argument("--state", help="json file the phases share"); p.add_argument("--timeout", type=int, default=240, help="seconds the run may take (default 240)"); p.add_argument("--host", choices=("prod", "qa")); p.add_argument("--json", action="store_true"); p.add_argument("--as", dest="as_", choices=sorted(ACCOUNTS), help="prod only: act as a second account (TVU_TEST_ACCOUNT / TVU_TEST_PASSWORD), its own session")

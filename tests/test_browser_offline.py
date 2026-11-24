@@ -62,15 +62,22 @@ t = B.routing_table(f.name); os.unlink(f.name)
 check("the table resolves a rig by name and a daily by its environment",
       t["audiomixer0"]["am0"] == ("com/prod1", "production") and t["audiomixer5"]["am5"] == ("daily-fri", "daily"))
 check("no table file is None", B.routing_table("/nonexistent/envs.json") is None)
-v = lambda ck, lane, host="prod", table=t: [r["verdict"] for r in B.routing(ck, lane, host, table)]
-check("a prod rig on a prod lane is ok; an unrouted audiomixer cookie is recorded",
-      v({"audiomixer0": "am0", "audiomixer02": "a02central1", "SID": "x"}, "prod-3") == ["ok", "recorded"])
-check("am5 on a prod lane routes elsewhere (2026-11-24)", v({"audiomixer5": "am5"}, "prod-3") == ["elsewhere"])
-check("am5 on daily-fri is its own rig", v({"audiomixer5": "am5"}, "daily-fri") == ["ok"])
-check("a value the table does not name is unknown", v({"audiomixer0": "am9"}, "prod-3") == ["unknown"])
-check("no readable table makes a routing cookie unknown", v({"audiomixer0": "am0"}, "prod-3", table=None) == ["unknown"])
-check("the QA deployment records only", v({"audiomixer1": "am1"}, "qa-cn2", "qa") == ["recorded"])
-check("a lane the table names nothing for records only", v({"audiomixer5": "am5"}, "daily-test2") == ["recorded"])
+v = lambda ck, lane, host="prod", table=t, touches=(): [r["verdict"] for r in B.routing(ck, lane, host, table, touches)]
+check("a prod rig on a prod lane is ok; the SID and analytics are not routing; an unnamed cookie is recorded",
+      v({"audiomixer0": "am0", "audiomixer02": "a02central1", "SID": "x", "_ga": "1", "__hstc": "2"}, "prod-3") == ["ok", "recorded"])
+check("every other service's cookie is recorded raw with its env unknown",
+      [(r["cookie"], r["env"], r["why"][:11]) for r in B.routing({"mediahub13": "13mhmxprod3"}, "prod-3", "prod", t)] == [("mediahub13=13mhmxprod3", None, "env unknown")])
+check("am5 on a prod lane routes elsewhere (2026-11-24), touched or not", v({"audiomixer5": "am5"}, "prod-3") == ["elsewhere"])
+check("am5 on daily-fri is its own environment", v({"audiomixer5": "am5"}, "daily-fri") == ["ok"])
+check("env unknown for a service the test touches is unknown; untouched it is recorded",
+      v({"audiomixer0": "am9", "mediahub13": "x"}, "prod-3", touches=("audiomixer",)) == ["unknown", "recorded"])
+check("no readable file: a touched service is unknown", v({"audiomixer0": "am0"}, "prod-3", table=None, touches=("audiomixer",)) == ["unknown"])
+check("the QA deployment records only", v({"audiomixer1": "am1"}, "qa-cn2", "qa", touches=("audiomixer",)) == ["recorded"])
+check("a lane the file names nothing for records only", v({"audiomixer5": "am5"}, "daily-test2") == ["recorded"])
+g = B.unproven_routing(B.routing({"audiomixer5": "am5"}, "prod-3", "prod", t), "prod-3", "ela login tvu --force")
+check("a mismatch is unproven, naming the cookie, its environment and the new login",
+      g.startswith("unproven") and "audiomixer5=am5 routes to daily-fri" in g and "ela login tvu --force" in g)
+check("nothing off: no routing verdict", B.unproven_routing(B.routing({"audiomixer0": "am0"}, "prod-3", "prod", t), "prod-3", "x") is None)
 
 print("browser: all offline checks passed" if not failures else f"browser: {len(failures)} check(s) failed")
 sys.exit(1 if failures else 0)

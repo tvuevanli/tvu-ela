@@ -118,10 +118,11 @@ async function gatewayVersions(p, gateway) {
       const services = gateway ? await gatewayVersions(p, gateway) : {};
       // initConfig is the backend's runtime config as this account receives it (the MediaHub backend's dynamicMap):
       // handed to the fact store, which keeps keys and non-secret values only, under the lane the panel proves
-      // The gateway routes each service by its own tag cookie (audiomixerN=amN picks an Audio Mixer rig), which the
-      // page may rewrite while it loads: the jar as it stands after the panel is what the next request is routed by.
+      // The gateway routes each service by its own tag cookie (audiomixerN=amN picks an Audio Mixer environment), which
+      // the page may rewrite while it loads: the jar as it stands after the panel is what the next request is routed by.
+      // Every cookie but the SID goes back; browser.py drops analytics and resolves the rest.
       const routing = {};
-      for (const c of await ctx.cookies()) if (/^audiomixer/i.test(c.name)) routing[c.name] = c.value;
+      for (const c of await ctx.cookies()) if (c.name !== "SID") routing[c.name] = c.value;
       out({ url, panel: text, clock: await clockOf(p), shot: shot || null, gateway_seen: !!gateway, services, initConfig, routing });
     } finally { await b.close(); }
   } else if (cmd === "shot") {
