@@ -1,0 +1,72 @@
+{
+ "class": "link-named",
+ "origin": "2026-11-24-link-named-MH-3997#1",
+ "cause": "standard name, not a ticket",
+ "word": "his B on batch 2026-11-24-link-named-MH-3997, its causes confirmed 2026-11-24",
+ "rejected": {
+  "target": "SCTE-35",
+  "type": "contains"
+ },
+ "input": {
+  "parent": {
+   "key": "MH-3997",
+   "fields": {
+    "summary": "Output Profile: Encoding and Mux sections replace the Encoding Profile",
+    "status": {
+     "name": "Backlog"
+    },
+    "assignee": {
+     "displayName": "the owner"
+    },
+    "issuelinks": [],
+    "comment": {
+     "comments": []
+    },
+    "description": {
+     "type": "doc",
+     "content": [
+      {
+       "type": "paragraph",
+       "content": [
+        {
+         "type": "text",
+         "text": "Mux keeps carrying "
+        },
+        {
+         "type": "inlineCard",
+         "attrs": {
+          "url": "https://example.atlassian.net/browse/SCTE-35#icft=SCTE-35"
+         }
+        },
+        {
+         "type": "text",
+         "text": " markers as today."
+        }
+       ]
+      },
+      {
+       "type": "paragraph",
+       "content": [
+        {
+         "type": "text",
+         "text": "Design: https://www.figma.com/design/AbC123xyz/MH-2026?node-id=12-345"
+        }
+       ]
+      }
+     ]
+    }
+   }
+  },
+  "children": {
+   "SCTE-35": {
+    "key": "SCTE-35",
+    "fields": {
+     "summary": "Remove Landing Page in SCTE App",
+     "status": {
+      "name": "Done"
+     }
+    }
+   }
+  }
+ }
+}
