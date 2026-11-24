@@ -222,7 +222,7 @@
                                    mention_post_as is ela or owner (ADR 0022; off: you paste it); it is the one
                                    verb that writes to Slack; supersede marks the Slack actions drafted for a
                                    closed mention's thread
-  ela improve digest|add|list|answer|done|section|pending
+  ela improve digest|add|list|answer|done|section|pending|corpus
                                    what the assistant as a whole should do better (ADR 0023): digest --date D the
                                    day's signals (mediahub-bot's runs, ela's jobs and follow-ups, failed units, his
                                    feedback, token spend by kind of session and files re-read); add FILE --date D at most three proposed items, checked; an item whose

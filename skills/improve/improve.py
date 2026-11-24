@@ -10,7 +10,9 @@ had to follow up twice, a vault line that needed a second round, a timer that fa
                                 vault lines, mentions; follow-ups in one thread; failed and stuck jobs; failed units),
                                 his feedback, the improvement items still open, and the day's token spend by kind
                                 of session (the transcripts modified that day: turns, fresh input, cache read, a
-                                cost-weighted equivalent, the peak context of a turn, files one session read over 3 times)
+                                cost-weighted equivalent, the peak context of a turn, files one session read over 3 times),
+                                and ela's own misses from the dry record (cancelled, edited, corrected, reverted, undone)
+                                grouped per class by cause
   add FILE --date D             the items an evening session proposed (a JSON list), checked and stored; an item that
                                 names `same_as` an open one is counted as seen again, not stored twice
   list [--open] [--json]        the store
@@ -18,8 +20,11 @@ had to follow up twice, a vault line that needed a second round, a timer that fa
   done ID --what TEXT           an item carried out, with what now behaves differently
   section --date D              the reader page's `## Improve` lines for that day
   pending                       one line for the desk session: the items ela should carry out next
+  corpus [--json]               the wrong proposals admitted to a class corpus on his word (an item with `corpus` he
+                                answered A; his did.md `wrong: <why>`): the input of tests/corpus/<class>/
 
-An item: {id, area, problem, evidence, fix, who, first, seen, state}. `area` is one of AREAS. `who` is `owner` only
+An item: {id, area, problem, evidence, fix, who, first, seen, state, corpus?}. `corpus` {class, target, command, cause,
+batch} pins the one wrong proposal a dry miss made; such an item waits for his letter, and A admits the case. `area` is one of AREAS. `who` is `owner` only
 when carrying the fix out would send or post something, or write to Jira (ADR 0024): it takes his word as an ask on
 today.md. Everything else is `ela`, a change to how mediahub-bot or the ela bot answers included: ela builds it under
 the target repository's rules and reports the outcome. States: open → go (his A, or `ela` items from the start) → done; or dropped.
@@ -311,6 +316,32 @@ def tokens(day, root=None, projects=None):
     return {"weighted_total": round(sum(k["weighted"] for k in kinds.values())), "kinds": rows}
 
 
+MISSES = ("cancelled", "edited", "corrected", "reverted")    # a dry-record verdict that says a proposal or a write was wrong
+MISS_WINDOW = 14                                           # days a cause is counted over, so a recurring one shows
+
+
+def dry_misses(reports, day):
+    """ela's own proposals and writes that were wrong (dry/record.jsonl, acts.jsonl): the day's misses grouped per class
+    by cause, each group with its rows and how often that class and cause came in the last MISS_WINDOW days. A cause is
+    the reason he or a disputing reply gave (`note`, a struck line's `how`); a miss with none is grouped as `no cause
+    given` and its corpus case waits for one (decision 2026-11-24, amendment on learning from ela's own writes). → {groups,
+    undone}."""
+    rows = jsonl(os.path.join(reports, "ela", "dry", "record.jsonl"))
+    start = (datetime.date.fromisoformat(day) - datetime.timedelta(days=MISS_WINDOW - 1)).isoformat()
+    def cause(r):
+        return clip(r.get("note") or (r.get("how") if r.get("how") not in (None, "correction", "revert") else None) or "no cause given", 200)
+    window = [r for r in rows if r.get("verdict") in MISSES and start <= local_day(r.get("at")) <= day]
+    groups = {}
+    for r in window:
+        g = groups.setdefault((r.get("class") or "?", cause(r)), {"class": r.get("class") or "?", "cause": cause(r), "today": [], "in_window": 0})
+        g["in_window"] += 1
+        if local_day(r.get("at")) == day:
+            g["today"].append({k: r.get(k) for k in ("verdict", "target", "command", "batch", "act", "source", "how") if r.get(k)})
+    out = [g for g in groups.values() if g["today"]]
+    undone = [r["undone"] for r in jsonl(os.path.join(reports, "ela", "acts.jsonl")) if r.get("undone") and local_day(r.get("at")) == day]
+    return {"groups": sorted(out, key=lambda g: (-g["in_window"], g["class"])), "undone": undone}
+
+
 def digest(day, reports=None, runtime=None, data=None, now=None, transcripts=None, projects=None):
     reports, runtime, data = reports or reports_root(), runtime or runtime_root(), data or mhbot_data()
     return {"date": day,
@@ -318,6 +349,7 @@ def digest(day, reports=None, runtime=None, data=None, now=None, transcripts=Non
             "ela": ela_jobs(reports, day, now),
             "failed_units": failed_units(runtime, day),
             "feedback": feedback(reports, day),
+            "dry": dry_misses(reports, day),
             "open_items": [{k: v for k, v in r.items() if k in ("id", "area", "problem", "fix", "who", "state", "seen")}
                            for r in load(reports).values() if r["state"] in ("open", "go")],
             "tokens": tokens(day, transcripts, projects)}
@@ -367,6 +399,9 @@ def check(items, recs):
             bad.append(f"item {k}: area {it['area']} is not one of {', '.join(AREAS)}")
         if it.get("who") and it["who"] not in WHO:
             bad.append(f"item {k}: who {it['who']} is not ela or owner")
+        c = it.get("corpus")
+        if c is not None and (not isinstance(c, dict) or not all(c.get(f) for f in ("class", "target", "cause"))):
+            bad.append(f"item {k}: corpus needs class, target and cause (the one wrong proposal it pins, and why)")
     return bad
 
 
@@ -394,6 +429,11 @@ def add(reports, items, day):
         recs[i] = {"id": i, "area": it["area"], "problem": clip(it["problem"]), "evidence": [clip(e, 300) for e in it["evidence"]],
                    "fix": clip(it["fix"]), "who": it["who"], "first": day, "seen": [day],
                    "state": "go" if it["who"] == "ela" else "open"}
+        if it.get("corpus"):                               # a case enters the corpus only on his word: the item waits for it
+            recs[i]["corpus"] = {k: clip(str(it["corpus"][k]), 300) for k in ("class", "target", "command", "cause", "batch")
+                                 if it["corpus"].get(k)}
+            recs[i]["corpus"]["admitted"] = False
+            recs[i]["who"], recs[i]["state"] = "owner", "open"
         ids.append(i)
     save(reports, recs)
     return ids
@@ -410,6 +450,8 @@ def answer(reports, ref, letter, today=None):
     if r["state"] not in ("open",):
         raise ValueError(f"{ref} is {r['state']}, not waiting for a word")
     r["state"], r["answer"] = ("go" if letter == "A" else "dropped"), {"letter": letter, "at": day}
+    if r.get("corpus") and letter == "A":
+        r["corpus"]["admitted"] = day
     save(reports, recs)
     return r
 
@@ -454,6 +496,17 @@ def asks(reports, today=None):
     return out
 
 
+def corpus(reports):
+    """The wrong proposals admitted to a class's corpus on his word: improve items he answered A, and his did.md
+    `wrong: <why>` rows in the dry record. The corpus test (tests/corpus/<class>/) is built from this. → [case]."""
+    out = [dict({k: v for k, v in r["corpus"].items() if k != "admitted"}, admitted=r["corpus"]["admitted"], source=f"improve:{r['id']}")
+           for r in load(reports).values() if (r.get("corpus") or {}).get("admitted")]
+    out += [{"class": r.get("class"), "target": r.get("target"), "cause": r.get("note"), "act": r.get("act"),
+             "admitted": local_day(r.get("at")), "source": "did.md"}
+            for r in jsonl(os.path.join(reports, "ela", "dry", "record.jsonl")) if r.get("review") and r.get("corpus") == "admitted"]
+    return sorted(out, key=lambda c: (c.get("class") or "", str(c.get("admitted"))))
+
+
 def pending(reports):
     rows = sorted((r for r in load(reports).values() if r["state"] == "go"), key=lambda r: (-len(r["seen"]), r["first"]))
     if not rows:
@@ -477,6 +530,7 @@ def main(argv=None):
     p = sub.add_parser("done", help="an item carried out"); p.add_argument("id"); p.add_argument("--what", required=True)
     p = sub.add_parser("section", help="the reader page's Improve lines"); p.add_argument("--date")
     sub.add_parser("pending", help="one line for the desk session")
+    p = sub.add_parser("corpus", help="the cases admitted to a class corpus on his word"); p.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)
     reports = a.reports or reports_root()
     day = getattr(a, "date", None) or datetime.date.today().isoformat()
@@ -493,6 +547,9 @@ def main(argv=None):
             print(f"{day}: mediahub-bot {len(d['mediahub_bot'])} tasks · ela asks {len(e['asks'])}, follow-up threads "
                   f"{len(e['follow_ups'])}, failed jobs {len(e['failed'])}, stuck {len(e['stuck'])} · failed units "
                   f"{len(d['failed_units'])} · feedback {len(d['feedback'])} · open items {len(d['open_items'])}")
+            for g in d["dry"]["groups"]:
+                print(f"dry miss: {g['class']} — {g['cause']}: {len(g['today'])} today, {g['in_window']} in {MISS_WINDOW} days · "
+                      + ", ".join(x.get("target") or "?" for x in g["today"][:5]))
             t = d["tokens"]
             print(f"tokens: {t['weighted_total']:,} weighted" + "".join(
                 f"\n  {k['share']:>5.0%}  {k['kind']}: {k['sessions']} sessions, {k['turns']} turns, peak {k['peak_context']:,}"
@@ -533,6 +590,15 @@ def main(argv=None):
         print(f"{r['id']}: done")
     elif a.cmd == "section":
         print("\n".join(section(reports, day)))
+    elif a.cmd == "corpus":
+        rows = corpus(reports)
+        if a.json:
+            print(json.dumps(rows, ensure_ascii=False, indent=1))
+        else:
+            for c in rows:
+                print(f"{c['class']}  {c['target']}  admitted {c['admitted']}  ({c['source']})\n    cause: {c.get('cause')}")
+            if not rows:
+                print("nothing")
     elif a.cmd == "pending":
         line = pending(reports)
         if line:
