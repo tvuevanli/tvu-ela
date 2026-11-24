@@ -26,8 +26,9 @@
   ela kb search|read|tree …        Outline, the knowledge base (its writes are listed below)
   ela tvukb image|version|find|card|… the media team's tvu-kb, run in its checkout, headed tvu-kb@<sha>:
                                    a media image tag or program version → the build's module commits
-  ela api <verb> …                 Apifox API definitions, read-only: projects|export|tags|list|
-                                   read|schema · ela api read ur "GET /v1beta1/graphs/{graphId}"
+  ela api <verb> …                 API definitions, read-only — Apifox projects and the public doc
+                                   (public): projects|export|tags|list|read|schema ·
+                                   ela api read ur "GET /v1beta1/graphs/{graphId}"
   ela figma <verb> …               a Figma design first-hand: me|file|node|comments|image
   ela sentry <verb> …              crashes and errors, read-only: projects|issues|issue|events
  graphs & streams
@@ -218,8 +219,6 @@
   ela vault sync [--dry-run]       regenerate the owner's Obsidian vault: day pages, readings, verifications,
                                    decisions and plans; a note over its reading budget carries a warning;
                                    a note you delete is done and stays deleted (ela vault restore PATH)
-  ela vault head [--lines F] [--apply] [--json]   today.md's head: the inputs the last sync saw, the day's judgment,
-                                   the rules; --lines judges a session's answer line by line, --apply keeps what passes
   ela vault setup                  apply the vault's Obsidian settings from ela's versioned copy, then restart Obsidian
   ela vault guidance [--json]      the owner's `ela:` lines and ticked boxes anywhere in the vault, each handled once
   ela vault answer N A|B|C [--apply]  one letter on today's ask N from anywhere (Slack, a session), as a tick on
@@ -395,6 +394,9 @@ def by_shape(token):
         return "object", ["get", token]
     if "app.apifox.com/project/" in token:
         return "apifox", ["list", token]
+    m = re.search(r"document\.tvunetworks\.com/(api-\d+)", token)
+    if m:
+        return "apifox", ["read", token, m.group(1)]   # the public API doc: that endpoint
     if "docs.google.com/spreadsheets/" in token:
         return "gdoc", ["sheet", token]
     if "docs.google.com/document/" in token or "drive.google.com/" in token:

@@ -10,6 +10,8 @@
                                     "METHOD path", or a summary fragment (unique match required)
   schema  <project> <Name>          one component schema, $refs resolved two levels deep
 
+<project> may also be the public API doc customers read (`public`, apis.yaml `docs:`, or its URL): pubdoc.py.
+
 <project> is a name from apis.yaml (ur, …) or a numeric Apifox project id; an app.apifox.com/project/<id> URL works too.
 Two read paths, same output. First the Open API export (OpenAPI 3.1), which needs maintainer rights on the project;
 on 403 the member read: the web client's API (/api/v1 api-details, api-tree-list, data-schemas) with the same token,
@@ -20,6 +22,8 @@ Apifox's edge drops requests without a User-Agent, so one is always sent.
 Exit codes: 0 ok · 2 usage · 3 not found · 4 auth · 5 remote error.
 """
 import argparse, json, os, re, signal, sys, time, urllib.error, urllib.request
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import pubdoc
 
 EX_USAGE, EX_NOTFOUND, EX_AUTH, EX_REMOTE = 2, 3, 4, 5
 SITE = os.path.expanduser("~/.claude/ela/site.json")
@@ -112,6 +116,38 @@ def known_teams():
         if m and section == "teams":
             out.append({"id": m.group(1), "note": (m.group(2) or "").strip("'\"")})
     return out
+
+
+def known_docs():
+    """<elak>/map/apis.yaml `docs:` → {name: {apidog, note}}: published doc sites, entries `  name: {apidog: N, note: …}`."""
+    path = os.path.join(site().get("map", ""), "apis.yaml")
+    try:
+        text = open(path).read()
+    except OSError:
+        return {}
+    out, section = {}, None
+    for line in text.splitlines():
+        line = re.sub(r"\s+#.*$", "", line.rstrip())
+        if re.match(r"^[a-z_]+:\s*$", line):
+            section = line.strip(":"); continue
+        m = re.match(r"^  ([A-Za-z0-9_-]+):\s*\{\s*apidog:\s*(\d+)\s*(?:,\s*note:\s*(.+?)\s*)?\}$", line)
+        if m and section == "docs":
+            out[m.group(1)] = {"apidog": m.group(2), "note": (m.group(3) or "").strip("'\"")}
+    return out
+
+
+def document(ref, env_file, hydrate=lambda e: False, refresh=False):
+    """(dict, cache, fetched_now, project label) for an Apifox project or the public doc; the commands below read
+    either the same way. For the public doc `hydrate(entry)` picks the endpoints read in full (pubdoc.load)."""
+    if pubdoc.is_public(ref, known_docs()):
+        d = pubdoc.load(to_openapi, hydrate=hydrate, refresh=refresh)
+        return d, pubdoc.CACHE, d.get("x-ela-fetched"), "public"
+    pid = project_id(ref)
+    d, cp, fresh = load(pid, env_file, refresh=refresh)
+    return d, cp, fresh, pid
+
+
+EVERY = lambda e: True
 
 
 class Refused(Exception):
@@ -405,6 +441,10 @@ def cmd_projects(a):
         cp = os.path.join(CACHE_DIR, f"{p['id']}.json")
         cached = time.strftime("%Y-%m-%d %H:%M", time.localtime(os.path.getmtime(cp))) if os.path.isfile(cp) else ""
         rows.append({"name": name, "id": p["id"], "note": p["note"], "cached": cached})
+    for name, p in known_docs().items():
+        cp = os.path.join(pubdoc.CACHE, "catalog.json")
+        cached = time.strftime("%Y-%m-%d %H:%M", time.localtime(os.path.getmtime(cp))) if os.path.isfile(cp) else ""
+        rows.append({"name": name, "id": f"apidog {p['apidog']}", "note": p["note"], "cached": cached})
     if a.json:
         print(json.dumps(rows, ensure_ascii=False)); return
     if not rows:
@@ -414,8 +454,7 @@ def cmd_projects(a):
 
 
 def cmd_export(a):
-    pid = project_id(a.project)
-    d, cp, fresh = load(pid, a.env_file, refresh=a.refresh)
+    d, cp, fresh, pid = document(a.project, a.env_file, EVERY, refresh=a.refresh)
     n = sum(1 for _ in ops(d))
     if a.json:
         print(json.dumps({"project": pid, "title": d.get("info", {}).get("title"), "operations": n, "tags": len(d.get("tags") or []), "cache": cp,
@@ -425,7 +464,7 @@ def cmd_export(a):
 
 
 def cmd_tags(a):
-    d, _, _ = load(project_id(a.project), a.env_file)
+    d = document(a.project, a.env_file)[0]
     counts = {}
     for _, _, op in ops(d):
         for t in op.get("tags") or ["(untagged)"]:
@@ -437,7 +476,7 @@ def cmd_tags(a):
 
 
 def cmd_list(a):
-    d, _, _ = load(project_id(a.project), a.env_file)
+    d = document(a.project, a.env_file)[0]
     q = (a.grep or "").lower()
     rows = []
     for m, path, op in ops(d):
@@ -458,6 +497,11 @@ def cmd_list(a):
 
 def find_op(d, ref):
     ref_l = ref.strip().lower()
+    slug = re.search(r"(api-\d+)$", ref_l)
+    if slug:   # a public-doc page, api-<id> or its URL
+        hit = [(meth, path, op) for meth, path, op in ops(d) if op.get("x-ela-slug") == slug.group(1)]
+        if hit:
+            return hit
     m = re.match(r"^(get|post|put|patch|delete|head|options)\s+(\S+)$", ref_l)
     hits = []
     for meth, path, op in ops(d):
@@ -471,8 +515,14 @@ def find_op(d, ref):
 
 
 def cmd_read(a):
-    d, _, _ = load(project_id(a.project), a.env_file)
+    d = document(a.project, a.env_file)[0]
     hits = find_op(d, a.ref)
+    if hits and (len(hits) == 1 or a.all) and not all(op.get("x-ela-detail", True) for _, _, op in hits):
+        # the public doc lists from its catalog; the matched endpoints are now read in full
+        slugs = {op.get("x-ela-slug") for _, _, op in hits}
+        d = document(a.project, a.env_file, lambda e: f"api-{e['id']}" in slugs)[0]
+        keys = {(m, p) for m, p, _ in hits}
+        hits = [(m, p, op) for m, p, op in ops(d) if (m, p) in keys]
     if not hits:
         print(f"no operation matches {a.ref!r}", file=sys.stderr); sys.exit(EX_NOTFOUND)
     if len(hits) > 1 and not a.all:
@@ -495,11 +545,13 @@ def cmd_read(a):
                 sch = deref(d, media.get("schema") or {}); break
             responses[code] = {"description": (resp.get("description") or "")[:100], "schema": sch}
         rec = {"method": meth, "path": path, "summary": op.get("summary") or "", "operationId": op.get("operationId") or "",
+               **({"doc": f"{pubdoc.BASE}/{op['x-ela-slug']}"} if op.get("x-ela-slug") else {}),
                "tags": op.get("tags") or [], "description": (op.get("description") or "")[:600], "parameters": params,
                "requestBody": body_schema, "responses": responses}
         out.append(rec)
         if not a.json:
-            print(f"# {meth} {path}\n{rec['summary']}  ·  {'/'.join(rec['tags'])}" + (f"\n{rec['description']}" if rec['description'] else ""))
+            print(f"# {meth} {path}\n{rec['summary']}  ·  {'/'.join(rec['tags'])}" + (f"  ·  {rec['doc']}" if rec.get("doc") else "")
+                  + (f"\n{rec['description']}" if rec['description'] else ""))
             if params:
                 print("parameters:")
                 for p in params:
@@ -516,7 +568,7 @@ def cmd_read(a):
 
 
 def cmd_schema(a):
-    d, _, _ = load(project_id(a.project), a.env_file)
+    d = document(a.project, a.env_file, EVERY)[0]
     schemas = (d.get("components") or {}).get("schemas") or {}
     name = a.name if a.name in schemas else next((k for k in schemas if k.lower() == a.name.lower()), None)
     if not name:

@@ -1,6 +1,6 @@
 ---
 name: apifox
-description: The teams' API definitions, read from Apifox. Use for "这个接口的参数", "J2N 有没有 xxx 的 API", "UR 的 graph 接口返回什么", an app.apifox.com link, or when probe/breakdown needs a contract rather than a guess.
+description: API contracts — the teams' Apifox projects and the public doc. Use for "这个接口的参数", "公开文档怎么写的", an app.apifox.com or document.tvunetworks.com link, or when probe/breakdown needs a contract.
 user-invocable: true
 ---
 
@@ -20,7 +20,25 @@ $A list ur --tag Graphs             # METHOD path · summary · tag
 $A list ur --grep nodeOrigins       # anything whose path/summary/operationId/description carries the word
 $A read ur "GET /v1beta1/graphs/{graphId}"   # one operation: parameters, request body, responses, $refs resolved
 $A schema ur GraphSpec              # one component schema
+$A tags public                      # the public API doc, same verbs (name from apis.yaml `docs:`)
+$A read public createSourceObject   # one public endpoint, with its doc page link
 ```
+
+## The public API doc
+The documentation customers code against: an Apidog doc site (project 483063) behind userservice SSO,
+named `public` in `apis.yaml` `docs:`; its URL works unnamed, and an `api-<id>` page URL alone opens that
+endpoint (`ela <url>`). `pubdoc.py` reads it into the same shape, so `tags`, `list`, `read`, `schema` print
+as they do for Apifox, with the folder path as tag.
+
+- **Access is the test account `li`** — session.json `tvu-com-test`, from `ela login tvu --as test`. Never the
+  owner's own sign-in (`el`) or an admin SID; nothing here logs in, because the token endpoint is itself a
+  documented one. A refused or missing session exits 4 with that command. The `el` SID cached for the QA
+  host (`TVUTEST_SID`) gets a 302 on the doc site.
+- **Lazy.** The site has no export ela can read with the stdlib: `tags`/`list` read only the catalog page;
+  `read` fetches the endpoints it prints; `export` and `schema` fetch the whole doc, six at a time
+  (the MediaHub API folder, ~90 pages, takes about a minute and a half cold). Catalog and pages are cached
+  a day under `~/.claude/ela/apifox/public/`.
+- **Only the doc host**, redirects never followed; nothing the docs describe is ever called.
 
 ## Two read paths, one output
 1. **Export** — the Open API's `export-openapi`, OpenAPI 3.1 with folders as tags. It needs maintainer
