@@ -179,7 +179,7 @@ for _c, _why in NEVER.items():
     CLASSES[_c] = {"says": _why, "atom": None, "noun": ("write", "writes"), "ladder": (3,), "base": 3, "rule": "tier 3 by rule",
                    "command": None, "case": "decision 2026-10-29, tier 3", "never": _why}
 
-VERDICTS = ("applied", "edited", "cancelled", "expired", "corrected", "reverted")
+VERDICTS = ("applied", "edited", "cancelled", "expired", "corrected", "reverted", "confirmed")   # confirmed: his `ok` in did.md
 
 
 # ── the store ─────────────────────────────────────────────────────────────────────────────────────────────────
@@ -955,15 +955,16 @@ def undo(reports, ref, apply=False, runner=None, now=None):
     return {"ref": ref, "applied": apply, "ok": ok, "did": did, "notice": notice}
 
 
-def correct(reports, cls, how, ref=None, note=None, now=None):
-    """A correction after the fact (a revert, a reply against it, his `ela:` line). A class above its base tier returns
-    to confirm (tier 3) and the fall is noted for today.md. → the notice, or None when the class was at confirm."""
+def correct(reports, cls, how, ref=None, note=None, now=None, extra=None):
+    """A correction after the fact (a revert, a reply against it, his `ela:` line, his `wrong:` in did.md). A class
+    above its base tier returns to confirm (tier 3) and the fall is noted for today.md. `extra` is merged into the
+    record row (the act, the review source). → the notice, or None when the class was at confirm."""
     if cls not in CLASSES:
         raise KeyError(cls)
     st = load_state(reports)
     x = st[cls]
-    append(reports, {"at": now_iso(now), "class": cls, "verdict": "reverted" if how == "revert" else "corrected", "how": how,
-                     "target": ref, "note": note, "source": "correction"})
+    append(reports, dict({"at": now_iso(now), "class": cls, "verdict": "reverted" if how == "revert" else "corrected", "how": how,
+                          "target": ref, "note": note, "source": "correction"}, **(extra or {})))
     if x["tier"] == 3:
         save_state(reports, st)
         return None
@@ -1013,6 +1014,90 @@ def did(reports, day):
         counts[c] = counts.get(c, 0) + 1
     words = ", ".join(f"{n} {CLASSES[c]['noun'][0] if n == 1 else CLASSES[c]['noun'][1]}" for c, n in counts.items() if c in CLASSES)
     return f"ela did: {words}", [(a["n"], a.get("text") or a.get("command"), f"ela: undo {a['n']}") for a in rows] + own
+
+
+# ── his review of did.md ───────────────────────────────────────────────────────────────────────────────────────
+DID_LINE = re.compile(r"^\s*-\s+(?:~~)?(\S+?)\.\s.*?·\s*`[^`]*`(.*)$")
+MARK = re.compile(r"(?:^|[\s—:·-])(ok|wrong)\b\s*(?::\s*(.*))?$", re.I)
+
+
+def did_marks(text):
+    """His marks in a did.md: beside a line's undo word (or on an indented line under it) `ok`, or `wrong: <why>`.
+    → [(id, "ok"|"wrong", why or None)], one per line, the last mark winning. The undo word itself is read elsewhere."""
+    out, cur = {}, None
+    for line in (text or "").splitlines():
+        m = DID_LINE.match(line)
+        if m:
+            cur, tail = m.group(1), m.group(2)
+        elif cur and line.startswith((" ", "\t")) and line.strip():
+            tail = line.strip()
+        else:
+            cur = None if not line.strip() == "" else cur
+            continue
+        k = MARK.search(tail.strip().strip("—·- ").strip())
+        if k and k.group(1).lower() == "ok":
+            out[cur] = ("ok", None)
+        elif k and k.group(1).lower() == "wrong":
+            why = (k.group(2) or "").strip().strip("<>") or None
+            out[cur] = ("wrong", why[:300] if why else None)
+    return [(i, m, w) for i, (m, w) in out.items()]
+
+
+def reviewed(reports):
+    """Each act he has marked in did.md: {id: (mark, why)}."""
+    out = {}
+    for r in record(reports):
+        if r.get("review") and r.get("act"):
+            out[r["act"]] = ("ok" if r.get("verdict") == "confirmed" else "wrong", r.get("note"))
+    return out
+
+
+def did_class(reports, ident, day):
+    """The class of a did.md line: a tier-1 act's record row, else the runner action `n` of that day."""
+    for r in record(reports):
+        if r.get("act") == ident and r.get("class"):
+            return r["class"], r.get("target")
+    try:
+        ran = json.load(open(os.path.join(reports, "runner", f"{day}-actions.json"), encoding="utf-8"))
+    except (OSError, ValueError):
+        return None, None
+    for a in (ran.get("actions") if isinstance(ran, dict) else ran) or []:
+        if str(a.get("n")) == str(ident) and a.get("rule") in CLASSES:
+            return a["rule"], a.get("key") or a.get("command")
+    return None, None
+
+
+def review(reports, text, day, now=None):
+    """His marks in did.md, recorded once each: `ok` a confirmed row; `wrong: <why>` a correction (the class returns to
+    confirm) whose cause he gave, so the case is admitted to the class's corpus on his word (decision 2026-11-24,
+    amendment on learning from ela's own writes). A runner action's bare number is read against `day`, the page's date;
+    it is stored as `<day>#<n>` so another day's number does not collide. → [line done]."""
+    seen, done = reviewed(reports), []
+    for ident, mark, why in did_marks(text):
+        key = ident if "#" in ident else f"{day}#{ident}"
+        if key in seen:
+            continue
+        cls, target = did_class(reports, ident, day)
+        if not cls:
+            done.append(f"{ident}: no class on record, mark left unread"); continue
+        if mark == "ok":
+            append(reports, {"at": now_iso(now), "class": cls, "verdict": "confirmed", "target": target, "act": key,
+                             "review": True, "source": "review"})
+            done.append(f"{ident}: confirmed")
+        else:
+            correct(reports, cls, "correction", ref=target, note=why, now=now,
+                    extra={"act": key, "review": True, "corpus": "admitted" if why else "waiting for a cause"})
+            done.append(f"{ident}: wrong — {cls} back to confirm" + ("" if why else "; no cause given, the corpus waits for one"))
+        seen[key] = (mark, why)
+    return done
+
+
+def corpus_cases(reports):
+    """The wrong proposals admitted on his word, for the class corpus (tests/corpus/<class>/): his did.md `wrong: <why>`
+    rows. Improve items he confirmed add theirs (`ela improve corpus`). → [{class, act, target, cause, at}]."""
+    return [{"class": r["class"], "act": r.get("act"), "target": r.get("target"), "cause": r.get("note"), "at": r.get("at"),
+             "source": "did.md"}
+            for r in record(reports) if r.get("review") and r.get("corpus") == "admitted"]
 
 
 def notices(reports, day):

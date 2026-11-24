@@ -3735,7 +3735,7 @@ def dry_asks(reports, today, asks_state, dry_run=False):
     return out, facts
 
 
-def dry_pages(vault, reports, today):
+def dry_pages(vault, reports, today, record=True):
     """ela/dry/<batch>.md for each batch waiting: written once, then his (a struck or edited line is what the answer
     reads), and ela/dry/did.md, today's acts without confirm with the word that undoes each."""
     out = {}
@@ -3749,11 +3749,25 @@ def dry_pages(vault, reports, today):
                 out[rel] = open(os.path.join(vault, rel), encoding="utf-8").read()   # his copy: struck and edited lines stay
             except OSError:
                 out[rel] = front([], {"type": "dry", "date": today.isoformat()}) + D.review_note(b)
+        rel_did = f"{ELA}/dry/did.md"
+        try:                                               # his marks on the page as it stands, before it is rewritten
+            had = open(os.path.join(vault, rel_did), encoding="utf-8").read()
+            m = re.search(r'^date:\s*"?(\d{4}-\d{2}-\d{2})', had, re.M)
+            if record:                                     # a dry-run pass reads, never records
+                D.review(reports, had, m.group(1) if m else today.isoformat())
+        except OSError:
+            pass
         line, rows = D.did(reports, today.isoformat())
-        out[f"{ELA}/dry/did.md"] = front([], {"type": "dry", "date": today.isoformat()}) + "\n".join(
-            [f"# Done by ela · {today:%a %Y-%m-%d}", "", "Writes of a granted class ela made without asking. Write the undo line "
-             "here or on today.md and ela reverses that one; a reversal also returns the class to your confirm.", ""]
-            + ([f"- {n}. {t} · `{u}`" for n, t, u in rows] or ["Nothing today."])) + "\n"
+        marks = D.reviewed(reports)
+        def mark(n):
+            k = str(n) if "#" in str(n) else f"{today.isoformat()}#{n}"
+            got = marks.get(k)
+            return "" if not got else " — ok" if got[0] == "ok" else f" — wrong: {got[1] or '(no cause given)'}"
+        out[rel_did] = front([], {"type": "dry", "date": today.isoformat()}) + "\n".join(
+            [f"# Done by ela · {today:%a %Y-%m-%d}", "", "Writes ela made without asking. Beside a line write `ok`, or "
+             "`wrong: <why>`: wrong returns the class to your confirm, and the why admits the case to the class's corpus so "
+             "the selector is tested against it. Write the undo word here or on today.md and ela reverses that one.", ""]
+            + ([f"- {n}. {t} · `{u}`{mark(n)}" for n, t, u in rows] or ["Nothing today."])) + "\n"
     except Exception:                                      # noqa: BLE001
         pass
     return out
@@ -5239,7 +5253,7 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since
         shown, more, dropped, questions_line=qline)))
     if not dry_run and desk.get("head_inputs"):            # what the head was judged against: the runner's judge reads it
         H.save(reports, desk["head_inputs"], H.INPUTS)
-    planned.update(dry_pages(s["vault"], reports, today))
+    planned.update(dry_pages(s["vault"], reports, today, record=not dry_run))
     planned.update(mention_pages(reports, today))
     if questions:
         Q = questions_mod()
