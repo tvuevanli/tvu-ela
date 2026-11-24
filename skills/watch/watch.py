@@ -37,7 +37,11 @@ Never by ela, always an ask: a terminal status, a Slack post under his name, a c
                                                 without --apply
   answer  TOPIC A|B|C [--json]                  his letter on a topic (today.md's tick, or said): recorded; an option
                                                 with writes is carried out at the next decide --apply
-  asks    [--json]                              the open topics, as today.md shows them
+  asks    [--json]                              the open topics, as today.md shows them (the vault's sync puts them there)
+  dm      [--apply] [--json]                    the owner's ela DM: one root message a day, each new topic a reply under
+                                                it, a topic still open the next day continued in the thread where it
+                                                started, a settled one told once there; nothing top-level per topic; a
+                                                dry run unless --apply (a notification to him, not a post under his name)
 
 Store: <reports>/ela/watch.json (per ticket: the last pass's snapshot, pending triggers, the last decision, the day of
 its last set of writes, the comments ela said), <reports>/ela/watch/<date>-scan.json, <reports>/ela/watch-topics.json,
@@ -638,6 +642,114 @@ def asks(reports, today):
     return out
 
 
+# ── the owner's DM: one root a day, a topic a reply, an open topic continued in its thread ────────────────────────
+SLACK = os.path.join(SKILLS, "slack", "slack.py")
+
+
+def jira_base(s=None):
+    env = (s or site()).get("env")
+    try:
+        return next((l.split("=", 1)[1].strip().strip("'\"").rstrip("/") for l in open(os.path.expanduser(env))
+                     if l.startswith("JIRA_BASE_URL=")), "")
+    except (OSError, TypeError):
+        return ""
+
+
+def topic_text(t, base, again=False):
+    """A topic as its DM reply: the ticket, the question, the letters and where to answer. Plain text: Slack mrkdwn
+    has no Markdown links."""
+    url = f" {base}/browse/{t['key']}" if base else ""
+    head = (f"Still open since {t['first'][5:]}: " if again else "") + f"{t['key']} {t.get('summary') or ''}".strip()
+    return "\n".join([head + url, t["question"]]
+                     + [f"{o['letter']}: {o['text']}" for o in t["options"]]
+                     + ["Answer with the letter on today.md (or `ela watch answer " + t["id"] + " <letter>`)."])
+
+
+def dm_plan(topics, today, base=""):
+    """What today's DM pass sends: [{kind: root|reply|again|settled, topic, text, thread}] — a root only when a topic
+    is new today and today has no root; each new topic a reply under today's root; a topic open since an earlier day,
+    not yet continued today, a reply in the thread where it started; a topic his letter closed, one line in its thread."""
+    plan, day = [], today.isoformat()
+    root = topics["roots"].get(day)
+    fresh = [t for t in topics["topics"].values() if not t.get("closed") and not t.get("thread")]
+    again = [t for t in topics["topics"].values() if not t.get("closed") and t.get("thread")
+             and not (t.get("posted") or {}).get(day) and t["first"] < day and t.get("thread") != root]
+    done = [t for t in topics["topics"].values() if t.get("closed") and t.get("thread") and not t["closed"].get("told")]
+    if fresh and not root:
+        plan.append({"kind": "root", "topic": None, "thread": None,
+                     "text": f"ela · the board watch · {today:%a %m-%d}: {len(fresh)} topic{'s' if len(fresh) != 1 else ''} "
+                             "for you. Each is a reply in this thread; a topic still open tomorrow continues in its own "
+                             "thread. Answer on today.md."})
+    plan += [{"kind": "reply", "topic": t["id"], "thread": root, "text": topic_text(t, base)} for t in sorted(fresh, key=lambda t: t["key"])]
+    plan += [{"kind": "again", "topic": t["id"], "thread": t["thread"], "text": topic_text(t, base, again=True)}
+             for t in sorted(again, key=lambda t: t["key"])]
+    plan += [{"kind": "settled", "topic": t["id"], "thread": t["thread"],
+              "text": f"{t['key']}: settled by your {t['closed']['letter']} ({t['closed']['at'][:10]})."} for t in done]
+    return plan
+
+
+def slack_post(argv, apply):
+    """One post through the slack capability: (exit code, its JSON or None, text)."""
+    cmd = ["python3", SLACK] + (["--env-file", site().get("env")] if site().get("env") else []) + argv + ["--json"] \
+        + (["--apply"] if apply else [])
+    p = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+    try:
+        return p.returncode, json.loads(p.stdout), p.stderr.strip()
+    except ValueError:
+        return p.returncode, None, (p.stdout + p.stderr).strip()
+
+
+def dm(reports, now, apply=False, post=None, base=None):
+    """Carry today's DM plan out through `ela slack post` (each a dry run unless `apply`): the root to his DM, each
+    reply into the thread its permalink names. → {sent: [...], failed: [...]}; the topics store records the root, each
+    topic's thread and the day it was posted."""
+    post = post or slack_post
+    topics = load_topics(reports)
+    today = now.date()
+    day = today.isoformat()
+    plan = dm_plan(topics, today, jira_base() if base is None else base)
+    sent, failed = [], []
+    tmp = os.path.join(reports, "ela", "watch", "dm")
+    os.makedirs(tmp, exist_ok=True)
+    for i, p in enumerate(plan):
+        f = os.path.join(tmp, f"{day}-{i}.txt")
+        with open(f, "w", encoding="utf-8") as fh:
+            fh.write(p["text"] + "\n")
+        thread = topics["roots"].get(day) if p["kind"] == "reply" else p["thread"]
+        if p["kind"] == "root":
+            argv = ["post", "--dm", "me", "--file", f]
+        elif thread:
+            argv = ["post", thread, "--no-cc", "--file", f]
+        elif not apply:
+            argv = ["post", "--dm", "me", "--file", f]            # a dry run: today's root is not posted yet
+        else:
+            failed.append({"plan": p, "why": "no root to reply under"}); continue
+        code, got, err = post(argv, apply)
+        if code != 0:
+            failed.append({"plan": p, "why": err or f"exit {code}"})
+            if p["kind"] == "root":
+                break                                           # no root, no replies: nothing posted top-level per topic
+            continue
+        sent.append({"kind": p["kind"], "topic": p["topic"], "permalink": (got or {}).get("permalink"), "dry_run": not apply,
+                     "text": p["text"]})
+        if not apply:
+            continue
+        link = (got or {}).get("permalink")
+        t = topics["topics"].get(p["topic"]) if p["topic"] else None
+        if p["kind"] == "root":
+            topics["roots"][day] = link
+        elif p["kind"] == "reply":
+            t["thread"] = topics["roots"][day]
+            t.setdefault("posted", {})[day] = link
+        elif p["kind"] == "again":
+            t.setdefault("posted", {})[day] = link
+        elif p["kind"] == "settled":
+            t["closed"]["told"] = now.isoformat(timespec="seconds")
+    if apply:
+        write_json(topics_path(reports), topics)
+    return {"date": day, "sent": sent, "failed": failed}
+
+
 # ── the verbs ─────────────────────────────────────────────────────────────────────────────────────────────────────
 def roots(s):
     return s.get("reports") or "", os.path.join(s.get("runtime") or "", "facts")
@@ -726,6 +838,15 @@ def cmd_asks(a):
          or ["no open topics"])
 
 
+def cmd_dm(a):
+    if a.apply and os.environ.get("ELA_NO_APPLY"):
+        print("refused: dm --apply inside an unattended session (ELA_NO_APPLY)", file=sys.stderr); sys.exit(EX_USAGE)
+    r = dm(site().get("reports") or "", now_tz(), apply=a.apply)
+    emit(a, r, [f"{x['kind']}{' ' + x['topic'] if x['topic'] else ''}: {'dry run' if x['dry_run'] else x['permalink']}" for x in r["sent"]]
+         + [f"failed {x['plan']['kind']} {x['plan']['topic'] or ''}: {x['why']}" for x in r["failed"]]
+         + ([] if r["sent"] or r["failed"] else ["nothing to send"]) + ([] if a.apply else ["dry run; --apply sends"]))
+
+
 def main():
     ap = argparse.ArgumentParser(prog="ela watch", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--env-file", help="the site's env file (bin/ela passes it)")
@@ -743,6 +864,8 @@ def main():
     p.add_argument("topic"); p.add_argument("letter"); p.add_argument("--json", action="store_true"); p.set_defaults(func=cmd_answer)
     p = sub.add_parser("asks", help="the open topics, as today.md shows them")
     p.add_argument("--json", action="store_true"); p.set_defaults(func=cmd_asks)
+    p = sub.add_parser("dm", help="the owner's ela DM: one root a day, each topic a reply under it; a dry run unless --apply")
+    p.add_argument("--apply", action="store_true"); p.add_argument("--json", action="store_true"); p.set_defaults(func=cmd_dm)
     a = ap.parse_args()
     a.func(a)
 

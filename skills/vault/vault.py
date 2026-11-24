@@ -3580,7 +3580,9 @@ def sync_handles(does):
     return (does is None or does == "drop" or (does.startswith("ela dry answer ") and "--apply" not in does)
             or (does.startswith("ela mention answer ") and "--shown" not in does)   # a letter on a held mention: a record, and
                                                            # dry-run batches at most; an A that posts (ADR 0022) is the runner's
-            or does.startswith("ela improve answer "))     # a letter on an improvement item: a record only (ADR 0023)
+            or does.startswith("ela improve answer ")      # a letter on an improvement item: a record only (ADR 0023)
+            or does.startswith("ela watch answer "))       # a letter on a board-watch topic: a record; its writes go out
+                                                           # at the watch's next pass (decision 2026-11-24)
 
 
 def settle_letters(vault, reports, state, today, dry_run=False):
@@ -3617,6 +3619,13 @@ def settle_one(reports, state, aid, letter, does, today, dry_run=False):
         parts = does.split()
         try:
             improve_mod().answer(reports, parts[3], parts[4], today)
+        except (KeyError, ValueError):
+            return False
+    if does and does.startswith("ela watch answer ") and not dry_run:
+        parts = does.split()
+        try:
+            WA = watch_mod()
+            WA.answer(reports, parts[3], parts[4], WA.now_tz())
         except (KeyError, ValueError):
             return False
     v["answered"] = {"letter": letter, "at": today.isoformat()}
@@ -3740,6 +3749,24 @@ def improve_asks(reports, today):
         return []
     return [{"id": x["id"], "text": x["question"], "whole": True, "options": x["options"], "sig": x["sig"],
              "first": today.isoformat()} for x in got]
+
+
+def watch_asks(reports, today):
+    """The board watch's topics that take an ordinary ask slot on today.md (decision 2026-11-24): what ela could not or
+    may not decide on a ticket, his letters from the topic, answered by `ela watch answer` (a record; a chosen option's
+    writes go out at the watch's next pass). The same topics reach his ela DM. A broken store costs these asks only."""
+    try:
+        got = watch_mod().asks(reports, today)
+    except Exception:                                      # noqa: BLE001 — the page is written without them
+        return []
+    return [{"id": x["id"], "text": x["question"], "whole": True, "options": x["options"], "sig": x["sig"],
+             "first": x.get("first") or today.isoformat()} for x in got]
+
+
+def watch_mod():
+    sys.path.insert(0, os.path.join(HERE, "..", "watch"))
+    import watch as WA                                     # noqa: E402 — the board watch's topics: one reader and writer
+    return WA
 
 
 def improve_mod():
@@ -5131,10 +5158,11 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since
     dcands, dry_facts = dry_asks(reports, today, asks_state, dry_run)
     mcands = mention_asks(reports, today)                  # a person waiting on him leads the drafted writes
     icands = improve_asks(reports, today)                  # then the improvements that wait for his word
+    wcands = unheld(watch_asks(reports, today), focus.get("holds"), today)   # the board watch's topics, a held one aside
     qcands, cands = unheld(qcands, focus.get("holds"), today), unheld(cands, focus.get("holds"), today)   # a held subject asks nothing
     # a batch of drafted writes (the focus board's moves among them) comes before a question's carry nudge: the board
     # turns a question carried through two meetings into a Jira move, which the nudge only asks about
-    shown, more, _, asks_state = settle_asks(asks_state, mcands + dcands + icands + qcands + cands, today)
+    shown, more, _, asks_state = settle_asks(asks_state, mcands + dcands + wcands + icands + qcands + cands, today)
     for v in asks_state.values():                          # the slots are today's page's: yesterday's numbers mean nothing
         for k in ("slot", "options"):
             v.pop(k, None)

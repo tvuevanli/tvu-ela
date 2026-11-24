@@ -190,5 +190,66 @@ with tempfile.TemporaryDirectory() as t:
     check("a correction returned the class to confirm: the set is asked as an open batch, not written",
           got["state"] == "open" and D.load_batch(reports, got["batch"])["state"] == "open")
 
+# ── the owner's DM and today.md: one root a day, each topic a reply, an open topic continued in its own thread ───
+with tempfile.TemporaryDirectory() as t:
+    reports = os.path.join(t, "reports")
+    os.makedirs(os.path.join(reports, "ela"))
+    topics = W.load_topics(reports)
+    for key in ("MH-31", "MH-32"):
+        W.put_topic(topics, key, {"question": f"{key}: hand it to the UI owner or keep it?"}, "2026-11-24", f"summary {key}")
+    W.write_json(W.topics_path(reports), topics)
+    posts = []
+
+    def post(argv, apply):
+        posts.append((argv, apply))
+        n = len(posts)
+        return 0, {"permalink": f"https://x.slack.com/archives/D1/p{n}"} if apply else {"dry_run": True}, ""
+
+    day1 = datetime.datetime(2026, 11, 24, 18, 0, tzinfo=TZ)
+    r = W.dm(reports, day1, apply=False, post=post, base="https://j")
+    check("dry run: a root, then each topic a reply; nothing stored",
+          [x["kind"] for x in r["sent"]] == ["root", "reply", "reply"] and all(not a for _, a in posts)
+          and W.load_topics(reports)["roots"] == {})
+    posts.clear()
+    r = W.dm(reports, day1, apply=True, post=post, base="https://j")
+    check("applied (a stub): the root to his DM, each topic a reply in its thread, never top-level per topic",
+          posts[0][0][:3] == ["post", "--dm", "me"] and all(a[0][1] == "https://x.slack.com/archives/D1/p1" and "--no-cc" in a[0] for a in posts[1:])
+          and len(posts) == 3)
+    tp = W.load_topics(reports)
+    check("the store keeps the root and each topic's thread", tp["roots"]["2026-11-24"].endswith("/p1")
+          and tp["topics"]["watch:MH-31"]["thread"].endswith("/p1") and "https://j/browse/MH-31" in r["sent"][1]["text"])
+    posts.clear()
+    check("a second pass the same day sends nothing", W.dm(reports, day1, apply=True, post=post)["sent"] == [] and posts == [])
+    W.answer(reports, "watch:MH-32", "B", day1)
+    tp = W.load_topics(reports)
+    W.put_topic(tp, "MH-33", {"question": "MH-33: who takes it?"}, "2026-11-25", "summary MH-33")
+    W.write_json(W.topics_path(reports), tp)
+    posts.clear()
+    day2 = day1 + datetime.timedelta(days=1)
+    r = W.dm(reports, day2, apply=True, post=post, base="")
+    kinds = {(x["kind"], x["topic"]) for x in r["sent"]}
+    check("the next day: a new root for the new topic; the open one continues in its first thread; the settled one is told there",
+          kinds == {("root", None), ("reply", "watch:MH-33"), ("again", "watch:MH-31"), ("settled", "watch:MH-32")}
+          and next(a for a, _ in posts if "Still" in open(a[-1]).read())[1] == "https://x.slack.com/archives/D1/p1")
+    posts.clear()
+    check("and once a day only", W.dm(reports, day2, apply=True, post=post)["sent"] == [])
+    fail_root = lambda argv, apply: (1, None, "slack down")   # noqa: E731
+    W.put_topic(tp := W.load_topics(reports), "MH-34", {"question": "MH-34?"}, "2026-11-26", "")
+    W.write_json(W.topics_path(reports), tp)
+    r = W.dm(reports, day2 + datetime.timedelta(days=1), apply=True, post=fail_root)
+    check("no root, no replies: a failed root stops the pass", len(r["failed"]) == 1 and r["sent"] == [])
+
+    sys.path.insert(0, os.path.join(ROOT, "skills", "vault"))
+    import vault as V  # noqa: E402
+    got = V.watch_asks(reports, day2.date())
+    check("today.md shows each open topic as an ask, dated from its first day, its letters answered by ela watch answer",
+          {x["id"] for x in got} == {"watch:MH-31", "watch:MH-33", "watch:MH-34"}
+          and next(x for x in got if x["id"] == "watch:MH-31")["first"] == "2026-11-24"
+          and V.sync_handles("ela watch answer watch:MH-31 A"))
+    state = {"watch:MH-31": {}}
+    check("a tick on today.md records the letter through the watch", V.settle_one(reports, state, "watch:MH-31", "A",
+                                                                                  "ela watch answer watch:MH-31 A", day2.date())
+          and W.load_topics(reports)["topics"]["watch:MH-31"]["closed"]["letter"] == "A")
+
 print("watch: all offline checks passed" if not fails else f"watch: {len(fails)} failed")
 sys.exit(1 if fails else 0)
