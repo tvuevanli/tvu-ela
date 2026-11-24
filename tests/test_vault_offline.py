@@ -163,7 +163,7 @@ with tempfile.TemporaryDirectory() as tmp:
     sbp = open(f"{vault}/projects/sb/sb.md").read()
     sbf, sbb = V.split_front(sbp)
     check("a project page is written in place: its properties settled, the desk's lines kept, watch from the deadline",
-          'type: "project"' in sbp and f'deadline: "{SB_DEADLINE}"' in sbp and 'customer: "Hearst"' in sbp and 'aliases: ["Super Bowl"]' in sbp
+          'type: "project"' in sbp and f'deadline: "{SB_DEADLINE}"' in sbp and 'customer: "Hearst"' in sbp and 'aliases: ["Super Bowl", "sb"]' in sbp
           and f'watch: "{(datetime.date.today() + datetime.timedelta(days=44)).isoformat()}"' in sbp and f'date: "{today}"' in sbp)
     check("its head stands as written above the tail's first heading, the tail's headings in the runner's order",
           sbb.startswith("# Super Bowl\n\n## Goal\n\nProve the chain.\n\n## Next step\n\n- [ ] wire the decoder by 2026-01-05\n\nela: keep the head\n\n## Notes\n")
@@ -217,7 +217,7 @@ with tempfile.TemporaryDirectory() as tmp:
     tr = open(f"{vault}/releases/2.1/lists/train-2.1.md").read()
     check("a line's train page lands in its line's folder as a generated page of its type", 'type: "train"' in tr and "# Train · 2.1" in tr and f'date: "{today}"' in tr)
     check("the morning page points at no recent page", V.RECENT_POINTER not in open(f"{vault}/reference/days/{today[:4]}/{today}-brief.md").read())
-    check("a decision carries its title as an alias and a meta line", 'aliases: ["Decision 0"]' in open(dec0).read() and "*decision · " in open(dec0).read())
+    check("a decision carries its title as an alias and a meta line", f'aliases: ["Decision 0", "{today[:4]}-01-01-decision-0"]' in open(dec0).read() and "*decision · " in open(dec0).read())
     os.remove(dec0)
     check("a note the owner deleted is not written again", sync() == 0 and not os.path.exists(dec0))
     check("and it is recorded as deleted by him", any(r.get("fate") == "deleted" and r.get("by") == "owner" and r["path"].endswith("decision-0.md") for r in rows()))
@@ -1074,7 +1074,7 @@ with tempfile.TemporaryDirectory() as tmp:
         code = sync()
     text = open(page).read()
     check("the sync writes the page as a generated note: type services, the title an alias, no longer the desk's report",
-          code == 0 and 'type: "services"' in text and 'aliases: ["The service map for review"]' in text and "source:" not in text and "status:" not in text)
+          code == 0 and 'type: "services"' in text and 'aliases: ["The service map for review", "service-map"]' in text and "source:" not in text and "status:" not in text)
     check("the Fixed In grammar is release.yaml's, not the desk's",
           "- Field `customfield_11252`; grammar `<slug>@<version>[; <slug>@<version> ...]`; canonical version `M.m.p+BUILD`." in text
           and "- Docker form: `mds-<slug>@<image>:<tag> — the image qualifier is mandatory`." in text
@@ -1337,7 +1337,7 @@ with tempfile.TemporaryDirectory() as t:
     V.append_source_changes(vlt, rep)
     twice = open(os.path.join(vlt, note)).read()
     check("the change is one dated line under Afterwards, his text and ticks kept, a second pass adds nothing",
-          once.startswith(body.rstrip("\n")) and "## Afterwards" in once and once.count("ela/2026-11-09-mh2.1-x.md") == 1
+          once.startswith(V.with_stem(body, note)[0].rstrip("\n")) and "## Afterwards" in once and once.count("ela/2026-11-09-mh2.1-x.md") == 1
           and "- [x] checked by him" in once and once == twice)
     check("the note closed before its source last changed is the only one touched",
           open(os.path.join(vlt, "releases/2.1/2026-11-08-y.md")).read() == body)

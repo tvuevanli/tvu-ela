@@ -41,7 +41,7 @@ with tempfile.TemporaryDirectory() as t:
     check("new makes the folder and the page, says the days left", code == 0 and "projects/sb/sb.md: written" in out and "40 days left" in out)
     check("the page's properties: type project, date, deadline, source vault, watch from the deadline, the title as alias",
           'type: "project"' in text and f'deadline: "{dl}"' in text and f'date: "{today}"' in text and 'source: "vault"' in text
-          and f'watch: "{(today + datetime.timedelta(days=54)).isoformat()}"' in text and 'aliases: ["Super Bowl"]' in text)
+          and f'watch: "{(today + datetime.timedelta(days=54)).isoformat()}"' in text and 'aliases: ["Super Bowl", "sb"]' in text)
     check("the head is the skeleton, none of its headings the tail's, the tail a first render below it",
           body.startswith("# Super Bowl\n") and all(f"## {h}\n" in body for h in P.HEAD_SECTIONS) and not set(P.HEAD_SECTIONS) & set(V.TAIL_HEADS)
           and body.index("## Next step") < body.index("## Deadline") and "## Notes" not in body

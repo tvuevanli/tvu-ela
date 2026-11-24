@@ -216,9 +216,9 @@ with tempfile.TemporaryDirectory() as t:
     open(note, "w").write(t1.replace(f'title: "{cur}"', 'title: "MediaHub team sync · Fri 2026-10-30"'))
     run("--raise", "MH-7 — a hand-titled note", "--now", "2026-11-02T11:00")
     t1 = open(note).read()
-    check("a name written by hand is kept, the date moves to the next meeting, aliases hold only the title",
+    check("a name written by hand is kept, the date moves to the next meeting, aliases hold the title and the file name",
           'title: "MediaHub team sync · Wed 2026-11-04"' in t1 and "Scrum with the PM" not in t1.split("---")[1]
-          and 'aliases: ["MediaHub team sync · Wed 2026-11-04"]' in t1)
+          and 'aliases: ["MediaHub team sync · Wed 2026-11-04", "scrum-pm"]' in t1)
 
     # an unknown key is exit 3
     sys.argv = ["brief.py", "meeting", "--key", "nope"]

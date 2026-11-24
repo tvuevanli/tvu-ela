@@ -1811,7 +1811,9 @@ def spec_text():
     """The readme's Note standards section, written from SPECS so the readme and the lint cannot disagree."""
     out = ["Every note: a lowercase file name, words joined by hyphens, a dated note starting with its date (its `date` "
            "property the same day). `title` is double-quoted plain text, without links, in English, and the first entry "
-           "of `aliases`; the first heading is the title (it may link a ticket key). Durable text is English, and "
+           "of `aliases`, whose last entry is the file name without `.md` (the name the owner copies to point a session at "
+           "a note; the sync, `lint --fix` and `rename` keep it there); the first heading is the title (it may link a "
+           "ticket key). Durable text is English, and "
            "every Jira key in it is a link. A key never stands alone: it is written `[KEY](link) <Jira summary> · <status>`, "
            "the summary as Jira has it up to about 90 characters (a longer one cut at a word boundary), and a list of keys "
            "is one line a ticket, never a cluster in brackets. The rule looks forward: lint reads it on a standing page and on "
@@ -2232,6 +2234,8 @@ def cmd_lint(a):
                 continue                                   # the sync rewrites it: the fix belongs in its generator
             p = os.path.join(vault, rel)
             new, fixes = normalise(text, jira_base, projects)
+            new, stemmed = with_stem(new, rel)
+            fixes = fixes + (["the file name last among the aliases"] if stemmed else [])
             if fixes:
                 fixed.append({"note": rel, "fixes": fixes})
                 if a.apply:
@@ -5782,6 +5786,20 @@ def with_alias(text, alias):
     return "---\n" + "\n".join(front_line(fl, "aliases", al + [alias])) + "\n---\n" + body.lstrip("\n")
 
 
+def with_stem(text, path):
+    """(text, changed): the note with its file name stem as the last of its aliases, the title staying first. The
+    owner copies a note's name from Obsidian, where the title is easy to copy and the file name is not; a session
+    finds the note by either. A text without front matter is left as it is."""
+    fl, _ = split_front(text)
+    if not fl or not path.endswith(".md"):
+        return text, False
+    stem = os.path.basename(path)[:-3]
+    al = list_prop(fl, "aliases")
+    if al[-1:] == [stem]:
+        return text, False
+    return "---\n" + "\n".join(front_line(fl, "aliases", [a for a in al if a != stem] + [stem])) + "\n---" + text[text.find("\n---", 4) + 4:], True
+
+
 MOVE_TO = {"in-progress": "building", "parked": "parked", "archive": DONE, "to-read": "ask", "readings": DONE,
            "live": "ask", "done": DONE, "building": "building"}   # layout 4's folder words, kept as input (ADR 0015)
 
@@ -6395,7 +6413,11 @@ def tmp_path(path):
 
 def atomic_write(path, text):
     """Write `text` to `path` through a dot-prefixed temporary file, only when the bytes change: the vault is
-    file-synced to another machine and an unchanged note keeps its modification time. → whether it was written."""
+    file-synced to another machine and an unchanged note keeps its modification time. A note (`.md` with front
+    matter) is written with its file name last among its aliases, whoever generated it (with_stem). → whether it was
+    written."""
+    if path.endswith(".md"):
+        text = with_stem(text, path)[0]
     try:
         with open(path, encoding="utf-8", newline="") as fh:
             if fh.read() == text:
@@ -6769,6 +6791,8 @@ def cmd_sync(a):
         if mine:
             planned[rel] = place_lines(planned[rel], mine)
         planned[rel] = with_answers(planned[rel], rel, answers)   # each ask shows its answer under it
+    for rel in [r for r in planned if r.endswith(".md")]:  # the file name last among the aliases, before any comparison
+        planned[rel] = with_stem(planned[rel], rel)[0]
     for rel, text in planned.items():
         if rel in done_on_disk:                            # done: the record, never written again, not ela's any more
             continue
