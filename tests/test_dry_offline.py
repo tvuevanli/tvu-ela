@@ -7,6 +7,10 @@ import datetime, json, os, sys, tempfile
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "skills", "dry"))
 import dry as D  # noqa: E402
 
+# the site points at a temp runtime: no note in this test reads the real fact store
+RT = tempfile.TemporaryDirectory()
+D.site = lambda: {"runtime": RT.name}
+
 failures = []
 def check(name, cond):
     print(("ok   " if cond else "FAIL ") + name)
@@ -253,6 +257,32 @@ with tempfile.TemporaryDirectory() as R:
           and [r["batch"] for r in D.record(R) if r.get("verdict") == "settled"] == [b3["id"]]
           and not any(x.get("batch") == b3["id"] for x in D.asks(R, MON))
           and D.answer(R, f"dry:{b3['id']}", "A", apply=True, runner=lambda c, a: (0, ""))["did"] == ["already settled"])
+
+# the review note says what each ticket is and what a --from-file comment says; the context lines are never writes
+with tempfile.TemporaryDirectory() as R:
+    idir = os.path.join(RT.name, "facts", "jira", "issues")
+    os.makedirs(idir, exist_ok=True)
+    json.dump({"key": "MH-3842", "fields": {"summary": "White Balance fix", "status": {"name": "Review"},
+                                             "assignee": {"displayName": "A Dev"}, "priority": {"name": "High"}}},
+              open(os.path.join(idir, "MH-3842.json"), "w"))
+    txt = os.path.join(R, "c.md")
+    open(txt, "w").write("UR fix is on QA.\n1. `not a write`\n")
+    ws = [{"n": 1, "target": "MH-3842", "command": "ela jira link MH-3735 MH-3842 --type contains", "why": "named"},
+          {"n": 2, "target": "MH-3842", "command": f"ela jira comment MH-3842 --from-file {txt}", "why": "status"},
+          {"n": 3, "target": "MH-1", "command": "ela jira comment MH-1 --from-file /nonexistent/x.md", "why": "gone"}]
+    b = {"id": "t", "class": "link-named", "scope": "MH-3735", "writes": ws}
+    note = D.review_note(b)
+    check("the note links each key with summary, status, assignee and priority from the fact store",
+          "    - [MH-3842](https://tvunetworks.atlassian.net/browse/MH-3842) White Balance fix · Review · A Dev · priority High" in note
+          and "    - [MH-3735](https://tvunetworks.atlassian.net/browse/MH-3735) (not in the fact store)" in note)
+    check("a --from-file write carries the file's text quoted; a missing file says so",
+          "    > UR fix is on QA.\n    > 1. `not a write`" in note and "    > (/nonexistent/x.md is missing)" in note)
+    check("the context lines are not writes: read_note on the untouched note applies all three",
+          [v for _, v, _ in D.read_note(b, note)] == ["applied", "applied", "applied"])
+    hand = note.replace("1. `ela jira link", "~~1. `ela jira link", 1).replace("— named", "— named~~", 1).replace(
+        "3. `ela jira comment MH-1 --from-file", "3. `ela jira comment MH-1 --text x --from-file", 1)
+    check("one struck, one edited: the same verdicts as a note without context",
+          [(w["n"], v) for w, v, _ in D.read_note(b, hand)] == [(1, "cancelled"), (2, "applied"), (3, "edited")])
 
 print(f"{len(failures)} failed" if failures else "all passed")
 sys.exit(1 if failures else 0)

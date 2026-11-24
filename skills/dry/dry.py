@@ -39,7 +39,7 @@ Store: <reports>/ela/dry/ — classes.json (tier, grants, asks), record.jsonl, r
 <reports>/ela/acts.jsonl, written by jira.py at each applied write (the act, its before-state, its undo).
 Exit codes: 0 ok · 2 usage · 3 not found · 5 remote.
 """
-import argparse, datetime, glob, hashlib, json, os, re, subprocess, sys
+import argparse, datetime, glob, hashlib, json, os, re, shlex, subprocess, sys
 sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "setup"))
 import siteguard  # noqa: E402  a file in the site directory is never read for a caller
 
@@ -400,10 +400,57 @@ def note_rel(bid):
 WRITE_LINE = re.compile(r"^(?P<lead>[ \t]*(?:[-*][ \t]+)?)(?P<strike>~~)?(?P<n>\d+)\.[ \t]+`(?P<cmd>[^`]+)`(?P<rest>.*?)(?:~~)?[ \t]*$", re.M)
 
 
-def review_note(b):
-    """The note that shows each exact write of a batch: one numbered line per write, the command in backticks and why.
-    Striking a line (~~ … ~~) or deleting it leaves the write out; editing the command applies it as edited and records
-    an edit. The ask on today.md carries the letters."""
+JIRA_KEY = re.compile(r"\b[A-Z][A-Z0-9]+-\d+\b")
+JIRA_BROWSE = "https://tvunetworks.atlassian.net/browse/"
+
+
+def from_file_of(command):
+    """The path a command's --from-file names, or None."""
+    try:
+        toks = shlex.split(command)
+    except ValueError:
+        toks = command.split()
+    for i, t in enumerate(toks):
+        if t == "--from-file" and i + 1 < len(toks):
+            return toks[i + 1]
+        if t.startswith("--from-file="):
+            return t.split("=", 1)[1]
+    return None
+
+
+def write_context(w, facts):
+    """The indented lines under a numbered write that make it judgeable: per Jira key, a link with summary, status,
+    assignee and priority from the fact store; for --from-file, the file's text quoted. A command shows what changes, not
+    which ticket it lands on, and a bare key or a path cannot be judged without opening something else. Indented four
+    spaces, so WRITE_LINE never reads them as writes and striking or deleting the numbered line still drops the write."""
+    out = []
+    for key in dict.fromkeys(JIRA_KEY.findall(w["command"])):
+        try:
+            f = json.load(open(os.path.join(facts, "jira", "issues", f"{key}.json"), encoding="utf-8")).get("fields") or {}
+        except (OSError, ValueError, TypeError):
+            out.append(f"    - [{key}]({JIRA_BROWSE}{key}) (not in the fact store)")
+            continue
+        who = (f.get("assignee") or {}).get("displayName") or "unassigned"
+        out.append(f"    - [{key}]({JIRA_BROWSE}{key}) {f.get('summary') or ''} · {(f.get('status') or {}).get('name') or '?'}"
+                   f" · {who} · priority {(f.get('priority') or {}).get('name') or '?'}")
+    path = from_file_of(w["command"])
+    if path:
+        try:
+            text = open(path, encoding="utf-8").read()
+        except OSError:
+            out.append(f"    > ({path} is missing)")
+        else:
+            out += [f"    > {x}".rstrip() for x in text.rstrip("\n").split("\n")]
+    return out
+
+
+def review_note(b, facts=None):
+    """The note that shows each exact write of a batch: one numbered line per write, the command in backticks and why,
+    and under it the context write_context reads. Striking a line (~~ … ~~) or deleting it leaves the write out; editing
+    the command applies it as edited and records an edit. The ask on today.md carries the letters."""
+    if facts is None:
+        rt = site().get("runtime")
+        facts = os.path.join(rt, "facts") if rt else ""
     d = CLASSES[b["class"]]
     L = [f"# {len(b['writes'])} {d['noun'][1] if len(b['writes']) != 1 else d['noun'][0]} for {b['scope']}", "",
          f"Class: **{b['class']}** — {d['says']}. Rule: {d['rule']}.", "",
@@ -411,6 +458,7 @@ def review_note(b):
          "it. Then answer the ask on today.md: A applies what is here, B drops the batch.", ""]
     for w in b["writes"]:
         L.append(f"{w['n']}. `{w['command']}` — {w['why']}")
+        L += write_context(w, facts)
     if b.get("left_out"):
         L += ["", "Named but not proposed:", ""] + [f"- {x}" for x in b["left_out"]]
     return "\n".join(L) + "\n"
