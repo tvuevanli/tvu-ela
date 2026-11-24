@@ -27,4 +27,20 @@ _, w = J.description_standard("Task", "### 目标\n中文\n### Goal\nx")
 check("Chinese first is warned", len(w) == 1)
 _, w = J.description_standard("Task", task + "\n### 中文\n内容")
 check("English first, Chinese after, no warning", w == [])
+# the gate refuses the same way in a dry run as under --apply: same exit code, same reason
+import argparse, contextlib, io
+def gate(apply, nonstandard=None, description="### Goal\nx"):
+    a = argparse.Namespace(apply=apply, nonstandard=nonstandard, description=description)
+    err, code = io.StringIO(), None
+    with contextlib.redirect_stderr(err):
+        try:
+            J._standard_gate(a, "Task", {})
+        except SystemExit as e:
+            code = e.code
+    return code, err.getvalue()
+dry, live = gate(False), gate(True)
+check("a dry run refuses a nonstandard create", dry[0] == 2 and "refused:" in dry[1])
+check("the dry run's refusal is --apply's, word for word", dry == live)
+check("--nonstandard passes the dry run", gate(False, "tracking ticket")[0] is None)
+check("a standard description passes the dry run", gate(False, description=task)[0] is None)
 sys.exit(1 if failures else 0)

@@ -83,8 +83,8 @@ everything after it into a collapsed block titled by the words on that line (def
 
 **The standard, enforced by the script.** A ticket ela creates carries the sections its type requires,
 above the fold, as `###` headings (a line that is only bold text also counts). The dry run prints
-`standard ok` or what is missing; `--apply` refuses a nonstandard description unless `--nonstandard
-'<reason>'` is passed, and that is passed only when the owner asked for a free-form ticket. The rule and
+`standard ok`; a nonstandard description is refused, in the dry run exactly as under `--apply` (exit 2,
+the same reason), unless `--nonstandard '<reason>'` is passed, and that is passed only when the owner asked for a free-form ticket. The rule and
 its reason are in elak `knowledge/products/mediahub/jira/conventions.md` § Description standard.
 
 | type | required sections | optional |

@@ -610,11 +610,12 @@ def description_standard(issuetype, text):
 
 
 def _standard_gate(args, issuetype, result):
-    """Dry run: report the check. --apply: refuse a nonstandard description unless --nonstandard says why."""
+    """Refuse a nonstandard description unless --nonstandard says why, in a dry run as under --apply: a dry run that
+    reports ok for a write --apply then refuses is a false preview (dry 2026-11-24-focus-moves-mediahub-focus)."""
     missing, warnings = description_standard(issuetype, args.description or "")
     result["standard_missing"], result["standard_warnings"] = missing, warnings
     lines = [f"  standard   {'ok' if not missing else 'missing: ' + ', '.join(missing)}"] + [f"  note       {w}" for w in warnings]
-    if args.apply and missing and not getattr(args, "nonstandard", None):
+    if missing and not getattr(args, "nonstandard", None):
         print("\n".join(lines), file=sys.stderr)
         print(f"refused: a {issuetype} ela creates carries {', '.join(missing)} (elak jira conventions § Description standard); "
               "add the sections, or pass --nonstandard '<reason>'", file=sys.stderr)
