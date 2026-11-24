@@ -70,7 +70,7 @@ flowchart LR
 | 一张旧票挂了很久，先要判断它还有没有必要存在 | `revisit` | `/ela:revisit MH-1649` |
 | 一个 bug 落到你手上，不确定归谁 | `route` | `/ela:route MH-3568` |
 | 这票该归谁：先把事实摆出来 | `route` | `ela route <KEY>` |
-| 线上报错，手里有 trace id 或时间点：哪个服务抛的、交给谁 | `route` · `logs` | `/ela:route <traceId>` → 交接卡 · `/ela:logs <traceId>` · `ela logs chain <traceId>` · `ela logs java --app <app> --at "<UTC 时间>"` |
+| 线上报错，手里有 trace id 或时间点：哪个服务抛的、交给谁 | `route` · `logs` | `/ela:route <traceId>` → 交接卡 · `/ela:logs <traceId>` · `ela logs chain <traceId> --at "<UTC 时间>"`（默认只读最近 5 分钟；更宽的窗口要 `--wide "<理由>"`，理由印在结果上；全服务的 Loki 查询一律拒绝）· `ela logs java --app <app> --at "<UTC 时间>"` |
 | 代码的判断取决于一个配置 key：它在 prod 是多少、来自哪一层 | `configserver` | `ela configserver effective <app> <profile> --key <key>` · profile 从日志的 env 反查：`ela configserver get <app> all --key elk.config.env` |
 | 一个 graph 为什么落在这台 box、UHD 编码是不是被调度扣分扣多了：J2N 每个环境给每种 app 实例记多少资源分（Cpu、Qsv…），和 pre-prod 差在哪 | `j2n` | `ela j2n scores prod3 --subtype encoder` · `ela j2n scores prod3 --labels resolution=UHD --diff test2` · `ela j2n envs`（J2N 环境名 prod3 对应 MediaHub prod-3 只是按名字推定） |
 | 光定人不够，要看代码找根因 | `probe` | `/ela:probe MH-3568` |

@@ -10,11 +10,19 @@ Self-contained. All reads go through `ela logs` (`${CLAUDE_PLUGIN_ROOT}/skills/l
 needs `ela login tvu`, and exit 4 names it.
 
 ## Invariants
-- **Small reads, one at a time.** Start at a few minutes around a named moment (±2–10 min), with a server-side
-  filter (`--grep`) and a small `--limit` (20), and read the result before the next read. Loki's 4 hours per call
-  is the server's ceiling, not a window to ask for; an unfiltered read is refused past 30 minutes. A wide unfiltered
-  pull loads the log server and buries the line wanted (MH-4049: a 16-hour pull, then four 4-hour pulls of 5,000
-  progress lines).
+- **Small reads, one at a time.** A process-log or Loki read (`chain`, `calls`, `loki`) covers the last 5 minutes by
+  default, or a few minutes around a named moment (`--at`; ±2 min for `chain` and `loki`, ±10 s for `calls`), with a
+  server-side filter (`--grep`) and a small `--limit` (20); read the result before the next read. A wider window is
+  read only with `--wide "<reason>"`, the reason naming why this case needs it (a ticket, the span the evidence leaves
+  open); the tool prints it on the result (`wide` in `--json`), so the answer carries it. The limits on the shared
+  log servers are mh-bot's to enforce; ela reads wide when the case needs it and says why (the owner's ruling of
+  2026-11-24). No moment known is a reason to find one (the question, the thread, a status change) before a wide
+  read. Loki's 4 hours per call is the server's ceiling, `--wide` or not; an unfiltered Loki read stops at 30
+  minutes (MH-4049: a 16-hour pull, then four 4-hour pulls of 5,000 progress lines).
+- **One service or one process, never all.** A Loki read names `--service`, `--pid`, or a `--query` with
+  `service_name="…"` or ``process_id = `…` ``; an all-services query is refused, `--wide` or not. Loki is not a
+  survey tool: which services ship, which boxes report, what a lane runs are read from code, config and the release
+  records (2026-11-24: an all-services Loki read to list who ships, stopped by the owner).
 - **Prove, don't sweep.** Before reading a range window by window, look for an invariant that covers it from two
   lines: libsrt socket ids fall by one per new socket (srtcore/api.cpp:315, v1.5.4), so the same id at both ends
   of a span proves no connection in between; `total N` on a `max_clients 1` listener says who was connected at
@@ -60,9 +68,10 @@ needs `ela login tvu`, and exit 4 names it.
 
 ## The steps
 
-1. **The chain.** `ela logs chain <traceId>` lists every recorded HTTP hop of the trace, time-ordered,
+1. **The chain.** `ela logs chain <traceId> --at "<moment>"` lists every recorded HTTP hop of the trace, time-ordered,
    with the errorCode parsed from each reply, and marks the **first failing hop** — the innermost
-   error, the one that answered first. From an email and a moment, `ela logs calls --email <addr>
+   error, the one that answered first. Without `--at` it reads the last 5 minutes; a trace whose day is
+   unknown is read with `--since 2d --wide "<why>"`. From an email and a moment, `ela logs calls --email <addr>
    --at <time>` finds the call and its trace id; from a process id, `ela logs loki --pid <id>`.
    Then the services' own lines under the trace: `ela logs java --trace <id> --date <UTC day>`
    (`--grep <errorCode>` narrows; a stack's first `com.tvu…` frame is shown under the line).

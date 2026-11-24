@@ -57,7 +57,7 @@ The logs are first-hand; a ticket's paste of them is a report. All reads go thro
 (`skills/logs/logs.py`, read-only; tvulog needs `ela login tvu`, exit 4 names it). Times print in UTC
 and local; the java-log's clock is UTC, so `--at` is UTC unless an offset is given.
 
-1. **The chain**, always: `ela logs chain <traceId>` (or `ela logs calls --email --at`, `ela logs loki --pid`) marks the first failing hop; `ela logs java --trace` reads its lines.
+1. **The chain**, always: `ela logs chain <traceId> --at "<moment>"` (the last 5 minutes without `--at`; wider only with `--wide "<reason>"`) (or `ela logs calls --email --at`, `ela logs loki --pid`) marks the first failing hop; `ela logs java --trace` reads its lines.
 2. **When the trace breaks**, only if the failing hop forwarded: grep the code map (§1) for the thrower, then `ela logs java --app --at --window --grep <business id>`.
 3. **A generic error code**: read the thrower's warn or error line in the second before the reply, and the `catch` that swallowed it.
 4. **Runtime config**: name the key and read it, `ela configserver effective <app> <profile> --key <key>` (profile from the log env, `/ela:configserver`); redacted or absent, name its read endpoint and mark the cause *needs the owner to confirm the config*.
