@@ -25,6 +25,10 @@ Usage:
     jira.py version create|release <name> [--release-date D] [--project MH] [--apply]
     jira.py version set MH-1 [MH-2 …] --name <name> [--apply]   # Fix Version, additive
 
+A write ela makes on its own initiative (ELA_CLASS board-watch) is signed: a comment gets the signature line and the
+language rule; assign, transition, priority, due and link need --note-file, the comment that announces the change,
+posted after it; a terminal status is refused (decision 2026-11-24, ela watches the MH board).
+
 Writes are dry-run by default; --apply performs the create. Safety gates
 (title token vocabulary, duplicate detection) live here and cannot be
 bypassed by any caller. Confirmation UX belongs to the caller.
@@ -1358,6 +1362,7 @@ def cmd_assign(creds, args):
         else: print(f"{key} already assigned to {assignee_name}")
         return
     if not args.apply:
+        touched(args, key)
         if args.json: print(json.dumps(result, ensure_ascii=False))
         else:
             print(f"DRY RUN — {key}  {f.get('summary','')}")
@@ -1367,6 +1372,7 @@ def cmd_assign(creds, args):
     _request(creds, f"/rest/api/3/issue/{key}/assignee",
              payload={"accountId": account_id}, method="PUT")
     result["changed"] = True
+    touched(args, key)
     result["undo"] = undo_argv("assign", key, "--assignee", cur.get("accountId") or "none")
     record_act(key, "assign", result["before"], result["undo"], {"assignee": account_id})
     if args.json: print(json.dumps(result, ensure_ascii=False))
@@ -1634,13 +1640,138 @@ def cmd_comment(creds, args):
         sys.exit("comment: empty text")
     results, lines = [], []
     for key in _keys(args.targets):
-        r, ls = _comment_one(creds, key, text, args.apply, mention=not args.no_mention, edit=args.edit)
+        said = text
+        if own_initiative():                             # ela's own comment: signed, in the language rule
+            said, problem = own_comment_text(creds, key, text)
+            if problem:
+                results.append({"key": key, "error": problem}); lines.append(f"{key}: refused — {problem}"); continue
+        r, ls = _comment_one(creds, key, said, args.apply, mention=not args.no_mention, edit=args.edit)
         results.append(r); lines += ls
     if any("error" in r for r in results):
         _emit(args, {"results": results} if len(results) > 1 else results[0], lines); sys.exit(2)
     if not args.apply and any(not r["duplicate_of"] and not r.get("posted") for r in results):
         lines.append("pass --apply to post")
     _emit(args, {"results": results} if len(results) > 1 else results[0], lines)
+
+
+# ── signed writes: what ela writes on its own initiative is announced on the ticket and signed ───
+# Decision 2026-11-24 (elak blueprint/decisions/2026-11-24-ela-watches-the-mh-board-and-acts-on-jira-signing-each-write.md):
+# a write ela makes without being asked (the board watch) goes out with a comment that says what changed and why and
+# ends with one signature line naming the account it is written on; a field change without that comment is refused.
+# The comment follows the Jira language rule: English, bilingual with English first when the ticket's text is Chinese.
+# This is the one place the line is appended and the rule is held; a caller marks its write as ela's own by its class
+# (ELA_CLASS, set by `ela dry` when it runs a write).
+SIGNATURE = "— ela, {name}'s assistant, writing on his account. If this is wrong, reply here or message {first}."
+OWN_INITIATIVE = ("board-watch",)
+FIELD_VERBS = ("assign", "transition", "priority", "due", "link")
+CJK = re.compile(r"[㐀-鿿]")
+
+
+def own_initiative(env=None):
+    """Whether the write running now is one ela makes on its own initiative (its class says so)."""
+    return (env if env is not None else os.environ).get("ELA_CLASS") in OWN_INITIATIVE
+
+
+def signature(name):
+    name = " ".join((name or "").split()) or "the owner"
+    return SIGNATURE.format(name=name, first=name.split()[0] if name != "the owner" else "him")
+
+
+def is_signed(text):
+    last = next((l.strip() for l in reversed((text or "").splitlines()) if l.strip()), "")
+    return last.startswith("— ela, ") and "writing on his account" in last
+
+
+def signed(text, name):
+    """The text with the signature as its last line; a text already signed is returned as it is."""
+    text = (text or "").rstrip()
+    return text if is_signed(text) else f"{text}\n\n{signature(name)}"
+
+
+def unsigned(text):
+    lines = (text or "").rstrip().splitlines()
+    while lines and (not lines[-1].strip() or is_signed(lines[-1])):
+        lines.pop()
+    return "\n".join(lines)
+
+
+def chinese(text):
+    """Whether a ticket's own text is Chinese: CJK characters are at least a third of its letters."""
+    cjk = len(CJK.findall(text or ""))
+    latin = len(re.findall(r"[A-Za-z]", text or ""))
+    return cjk > 0 and cjk * 3 >= cjk + latin
+
+
+def language_problem(comment, ticket_text):
+    """Why a signed comment breaks the Jira language rule, or None: it opens in English; on a ticket whose text is
+    Chinese it carries the Chinese too, after the English."""
+    body = unsigned(comment).strip()
+    if not body:
+        return "the comment says nothing besides the signature: say what changed and why"
+    first = re.split(r"\n\s*\n", body, 1)[0]
+    if CJK.search(first) or not re.search(r"[A-Za-z]{3,}", first):
+        return "the comment opens in English (its first paragraph has no Chinese); the Chinese follows it"
+    if chinese(ticket_text) and not CJK.search(body):
+        return "the ticket's text is Chinese: the comment is bilingual, the English first, then the Chinese"
+    return None
+
+
+def note_problem(verb, note, own, to=None, terminal_ok=False):
+    """Why a field change may not go out, or None: a change ela makes on its own initiative carries its comment, and
+    never moves a ticket to a terminal status (that stays the owner's word)."""
+    if verb == "transition" and own and (terminal_ok or terminal(to or "")):
+        return f"transition: {to} is a terminal status; ela never makes it on its own initiative; refused"
+    if verb in FIELD_VERBS and own and not (note or "").strip():
+        return (f"{verb}: a field change ela makes on its own initiative goes out only with its comment saying what "
+                f"changed and why (--note-file); refused")
+    return None
+
+
+_ACCOUNT = {}
+
+
+def account_name(creds):
+    """The display name of the account the writes are made on (the signature names it); read once."""
+    if "name" not in _ACCOUNT:
+        try:
+            _ACCOUNT["name"] = (api_get(creds, "/rest/api/3/myself") or {}).get("displayName") or ""
+        except Exception:
+            _ACCOUNT["name"] = ""
+    return _ACCOUNT["name"]
+
+
+def ticket_text(creds, key):
+    f = _issue(creds, key, "summary,description")
+    return f"{f.get('summary') or ''}\n{body_text(f.get('description')) if f.get('description') else ''}"
+
+
+def own_comment_text(creds, key, text):
+    """A comment ela writes on its own initiative, signed and checked against the language rule: (text, problem)."""
+    text = signed(text, account_name(creds))
+    return text, language_problem(text, ticket_text(creds, key))
+
+
+def touched(args, key):
+    """Mark a key a field change will touch (dry run) or touched (applied): its comment follows the change."""
+    if not hasattr(args, "touched"):
+        args.touched = []
+    if key not in args.touched:
+        args.touched.append(key)
+
+
+def post_note(creds, args, keys):
+    """After a field change: its comment on each key the change touched (applied), or shown (dry run)."""
+    note = getattr(args, "note_text", None)
+    if not note:
+        return
+    for key in keys:
+        text, problem = own_comment_text(creds, key, note)
+        if problem:
+            print(f"{key}: the change's comment is refused — {problem}", file=sys.stderr); sys.exit(2)
+        r, lines = _comment_one(creds, key, text, args.apply, mention=False)
+        if not getattr(args, "json", False):
+            for line in lines:
+                print(line)
 
 
 # ── transitions: one hop looked up live, or the lifecycle walked hop by hop ───
@@ -1753,6 +1884,8 @@ def cmd_transition(creds, args):
     for key in _keys(args.targets):
         r, ls = _transition_one(creds, key, args.to, args.apply, path=args.path, terminal_ok=args.terminal)
         results.append(r); lines += ls
+        if r.get("changed") or r.get("walked") or (not args.apply and r.get("hops") and "error" not in r):
+            touched(args, key)
     if not args.apply and any("hops" in r and not r["changed"] for r in results):
         lines.append("pass --apply to transition")
     _emit(args, {"results": results} if len(results) > 1 else results[0], lines)
@@ -1870,9 +2003,11 @@ def cmd_priority(creds, args):
             r["refused"] = "a person set this priority; a rule never lowers it"
             lines.append(f"{key}: refused — {cur} was set by a person; a rule only raises"); results.append(r); continue
         if not args.apply:
+            touched(args, key)
             lines.append(f"DRY RUN — {key}  {f.get('summary', '')}\n  priority {cur} → {want}" + (f"\n  comment: {args.why}" if args.why else ""))
             results.append(r); continue
         _request(creds, f"/rest/api/3/issue/{key}", payload={"fields": {"priority": {"name": want}}}, method="PUT")
+        touched(args, key)
         _rule_comment(creds, key, args.why, True)
         r["changed"] = True; results.append(r); lines.append(f"{key}: priority {cur} → {want}")
     if not args.apply and any(not r["changed"] and not r.get("refused") and r["from"] != r["to"] for r in results):
@@ -1898,9 +2033,11 @@ def cmd_due(creds, args):
             r["refused"] = "a due date is set; a rule never moves it"
             lines.append(f"{key}: refused — due {cur} is set; a rule never moves a date")
         elif not args.apply:
+            touched(args, key)
             lines.append(f"DRY RUN — {key}  {f.get('summary', '')}\n  due — → {args.date}" + (f"\n  comment: {args.why}" if args.why else ""))
         else:
             _request(creds, f"/rest/api/3/issue/{key}", payload={"fields": {"duedate": args.date}}, method="PUT")
+            touched(args, key)
             _rule_comment(creds, key, args.why, True)
             r["changed"] = True; lines.append(f"{key}: due → {args.date}")
         results.append(r)
@@ -2053,11 +2190,13 @@ def cmd_link(creds, args):
     if exists:
         _emit(args, r, [f"{plan['reads']}: link already exists"]); return
     if not args.apply:
+        touched(args, key)
         _emit(args, r, [f"DRY RUN — {plan['reads']}  ({t['name']})",
                         f"  on {other} Jira will show: {plan['target_reads']}", "pass --apply to link"]); return
     api_post(creds, "/rest/api/3/issueLink", plan["payload"])
     after = link_exists(_issue(creds, key, "issuelinks").get("issuelinks"), t, direction, other)
     r["created"] = True
+    touched(args, key)                                  # a link Jira made, even read back wrong, is announced
     if not after:                                       # read back: a reversed link is named, never reported as done
         r["created"] = False; r["error"] = "the link Jira holds does not read as asked; check both issues"
         _emit(args, r, [f"WRONG — Jira does not show {plan['reads']}; check {key} and {other}"]); sys.exit(1)
@@ -2619,13 +2758,38 @@ def main():
     p.add_argument("--apply", action="store_true"); p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_close)
 
+    for verb in FIELD_VERBS:
+        sub.choices[verb].add_argument(
+            "--note-file", metavar="F", help="the comment that announces this change (what changed and why), posted after "
+            "it; signed and checked against the language rule. Required when the write is ela's own (its class is one of "
+            + ", ".join(OWN_INITIATIVE) + ")")
+
     args = ap.parse_args()
     # An unattended session (ela-runner's headless job, ELA_NO_APPLY=1) may read and dry-run, never write:
     # the owner's word for a write is given in the Slack thread and executed by the runner, not by a model.
     if os.environ.get("ELA_NO_APPLY") and getattr(args, "apply", False):
         print("refused: --apply inside an unattended session (ELA_NO_APPLY); the dry run above is the answer, the owner's word applies it", file=sys.stderr); sys.exit(2)
+    args.note_text = None
+    if args.cmd in FIELD_VERBS:
+        if getattr(args, "note_file", None):
+            with open(siteguard.guard(args.note_file), encoding="utf-8") as fh:
+                args.note_text = fh.read().rstrip("\n")
+        problem = note_problem(args.cmd, args.note_text, own_initiative(), getattr(args, "to", None), getattr(args, "terminal", False))
+        if problem:
+            print(problem, file=sys.stderr); sys.exit(2)
     creds = load_env(args.env_file)
-    args.func(creds, args)
+    if args.note_text:                                   # the comment is checked before the change it announces
+        if hasattr(args, "why"):
+            args.why = None                              # the note is the change's one comment
+        targets = getattr(args, "targets", None) or [args.target]
+        for key in _keys(targets):
+            problem = own_comment_text(creds, key, args.note_text)[1]
+            if problem:
+                print(f"{key}: the change's comment is refused — {problem}", file=sys.stderr); sys.exit(2)
+    try:
+        args.func(creds, args)
+    finally:
+        post_note(creds, args, getattr(args, "touched", []))
 
 
 if __name__ == "__main__":
