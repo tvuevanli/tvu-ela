@@ -897,30 +897,30 @@ def with_table(text):
 
 
 def send(tok, payload):
-    """chat.postMessage, with the text's table as a table block when it has one; a table Slack refuses goes as the fence."""
+    """chat.postMessage, with the text's table as a table block when it has one; a table Slack refuses (its own ok:false)
+    goes as the fence. A network error is never retried: Slack may have posted before the answer was lost."""
     blocks = with_table(payload.get("text") or "")
     if blocks:
-        req = urllib.request.Request(API + "chat.postMessage", data=json.dumps({**payload, "blocks": blocks}).encode(), method="POST",
-                                     headers={"Authorization": f"Bearer {tok}", "Content-Type": "application/json; charset=utf-8"})
-        try:
-            with urllib.request.urlopen(req, timeout=60) as r:
-                d = json.load(r)
-            if d.get("ok"):
-                return d
-            print(f"slack refused the table block ({d.get('error')}): sent as the fenced block", file=sys.stderr)
-        except Exception as e:
-            print(f"slack table block: {e!r}: sent as the fenced block", file=sys.stderr)
+        d = call_json("chat.postMessage", tok, {**payload, "blocks": blocks})
+        if d.get("ok"):
+            return d
+        print(f"slack refused the table block ({d.get('error')}): sent as the fenced block", file=sys.stderr)
     return post_json("chat.postMessage", tok, payload)
 
 
-def post_json(method, tok, payload):
+def call_json(method, tok, payload):
+    """→ Slack's answer, ok or not; a request with no answer exits EX_REMOTE (a write may have landed: not resent)."""
     req = urllib.request.Request(API + method, data=json.dumps(payload).encode(), method="POST",
                                  headers={"Authorization": f"Bearer {tok}", "Content-Type": "application/json; charset=utf-8"})
     try:
         with urllib.request.urlopen(req, timeout=60) as r:
-            d = json.load(r)
+            return json.load(r)
     except Exception as e:
-        print(f"slack {method}: {e!r}", file=sys.stderr); sys.exit(EX_REMOTE)
+        print(f"slack {method}: {e!r} (no answer: it may have landed; not resent)", file=sys.stderr); sys.exit(EX_REMOTE)
+
+
+def post_json(method, tok, payload):
+    d = call_json(method, tok, payload)
     if not d.get("ok"):
         print(f"slack {method} failed: {d.get('error')}", file=sys.stderr)
         if d.get("error") == "missing_scope":

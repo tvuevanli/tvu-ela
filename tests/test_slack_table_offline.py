@@ -33,4 +33,25 @@ for name, body in (("a log excerpt", "```\nTraceback: x | y\n---|---\n  line two
                    ("over 100 rows", "```\na | b\n---|---\n" + "a | b\n" * 100 + "```"), ("past 10,000 characters", "```\na | b\n---|---\n" + ("x" * 6000 + " | y\n") * 2 + "```"),
                    ("no fence", "a | b\n1 | 2"), ("a shell pipeline", "```\nps aux | grep copier\nls | wc -l\n```")):
     check(f"{name} stays as written", S.with_table(body) is None)
+# send: only Slack's own refusal resends without the table; a lost answer is never resent (it may have posted)
+import io, json  # noqa: E402
+calls = []
+def fake(answers):
+    def urlopen(req, timeout=None):
+        calls.append(json.loads(req.data))
+        a = answers.pop(0)
+        if isinstance(a, Exception):
+            raise a
+        return io.BytesIO(json.dumps(a).encode())
+    return urlopen
+S.urllib.request.urlopen = fake([{"ok": False, "error": "invalid_blocks"}, {"ok": True, "ts": "1"}])
+d = S.send("t", {"channel": "C", "text": T})
+check("a refused table is resent as the fence", d.get("ok") and len(calls) == 2 and "blocks" in calls[0] and "blocks" not in calls[1], calls)
+calls.clear()
+S.urllib.request.urlopen = fake([TimeoutError("timed out"), {"ok": True, "ts": "2"}])
+try:
+    S.send("t", {"channel": "C", "text": T}); code = None
+except SystemExit as e:
+    code = e.code
+check("a timeout is not resent", code == S.EX_REMOTE and len(calls) == 1, (code, len(calls)))
 sys.exit(1 if failures else 0)
