@@ -218,6 +218,8 @@
   ela vault sync [--dry-run]       regenerate the owner's Obsidian vault: day pages, readings, verifications,
                                    decisions and plans; a note over its reading budget carries a warning;
                                    a note you delete is done and stays deleted (ela vault restore PATH)
+  ela vault head [--lines F] [--apply] [--json]   today.md's head: the inputs the last sync saw, the day's judgment,
+                                   the rules; --lines judges a session's answer line by line, --apply keeps what passes
   ela vault setup                  apply the vault's Obsidian settings from ela's versioned copy, then restart Obsidian
   ela vault guidance [--json]      the owner's `ela:` lines and ticked boxes anywhere in the vault, each handled once
   ela vault answer N A|B|C [--apply]  one letter on today's ask N from anywhere (Slack, a session), as a tick on

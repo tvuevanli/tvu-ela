@@ -24,7 +24,8 @@ own). Eight roots, full lowercase nouns; a dated note is <date>-<kind>-<what>.md
 A work note (decision, plan, sprint, review, ticket, verify, verify-plan, draft) is `live` or `done`, a property: a
 move sets it, never the folder. A vault in another layout is not synced: `vault.py migrate` lists the one pass, and
 `--apply` makes it; for 14 days an old path given to a verb is read as its new one.
-    today.md                                    the one page: facts, at most three asks, today (ADR 0014); home.md
+    today.md                                    the one page: in short, facts, at most three asks, today (ADR 0014;
+                                                the head and judged facts: head.py); home.md
                                                 points to it until 2026-11-25
     meetings/focus.md                           the focus board (skills/focus/focus.py): a meeting is a view of it;
                                                 meetings/open-questions.md every team question, linked from it
@@ -203,6 +204,8 @@ ela writes this vault from first-hand sources, and it holds things and angles (e
   [[meetings/focus|the focus board]] for a team. It stores nothing of its own.
 - A work note (a plan, a review, a verification, a draft) is `live` or `done`, a property. Choosing its `next`
   changes that, never its folder; a done note is the record and is never written again.
+- today.md opens with **In short**: at most five lines, most urgent first, each what it means for you and what to
+  do, with one link; the last says where to start. A fact below it says what it means too, or it is folded.
 - An ask lives once, on its thing. today.md links at most three; one unanswered on three working mornings leaves
   for `reference/dropped.md`.
 - An ask is a question and two or three lettered options; A is ela's recommendation. Answer with one letter: tick
@@ -227,7 +230,7 @@ ela writes this vault from first-hand sources, and it holds things and angles (e
 
 | entry | holds |
 |---|---|
-| `today.md` | the one page: facts, at most three asks, today |
+| `today.md` | the one page: in short (at most five lines, the first step last), facts, at most three asks, today |
 | `meetings/` | `focus.md`, the focus board: one row per item MediaHub is pushing, Jira priority then due date, each meeting a view of it (at most seven rows), held subjects in one folded line; `open-questions.md`, every team question, linked from the board; a dated meeting page is history in `archive/meetings/` |
 | `projects/` | one page per project, `<key>-<slug>.md`; a folder `<key>-<slug>/` once notes sit beside the page |
 | `releases/` | a folder per line: its line page `<line>.md`, the way in (where the line stands, what can move next, what could not be read, its builds), and each live promote and deploy; `lists/` its train, dev and test lists; `history/` its builds' old notes, the old record and every closed note (a promote closes itself once its target lane runs the build); `lanes.md` across lines |
@@ -3826,10 +3829,14 @@ def short(text, n):
 
 
 def today_page(today, notes, desk=None, shown=(), more=0, dropped=0, questions_line=None):
-    """today.md: Facts (3–5 lines), Needs you (at most three asks, each with what happens if he does nothing and
-    when), Today (meetings, a near deadline, what leaves at 10:00), then one line of links. Above the line it keeps
-    within TODAY_WORDS words: facts are cut from the end until it does."""
-    desk = desk or {}
+    """today.md: In short (at most five lines: judged lines by urgency, then "Start with …"; head.py), Facts (each a
+    judgment of what changed, the rest folded), Needs you (at most three asks, each with what happens if he does
+    nothing and when), Today (meetings, a near deadline, what leaves at 10:00), then one line of links. Below the head
+    and outside the fold it keeps within TODAY_WORDS words: judged facts move into the fold from the end until it does,
+    never below FACTS_MIN. desk["head"] is the day's stored judgment; the inputs it was judged against are left in
+    desk["head_inputs"] for the sync to keep."""
+    desk = desk if desk is not None else {}
+    H = head_mod()
     iso = today.isoformat()
     changes, facts = fact_lines(notes)
     block = build_block(notes, desk.get("builds") or [], today, desk.get("tickets"), desk.get("owner") or "")
@@ -3841,6 +3848,14 @@ def today_page(today, notes, desk=None, shown=(), more=0, dropped=0, questions_l
     briefs = sorted((n for n in notes if n.props.get("type") == "day" and n.props.get("kind") == "brief"),
                     key=lambda n: n.props.get("date") or "", reverse=True)
     brief = briefs[0] if briefs else None
+    projects = [n.facts for n in notes if n.props.get("type") == "project" and getattr(n, "facts", None)]
+    today_brief = brief if brief and (brief.props.get("date") or "")[:10] == iso else None
+    cands = H.candidates((today_brief.path, today_brief.body) if today_brief else None, projects,
+                         desk.get("board") or "", desk.get("kpi") or ())
+    inp = H.inputs(today, facts, cands, {"changes": changes.path if changes else None,
+                                         "brief": today_brief.path if today_brief else None})
+    desk["head_inputs"] = inp
+    head, judged, folded = H.render(inp, desk.get("head"))
     asks = []
     for k, c in enumerate(shown, 1):
         gone = drop_day(datetime.date.fromisoformat(c["first"]), today)
@@ -3863,7 +3878,6 @@ def today_page(today, notes, desk=None, shown=(), more=0, dropped=0, questions_l
     for m in [m for m in desk.get("meetings") or [] if m.get("key") not in have] if not notes_today else []:
         note = views.get(m.get("key"))                     # a meeting is a view of the focus board (ADR 0015)
         day.append(f"- {m.get('time')} {m.get('name')}" + (f" → [[{note}|its rows on the board]]" if note else ""))
-    projects = [n.facts for n in notes if n.props.get("type") == "project" and getattr(n, "facts", None)]
     for f in projects:
         if f.get("days") is not None and 0 <= f["days"] <= PROJECT_SOON_DAYS:
             day.append(f"- [[{f['path'][:-3]}|{f['key']}]]: {days_words(f['days'])} to {f['deadline'].isoformat()}")
@@ -3874,18 +3888,26 @@ def today_page(today, notes, desk=None, shown=(), more=0, dropped=0, questions_l
                    + (f", held until {hold['until']} (dry run)" if hold else "; tick `don't N` to stop one"))
         day += [] if hold else [f"  - [ ] don't {a['n']} — {short(a.get('text'), 90)}" for a in soon]
 
-    def render(facts):
-        L = [f"# Today · {today:%a %Y-%m-%d}", "", "## Facts", ""]
-        L += [f"- **{FACT_LABEL.get(h, h)}:** {l}" for h, l in facts] or ["- Nothing new was read since the last page."]
+    def fact(h, l, q=""):                                  # a multi-line fact (the build block) stays inside its fold
+        return f"{q}- **{FACT_LABEL.get(h, h)}:** " + l.replace("\n", "\n" + q)
+
+    def render(shown, folded):
+        L = [f"# Today · {today:%a %Y-%m-%d}", "", "## In short", ""] + head + ["", "## Facts", ""]
+        L += [fact(h, l) for h, l in shown]
+        if folded:
+            L += ([""] if shown else []) + [f"> [!note]- {len(folded)} " + ("more " if shown else "") + "fact" + ("s" if len(folded) != 1 else "") + ("" if shown else " not judged yet")]
+            L += [fact(h, l, "> ") for h, l in folded]
+        if not shown and not folded:
+            L += ["- Nothing new was read since the last page."]
         L += ["", "## Needs you", ""] + (asks or ["Nothing only you can do."])
         L += ["", "## Today", ""] + (day or ["No meeting and no deadline today."]) + [""]
         return L
-    L = render(facts)
-    def words(L):
-        return len(plain("\n".join(L)).split())
-    while len(facts) > FACTS_MIN and words(L) > TODAY_WORDS:   # whole facts leave from the end, never below three
-        facts = facts[:-1]
-        L = render(facts)
+
+    def words(shown):                                      # below the head, outside the fold
+        return len(plain("\n".join([fact(h, l) for h, l in shown] + asks + day)).split())
+    while len(judged) > FACTS_MIN and words(judged) > TODAY_WORDS:   # judged facts fold from the end, never below three
+        folded, judged = [judged[-1]] + folded, judged[:-1]
+    L = render(judged, folded)
     links = [f"[[{changes.path[:-3]}|what changed]]" if changes else None,
              f"[[{brief.path[:-3]}|morning page]]" if brief else None,
              f"[[{LANES_PAGE[:-3]}|lanes]]" if any(n.props.get("type") == "lanes" for n in notes) else None,
@@ -4430,6 +4452,12 @@ def questions_mod():
     sys.path.insert(0, HERE)
     import questions as Q
     return Q
+
+
+def head_mod():
+    sys.path.insert(0, HERE)
+    import head as H                                       # noqa: E402 — today.md's head and its judged facts
+    return H
 
 
 def owner_name(facts):
@@ -5137,12 +5165,17 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since
     if day_brief in planned:                               # the morning page: boxes only on the asks today.md shows
         planned[day_brief] = also_noticed(planned[day_brief], {n for c in cands for n in c.get("ns") or []}
                                           - {n for c in shown for n in c.get("ns") or []})
-    planned[TODAY] = redact(front([], {"type": "today", "date": today.isoformat()}) + linker(today_page(today, notes + native, {
+    H = head_mod()
+    desk = {
         "actions": week_actions(reports, today), "hold": tier2_hold(reports, today.isoformat()), "lists": list_links(reports),
         "meetings": meetings, "builds": builds, "tickets": release_mod().facts_tickets(s.get("runtime"), [k for b in builds for v in b["services"] for k in v.get("keys") or []]),
         "owner": owner_name(os.path.join(s.get("runtime") or "", "facts")), "dry_facts": dry_facts, "views": focus.get("views"),
-        "dev_ahead": dev_ahead_line(s.get("runtime"))},
+        "dev_ahead": dev_ahead_line(s.get("runtime")),
+        "board": focus.get("text") or "", "kpi": H.kpi_rows(s.get("runtime")), "head": H.load(reports)}
+    planned[TODAY] = redact(front([], {"type": "today", "date": today.isoformat()}) + linker(today_page(today, notes + native, desk,
         shown, more, dropped, questions_line=qline)))
+    if not dry_run and desk.get("head_inputs"):            # what the head was judged against: the runner's judge reads it
+        H.save(reports, desk["head_inputs"], H.INPUTS)
     planned.update(dry_pages(s["vault"], reports, today))
     planned.update(mention_pages(reports, today))
     if questions:
@@ -6429,6 +6462,40 @@ def cmd_questions(a):
     print(f"{len(recs)} open, {len(done['new'])} new, {len(done['unworded'])} need words" +
           ("" if a.apply else " · DRY RUN (--apply writes the records)") + f" · {today}")
     if done["refused"]:
+        sys.exit(2)
+
+
+def cmd_head(a):
+    """`ela vault head`: what today.md's head is judged from (the last sync's inputs), the day's stored judgment,
+    whether it is stale, and the rules a judging session writes by. --lines FILE is a session's answer, judged here
+    line by line (head.py check_line); --apply keeps what passes for the day. Exit 2 when a line is refused, 3 when
+    there are no inputs of today (no sync has run today)."""
+    H = head_mod()
+    reports = json.load(open(SITE)).get("reports") or ""
+    inp, state = H.load(reports, H.INPUTS), H.load(reports)
+    if inp.get("date") != datetime.date.today().isoformat():
+        print(f"no head inputs of today (last: {inp.get('date') or 'none'}): run `ela vault sync` first", file=sys.stderr)
+        sys.exit(3)
+    refused = {}
+    if a.lines:
+        try:
+            answer = json.load(open(a.lines, encoding="utf-8"))
+        except (OSError, ValueError) as e:
+            print(f"--lines: {e}", file=sys.stderr); sys.exit(2)
+        state, refused = H.judge(inp, answer, state)
+        if a.apply:
+            H.save(reports, state)
+    if a.json:
+        print(json.dumps({"inputs": inp, "state": state, "stale": H.stale(inp, state), "refused": refused,
+                          "rules": H.RULES, "dry_run": not a.apply}, ensure_ascii=False))
+        sys.exit(2 if refused else 0)
+    head, shown, folded = H.render(inp, state)
+    print("\n".join(head))
+    print(f"{len(shown)} facts judged, {len(folded)} folded · " + ("stale: the inputs changed since the last judgment"
+          if H.stale(inp, state) else "judged against these inputs") + ("" if a.apply or not a.lines else " · DRY RUN (--apply keeps it)"))
+    for k, why in refused.items():
+        print(f"refused {k}: {why}", file=sys.stderr)
+    if refused:
         sys.exit(2)
 
 
@@ -7877,6 +7944,12 @@ def main():
     p.add_argument("--apply", action="store_true", help="write the records")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_questions)
+    p = sub.add_parser("head", help="today.md's head: its inputs, the day's judgment, the rules; --lines FILE judges a "
+                                    "session's answer, --apply keeps what passes")
+    p.add_argument("--lines", metavar="FILE", help='{"head": [{"id", "line"}], "start": "Start with …", "facts": {id: line|null}}')
+    p.add_argument("--apply", action="store_true", help="keep the accepted lines for today")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_head)
     p = sub.add_parser("rename", help="OLD NEW: rename a note in one step (alias, links, log, records); --records brings "
                                       "questions.json and the manifest to renames already made; a dry run unless --apply")
     p.add_argument("paths", nargs="*", metavar="OLD NEW", help="the note's path and its new path in the vault")
