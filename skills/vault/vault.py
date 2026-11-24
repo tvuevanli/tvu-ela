@@ -352,6 +352,20 @@ def split_front(text):
     return [], text
 
 
+def front_open(text):
+    """Whether a note opens front matter and never closes it: no closing `---`, or a heading after a blank line before
+    the one split_front takes (a later rule in the body read as the close). Obsidian then shows the properties as body
+    text, and every later writer reads the note as having no front matter (2026-11-24: a draft of with_stem dropped
+    the closing line of every note one sync wrote)."""
+    if not text.startswith("---\n"):
+        return False
+    end = text.find("\n---", 4)
+    if end == -1:
+        return True
+    fl = text[4:end].split("\n")
+    return any(re.match(r"^#{1,6}\s", l) and not fl[i - 1].strip() for i, l in enumerate(fl) if i)
+
+
 def body_start(text):
     """The offset where a note's body begins, past its front matter: what is written there is the note's, never an
     answer's place (an `ela:` property equal to an asked line once drew the fold into the properties)."""
@@ -6468,15 +6482,19 @@ def atomic_write(path, text):
     """Write `text` to `path` through a dot-prefixed temporary file, only when the bytes change: the vault is
     file-synced to another machine and an unchanged note keeps its modification time. A note (`.md` with front
     matter) is written with its file name last among its aliases, whoever generated it (with_stem). → whether it was
-    written."""
+    written. A note whose front matter the write would leave open is refused (ValueError) unless the copy on disk was
+    open already: a writer's bug fails loudly at the first note instead of rewriting every note a pass touches."""
     if path.endswith(".md"):
         text = with_stem(text, path)[0]
     try:
         with open(path, encoding="utf-8", newline="") as fh:
-            if fh.read() == text:
-                return False
+            old = fh.read()
     except (OSError, UnicodeDecodeError):
-        pass
+        old = None
+    if old == text:
+        return False
+    if path.endswith(".md") and front_open(text) and not (old is not None and front_open(old)):
+        raise ValueError(f"{path}: not written — the write would leave its front matter open (no closing ---)")
     tmp = tmp_path(path)
     with open(tmp, "w", encoding="utf-8", newline="") as fh:
         fh.write(text)
