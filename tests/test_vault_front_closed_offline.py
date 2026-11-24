@@ -109,5 +109,25 @@ with tempfile.TemporaryDirectory() as tmp:
     check("a note already open on disk is still written (a stamp is not blocked by the old damage)",
           "✓" in open(p).read())
 
+    # the lint names both shapes the bug left, and --fix leaves them to a person
+    stacked = os.path.join(vault, "plans", "2026-11-24-plan-stacked.md")
+    open(stacked, "w").write('---\ntitle: "S"\naliases: ["S", "2026-11-24-plan-stacked"]\ntype: "plan"\n---\n\n'
+                             '---\ntitle: "S"\ntype: "plan"\ndate: "2026-11-10"\n\n# S\n')
+    open(p, "w").write('---\naliases: ["' + STEM + '"]\ntype: "dry"\ndate: "2026-11-24"\n\n# 2 links for MH-3997\n')
+    found = {r: lines for r, _, lines in V.lint_notes(vault)}
+    check("lint names a note whose front matter is opened but not closed",
+          any("opened but not closed" in l for l in found.get(REL, [])))
+    check("lint names a second, unclosed block at the top of the body",
+          any("second front-matter block" in l for l in found.get("plans/2026-11-24-plan-stacked.md", [])))
+    check("a note whose front matter is whole has no such line", not any("front matter opened" in l or "second front-matter" in l
+                                                                      for l in found.get("plans/2026-11-23-plan-x.md", [])))
+    before = (open(p).read(), open(stacked).read())
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        V.cmd_lint(lint)
+    fixed = {x["note"] for x in json.loads(buf.getvalue())["fixed"]}
+    check("lint --fix --apply leaves both to a person", REL not in fixed and "plans/2026-11-24-plan-stacked.md" not in fixed
+          and (open(p).read(), open(stacked).read()) == before)
+
 print(f"vault front closed: {'all offline checks passed' if not failures else f'{failures} failed'}")
 sys.exit(1 if failures else 0)

@@ -2021,6 +2021,18 @@ def spec_lint(rel, text, generated=False, projects=None):
     return out
 
 
+def front_lint(text):
+    """The front matter opened and never closed, or a second block of it at the top of the body (a note whose close
+    was lost and a later writer gave it a new front): one line, [] when the front matter is whole. Obsidian shows such
+    properties as body text; repairing one is a person's merge, never `--fix`'s."""
+    if front_open(text):
+        return ["front matter opened but not closed: add the closing `---` after the last property"]
+    rest = text[body_start(text):].lstrip("\n") if text.startswith("---\n") else ""
+    if rest.startswith("---\n") and front_open(rest):
+        return ["a second front-matter block, never closed, at the top of the body: merge it into the first"]
+    return []
+
+
 def lint_notes(vault, projects=None):
     """[(path, generated, [deviations])] for every note with a type, the hidden folders, attachments, the moves
     definitions and the retired folders left out; generated means the sync writes it (fix its generator or source)."""
@@ -2030,6 +2042,9 @@ def lint_notes(vault, projects=None):
         gen = set()
     out = []
     for rel, text in vault_notes(vault):
+        if front_lint(text):                               # its properties cannot be read: the one line that matters
+            out.append((rel, rel in gen, front_lint(text)))
+            continue
         found = front_breaks(split_front(text)[0]) + spec_lint(rel, text, rel in gen, projects) + own_lines_lint(text) \
             + present_lint(rel, text, rel in gen)
         if key_rule_covers(rel, props_of(split_front(text)[0]), rel in gen):
@@ -2246,6 +2261,8 @@ def cmd_lint(a):
         for rel, text in list(vault_notes(vault)):
             if rel in gen:
                 continue                                   # the sync rewrites it: the fix belongs in its generator
+            if front_lint(text):
+                continue                                   # a broken front is his to merge: the lint names it
             p = os.path.join(vault, rel)
             new, fixes = normalise(text, jira_base, projects)
             new, stemmed = with_stem(new, rel)
