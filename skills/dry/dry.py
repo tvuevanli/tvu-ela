@@ -55,9 +55,25 @@ STANDARDS = {"SCTE", "SMPTE", "ST", "ISO", "IEC", "RFC", "ITU", "AES", "EBU", "E
              "CTA", "ANSI", "MPEG", "HEVC", "AVC", "UTF", "SHA", "TLS", "HTTP", "IPV"}
 
 
+# A URL's path is not prose: a Figma file named MH-2026 (figma.com/design/<id>/MH-2026?node-id=…) or Jira's smart-link
+# (…/browse/SCTE-35#icft=SCTE-35, which Jira writes for any key-shaped text) names no ticket. A plain Jira browse link
+# does: it keeps its key (batch 2026-11-24-link-named-MH-3997, dropped).
+URL_RX = re.compile(r"(?:https?://|www\.)[^\s<>\"'`)\]]+")
+BROWSE_RX = re.compile(r"^(?:https?://)?[\w.-]*atlassian\.net/browse/(" + KEY + r")(?![\w-])")
+
+
+def strip_urls(text):
+    """The text with every URL removed, except a Jira browse link that is not an #icft= smart-link, kept as its key."""
+    def keep(m):
+        b = BROWSE_RX.match(m.group(0))
+        return f" {b.group(1)} " if b and "#icft=" not in m.group(0) else " "
+    return URL_RX.sub(keep, text or "")
+
+
 def ticket_keys(text):
-    """The ticket keys a text names: KEY_RX's matches less a standard's name."""
-    return [k for k in KEY_RX.findall(text or "") if k.split("-")[0] not in STANDARDS]
+    """The ticket keys a text names: KEY_RX's matches outside URLs (a plain Jira browse link kept), less a standard's
+    name."""
+    return [k for k in KEY_RX.findall(strip_urls(text)) if k.split("-")[0] not in STANDARDS]
 EX_USAGE, EX_NOTFOUND, EX_REMOTE = 2, 3, 5
 MATURE_RUNS, MATURE_DAYS = 10, 3              # ten clean runs over at least three days (the brief of 2026-11-12)
 ASK_AGAIN_AFTER = 10                          # an unanswered or declined grant ask returns after ten more clean runs
@@ -519,7 +535,7 @@ def adf_text(node):
     if isinstance(node, dict):
         t = node.get("text") or ""
         if node.get("type") == "inlineCard":
-            t += (node.get("attrs") or {}).get("url") or ""
+            t += " " + ((node.get("attrs") or {}).get("url") or "") + " "
         inner = "".join(adf_text(c) for c in node.get("content") or [])
         return t + inner + ("\n" if node.get("type") in ("paragraph", "listItem", "heading") else "")
     if isinstance(node, list):
@@ -544,11 +560,25 @@ def owns(issue, owner):
                                              str(a.get("accountId") or "").lower()}
 
 
+# A line that links on purpose: a key from another project counts only on such a line (the parent's own project's keys
+# count wherever its text names them).
+LINK_VERB = re.compile(r"\bsee\b|\bper\b|\bblock(?:ed|s|ing)? by\b|\bfollow[- ]?up (?:of|to|on)\b|\brelate[sd]?\b|相关", re.I)
+DONE = {"done", "closed", "resolved", "cancelled"}
+
+
+def is_done(issue):
+    f = (issue or {}).get("fields") or {}
+    st = f.get("status") or {}
+    return ((st.get("statusCategory") or {}).get("key") == "done") or (st.get("name") or "").lower() in DONE
+
+
 def select_link_named(parent, children, before=None):
     """The links a parent's own text names but Jira lacks: [(write)], [left out with why]. `children` {key: issue} for
     the named tickets (a key that could not be read is left out, named). `before` an ISO time: comments after it are not
-    read (a replay of a past morning)."""
+    read (a replay of a past morning). URLs are not read (ticket_keys); a key from another project counts only on a line
+    with a link verb (LINK_VERB); a Done ticket from another project named once is never proposed as `contains`."""
     pk = parent["key"]
+    proj = pk.split("-")[0]
     f = parent.get("fields") or {}
     texts = [("description", None, adf_text(f.get("description")))]
     for c in (f.get("comment") or {}).get("comments") or []:
@@ -556,16 +586,24 @@ def select_link_named(parent, children, before=None):
             continue
         texts.append(((c.get("author") or {}).get("displayName") or "?", c.get("created"), adf_text(c.get("body"))))
     linked = {l["key"] for l in links_of(parent)}
-    named, order = {}, []
+    named, order, times, loose = {}, [], {}, {}
     for who, at, text in texts:
         for line in (text or "").split("\n"):
+            verb = bool(LINK_VERB.search(strip_urls(line)))
             for k in ticket_keys(line):
-                if k == pk or k in named:
+                if k == pk:
                     continue
+                times[k] = times.get(k, 0) + 1
+                if k in named:
+                    continue
+                if k.split("-")[0] != proj and not verb:
+                    loose.setdefault(k, who); continue
                 rel = bool(re.search(r"\brelate[sd]?\b|相关", line, re.I))
                 named[k] = {"who": who, "at": (at or "")[:10], "relates": rel}
                 order.append(k)
-    proposed, left = [], []
+    left = [f"{k} — another project's key named by {who} with no link verb on its line" for k, who in loose.items()
+            if k not in named and k not in linked]
+    proposed = []
     for k in order:
         if k in linked:
             continue
@@ -575,6 +613,8 @@ def select_link_named(parent, children, before=None):
         par = (((ch.get("fields") or {}).get("parent") or {}).get("key"))
         if par and (par in linked or par in order):
             left.append(f"{k} — a subtask of {par}, which carries it"); continue
+        if k.split("-")[0] != proj and is_done(ch) and times[k] == 1 and not named[k]["relates"]:
+            left.append(f"{k} — another project's Done ticket named once: a mention, not a child"); continue
         proposed.append(k)
     writes = []
     for i, k in enumerate(proposed, 1):

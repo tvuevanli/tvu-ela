@@ -35,7 +35,7 @@ parent = issue("MH-3735", assignee={"emailAddress": OWNER, "displayName": "Owner
                comment={"comments": [
                    comment("290954", "Automation for Jira", "2026-11-10T18:36:27.776-0800", "Copied from MH-3990"),
                    comment("291320", "a colleague", "2026-11-11T12:10:14.614-0800",
-                           "Mixer: Prod 3 still needs the Audio Mixer's MQTT setting turned on (EDPP-3311).",
+                           "Mixer: Prod 3 still needs the Audio Mixer's MQTT setting turned on (blocked by EDPP-3311).",
                            "CSC: MQTT support is finished (MH-3983). UR change in review (MH-3986); app change on QA (MH-3987).",
                            "White Balance: UR needs a small fix before QA can test it (MH-3842).",
                            "Blackframe Detector: next workflow-engine deployment (MH-3990).",
@@ -60,6 +60,34 @@ with tempfile.TemporaryDirectory() as R:
     sw, sl = D.select_link_named(sp, {"SCTE-35": issue("SCTE-35"), "MH-3998": issue("MH-3998")})
     check("a standard's name (SCTE-35, SCTE-104) is not a ticket named, even when a Jira ticket carries it",
           [w["target"] for w in sw] == ["MH-3998"] and not any("SCTE" in x for x in sl))
+    bare = dict(parent, fields=dict(parent["fields"], comment={"comments": [dict(parent["fields"]["comment"]["comments"][1], body={
+        "type": "doc", "content": [para("Mixer: Prod 3 still needs the Audio Mixer's MQTT setting turned on (EDPP-3311).")]})]}))
+    bw, bl = D.select_link_named(bare, children)
+    check("another project's key with no link verb on its line is not proposed, and is named as left out",
+          bw == [] and any(x.startswith("EDPP-3311 — another project's key") for x in bl))
+    # MH-3997 on 2026-11-24 (batch 2026-11-24-link-named-MH-3997, dropped with B): Jira's smart-link made a standard's
+    # name look like a reference, and a Figma file named after a ticket sat in a URL path
+    def card(url):
+        return {"type": "inlineCard", "attrs": {"url": url}}
+    p97 = issue("MH-3997", issuelinks=[], comment={"comments": []}, description={"type": "doc", "content": [
+        {"type": "paragraph", "content": [{"type": "text", "text": "Mux carries "}, card("https://tvunetworks.atlassian.net/browse/SCTE-35#icft=SCTE-35"),
+                                          {"type": "text", "text": " markers as today."}]},
+        para("Design: https://www.figma.com/design/AbC123xyz/MH-2026?node-id=12-345&t=k"),
+        para("Scope as in https://tvunetworks.atlassian.net/browse/MH-3998 and MH-3999.")]})
+    kids97 = {"SCTE-35": issue("SCTE-35", status="Done"), "MH-2026": issue("MH-2026", status="Done"),
+              "MH-3998": issue("MH-3998"), "MH-3999": issue("MH-3999")}
+    w97, l97 = D.select_link_named(p97, kids97)
+    check("MH-3997: an #icft= smart-link and a Figma file name in a URL path name no ticket; a plain browse link and prose do",
+          [w["target"] for w in w97] == ["MH-3998", "MH-3999"] and not any("SCTE" in x or "MH-2026" in x for x in l97))
+    check("strip_urls keeps a plain browse link's key and drops the rest",
+          D.ticket_keys("see https://x.atlassian.net/browse/MH-1 and https://x.atlassian.net/browse/MH-2#icft=MH-2 "
+                        "https://www.figma.com/design/a/MH-3?node-id=1") == ["MH-1"])
+    pd = issue("MH-3984", issuelinks=[], comment={"comments": []}, description={"type": "doc", "content": [
+        para("Same symptom as FB-10748, see there."), para("Related: FB-10749.")]})
+    wd, ld = D.select_link_named(pd, {"FB-10748": issue("FB-10748", status="Done"), "FB-10749": issue("FB-10749", status="Done")})
+    check("another project's Done ticket named once is never proposed as contains; a related one still relates",
+          [(w["target"], w["command"].split("--type ")[1]) for w in wd] == [("FB-10749", '"relates to"')]
+          and any(x.startswith("FB-10748 — another project's Done ticket") for x in ld))
     check("every write is a command the class admits", all(__import__("re").match(D.CLASSES["link-named"]["command"], w["command"]) for w in writes))
     check("a parent he does not own is not the class's", not D.owns(dict(parent, fields=dict(parent["fields"], assignee={"emailAddress": "x@y"})), OWNER))
     b = D.make_batch(R, "link-named", "MH-3735", writes, left, THU)
