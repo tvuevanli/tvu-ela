@@ -36,8 +36,8 @@ needs `ela login tvu`, and exit 4 names it.
   `UTC | event | source | status`, oldest first: each event with the read that shows it, status `checked` (read
   first-hand), `inferred` (follows from reads, not read itself) or `NOT checked`, and every span nobody read as a
   `NOT checked` row of its own. Show it with each progress report; the answer's timeline is its last state. In Slack
-  it goes in the detail as one fenced block with aligned columns, cells split by `|`, which `ela slack post` sends as
-  Slack's table block (the fence stays when Slack refuses it); in a vault note, a table.
+  it goes in the detail as one fenced block with aligned columns, cells split by `|` and a divider row under the header
+  (`---|---`), which `ela slack post` sends as Slack's table block (the fence stays when Slack refuses it); in a vault note, a table.
 - **Read-only over other teams' runtimes.** Logs are read; log levels, restarts and config refreshes
   are the owner's to do, and appear in a handoff as a request, never as an action taken.
 - **Absence under a trace is never evidence of absence.** A service that did not receive the trace id
