@@ -67,7 +67,7 @@ QUESTION_WAIT_H = 48
 STALL_DAYS = {"In Progress": 2, "Reopened": 2, "Review": 5, "Blocked": 7, "On Hold": 14}
 ACTIVE = ("In Progress", "Review", "Reopened")
 MOVED_MARGIN = datetime.timedelta(minutes=15)   # ela's own write moves the ticket: within this, it is not a move
-MAX_PER_PASS = 25                               # the session's load in one pass; the rest wait, the owner's first
+MAX_PER_PASS = int(os.environ.get("ELA_WATCH_MAX") or 25)   # the session's load in one pass (the runner caps the rollout); the rest wait, the owner's first
 VERBS = ("assign", "transition", "priority", "due", "link")
 SPRINT_FIELD = "customfield_10020"
 DONE = ("Done", "Cancelled", "Closed", "Failed", "Closed Ambigous")
