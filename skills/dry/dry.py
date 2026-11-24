@@ -121,7 +121,27 @@ CLASSES = {
                 "report, not evidence; every move is confirmed; a created ticket has no reverse, so the class never climbs",
         "reverse": (),
     },
+    "board-watch": {
+        "says": "act on an MH ticket the board watch found due: assign, a non-terminal status, priority, due date, a "
+                "link, a comment, each announced on the ticket by a signed comment",
+        "atom": ("jira", "assign+transition+priority+due+link+comment"), "noun": ("ticket set", "ticket sets"),
+        "ladder": (1,), "base": 1,
+        "rule": "the board watch's (ela watch): a trigger on a tracked MH ticket (a change calling for a response, a "
+                "question answered or past its wait, a wrong assignee or status, a stall), a model session's decision "
+                "to act, at most one set per ticket a day, never a repeated comment; what it cannot decide is an ask",
+        "command": r"^ela jira (?:assign " + KEY + r" --assignee \S+"
+                   r"|transition " + KEY + r" --to (?:\"[A-Za-z ]+\"|'[A-Za-z ]+'|[A-Za-z]+)"
+                   r"|priority " + KEY + r" --to (?:Highest|High|Medium|Low|Lowest)"
+                   r"|due " + KEY + r" --date \d{4}-\d{2}-\d{2}"
+                   r"|link " + KEY + r" " + KEY + r" --type (?:\"[A-Za-z ]+\"|'[A-Za-z ]+'|[A-Za-z]+)"
+                   r") --note-file \S+\s*$"
+                   r"|^ela jira comment " + KEY + r" --from-file \S+\s*$",
+        "case": "tier 1 by the decision of 2026-11-24 (ela watches the MH board and acts on Jira, signing each write); "
+                "reviewed afterwards in ela/dry/did.md, a disputing reply on the ticket a correction",
+        "reverse": (("assign", "--assignee"), ("comment-delete", "--id"), ("unlink", "--id")),
+    },
 }
+TIER1_BY_DECISION = ("board-watch",)   # written at the pass that decides them, each act on record with its undo
 # tier 3 by rule (decision 2026-10-29): recorded, never proposed for a grant
 NEVER = {
     "message-to-person": "a message to a person",
@@ -644,6 +664,63 @@ def make_batch(reports, cls, scope, writes, left, today):
     return b
 
 
+# ── tier 1 by decision: written at the pass, kept on record ───────────────────────────────────────────────────
+def act(reports, cls, scope, writes, today, apply=False, runner=None, now=None):
+    """One set of writes a tier-1 class makes without asking (TIER1_BY_DECISION), run in order through jira.py and kept
+    as an applied batch: each write an act with its before-state and undo (jira.py's acts.jsonl, ELA_ACT), a record row
+    each, and ela/dry/did.md lists them. A write that fails stops the set. The batch id is the class, the scope and the
+    day, so a scope gets at most one set a day: a second is refused. A class a correction returned to confirm (tier 3)
+    is not written: the set becomes an ordinary open batch, asked on today.md. Each write must match the class's
+    commands. → {batch, state, did: [...], ok}; raises ValueError for a class outside TIER1_BY_DECISION or a write the
+    class does not admit."""
+    if cls not in TIER1_BY_DECISION:
+        raise ValueError(f"{cls} is not a tier-1 class by decision")
+    rx = re.compile(CLASSES[cls]["command"])
+    for w in writes:
+        if not rx.match(" ".join(w["command"].split())):
+            raise ValueError(f"{cls} does not admit: {w['command']}")
+    bid = f"{today.isoformat()}-{cls}-{scope}"
+    old = load_batch(reports, bid)
+    if old and old.get("state") in ("applied", "open"):
+        return {"batch": bid, "state": "refused", "ok": False, "did": [f"{scope}: one set a day; {bid} is already {old['state']}"]}
+    writes = [dict(w, n=i) for i, w in enumerate(writes, 1)]
+    if load_state(reports)[cls]["tier"] != 1:
+        if not apply:
+            return {"batch": bid, "state": "would ask", "ok": True, "did": [f"{cls} is back at your confirm: the set is asked on today.md"]}
+        b = make_batch(reports, cls, scope, [{k: w[k] for k in ("n", "target", "command", "why")} for w in writes], [], today)
+        return {"batch": b["id"], "state": "open", "ok": True, "did": [f"{cls} is back at your confirm: asked as {b['id']}"]}
+    did, ok = [], True
+    for w in writes:
+        if not ok:
+            did.append(f"{w['n']} skipped: an earlier write of the set failed"); continue
+        a_id = act_id(bid, w["n"])
+        code, out = (runner(w["command"], apply) if runner else
+                     run_write(w["command"], apply, action=a_id, word=f"{cls} (tier 1 by decision)", cls=cls))
+        ok = code == 0
+        did.append(f"{w['n']} {'applied' if apply else 'dry run'}: {'ok' if ok else 'failed'} — "
+                   f"{(out.splitlines() or [''])[-1]}"[:300])
+        if apply and ok:
+            append(reports, {"at": now_iso(now), "class": cls, "verdict": "applied", "as_drafted": True, "target": w["target"],
+                             "command": w["command"], "why": w.get("why"), "batch": bid, "act": a_id, "source": "tier1"})
+    if apply:
+        save_batch(reports, {"id": bid, "class": cls, "scope": scope, "made": now_iso(now), "state": "applied" if ok else "failed",
+                             "writes": [{k: w[k] for k in ("n", "target", "command", "why")} for w in writes], "left_out": [],
+                             "answered": {"letter": None, "at": now_iso(now), "by": "tier 1 by decision"}})
+    return {"batch": bid, "state": ("applied" if ok else "failed") if apply else "dry run", "ok": ok, "did": did}
+
+
+def tier1_done(reports, day):
+    """The tier-1 acts written on `day` (record rows from `act`): [(act id, text, undo)], the undo the reverse atom
+    jira.py kept for it (`ela dry undo <act> --apply`), or a note when the verb has none."""
+    rows = [r for r in record(reports) if r.get("source") == "tier1" and (r.get("at") or "")[:10] == day]
+    kept = {a.get("act") for a in acts(reports)}
+    out = []
+    for r in rows:
+        undo = f"ela dry undo {r['act']} --apply" if r.get("act") in kept else "no reverse atom: undo it on the ticket"
+        out.append((r["act"], f"{r.get('target')}: {r.get('why') or r.get('command')}", undo))
+    return out
+
+
 # ── the answer ────────────────────────────────────────────────────────────────────────────────────────────────
 def run_write(command, apply, action=None, word=None, cls=None):
     """One write through its own capability: `ela jira …` becomes jira.py; --apply only when the answer carried it.
@@ -834,18 +911,22 @@ def did(reports, day):
     """What granted classes did without confirm on a day, from the runner's actions files: tier-1 actions under a class
     rule, applied. → (Facts line or None, [(n, text, undo)])."""
     try:
-        acts = json.load(open(os.path.join(reports, "runner", f"{day}-actions.json"), encoding="utf-8"))
+        ran = json.load(open(os.path.join(reports, "runner", f"{day}-actions.json"), encoding="utf-8"))
     except (OSError, ValueError):
-        return None, []
-    acts = acts.get("actions") if isinstance(acts, dict) else acts
-    rows = [a for a in acts or [] if a.get("rule") in CLASSES and a.get("tier") in (1, 2) and a.get("applied")]
-    if not rows:
+        ran = []
+    ran = ran.get("actions") if isinstance(ran, dict) else ran
+    rows = [a for a in ran or [] if a.get("rule") in CLASSES and a.get("tier") in (1, 2) and a.get("applied")]
+    own = tier1_done(reports, day)
+    if not rows and not own:
         return None, []
     counts = {}
     for a in rows:
         counts[a["rule"]] = counts.get(a["rule"], 0) + 1
-    words = ", ".join(f"{n} {CLASSES[c]['noun'][0] if n == 1 else CLASSES[c]['noun'][1]}" for c, n in counts.items())
-    return f"ela did: {words}", [(a["n"], a.get("text") or a.get("command"), f"ela: undo {a['n']}") for a in rows]
+    sets = {(r["class"], r.get("batch")) for r in record(reports) if r.get("source") == "tier1" and (r.get("at") or "")[:10] == day}
+    for c, _ in sets:                                      # a tier-1 class counts its sets, one per ticket
+        counts[c] = counts.get(c, 0) + 1
+    words = ", ".join(f"{n} {CLASSES[c]['noun'][0] if n == 1 else CLASSES[c]['noun'][1]}" for c, n in counts.items() if c in CLASSES)
+    return f"ela did: {words}", [(a["n"], a.get("text") or a.get("command"), f"ela: undo {a['n']}") for a in rows] + own
 
 
 def notices(reports, day):
