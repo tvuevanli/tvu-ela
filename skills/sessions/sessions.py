@@ -3,6 +3,7 @@
 
   sessions open <alias|path> [--name N] [--tab | --pane] [--brief FILE] [--permission-mode M] [--dry-run] ["brief"]
   sessions close <name> [--dry-run]
+  sessions land <name> [--repo ela|runner] [--dry-run]
   sessions list [--limit 30] [--json]
   sessions usage [--since 7d|48h|YYYY-MM-DD] [--by kind|name|day|cwd|model] [--top 10] [--json]
   sessions find <word> [<word>…] [--since YYYY-MM-DD] [--limit 20] [--json]
@@ -16,6 +17,18 @@ alias (ela, runner, elak, helm, reports, published), `code/<ref>` resolved by ma
 --brief FILE makes the first message a pointer to that file. The default name is the alias. It refuses a name a
 live session holds (started, not ended, its process alive). Outside zellij it refuses. --dry-run prints the layout
 and the commands. Focus returns to the tab named `desk` when there is one.
+
+open on ela or ela-runner (the alias or the checkout's path) does not start the worker in the shared checkout:
+every `ela` command, the runner and every session run that checkout, so an unfinished edit there is production.
+It needs --name N, adds the worktree <work>/<N>/<repo> on branch evan/<N> from main (reusing the worktree or the
+branch when one exists) and starts the worker there; --in-place opens the checkout itself, for a look, not a change.
+
+land: brings a worker's branch evan/<N> into the shared checkout, all or nothing. In order: the worktree has no
+uncommitted change; the checkout is on main with no rebase or merge under way; origin is fetched; the branch is
+rebased on origin/main (or on main when main is ahead); tests/run.sh passes in the worktree; no dirty or untracked
+file in the checkout is one the change touches; then main is fast-forwarded, pushed, and the worktree and the branch
+are removed. Any failed step refuses with its reason and leaves main where it was; a failed rebase is aborted.
+--dry-run makes the read-only checks and prints the steps. Exit 4 for a refusal, 5 when git fails after main moved.
 
 close: ends a live session by name: TERM to its Claude process, then its pane (`zellij action close-pane
 --pane-id`), and an end line "closed by desk" in the registry. The desk runs it after the worker's closing line.
@@ -47,7 +60,7 @@ answer (240 chars) · the paths the session read (Read tool calls, at most 12, r
 Not printed: tool results of any kind, any other prompt or answer. Every printed string passes configserver.redact (credentials), then publish.redact
 (addresses become <ip> / <tailnet>) and any run of 32+ token-shaped characters becomes <token>.
 
-Exit codes: 0 ok · 2 usage · 3 nothing found / unknown target · 5 zellij failed.
+Exit codes: 0 ok · 2 usage · 3 nothing found / unknown target · 4 land refused · 5 zellij or git failed.
 """
 import argparse, datetime, glob, json, os, re, shlex, subprocess, sys
 
@@ -317,6 +330,41 @@ def target_dir(ref):
     return None, f"{ref}: not an alias ({', '.join(list(ALIASES) + list(ROOT_ALIASES))}), not code/<ref>, not a directory"
 
 
+GUARDED = ("ela", "ela-runner")   # checkouts under <projects> that every ela command runs: changed only in a worktree
+BASE = "main"
+NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+
+
+def guarded(cwd):
+    """The repository name when cwd is the shared ela or ela-runner checkout, else None."""
+    projects = site().get("projects")
+    for repo in GUARDED:
+        if projects and os.path.realpath(cwd) == os.path.realpath(os.path.join(projects, repo)):
+            return repo
+    return None
+
+
+def work_root():
+    s = site()
+    return s.get("work") or (os.path.join(runtime_root(), "work") if runtime_root() else None)
+
+
+def git(d, *args):
+    return subprocess.run(["git", "-C", d, *args], capture_output=True, text=True)
+
+
+def worktree_plan(checkout, wt, branch):
+    """(git argv to run or None when the worktree is there, None) or (None, why it cannot be used)."""
+    if os.path.isdir(wt):
+        head = git(wt, "rev-parse", "--abbrev-ref", "HEAD")
+        if head.returncode != 0 or head.stdout.strip() != branch:
+            return None, f"{wt} exists but is not a worktree on {branch} — pick another name"
+        return None, None
+    if git(checkout, "rev-parse", "--verify", "--quiet", f"refs/heads/{branch}").returncode == 0:
+        return ["git", "-C", checkout, "worktree", "add", wt, branch], None
+    return ["git", "-C", checkout, "worktree", "add", "-b", branch, wt, BASE], None
+
+
 def kdl(text):
     return '"' + text.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n").replace("\t", "\\t") + '"'
 
@@ -351,13 +399,31 @@ def cmd_open(a):
     if not cwd:
         print(f"session open: {name}", file=sys.stderr)
         return 3
+    repo = None if a.in_place else guarded(cwd)
+    prep, note = None, ""
+    if repo:
+        if not a.name or not NAME.fullmatch(a.name):
+            print(f"session open: {repo} is changed only in a worktree — pass --name N (letters, digits, . _ -) for "
+                  f"<work>/N/{repo} on branch evan/N, or --in-place to open the shared checkout for a look", file=sys.stderr)
+            return 2
+        if not work_root():
+            print("session open: no work root in site.json — run /ela:setup", file=sys.stderr)
+            return 2
+        checkout, branch = cwd, f"evan/{a.name}"
+        cwd = os.path.join(work_root(), a.name, repo)
+        prep, why = worktree_plan(checkout, cwd, branch)
+        if why:
+            print(f"session open: {why}", file=sys.stderr)
+            return 2
+        note = (f"You work in the worktree {cwd} on branch {branch}, never in the shared checkout {checkout}; commit here, "
+                f"and the desk lands it with `ela session land {a.name}`.")
     name = a.name or name
     held = live(name)
     if held and not a.dry_run:
         print(f"session open: {name} is still open (pane {held.get('pane') or '?'}); close it with `ela session close {name}` "
               "or pick another name", file=sys.stderr)
         return 2
-    first = " ".join(x for x in ((f"Read {os.path.abspath(a.brief_file)} and follow it." if a.brief_file else ""), a.brief) if x)
+    first = " ".join(x for x in ((f"Read {os.path.abspath(a.brief_file)} and follow it." if a.brief_file else ""), a.brief, note) if x)
     argv = ["env", f"ELA_SESSION_NAME={name}", f"ELA_SESSION_PURPOSE={one_line80(a.brief or (a.brief_file and os.path.basename(a.brief_file)) or '')}",
             "claude", "--name", name]
     if a.permission_mode:
@@ -388,6 +454,8 @@ def cmd_open(a):
     if mode == "workers" and DESK in tabs:
         runs.append(["zellij", "action", "go-to-tab-name", DESK])
     if a.dry_run:
+        if prep:
+            print(" ".join(shlex.quote(x) for x in prep))
         print(layout or "(the workers tab exists: no layout)")
         for run in runs:
             print(" ".join(shlex.quote(x) for x in run))
@@ -399,6 +467,13 @@ def cmd_open(a):
     if not root:
         print("session open: no runtime root in site.json — run /ela:setup", file=sys.stderr)
         return 2
+    if prep:
+        os.makedirs(os.path.dirname(cwd), exist_ok=True)
+        p = subprocess.run(prep, capture_output=True, text=True)
+        if p.returncode != 0:
+            print(f"session open: git worktree add failed: {p.stderr.strip() or p.returncode}", file=sys.stderr)
+            return 5
+        print(f"worktree {shown_path(cwd, *roots())} on {branch}")
     d = os.path.join(root, "sessions")
     os.makedirs(d, exist_ok=True)
     stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -415,6 +490,113 @@ def cmd_open(a):
     if not trusted(cwd):
         print("the folder is new to Claude Code: the session waits in its tab for your trust answer, and is recorded after it")
     return 0
+
+
+# ── land ────────────────────────────────────────────────────────────────────────────────────────
+
+def dirty(d):
+    """Paths with uncommitted or untracked changes in a checkout (both sides of a rename)."""
+    out = git(d, "status", "--porcelain", "-z", "--untracked-files=all").stdout
+    paths, items, i = set(), out.split("\0"), 0
+    while i < len(items):
+        it = items[i]
+        if len(it) > 3:
+            paths.add(it[3:])
+            if it[0] in "RC":            # a rename's source follows as its own item
+                i += 1
+                if i < len(items) and items[i]:
+                    paths.add(items[i])
+        i += 1
+    return paths
+
+
+def touched(d, *ranges):
+    files = set()
+    for r in ranges:
+        files |= {x for x in git(d, "diff", "--name-only", r).stdout.splitlines() if x}
+    return files
+
+
+def cmd_land(a):
+    def refuse(why, code=4):
+        print(f"session land {a.name}: refused — {why}", file=sys.stderr)
+        return code
+    if not NAME.fullmatch(a.name):
+        return refuse("a name is letters, digits, . _ -", 2)
+    projects, work = site().get("projects"), work_root()
+    if not projects or not work:
+        return refuse("no projects or work root in site.json — run /ela:setup", 2)
+    repos = [ALIASES.get(a.repo, a.repo)] if a.repo else list(GUARDED)
+    repos = [r for r in repos if r in GUARDED and os.path.isdir(os.path.join(work, a.name, r))]
+    if len(repos) != 1:
+        where = os.path.join(shown_path(work, *roots()), a.name)
+        return refuse(f"no worktree of ela or ela-runner under {where}" if not repos
+                      else f"worktrees of {' and '.join(repos)} under {where} — pass --repo", 3)
+    repo = repos[0]
+    wt, checkout, branch = os.path.join(work, a.name, repo), os.path.join(projects, repo), f"evan/{a.name}"
+    if git(wt, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip() != branch:
+        return refuse(f"{wt} is not on {branch}")
+    if dirty(wt):
+        return refuse("uncommitted changes in the worktree: " + ", ".join(sorted(dirty(wt))) + " — commit or drop them first")
+    if git(checkout, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip() != BASE:
+        return refuse(f"the shared checkout {checkout} is not on {BASE}")
+    for marker in ("rebase-merge", "rebase-apply", "MERGE_HEAD", "CHERRY_PICK_HEAD"):
+        if os.path.exists(os.path.join(checkout, git(checkout, "rev-parse", "--git-path", marker).stdout.strip())):
+            return refuse(f"a {marker.lower().replace('_', ' ')} is under way in the shared checkout")
+    if not os.path.isfile(os.path.join(wt, "tests", "run.sh")):
+        return refuse(f"no tests/run.sh in {wt}")
+    f = git(checkout, "fetch", "--quiet", "origin", BASE)
+    if f.returncode != 0:
+        return refuse(f"fetch origin failed: {f.stderr.strip()}")
+    upstream = f"origin/{BASE}"
+    if git(checkout, "merge-base", "--is-ancestor", BASE, upstream).returncode == 0:
+        base = upstream
+    elif git(checkout, "merge-base", "--is-ancestor", upstream, BASE).returncode == 0:
+        base = BASE
+    else:
+        return refuse(f"{BASE} and {upstream} have diverged — settle the shared checkout first")
+    if git(checkout, "rev-list", "--count", f"{base}..{branch}").stdout.strip() == "0":
+        return refuse(f"{branch} has nothing that {base} lacks — remove the worktree with `git worktree remove {wt}`")
+    def overlap():
+        return sorted(dirty(checkout) & touched(checkout, f"{BASE}...{branch}", *([f"{BASE}..{base}"] if base != BASE else [])))
+    both = overlap()
+    if both:
+        return refuse("dirty in the shared checkout and touched by the change: " + ", ".join(both)
+                      + " — whoever holds them commits or stashes first")
+    steps = [f"rebase {branch} on {base}", "tests/run.sh in the worktree", f"fast-forward {BASE} in {checkout}",
+             f"push origin {BASE}", f"remove the worktree {wt} and {branch}"]
+    if a.dry_run:
+        print("\n".join(steps))
+        return 0
+    r = git(wt, "rebase", base)
+    if r.returncode != 0:
+        git(wt, "rebase", "--abort")
+        return refuse(f"rebase on {base} failed and was aborted: {(r.stdout + r.stderr).strip()[-600:]}")
+    t = subprocess.run(["bash", "tests/run.sh"], cwd=wt, capture_output=True, text=True)
+    if t.returncode != 0:
+        tail = "\n".join((t.stdout + t.stderr).strip().splitlines()[-20:])
+        return refuse(f"tests/run.sh failed in the worktree:\n{tail}")
+    both = overlap()   # again: the checkout may have changed while the tests ran
+    if both:
+        return refuse("dirty in the shared checkout and touched by the change: " + ", ".join(both))
+    m = git(checkout, "merge", "--ff-only", branch)
+    if m.returncode != 0:
+        return refuse(f"fast-forward failed: {m.stderr.strip()}")
+    p = git(checkout, "push", "--quiet", "origin", BASE)
+    if p.returncode != 0:
+        print(f"session land {a.name}: {BASE} moved to {branch} but the push failed: {p.stderr.strip()} — push by hand; "
+              "the worktree is kept", file=sys.stderr)
+        return 5
+    head = git(checkout, "rev-parse", "--short", "HEAD").stdout.strip()
+    rm = git(checkout, "worktree", "remove", wt)
+    git(checkout, "branch", "-d", branch)
+    try:
+        os.rmdir(os.path.dirname(wt))
+    except OSError:
+        pass
+    print(f"landed {a.name}: {repo} {BASE} at {head}, pushed"
+          + ("; worktree removed" if rm.returncode == 0 else f"; worktree not removed: {rm.stderr.strip()}"))
+    return 0 if rm.returncode == 0 else 5
 
 
 def claude_pid():
@@ -811,7 +993,12 @@ def main():
     o.add_argument("--tab", action="store_true", help="a tab of its own instead of a stacked pane in the workers tab")
     o.add_argument("--brief", dest="brief_file", metavar="FILE", help="a brief file: the first message points to it")
     o.add_argument("--permission-mode")
+    o.add_argument("--in-place", action="store_true", help="ela or ela-runner: the shared checkout itself, not a worktree")
     o.add_argument("--dry-run", action="store_true", help="print the layout and the command; open nothing")
+    g = sub.add_parser("land", help="rebase evan/N on main, test, fast-forward main, push, remove the worktree")
+    g.add_argument("name")
+    g.add_argument("--repo", choices=("ela", "runner", "ela-runner"))
+    g.add_argument("--dry-run", action="store_true", help="the read-only checks and the steps; nothing moves")
     c = sub.add_parser("close", help="end a live session by name: its Claude process, then its pane")
     c.add_argument("name")
     c.add_argument("--dry-run", action="store_true")
@@ -839,7 +1026,7 @@ def main():
         ap.error("unrecognized arguments: " + " ".join(extra))
     if a.cmd == "find" and a.since and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", a.since):
         ap.error("--since takes YYYY-MM-DD")
-    sys.exit({"find": cmd_find, "open": cmd_open, "close": cmd_close, "list": cmd_list, "here": cmd_here, "usage": cmd_usage,
+    sys.exit({"find": cmd_find, "open": cmd_open, "close": cmd_close, "land": cmd_land, "list": cmd_list, "here": cmd_here, "usage": cmd_usage,
               "hook-start": cmd_hook_start, "hook-end": cmd_hook_end}[a.cmd](a))
 
 

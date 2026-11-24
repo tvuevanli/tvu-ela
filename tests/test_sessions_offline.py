@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""sessions: the hooks' registry lines merge into one row per session; open writes a layout and refuses outside zellij."""
+"""sessions: the hooks' registry lines merge into one row per session; open writes a layout and refuses outside zellij;
+open on ela or ela-runner starts the worker in a worktree; land fast-forwards main only when it is safe."""
 import json, os, subprocess, sys, tempfile
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCRIPT = os.path.join(ROOT, "skills", "sessions", "sessions.py")
@@ -42,25 +43,91 @@ with tempfile.TemporaryDirectory() as tmp:
     rows = {r["id"]: r for r in json.loads(run(["list", "--json"]).stdout)}
     check(rows["b"]["ended"] is None, "a resume reopens it")
 
-    p = run(["open", "runner", "--dry-run", "--tab", "--name", "runner-dev", 'read "the brief"'])
+    p = run(["open", "runner", "--in-place", "--dry-run", "--tab", "--name", "runner-dev", 'read "the brief"'])
     check(p.returncode == 0 and 'cwd="' + os.path.join(tmp, "projects", "ela-runner") + '"' in p.stdout
           and '"read \\"the brief\\""' in p.stdout and "new-tab --name runner-dev" in p.stdout, "open --tab --dry-run: the layout at the alias, the brief quoted")
-    p = run(["open", "runner", "--dry-run", "--name", "runner-dev", "x"])
+    p = run(["open", "runner", "--in-place", "--dry-run", "--name", "runner-dev", "x"])
     check("new-tab --name workers" in p.stdout and "pane stacked=true" in p.stdout and 'name="runner-dev"' in p.stdout,
           "by default a stacked pane in a new workers tab, titled with the session's name")
-    p = run(["open", "runner", "--pane", "--dry-run", "--brief", "/b/brief.md", "--name", "topic-x"])
+    p = run(["open", "runner", "--in-place", "--pane", "--dry-run", "--brief", "/b/brief.md", "--name", "topic-x"])
     check("Read /b/brief.md and follow it." in p.stdout, "--brief FILE: the first message points to the file")
     run(["hook-start"], json.dumps({"session_id": "c", "source": "startup", "cwd": "/z"}), ELA_SESSION_NAME="busy", ZELLIJ_PANE_ID="7")
-    p = run(["open", "runner", "--name", "busy", "x"])
+    p = run(["open", "runner", "--in-place", "--name", "busy", "x"])
     check(p.returncode == 2 and "busy is still open (pane 7)" in p.stderr, "a name a live session holds is refused")
     p = run(["close", "busy", "--dry-run"])
     check(p.returncode == 0 and "close-pane --pane-id 7" in p.stdout, "close names the process and the pane it ends")
     check(run(["close", "nobody"]).returncode == 3, "closing a name no live session holds exits 3")
-    p = run(["open", "runner", "--pane", "--dry-run", "x"])
+    p = run(["open", "runner", "--in-place", "--pane", "--dry-run", "x"])
     check("zellij run --name runner" in p.stdout, "--pane goes through zellij run")
-    p = run(["open", "runner", "x"])
+    p = run(["open", "runner", "--in-place", "x"])
     check(p.returncode == 2 and "not inside zellij" in p.stderr and not os.path.isdir(os.path.join(tmp, "rt", "sessions")), "outside zellij it refuses and writes nothing")
     check(run(["open", "nowhere", "x"]).returncode == 3, "an unknown target exits 3")
+    # ela and ela-runner: the worker starts in a worktree; land brings it into main only when it is safe
+    G = dict(GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t", GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t")
+    def git(d, *args):
+        return subprocess.run(["git", "-C", d, *args], capture_output=True, text=True, env=dict(os.environ, **G))
+    projects, work = os.path.join(tmp, "projects"), os.path.join(tmp, "work")
+    origin, ela = os.path.join(tmp, "origin.git"), os.path.join(projects, "ela")
+    json.dump({"projects": projects, "runtime": os.path.join(tmp, "rt"), "work": work},
+              open(os.path.join(home, ".claude", "ela", "site.json"), "w"))
+    subprocess.run(["git", "init", "-q", "--bare", "-b", "main", origin], check=True)
+    subprocess.run(["git", "clone", "-q", origin, ela], check=True, capture_output=True)
+    git(ela, "checkout", "-q", "-b", "main")
+    os.makedirs(os.path.join(ela, "tests"))
+    open(os.path.join(ela, "tests", "run.sh"), "w").write("#!/usr/bin/env bash\ntest ! -e FAIL\n")
+    open(os.path.join(ela, "a.txt"), "w").write("a\n")
+    open(os.path.join(ela, "b.txt"), "w").write("b\n")
+    git(ela, "add", "."); git(ela, "commit", "-qm", "base"); git(ela, "push", "-q", "origin", "main")
+    p = run(["open", "ela", "--dry-run", "x"])
+    check(p.returncode == 2 and "only in a worktree" in p.stderr, "open ela without --name is refused: a worktree needs a name")
+    p = run(["open", ela, "--dry-run", "--tab", "--name", "w1", "x"])
+    wt = os.path.join(work, "w1", "ela")
+    check(p.returncode == 0 and f"worktree add -b evan/w1 {wt} main" in p.stdout and f'cwd="{wt}"' in p.stdout
+          and "ela session land w1" in p.stdout and not os.path.isdir(wt),
+          "open on the ela checkout by path: a worktree on evan/N from main, the worker there; dry run creates nothing")
+    p = run(["open", "ela", "--in-place", "--dry-run", "--tab", "--name", "look", "x"])
+    check(f'cwd="{ela}"' in p.stdout and "worktree add" not in p.stdout, "--in-place opens the shared checkout")
+    open(os.path.join(tmp, "zellij"), "w").write("#!/bin/sh\nexit 0\n"); os.chmod(os.path.join(tmp, "zellij"), 0o755)
+    p = run(["open", "ela", "--tab", "--name", "w1", "x"], ZELLIJ_SESSION_NAME="t", PATH=tmp + ":" + os.environ["PATH"])
+    check(p.returncode == 0 and git(wt, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip() == "evan/w1",
+          "open creates the worktree on evan/N before starting the worker")
+    p = run(["open", "ela", "--dry-run", "--tab", "--name", "w1", "x"])
+    check(p.returncode == 0 and "worktree add" not in p.stdout, "an existing worktree on the branch is reused")
+
+    def land(*args):
+        return run(["land", "w1", *args], **G)
+    check(land().returncode == 4 and "nothing that" in land().stderr, "land with no commit on the branch refuses")
+    open(os.path.join(wt, "a.txt"), "w").write("a2\n")
+    p = land()
+    check(p.returncode == 4 and "uncommitted changes in the worktree: a.txt" in p.stderr, "uncommitted work in the worktree refuses")
+    git(wt, "commit", "-qam", "change a")
+    open(os.path.join(ela, "a.txt"), "w").write("half-written\n")
+    p = land()
+    check(p.returncode == 4 and "dirty in the shared checkout and touched by the change: a.txt" in p.stderr
+          and git(ela, "rev-parse", "main").stdout == git(ela, "rev-parse", "origin/main").stdout,
+          "a dirty file in the shared checkout that the change touches refuses; main stays")
+    git(ela, "checkout", "-q", "a.txt")
+    open(os.path.join(ela, "b.txt"), "w").write("someone else's edit\n")
+    open(os.path.join(wt, "FAIL"), "w").write("x"); git(wt, "add", "FAIL"); git(wt, "commit", "-qm", "break the tests")
+    p = land()
+    check(p.returncode == 4 and "tests/run.sh failed" in p.stderr and os.path.isdir(wt)
+          and git(ela, "rev-parse", "main").stdout == git(ela, "rev-parse", "origin/main").stdout, "failing tests refuse; main stays")
+    git(wt, "rm", "-q", "FAIL"); git(wt, "commit", "-qm", "mend the tests")
+    # someone else lands first: origin moves ahead; the branch is rebased on it
+    other = os.path.join(tmp, "other")
+    subprocess.run(["git", "clone", "-q", origin, other], check=True, capture_output=True)
+    open(os.path.join(other, "c.txt"), "w").write("c\n"); git(other, "add", "c.txt"); git(other, "commit", "-qm", "c"); git(other, "push", "-q", "origin", "main")
+    p = land("--dry-run")
+    check(p.returncode == 0 and "rebase evan/w1 on origin/main" in p.stdout and os.path.isdir(wt), "--dry-run prints the steps, moves nothing")
+    p = land()
+    check(p.returncode == 0 and "landed w1" in p.stdout, "land: rebased, tested, fast-forwarded, pushed")
+    check(open(os.path.join(ela, "a.txt")).read() == "a2\n" and os.path.exists(os.path.join(ela, "c.txt"))
+          and open(os.path.join(ela, "b.txt")).read() == "someone else's edit\n",
+          "main carries the change and origin's commit; an unrelated dirty file is left alone")
+    check(git(origin, "rev-parse", "main").stdout == git(ela, "rev-parse", "main").stdout, "main is pushed")
+    check(not os.path.exists(os.path.join(work, "w1")) and git(ela, "rev-parse", "--verify", "--quiet", "evan/w1").returncode != 0,
+          "the worktree and the branch are removed")
+    check(run(["land", "w1"], **G).returncode == 3, "land with no worktree exits 3")
     # usage: each API message counted once, subagents added, the cost from cost-state, the kind from where it ran
     import datetime
     stamp = datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")

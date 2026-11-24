@@ -121,11 +121,17 @@
                                    next-train column and the report show it; each pass re-checks the carried keys
                                    (merged into release<line> per repo · named by the newest QA build · its QA report)
  sessions
-  ela session open <alias|path> [--name N] [--tab|--pane] [--brief FILE] [--permission-mode M] "brief"
+  ela session open <alias|path> [--name N] [--tab|--pane] [--in-place] [--brief FILE] [--permission-mode M] "brief"
                                    a worker session where the target's rules live: a stacked pane in the workers tab
                                    (made when missing), titled with its name; --tab its own tab; --pane beside this
                                    pane (a topic session); --brief FILE points the first message at a brief; a name a
-                                   live session holds is refused; the layout goes to <runtime>/sessions/; needs zellij
+                                   live session holds is refused; the layout goes to <runtime>/sessions/; needs zellij.
+                                   On ela or runner it needs --name N and starts the worker in <work>/N/<repo> on
+                                   branch evan/N, never in the shared checkout; --in-place opens the checkout for a look
+  ela session land <name> [--repo ela|runner] [--dry-run]
+                                   bring evan/N into the shared checkout: rebase on origin/main, tests/run.sh in the
+                                   worktree, fast-forward main only when no dirty file there overlaps, push, remove the
+                                   worktree; any failed step refuses with its reason and main stays
   ela session close <name>         end a live session: its Claude process, then its pane; the registry says closed by desk
   ela session list                 the sessions on this machine, newest first: name, cwd, started, ended, purpose
   ela session here [--json]        this session's id and /rename name
