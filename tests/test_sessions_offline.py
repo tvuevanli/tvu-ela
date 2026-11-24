@@ -7,12 +7,37 @@ SCRIPT = os.path.join(ROOT, "skills", "sessions", "sessions.py")
 fail = 0
 
 
-def run(args, stdin="", **env):
-    e = dict(os.environ, HOME=home)
-    for k in ("ZELLIJ_SESSION_NAME", "ELA_SESSION_NAME", "ELA_SESSION_PURPOSE"):   # a worker session carries its own
+STUB = '#!/bin/sh\nprintf "%s\\n" "$*" >> "{log}"\nexit 0\n'   # records its argv, one line per call, and does nothing
+
+
+def run(args, stdin="", stub=True, **env):
+    """The script in a child whose zellij and claude are stubs first on PATH, never the owner's: no ZELLIJ* variable is
+    inherited (a test run from a zellij pane would otherwise reach the real session); a test sets one explicitly."""
+    e = dict(os.environ, HOME=home, ELA_TEST="1")
+    for k in ("ZELLIJ", "ZELLIJ_SESSION_NAME", "ZELLIJ_PANE_ID", "ELA_SESSION_NAME", "ELA_SESSION_PURPOSE"):
         e.pop(k, None)
     e.update(env)
-    return subprocess.run(["python3", SCRIPT, *args], input=stdin, capture_output=True, text=True, env=e)
+    if stub:
+        e["PATH"] = stubs + os.pathsep + env.get("PATH", os.environ["PATH"])
+    return subprocess.run([sys.executable, SCRIPT, *args], input=stdin, capture_output=True, text=True, env=e)
+
+
+def claudes():
+    """Claude processes on this machine started with one of the test's session names (`claude --name N`)."""
+    found = set()
+    for pid in filter(str.isdigit, os.listdir("/proc")):
+        try:
+            argv = open(f"/proc/{pid}/cmdline", "rb").read().split(b"\0")
+        except OSError:
+            continue
+        words = [x.decode(errors="replace") for x in argv]
+        if any(os.path.basename(w) == "claude" for w in words[:2]) and any(
+                words[i] == "--name" and words[i + 1] in NAMES for i in range(len(words) - 1)):
+            found.add(pid)
+    return found
+
+
+NAMES = {"desk", "busy", "runner-dev", "topic-x", "runner", "look", "w1", "w2"}
 
 
 def check(ok, what):
@@ -23,6 +48,12 @@ def check(ok, what):
 
 with tempfile.TemporaryDirectory() as tmp:
     home = os.path.join(tmp, "home")
+    stubs = os.path.join(tmp, "bin")
+    os.makedirs(stubs)
+    for exe in ("zellij", "claude"):
+        open(os.path.join(stubs, exe), "w").write(STUB.format(log=os.path.join(tmp, exe + ".log")))
+        os.chmod(os.path.join(stubs, exe), 0o755)
+    before = claudes()
     os.makedirs(os.path.join(home, ".claude", "ela"))
     os.makedirs(os.path.join(tmp, "projects", "ela-runner"))
     json.dump({"projects": os.path.join(tmp, "projects"), "runtime": os.path.join(tmp, "rt")},
@@ -87,8 +118,7 @@ with tempfile.TemporaryDirectory() as tmp:
           "open on the ela checkout by path: a worktree on evan/N from main, the worker there; dry run creates nothing")
     p = run(["open", "ela", "--in-place", "--dry-run", "--tab", "--name", "look", "x"])
     check(f'cwd="{ela}"' in p.stdout and "worktree add" not in p.stdout, "--in-place opens the shared checkout")
-    open(os.path.join(tmp, "zellij"), "w").write("#!/bin/sh\nexit 0\n"); os.chmod(os.path.join(tmp, "zellij"), 0o755)
-    p = run(["open", "ela", "--tab", "--name", "w1", "x"], ZELLIJ_SESSION_NAME="t", PATH=tmp + ":" + os.environ["PATH"])
+    p = run(["open", "ela", "--tab", "--name", "w1", "x"], ZELLIJ_SESSION_NAME="t")
     check(p.returncode == 0 and git(wt, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip() == "evan/w1",
           "open creates the worktree on evan/N before starting the worker")
     p = run(["open", "ela", "--dry-run", "--tab", "--name", "w1", "x"])
@@ -217,4 +247,10 @@ with tempfile.TemporaryDirectory() as tmp:
         os.environ.pop(k, None)
         if v is not None:
             os.environ[k] = v
+    # nothing reached the owner's zellij or started a Claude: every zellij call is the stub's, and claude never ran
+    seen = open(os.path.join(tmp, "zellij.log")).read().splitlines() if os.path.exists(os.path.join(tmp, "zellij.log")) else []
+    check(len(seen) == 2 and seen[0] == "action query-tab-names" and seen[1].startswith("action new-tab --name w1 --cwd " + wt),
+          "the stub zellij saw every call the test made: the tab query and the one tab the real open made")
+    check(not os.path.exists(os.path.join(tmp, "claude.log")), "the stub claude never ran: the stub zellij starts nothing")
+    check(not (claudes() - before), "no process named claude with one of the test's session names was started")
 sys.exit(fail)
