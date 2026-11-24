@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """A note's file name stem is the last of its aliases, offline: with_stem puts it there and keeps the title first;
 every note write carries it; `lint --fix` backfills a hand-written note; a rename moves it to the new name and keeps
-the old one; and the stem is never read as an old name."""
+the old one; the stem is never read as an old name; the sync's name index maps title, alias and stem to the path."""
 import contextlib, io, json, os, sys, tempfile, types
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -75,5 +75,11 @@ with tempfile.TemporaryDirectory() as tmp:
           aliases(open(os.path.join(vault, new)).read()) == ["Grid source", "2026-11-23-plan-grid-source", "2026-11-23-plan-grid-input"])
     moved = V.renames(vault, reports)
     check("the current stem is never read as an old name", new not in moved and moved.get(old) == new)
+
+    idx = json.load(open(V.write_name_index(vault, runtime)))["names"]
+    check("the name index maps a title, an alias and a stem to the path",
+          idx.get("Link named MH-3735") == [f"ela/dry/{STEM}.md"] and idx.get(STEM) == [f"ela/dry/{STEM}.md"]
+          and idx.get("2026-11-23-plan-grid-source") == [new] and idx.get("Grid source") == [new])
+    check("no runtime, no index", V.write_name_index(vault, "") is None)
 
 sys.exit(1 if failures else 0)

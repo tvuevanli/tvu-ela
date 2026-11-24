@@ -187,6 +187,9 @@ with tempfile.TemporaryDirectory() as tmp:
     stamp = {f: os.path.getmtime(os.path.join(dp, f)) for dp, _, fs in os.walk(vault) for f in fs if f.endswith(".md")}
     check("a second sync with nothing new writes nothing", sync() == 0 and
           all(os.path.getmtime(os.path.join(dp, f)) == stamp.get(f) for dp, _, fs in os.walk(vault) for f in fs if f.endswith(".md")))
+    check("the sync writes the name index: a note's title and its file name lead to it",
+          json.load(open(f"{runtime}/vault-index.json"))["names"].get("sb") == ["projects/sb/sb.md"]
+          and "projects/sb/sb.md" in json.load(open(f"{runtime}/vault-index.json"))["names"].get("Super Bowl", []))
     q = f"{vault}/reference/quiet.md"
     first, again = V.atomic_write(q, "x\n"), None
     t0 = os.path.getmtime(q)

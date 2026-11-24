@@ -105,5 +105,6 @@ python3 tests/test_pick_offline.py || fail=1
 python3 tests/test_siteguard_offline.py || fail=1
 python3 tests/test_env_fallback_offline.py || fail=1
 python3 tests/test_lang_tag_offline.py || fail=1
+python3 tests/test_vault_name_offline.py || fail=1
 [ $fail -eq 0 ] && echo "ela: verification passed" || echo "ela: verification FAILED"
 exit $fail

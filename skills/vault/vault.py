@@ -5800,6 +5800,31 @@ def with_stem(text, path):
     return "---\n" + "\n".join(front_line(fl, "aliases", [a for a in al if a != stem] + [stem])) + "\n---" + text[text.find("\n---", 4) + 4:], True
 
 
+NAME_INDEX = "vault-index.json"   # in <runtime>: every name a note answers to → its vault paths (hooks/vault-name.sh)
+
+
+def name_index(vault):
+    """{name: [vault path]}: each note's title, aliases and file name stem."""
+    out = {}
+    for rel, text in vault_notes(vault):
+        fl, _ = split_front(text)
+        title = props_of(fl).get("title")
+        names = ([plain(title)] if isinstance(title, str) else []) + list_prop(fl, "aliases") + [os.path.basename(rel)[:-3]]
+        for n in dict.fromkeys(x.strip() for x in names if isinstance(x, str) and x.strip()):
+            out.setdefault(n, []).append(rel)
+    return out
+
+
+def write_name_index(vault, runtime):
+    """<runtime>/vault-index.json from the vault as it is now; written only when it changes. → its path, or None."""
+    if not runtime:
+        return None
+    os.makedirs(runtime, exist_ok=True)
+    p = os.path.join(runtime, NAME_INDEX)
+    atomic_write(p, json.dumps({"names": name_index(vault)}, ensure_ascii=False, sort_keys=True, indent=0) + "\n")
+    return p
+
+
 MOVE_TO = {"in-progress": "building", "parked": "parked", "archive": DONE, "to-read": "ask", "readings": DONE,
            "live": "ask", "done": DONE, "building": "building"}   # layout 4's folder words, kept as input (ADR 0015)
 
@@ -6884,6 +6909,7 @@ def cmd_sync(a):
                     os.rmdir(os.path.join(vault, *parts[:i]))
                 except OSError:
                     break
+        write_name_index(vault, s.get("runtime"))          # the names a session is pointed at a note by
     for c in append_source_changes(vault, s.get("reports") or "", s.get("elak"), a.dry_run):
         warnings.append(f"{c['note']}: its source {c['src']} changed after the note closed; noted under Afterwards")
     held = [{"note": n.path, "problems": n.held} for n in notes if n.held]
