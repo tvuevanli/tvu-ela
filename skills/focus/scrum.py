@@ -11,7 +11,10 @@ data, the action items (`action_items:[…]`) and each chapter's topics (`topics
   - drafts the Jira moves they imply: a comment carrying the item, an assignee when the row has none and the roster
     knows the person, a due date when the item names one and the ticket has none; an item or decision for the team
     that maps to no row becomes a drafted ticket; the owner's own items are his, listed and never ticketed;
-  - marks the rows it settled as ruled at that meeting (no carry), and hands the writes to the one focus batch.
+  - marks the rows it settled as ruled at that meeting (no carry) and the rows a topic discussed without a ruling as
+    raised (the only rows a meeting carries; a row its view held that the report never names was not reached), and
+    hands the writes to the one focus batch.
+  - an assignee is the roster's Jira accountId, the email only when the roster has none.
 
 A summary is a report, not evidence: nothing here writes to Jira. The batch is asked A/B on today.md and applied only
 on his A (`ela dry answer`). The Read AI connector replaces the mail read once it is authorised; the parsing below
@@ -179,9 +182,11 @@ def is_owner(person, owner):
 
 
 def drafts(report, rows, day, owner, reports, facts):
-    """(writes, left out, ruled row ids) for one report."""
+    """(writes, left out, ruled row ids, raised row ids) for one report. Raised: a chapter's topic names the row and
+    settles nothing, so the row was discussed and left without a ruling; only such a row is carried (focus.settle_views).
+    A row on the meeting's view that no item or topic names was never reached: neither ruled nor raised."""
     body = report.get("body") or ""
-    W, left, ruled, creates = [], [], [], []
+    W, left, ruled, raised, creates = [], [], [], [], []
     tag = f"MediaHub scrum {day.isoformat()} (Read AI report)"
     for person, text in action_items(body):
         r = match(text, rows)
@@ -193,9 +198,9 @@ def drafts(report, rows, day, owner, reports, facts):
             ruled.append(r["id"])
             W.append(F.comment_write(reports, k, f"Action from the {tag}, for {person}: {text}", f"the scrum's action item for {person}", 0))
             iss = F.facts_issue(facts, k)
-            email = F.roster_email(person) if person.lower() not in GROUP else None
-            if email and not r.get("owner"):
-                W.append({"target": k, "command": f"ela jira assign {k} --assignee {email}", "why": f"the scrum gave it to {person}; it had nobody"})
+            who = F.roster_assignee(person) if person.lower() not in GROUP else None
+            if who and not r.get("owner"):
+                W.append({"target": k, "command": f"ela jira assign {k} --assignee {who}", "why": f"the scrum gave it to {person}; it had nobody"})
             due = due_in(text, day)
             if due and iss and not F.field(iss, "duedate"):
                 W.append({"target": k, "command": f"ela jira due {k} --date {due.isoformat()} --why {F.q('the date set at the ' + tag)}",
@@ -206,7 +211,9 @@ def drafts(report, rows, day, owner, reports, facts):
             creates.append((person, text, r))
     for text in decisions(body):
         r = match(text, rows)
-        if r and r.get("key"):
+        if r and not is_decision(text):
+            raised.append(r["id"])                            # discussed, left without a ruling: the one way a row is carried
+        elif r and r.get("key"):
             ruled.append(r["id"])
             W.append(F.comment_write(reports, r["key"], f"Decided at the {tag}: {text}", "the scrum's decision on this row", 0))
         elif is_decision(text) and not any(tokens(text) and overlap(tokens(text), tokens(c[1])) >= MATCH_MIN for c in creates):
@@ -217,14 +224,14 @@ def drafts(report, rows, day, owner, reports, facts):
         summary = F.clip(f"[Scrum {day:%m-%d}] " + re.sub(r"\s+", " ", text), 120)
         desc = F.one_line(f"From the {tag}" + (f", an action item for {person}" if person else ", a decision") + f":\n\n{text}\n\n"
                 "It maps to no ticket on the MediaHub focus board; this one tracks it.")
-        email = F.roster_email(person) if person else None
+        who = F.roster_assignee(person) if person else None
         W.append({"target": (r or {}).get("id") or f"scrum:{summary[:40]}",
                   "command": f"ela jira create --project MH --type Task --summary {F.q(summary)} --description {F.q(desc)}"
-                  + (f" --assignee {email}" if email else ""),
+                  + (f" --assignee {who}" if who else ""),
                   "why": "from the scrum, no ticket to move: Jira is where MH items are tracked"})
     for person, text, _ in creates[SCRUM_CREATES:]:
         left.append(f"not drafted this batch ({person or 'decision'}): {text}")
-    return W, left, sorted(set(ruled))
+    return W, left, sorted(set(ruled)), sorted(set(raised) - set(ruled))
 
 
 def scrum_meeting(doc):
@@ -250,14 +257,14 @@ def cmd(a):
     facts = os.path.join(s.get("runtime") or "", "facts")
     b = F.board(s, now=now, write=False)
     owner = F.owner_name(facts)
-    writes, left, ruled = drafts(report, b["all"], day, owner, s.get("reports") or "", facts)
+    writes, left, ruled, raised = drafts(report, b["all"], day, owner, s.get("reports") or "", facts)
     try:
         m = scrum_meeting(F.brief_mod().owner_day())
     except Exception:                                          # noqa: BLE001
         m = None
-    r = F.run_moves(s, a.apply, scrum=writes, now=now, ruled=(m["key"], day.isoformat(), ruled) if m else None)
+    r = F.run_moves(s, a.apply, scrum=writes, now=now, ruled=(m["key"], day.isoformat(), ruled, raised) if m else None)
     r["left_out"] = left + r["left_out"]
-    r["ruled"] = ruled
+    r["ruled"], r["raised"] = ruled, raised
     r["report"] = report.get("subject")
     F.emit(a, r, [f"report: {r['report']}"] + [f"{w['n']}. {w['command']} — {w['why']}" for w in r["writes"]]
            + [f"- {x}" for x in r["left_out"]]

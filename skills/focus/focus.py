@@ -9,9 +9,11 @@ personal items stay in the vault and never become tickets. A meeting (blueprint/
 weekdays) is a filter of the board: at most VIEW_MAX rows that need that audience, written as a section of the board,
 never a page of its own (ADR 0015). Held subjects (hold.py) leave every row and view and sit in one folded line.
 
-A row in a meeting's view that the meeting did not move (its ticket's status, priority, assignee and due date and its
-open questions the same after the meeting) is carried; carried through CARRY_MAX meetings it gets a proposed Jira
-move in the next batch. The after-scrum import (scrum.py) reads the meeting's Read AI report from mail and drafts the
+A row in a meeting's view is carried only when the meeting's report (the scrum import) shows it raised and left
+without a ruling, and the meeting did not move it (its ticket's status, priority, assignee and due date and its open
+questions the same after the meeting); a row on the view the meeting never reached is not carried and causes no write
+(decision 2026-11-24, ela watches the MH board). Carried through CARRY_MAX meetings it gets a proposed Jira move in
+the next batch. The after-scrum import (scrum.py) reads the meeting's Read AI report from mail and drafts the
 moves its action items imply. Every move goes out as one dry-run batch (class focus-moves, `ela dry`), asked A/B on
 today.md; nothing reaches Jira before his A.
 
@@ -42,6 +44,7 @@ QUESTIONS_PAGE = "meetings/open-questions.md"
 STATE = ("ela", "focus.json")
 VIEW_MAX = 7                     # a meeting's view: at most this many rows
 CARRY_MAX = 2                    # carried through this many meetings: a proposed Jira move instead of a third carry
+REPORT_WAIT_DAYS = 3             # an ended meeting's view waits this long for its report; none came: nothing carried
 SHOWN = 10                       # the board's head, one screen: the rows that need a push now; the rest fold
 ITEM_CHARS, NEXT_CHARS = 60, 70  # a row is one line: the item and the next step clipped, the whole folded under it
 CREATES_MAX = 3                  # tickets drafted for rows without one, per batch, oldest first
@@ -101,7 +104,7 @@ def load(reports):
         st = json.load(open(os.path.join(reports or "", *STATE), encoding="utf-8"))
     except (OSError, ValueError):
         st = {}
-    for k in ("rows", "views", "words"):
+    for k in ("rows", "views", "words", "past"):
         st.setdefault(k, {})
     return st
 
@@ -326,28 +329,51 @@ def view_rows(rows, m):
                                  key=lambda x: (-x[0], prio_rank(x[1].get("priority")), x[1].get("due") or "9999", x[1]["id"]))][:VIEW_MAX]
 
 
+def stored_views(st):
+    """Every stored view, the next ones and the ended ones still waiting for their report: [(store, slot, view)]."""
+    return [(st["views"], k, v) for k, v in st["views"].items()] + [(st["past"], k, v) for k, v in st["past"].items()]
+
+
+def find_view(st, key, day):
+    """The stored view of meeting `key` on `day`, next or past; None when none was stored."""
+    v = st["views"].get(key)
+    if v and v.get("date") == day:
+        return v
+    return st["past"].get(f"{key}@{day}")
+
+
 def settle_views(st, rows, now):
-    """Each stored view whose meeting has ended is judged once: a row it did not move is carried one more meeting; a
-    row it moved (or the scrum import ruled) starts again. → [(row id, carried count)] carried."""
-    out = []
-    for key, v in st["views"].items():
-        if v.get("settled") or not v.get("end") or v["end"] > now.isoformat(timespec="minutes"):
+    """Each stored view whose meeting has ended is judged once its report is read (decision 2026-11-24, ela watches the
+    MH board): a row the report shows raised and left without a ruling, and that the meeting did not move, is carried
+    one more meeting; a row the report ruled, or one that moved, starts again; a row on the view the meeting never
+    reached is neither. A view whose report never came within REPORT_WAIT_DAYS is settled with nothing carried: a
+    meeting with no report carries nothing. → [(row id, carried count)] carried."""
+    out, stamp = [], now.isoformat(timespec="minutes")
+    for store, slot, v in stored_views(st):
+        if v.get("settled") or not v.get("end") or v["end"] > stamp:
             continue
-        ruled = set(v.get("ruled") or [])
+        if not v.get("reported"):
+            if v["end"][:10] > (now.date() - datetime.timedelta(days=REPORT_WAIT_DAYS)).isoformat():
+                continue                                      # its report may still come
+            v["settled"] = stamp
+            continue
+        ruled, raised = set(v.get("ruled") or []), set(v.get("raised") or [])
         for rid in v.get("rows") or []:
             rec = st["rows"].setdefault(rid, {"first": v["date"], "carried": []})
             row = rows.get(rid)
             if row is None:                                   # gone from the board: answered or closed
                 rec["carried"] = []
                 continue
-            if rid not in ruled and snap(row) == v.get("snaps", {}).get(rid):
+            if rid in ruled or snap(row) != v.get("snaps", {}).get(rid):
+                rec["carried"] = []
+            elif rid in raised:
                 if v["date"] not in rec["carried"]:
                     rec["carried"].append(v["date"])
                 rec["snap"] = snap(row)                       # what it was when carried: a change after this is movement
                 out.append((rid, len(rec["carried"])))
-            else:
-                rec["carried"] = []
-        v["settled"] = now.isoformat(timespec="minutes")
+        v["settled"] = stamp
+    for k in [k for k, v in st["past"].items() if v.get("settled")]:
+        del st["past"][k]                                     # judged: its carries are on the rows
     return out
 
 
@@ -366,10 +392,13 @@ def make_views(st, rows, meetings, doc, now):
         if v and v.get("date") == day.isoformat() and start and now >= start:
             ids = v.get("rows") or []                        # begun: the view as shown
         else:
+            if v and not v.get("settled") and v.get("date") != day.isoformat():
+                st["past"][f"{m['key']}@{v['date']}"] = v      # ended, its report not read yet: judged when it comes
             ids = [r["id"] for r in view_rows(list(rows.values()), m)]
             st["views"][m["key"]] = {"date": day.isoformat(), "end": end.isoformat(timespec="minutes") if end else None,
                                      "rows": ids, "snaps": {i: snap(rows[i]) for i in ids}, "settled": None,
-                                     "ruled": (v or {}).get("ruled") if v and v.get("date") == day.isoformat() else []}
+                                     **{k: (v or {}).get(k) if v and v.get("date") == day.isoformat() else None
+                                        for k in ("ruled", "raised", "reported")}}
         out.append({"key": m["key"], "name": m.get("name") or m["key"], "date": day, "time": m.get("time"),
                     "rows": [rows[i] for i in ids if i in rows]})
     return out
@@ -471,11 +500,14 @@ def board(s, now=None, write=False, qstate=None, holds=None, meetings=None, doc=
         rec = st["rows"].setdefault(rid, {"first": r.get("since") or today.isoformat(), "carried": []})
         r["since"] = r.get("since") or rec["first"]
         r["carried"] = rec.get("carried") or []
-    if ruled:                                                 # rows the meeting's report settled: an outcome, not a carry
-        key, day, ids = ruled
-        v = st["views"].get(key)
-        if v and v.get("date") == day:
+    if ruled:                                                 # the meeting's report: what it ruled and what it raised unruled
+        key, day, ids = ruled[:3]
+        raised = ruled[3] if len(ruled) > 3 else []
+        v = find_view(st, key, day)
+        if v:
             v["ruled"] = sorted(set(v.get("ruled") or []) | set(ids))
+            v["raised"] = sorted(set(v.get("raised") or []) | set(raised))
+            v["reported"] = now.isoformat(timespec="minutes")
     carried = settle_views(st, allrows, now)
     for rid, r in allrows.items():
         rec = st["rows"].get(rid, {})
@@ -537,8 +569,15 @@ def word(verb, rest, today, where):
 
 
 # ── moves: the one batch ──────────────────────────────────────────────────────────────────────────────────────────
-def roster_email(name):
-    """A person's email from the roster by name; None when the roster does not know them."""
+def assignee_of(person):
+    """What `ela jira assign --assignee` takes for a roster entry: its Jira accountId, the email only when the roster
+    has none (Jira hides most users' emails, so an email often does not resolve: 2026-11-23, an assignment drafted
+    by email failed where the accountId worked)."""
+    return (person or {}).get("jira") or (person or {}).get("email") or None
+
+
+def roster_assignee(name):
+    """A person's assignee from the roster by name (accountId, else email); None when the roster does not know them."""
     if not name:
         return None
     try:
@@ -546,7 +585,7 @@ def roster_email(name):
         import team as T                                     # noqa: E402
         _, people = T.read_roster()
         hits = T.find(people, name)
-        return hits[0].get("email") if len(hits) == 1 else None   # two people of that name: nobody is guessed
+        return assignee_of(hits[0]) if len(hits) == 1 else None   # two people of that name: nobody is guessed
     except Exception:                                          # noqa: BLE001 — unknown: no assignment is drafted
         return None
 
@@ -606,12 +645,12 @@ def moves(s, b, today, scrum=None):
                 W.append({"target": k, "command": f"ela jira due {k} --date {due.isoformat()} --why {q('a raised ticket carries a date: one week, change it here before A')}",
                           "why": "raised with no due date: a week from today, edit before A"})
             if iss and not field(iss, "assignee"):
-                email = roster_email((r.get("asks") or [{}])[0].get("who")) if r.get("asks") else None
-                if email:
-                    W.append({"target": k, "command": f"ela jira assign {k} --assignee {email}",
+                who = roster_assignee((r.get("asks") or [{}])[0].get("who")) if r.get("asks") else None
+                if who:
+                    W.append({"target": k, "command": f"ela jira assign {k} --assignee {who}",
                               "why": "raised with nobody on it: who its question names"})
                 else:
-                    left.append(f"{k}: raised with no assignee; name one in the review note (`ela jira assign {k} --assignee <email>`)")
+                    left.append(f"{k}: raised with no assignee; name one in the review note (`ela jira assign {k} --assignee <accountId>`)")
         else:
             W.append({"target": k, "command": f"ela jira priority {k} --to Medium --why {q('lowered on the owner word ' + w['at'])}",
                       "why": f"down on the owner's word ({w['at']})"})
@@ -623,9 +662,9 @@ def moves(s, b, today, scrum=None):
         times = len(r["carried"])
         if not r.get("key"):
             continue                                          # its ticket is drafted below
-        email = None if r.get("owner") else roster_email((r.get("asks") or [{}])[0].get("who") if r.get("asks") else None)
-        if not r.get("owner") and email:
-            W.append({"target": r["key"], "command": f"ela jira assign {r['key']} --assignee {email}",
+        who = None if r.get("owner") else roster_assignee((r.get("asks") or [{}])[0].get("who") if r.get("asks") else None)
+        if not r.get("owner") and who:
+            W.append({"target": r["key"], "command": f"ela jira assign {r['key']} --assignee {who}",
                       "why": f"carried through {times} meetings with nobody on it: assign who the question names"})
         else:
             to = raise_one(r.get("priority"))
@@ -647,9 +686,9 @@ def moves(s, b, today, scrum=None):
                 + ". It has no ticket yet; this one tracks it.\n\n"
                 + (f"Question: {said}\n" if said else "")
                 + "".join(f"\nThread: {u}" for u in re.findall(r"https://[\w.-]+\.slack\.com/archives/\S+", " ".join(q0.get("sources") or []) + " " + (q0.get("raw") or ""))))
-        email = roster_email(r.get("owner"))
+        who = roster_assignee(r.get("owner"))
         W.append({"target": r["id"], "command": f"ela jira create --project MH --type Task --summary {q(summary)} --description {q(desc)}"
-                  + (f" --assignee {email}" if email else ""), "why": "a board row with no ticket: Jira is where MH items are tracked"})
+                  + (f" --assignee {who}" if who else ""), "why": "a board row with no ticket: Jira is where MH items are tracked"})
     if len(creates) > CREATES_MAX:
         left.append(f"{len(creates) - CREATES_MAX} more rows without a ticket wait for the next batch")
     try:                                                      # what the open batch already asks stays in it: one batch, added to

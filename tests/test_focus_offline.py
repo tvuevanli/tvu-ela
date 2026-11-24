@@ -124,19 +124,34 @@ with tempfile.TemporaryDirectory() as t:
           and "MH-7" in [r["id"] for r in v[0]["rows"]] and "p:sb" in [r["id"] for r in v[0]["rows"]])
     check("a view's link target is the board's heading", F.view_anchor(v[0]) == "meetings/focus#Scrum with the PM · Fri 11-20")
 
-    # carried: the meeting ends and nothing moved
+    # carried: only a row the meeting's report shows raised and left without a ruling (decision 2026-11-24)
     after = datetime.datetime(2026, 11, 20, 12, 0)
     b2 = F.board(s, now=after, write=True, doc=DOC)
-    check("after the meeting, each row it did not move is carried once", ("MH-7", 1) in b2["carried"] and b2["all"]["MH-7"]["carried"] == ["2026-11-20"])
+    check("after the meeting, before its report: nothing is carried, the view waits in the store for it",
+          b2["carried"] == [] and not b2["all"]["MH-7"]["carried"] and "scrum-pm@2026-11-20" in b2["state"]["past"])
     check("the next view is the next meeting's", b2["views"][0]["date"] == datetime.date(2026, 11, 23))
+    b2 = F.board(s, now=after, write=True, doc=DOC, ruled=("scrum-pm", "2026-11-20", ["MH-2"], ["MH-7", "MH-1", "MH-2"]))
+    check("the report raised MH-7 and MH-1 without a ruling: each carried once",
+          ("MH-7", 1) in b2["carried"] and b2["all"]["MH-7"]["carried"] == ["2026-11-20"] and b2["all"]["MH-1"]["carried"] == ["2026-11-20"])
+    check("a row on the view the report never names was not reached: not carried; a row it ruled is not either",
+          not b2["all"]["p:sb"]["carried"] and not b2["all"]["MH-2"]["carried"] and "scrum-pm@2026-11-20" not in b2["state"]["past"])
+    st0 = {"rows": {}, "views": {}, "words": {}, "past": {"m@2026-11-01": {"date": "2026-11-01", "end": "2026-11-01T11:00",
+                                                                            "rows": ["MH-7"], "snaps": {"MH-7": F.snap(b2["all"]["MH-7"])}}}}
+    got = F.settle_views(st0, b2["all"], datetime.datetime(2026, 11, 20, 12, 0))
+    check("a meeting whose report never came, past the wait, is settled with nothing carried", got == [] and st0["past"] == {})
     issue(facts, "MH-1", "Highest and due soon", "Highest", due="2026-11-25", who="Dev Three")   # moved between meetings
     F.board(s, now=datetime.datetime(2026, 11, 23, 9, 0), write=True, doc=DOC)
-    b3 = F.board(s, now=datetime.datetime(2026, 11, 23, 12, 0), write=True, doc=DOC)
+    b3 = F.board(s, now=datetime.datetime(2026, 11, 23, 12, 0), write=True, doc=DOC, ruled=("scrum-pm", "2026-11-23", [], ["MH-7", "MH-1"]))
     check("carried through two meetings; a row that moved since its last carry starts again",
           b3["all"]["MH-7"]["carried"] == ["2026-11-20", "2026-11-23"] and b3["all"]["MH-1"]["carried"] == ["2026-11-23"])
 
+    # the assignee: the roster's Jira accountId, the email only when it has none
+    check("an assignee is the roster's accountId; the email only without one",
+          F.assignee_of({"jira": "5e53aaaa", "email": "a@example.com"}) == "5e53aaaa"
+          and F.assignee_of({"jira": "", "email": "a@example.com"}) == "a@example.com" and F.assignee_of(None) is None)
+
     # moves: carried rows, up/down words, rows without a ticket; one batch
-    F.roster_email = lambda name: {"Dev Two": "dev2@example.com"}.get(name)
+    F.roster_assignee = lambda name: {"Dev Two": "acc-dev2"}.get(name)
     open(os.path.join(vault, "projects", "sb", "notes.md"), "w").write("- ela: up MH-2 the customer demo moved up\nela: down MH-4\n")
     st3 = b3["state"]
     new = F.read_words(st3, vault, TODAY)
@@ -150,10 +165,10 @@ with tempfile.TemporaryDirectory() as t:
     check("down: priority back to Medium, nothing else",
           any(c.startswith("ela jira priority MH-4 --to Medium") for c in cmds) and [c for c in cmds if " MH-4 " in c + " "][1:] == [])
     check("a row carried through two meetings with nobody on it: assigned to who its question names",
-          "ela jira assign MH-7 --assignee dev2@example.com" in cmds)
+          "ela jira assign MH-7 --assignee acc-dev2" in cmds)
     creates = [c for c in cmds if c.startswith("ela jira create")]
     check("a row with no ticket gets a drafted ticket, its question in the description; ela's own and his own never do",
-          len(creates) == 2 and any("freeze-frame" in c and "--assignee dev2@example.com" in c for c in creates)
+          len(creates) == 2 and any("freeze-frame" in c and "--assignee acc-dev2" in c for c in creates)
           and any("Super Bowl" in c for c in creates) and not any("andyBot" in c or "tidy-up" in c for c in creates))
     rx = re.compile(D.CLASSES["focus-moves"]["command"])
     check("every write is one line the class admits, and parses as a shell command",
@@ -189,7 +204,7 @@ with tempfile.TemporaryDirectory() as t:
     check("an item maps to the row whose key it names, else to the one row sharing distinctive words, else none",
           S.match("\u7ed9 MH-1 \u8865\u4e0a", b3["all"])["id"] == "MH-1" and S.match("Book the encoder for Super Bowl", b3["all"])["id"] == "p:sb"
           and S.match("something else entirely", b3["all"]) is None)
-    W, left, ruled = S.drafts({"body": body}, b3["all"], TODAY, "The Owner", reports, facts)
+    W, left, ruled, raised = S.drafts({"body": body}, b3["all"], TODAY, "The Owner", reports, facts)
     wc = [w["command"] for w in W]
     check("a mapped item: a comment carrying it; a due date it names when the ticket has none (MH-1 has one)",
           any(c.startswith("ela jira comment MH-1 --from-file") for c in wc) and not any(c.startswith("ela jira due MH-1") for c in wc)
@@ -201,6 +216,10 @@ with tempfile.TemporaryDirectory() as t:
           and any(x.startswith("yours, not ticketed: \u6574\u7406\u6f14\u793a\u6750\u6599") for x in left) and any(x.startswith("for the whole team") for x in left)
           and not any("\u6574\u7406\u6f14\u793a\u6750\u6599" in c for c in wc))
     check("the scrum's writes are admitted by the class too", all(rx.match(c) for c in wc))
+    talk = "map[action_items:[] chapters:[map[chapter:A topics:[MH-4 \u7684\u6807\u7b7e\u8fd8\u5728\u8ba8\u8bba\uff0c\u5c1a\u672a\u786e\u5b9a\u3002]]]]"
+    W2, _, ruled2, raised2 = S.drafts({"body": talk}, b3["all"], TODAY, "The Owner", reports, facts)
+    check("a topic that names a row and settles nothing: the row is raised, no write; the rows never named are neither",
+          raised2 == ["MH-4"] and ruled2 == [] and W2 == [] and raised == [])
     mail = os.path.join(t, "mail.json")
     json.dump({"subject": "MediaHub Scrum on November 20, 2026 | Read Meeting Report", "body": body}, open(mail, "w"))
     found = S.find_report(TODAY, runner=lambda argv: type("P", (), {"returncode": 0, "stderr": "", "stdout": json.dumps(
