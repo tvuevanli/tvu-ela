@@ -1,7 +1,8 @@
 # 0023 — The evening pass proposes what the assistant should do better
 
 Status: accepted, 2026-11-23. Uses ADR 0018's ask shape and ADR 0014's ask slots on today.md. It adds no class, grants
-nothing and writes nothing live.
+nothing and writes nothing live. Its clause "Who decides follows who would notice" is superseded by ADR 0024
+(2026-11-24): his word is needed only when carrying a fix out would send, post or write to Jira.
 
 ## Context
 
