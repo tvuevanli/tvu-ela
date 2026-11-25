@@ -207,6 +207,12 @@ n = calls["slack"]
 reps = S.replies_rows("tok", "C1", PARENT)
 check("thread replies serve the store without a call", len(reps) == 1 and calls["slack"] == n)
 got = S.stored_thread("C1", TS)
+import types as _t
+out = __import__("io").StringIO(); _so = sys.stdout; sys.stdout = out
+S.Names = lambda tok: _t.SimpleNamespace(user=lambda u: u, render=lambda t: t)
+S.cmd_read("tok", _t.SimpleNamespace(permalink=f"https://x.slack.com/archives/C1/p{TS.replace('.', '')}", json=True, join=False, stored=True))
+sys.stdout = _so
+check("read --stored answers from the store without a call", json.loads(out.getvalue())["count"] == 2 and calls["slack"] == n)
 check("slack read serves a thread the read stored whole", got and got[0] in ("general", "C1") and [m["ts"] for m in got[1]][0] == TS
       and len(got[1]) == 2 and "_read_at" not in got[1][0] and calls["slack"] == n)
 check("slack read goes live for a message the store has no parent of", S.stored_thread("C1", "1.000001") is None)

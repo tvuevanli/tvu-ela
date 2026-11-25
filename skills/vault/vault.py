@@ -7976,7 +7976,7 @@ def cmd_afterwards(a):
             gaps.append({"source": f"jira {proj}", "error": str(x)[:200]})
     for link in sorted({l for w in watched for l in w["links"]}):
         try:
-            threads[link] = B.run_json(["python3", B.SLACK, *e, "read", link, "--json"], timeout=120)
+            threads[link] = B.run_json(["python3", B.SLACK, *e, "read", link, "--stored", "--json"], timeout=120)
         except (B.LaneError, subprocess.TimeoutExpired, ValueError) as x:
             gaps.append({"source": "slack", "error": str(x)[:200]})
     try:

@@ -388,13 +388,15 @@ def stored_thread(ch, ts):
     """(channel name, the thread as the last read saw it) when the store holds it whole, else None. Whole means: the
     parent itself was re-read by a read still fresh (the read re-reads every parent of the last 8 days, so its reply
     marks are current as of then), and the stored replies reach its `latest_reply` and its `reply_count`. A reply's
-    own permalink, a thread older than the read's horizon, a stale or forced-fresh read: None, and the caller reads
-    live. An edit to an older reply that moved no reply mark is not seen until a live read."""
+    own permalink, a thread older than the read's horizon (8 days: the read re-reads no older parent), a stale or
+    forced-fresh read: None, and the caller reads live. Served only on `read --stored`: a thread that may have moved
+    since the read (a mention being drafted) is read live. An edit to an older reply that moved no reply mark is not seen until a live read."""
     if not F or F.forced_fresh():
         return None
     cache = load_channel(ch)
     parent = (cache.get("messages") or {}).get(ts)
-    if not parent or parent.get("thread_ts") not in (None, ts) or not F.fresh(parent.get("_read_at")):
+    if (not parent or parent.get("thread_ts") not in (None, ts) or not F.fresh(parent.get("_read_at"))
+            or float(ts) < F.now().timestamp() - F.SLACK_HORIZON_DAYS * 86400):
         return None
     msgs = [{k: v for k, v in parent.items() if k != "_read_at"}]
     if int(parent.get("reply_count") or 0):
@@ -414,7 +416,8 @@ def cmd_read(tok, a):
     if getattr(a, "join", False) and not join_channel(tok, ch):
         sys.exit(EX_USAGE)
     names = Names(tok)
-    got = None if (a.fresh or getattr(a, "join", False) or "thread_ts=" in a.permalink) else stored_thread(ch, ts)
+    got = stored_thread(ch, ts) if (getattr(a, "stored", False) and not getattr(a, "join", False)
+                                    and "thread_ts=" not in a.permalink) else None
     if got:
         chan, msgs = got
     else:
@@ -1322,7 +1325,9 @@ def main():
     p = sub.add_parser("read", help="one message and its thread, by permalink")
     p.add_argument("permalink"); p.add_argument("--json", action="store_true")
     p.add_argument("--join", action="store_true", help="join the channel first (public only; visible to the channel)")
-    p.add_argument("--fresh", action="store_true", help="read Slack now, not the thread as the last facts read stored it")
+    p.add_argument("--stored", action="store_true",
+                   help="the thread as the last facts read stored it, when it holds it whole (else live); for a pass "
+                        "that runs right after a read and walks many threads, never for a thread that may have moved since")
     p = sub.add_parser("join", help="join a public channel — explicit, because the channel sees it")
     p.add_argument("channel", help="channel id, #name, or a permalink")
     p = sub.add_parser("files", help="download a message's or thread's files — a screenshot is evidence")

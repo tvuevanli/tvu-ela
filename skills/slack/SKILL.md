@@ -22,9 +22,11 @@ the user names — while `ela facts refresh` read it less than `ELA_FACTS_MAX_AG
 stderr with the read time; JSON carries `read_at`. The refresh re-reads the last eight days of parents per channel
 (a reply to an older thread shows on its parent) and the replies of each thread that moved. `--fresh` on a verb reads
 Slack now and writes through; a window the store does not reach is read live and kept. Nothing else caches.
-`read <permalink>` answers from the store too when the last fresh read re-read that thread's parent and holds its
-replies up to the parent's reply mark; a reply's own permalink, a thread older than eight days, or `--fresh` reads
-Slack. An edit to an older reply that moved no mark shows only on a live read.
+`read <permalink>` reads Slack. `read --stored` answers from the store when the last fresh read re-read that
+thread's parent and holds its replies up to the parent's reply mark, else reads Slack: for a pass that runs right after
+a read and walks many threads (vault afterwards, the brief's parked notes), never for a thread that may have moved
+since (a mention being drafted). A reply's own permalink or a thread older than eight days is read live; an edit to an
+older reply that moved no mark shows only on a live read.
 `mentions` reads those eight days of parents whatever its window, with `--fresh` from Slack: a mention written as a
 reply is found under a thread that started before the window.
 

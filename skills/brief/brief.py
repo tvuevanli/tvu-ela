@@ -379,7 +379,7 @@ def parked_waits(e, vault, me, now, gaps):
             gaps.append({"source": f"parked: jira {proj}", "error": str(x)[:200]})
     for link in sorted({l for n in notes for l in PERMALINK_RX.findall(n["wake"])}):
         try:
-            threads[link] = run_json(["python3", SLACK, *e, "read", link, "--json"], timeout=120)
+            threads[link] = run_json(["python3", SLACK, *e, "read", link, "--stored", "--json"], timeout=120)
         except (LaneError, subprocess.TimeoutExpired, ValueError) as x:
             gaps.append({"source": "parked: slack", "error": str(x)[:200]})
     return [parked_row(n, jira_rows, threads, me, now) for n in notes]
