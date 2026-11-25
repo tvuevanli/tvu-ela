@@ -5,8 +5,9 @@
   read   <message id>            one message: headers and body as text (text/plain; HTML stripped when that is all there is)
   thread <thread id>             every message in a thread, oldest first
 
-The fact store (<runtime>/facts/mail/, filled by `ela facts refresh`) holds the three standing searches over a rolling
-21 days — `subject:Release`, `subject:("test report")`, `in:sent` — and every message ever fetched, by id. A `search`
+The fact store (<runtime>/facts/mail/, filled by `ela facts refresh`) holds the standing searches over a rolling
+21 days — `subject:Release`, `subject:("test report")`, `in:sent`, and `team` (the QA area's mail and the service,
+image and deploy notices the team report reads) — and every message ever fetched, by id. A `search`
 whose clauses fall inside one standing search is answered from the store without a call while the store is fresh; any
 other query lists ids live and fetches only the ids not yet stored. `read` serves a stored message (a message never
 changes); `thread` serves the store while fresh. --fresh reads Gmail now.
@@ -31,6 +32,38 @@ except ImportError:
 import datetime  # noqa: E402
 STANDING = {"release": "subject:Release", "test-report": 'subject:("test report")', "sent": "in:sent"}
 STANDING_CAP = 400
+# `team`, the fourth standing search, is the team report's mail (`ela teamreport`): what QA writes under any subject, and
+# the image, deploy and service notices whose subject never says "Release". Its senders are the roster's QA area, read
+# at refresh time, so no tracked file names a person's address; without a roster it is the subject net alone.
+TEAM_SUBJECTS = ('docker OR mediabox OR deploy OR copier OR encoder OR decoder OR bridge OR SRT OR playeroftvu OR MeshAdapter '
+                 'OR "Release MediaHub" OR "Unified Resource" OR "Unified Resources" OR UnifiedMediaService OR J2N '
+                 'OR "Orchestration Service" OR "Instance Manage"')
+
+
+def qa_senders():
+    """The roster's QA area, as addresses: the people who write the test reports. [] when the roster cannot be read."""
+    try:
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "team"))
+        import team as T  # noqa: E402
+        _, people = T.read_roster()
+    except (Exception, SystemExit):
+        return []
+    return sorted({p["email"] for p in people if p.get("email") and "qa" in (p.get("areas") or [])})
+
+
+def team_query(senders=None):
+    """The team standing search: the QA area's mail, or a MediaHub service, image or deploy subject; never Jira's
+    notifications, nor the PP_QA lists of another product."""
+    senders = qa_senders() if senders is None else senders
+    net = f"subject:({TEAM_SUBJECTS})"
+    if senders:
+        net = f"{{from:({' OR '.join(senders)}) {net}}}"
+    return f"{net} -subject:PP_QA -from:atlassian.net -from:sentry@tvunetworks.com"
+
+
+def standing():
+    """Every standing search: the three fixed ones and the team report's."""
+    return {**STANDING, "team": team_query()}
 
 
 def _get(g, url, **params):
@@ -120,11 +153,11 @@ def list_ids(g, query, limit):
 
 
 def refresh_standing(g, full=False):
-    """The three standing searches over the rolling window: list their ids, fetch the ones not stored, keep the index.
+    """The standing searches over the rolling window: list their ids, fetch the ones not stored, keep the index.
     {name: {count, fetched}}. Messages no standing search names any more are dropped after 30 days."""
     idx = {} if full else (F.read_json(os.path.join(F.store_dir("mail"), "index.json"), {}) or {})
     stats = {}
-    for name, q in STANDING.items():
+    for name, q in standing().items():
         ids = list_ids(g, f"newer_than:{F.MAIL_DAYS}d {q}", STANDING_CAP)
         fetched = 0
         for mid in ids:

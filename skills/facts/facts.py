@@ -15,7 +15,7 @@ content, every entry stamped with the time it was read:
             issue moved) · queries/<name>.json (the standing queries: the incidents umbrella) · owner.json
   slack/    <channel id>.json (top-level messages and thread replies: the one per-channel cache) · channels.json ·
             users.json · watermark.json
-  mail/     index.json (the three standing searches over a rolling 21 days, ids newest first) · messages/<id>.json
+  mail/     index.json (the standing searches over a rolling 21 days, ids newest first) · messages/<id>.json
             (fetched once per id; a message never changes) · threads/<id>.json · watermark.json
   lanes/    envs-<host>.json · gateway.json · dev-ahead.json (dev's docker images above daily and prod) · watermark.json
   runtime/  lanes.json (per followed lane and service: the profile chain, how it was proven, the keys a one-profile

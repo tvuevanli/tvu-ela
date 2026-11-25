@@ -70,7 +70,7 @@ def fake_call(method, tok, _soft=False, **params):
     return {"ok": True}
 S.call = fake_call
 
-# ── mail: three standing searches, four messages ───────────────────────────────────────────────────
+# ── mail: four standing searches, four messages ────────────────────────────────────────────────────
 MAILS = {"m1": ("[Release Mediahub QA-AWS3] build 80", 0), "m2": ("Daily Test Report for TVU MediaHub AWS CN3", 1),
          "m3": ("Re: something sent", 2), "m4": ("[Release Mediahub daily-wed] build 12", 3)}
 class FakeGoogle:
@@ -82,6 +82,7 @@ class FakeGoogle:
             q = params.get("q", "")
             if "subject:Release" in q: ids = ["m1", "m4"]
             elif "test report" in q: ids = ["m2"]
+            elif "-subject:PP_QA" in q: ids = ["m2", "m4"]          # the team search: QA's mail and a deploy notice
             else: ids = ["m3"]
             return {"messages": [{"id": i} for i in ids]}
         mid = url.rsplit("/", 1)[-1]
@@ -90,6 +91,7 @@ class FakeGoogle:
                 "payload": {"headers": [{"name": "Subject", "value": subj}, {"name": "From", "value": "qa@example"}, {"name": "Date", "value": "x"}],
                             "mimeType": "text/plain", "body": {"data": "aGVsbG8"}}}
 M.Google = FakeGoogle
+M.qa_senders = lambda: ["qa@example"]
 
 # ── release: lanes on prod, a refused qa host, Jenkins and bundles ─────────────────────────────────
 class FakeUS:
@@ -140,7 +142,8 @@ check("the incidents query and the owner name are in the store", os.path.exists(
 chan = F.read_json(os.path.join(F.store_dir("slack"), "C1.json"))
 check("the channel store holds the parent and its replies", chan and TS in chan["messages"] and TS in chan["replies"] and chan.get("read_at"))
 idx = F.read_json(os.path.join(F.store_dir("mail"), "index.json"))
-check("the three standing searches are indexed", set(idx) == {"release", "test-report", "sent"} and idx["release"]["ids"] == ["m1", "m4"])
+check("the four standing searches are indexed", set(idx) == {"release", "test-report", "sent", "team"} and idx["release"]["ids"] == ["m1", "m4"]
+      and idx["team"]["ids"] == ["m2", "m4"] and "from:(qa@example)" in idx["team"]["query"])
 check("every id is stored once", sorted(f[:-5] for f in os.listdir(F.store_dir("mail", "messages"))) == ["m1", "m2", "m3", "m4"])
 lanes = F.read_json(os.path.join(F.store_dir("lanes"), "envs-prod.json"))
 check("the prod lanes are stored with their read time", lanes and lanes["rows"][0]["lane"] == "prod-3" and lanes.get("at"))
@@ -156,7 +159,7 @@ second = {s: dict(F.watermark(s)) for s in F.SOURCES}
 check("the next pass fast-forwards the checkout to its origin", KBX.head(kb_clone) == KBX.head(kb_work) and second["tvukb"]["rev"] == KBX.head(kb_work))
 check("the Jira watermark moves forward (since follows the last read)", second["jira"]["since"] >= first["jira"]["since"] and second["jira"]["at"] >= first["jira"]["at"])
 check("no key is re-read when nothing moved since the sweep", second["jira"]["reread"] == 0)
-check("no stored mail is fetched again", calls["mail"] - before["mail"] == 3)
+check("no stored mail is fetched again", calls["mail"] - before["mail"] == 4)
 check("no thread is read again when its parent did not move", calls["slack"] - before["slack"] == 1)
 check("the store's content is the same after the second refresh",
       F.read_json(os.path.join(F.store_dir("mail"), "index.json"))["release"]["ids"] == ["m1", "m4"]
