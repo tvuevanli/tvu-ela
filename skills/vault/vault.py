@@ -1816,7 +1816,7 @@ def budget_of(kind, rel=""):
         return HOP_BUDGET
     return BUDGET.get(kind)
 PAGES_SPEC = ("home", "today", "dropped", "board", "lanes", "docker", "recent", "one-thing", "test-list", "dev-list", "train", "program", "guide",
-              "vocabulary", "system", "constraints", "readme", "services", "questions", "dry", "mention")   # living pages: each one's generator is its spec
+              "vocabulary", "system", "constraints", "readme", "services", "questions", "dry", "mention", "watch")   # living pages: each one's generator is its spec
 CJK = re.compile(r"[一-鿿　-〿＀-￯]")
 SPEC_MARK = "<!-- note standards -->"
 
@@ -3808,6 +3808,29 @@ def watch_asks(reports, today):
              "first": x.get("first") or today.isoformat()} for x in got]
 
 
+def watch_page(reports, today, base=""):
+    """ela/watch.md: every open board-watch topic with its letters and the CLI line for each (watch.page). The vault is
+    where the topics live; the DM only reminds (the owner's word, 2026-11-25). A broken store costs the page only."""
+    try:
+        WA = watch_mod()
+        if not WA.open_topics(reports):                    # nothing waits: no page, as no line on today.md
+            return {}
+        return {WA.WATCH_PAGE: front([], {"type": "watch", "date": today.isoformat()}) + WA.page(reports, today, base)}
+    except Exception:                                      # noqa: BLE001
+        return {}
+
+
+def watch_line(reports):
+    """today.md's one line for the board watch, whatever the ask cap shows: how many topics wait, the page behind it."""
+    try:
+        WA = watch_mod()
+        n = len(WA.open_topics(reports))
+    except Exception:                                      # noqa: BLE001
+        return None
+    return (f"- [[{WA.WATCH_PAGE[:-3]}|The board watch]]: {n} topic{'s' if n != 1 else ''} wait for your letter "
+            "(`ela watch answer watch:<KEY> <letter>`)") if n else None
+
+
 def watch_mod():
     sys.path.insert(0, os.path.join(HERE, "..", "watch"))
     import watch as WA                                     # noqa: E402 — the board watch's topics: one reader and writer
@@ -3957,6 +3980,8 @@ def today_page(today, notes, desk=None, shown=(), more=0, dropped=0, questions_l
     for f in projects:
         if f.get("days") is not None and 0 <= f["days"] <= PROJECT_SOON_DAYS:
             day.append(f"- [[{f['path'][:-3]}|{f['key']}]]: {days_words(f['days'])} to {f['deadline'].isoformat()}")
+    if desk.get("watch_line"):                             # the board watch's topics: one line, the page behind it
+        day.append(desk["watch_line"])
     if questions_line:                                     # the team's open questions: one line, the page behind it
         day.append(questions_line)
     if soon:
@@ -5247,7 +5272,7 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since
         "actions": week_actions(reports, today), "hold": tier2_hold(reports, today.isoformat()), "lists": list_links(reports),
         "meetings": meetings, "builds": builds, "tickets": release_mod().facts_tickets(s.get("runtime"), [k for b in builds for v in b["services"] for k in v.get("keys") or []]),
         "owner": owner_name(os.path.join(s.get("runtime") or "", "facts")), "dry_facts": dry_facts, "views": focus.get("views"),
-        "dev_ahead": dev_ahead_line(s.get("runtime")),
+        "dev_ahead": dev_ahead_line(s.get("runtime")), "watch_line": watch_line(reports),
         "board": focus.get("text") or "", "kpi": H.kpi_rows(s.get("runtime")), "head": H.load(reports)}
     planned[TODAY] = redact(front([], {"type": "today", "date": today.isoformat()}) + linker(today_page(today, notes + native, desk,
         shown, more, dropped, questions_line=qline)))
@@ -5255,6 +5280,7 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since
         H.save(reports, desk["head_inputs"], H.INPUTS)
     planned.update(dry_pages(s["vault"], reports, today, record=not dry_run))
     planned.update(mention_pages(reports, today))
+    planned.update(watch_page(reports, today, jira_base))
     if questions:
         Q = questions_mod()
         drafts = {r["id"]: r["draft"] for r in Q.open_records(questions) if r.get("draft") and (len(r["meetings"]) >= Q.NUDGE_EVERY or r.get("message"))}

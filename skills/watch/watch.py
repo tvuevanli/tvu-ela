@@ -44,12 +44,11 @@ comment on that ticket for DISPUTE_QUIET_DAYS.
                                                 without --apply
   answer  TOPIC A|B|C [--json]                  his letter on a topic (today.md's tick, or said): recorded; an option
                                                 with writes is carried out at the next decide --apply
-  asks    [--json]                              the open topics, as today.md shows them (the vault's sync puts them there)
-  dm      [--apply] [--json]                    the owner's ela DM: one root message a day, each new topic a reply under
-                                                it, a topic still open the next day continued in the thread where it
-                                                started, a settled one told once there; nothing top-level per topic; a
-                                                dry run unless --apply (a notification to him, not a post under his name)
-
+  asks    [--json]                              the open topics; the vault's sync puts them on ela/watch.md (and a
+                                                line on today.md), where they live
+  dm      [--apply] [--json]                    the owner's ela DM, a reminder only: at most one message a day, when a
+                                                topic is new — the count, the new ones a line each, the vault page and
+                                                the CLI verb; no thread per topic; a dry run unless --apply
 Store: <reports>/ela/watch.json (per ticket: the last pass's snapshot, pending triggers, the last decision, the day of
 its last set of writes, the comments ela said, the replies judged, the day a reply disputed ela), <reports>/ela/watch/<date>-scan.json, <reports>/ela/watch-topics.json,
 <reports>/ela/drafts/watch/ (each comment's text, the file a write names).
@@ -783,37 +782,44 @@ def jira_base(s=None):
         return ""
 
 
-def topic_text(t, base, again=False):
-    """A topic as its DM reply: the ticket, the question, the letters and where to answer. Plain text: Slack mrkdwn
-    has no Markdown links."""
-    url = f" {base}/browse/{t['key']}" if base else ""
-    head = (f"Still open since {t['first'][5:]}: " if again else "") + f"{t['key']} {t.get('summary') or ''}".strip()
-    return "\n".join([head + url, t["question"]]
-                     + [f"{o['letter']}: {o['text']}" for o in t["options"]]
-                     + ["Answer with the letter on today.md (or `ela watch answer " + t["id"] + " <letter>`)."])
+WATCH_PAGE = "ela/watch.md"        # the vault page every open topic lives on; the DM only points at it
+
+
+def page(reports, today, base=""):
+    """ela/watch.md: every open topic, oldest first: the ticket, the question, each letter with the CLI line that
+    answers it. The vault is where the topics live; Slack only reminds (the owner's word, 2026-11-25: he answers in
+    the CLI, not in a thread)."""
+    ts = sorted(open_topics(reports), key=lambda t: (t["first"], t["key"]))
+    L = ["# Board watch · waiting for your letter", ""]
+    if not ts:
+        return "\n".join(L + ["Nothing waits: every topic has its letter.", ""])
+    L += [f"{len(ts)} topic{'s' if len(ts) != 1 else ''} wait. Answer each in the CLI: `ela watch answer watch:<KEY> <letter>`; "
+          "a chosen option's writes go out at the watch's next pass. `ela watch asks` lists the same.", ""]
+    for t in ts:
+        link = f"[{t['key']}]({base}/browse/{t['key']})" if base else t["key"]
+        L += [f"### {link} {t.get('summary') or ''}".rstrip(), "", f"Open since {t['first']}. {t['question']}", ""]
+        L += [f"- **{o['letter']}**: {o['text']} · `ela watch answer {t['id']} {o['letter']}`" for o in t["options"]]
+        L += [""]
+    return "\n".join(L)
 
 
 def dm_plan(topics, today, base=""):
-    """What today's DM pass sends: [{kind: root|reply|again|settled, topic, text, thread}] — a root only when a topic
-    is new today and today has no root; each new topic a reply under today's root; a topic open since an earlier day,
-    not yet continued today, a reply in the thread where it started; a topic his letter closed, one line in its thread."""
-    plan, day = [], today.isoformat()
-    root = topics["roots"].get(day)
-    fresh = [t for t in topics["topics"].values() if not t.get("closed") and not t.get("thread")]
-    again = [t for t in topics["topics"].values() if not t.get("closed") and t.get("thread")
-             and not (t.get("posted") or {}).get(day) and t["first"] < day and t.get("thread") != root]
-    done = [t for t in topics["topics"].values() if t.get("closed") and t.get("thread") and not t["closed"].get("told")]
-    if fresh and not root:
-        plan.append({"kind": "root", "topic": None, "thread": None,
-                     "text": f"ela · the board watch · {today:%a %m-%d}: {len(fresh)} topic{'s' if len(fresh) != 1 else ''} "
-                             "for you. Each is a reply in this thread; a topic still open tomorrow continues in its own "
-                             "thread. Answer on today.md."})
-    plan += [{"kind": "reply", "topic": t["id"], "thread": root, "text": topic_text(t, base)} for t in sorted(fresh, key=lambda t: t["key"])]
-    plan += [{"kind": "again", "topic": t["id"], "thread": t["thread"], "text": topic_text(t, base, again=True)}
-             for t in sorted(again, key=lambda t: t["key"])]
-    plan += [{"kind": "settled", "topic": t["id"], "thread": t["thread"],
-              "text": f"{t['key']}: settled by your {t['closed']['letter']} ({t['closed']['at'][:10]})."} for t in done]
-    return plan
+    """What today's DM pass sends: at most one reminder a day, and only when a topic is new since the last reminder:
+    how many are new, how many wait in all, the new ones a line each, and where they live (the vault page) and how to
+    answer (the CLI). No thread per topic, no repeat for an open one, no line when one settles: the vault page carries
+    them (the owner's word, 2026-11-25). → [{kind: "reminder", topics: [ids], text}]."""
+    day = today.isoformat()
+    if topics["roots"].get(day):
+        return []
+    open_ = [t for t in topics["topics"].values() if not t.get("closed")]
+    fresh = sorted((t for t in open_ if not t.get("thread")), key=lambda t: t["key"])
+    if not fresh:
+        return []
+    lines = [f"ela · the board watch · {today:%a %m-%d}: {len(fresh)} new topic{'s' if len(fresh) != 1 else ''}, "
+             f"{len(open_)} waiting in all. They are on the vault page {WATCH_PAGE[:-3]}; answer in the CLI with "
+             "`ela watch answer watch:<KEY> <letter>`."]
+    lines += [f"• {t['key']} {(t.get('summary') or '')[:70]}".rstrip() + (f" {base}/browse/{t['key']}" if base else "") for t in fresh]
+    return [{"kind": "reminder", "topics": [t["id"] for t in fresh], "text": "\n".join(lines)}]
 
 
 def slack_post(argv, apply):
@@ -828,9 +834,8 @@ def slack_post(argv, apply):
 
 
 def dm(reports, now, apply=False, post=None, base=None):
-    """Carry today's DM plan out through `ela slack post` (each a dry run unless `apply`): the root to his DM, each
-    reply into the thread its permalink names. → {sent: [...], failed: [...]}; the topics store records the root, each
-    topic's thread and the day it was posted."""
+    """Send today's reminder (dm_plan) to his DM through `ela slack post` (a dry run unless `apply`). → {sent, failed};
+    applied, the store records the day's reminder and marks its topics reminded (their `thread`), so none is sent twice."""
     post = post or slack_post
     topics = load_topics(reports)
     today = now.date()
@@ -843,36 +848,17 @@ def dm(reports, now, apply=False, post=None, base=None):
         f = os.path.join(tmp, f"{day}-{i}.txt")
         with open(f, "w", encoding="utf-8") as fh:
             fh.write(p["text"] + "\n")
-        thread = topics["roots"].get(day) if p["kind"] == "reply" else p["thread"]
-        if p["kind"] == "root":
-            argv = ["post", "--dm", "me", "--file", f]
-        elif thread:
-            argv = ["post", thread, "--no-cc", "--file", f]
-        elif not apply:
-            argv = ["post", "--dm", "me", "--file", f]            # a dry run: today's root is not posted yet
-        else:
-            failed.append({"plan": p, "why": "no root to reply under"}); continue
-        code, got, err = post(argv, apply)
+        code, got, err = post(["post", "--dm", "me", "--file", f], apply)
         if code != 0:
-            failed.append({"plan": p, "why": err or f"exit {code}"})
-            if p["kind"] == "root":
-                break                                           # no root, no replies: nothing posted top-level per topic
-            continue
-        sent.append({"kind": p["kind"], "topic": p["topic"], "permalink": (got or {}).get("permalink"), "dry_run": not apply,
-                     "text": p["text"]})
-        if not apply:
-            continue
+            failed.append({"plan": p, "why": err or f"exit {code}"}); continue
         link = (got or {}).get("permalink")
-        t = topics["topics"].get(p["topic"]) if p["topic"] else None
-        if p["kind"] == "root":
-            topics["roots"][day] = link
-        elif p["kind"] == "reply":
-            t["thread"] = topics["roots"][day]
-            t.setdefault("posted", {})[day] = link
-        elif p["kind"] == "again":
-            t.setdefault("posted", {})[day] = link
-        elif p["kind"] == "settled":
-            t["closed"]["told"] = now.isoformat(timespec="seconds")
+        sent.append({"kind": p["kind"], "topics": p["topics"], "permalink": link, "dry_run": not apply, "text": p["text"]})
+        if apply:
+            topics["roots"][day] = link or True
+            for tid in p["topics"]:
+                t = topics["topics"][tid]
+                t["thread"] = link or True
+                t.setdefault("posted", {})[day] = link or True
     if apply:
         write_json(topics_path(reports), topics)
     return {"date": day, "sent": sent, "failed": failed}
@@ -976,8 +962,8 @@ def cmd_dm(a):
     if a.apply and os.environ.get("ELA_NO_APPLY"):
         print("refused: dm --apply inside an unattended session (ELA_NO_APPLY)", file=sys.stderr); sys.exit(EX_USAGE)
     r = dm(site().get("reports") or "", now_tz(), apply=a.apply)
-    emit(a, r, [f"{x['kind']}{' ' + x['topic'] if x['topic'] else ''}: {'dry run' if x['dry_run'] else x['permalink']}" for x in r["sent"]]
-         + [f"failed {x['plan']['kind']} {x['plan']['topic'] or ''}: {x['why']}" for x in r["failed"]]
+    emit(a, r, [f"{x['kind']} ({len(x['topics'])} new): {'dry run' if x['dry_run'] else x['permalink']}\n{x['text']}" for x in r["sent"]]
+         + [f"failed {x['plan']['kind']}: {x['why']}" for x in r["failed"]]
          + ([] if r["sent"] or r["failed"] else ["nothing to send"]) + ([] if a.apply else ["dry run; --apply sends"]))
 
 

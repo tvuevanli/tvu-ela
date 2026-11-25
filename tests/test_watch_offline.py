@@ -207,40 +207,47 @@ with tempfile.TemporaryDirectory() as t:
 
     day1 = datetime.datetime(2026, 11, 24, 18, 0, tzinfo=TZ)
     r = W.dm(reports, day1, apply=False, post=post, base="https://j")
-    check("dry run: a root, then each topic a reply; nothing stored",
-          [x["kind"] for x in r["sent"]] == ["root", "reply", "reply"] and all(not a for _, a in posts)
+    check("dry run: one reminder naming the new topics, the vault page and the CLI verb; nothing stored",
+          [x["kind"] for x in r["sent"]] == ["reminder"] and len(posts) == 1 and not posts[0][1]
+          and "ela/watch" in r["sent"][0]["text"] and "ela watch answer" in r["sent"][0]["text"]
+          and "MH-31" in r["sent"][0]["text"] and "https://j/browse/MH-32" in r["sent"][0]["text"]
           and W.load_topics(reports)["roots"] == {})
     posts.clear()
     r = W.dm(reports, day1, apply=True, post=post, base="https://j")
-    check("applied (a stub): the root to his DM, each topic a reply in its thread, never top-level per topic",
-          posts[0][0][:3] == ["post", "--dm", "me"] and all(a[0][1] == "https://x.slack.com/archives/D1/p1" and "--no-cc" in a[0] for a in posts[1:])
-          and len(posts) == 3)
     tp = W.load_topics(reports)
-    check("the store keeps the root and each topic's thread", tp["roots"]["2026-11-24"].endswith("/p1")
-          and tp["topics"]["watch:MH-31"]["thread"].endswith("/p1") and "https://j/browse/MH-31" in r["sent"][1]["text"])
+    check("applied (a stub): one message to his DM, no thread per topic; the store marks the topics reminded",
+          len(posts) == 1 and posts[0][0][:3] == ["post", "--dm", "me"] and tp["roots"]["2026-11-24"].endswith("/p1")
+          and all(tp["topics"][k]["thread"] for k in ("watch:MH-31", "watch:MH-32")))
     posts.clear()
     check("a second pass the same day sends nothing", W.dm(reports, day1, apply=True, post=post)["sent"] == [] and posts == [])
     W.answer(reports, "watch:MH-32", "B", day1)
+    day2 = day1 + datetime.timedelta(days=1)
+    check("the next day with nothing new: no reminder (the open one lives on the vault page, not repeated in Slack)",
+          W.dm(reports, day2, apply=True, post=post)["sent"] == [] and posts == [])
     tp = W.load_topics(reports)
     W.put_topic(tp, "MH-33", {"question": "MH-33: who takes it?"}, "2026-11-25", "summary MH-33")
     W.write_json(W.topics_path(reports), tp)
-    posts.clear()
-    day2 = day1 + datetime.timedelta(days=1)
     r = W.dm(reports, day2, apply=True, post=post, base="")
-    kinds = {(x["kind"], x["topic"]) for x in r["sent"]}
-    check("the next day: a new root for the new topic; the open one continues in its first thread; the settled one is told there",
-          kinds == {("root", None), ("reply", "watch:MH-33"), ("again", "watch:MH-31"), ("settled", "watch:MH-32")}
-          and next(a for a, _ in posts if "Still" in open(a[-1]).read())[1] == "https://x.slack.com/archives/D1/p1")
+    check("a new topic: one reminder naming only it, counting every open one",
+          len(r["sent"]) == 1 and r["sent"][0]["topics"] == ["watch:MH-33"] and "1 new topic, 2 waiting in all" in r["sent"][0]["text"])
     posts.clear()
     check("and once a day only", W.dm(reports, day2, apply=True, post=post)["sent"] == [])
-    fail_root = lambda argv, apply: (1, None, "slack down")   # noqa: E731
+    fail = lambda argv, apply: (1, None, "slack down")   # noqa: E731
     W.put_topic(tp := W.load_topics(reports), "MH-34", {"question": "MH-34?"}, "2026-11-26", "")
     W.write_json(W.topics_path(reports), tp)
-    r = W.dm(reports, day2 + datetime.timedelta(days=1), apply=True, post=fail_root)
-    check("no root, no replies: a failed root stops the pass", len(r["failed"]) == 1 and r["sent"] == [])
+    r = W.dm(reports, day2 + datetime.timedelta(days=1), apply=True, post=fail)
+    check("a failed post is reported and the topic stays unreminded for the next pass",
+          len(r["failed"]) == 1 and r["sent"] == [] and not W.load_topics(reports)["topics"]["watch:MH-34"]["thread"])
+    pg = W.page(reports, day2.date(), "https://j")
+    check("the vault page lists every open topic with each letter's CLI line; a settled one is not there",
+          "### [MH-31](https://j/browse/MH-31)" in pg and "`ela watch answer watch:MH-31 " in pg and "MH-32" not in pg
+          and "4 topics" not in pg and "3 topics wait" in pg)
 
     sys.path.insert(0, os.path.join(ROOT, "skills", "vault"))
     import vault as V  # noqa: E402
+    check("today.md carries one line for the board watch whatever the ask cap shows, the page behind it",
+          (V.watch_line(reports) or "").startswith("- [[ela/watch|The board watch]]: 3 topics wait")
+          and list(V.watch_page(reports, day2.date(), "https://j")) == ["ela/watch.md"])
     got = V.watch_asks(reports, day2.date())
     check("today.md shows each open topic as an ask, dated from its first day, its letters answered by ela watch answer",
           {x["id"] for x in got} == {"watch:MH-31", "watch:MH-33", "watch:MH-34"}
