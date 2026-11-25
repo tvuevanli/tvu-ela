@@ -27,9 +27,11 @@ $P mirror [--dry-run]   # <published> → site.json `published_mirror`, the owne
 
 ## Invariants
 - **The team's release is facts only** (elak `decisions/2026-11-25-published-knowledge-is-a-versioned-release.md`).
-  `check` refuses the owner's word, ruling or reading cited as a source, the owner's first name (read from elak's git
-  identity, never written in code), a quotation attributed to a person, a credential, and a quoted CJK sentence outside
-  a json or yaml value. A refusal is fixed in elak and published again, never in `<published>`. `release --apply` is
+  `check` refuses the owner's word, ruling or reading cited as a source, the owner as a document's reader or decider
+  ("by the MediaHub owner", "the owner decided", "Decided <date>"), the owner's first name (read from elak's git
+  identity, never written in code), a quotation attributed to a person, an email address, a company host name that is
+  not a public page (`redact` already turns one into `<host>`), a private filesystem path, a Decision(s) / Rationale /
+  Plan / Open questions heading in a document, a credential, and a quoted CJK sentence outside a json or yaml value. A refusal is fixed in elak and published again, never in `<published>`. `release --apply` is
   refused while `check` refuses a line; it records elak's `HEAD` as `elak: <sha>` in the commit, and a release is due
   when elak changed under the scope since that commit. The push to GitLab is the owner's own signal, not a verb.
   `people/`, `lanes/`, `releases/`, `reports/` and `MANIFEST.md` stay outside git (the generated `.gitignore`).
