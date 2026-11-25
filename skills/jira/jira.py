@@ -1851,14 +1851,14 @@ def post_note(creds, args, keys):
 STATUS_PATH = ["Backlog", "In Progress", "Review", "Done"]
 # A terminal status is the owner's own decision. ela proposes a close (Fixed In, comment, flag:closing, the ticket
 # assigned to him) and performs the transition only on his explicit word, which the caller states with --terminal —
-# so a close he does not know about cannot happen (conventions.md section Clean-up rules, 2026-10-21; the opt-in
+# so a close he does not know about cannot happen (elak blueprint/mh-jira-working-rules.md, Clean-up rules, 2026-10-21; the opt-in
 # added 2026-10-22, MH-3645).
 TERMINAL = {"Done", "Cancelled", "Failed", "Closed Ambigous"}
 
 
 def terminal(to):
     return _norm(to) in {_norm(x) for x in TERMINAL}
-CLOSING_FLAG = "flag:closing"   # a close announced, waiting out its objection window (conventions.md § Clean-up rules)   # the MH lifecycle (published mediahub/jira/status-spec.md)
+CLOSING_FLAG = "flag:closing"   # a close announced, waiting out its objection window (elak blueprint/mh-jira-working-rules.md § Clean-up rules)   # the MH lifecycle (published mediahub/jira/status-spec.md)
 
 
 def plan_path(cur, to):

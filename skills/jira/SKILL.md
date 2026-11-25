@@ -119,7 +119,7 @@ never by rewriting what is there.
 ## A requirement is a project
 
 One requirement is one ticket, carried in principle by one person from start to finish, who also owns its
-coordination and its approach (the owner's word, 2026-11-10; elak `knowledge/products/mediahub/jira/conventions.md`
+coordination and its approach (2026-11-10; elak `knowledge/products/mediahub/jira/conventions.md`
 § Description standard). Drafting a requirement with `create`:
 
 - **One ticket, this level only.** The owner creates the requirement's ticket and nothing beneath it. ela does
@@ -184,7 +184,7 @@ MH-3645).
 Confirm rule for a Claude session: show the dry-run, ask Evan, and only then re-run with `--apply` —
 the same wording he saw. The unit of a confirm is **one ticket's bundle** — Fixed In, labels, the
 comment and the walk — or **one batch of one shape**: when a rule the owner has recorded (elak
-`knowledge/products/mediahub/jira/conventions.md` § Clean-up rules) selects the tickets and the same
+`blueprint/mh-jira-working-rules.md` § Clean-up rules) selects the tickets and the same
 text and the same steps fan out over all of them, the whole batch is one dry run, shown in full, and one
 word applies it. A batch of mixed shapes is several confirms. This supersedes the 2026-10-19 wording
 (one ticket, one confirm) for rule-selected batches only (2026-10-21); a hand-picked set of tickets is

@@ -36,7 +36,7 @@ not counted (fixedin: a reused key), so it never makes a fix:
   fixed-in-missing  Done, no Fixed In, no no-version flag, and the builds show the carrier → the field, on confirm
   epic          an Epic: its children's actions counted; it owes a close only when every child is closed or closable
   stale-backlog Backlog, 180 days without an update, no commit, no children → the 14-day notice to the reporter
-                (rule 2 in conventions.md); Cancelled is proposed to the owner after the window
+                (rule 2 in elak blueprint/mh-jira-working-rules.md); Cancelled is proposed to the owner after the window
   (none)        Backlog with no fix: the board's queue, nothing owed yet
 
 Exit: 0 ok · 2 usage · 5 fixed-in failed.
