@@ -42,8 +42,10 @@ reap: every live session in the registry (not ended, its process alive) gets one
 this order: desk (the session reap runs in, one named ela or desk, or one started in the projects root: never
 touched) · runner (a runner job's own session: it ends itself) ·
 dirty (an uncommitted change in its worktree <work>/<N>/<repo>) · to-land (evan/<N> has commits beyond main, the
-worktree clean) · no-brief (no typed message, or the only reply asks for a task) · landed (the worktree is gone, or
-the branch has nothing beyond main after commits of its own, the worktree clean) · signed-off (the last reply's last
+worktree clean) · landed (a commit of its own reached main: the branch has nothing beyond main after commits of its
+own, or main's reflog records `merge evan/<N>`, or a reply names a commit main gained after the session started; or
+the worktree is gone) · no-brief (no commit of its own on main, and no typed message or the only reply asks for a
+task) · signed-off (the last reply's last
 line is `— ela out 🦀`) · waiting-owner (the last reply asks a question: its line is shown) · busy (anything else).
 One row each: name, state, minutes since the last reply, the reason.
 --apply, once each session has been idle 10 minutes: `land` each to-land whose last reply says it is ready (once;
@@ -434,8 +436,10 @@ reap: every live session in the registry (not ended, its process alive) gets one
 this order: desk (the session reap runs in, one named ela or desk, or one started in the projects root: never
 touched) · runner (a runner job's own session: it ends itself) ·
 dirty (an uncommitted change in its worktree <work>/<N>/<repo>) · to-land (evan/<N> has commits beyond main, the
-worktree clean) · no-brief (no typed message, or the only reply asks for a task) · landed (the worktree is gone, or
-the branch has nothing beyond main after commits of its own, the worktree clean) · signed-off (the last reply's last
+worktree clean) · landed (a commit of its own reached main: the branch has nothing beyond main after commits of its
+own, or main's reflog records `merge evan/<N>`, or a reply names a commit main gained after the session started; or
+the worktree is gone) · no-brief (no commit of its own on main, and no typed message or the only reply asks for a
+task) · signed-off (the last reply's last
 line is `— ela out 🦀`) · waiting-owner (the last reply asks a question: its line is shown) · busy (anything else).
 One row each: name, state, minutes since the last reply, the reason.
 --apply, once each session has been idle 10 minutes: `land` each to-land whose last reply says it is ready (once;
@@ -893,6 +897,29 @@ def worktree_state(n, repo):
     return None, f"{branch} has no commit yet"
 
 
+SHA = re.compile(r"(?<![0-9a-f])[0-9a-f]{7,40}(?![0-9a-f])")
+
+
+def land_record(n, repo, replies, started):
+    """(short sha, how) of the commit showing that worker n's work reached BASE after its worktree or branch is gone,
+    else None: the shared checkout's BASE reflog entry `merge evan/<n>` (what `session land` leaves), or a SHA a reply
+    names that BASE contains and did not contain when the session started (the base it began on is not one)."""
+    checkout = os.path.join(site().get("projects") or "", repo)
+    for x in git(checkout, "reflog", "show", "--format=%H %gs", BASE).stdout.splitlines():
+        sha, _, subject = x.partition(" ")
+        if subject.startswith(f"merge evan/{n}:") and git(checkout, "merge-base", "--is-ancestor", sha, BASE).returncode == 0:
+            return sha[:7], f"merge evan/{n} into {BASE}"
+    at = _when_any(started or "")
+    before = git(checkout, "rev-parse", "--verify", "-q", f"{BASE}@{{{at.isoformat()}}}").stdout.strip() if at else ""
+    for text, _ in reversed(replies):
+        for sha in dict.fromkeys(SHA.findall(text)):
+            full = git(checkout, "rev-parse", "--verify", "-q", sha + "^{commit}").stdout.strip()
+            if (full and git(checkout, "merge-base", "--is-ancestor", full, BASE).returncode == 0
+                    and not (before and git(checkout, "merge-base", "--is-ancestor", full, before).returncode == 0)):
+                return full[:7], f"the transcript names {sha}"
+    return None
+
+
 def is_desk(r, mine):
     """The sessions reap never closes: the one it runs in, and the desk (named ela or desk, or started in the projects
     root)."""
@@ -927,6 +954,12 @@ def judge(r, now_, mine):
             return done(state, why)
     if t is None:
         return done("busy", "no transcript yet")
+    if state == "landed":                        # a commit of its own reached BASE: landed, whatever the first reply asked
+        if why.startswith(f"evan/{w[0]} has nothing beyond"):
+            return done("landed", why)
+        rec = land_record(*w, t["replies"], r.get("started"))
+        if rec:
+            return done("landed", f"{why}; {rec[0]} is on {BASE} ({rec[1]})")
     if t["prompts"] == 0 or (len(t["replies"]) == 1 and t["ended"] and ASKS_TASK.search(text)):
         return done("no-brief", "no first message" if t["prompts"] == 0 else "the only reply asks for a task")
     if state == "landed":

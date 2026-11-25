@@ -61,6 +61,15 @@ with tempfile.TemporaryDirectory() as tmp:
     worktree("fr")                                 # opened, nothing committed yet: not landed
     worktree("ld", commit="e.txt")            # its commit reached main another way: landed
     git(ela, "merge", "-q", "--ff-only", "evan/ld")
+    base_sha = git(ela, "rev-parse", "--short", "main").stdout.strip()
+    # landed, then the worktree and branch removed as `session land` leaves them; the only reply still asks for a task
+    worktree("lb", commit="lb.txt")
+    lb_sha = git(ela, "rev-parse", "--short", "evan/lb").stdout.strip()
+    git(ela, "merge", "-q", "--ff-only", lb_sha)            # lb reached main with no `merge evan/lb` in the reflog
+    worktree("la", commit="la.txt")
+    git(ela, "merge", "-q", "--ff-only", "evan/la")         # the reflog records `merge evan/la`
+    for n in ("la", "lb"):
+        git(ela, "worktree", "remove", os.path.join(work, n, "ela")); git(ela, "branch", "-q", "-D", f"evan/{n}")
 
     old = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(minutes=30)).isoformat()
     new = datetime.datetime.now(datetime.timezone.utc).isoformat()
@@ -75,10 +84,10 @@ with tempfile.TemporaryDirectory() as tmp:
         return {"type": "assistant", "timestamp": ts, "message": {"role": "assistant", "stop_reason": stop,
                                                                  "content": [{"type": "text", "text": text}]}}
 
-    def session(sid, name, cwd, lines):
+    def session(sid, name, cwd, lines, at=old):
         p = subprocess.Popen(["sleep", "300"])
         procs[sid] = p
-        reg.append({"event": "start", "id": sid, "at": old, "name": name, "cwd": cwd, "pid": p.pid, "pane": None,
+        reg.append({"event": "start", "id": sid, "at": at, "name": name, "cwd": cwd, "pid": p.pid, "pane": None,
                     "job": "midday" if sid == "s-job" else None})
         if lines is not None:
             open(os.path.join(proj, sid + ".jsonl"), "w").write("".join(json.dumps(x) + "\n" for x in lines))
@@ -89,6 +98,10 @@ with tempfile.TemporaryDirectory() as tmp:
     session("s-fr", "fr", W("fr"), [user("do it"), reply("Reading the code first.")])
     session("s-ld", "ld", W("ld"), [user("do it"), reply("Landed by the desk.")])
     session("s-gone", "gone", W("gone"), [user("do it"), reply("All done.")])
+    asks = "No task came with this session. What would you like me to do?"
+    session("s-la", "la", W("la"), [user("brief"), reply(f"Branch clean at {base_sha}. {asks}")])
+    session("s-lb", "lb", W("lb"), [user("brief"), reply(f"Committed {lb_sha}; the desk landed it. {asks}")])
+    session("s-lc", "lc", W("lc"), [user("brief"), reply(f"Branch clean at {base_sha}. {asks}")], at=new)
     session("s-nb", "nb", "/x", [])
     session("s-ask", "ask", "/x", [user("hi"), reply("No task came with this session. What would you like me to do?")])
     session("s-sig", "sig", "/x", [user("look"), reply("The answer.\n\n— ela out 🦀")])
@@ -114,6 +127,12 @@ with tempfile.TemporaryDirectory() as tmp:
     check(st.get("s-ld") == "landed" and st.get("s-gone") == "landed",
           "landed: the branch has nothing beyond main after commits of its own, or the worktree is gone")
     check(st.get("s-nb") == "no-brief" and st.get("s-ask") == "no-brief", "no-brief: no typed message, or the only reply asks for a task")
+    check(st.get("s-la") == "landed" and "merge evan/la" in rows["s-la"]["reason"],
+          "worktree and branch gone, main's reflog records merge evan/<N>: landed, though the only reply asks for a task")
+    check(st.get("s-lb") == "landed" and lb_sha in rows["s-lb"]["reason"],
+          "worktree and branch gone, a reply names a commit main gained after the session started: landed")
+    check(st.get("s-lc") == "no-brief",
+          "worktree gone, no land record, the reply names only the base main already had: still no-brief")
     check(st.get("s-sig") == "signed-off" and st.get("s-sig-new") == "signed-off", "signed-off: the last line is the sign-off")
     check(st.get("s-wait") == "waiting-owner" and rows["s-wait"]["question"] == "**Shall I take A?**",
           "waiting-owner carries the question line")
@@ -128,8 +147,8 @@ with tempfile.TemporaryDirectory() as tmp:
 
     p = run(["reap", "--apply", "--json"])
     rows = {r["id"]: r for r in json.loads(p.stdout)} if p.returncode == 0 else {}
-    ended = {sid for sid, pr in procs.items() if (pr.wait(timeout=5) if sid in {"s-tl", "s-ld", "s-gone", "s-sig"} else pr.poll()) is not None}
-    check(ended == {"s-tl", "s-ld", "s-gone", "s-sig"}, f"--apply closes the landed and the idle signed-off sessions only: {sorted(ended)}")
+    ended = {sid for sid, pr in procs.items() if (pr.wait(timeout=5) if sid in {"s-tl", "s-ld", "s-gone", "s-la", "s-lb", "s-sig"} else pr.poll()) is not None}
+    check(ended == {"s-tl", "s-ld", "s-gone", "s-la", "s-lb", "s-sig"}, f"--apply closes the landed and the idle signed-off sessions only: {sorted(ended)}")
     check(rows.get("s-tl", {}).get("action") == "landed, closed" and git(origin, "rev-parse", "main").stdout == git(ela, "rev-parse", "main").stdout
           and os.path.exists(os.path.join(ela, "c.txt")) and not os.path.isdir(W("tl")),
           "a ready to-land worker is landed (main fast-forwarded, pushed, worktree removed), then closed")
@@ -140,7 +159,7 @@ with tempfile.TemporaryDirectory() as tmp:
     check(st.get("s-hand") == "signed-off" and rows["s-hand"]["action"] == "started by hand: closes on the owner's word"
           and procs["s-hand"].poll() is None, "a signed-off session started by hand is reported, not closed")
     lines = open(os.path.join(rt, "sessions.jsonl")).read().splitlines()
-    check(sum('"closed by desk"' in x for x in lines) == 4, "each close writes an end line, closed by desk")
+    check(sum('"closed by desk"' in x for x in lines) == 6, "each close writes an end line, closed by desk")
     p = run(["reap", "--last"])
     left = p.stdout.splitlines()
     check(p.returncode == 0 and any(x.startswith("tr: to-land — land refused") for x in left) and any(x.startswith("wait: waiting-owner — ") for x in left)
