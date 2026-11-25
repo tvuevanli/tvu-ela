@@ -7,12 +7,17 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh prefs 1/2",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh prefs 1/3",
             "timeout": 30
           },
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh prefs 2/2",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh prefs 2/3",
+            "timeout": 30
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh prefs 3/3",
             "timeout": 30
           },
           {
@@ -27,12 +32,17 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh prefs 1/2",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh prefs 1/3",
             "timeout": 10
           },
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh prefs 2/2",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh prefs 2/3",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh prefs 3/3",
             "timeout": 10
           },
           {
