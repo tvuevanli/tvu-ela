@@ -124,6 +124,11 @@ A customer report names a feed, a circuit, a person and a time, and no id. Start
   which. If the asker does not know, check them all, but only a few (five at most); more than that,
   ask for a narrower window or the troubleshooting block instead of walking them (the owner's rule,
   2026-11-25).
+  `graphs <email> --any --name <part> --since <moment> --until <moment>` does this: with a name or a
+  window, two or more matches print as that candidate block with a `do:` line — the `graph <id>` checks
+  for up to five, or "narrow the window" past five (`--json` carries `candidates.verdict`: one · ask ·
+  narrow). A moment without a zone is UTC; a report in local time is converted first. The window keeps
+  a graph that lived during it, stopped ones included under `--any`.
 - **Nothing to go on** (no email, no id, only a customer or a person's name): say what is needed and
   where it is copied from (the troubleshooting info button in the source or destination panel).
 

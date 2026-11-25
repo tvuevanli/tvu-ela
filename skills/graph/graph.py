@@ -1001,8 +1001,64 @@ def email_variants(email):
                                email.upper()]))
 
 
+CANDIDATE_CAP = 5   # the owner's rule, 2026-11-25: when the asker cannot pick, check a few, never walk a long list
+
+
+def _when(v):
+    """An ISO moment (`2026-11-24`, `2026-11-24 15:00`, `…T15:00:00Z`, `…+08:00`) → an aware datetime; a moment
+    without a zone is UTC, as UR writes. Empty → None."""
+    v = (v or "").strip()
+    if not v:
+        return None
+    d = datetime.datetime.fromisoformat(v.replace("Z", "+00:00").replace(" ", "T", 1))
+    return d if d.tzinfo else d.replace(tzinfo=datetime.timezone.utc)
+
+
+def in_window(row, since=None, until=None):
+    """A graph is in the window when it lived during it: created before its end and not stopped before its
+    start. A row with no creation time cannot be placed and is kept, so a window never hides a candidate."""
+    made, gone = _when(row.get("created_at")), _when(row.get("deleted_at"))
+    if until and made and made > until:
+        return False
+    if since and gone and gone < since:
+        return False
+    return True
+
+
+def candidates(rows, cap=CANDIDATE_CAP):
+    """What a search by name or window leaves the session to do. One row is the answer; two to `cap` are
+    listed for the asker to pick, and checked each when the asker cannot; more than `cap` are not walked:
+    the window is narrowed or the troubleshooting block asked for instead."""
+    n = len(rows)
+    verdict = "none" if not n else "one" if n == 1 else "ask" if n <= cap else "narrow"
+    return {"count": n, "cap": cap, "verdict": verdict,
+            "check": [r["graph_id"] for r in rows] if verdict in ("one", "ask") else []}
+
+
+def candidate_line(g):
+    made = (g.get("created_at") or "")[:16].replace("T", " ")
+    return f"  {g.get('name') or '-':<32} {g['graph_id']:<28}{g.get('email') or '-':<32} created {made or '-'}"
+
+
+def print_candidates(c, rows):
+    """The candidate block: a line each (name, graph, owner, created), then what to do with them."""
+    print(f"# {c['count']} candidate(s)")
+    for g in rows:
+        print(candidate_line(g))
+    if c["verdict"] == "ask":
+        print(f"do: ask the asker which one; if they cannot say, check each ({c['count']} ≤ {c['cap']}): "
+              + "  ".join(f"graph {gid}" for gid in c["check"]))
+    elif c["verdict"] == "narrow":
+        print(f"do: more than {c['cap']} candidates, do not walk them: narrow --since/--until to the reported moment, "
+              "or ask for the troubleshooting block (the info button in the source or destination panel)")
+
+
 def cmd_graphs(ur, a):
     a.email = resolve_email(a.email, a.env_file)
+    try:
+        a.since_at, a.until_at = _when(getattr(a, "since", None)), _when(getattr(a, "until", None))
+    except ValueError as err:
+        print(f"graphs: --since/--until take an ISO moment ({err})", file=sys.stderr); sys.exit(EX_USAGE)
     asked, out = a.email, []
     for a.email in email_variants(asked):
         out = graphs_for(ur, a)
@@ -1017,6 +1073,8 @@ def cmd_graphs(ur, a):
 
 def graphs_for(ur, a):
     envs = a.envs_read = ur.order if a.all else ([normalise(a.env)] if a.env else ur.order)
+    since, until = getattr(a, "since_at", None), getattr(a, "until_at", None)
+    name = (getattr(a, "name", None) or "").casefold()
     out, seen = [], set()
     mode = "any" if getattr(a, "any", False) else ("deleted" if getattr(a, "deleted", False) else "")
     for e in envs:
@@ -1047,6 +1105,10 @@ def graphs_for(ur, a):
                     continue
                 if a.object and a.object not in (row["object_id"], row["business_id"]):
                     continue
+                if name and name not in (row["name"] or "").casefold():
+                    continue
+                if (since or until) and not in_window(row, since, until):
+                    continue
                 seen.add(row["graph_id"]); rows.append(row)
             if len(ents) < a.limit or not a.pages or page + 1 >= a.pages:
                 break
@@ -1061,10 +1123,20 @@ def graphs_for(ur, a):
 def print_graphs(a, out):
     envs = getattr(a, "envs_read", None) or []
     mode = "any" if getattr(a, "any", False) else ("deleted" if getattr(a, "deleted", False) else "")
+    since, until = getattr(a, "since_at", None), getattr(a, "until_at", None)
+    name = (getattr(a, "name", None) or "").casefold()
+    found = [g for r in out for g in r["graphs"]]
+    cand = candidates(found) if (name or since or until) else None
     if a.json:
-        print(json.dumps({"email": a.email, "object": a.object, "results": out}, ensure_ascii=False)); return
+        print(json.dumps({"email": a.email, "object": a.object, "name": getattr(a, "name", None),
+                          "since": getattr(a, "since", None), "until": getattr(a, "until", None),
+                          "results": out, **({"candidates": cand} if cand else {})}, ensure_ascii=False)); return
     if not out:
-        print(f"no graphs for {a.email}" + (f" with object {a.object}" if a.object else "") + f" on {', '.join(envs)}", file=sys.stderr); sys.exit(EX_NOTFOUND)
+        print(f"no graphs for {a.email}" + (f" with object {a.object}" if a.object else "")
+              + (f" named like {a.name!r}" if name else "") + (" in the window" if since or until else "")
+              + f" on {', '.join(envs)}", file=sys.stderr); sys.exit(EX_NOTFOUND)
+    if cand and cand["verdict"] != "one":
+        print_candidates(cand, found); return
     for r in out:
         print(f"# {a.email}  (answered via {r['via']})  {r['count']} graph(s)"
               + (f"  [{'stopped graphs included' if mode == 'any' else 'stopped graphs only'}]" if mode else ""))
@@ -1653,6 +1725,9 @@ def main():
             p.add_argument("-c", "--connections", action="store_true", help="the edges as a connections list")
     p = sub.add_parser("graphs"); p.add_argument("email", nargs="?", default="me", help="a full address (any UR user, as given), an alias from site.json emails (me · li …), or a roster first name; default me"); p.add_argument("-e", "--env"); p.add_argument("--all", action="store_true")
     p.add_argument("--object", help="keep only graphs whose objectId or businessId equals this")
+    p.add_argument("--name", help="keep only graphs whose name contains this (case-insensitive); with it, several matches print as candidates")
+    p.add_argument("--since", help="keep only graphs alive at or after this ISO moment (no zone = UTC); a window makes several matches candidates")
+    p.add_argument("--until", help="keep only graphs created at or before this ISO moment (no zone = UTC)")
     p.add_argument("--any", action="store_true", help="stopped graphs too (J2N v2, newest first)")
     p.add_argument("--deleted", action="store_true", help="only stopped graphs (J2N v2, newest first)")
     p.add_argument("--pages", type=int, default=5, help="pages to walk per env"); p.add_argument("--limit", type=int, default=50, help="page size")
