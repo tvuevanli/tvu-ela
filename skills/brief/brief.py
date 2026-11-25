@@ -1656,9 +1656,9 @@ def lane_bundles(env, line, role, host, cfg):
         pin = R.read_pins().get(line) or {}
         pinned = next((b for b in got if str(b.get("bundleId")) == str(pin.get("id"))), None)
         return ([pinned] + [b for b in got if b is not pinned and str(b.get("createTime") or "") < str(pinned.get("createTime") or "")]) if pinned else got
-    pre = (cfg.get("bundle_line") or "") + (cfg.get("bundle_lanes") or {}).get(role, "")
+    tok = (cfg.get("bundle_lanes") or {}).get(role, "")
     got = run_json(["python3", RELEASE, *env, "bundles", cfg.get("bundle_line") or "", "--host", host, "--limit", "50", "--json"], timeout=120)["bundles"]
-    got = [b for b in got if str(b.get("bundleName", "")) == pre or str(b.get("bundleName", "")).startswith(pre + "-")]
+    got = [b for b in got if R.lane_token_match(b.get("bundleName"), cfg.get("bundle_line") or "", tok)]
     return sorted(got, key=lambda b: str(b.get("createTime") or ""), reverse=True)
 
 
@@ -2549,8 +2549,7 @@ def line_matrix(line, args, env, rows, before, tested, pins, cand_doc, errors):
                     how = "by name"
             if b is None and role != "prod":                # prod has no token lane: an rc bundle is special-purpose (2026-10-27)
                 got = run_json(["python3", RELEASE, *env, "bundles", cfg.get("bundle_line") or "", "--host", host, "--limit", "50", "--json"], timeout=120)["bundles"]
-                pre = (cfg.get("bundle_line") or "") + toks.get(role, "")
-                got = [x for x in got if str(x.get("bundleName", "")) == pre or str(x.get("bundleName", "")).startswith(pre + "-")]
+                got = [x for x in got if R.lane_token_match(x.get("bundleName"), cfg.get("bundle_line") or "", toks.get(role, ""))]
                 b, how = max(got, key=lambda x: str(x.get("createTime") or ""), default=None), "token"
             bundle[lane] = bundle_cell(b, how, newest, role == "prod" and how == "official")
         except (LaneError, subprocess.TimeoutExpired, ValueError) as e:
@@ -2787,7 +2786,7 @@ def bundle_lane(name, cfgs):
     if not tok:
         return None
     for cfg in cfgs.values():
-        if cfg.get("bundle_line") == tok.group(1):
+        if cfg.get("bundle_line") and tok.group(1) in R.train_prefixes(cfg["bundle_line"]):
             role = next((r for r, t in (cfg.get("bundle_lanes") or {}).items() if t == tok.group(2)), None)
             if role and (cfg.get("lanes") or {}).get(role):
                 return cfg["lanes"][role]

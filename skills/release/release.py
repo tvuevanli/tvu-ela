@@ -906,7 +906,70 @@ def stored_bundles(kind, line, limit):
     return None
 
 
+def _line_key(line):
+    """"2.1", "mh2.1@", "mh2.1@daily-wed" or "MediaHub 2.1" → "2.1"; None when it names no version."""
+    m = re.match(r"^(?:mh|MediaHub )?(\d+\.\d+)(?:@|$| |\.)", str(line or "").strip())
+    return m.group(1) if m else None
+
+
+def train_versions(line):
+    """The product versions one train's bundles are named under: the line itself, then the map's lines.<line>.ships_as
+    ("2.1" → ["2.1", "2.2"]: the 2.1 train ships as MediaHub 2.2.x from 2026-11-30). A version another line ships as is
+    that line's train, so "2.2" reads the same list."""
+    ver = _line_key(line) or str(line or "")
+    lines = rmap("lines") or {}
+    owner = train_of(ver)
+    alias = [str(x) for x in ((lines.get(owner) or {}).get("ships_as") or []) if str(x) != owner]
+    return [owner] + alias
+
+
+def train_of(ver):
+    """The line a product version belongs to: the line whose ships_as names it, else the version itself."""
+    v = _line_key(ver) or str(ver or "")
+    return next((k for k, c in (rmap("lines") or {}).items() if isinstance(c, dict) and v in [str(x) for x in (c.get("ships_as") or [])]), v)
+
+
+def train_queries(query):
+    """A bundle-name query widened to every name its train ships under: "MediaHub 2.1" → also "MediaHub 2.2", "mh2.1@" and
+    "mh2.1@daily-wed" → also "mh2.2@…". Any other query (a full bundle name, a dev prefix, the China line) is itself."""
+    q = str(query or "")
+    m = re.match(r"^(MediaHub |mh)(\d+\.\d+)(@.*)?$", q)
+    if not m or (m.group(1) == "mh" and not m.group(3)):
+        return [q]
+    if m.group(1) == "mh" and m.group(3).startswith("@dev-"):
+        return [q]                                          # dev bundles are named by the line ela keeps (sync-dev)
+    return [f"{m.group(1)}{v}{m.group(3) or ''}" for v in train_versions(m.group(2))]
+
+
+def train_prefixes(bundle_line):
+    """"mh2.1@" → ["mh2.1@", "mh2.2@"]: every daily/QA bundle prefix of the train."""
+    v = _line_key(bundle_line)
+    return [f"mh{x}@" for x in train_versions(v)] if v else [bundle_line]
+
+
 def bundle_list(us, line, limit=50, fresh=False):
+    """A host's bundles for a name query, newest first. A line's query reads every name its train ships under
+    (train_queries), each read and stored on its own, merged by id."""
+    qs = train_queries(line)
+    if len(qs) == 1:
+        return _bundle_list(us, line, limit, fresh)
+    seen, rows = set(), []
+    for q in qs:
+        for b in _bundle_list(us, q, limit, fresh):
+            if str(b.get("bundleId")) not in seen:
+                seen.add(str(b.get("bundleId"))); rows.append(b)
+    rows.sort(key=lambda b: str(b.get("createTime") or ""), reverse=True)
+    return rows[:limit]
+
+
+def lane_token_match(name, bundle_line, token):
+    """Whether a bundle name is the lane token's under any of the train's prefixes: mh2.1@daily-wed-s1-d40 and
+    mh2.2@daily-wed-s1-d1 are both daily-wed bundles of the 2.1 train."""
+    n = str(name or "")
+    return any(n == p + token or n.startswith(p + token + "-") for p in train_prefixes(bundle_line))
+
+
+def _bundle_list(us, line, limit=50, fresh=False):
     doc = None if fresh else stored_bundles(us.kind, line, limit)
     if doc is not None:
         if doc.get("gap"):
@@ -1021,7 +1084,7 @@ def cmd_bundles(a):
         if not a.host:
             print("--raw shows one host's answer as it is: name it with --host", file=sys.stderr); sys.exit(EX_USAGE)
         line = default_line(a.host) if a.line is None else a.line
-        rows = bundle_list(US(a.env_file, a.host), line, a.limit, fresh=True)   # the host now, no mapping, written through
+        rows = _bundle_list(US(a.env_file, a.host), line, a.limit, fresh=True)  # the host now, the query as typed, written through
         if a.json:
             print(json.dumps({"host": a.host, "query": line, "raw": True, "count": len(rows), "bundles": rows, "read_at": _now()}, ensure_ascii=False)); return
         print(f"# {a.host} · query {line!r} · {len(rows)} bundle(s) as the host answers, names quoted as read · {_stamp(_now())}")
@@ -1292,17 +1355,37 @@ def name_rules(line):
     2.1.10 Docker Only", "MediaHub 1.5.3 SE", "MediaHub 2.0 rc8 pre") is never official. Temporary and unpublished
     bundles have no form yet and are refused."""
     ver = re.sub(r"^mh|@$", "", line)
-    ln, mm = re.escape(f"mh{ver}"), re.escape(ver)
-    return [("daily", re.compile(rf"^{ln}@daily-[a-z]+-s\d+-d\d+$")), ("daily", re.compile(rf"^{ln}@stage-s\d+-d\d+$")),
-            ("prod", re.compile(rf"^{ln}@(?:rc|beta|ga)-s\d+-d\d+$")),
-            ("official", re.compile(rf"^MediaHub {mm}\.\d+(?: \([^()]+\))?$")), ("official", re.compile(rf"^MediaHub {mm} rc\d+$")),
-            ("dev", re.compile(rf"^{ln}@dev-d\d+$"))]
+    out = []
+    for v in train_versions(ver):                         # every name the train ships under (map lines.<line>.ships_as)
+        ln, mm = re.escape(f"mh{v}"), re.escape(v)
+        out += [("daily", re.compile(rf"^{ln}@daily-[a-z]+-s\d+-d\d+$")), ("daily", re.compile(rf"^{ln}@stage-s\d+-d\d+$")),
+                ("prod", re.compile(rf"^{ln}@(?:rc|beta|ga)-s\d+-d\d+$")),
+                ("official", re.compile(rf"^MediaHub {mm}\.\d+(?: \([^()]+\))?$")), ("official", re.compile(rf"^MediaHub {mm} rc\d+$"))]
+        if v == ver:                                      # dev bundles keep the line's own name (sync-dev)
+            out.append(("dev", re.compile(rf"^{ln}@dev-d\d+$")))
+    return out
 
 
 def is_official(name, line, region=""):
     """Whether a bundle name is an official release of the line ("2.1") for a region's prod lane, by the one closed
     grammar. MediaHub 2.1.13 (CN Prod2) is the China region's: never the .com prod lane's official, nor its pin."""
     return name_class(name, line) == "official" and lane_region(bundle_lane(name)) == region
+
+
+def is_plain_official(name, line):
+    """An official release of the line with nothing after its number: "MediaHub 2.1.19", "MediaHub 2.2.0". A qualified
+    one — (POC), (UR/J2N Prod 9), (CN Prod2), a customer's name — is a side bundle, never a release note's base."""
+    return is_official(name, line) and bool(re.fullmatch(r"MediaHub \d+\.\d+\.\d+", str(name or "")))
+
+
+def release_base(us, line, before=None):
+    """The newest plain official bundle of the line's train (is_plain_official), created before `before` (a bundle
+    row) when given: what a release note compares the new bundle against."""
+    rows = [x for x in bundle_list(us, f"MediaHub {_line_key(line) or line}", 50) if is_plain_official(str(x.get("bundleName") or ""), line)]
+    if before is not None:
+        rows = [x for x in rows if str(x.get("bundleId")) != str(before.get("bundleId")) and
+                str(x.get("createTime") or "") < str(before.get("createTime") or "~")]
+    return max(rows, key=lambda x: str(x.get("createTime") or ""), default=None)
 
 
 def name_class(name, line):

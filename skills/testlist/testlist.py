@@ -1128,11 +1128,11 @@ def lane_versions(lane, s, env, gaps):
         out.append(("source", srcs[0]))
     cfg = next((c for c in (R.rmap("lines") or {}).values() if (c.get("lanes") or {}).get("qa") == lane and c.get("bundle_line")), None)
     if cfg and out:
-        pre = cfg["bundle_line"] + (cfg.get("bundle_lanes") or {}).get("qa", "qa")
+        tok = (cfg.get("bundle_lanes") or {}).get("qa", "qa")
         try:
             got = B.run_json(["python3", B.RELEASE, *env, "bundles", cfg["bundle_line"], "--host", "qa", "--limit", "50", "--json"],
                              timeout=120)["bundles"]
-            b = max((x for x in got if str(x.get("bundleName", "")) == pre or str(x.get("bundleName", "")).startswith(pre + "-")),
+            b = max((x for x in got if R.lane_token_match(x.get("bundleName"), cfg["bundle_line"], tok)),
                     key=lambda x: str(x.get("createTime") or ""), default=None)
             if b:
                 out.append(("media bundle", b["bundleName"]))

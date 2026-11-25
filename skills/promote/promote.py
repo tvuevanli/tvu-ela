@@ -843,8 +843,7 @@ def cmd_evidence(a):
 
 def newest_bundle(us, bundle_line, lane_token):
     rows = R.bundle_list(us, bundle_line, 50)
-    rows = [b for b in rows if str(b.get("bundleName", "")).startswith(bundle_line + lane_token) and
-            (str(b.get("bundleName")) == bundle_line + lane_token or str(b.get("bundleName"))[len(bundle_line + lane_token)] == "-")]
+    rows = [b for b in rows if R.lane_token_match(b.get("bundleName"), bundle_line, lane_token)]
     rows.sort(key=lambda x: str(x.get("createTime") or ""), reverse=True)
     return rows[0] if rows else None
 

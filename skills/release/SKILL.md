@@ -136,7 +136,10 @@ lanes each release line uses — all in `<elak>/map/release.yaml` (origin per bl
   differ between lanes; one line per build with its detail folded; one line per promotion or deploy note. A source it
   cannot read is named on its one `Can't read` line, never filled in. A build has no note of its own any more.
 - **Prod's bundle is the newest official one** (`MediaHub <M.m>.N [(qualifier)]`, `MediaHub <M.m> rcN`, anchored; a
-  side bundle such as "Docker Only" or "pre" never counts). `$R pin <line> <bundle> --why "…"` only holds prod on an
+  side bundle such as "Docker Only" or "pre" never counts). A train may ship under a second product name (map
+  `lines.<line>.ships_as`: the 2.1 train is "MediaHub 2.2.N" and "mh2.2@…" from 2026-11-30); every bundle query and
+  name rule of the line reads both, while dev bundles keep the line's own name. A release note's base is the newest
+  *plain* official (`MediaHub <M.m>.N`, nothing after it). `$R pin <line> <bundle> --why "…"` only holds prod on an
   older official on purpose, `$R unpin <line>` lifts it (ADR 0013); an rc bundle is special-purpose, not a lane (owner's
   ruling, 2026-10-27).
 - **Names are three things.** `slug` (Evan's convention), `gm_name` (what GM registers), `service_id`.
