@@ -48,7 +48,8 @@ worker on ela or ela-runner is opened with its brief; a session Evan started by 
 his word; a name a live session holds is refused. A session named `topic-*` (`--pane --brief FILE`, beside the
 desk) holds one topic: it closes when done, sends its conclusion to `ela` as one line before closing (only `ela`
 writes the vault and elak and routes work), and briefs a worker directly only when its brief names that worker,
-copying `ela` one line. Permissions are per session: no session approves for another. The plugin's hooks record
+copying `ela` one line. When another session asks the desk for a worker, the desk opens it with `--for <that
+session>`, and the worker sends its closing line to both: the asker hears the result without the desk relaying it. Permissions are per session: no session approves for another. The plugin's hooks record
 every session, its pane and its process in `<runtime>/sessions.jsonl`; `ela session list` reads it. Fields come out
 of a verb's `--json` or a JSON file with `ela pick <path>… [--file F]` (no path: the shape), never an interpreter
 one-liner: an unattended session's shell allows none. A vault note a session writes by hand is stamped with

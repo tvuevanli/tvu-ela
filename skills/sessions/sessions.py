@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """ela sessions — open a worker session, list the sessions on this machine, find an earlier one by what it was about.
 
-  sessions open <alias|path> [--name N] [--tab | --pane] [--brief FILE] [--permission-mode M] [--dry-run] ["brief"]
+  sessions open <alias|path> [--name N] [--tab | --pane] [--brief FILE] [--for S] [--permission-mode M] [--dry-run] ["brief"]
   sessions close <name> [--dry-run]
   sessions reap [--apply] [--json] | reap --last
   sessions land <name> [--repo ela|runner] [--dry-run]
@@ -19,6 +19,9 @@ alias (ela, runner, elak, helm, reports, published), `code/<ref>` resolved by ma
 live session holds (started, not ended, its process alive). Outside zellij it refuses. --dry-run prints the layout
 and the commands. Opening in the workers tab leaves focus where it was: the tab focused before the switch, found by
 `zellij action current-tab-info`, or the tab named `desk` when that cannot be read.
+--for S names the session that asked for the worker (the desk opens it on another session's request): the first
+message tells the worker to send S its closing line as well as `ela`, and the registry records S. Without it only
+the desk hears the result, and a worker the runner's reap lands never passes through the desk at all.
 
 open on ela or ela-runner (the alias or the checkout's path) does not start the worker in the shared checkout:
 every `ela` command, the runner and every session run that checkout, so an unfinished edit there is production.
@@ -508,9 +511,11 @@ def cmd_open(a):
         print(f"session open: {name} is still open (pane {held.get('pane') or '?'}); close it with `ela session close {name}` "
               "or pick another name", file=sys.stderr)
         return 2
-    first = " ".join(x for x in ((f"Read {os.path.abspath(a.brief_file)} and follow it." if a.brief_file else ""), a.brief, note) if x)
+    asked = (f"You were opened at the request of the session {a.requester}: when you finish, send it the same closing "
+             f"line you send `ela` (what changed, the commits, whether it still waits to land).") if a.requester else ""
+    first = " ".join(x for x in ((f"Read {os.path.abspath(a.brief_file)} and follow it." if a.brief_file else ""), a.brief, note, asked) if x)
     argv = ["env", f"ELA_SESSION_NAME={name}", f"ELA_SESSION_PURPOSE={one_line80(a.brief or (a.brief_file and os.path.basename(a.brief_file)) or '')}",
-            "claude", "--name", name]
+            *([f"ELA_SESSION_FOR={a.requester}"] if a.requester else []), "claude", "--name", name]
     if a.permission_mode:
         argv += ["--permission-mode", a.permission_mode]
     if first:
@@ -1153,6 +1158,7 @@ def cmd_hook_start(a):
             "name": os.environ.get("ELA_SESSION_NAME") or None,
             "cwd": d.get("cwd") or os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd(),
             "purpose": os.environ.get("ELA_SESSION_PURPOSE") or None,
+            "for": os.environ.get("ELA_SESSION_FOR") or None,
             "job": os.environ.get("ELA_RUNNER_JOB") or None,
             "pid": claude_pid(), "pane": os.environ.get("ZELLIJ_PANE_ID") or None,
             "zellij": os.environ.get("ZELLIJ_SESSION_NAME") or None})
@@ -1189,7 +1195,7 @@ def sessions(unstarted=False):
         except ValueError:
             continue
         r = rows.setdefault(e.get("id"), {"id": e.get("id"), "name": None, "cwd": None, "started": None, "ended": None, "purpose": None,
-                                          "pid": None, "pane": None, "zellij": None, "job": None, "usage": None})
+                                          "pid": None, "pane": None, "zellij": None, "job": None, "for": None, "usage": None})
         if e.get("event") == "start":
             r["started"] = r["started"] or e.get("at")
             r["ended"] = None
@@ -1198,6 +1204,7 @@ def sessions(unstarted=False):
             r["name"] = r["name"] or e.get("name")
             r["cwd"] = r["cwd"] or e.get("cwd")
             r["job"] = r["job"] or e.get("job")
+            r["for"] = r["for"] or e.get("for")
         elif e.get("event") == "end":
             r["ended"] = e.get("at")
             r["usage"] = e.get("usage") or r["usage"]      # each end sums the whole transcript: the last one holds
@@ -1381,6 +1388,7 @@ def main():
     o.add_argument("--pane", action="store_true", help="a pane beside this one (a topic session beside the desk)")
     o.add_argument("--tab", action="store_true", help="a tab of its own instead of a stacked pane in the workers tab")
     o.add_argument("--brief", dest="brief_file", metavar="FILE", help="a brief file: the first message points to it")
+    o.add_argument("--for", dest="requester", metavar="S", help="the session that asked for this worker: it gets the closing line too")
     o.add_argument("--permission-mode")
     o.add_argument("--in-place", action="store_true", help="ela or ela-runner: the shared checkout itself, not a worktree")
     o.add_argument("--no-brief", action="store_true", help="ela or ela-runner: open with no first message, on purpose")

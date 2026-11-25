@@ -91,6 +91,12 @@ with tempfile.TemporaryDirectory() as tmp:
     check(run(["close", "nobody"]).returncode == 3, "closing a name no live session holds exits 3")
     p = run(["open", "runner", "--in-place", "--pane", "--dry-run", "x"])
     check("zellij run --name runner" in p.stdout, "--pane goes through zellij run")
+    p = run(["open", "runner", "--in-place", "--dry-run", "--for", "asker", "x"])
+    check(p.returncode == 0 and "ELA_SESSION_FOR=asker" in p.stdout and "request of the session asker" in p.stdout,
+          "--for S: the first message tells the worker to send S its closing line, and the registry will record S")
+    run(["hook-start"], json.dumps({"session_id": "f", "source": "startup", "cwd": "/f"}), ELA_SESSION_NAME="fw", ELA_SESSION_FOR="asker")
+    check(any(r["id"] == "f" and r["for"] == "asker" for r in json.loads(run(["list", "--json"]).stdout)),
+          "the start hook records the asking session")
     p = run(["open", "runner", "--in-place", "x"])
     check(p.returncode == 2 and "not inside zellij" in p.stderr and not os.path.isdir(os.path.join(tmp, "rt", "sessions")), "outside zellij it refuses and writes nothing")
     check(run(["open", "nowhere", "x"]).returncode == 3, "an unknown target exits 3")
