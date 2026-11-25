@@ -196,6 +196,17 @@ check("slack history serves the channel store", rows and rows[0]["ts"] == TS and
 n = calls["slack"]
 reps = S.replies_rows("tok", "C1", PARENT)
 check("thread replies serve the store without a call", len(reps) == 1 and calls["slack"] == n)
+got = S.stored_thread("C1", TS)
+check("slack read serves a thread the read stored whole", got and got[0] in ("general", "C1") and [m["ts"] for m in got[1]][0] == TS
+      and len(got[1]) == 2 and "_read_at" not in got[1][0] and calls["slack"] == n)
+check("slack read goes live for a message the store has no parent of", S.stored_thread("C1", "1.000001") is None)
+chan2 = F.read_json(os.path.join(F.store_dir("slack"), "C1.json"))
+chan2["messages"][TS]["latest_reply"] = f"{NOW.timestamp():.6f}"; F.write_json(os.path.join(F.store_dir("slack"), "C1.json"), chan2)
+check("slack read goes live when the stored replies stop short of the parent's mark", S.stored_thread("C1", TS) is None)
+F.write_json(os.path.join(F.store_dir("slack"), "C1.json"), chan)
+os.environ["ELA_FACTS_MAX_AGE"] = "0"
+check("slack read goes live when the read is stale", S.stored_thread("C1", TS) is None)
+os.environ.pop("ELA_FACTS_MAX_AGE")
 hit = M.stored_search('newer_than:21d subject:("Release Mediahub")', 80)
 check("a standing mail query is answered from the store", hit and [r["id"] for r in hit[0]] == ["m1", "m4"])
 hit = M.stored_search(f"after:{int(cutoff.timestamp())} before:{int(NOW.timestamp()) + 1} subject:Release", 40)

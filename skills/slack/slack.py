@@ -384,16 +384,45 @@ def thread_messages(tok, ch, ts):
         raise
 
 
+def stored_thread(ch, ts):
+    """(channel name, the thread as the last read saw it) when the store holds it whole, else None. Whole means: the
+    parent itself was re-read by a read still fresh (the read re-reads every parent of the last 8 days, so its reply
+    marks are current as of then), and the stored replies reach its `latest_reply` and its `reply_count`. A reply's
+    own permalink, a thread older than the read's horizon, a stale or forced-fresh read: None, and the caller reads
+    live. An edit to an older reply that moved no reply mark is not seen until a live read."""
+    if not F or F.forced_fresh():
+        return None
+    cache = load_channel(ch)
+    parent = (cache.get("messages") or {}).get(ts)
+    if not parent or parent.get("thread_ts") not in (None, ts) or not F.fresh(parent.get("_read_at")):
+        return None
+    msgs = [{k: v for k, v in parent.items() if k != "_read_at"}]
+    if int(parent.get("reply_count") or 0):
+        rec = (cache.get("replies") or {}).get(ts) or {}
+        if (str(rec.get("latest_reply") or "") < str(parent.get("latest_reply") or ts)
+                or len(rec.get("messages") or []) < int(parent.get("reply_count") or 0)):
+            return None
+        msgs += rec["messages"]
+    doc = F.read_json(os.path.join(F.store_dir("slack"), "channels.json")) or {}
+    chan = next((c.get("name") for c in doc.get("channels") or [] if c.get("id") == ch), None) or ch
+    F.served("slack", parent["_read_at"], f"{chan} thread {ts}")
+    return chan, msgs
+
+
 def cmd_read(tok, a):
     ch, ts = parse_permalink(a.permalink)
     if getattr(a, "join", False) and not join_channel(tok, ch):
         sys.exit(EX_USAGE)
     names = Names(tok)
-    try:
-        chan = call("conversations.info", tok, channel=ch)["channel"].get("name", ch)
-    except SystemExit:
-        chan = ch
-    msgs = thread_messages(tok, ch, ts)
+    got = None if (a.fresh or getattr(a, "join", False) or "thread_ts=" in a.permalink) else stored_thread(ch, ts)
+    if got:
+        chan, msgs = got
+    else:
+        try:
+            chan = call("conversations.info", tok, channel=ch)["channel"].get("name", ch)
+        except SystemExit:
+            chan = ch
+        msgs = thread_messages(tok, ch, ts)
     if a.json:
         print(json.dumps({"channel": chan, "channel_id": ch, "count": len(msgs), "messages": [{
             "ts": m.get("ts"), "user": names.user(m.get("user")) if m.get("user") else (m.get("bot_id") or "?"),
@@ -1293,6 +1322,7 @@ def main():
     p = sub.add_parser("read", help="one message and its thread, by permalink")
     p.add_argument("permalink"); p.add_argument("--json", action="store_true")
     p.add_argument("--join", action="store_true", help="join the channel first (public only; visible to the channel)")
+    p.add_argument("--fresh", action="store_true", help="read Slack now, not the thread as the last facts read stored it")
     p = sub.add_parser("join", help="join a public channel — explicit, because the channel sees it")
     p.add_argument("channel", help="channel id, #name, or a permalink")
     p = sub.add_parser("files", help="download a message's or thread's files — a screenshot is evidence")
