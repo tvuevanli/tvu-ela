@@ -49,12 +49,13 @@ QA (qa2 …) is a separate deployment with its own data, laid out like the edge 
 named by UR_QA_HOST; never probed by default: `-e qa2`. The same access key answers there.
 Credentials: UR_ACCESS_KEY (+ UR_BASE_HOST, UR_CN_HOST, UR_QA_HOST) from $UR_ACCESS_KEY → --env-file → $ELA_ENV_FILE → site.json `env`.
 Exit codes: 0 ok (a stopped process/graph answered from history counts as ok) · 2 usage · 3 not found on any env
-· 4 auth · 5 remote error.
+· 4 auth · 5 remote error · 6 several candidates (`graphs --name/--since/--until`: ask the asker, or narrow).
 """
 import argparse, datetime, http.client, json, os, queue, re, shutil, signal, sys, threading, urllib.error, urllib.parse, urllib.request
 from concurrent.futures import ThreadPoolExecutor
 
 EX_USAGE, EX_NOTFOUND, EX_AUTH, EX_REMOTE = 2, 3, 4, 5
+EX_CHOOSE = 6   # a search left several candidates: the asker picks, or the window narrows; never 0, which reads as answered
 # Probe order — the .com edge first: prod3 (MediaHub 2.1, answers 2.0 too), prod2 (older prod), test2 (test);
 # then CN Prod2 on the China edge, last because it is the rarest answer and the costliest connection. Sequential
 # fallback; a miss costs one round-trip per env. Override with UR_ENV_ORDER.
@@ -1130,13 +1131,16 @@ def print_graphs(a, out):
     if a.json:
         print(json.dumps({"email": a.email, "object": a.object, "name": getattr(a, "name", None),
                           "since": getattr(a, "since", None), "until": getattr(a, "until", None),
-                          "results": out, **({"candidates": cand} if cand else {})}, ensure_ascii=False)); return
+                          "results": out, **({"candidates": cand} if cand else {})}, ensure_ascii=False))
+        if cand and cand["verdict"] in ("ask", "narrow"):
+            sys.exit(EX_CHOOSE)
+        return
     if not out:
         print(f"no graphs for {a.email}" + (f" with object {a.object}" if a.object else "")
               + (f" named like {a.name!r}" if name else "") + (" in the window" if since or until else "")
               + f" on {', '.join(envs)}", file=sys.stderr); sys.exit(EX_NOTFOUND)
     if cand and cand["verdict"] != "one":
-        print_candidates(cand, found); return
+        print_candidates(cand, found); sys.exit(EX_CHOOSE)
     for r in out:
         print(f"# {a.email}  (answered via {r['via']})  {r['count']} graph(s)"
               + (f"  [{'stopped graphs included' if mode == 'any' else 'stopped graphs only'}]" if mode else ""))

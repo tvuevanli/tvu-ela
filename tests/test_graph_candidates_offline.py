@@ -60,23 +60,24 @@ ents = [v2("G1", "KTVU to ckt 4327", "2026-11-24T14:00:00Z"),
         v2("G4", "KTVU old", "2026-11-20T10:00:00Z", "2026-11-21T10:00:00Z")]
 out, code = run(ents, name="ktvu", since="2026-11-24 15:00", until="2026-11-24 16:00")
 check("the name matches without case and the window drops the old one", "G1" in out and "G2" in out and "G3" not in out and "G4" not in out)
-check("several matches print as candidates with the checks", out.startswith("# 2 candidate(s)") and "graph G1  graph G2" in out and code == 0)
+check("several matches print as candidates with the checks", out.startswith("# 2 candidate(s)") and "graph G1  graph G2" in out)
+check("several candidates exit EX_CHOOSE, not 0", code == G.EX_CHOOSE == 6)
 check("a candidate line carries name, graph, owner and created",
       any("KTVU to ckt 4327" in l and "G1" in l and "ops@fox.example" in l and "created 2026-11-24 14:00" in l for l in out.splitlines()))
 
-out, _ = run(ents, name="wfld")
-check("one match prints the ordinary listing", out.startswith("# ops@fox.example") and "candidate" not in out)
+out, code = run(ents, name="wfld")
+check("one match prints the ordinary listing", out.startswith("# ops@fox.example") and "candidate" not in out and code == 0)
 
 many = [v2(f"K{i}", f"KTVU {i}", "2026-11-24T14:00:00Z") for i in range(6)]
-out, _ = run(many, name="ktvu")
-check("more than five are not walked", "do not walk them" in out and "graph K0" not in out)
+out, code = run(many, name="ktvu")
+check("more than five are not walked", "do not walk them" in out and "graph K0" not in out and code == G.EX_CHOOSE)
 
-out, _ = run(many, name="ktvu", json=True)
+out, code = run(many, name="ktvu", json=True)
 body = json.loads(out)
-check("--json carries the verdict", body["candidates"]["verdict"] == "narrow" and body["candidates"]["count"] == 6)
-out, _ = run(ents, json=True)
+check("--json carries the verdict, and exits EX_CHOOSE", body["candidates"]["verdict"] == "narrow" and body["candidates"]["count"] == 6 and code == G.EX_CHOOSE)
+out, code = run(ents, json=True)
 body = json.loads(out)
-check("a plain listing carries no candidates block", body["results"] and "candidates" not in body)
+check("a plain listing carries no candidates block and exits 0", body["results"] and "candidates" not in body and code == 0)
 
 out, code = run(ents, since="yesterday")
 check("a window that is not ISO is a usage error", code == G.EX_USAGE)
