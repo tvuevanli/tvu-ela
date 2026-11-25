@@ -116,8 +116,9 @@ A customer report names a feed, a circuit, a person and a time, and no id. Start
   <email> --any --all` and match the names. J2N matches the address **as stored, case and all**
   (an address stored in capitals answers only in capitals); a miss in lower case is retried as the report wrote it.
 - **A destination name and its SDI box**: `box <id> -d` names the graph, object and owner holding each
-  output now. A destination object is the graph's `business` id, not its `object` id, so `resolve` on it
-  finds nothing; `graphs <owner> --object <id>` does.
+  output now. An object can sit in a graph's `object` slot or its `business` slot, and which one varies
+  between graphs; `resolve` searches the `object` slot only, so an id it misses can still be found with
+  `graphs <owner> --any --object <id>`: `--object` matches either slot, `--any` adds stopped graphs.
 - **Several candidates** (two objects of that name, several graphs in the window) and nothing in the
   report decides between them: list them in a line each (name, graph, owner, created) and ask the asker
   which. If the asker does not know, check them all, but only a few (five at most); more than that,
