@@ -602,7 +602,7 @@ The page is read in Obsidian, so its form is fixed:
   two are equal on the evidence, and the item says why. *Why: on 2026-10-28 item 5 asked whether MH-2406 stays with
   its assignee or goes to the frontend owner, and which frontend carries the notice, and drafted neither.*
   A Do line is never a command for him to run or a draft for him to write. A breakdown, a
-  draft, a lookup or a probe is done before the 08:00 page, and the item carries its result: an `apply N`, or a link to the
+  draft, a lookup or a probe is done before the morning page, and the item carries its result: an `apply N`, or a link to the
   note it produced. When ela cannot do it unattended (it needs a login, a person to ask, or a judgment only he
   holds), the item says why in one line and offers no box. No Do line without a box. A deep pick runs in the same
   morning pass (§3b) and the item links its page, so an item never offers "go deep on MH-…". The recommended choice comes first; no "skip" choice
@@ -700,7 +700,7 @@ The page is read in Obsidian, so its form is fixed:
 
 ## 3b — when the runner asked (unattended): the page and the numbered actions, written to files
 
-**The runner's day** (ela-runner): 08:00 the morning page · 12:30 · 17:30, after the QA deploy · 19:00 the evening
+**The runner's day** (ela-runner): 07:45 the morning page, landed by 08:30 · 12:30 · 17:30, after the QA deploy · 19:00 the evening
 (replay, the reader, the carried verdicts) · 01:00. The hours of the owner's day, his DM window and holidays are
 `ela day --json`, never constants.
 

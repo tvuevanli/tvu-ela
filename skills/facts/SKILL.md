@@ -6,7 +6,7 @@ user-invocable: true
 
 # /ela:facts — read once, analyse many
 
-`ela facts refresh` runs first in every pass (the runner calls exactly `ela facts refresh --json`, then
+`ela facts refresh` runs first in every pass (the runner calls `ela facts refresh --json`, with `--if-older` or `--source jira` between the fixed reads below, then
 `ela train --line <line> --write --json` per followed line; a field of any `--json` or of a store file is read with
 `ela pick <path> [--file F]`, no path for the shape). It reads each source forward from its watermark into
 `<runtime>/facts/<source>/`, one directory per source, every entry stamped with its read time:
