@@ -39,6 +39,8 @@ check("with its comment it passes", J.note_problem("priority", "Raised: …", Tr
 check("a terminal status of ela's own is refused, comment or not",
       "terminal" in (J.note_problem("transition", "x", True, "Done") or "") and J.note_problem("transition", "x", True, "Review") is None)
 check("a comment is not a field change", J.note_problem("comment", None, True) is None)
+check("ela's own link needs no comment: MH's Automation would copy it to the ticket just linked",
+      J.note_problem("link", None, True) is None and "link" not in J.NOTE_VERBS)
 check("ela's own is its class", J.own_initiative({"ELA_CLASS": "board-watch"}) and not J.own_initiative({"ELA_CLASS": "focus-moves"}))
 
 # the gate end to end, the API a stub: nothing leaves this process

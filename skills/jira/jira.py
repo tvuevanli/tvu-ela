@@ -1681,6 +1681,12 @@ def cmd_comment(creds, args):
             if problem:
                 results.append({"key": key, "error": problem}); lines.append(f"{key}: refused — {problem}"); continue
         r, ls = _comment_one(creds, key, said, args.apply, mention=not args.no_mention, edit=args.edit)
+        if own_initiative() and not args.edit and not r.get("duplicate_of") and "error" not in r:
+            reach = copy_reach(creds, key)
+            if reach:
+                r["copy_reach"] = reach
+                ls = ls + [f"{key}: Jira Automation may copy this comment to {len(reach)} linked ticket(s): "
+                           + ", ".join(reach[:8]) + (" …" if len(reach) > 8 else "")]
         results.append(r); lines += ls
     if any("error" in r for r in results):
         _emit(args, {"results": results} if len(results) > 1 else results[0], lines); sys.exit(2)
@@ -1699,6 +1705,11 @@ def cmd_comment(creds, args):
 SIGNATURE = "— ela, {name}'s assistant, writing on his account. If this is wrong, reply here or message {first}."
 OWN_INITIATIVE = ("board-watch",)
 FIELD_VERBS = ("assign", "transition", "priority", "due", "link")
+# The field changes whose own-initiative write must carry its comment. A link carries none: MH's Jira Automation rule
+# copies each comment to the linked tickets, so a note posted right after a link always lands on the ticket just linked
+# as well (MH-3998 and MH-2026, 2026-11-25); the link shows in both tickets' link panels, and its reason and undo stay in
+# ela/dry/did.md. The owner asked for fewer comments from ela the same day.
+NOTE_VERBS = ("assign", "transition", "priority", "due")
 CJK = re.compile(r"[㐀-鿿]")
 
 
@@ -1759,10 +1770,7 @@ def note_problem(verb, note, own, to=None, terminal_ok=False):
     never moves a ticket to a terminal status (that stays the owner's word)."""
     if verb == "transition" and own and (terminal_ok or terminal(to or "")):
         return f"transition: {to} is a terminal status; ela never makes it on its own initiative; refused"
-    if verb == "link" and own and os.environ.get("ELA_NOTE_FOLLOWS") == "1":
-        return None                                      # a link set: `ela dry` posts its one comment after the set,
-                                                         # naming only the links that landed (MH-3998, 2026-11-25)
-    if verb in FIELD_VERBS and own and not (note or "").strip():
+    if verb in NOTE_VERBS and own and not (note or "").strip():
         return (f"{verb}: a field change ela makes on its own initiative goes out only with its comment saying what "
                 f"changed and why (--note-file); refused")
     return None
@@ -1784,6 +1792,25 @@ def account_name(creds):
 def ticket_text(creds, key):
     f = _issue(creds, key, "summary,description")
     return f"{f.get('summary') or ''}\n{body_text(f.get('description')) if f.get('description') else ''}"
+
+
+def copy_reach(creds, key):
+    """The tickets linked to `key`: MH's Jira Automation rule copies a comment posted on `key` to them (seen on MH-2026,
+    2026-11-25; the rule's conditions are not readable without Jira admin). [] when the read fails."""
+    try:
+        links = _issue(creds, key, "issuelinks").get("issuelinks") or []
+    except Exception:
+        return []
+    return [k for k in ((l.get("outwardIssue") or l.get("inwardIssue") or {}).get("key") for l in links) if k]
+
+
+def reach_line(creds, key):
+    """One line for ela's own comment: how far the copy rule may carry it; None when the ticket has no links."""
+    ks = copy_reach(creds, key)
+    if not ks:
+        return None
+    return (f"{key}: Jira Automation may copy this comment to {len(ks)} linked ticket(s): "
+            + ", ".join(ks[:8]) + (" …" if len(ks) > 8 else ""))
 
 
 def own_comment_text(creds, key, text):
@@ -1810,6 +1837,9 @@ def post_note(creds, args, keys):
         if problem:
             print(f"{key}: the change's comment is refused — {problem}", file=sys.stderr); sys.exit(2)
         r, lines = _comment_one(creds, key, text, args.apply, mention=False)
+        if not r.get("duplicate_of"):
+            reach = reach_line(creds, key)
+            lines = lines + ([reach] if reach else [])
         if not getattr(args, "json", False):
             for line in lines:
                 print(line)
@@ -2828,7 +2858,7 @@ def main():
         sub.choices[verb].add_argument(
             "--note-file", metavar="F", help="the comment that announces this change (what changed and why), posted after "
             "it; signed and checked against the language rule. Required when the write is ela's own (its class is one of "
-            + ", ".join(OWN_INITIATIVE) + ")")
+            + ", ".join(OWN_INITIATIVE) + "), except a link, whose own note is never posted")
 
     args = ap.parse_args()
     # An unattended session (ela-runner's headless job, ELA_NO_APPLY=1) may read and dry-run, never write:
@@ -2840,6 +2870,9 @@ def main():
         if getattr(args, "note_file", None):
             with open(siteguard.guard(args.note_file), encoding="utf-8") as fh:
                 args.note_text = fh.read().rstrip("\n")
+        if args.cmd == "link" and own_initiative() and args.note_text:
+            print("link: ela's own link carries no comment (NOTE_VERBS); the note is not posted", file=sys.stderr)
+            args.note_text = None
         problem = note_problem(args.cmd, args.note_text, own_initiative(), getattr(args, "to", None), getattr(args, "terminal", False))
         if problem:
             print(problem, file=sys.stderr); sys.exit(2)

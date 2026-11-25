@@ -467,6 +467,7 @@ def prompt_rows(scanned, facts, keep=5):
         iss = read_json(os.path.join(facts, "jira", "issues", f"{r['key']}.json"), {})
         cs = comments(iss)[-keep:]
         out.append(dict(r, description=clip(text_of(fields(iss).get("description")), 600),
+                        links=len(fields(iss).get("issuelinks") or []),
                         comments=[{"by": name(c.get("author")), "at": str(c.get("created") or "")[:16], "ela": is_ela(c),
                                    "text": clip(text_of(c.get("body")), 500)} for c in cs]))
     return out
@@ -481,6 +482,7 @@ def prompt_text(scanned, rows, decisions_path):
         L += [f"## {r['key']} · {r['summary']}",
               f"{r['status']} · {r['assignee'] or 'nobody'} · {r['priority']}" + (f" · due {r['due']}" if r.get("due") else "")
               + (" · the owner's ticket" if r["owner_held"] else "") + (" · the ticket's text is Chinese" if r["chinese"] else "")
+              + (f" · links {r['links']}: a comment is copied to each" if r.get("links") else "")
               + (f" · a reply disputed ela: no comment until {r['quiet_until']} (ask or none)" if r.get("quiet_until") else ""),
               ""] + [f"- trigger {t['kind']}: {t['says']}" for t in r["triggers"]]
         if r.get("description"):
@@ -527,8 +529,8 @@ def command_of(key, w, note):
         return f"ela jira priority {key} --to {w['to']} --note-file {note}"
     if v == "due":
         return f"ela jira due {key} --date {w['date']} --note-file {note}"
-    if v == "link":
-        return f"ela jira link {key} {w['other']} --type {shlex.quote(str(w['type']))} --note-file {note}"
+    if v == "link":                                            # a link carries no comment (jira.py NOTE_VERBS)
+        return f"ela jira link {key} {w['other']} --type {shlex.quote(str(w['type']))}"
     raise ValueError(v)
 
 
@@ -559,6 +561,8 @@ def check_act(key, d, iss, rec, today):
     if len({w["verb"] for w in writes}) != len(writes):
         return "one write per field in a set"
     text = (d.get("comment") or "").strip()
+    if writes and all(w["verb"] == "link" for w in writes):
+        return None                                            # links alone: no comment goes out (act_writes drops it)
     if not text:
         return "every set carries its comment: what changed and why"
     if ABOUT_PEOPLE.search(text):
@@ -574,7 +578,10 @@ def check_act(key, d, iss, rec, today):
 def act_writes(key, d, reports):
     """The decision's set as `ela dry` writes: the comment's file, then the field changes (each naming the note jira.py
     posts after it; the same note again is one comment, jira.py skips an identical one), or the comment alone."""
-    text = d["comment"].strip()
+    writes = d.get("writes") or []
+    links_only = bool(writes) and all(w.get("verb") == "link" for w in writes)
+    text = "" if links_only else (d.get("comment") or "").strip()     # a set of links alone posts nothing on the ticket:
+    #                                    MH's Automation copies a comment to the linked tickets (MH-3998, 2026-11-25)
     p = os.path.join(drafts_dir(reports), f"{key}-{hashlib.sha1(text.encode()).hexdigest()[:8]}.txt")
     why = clip(d.get("why") or "", 200) or "the board watch's decision"
     if d.get("writes"):
@@ -637,7 +644,8 @@ def decide(decisions, scanned, facts, reports, now, apply=False, runner=None):
             out["acts"].append({"key": key, "writes": [w["command"] for w in writes], "comment": text, **got})
             if apply and got["state"] in ("applied", "open"):
                 rec.update(acted=today.isoformat(), decided=now.isoformat(timespec="seconds"), verdict="act", pending=[])
-                rec.setdefault("said", []).append(hashlib.sha1(norm(text).encode()).hexdigest()[:16])
+                if text:
+                    rec.setdefault("said", []).append(hashlib.sha1(norm(text).encode()).hexdigest()[:16])
         elif verdict == "ask":
             if not (d.get("question") or "").strip():
                 out["refused"].append({"key": key, "why": "an ask carries its question"}); continue
@@ -732,7 +740,8 @@ def carry_answers(topics, st, facts, reports, now, apply, runner):
         if apply and got["state"] == "applied":
             c["carried"] = now.isoformat(timespec="seconds")
             rec.update(acted=today.isoformat(), decided=now.isoformat(timespec="seconds"), verdict="act")
-            rec.setdefault("said", []).append(hashlib.sha1(norm(text).encode()).hexdigest()[:16])
+            if text:
+                rec.setdefault("said", []).append(hashlib.sha1(norm(text).encode()).hexdigest()[:16])
     return done
 
 
