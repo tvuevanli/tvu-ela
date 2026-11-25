@@ -219,8 +219,8 @@ with tempfile.TemporaryDirectory() as tmp:
     check("no Helm URL, no link", R.helm_compare(record("91"), tmp, None) == {})
 page = "# The lanes\n\n## Line 2.1 · prod-3 ← daily-wed ← QA-AWS3\n\n| table |\n\n## Differences\n"
 check("each line's heading gets its lanes' live views, in the heading's order",
-      "## Line 2.1 · prod-3 ← daily-wed ← QA-AWS3\n\nlive: [prod-3](https://h/lanes/prod-3) · [daily-wed](https://h/lanes/daily-wed) · "
-      "[qa-cn3](https://h/lanes/qa-cn3)\n" in V.lanes_live(page, "https://h") and V.lanes_live(page, None) == page)
+      "## Line 2.1 · prod-3 ← daily-wed ← QA-AWS3\n\nlive: [prod-3 (UR/J2N Prod 3)](https://h/lanes/prod-3) · [daily-wed (UR test2)](https://h/lanes/daily-wed) · "
+      "[QA-AWS3](https://h/lanes/qa-cn3)\n" in V.lanes_live(page, "https://h") and V.lanes_live(page, None) == page)
 
 # ── today.md's build block: service lines without key clusters; the owner's tickets inline ───────────────
 TK = {k: R.ticket_facts(v) for k, v in ISSUES.items()}

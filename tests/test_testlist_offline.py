@@ -127,7 +127,7 @@ check("an env row: kind env, open, since, owner, no Fixed In", [(r["kind"], r["s
       == [("env", "open", "2026-10-28", "unowned", "open")])
 _found.clear()
 got = TL.env_rows("prod-2-china", st, {}, [], [], {}, [], set(), at + _dt.timedelta(days=1))
-check("gone from its source, it resolves on the lane that day", [r["verdict"] for r in got] == ["resolved on prod-2-china 2026-10-30"])
+check("gone from its source, it resolves on the lane that day", [r["verdict"] for r in got] == ["resolved on CN Prod2 (UR/J2N cn2) 2026-10-30"])
 TL.env_found = lambda *a: ({}, set())
 st["env"]["diff-x"] = dict(st["env"]["diff-mediahub-backend"], id="diff-x", state="open", resolved=None)
 check("a source not read resolves nothing", [r["state"] for r in TL.env_rows("prod-2-china", st, {}, [], [], {}, [], set(), at) if r["id"] == "diff-x"] == ["open"])

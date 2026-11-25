@@ -840,7 +840,7 @@ def lanes_live(body, helm):
         order = [lanes[r] for r in ("prod", "daily", "qa") if lanes.get(r)]
         if not order:
             return m.group(0)
-        return m.group(0) + "\n\nlive: " + " · ".join(f"[{l}]({helm.rstrip('/')}/lanes/{l})" for l in order)
+        return m.group(0) + "\n\nlive: " + " · ".join(f"[{lane_label(l)}]({helm.rstrip('/')}/lanes/{l})" for l in order)
     return re.sub(r"(?m)^## Line ([\d.]+) · .*$", live, body)
 
 
@@ -848,6 +848,13 @@ def release_mod():
     sys.path.insert(0, os.path.join(HERE, "..", "release"))
     import release as R                                    # noqa: E402 — the build records' one reader and renderer
     return R
+
+
+def lane_label(lane):
+    """A lane as every note names it: MediaHub's name first, the UR / J2N environment in brackets (release line.py)."""
+    sys.path.insert(0, os.path.join(HERE, "..", "release"))
+    import line as LP                                      # noqa: E402
+    return LP.lane_label(lane)
 
 
 def build_records(reports):
@@ -4786,7 +4793,7 @@ def stand_lines(builds, today):
             continue
         seen.add(lane)
         note = build_link(b) if b.get("line") and b.get("build") else None
-        out.append(f"{lane} runs {b.get('line') or '?'} build {b.get('build')}, taken {b['date'][5:]}"
+        out.append(f"{lane_label(b['lane']) if b.get('lane') else lane} runs {b.get('line') or '?'} build {b.get('build')}, taken {b['date'][5:]}"
                    + (f" ([[{note}|on the line page]])" if note else ""))
     return out[:STAND_LANES]
 

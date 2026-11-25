@@ -43,7 +43,7 @@ args = types.SimpleNamespace(promote_report=None)
 errors = []
 outs = [B.line_matrix(l, args, [], rows, None, {}, {}, pending, errors) for l in B.followed_lines()]
 check("each line's table has its own lanes and its own next train from its pending record",
-      outs[0]["lanes"] == ["prod-3", "daily-wed", "QA-AWS3", "Wednesday (build 78) → prod-3"] and outs[1]["lanes"] == ["prod-8", "daily-stage", "qa-cn2", "hotfix backend 2.0.11 (MH-3640)"])
+      outs[0]["lanes"] == ["prod-3", "daily-wed", "QA-AWS3", "Wednesday (build 78) → prod-3"] and outs[1]["lanes"] == ["prod-8", "daily-stage", "QA-AWS2", "hotfix backend 2.0.11 (MH-3640)"])
 be = lambda o: next(r for r in o["rows"] if r.get("service") == "mediahub-backend")  # noqa: E731
 check("the next-train cell is the record's version", be(outs[0])["cells"][3]["version"] == "2.1.37+268" and be(outs[1])["cells"][3]["version"] == "2.0.11+268")
 check("the bundle row carries the candidate's bundle when it names one, a dash otherwise",
@@ -58,7 +58,7 @@ past = dict(pending, **{"2.1|daily-wed|prod-3": dict(pending["2.1|daily-wed|prod
 gone = B.line_matrix("2.1", args, [], rows, None, {}, {}, past, [])
 check("a promotion record whose target already runs its versions has no column, and says it is past in one line",
       gone["lanes"] == ["prod-3", "daily-wed", "QA-AWS3"] and gone["pending"].get("past")
-      and "is past: prod-3 already runs its versions or newer" in "\n".join(B.train_lines(gone["pending"])) and "Open before" not in "\n".join(B.train_lines(gone["pending"])))
+      and "is past: prod-3 (UR/J2N Prod 3) already runs its versions or newer" in "\n".join(B.train_lines(gone["pending"])) and "Open before" not in "\n".join(B.train_lines(gone["pending"])))
 check("two lanes on the same versions are one column, the bundle cells joined",
       B.render_matrix(dict(outs[1], same=[], gate=None, lanes=outs[1]["lanes"][:3], labels=outs[1]["labels"][:3], rows=[dict(r, cells=r["cells"][:3]) for r in outs[1]["rows"]
                                                                                         if r.get("service") != "mediahub-backend"]))
@@ -68,7 +68,7 @@ check("an inversion says why: the build that carried the version, past the daily
           {"row": "mediahub-backend", "service": "mediahub-backend", "cells": [{"version": "2.1.47+279"}, {"version": "2.1.46+278"}, {"version": "2.1.48"}]}]},
           [{"build": "98", "date": "2026-11-18", "services": [{"service": "MediaHub Backend", "to": "2.1.47"}]}])
       == {"mediahub-backend: daily-wed 2.1.46+278 is below prod-3 2.1.47+279": "prod-3 took QA build 98's version straight, past the daily lane (a hotfix to prod)"})
-check("the old single-record file gives another line no next train", o["lanes"] == ["prod-8", "daily-stage", "qa-cn2"] and o["pending"] is None)
+check("the old single-record file gives another line no next train", o["lanes"] == ["prod-8", "daily-stage", "QA-AWS2"] and o["pending"] is None)
 plain = B.line_matrix("2.1", args, [], rows, None, {}, {}, {"label": "a plain file", "versions": {"mediahub-backend": "2.1.36+267"}}, [])
 check("a plain {label, versions} file still names the morning's line", plain["lanes"][-1] == "a plain file")
 

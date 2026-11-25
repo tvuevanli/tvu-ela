@@ -687,7 +687,7 @@ def env_rows(lane, st, s, env, reports, cache, gaps, sprint, at):
         issue = cache.get(r["ticket"]) if r["ticket"] else None
         row = {"kind": "env", "id": r["id"], "lane": lane, "ticket": r["ticket"], "url": JIRA_URL + r["ticket"] if r["ticket"] else None,
                "also": [], "title": r["title"], "source": r["source"], "since": r["since"], "owner": owner, "state": r["state"],
-               "resolved": r["resolved"], "verdict": f"resolved on {lane} {r['resolved']}" if r["state"] == "resolved" else "open"}
+               "resolved": r["resolved"], "verdict": f"resolved on {B.lane_label(lane)} {r['resolved']}" if r["state"] == "resolved" else "open"}
         row["priority"], row["priority_reason"] = priority(dict(row, verdict="untested"), (issue or {}).get("fields") or {}, sprint, 0)
         rows.append(row)
     rows.sort(key=lambda r: (r["state"] != "open", r["priority"], r["since"] or "", r["id"]))
@@ -1457,7 +1457,7 @@ def render_dev(out):
     if out.get("env"):
         L += ["", "## Environment, not code", "", "Open problems of an environment, not of a build: no developer is asked to "
               "fix them; the environment's owner resolves them on the lane.", ""]
-        L += [f"- {r['lane']}: " + (f"[{r['ticket']}]({JIRA_URL}{r['ticket']}) " if r["ticket"] else "") + f"{cell(r['title'], 140)} — "
+        L += [f"- {B.lane_label(r['lane'])}: " + (f"[{r['ticket']}]({JIRA_URL}{r['ticket']}) " if r["ticket"] else "") + f"{cell(r['title'], 140)} — "
               f"{ENV_SOURCE.get(r['source'], r['source'])}, since {r['since'] or '?'}, owner {r['owner']}" for r in out["env"]]
     if out["gaps"]:
         L += ["", "## Not read", ""] + [f"- {g[:200]}" for g in out["gaps"]]

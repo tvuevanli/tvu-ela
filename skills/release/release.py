@@ -271,6 +271,13 @@ def cn_bundle_lane(name):
     return None, None
 
 
+def lane_label(lane):
+    """The lane's display label, MediaHub's name first and the UR / J2N environment in brackets (line.py lane_label;
+    imported late, since line.py imports this module)."""
+    import line as LP                                          # noqa: E402
+    return LP.lane_label(lane)
+
+
 def lane_shown(lane):
     """The name the team uses for a region lane (prod-2-china → CN Prod2), from the map; the lane itself otherwise."""
     for reg in (rmap("regions") or {}).values():
@@ -1311,7 +1318,7 @@ def cmd_bundle(a):
                          {"host": a.host, "bundle": name, "bundleId": bid, "count": len(items), "services": items}, ensure_ascii=False)); return
     lane = cn_bundle_lane(name)[0] if a.host == "cn" else None
     print(f"# bundle {name}  id {bid}  {len(items)} service(s)  [{a.host}"
-          + (f" · {lane_shown(lane)} ({lane})" if lane else " · unmapped" if a.host == "cn" else "") + "]")
+          + (f" · {lane_label(lane)}" if lane else " · unmapped" if a.host == "cn" else "") + "]")
     if items:
         keys = [k for k in ("serviceName", "tagName", "version", "tag", "type", "serviceId") if k in items[0]]
         print("  " + "  ".join(f"{k:<28}" if k == "serviceName" else f"{k:<20}" for k in keys))

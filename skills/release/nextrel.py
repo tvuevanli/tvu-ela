@@ -92,8 +92,8 @@ def headline(state, name, lane, planned_for):
         return f"{name}, released"
     if planned_for:
         d = datetime.date.fromisoformat(planned_for)
-        return f"{name}, planned for {lane} on {day_text(d)}"
-    return f"{name}, planned for {lane}"
+        return f"{name}, planned for {lane_label(lane)} on {day_text(d)}"
+    return f"{name}, planned for {lane_label(lane)}"
 
 
 def lane_label(lane):
@@ -752,7 +752,7 @@ def slack_summary(doc, now=None):
     missing = [m for m in doc.get("must") or [] if not m.get("on_candidate")]
     cand, base = doc.get("candidate") or {}, doc.get("base") or {}
     L = ["_Dry run, to you only: the candidate summary. Nothing is posted anywhere else._", "",
-         f"*{slack_escape(rel.get('name') or doc.get('headline'))}* → {slack_escape(rel.get('lane') or '?')}{when}",
+         f"*{slack_escape(rel.get('name') or doc.get('headline'))}* → {slack_escape(lane_label(rel.get('lane')) if rel.get('lane') else '?')}{when}",
          f"Candidate `{cand.get('name')}` ({cand.get('source')}) · base `{base.get('name')}`",
          f"• must {c.get('must', 0)}, {c.get('must_missing', 0)} not on the candidate"
          + (f", {c['must_shipped']} shipped" if c.get("must_shipped") else ""),

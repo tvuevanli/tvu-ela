@@ -75,7 +75,8 @@ def line_lanes(line, cfg, regions=None):
 
 
 def shown(lane):
-    return B.LANE_SHOWN.get(lane, lane)
+    """The lane as every page and line names it: MediaHub's name first, the UR / J2N environment in brackets."""
+    return B.lane_label(lane)
 
 
 # ── one lane's rows ──────────────────────────────────────────────────────────────────────────────────
@@ -272,7 +273,7 @@ def row_of(rid, lanes, per_lane, said, issues, incidents, sprint, soon, qa, name
             c = cells.get(lane)
             if role != "qa" and c and c.get("verdict") in ("fail", "incident"):
                 regression = {"lane": lane, "arrived": c["arrived"], "passed_on": qa_lane, "passed_build": qa_cell["arrived"]}
-                priority, why = "P1", f"regression on {lane} {c['arrived']}, passed {qa_lane} on {qa_cell['arrived']}"
+                priority, why = "P1", f"regression on {shown(lane)} {c['arrived']}, passed {shown(qa_lane)} on {qa_cell['arrived']}"
                 break
     how = next((r["focus"] for r in recs.values() if r["focus"]), None) or (TL.acceptance(issues.get(t)) if t else None) or "steps unknown"
     assignee = J.name_of(f.get("assignee")) if f.get("assignee") else None
@@ -359,7 +360,7 @@ def equal(p):
 
 
 def parity_lines(p, qa_lane):
-    L = [f"parity · {qa_lane}: test list {p['list_rows']} open rows, train {p['train_rows']}"]
+    L = [f"parity · {shown(qa_lane)}: test list {p['list_rows']} open rows, train {p['train_rows']}"]
     L += [f"  missing from the train: {k}" for k in p["missing"]]
     L += [f"  extra in the train: {k}" for k in p["extra"]]
     L += [f"  verdict differs: {k} list {a} · train {b}" for k, (a, b) in p["differ"].items()]
@@ -405,7 +406,7 @@ def render_block(res, rows_open=ROWS_OPEN):
     L = [f"*{counts_line(res)}*", ""]
     if res.get("versions"):
         L += RC.train_lines(res["versions"]) + [""]
-    head = ["| P | ticket | title | owner | " + " | ".join(lanes) + " | position |", "|---" * (5 + len(lanes)) + "|"]
+    head = ["| P | ticket | title | owner | " + " | ".join(l["shown"] for l in res["lanes"]) + " | position |", "|---" * (5 + len(lanes)) + "|"]
     keyed = [row_line(r, lanes) for r in res["rows"] if r["key"]]
     L += RC.folded_rows(head, keyed, rows_open) if keyed else ["*No ticketed row rides this line yet.*"]
     nt = [r for r in res["rows"] if not r["key"]]
@@ -418,7 +419,7 @@ def render_block(res, rows_open=ROWS_OPEN):
 def render_page(res, rows_open=ROWS_OPEN, budget=BUDGET):
     at = res.get("at") or ""
     qa_lane = next((l for l in res["lanes"] if l["role"] == "qa"), None)
-    path = " → ".join(l["lane"] for l in res["lanes"] if l["role"] in ROLES) + "".join(f" · {l['shown']}" for l in res["lanes"] if l["role"] == "cn")
+    path = " → ".join(l["shown"] for l in res["lanes"] if l["role"] in ROLES) + "".join(f" · {l['shown']}" for l in res["lanes"] if l["role"] == "cn")
     L = [f"# {title_of(res['line'])}", "", f"*{at[:10]} {at[11:16]} · line {res['line']} · {path} · {len(res['rows'])} rows*",
          f"*{B.F.read_at_line(res.get('read_at'))}*", ""]
     L += render_block(res, rows_open)

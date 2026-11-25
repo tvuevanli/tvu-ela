@@ -288,10 +288,10 @@ with tempfile.TemporaryDirectory() as t:
                           {"service": "unified-media-frontend", "version": "3.0.36.1", "build": 194, "branch": "prod3_patch", "result": "SUCCESS",
                            "time": "2026-10-26 16:08", "deployed_to": ["prod-3"], "commits": []}]},
               open(os.path.join(t, "runner", "2026-10-26-changes.json"), "w"))
-    mv = "\n".join(B.movements(t, t, {}, datetime.date(2026, 10, 26), lambda l: B.LANE_SHOWN.get(l, l)))
+    mv = "\n".join(B.movements(t, t, {}, datetime.date(2026, 10, 26), B.lane_label))
 check("a release-branch build without a lane is on the QA lane, and each from chains to the last to",
       "| QA-AWS3 | mediahub-frontend | — → 2.2.119 build 174 |" in mv and "| QA-AWS3 | mediahub-frontend | 2.2.119 build 174 → 2.2.120 build 175 |" in mv)
-check("a patch build sits on its base", "| prod-3 | unified-media-frontend | 3.0.36 → 3.0.36.1 build 194 |" in mv)
+check("a patch build sits on its base; the lane is its label, MediaHub's name first", "| prod-3 (UR/J2N Prod 3) | unified-media-frontend | 3.0.36 → 3.0.36.1 build 194 |" in mv)
 check("a zero-led id in a title or a commit subject is not a ticket key",
       B.keys_in("[FloSports MH-006] audio remap, fixes MH-3881 and MH-0412") == ["MH-3881"])
 row = {"lane": "QA-AWS3", "service": "unified-streaming", "to": "2.1.91 build 382",
@@ -304,7 +304,8 @@ check("a moves row names at most three tickets, each key with its title; a zero-
       cell.startswith("MH-3873 Overlay cleanup leaves a 4K buffer …<br>MH-3887 FloSports / API key<br>MH-3891 (not in the fact store)<br>")
       and "MH-046" not in cell)
 check("the rest are a count linking the build's line on its line page",
-      cell.endswith("<br>[[releases/2.1/2.1#^build-91\\|2 more]]"))
+      cell.endswith("<br>[[releases/2.1/2.1#^build-91\\|2 more]]")
+      and B.move_tickets(dict(row, lane="qa-cn3"), fx, recs) == cell)
 check("without a build note the count links the same keys in Jira; three or fewer need no count",
       B.move_tickets(dict(row, lane="daily-wed"), fx, recs, "https://j").endswith("<br>[2 more](https://j/issues/?jql=key%20in%20(MH-3926%2CMH-3940))")
       and B.move_tickets(dict(row, tickets={"MH-3887", "MH-012"}), fx, recs) == "MH-3887 FloSports / API key"

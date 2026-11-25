@@ -541,7 +541,7 @@ def lane_intake(env, limit, now):
         if lane:                                            # tier 3 until the env: family is in the vocabulary and Jira
             flags.append("ENV-ONLY")
             draft = {"tier": 3, "rule": "env-label", "command": f"ela jira label {r['key']} --add env:{lane}",
-                     "what": f"label {r['key']} env:{lane}: its evidence is a difference of {LANE_SHOWN.get(lane, lane)}, not a build"}
+                     "what": f"label {r['key']} env:{lane}: its evidence is a difference of {lane_label(lane)}, not a build"}
         rows.append({**r, "hours_since_created": hours_since(r.get("created"), now), "flag": " ".join(flags),
                      **({"env_lane": lane, "draft": draft} if lane else {})})
     return {"rows": rows, "count": len(rows), "flagged": sum(1 for r in rows if r["flag"])}
@@ -1253,7 +1253,7 @@ def region_reading(lane, tested, rows, china=None):
     for x in tested.values() if not mine else ():           # else the newest report's version per service
         if x.get("lane") == lane and (x["service"] not in mine or (x.get("at") or "") > (mine[x["service"]].get("at") or "")):
             mine[x["service"]] = x
-    out = {"lane": lane, "shown": meta.get("shown") or LANE_SHOWN.get(lane, lane), "aligns_with": ref,
+    out = {"lane": lane, "shown": meta.get("shown") or lane_short(lane), "aligns_with": ref,
            "retiring": bool(meta.get("retiring")), "at": max((x.get("at") or "" for x in mine.values()), default="") or None,
            "source": source, "carried": any(x.get("carried") for x in mine.values()),
            "versions": {k: short_version(v["version"]) for k, v in mine.items()}, "differences": [], "behind": None}
@@ -2117,7 +2117,7 @@ def lane_sources(rows, lanes=None):
                 srcs.setdefault(row_source(r), []).append(LABEL.get(r["service"], r["service"]))
         if not srcs:
             continue
-        shown = LANE_SHOWN.get(lane, lane)
+        shown = lane_label(lane)
         if len(srcs) == 1:
             out.append(f"{shown} as {next(iter(srcs))}; lane not read")
         else:
@@ -2343,15 +2343,26 @@ def cmd_changes(args):
 
 MATRIX_ROWS = ("mediahub-backend", "mediahub-frontend", "unified-streaming", "unified-media-frontend", "unified-media-backend",
                "orchestration")
-LANE_SHOWN = {"qa-cn3": "QA-AWS3", "prod-2-china": "CN Prod2", "prod-1-china": "CN Prod1"}   # the name the release mails and the team use for the lane
+LANE_SHOWN = {"qa-cn3": "QA-AWS3", "prod-2-china": "CN Prod2", "prod-1-china": "CN Prod1"}   # the mails' names, for matching a mail or record back to a lane; never for display (lane_label)
+
+
+def _line_page():
+    sys.path.insert(0, os.path.join(HERE, "..", "release"))
+    import line as LP                                      # noqa: E402 — release line.py derives a lane's names from the map
+    return LP
 
 
 def lane_label(lane):
     """The lane's display label, MediaHub's name first and the UR / J2N environment in brackets (release line.py
-    lane_label, the one place it is derived from the map): what a column or a heading shows."""
-    sys.path.insert(0, os.path.join(HERE, "..", "release"))
-    import line as LP                                      # noqa: E402
-    return LP.lane_label(lane)
+    lane_label, the one place it is derived from the map): what a column, a heading or a sentence shows."""
+    return _line_page().lane_label(lane)
+
+
+def lane_short(lane):
+    """MediaHub's name for the lane alone (qa-cn3 → QA-AWS3, prod-2-china → CN Prod2, daily-wed): the short form, only
+    where a token without spaces is needed (the out-of-order lines are parsed back); never the file token or a UR
+    environment alone."""
+    return _line_page().mh_name(lane)
 
 
 def snapshots(runner, date):
@@ -2580,7 +2591,7 @@ def line_matrix(line, args, env, rows, before, tested, pins, cand_doc, errors):
             errors.append({"source": "promote report", "error": f"unreadable: {report}"})
     regions = [region_reading(l, tested, rows, china_read(env, errors)) for l in region_lanes((cfg.get("lanes") or {}).get("prod"))]
     nxt = [cand.get("label") or "next train"] if cand else []
-    return {"line": line, "lanes": [LANE_SHOWN.get(l, l) for l in lanes] + nxt, "labels": [lane_label(l) for l in lanes] + nxt,
+    return {"line": line, "lanes": [lane_short(l) for l in lanes] + nxt, "labels": [lane_label(l) for l in lanes] + nxt,
             "rows": table, "same": same, "gate": gate, "lane_ids": lanes, "pending": rec, "sources": lane_sources(rows, lanes),
             "regions": [r for r in regions if r["versions"] or not r["retiring"]]}   # a retiring lane no report names is gone
 
@@ -2812,7 +2823,7 @@ def move_note(r, recs):
     2026-11-20); None when no record names the move."""
     ver = version_text(r["to"])
     for rec in recs:
-        if (rec.get("lane_name") or rec.get("lane")) != r["lane"] and LANE_SHOWN.get(rec.get("lane"), rec.get("lane")) != r["lane"]:
+        if r["lane"] not in (rec.get("lane"), rec.get("lane_name")):
             continue
         for v in rec.get("services") or []:
             if version_text(v.get("to")) == ver and mail_slug(v.get("service")) == r["service"]:
@@ -2845,7 +2856,8 @@ def movements(runtime, reports, tested, today, shown, bundles_now=None, jira="")
     """Every lane move of the last MOVES_DAYS days, newest first, from the daily changes files (lane versions, the
     release mails and threads with their tickets, new bundles) and the docker ledger (docker services as slug@image);
     today's bundles from the matrix when they moved since the last file. One row per lane, service and version; its
-    tickets as move_tickets writes them, titles from the fact store."""
+    tickets as move_tickets writes them, titles from the fact store. Rows are kept by ela's lane id, so a lane named
+    two ways by two sources is one chain; `shown` names the lane in the table."""
     runner = os.path.join(runtime, "runner")
     rows, first = {}, None
     cfgs = {l: (R.rmap("lines") or {}).get(l) or {} for l in followed_lines()}
@@ -2886,7 +2898,7 @@ def movements(runtime, reports, tested, today, shown, bundles_now=None, jira="")
                 prev = last_bundle.get(lane)
                 if (b.get("created") or "")[:10] >= since:
                     back = prev and dnum(b) < dnum({"name": prev})
-                    add((b.get("created") or m.group(1))[:10], shown(lane), "media bundle", prev, b["name"] + (" (rolled back)" if back else ""))
+                    add((b.get("created") or m.group(1))[:10], lane, "media bundle", prev, b["name"] + (" (rolled back)" if back else ""))
                 last_bundle[lane] = b["name"]
         if m.group(1) < since:
             continue
@@ -2898,7 +2910,7 @@ def movements(runtime, reports, tested, today, shown, bundles_now=None, jira="")
             keys = {keys_of[str(c)[:8]] for c in (b or {}).get("commits") or [] if str(c)[:8] in keys_of}
             if v.get("from") and vkey(v["from"]) == vkey(v["to"]):
                 continue
-            add((v.get("built") or m.group(1))[:10], shown(v["lane"]), v["service"], v.get("from"), v["to"], keys, qa_mark(v["service"], v["to"]))
+            add((v.get("built") or m.group(1))[:10], v["lane"], v["service"], v.get("from"), v["to"], keys, qa_mark(v["service"], v["to"]))
         for b in d.get("builds") or []:
             if b.get("result") != "SUCCESS":
                 continue
@@ -2909,7 +2921,7 @@ def movements(runtime, reports, tested, today, shown, bundles_now=None, jira="")
             pv = R.parse_version(b["version"])
             frm = (f"{pv[0]}.{pv[1]}.{pv[2]}" if pv[3] == 1 else f"{pv[0]}.{pv[1]}.{pv[2]}.{pv[3] - 1}") if pv and pv[3] else None   # a patch sits on its base
             for lane in lanes:
-                add(str(b.get("time") or m.group(1))[:10], shown(lane), b["service"], frm, to, keys, qa_mark(b["service"], to))
+                add(str(b.get("time") or m.group(1))[:10], lane, b["service"], frm, to, keys, qa_mark(b["service"], to))
         snap = None
         for rel in d.get("releases") or []:
             try:
@@ -2920,18 +2932,18 @@ def movements(runtime, reports, tested, today, shown, bundles_now=None, jira="")
                 lane = mail_lane(mv.get("env") or rel.get("env"))
                 svc = mail_slug(mv.get("service"))
                 keys = {k for it in mv.get("items") or [] for k in it.get("keys") or []}
-                add(at, shown(lane) if lane else None, svc, mv.get("from"), mv.get("to"), keys, qa_mark(svc, mv.get("to")))
+                add(at, lane, svc, mv.get("from"), mv.get("to"), keys, qa_mark(svc, mv.get("to")))
             subj = rel.get("subject") or ""
             o = re.search(r"Orchestration Service of version (\S+)", subj)
             if o and not rel.get("moves"):
                 snap = snap or snapshot_on_or_after(runner, at)
                 row = next((x for x in (snap or {}).get("rows") or [] if x["service"] == "orchestration" and x.get("version") == o.group(1)), None)
                 landed = (row or {}).get("state") == "confirmed"
-                add(at, shown(mail_lane(rel.get("env")) or "?"), "orchestration", None, o.group(1) + ("" if landed else " requested"))
+                add(at, mail_lane(rel.get("env")) or "?", "orchestration", None, o.group(1) + ("" if landed else " requested"))
             b = re.search(r"Release build (\S+) \(([^→)]+)→\s*([^)]+)\)", subj)
             if b and not rel.get("moves") and not subj.lower().startswith("re:"):
                 src, dst = mail_lane(b.group(2)), mail_lane(b.group(3))
-                add(at, shown(dst or b.group(3).strip()), "app bundle", f"from {shown(src or b.group(2).strip())}", f"build {b.group(1)}")
+                add(at, dst or b.group(3).strip(), "app bundle", f"from {shown(src or b.group(2).strip())}", f"build {b.group(1)}")
                 try:
                     sent = email.utils.parsedate_to_datetime(rel["date"])
                 except (TypeError, ValueError):
@@ -2944,7 +2956,7 @@ def movements(runtime, reports, tested, today, shown, bundles_now=None, jira="")
                     built = built_at(r["version"])
                     if twin and vkey(twin["version"]) == vkey(r["version"]) and sent and built and \
                             datetime.datetime.fromisoformat(built).replace(tzinfo=datetime.timezone.utc) <= sent:
-                        add(at, shown(dst), r["service"], None, short_version(r["version"]), (), qa_mark(r["service"], r["version"]))
+                        add(at, dst, r["service"], None, short_version(r["version"]), (), qa_mark(r["service"], r["version"]))
     reads = lane_reads(runner, since)
     for (d0, _, base), (d, hm, now_rows) in zip(reads, reads[1:]):   # a deploy between two reads of one day
         if hm == "0000" or d0 != d:
@@ -2952,10 +2964,10 @@ def movements(runtime, reports, tested, today, shown, bundles_now=None, jira="")
         for mv in lane_moves(base, now_rows, None):
             if mv["service"] in SCOPE and mv["host"] != "mail":
                 first = min(first or d, d)
-                add((mv.get("built") or d)[:10], shown(mv["lane"]), mv["service"], mv["from"], mv["to"], (), qa_mark(mv["service"], mv["to"]))
+                add((mv.get("built") or d)[:10], mv["lane"], mv["service"], mv["from"], mv["to"], (), qa_mark(mv["service"], mv["to"]))
     for lane, name in (bundles_now or {}).items():         # a bundle made since the last daily read
         if name and last_bundle.get(lane) and last_bundle[lane] != name:
-            add(today.isoformat(), shown(lane), "media bundle", last_bundle[lane], name)
+            add(today.isoformat(), lane, "media bundle", last_bundle[lane], name)
     try:
         for line in open(os.path.join(reports, DOCKER_LEDGER), encoding="utf-8"):
             r = json.loads(line)
@@ -2963,7 +2975,7 @@ def movements(runtime, reports, tested, today, shown, bundles_now=None, jira="")
                 continue
             lane = (r.get("lane_or_bundle") or "").split(" · ")[0]
             first = min(first or r["at"][:10], r["at"][:10])
-            add(r["at"][:10], shown(lane), f"{r['service']}@{images.get(r['service'], '?')}", r["from"], r["version"],
+            add(r["at"][:10], lane, f"{r['service']}@{images.get(r['service'], '?')}", r["from"], r["version"],
                 {c if isinstance(c, str) else c.get("key") for c in r.get("claims") or []} - {None}, "○")
     except (OSError, ValueError):
         pass
@@ -2987,7 +2999,7 @@ def movements(runtime, reports, tested, today, shown, bundles_now=None, jira="")
         for r in got:
             plain = lambda v: short_version(v) if vkey(v) and re.fullmatch(r"v?[\d.]+(?:\+\d+| build \d+)?", str(v).strip()) else v  # noqa: E731
             move = f"{plain(r['from']) if r['from'] else '—'} → {plain(r['to'])}"
-            L.append(f"| {iso[5:]} | {r['lane']} | {shown_service(r['service'])} | {move} | {move_tickets(r, facts, recs, jira)} | {r['qa'] or ''} |")
+            L.append(f"| {iso[5:]} | {shown(r['lane'])} | {shown_service(r['service'])} | {move} | {move_tickets(r, facts, recs, jira)} | {r['qa'] or ''} |")
     note = f"*Kept since {first}; the table fills to {MOVES_DAYS} days as the daily reads accumulate.*" if first and first > since else ""
     return L + ([""] + [note] if note else [])
 
@@ -3007,7 +3019,7 @@ def deploy_note(now, plan):
     qa = str(plan.get("qa_deploy") or "")
     if not plan.get("working_day") or not re.fullmatch(r"\d{2}:\d{2}", qa):
         return None
-    return f"*Read at {now:%H:%M}, {'before' if f'{now:%H:%M}' < qa else 'after'} today's {LANE_SHOWN.get('qa-cn3', 'QA')} deploy (~{qa})*"
+    return f"*Read at {now:%H:%M}, {'before' if f'{now:%H:%M}' < qa else 'after'} today's {lane_short('qa-cn3')} deploy (~{qa})*"
 
 
 def list_links(reports):
@@ -3016,7 +3028,7 @@ def list_links(reports):
     names = sorted((f[:-3] for f in os.listdir(d) if re.match(r"^(test|dev)-list-.+\.md$", f)),
                    key=lambda n: (n.startswith("dev"), n)) if os.path.isdir(d) else []
     links = [f"[[lanes/{n}|{'Test list' if n.startswith('test') else 'Dev list'} · "
-             f"{LANE_SHOWN.get(n.split('-list-', 1)[1], n.split('-list-', 1)[1])}]]" for n in names]
+             f"{lane_label(n.split('-list-', 1)[1])}]]" for n in names]
     return ["", "What QA verifies, ranked, and what is in development: " + " · ".join(links)] if links else []
 
 
@@ -3027,7 +3039,7 @@ def train_lines(rec):
     rec = rec or {}
     if rec.get("past"):
         return ["", f"*The open promotion record “{(rec.get('candidate') or {}).get('label') or rec.get('to')}” is past: "
-                    f"{LANE_SHOWN.get(rec.get('to'), rec.get('to'))} already runs its versions or newer. The line page carries the next one.*"]
+                    f"{lane_label(rec.get('to'))} already runs its versions or newer. The line page carries the next one.*"]
     cand = rec.get("candidate") or {}
     L = []
     if rec.get("plan"):                                     # a planned promotion: the day, the condition, the carried keys, the checks
@@ -3075,8 +3087,8 @@ def ahead_why(out, recs=None):
         lo_lane, hi_lane, hi_ver = m.group(2), m.group(4), m.group(5)
         svc = next((r["service"] for r in out["rows"] if r["row"] == m.group(1)), m.group(1))
         rec = carried(svc, hi_ver)
-        lo_role = next((i for l, i in roles.items() if LANE_SHOWN.get(l, l) == lo_lane), None)
-        hi_role = next((i for l, i in roles.items() if LANE_SHOWN.get(l, l) == hi_lane), None)
+        lo_role = next((i for l, i in roles.items() if lane_short(l) == lo_lane), None)
+        hi_role = next((i for l, i in roles.items() if lane_short(l) == hi_lane), None)
         if lo_role == 2:                                   # the QA lane looks behind: its versions are QA's report's
             out_[x] = (f"{lo_lane}'s versions are what QA's last report names; build {rec['build']} ({rec['date'][5:]}) carries "
                        f"{hi_ver.split('+')[0]} to it" if rec else f"{lo_lane}'s versions are what QA's last report names")
@@ -3129,7 +3141,6 @@ def write_lanes_page(outs, site, env, runner, tested, held=()):
     reports = site.get("reports") or os.path.join(site.get("projects", ""), "reports")
     runtime = site.get("runtime") or os.path.join(site.get("projects", ""), ".ela")
     now = datetime.datetime.now().astimezone()
-    shown = lambda l: LANE_SHOWN.get(l, l)  # noqa: E731 — the short name the moves table matches build records by
     note = deploy_note(now, day_plan(now.date()))
     L = ["# The lanes", "", f"*{now:%Y-%m-%d %H:%M} · lines {', '.join(o['line'] for o in outs)}*", f"*{F.read_at_line()}*", "",
          "## Now", "", "| line | lane | build | since | QA |", "|---|---|---|---|---|"]
@@ -3166,15 +3177,15 @@ def write_lanes_page(outs, site, env, runner, tested, held=()):
             try:
                 diff = differences(fu.result(), lane_label, held, line)
             except (LaneError, subprocess.TimeoutExpired, ValueError, KeyError) as e:
-                diff = [f"### {line} · {a} ahead of {b}", "", f"Not read: {str(e)[:200]}", ""]
-            title = re.sub(r"^#+\s*", "", diff[0]) if diff else f"{line} · {a} ahead of {b}"
+                diff = [f"### {line} · {lane_label(a)} ahead of {lane_label(b)}", "", f"Not read: {str(e)[:200]}", ""]
+            title = re.sub(r"^#+\s*", "", diff[0]) if diff else f"{line} · {lane_label(a)} ahead of {lane_label(b)}"
             L += fold(title, diff[1:])
     bundles_now = {lane: (c.get("name") if isinstance(c, dict) else None) for out in outs
                    for lane, c in zip(out.get("lane_ids") or [], (out["rows"][0]["cells"] if out["rows"] else []))}
     envf = env[1] if env else site.get("env")
     jira = next((l.split("=", 1)[1].strip() for l in open(envf) if l.startswith("JIRA_BASE_URL=")), "") if envf and os.path.isfile(envf) else ""
     L += ["## Movements", ""] + fold(f"Every lane move of the last {MOVES_DAYS} days",
-                                     movements(runtime, reports, tested, now.date(), shown, bundles_now, jira))
+                                     movements(runtime, reports, tested, now.date(), lane_label, bundles_now, jira))
     path = os.path.join(reports, "lanes", "lanes.md")
     os.makedirs(os.path.dirname(path), exist_ok=True)
     tmp = path + ".tmp"
@@ -3185,7 +3196,7 @@ def write_lanes_page(outs, site, env, runner, tested, held=()):
 
 def region_line(g):
     """A China lane under the table, never a column: it runs no train, so it is read against the .com lane it aligns with."""
-    head = f"**{g['lane']}** ({g['shown']})"
+    head = f"**{lane_label(g['lane'])}**"
     stamp = lambda at: str(at or "")[5:16].replace("T", " ")  # noqa: E731
     host = g.get("host")                                    # None: the China host was not asked (an older reading)
     state = {"not configured": ".cn host not configured", "not read": ".cn host not read"}.get(host) \

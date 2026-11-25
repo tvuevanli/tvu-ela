@@ -99,7 +99,7 @@ check("a fix on prod with a pass on QA: three cells, position prod", c3["qa-cn3"
       and c3["daily-wed"]["arrived"] == "2.1.78" and c3["prod-3"]["arrived"] == "2.1.74" and by["MH-3"]["position"] == "prod")
 check("a QA fail comment after the daily arrival is the daily verdict, and a regression at P1 naming both lanes",
       c3["daily-wed"]["verdict"] == "fail" and by["MH-3"]["regression"] and by["MH-3"]["priority"] == "P1"
-      and by["MH-3"]["priority_reason"] == "regression on daily-wed 2.1.78, passed qa-cn3 on 75")
+      and by["MH-3"]["priority_reason"] == "regression on daily-wed (UR test2) 2.1.78, passed QA-AWS3 on 75")
 check("an old incident does not count against a later arrival", c3["prod-3"]["verdict"] == "untested")
 c5 = by["MH-5"]["cells"]
 check("an incident naming the key after the prod arrival is the prod verdict; lanes below with no record are n/a",
@@ -146,10 +146,10 @@ check("equal lists are equal", TR.equal(TR.parity(res, same)) and TR.parity_line
 check("a verdict that differs is named", TR.parity(res, {"rows": {"MH-1": {"verdict": "untested"}, "MH-6": {"verdict": "untested"}}})["differ"] == {"MH-1": ("untested", "fail")})
 
 page = TR.render_page(res)
-check("the page: title, the date line, the counts line", page.startswith("# Train · 2.1\n\n*2026-11-02 14:05 · line 2.1 · qa-cn3 → daily-wed → prod-3 · CN Prod2 · 7 rows*\n")
-      and "*QA 2 open · 2 P1 · daily 2 arrived, 1 fail · prod 2 arrived, 1 incident · CN Prod2 0 arrived, 0 incident*" in page)
-check("the versions row and the table head", "| | qa-cn3 (QA-AWS3) | daily-wed | prod-3 | prod-2-china (CN Prod2) |" in page
-      and "| P | ticket | title | owner | qa-cn3 | daily-wed | prod-3 | prod-2-china | position |" in page)
+check("the page: title, the date line, the counts line", page.startswith("# Train · 2.1\n\n*2026-11-02 14:05 · line 2.1 · QA-AWS3 → daily-wed (UR test2) → prod-3 (UR/J2N Prod 3) · CN Prod2 (UR/J2N cn2) · 7 rows*\n")
+      and "*QA 2 open · 2 P1 · daily 2 arrived, 1 fail · prod 2 arrived, 1 incident · CN Prod2 (UR/J2N cn2) 0 arrived, 0 incident*" in page)
+check("the versions row and the table head", "| | QA-AWS3 | daily-wed (UR test2) | prod-3 (UR/J2N Prod 3) | CN Prod2 (UR/J2N cn2) |" in page
+      and "| P | ticket | title | owner | QA-AWS3 | daily-wed (UR test2) | prod-3 (UR/J2N Prod 3) | CN Prod2 (UR/J2N cn2) | position |" in page)
 check("a regression row reads as designed", "| ↩ P1 | [MH-3](https://tvunetworks.atlassian.net/browse/MH-3) | Player freezes after reconnect | — | ✓ 75 | ❌ 2.1.78 | · 2.1.74 | — | prod |" in page)
 check("an incident row and n/a cells", "| n/a | n/a | ⚠ incident | — | prod |" in page)
 check("a fail row with also-keys", "| P1 | [MH-1](https://tvunetworks.atlassian.net/browse/MH-1) / [MH-9](https://tvunetworks.atlassian.net/browse/MH-9) | The dialog shows the wrong field | Dev Person | ❌ 75 | — | — | — | qa |" in page)

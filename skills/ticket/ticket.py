@@ -185,7 +185,7 @@ def lane_mismatch(lanes, status, qa_verdict=None):
     if not known:
         return None
     far = known[0]
-    shown = f"fix on {B.LANE_SHOWN.get(far, far)}, ticket {status}"
+    shown = f"fix on {B.lane_label(far)}, ticket {status}"
     if rank(far) == 0 and st in ("backlog", "to do"):
         return shown
     if rank(far) == 2 and (st == "in progress" or (st in REVIEW and not qa_verdict)):
@@ -518,7 +518,7 @@ def build_rules(site, e, now, state, gaps):
             st = json.load(open(path, encoding="utf-8"))
         except (OSError, ValueError):
             continue
-        shown = B.LANE_SHOWN.get(st.get("lane"), st.get("lane"))
+        shown = B.lane_label(st.get("lane"))
         recent = (now - datetime.timedelta(days=BUILD_RULE_DAYS)).isoformat()
         for r in st.get("rows", {}).values():
             for k in r.get("also") or []:

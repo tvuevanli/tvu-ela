@@ -129,7 +129,7 @@ fri = N.build(inp(released=False, released_bundle=None, clear_records=[], report
     datetime.datetime(2026, 11, 27, 17, 35, tzinfo=TZ))
 fri["on_candidate"].append({"key": "MH-6", "url": URL + "MH-6", "summary": "a <tag> & more", "assignee": "Dev", "qa": None})
 text = N.slack_summary(fri, datetime.datetime(2026, 11, 27, 17, 36, tzinfo=TZ))
-check(text.startswith("_Dry run, to you only") and "*MediaHub 2.2.0* → prod-3, planned for Monday 30 Nov" in text,
+check(text.startswith("_Dry run, to you only") and "*MediaHub 2.2.0* → prod-3 (UR/J2N Prod 3), planned for Monday 30 Nov" in text,
       "the summary opens as a dry run to him, then the release, its lane and date")
 check("*QA fail (1)*\n• <" + URL + "MH-1|MH-1> ticket MH-1" in text and "*No QA verdict (2)*" in text
       and "<" + URL + "MH-6|MH-6> a &lt;tag&gt; &amp; more · Dev" in text,

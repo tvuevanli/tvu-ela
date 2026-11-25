@@ -74,7 +74,7 @@ check("no label but a Fixed In on the forward train: placed on 2.1 by Fixed In, 
 check("the sections run 2.1, 2.0, 2.2, then a line with tickets; an empty other line is left out", [l["line"] for l in res["lines"]] == ["2.1", "2.0", "2.2"])
 check("the counts name every line and no line", res["counts"] == {"2.1": 135, "2.0": 1, "2.2": 1, "no line": 2} and res["count"] == 139)
 check("a fix carried by daily and QA but not prod stands at daily", by["MH-1"]["stands"]["text"] == "daily-wed" and by["MH-1"]["stands"]["role"] == "daily")
-check("an alias resolves, and a fix only QA carries names the QA build", by["MH-2"]["stands"]["text"] == "qa-cn3 (build 269)")
+check("an alias resolves, and a fix only QA carries names the QA build", by["MH-2"]["stands"]["text"] == "QA-AWS3 (build 269)")
 check("a fix on prod with the China lane behind says so", by["MH-7"]["stands"]["text"] == "prod-3 · CN behind")
 check("no Fixed In is dev; a docker image no lane row judges is declared", by["MH-5"]["stands"]["text"] == "dev" and by["MH-6"]["stands"]["text"] == "declared")
 check("QA said comes from the lane test list, also-keys included", by["MH-1"]["qa"] == {"verdict": "pass", "version": "build 80", "date": "2026-10-31", "lane": "qa-cn3"}
@@ -105,7 +105,7 @@ check("the page is the dashboard: title, the refresh box, the sections in order,
       page.startswith("# Recent · 7 days\n") and "\n- [ ] refresh recent (last 14:05;" in page
       and page.index("## 2.1") < page.index("## 2.0") < page.index("## 2.2") < page.index("## No line"))
 check("a line with no lanes says so", "*label only — no lanes confirmed yet*" in page)
-check("the table folds after N rows and the By lane lists are folded", "> [!note]- " in page and " more\n> | ticket |" in page and "> [!note]- By lane\n> **qa-cn3 (QA-AWS3)** — arrived:" in page)
+check("the table folds after N rows and the By lane lists are folded", "> [!note]- " in page and " more\n> | ticket |" in page and "> [!note]- By lane\n> **QA-AWS3** — arrived:" in page)
 check("the seven columns", "| ticket | type · status · assignee | P / due | seen on | fix stands at | QA said | last change |" in page)
 check("a row reads as designed", "| MH-1 · Player freezes on prod-3 after reconnect | Bug · Review · Dev Roster | High | prod-3 | daily-wed | pass on build 80 | Review 11-01 |" in page)
 check("no line names the label ela would infer and writes nothing", "| release:mh-2.1 |" not in page and "No label is written" in page and "apply " not in page)

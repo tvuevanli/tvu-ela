@@ -174,7 +174,7 @@ def stands_at(entries, versions, cfg):
     if not best:
         return {"text": "built, no lane yet", "role": None, "lane": None, "judged": judged, "unjudged": unjudged}
     role, lane = best
-    text = lane
+    text = B.lane_short(lane)                              # a table cell: MediaHub's name alone
     if role == "qa":
         pv = R.parse_version(versions.get((judged[0][0], lane)))
         if pv and pv[4]:
@@ -354,7 +354,7 @@ def train(cfg, rows, before, tested):
                 cells[svc] = B.matrix_cell(svc, lane, rows or [], before, tested or {}, {})["text"]
             except (KeyError, TypeError, ValueError):
                 cells[svc] = "—"
-        out.append({"role": role, "lane": lane, "shown": B.LANE_SHOWN.get(lane, lane), "cells": cells})
+        out.append({"role": role, "lane": lane, "shown": shown(lane), "cells": cells})
     return out
 
 
@@ -378,7 +378,7 @@ def by_lane(cfg, tickets, versions, before_versions):
                 under.append(t["key"])
             if lane in t["seen_on"]:
                 reported.append(t["key"])
-        out.append({"role": role, "lane": lane, "shown": B.LANE_SHOWN.get(lane, lane), "arrived": arrived, "under_test": under, "reported": reported})
+        out.append({"role": role, "lane": lane, "shown": shown(lane), "arrived": arrived, "under_test": under, "reported": reported})
     return out
 
 
@@ -448,7 +448,8 @@ def p_due(t):
 
 
 def shown(lane):
-    return B.LANE_SHOWN.get(lane, lane)
+    """The lane as every page names it: MediaHub's name first, the UR / J2N environment in brackets."""
+    return B.lane_label(lane)
 
 
 def qa_cell(t, line_qa_lane=None):
@@ -468,7 +469,7 @@ def folded_rows(head, rows, rows_open):
 
 def ticket_table(tickets, qa_lane, rows_open):
     head = ["| ticket | type · status · assignee | P / due | seen on | fix stands at | QA said | last change |", "|---|---|---|---|---|---|---|"]
-    rows = [f"| {t['key']} · {cell(t['summary'])} | {cell(who(t), 60)} | {p_due(t)} | {', '.join(shown(l) for l in t['seen_on']) or '—'} "
+    rows = [f"| {t['key']} · {cell(t['summary'])} | {cell(who(t), 60)} | {p_due(t)} | {', '.join(B.lane_short(l) for l in t['seen_on']) or '—'} "
             f"| {t['stands']['text']} | {qa_cell(t, qa_lane)} | {t['last']} |" for t in tickets]
     return folded_rows(head, rows, rows_open)
 
@@ -480,7 +481,7 @@ def keys_line(keys):
 
 
 def lane_name(x):
-    return x["lane"] + (f" ({x['shown']})" if x["shown"] != x["lane"] else "")
+    return x.get("shown") or shown(x["lane"])
 
 
 def train_lines(tr):

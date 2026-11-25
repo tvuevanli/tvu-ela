@@ -375,7 +375,8 @@ def ask_text(results):
     if not rs:
         return None
     keys = {x["key"] for r in rs for x in batchable(r)}
-    lane = rs[0].get("lane_name") or rs[0]["lane"]
+    import line as LP                                      # noqa: E402 — the lane's display label
+    lane = LP.lane_label(rs[0]["lane"]) if rs[0].get("lane") else rs[0].get("lane_name")
     builds = ", ".join(r["build"] for r in rs)
     return f"{lane} build{'s' if len(rs) > 1 else ''} {builds}: {len(keys)} ticket{'s' if len(keys) != 1 else ''} lack Fixed In or the label."
 
