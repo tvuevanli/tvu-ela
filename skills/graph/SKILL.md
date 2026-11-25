@@ -110,6 +110,22 @@ answers: the history table gives the graph that was running at the reported time
 `stopped` column against the timestamp in the report), and its table gives the boxes and process ids
 to look at in the logs. A 32-hex id from a log that no longer runs: `process <id>` names its graph.
 
+## 2b′ — a report that names things, not ids
+A customer report names a feed, a circuit, a person and a time, and no id. Start from what it gives:
+- **An owner email** (in the report, a pasted troubleshooting block, an earlier thread, a screenshot): `graphs
+  <email> --any --all` and match the names. J2N matches the address **as stored, case and all**
+  (an address stored in capitals answers only in capitals); a miss in lower case is retried as the report wrote it.
+- **A destination name and its SDI box**: `box <id> -d` names the graph, object and owner holding each
+  output now. A destination object is the graph's `business` id, not its `object` id, so `resolve` on it
+  finds nothing; `graphs <owner> --object <id>` does.
+- **Several candidates** (two objects of that name, several graphs in the window) and nothing in the
+  report decides between them: list them in a line each (name, graph, owner, created) and ask the asker
+  which. If the asker does not know, check them all, but only a few (five at most); more than that,
+  ask for a narrower window or the troubleshooting block instead of walking them (the owner's rule,
+  2026-11-25).
+- **Nothing to go on** (no email, no id, only a customer or a person's name): say what is needed and
+  where it is copied from (the troubleshooting info button in the source or destination panel).
+
 ## 2c — who used a node type, and is it growing
 "用的人多吗", "who uses the YouTube source", "有哪些外部用户在用 Web Emulator": `usage` answers from J2N v2's
 whole graph list (no `email`, `query_mode=any`, newest first), walked page by page back to the cutoff — the
