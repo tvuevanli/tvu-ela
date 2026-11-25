@@ -455,7 +455,16 @@ def answered_by(r, thread, m, names):
     if not re.search(r"<@" + re.escape(who) + r"(?:\|[^>]*)?>", ask):
         return
     r["answered_by"] = {"by": who, "name": names.name(who), "at": iso(at_of(m["ts"])), "ts": m["ts"],
-                        "first": first_line(names.render(m.get("text") or ""))}
+                        "first": first_line(short_links(names.render(m.get("text") or "")))}
+
+
+def short_links(text):
+    """Slack links made short before a cut, so a cut never splits one: a Jira link becomes [KEY](url), any other its
+    label."""
+    def one(x):
+        key = re.search(r"/browse/([A-Z][A-Z0-9]+-\d+)", x.group(1))
+        return f"[{key.group(1)}]({x.group(1)})" if key else x.group(2)
+    return re.sub(r"<(https?://[^|>]+)\|([^>]+)>", one, text)
 
 
 def replied(recs, reports, rid, ts, text, how, now):
