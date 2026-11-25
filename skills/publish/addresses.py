@@ -40,3 +40,15 @@ def is_address(text, m):
 def addresses(text):
     """The address matches in `text`, in order."""
     return [m for m in IPV4.finditer(text) if is_address(text, m)]
+
+
+# A company host name is an address as much as a dotted quad: a subdomain of the company's domains names one machine
+# or one internal service. The bare domain (the company's site) and the public pages listed here are not internal.
+INTERNAL_HOST = re.compile(r"(?<![\w.@-])(?:[a-z0-9-]+\.)+tvunetworks\.(?:com|cn|net)(?::\d{2,5})?(?![\w-])", re.I)
+PUBLIC_HOSTS = ("www.", "document.")
+
+
+def internal_hosts(text):
+    """The company host names in `text` that are not public pages, in order (an email's domain is not a host here:
+    the email rule refuses the whole address)."""
+    return [m for m in INTERNAL_HOST.finditer(text) if not m.group(0).lower().startswith(PUBLIC_HOSTS)]

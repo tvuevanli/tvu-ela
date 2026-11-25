@@ -16,7 +16,8 @@
                             that fails is a line, never a failed publication
   list                      every manifest row and whether its source changed since (exit 1 when a republish is due)
   check [--json]            the release guard over the versioned part (knowledge/platform, knowledge/products, map/):
-                            refuses the owner's word or name as a source, a quotation attributed to a person, and the
+                            refuses the owner's word, name or authority as a source, a quotation attributed to a person,
+                            an email, an internal host, a private path, a decision/plan/rationale heading, and the
                             content guard's credential and quoted-sentence rules (exit 1, with the lines)
   release [--apply] [--json]  the team's versioned release (elak decisions/2026-11-25-published-knowledge-is-a-
                             versioned-release.md): whether one is due, what it would commit, the guard's verdict;
@@ -38,7 +39,7 @@ source's commit date. Exit codes: 0 ok · 2 usage (an uncommitted source include
 """
 import argparse, datetime, json, os, re, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from addresses import IPV4, is_address   # noqa: E402 — one address rule, shared with hooks/content-guard.sh
+from addresses import IPV4, is_address, INTERNAL_HOST, PUBLIC_HOSTS   # noqa: E402 — one address rule, shared with hooks/content-guard.sh
 import mirror as M                       # noqa: E402 — the read-only Obsidian mirror of <published>
 
 EX_USAGE, EX_WRITE = 2, 5
@@ -479,8 +480,11 @@ TAILNET = re.compile(r"\b[a-z0-9-]+\.[a-z0-9-]+\.ts\.net\b")
 def redact(text):
     """The published tree is read inside the company but outside this machine: an address is replaced by
     a placeholder, a tailnet name likewise. What counts as an address (a version number does not) is
-    addresses.is_address, the rule the commit-time content guard applies too."""
-    return TAILNET.sub("<tailnet>", IPV4.sub(lambda m: "<ip>" if is_address(text, m) else m.group(0), text))
+    addresses.is_address, the rule the commit-time content guard applies too. A company host name that is not a public
+    page becomes `<host>`, its port kept as an address's is: the key or the path beside it says what the host serves."""
+    text = TAILNET.sub("<tailnet>", IPV4.sub(lambda m: "<ip>" if is_address(text, m) else m.group(0), text))
+    return INTERNAL_HOST.sub(lambda m: m.group(0) if m.group(0).lower().startswith(PUBLIC_HOSTS)
+                             else "<host>" + (":" + m.group(0).rsplit(":", 1)[1] if ":" in m.group(0) else ""), text)
 
 
 def map_files(src_dir):
@@ -883,7 +887,7 @@ RELEASE_README = """# MediaHub knowledge — the team's release
 
 Facts about MediaHub and the platform it runs on, as ela reads them first-hand: the code, Jira, the services' own
 records. Each commit here is one release, built from one commit of ela's private knowledge base (`elak:` in the
-commit message) and made on the product owner's signal.
+commit message).
 
 | path | holds |
 |---|---|
@@ -893,10 +897,10 @@ commit message) and made on the product owner's signal.
 
 Every document carries `verified:` (when it was last checked against its source) and `source:` (where to check it).
 A document is facts and knowledge only: no one's decisions, plans or opinions, and no one's quoted words; a source
-is a ticket, a thread, a commit or a file. Addresses are replaced by placeholders.
+is a ticket, a thread, a commit or a file. Addresses and company host names are replaced by placeholders (`<ip>`, `<host>`).
 
-Nothing here is edited by hand. A correction goes to the product owner, or to ela in Slack; it is made at the source
-and arrives in the next release. Paths are stable: Helm and mediahub-bot read them.
+Nothing here is edited by hand. A correction is reported to ela in Slack (`@ela`); it is made at the source and
+arrives in the next release. Paths are stable: Helm and mediahub-bot read them.
 """
 
 
@@ -920,20 +924,33 @@ def owner_first_name(records):
 
 OWNER_SOURCE = re.compile(r"(?i)\b(?:product\s+|mediahub\s+)?owner'{0,2}s\s+(?:own\s+)?(?:word|ruling|reading|instruction|opinion|view|plan)\b")
 ATTRIBUTED_QUOTE = re.compile(r"[\"“][^\"”\n]{12,}[\"”]\s*\((?:[A-Z][a-z]+)[ ,]")
+OWNER_AS_SOURCE = re.compile(r"(?i)\bby\s+the\s+(?:mediahub\s+|product\s+)+owner\b"
+                             r"|\bthe\s+owner\s+(?:confirmed|decided|judges|judged|keeps|kept|rules|ruled|pins|pinned)\b"
+                             r"|\bdecided\s+\d{4}-\d{2}-\d{2}\b")
+EMAIL = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}\b")
+PRIVATE_PATH = re.compile(r"(?<![\w/])[A-Za-z]:\\[\w.]|(?<![\w.])/(?:home|Users|root)/[\w.-]+|/mnt/[a-z]/")
+DELIBERATION_HEADING = re.compile(r"(?i)^#{1,6}\s+(?:decisions?|rationale|plans?|open\s+questions?)\b")
 
 
 def release_flags(text, name, first):
     """The release guard's lines for one file → [(line, why, text)]: the content guard's rules (`guard_flags`, Jira
-    titles in json passing as facts), plus the owner's word or name cited and a quotation attributed to a person."""
+    titles in json passing as facts), plus the owner's word or name cited, the owner as a document's source or authority,
+    a quotation attributed to a person, an email address, a company host name that is not public, a private filesystem
+    path, and — in a markdown document — a heading for decisions, plans, rationale or open questions."""
     out = [f for f in guard_flags(text, name)
            if not (name.endswith(".yaml") and f[1] == QUOTED)]   # a yaml file's quotes are syntax: a label, a title
     # a quotation attributed to a person, in prose, is caught by ATTRIBUTED_QUOTE below
     by_name = re.compile(rf"\b{re.escape(first)}\b") if first else None
+    prose = name.endswith(".md")
     for n, line in enumerate(text.splitlines(), 1):
-        for rx, why in ((OWNER_SOURCE, "the owner's word as a source"), (by_name, "the owner by name"),
-                        (ATTRIBUTED_QUOTE, "a quotation attributed to a person")):
+        for rx, why in ((OWNER_SOURCE, "the owner's word as a source"), (OWNER_AS_SOURCE, "the owner as a source"),
+                        (by_name, "the owner by name"), (ATTRIBUTED_QUOTE, "a quotation attributed to a person"),
+                        (EMAIL, "an email address"), (PRIVATE_PATH, "a private filesystem path"),
+                        (DELIBERATION_HEADING if prose else None, "a decision, plan or rationale section")):
             if rx and rx.search(line):
                 out.append((n, why, line.strip()[:100]))
+        if any(not m.group(0).lower().startswith(PUBLIC_HOSTS) for m in INTERNAL_HOST.finditer(line)):
+            out.append((n, "an internal host name", line.strip()[:100]))
     return out
 
 
