@@ -1,0 +1,86 @@
+# A fixture of the release map for the offline tests that name lanes, lines, jobs and Fixed In entries: the blocks
+# they read, in the subset release.py parses. A test pins it as release._MAP so that a fact added to the live map
+# (a lane's declared UR environment, a new line) cannot change what the test expects.
+# No lane_ur_env: QA-AWS3 has no declared UR environment here, so its label is the MediaHub name alone.
+jobs:                             # Jenkins job → service
+  media-hub-v4: mediahub-backend
+  mediahub-front-docker: mediahub-frontend
+  ur-caller: unified-streaming
+  mx-media: unified-media-backend
+  mx-service-front-docker: unified-media-frontend
+  orchestration-docker: orchestration
+  mediahub-admin-frontend: mediahub-admin-frontend
+
+repos:                            # service → checkout under <code>/
+  mediahub-backend: web/tvu-media-hub
+  mediahub-frontend: web/media-hub-front
+  unified-streaming: web/mx-service
+  unified-media-backend: web/tvucc-media
+  unified-media-frontend: web/mx-service-front
+  orchestration: web/orchestration
+  mediahub-admin-frontend: web/mediahub-admin-front
+
+hosts:
+  prod:
+    site_service: userservice
+    match: endswith
+    tag_suffix_to_lane: {"Monday": "daily-mon", "Tuesday": "daily-tue", "Wednesday": "daily-wed", "Thursday": "daily-thu", "Friday": "daily-fri", "Test2": "daily-test2", "Test1": "daily-test1", "Stage": "daily-stage", "Staging": "daily-stage", "Prod1": "prod-1", "Prod2": "prod-2", "Prod3": "prod-3", "Prod8": "prod-8"}
+  qa:
+    site_service: userservice-test
+    match: exact
+    tag_to_lane: {"aws-cn1-env": "qa-cn1", "aws-cn2-env": "qa-cn2", "aws-cn3-env": "qa-cn3", "AWSCN1": "qa-cn1", "AWSCN2": "qa-cn2", "AWSCN3": "qa-cn3", "Default": "qa-default", "1": "qa-1", "URPortalQA1": "qa-1", "URPortalQA2": "qa-2"}
+    lane_preference_default: ["qa-cn2", "qa-cn1", "qa-1", "qa-default"]
+  lane_classes:
+    daily: ["daily-mon", "daily-tue", "daily-wed", "daily-thu", "daily-fri", "daily-test1", "daily-test2", "daily-stage"]
+    qa: ["qa-cn1", "qa-cn2", "qa-cn3", "qa-1", "qa-2", "qa-default"]
+    prod: ["prod-1", "prod-2", "prod-3", "prod-8"]
+    china: ["prod-2-china"]
+  no_lane_version: ["orchestration", "mediahub-admin-frontend"]
+
+regions:
+  china:
+    lane_suffix: "-china"
+    aligns_with: prod-3
+    trains: []
+    ur:
+      envs: {"cn2": "prod2"}
+    lanes:
+      prod-2-china: {"shown": "CN Prod2", "line": "2.1"}
+
+lines:
+  "2.1":
+    label: release:mh-2.1
+    bundle_line: mh2.1@
+    lanes: {"qa": "qa-cn3", "daily": "daily-wed", "prod": "prod-3"}
+    qa_lane_preference: ["qa-2", "qa-cn3", "qa-cn2", "qa-cn1", "qa-1", "qa-default"]
+    lane_for_slug: {"j2n": "daily-test2", "ur-portal": "daily-test2"}
+    bundle_lanes: {"qa": "qa", "daily": "daily-wed"}
+    decided: yes
+    ships_as: ["2.2"]
+    ships_as_since: '2026-11-30'
+  "2.0":
+    label: release:mh-2.0
+    bundle_line: mh2.0@
+    lanes: {"qa": "qa-cn2", "daily": "daily-stage", "prod": "prod-8"}
+    qa_lane_preference: ["qa-cn2", "qa-cn1", "qa-1", "qa-default"]
+    lane_for_slug: {"j2n": "daily-stage", "ur-portal": "daily-stage"}
+    bundle_lanes: {"qa": "qa", "daily": "stage"}
+  "2.2":
+    label: release:mh-2.2
+
+version_rules:
+  app_layer:
+    slugs: ["mediahub-backend", "mediahub-frontend", "unified-media-backend", "unified-media-frontend", "unified-streaming"]
+    grammar: "M.m.SUB[.PATCH][+BUILD]"
+  semver_build:
+    slugs: ["ur-portal", "j2n"]
+    default_for: every docker image not listed elsewhere
+    grammar: "M.m.p+SUFFIX"
+    patch_only: ["ur-portal", "j2n"]
+
+fixed_in:
+  field: customfield_11252
+  grammar: "<slug>@<version>[; <slug>@<version> ...]"
+  canonical_version: "M.m.p+BUILD"
+  same_slug_twice: the effective build is MAX inside one series; entries in different series are evaluated independently
+  slug_aliases: {"mh-backend": "mediahub-backend", "mh-frontend": "mediahub-frontend", "um-backend": "unified-media-backend", "um-frontend": "unified-media-frontend", "ur-streaming": "unified-streaming"}

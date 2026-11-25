@@ -12,6 +12,8 @@ import release as R  # noqa: E402
 import reconcile as RC  # noqa: E402
 import questions as Q  # noqa: E402
 import vault as V  # noqa: E402
+# The release map pinned to a fixture: a fact added to the live map (a lane's declared UR environment) never moves an expectation.
+R._MAP = R._yaml_subset(open(os.path.join(ROOT, "tests", "fixtures", "release-map.yaml")).read())
 
 failures = []
 def check(name, cond):

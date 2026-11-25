@@ -5,6 +5,9 @@ import datetime, json, os, sys, tempfile
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "skills", "release"))
 import nextrel as N  # noqa: E402
+import release as R  # noqa: E402
+# The release map pinned to a fixture: a fact added to the live map (a lane's declared UR environment) never moves an expectation.
+R._MAP = R._yaml_subset(open(os.path.join(ROOT, "tests", "fixtures", "release-map.yaml")).read())
 
 TZ = datetime.timezone(datetime.timedelta(hours=8))
 NOW = datetime.datetime(2026, 11, 25, 17, 40, tzinfo=TZ)           # a Wednesday, after the 17:30 pass

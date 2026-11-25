@@ -5,6 +5,10 @@ import datetime, os, sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "skills", "ticket"))
 import ticket as T  # noqa: E402
+sys.path.append(os.path.join(ROOT, "skills", "release"))
+import release as R  # noqa: E402
+# The release map pinned to a fixture: a fact added to the live map (a lane's declared UR environment) never moves an expectation.
+R._MAP = R._yaml_subset(open(os.path.join(ROOT, "tests", "fixtures", "release-map.yaml")).read())
 
 failures = 0
 
