@@ -73,7 +73,7 @@ def _login_port():
     """The port `login tvu` serves its collection page on. 8443 unless the site says otherwise.
 
     A site fact, not a constant: the port has to be free on the machine ela runs on, and on a shared
-    box it is not ours to assume. The remote site publishes a container on 8443, so a hardcoded port
+    box it is not ours to assume. Helm Akamai publishes a container on 8443, so a hardcoded port
     made `login tvu` unrunnable there with no way to say so in configuration — the one thing site.json
     exists to carry. `$ELA_LOGIN_PORT` is the one-off override; site.json `login_port` is the durable one.
     A malformed or out-of-range value falls back to the default rather than failing at bind time.

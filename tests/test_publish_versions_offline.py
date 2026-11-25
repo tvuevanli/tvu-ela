@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """`publish.publish_versions` carries the newest desk versions file into <published>/lanes/ and keeps one dated copy,
-so a host with no desk (the remote Helm) reads the QA lanes from it. Runs in a temporary directory; no site is read."""
+so a host with no desk (Helm Akamai) reads the QA lanes from it. Runs in a temporary directory; no site is read."""
 import json, os, sys, tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

@@ -25,9 +25,11 @@ Roots are named in `~/.claude/ela/site.json`; write them by name, never as machi
   written readings · `map/` generated facts. Written on Evan's word, committed by hand; nothing is
   written there by a hook. What merely happened is cited, never stored; drafts go to `<runtime>`.
 - **published** (`<published>`): output of `ela publish`, addresses redacted; every read verb, Helm and
-  the remote site read it; never edited.
+  Helm Akamai read it; never edited.
 - **Helm** (`<projects>/helm`): Evan's own ops app (web pages, scheduler, store); its AI capabilities are
-  ela's — no judgment work inside Helm. It is not the Slack bot: in Slack the app is **ela** (`@ela`), posted
+  ela's — no judgment work inside Helm. Two instances: **Helm** on Evan's box (**local Helm** where the two
+  must be told apart), and **Helm Akamai**, the remote server, which reads `<published>` as `--sync` carries it
+  (site.json `published_remote`). It is not the Slack bot: in Slack the app is **ela** (`@ela`), posted
   by ela-runner's Slack service, which folds everything after an answer's first blank line into a collapsed
   *Details* box (a Block Kit `container` block).
 - **Code**: `<code>/<alias>/<remote path>`, read-only; changes happen in `<work>/<KEY>/<repo>`

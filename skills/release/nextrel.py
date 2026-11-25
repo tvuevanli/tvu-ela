@@ -12,7 +12,7 @@
     When a plain official bundle was cut after the candidate, the state is `released` and the range is recomputed on
     that bundle (from the official before it). Without --write the document is printed (--json) or summarised; --write
     publishes it atomically through the publish redaction and copies next.md as releases/README.md.
-    --sync then carries releases/ alone to site.json `published_remote`, where the remote Helm reads it (as `publish
+    --sync then carries releases/ alone to site.json `published_remote`, where Helm Akamai reads it (as `publish
     lanes --sync` carries lanes/; typing it is the confirm); the outcome is one line, `synced` in --json, never a failure.
   ela release next --pin REF --why "…" [--apply]   hold the candidate on one bundle; dry run unless --apply
   ela release next --unpin [--apply]                 the newest daily bundle again
@@ -404,7 +404,7 @@ def publish(doc, published):
 
 
 def sync(published, target=None):
-    """<published>/releases/ to the remote site, the way lanes/ goes (publish.sync_dir) → its one-line outcome."""
+    """<published>/releases/ to Helm Akamai, the way lanes/ goes (publish.sync_dir) → its one-line outcome."""
     sys.path.insert(0, os.path.join(SKILLS, "publish"))
     import publish as P                                # noqa: E402
     return P.sync_dir(os.path.join(published, "releases"), "releases", target)
@@ -462,7 +462,7 @@ def main(argv=None):
     ap.add_argument("--line", default="2.1", help="the release train, a key of map release.yaml lines (default 2.1)")
     ap.add_argument("--candidate", help="a bundle name, id or prefix instead of the newest daily bundle, for this run")
     ap.add_argument("--write", action="store_true", help="publish <published>/releases/next.json (atomic, redacted) and its README.md")
-    ap.add_argument("--sync", action="store_true", help="with --write: carry releases/ to published_remote for the remote Helm")
+    ap.add_argument("--sync", action="store_true", help="with --write: carry releases/ to published_remote for Helm Akamai")
     ap.add_argument("--json", action="store_true", help="print the document")
     ap.add_argument("--pin", metavar="REF", help="hold the candidate on this bundle (name, id or prefix); with --why; dry run unless --apply")
     ap.add_argument("--why", help="why the candidate is held")

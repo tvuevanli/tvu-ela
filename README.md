@@ -104,7 +104,7 @@ stops and points up when handed an unsplit multi-layer ticket.
 
 `<elak>` (`<projects>/elak`, git, private): `blueprint/` (principles, decisions, status table, exit evidence) ·
 `knowledge/` (readings) · `map/` (generated facts). `<published>` (`<projects>/elak-published`) is the output of
-`ela publish`, read by ela's verbs, Helm and the remote site; addresses are redacted on the way. Nothing is
+`ela publish`, read by ela's verbs, Helm and Helm Akamai; addresses are redacted on the way. Nothing is
 committed to elak by a hook (`docs/adr/0001`).
 
 ## Verification

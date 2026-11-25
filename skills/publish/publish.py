@@ -452,7 +452,7 @@ def cmd_roster(a):
     except OSError as e:
         print(f"cannot write {dest_dir}: {e}", file=sys.stderr); sys.exit(EX_WRITE)
     mpath, row = update_manifest(records, src_rel, "knowledge/people/ (people.yaml, responsibilities.yaml, roster.md)", today,
-                                 header.get("verified", "?"), "Helm `known_emails()` (published-only file, no Helm copy to shadow); `ela who` on the remote site")
+                                 header.get("verified", "?"), "Helm `known_emails()` (published-only file, no Helm copy to shadow); `ela who` on Helm Akamai")
     write_published_manifest(records, published)
     if a.json:
         print(json.dumps({"source": src, "destination": dest_dir, "people": len(people), "verified": header.get("verified"), "published": today, "manifest": mpath}, ensure_ascii=False)); return
@@ -746,7 +746,7 @@ VERSIONS_FILE = re.compile(r"^versions-\d{4}-\d{2}-\d{2}\.json$")
 
 def publish_versions(s, dst):
     """The newest `<runtime>/runner/versions-<date>.json` (written by `ela changes`) → <published>/lanes/, the one dated copy
-    kept, so a host with no desk — the remote Helm — reads the QA lanes the desk recorded from QA's mails (the QA host
+    kept, so a host with no desk — Helm Akamai — reads the QA lanes the desk recorded from QA's mails (the QA host
     refuses the tvutest account since 2026-11-04; release SKILL.md, two hosts). Through `redact`; a file the guard flags
     for a credential is not published. → a one-line outcome, never an exit: the lane pages are the publication."""
     runner = os.path.join(s.get("runtime") or "", "runner")
@@ -828,7 +828,7 @@ def cmd_all(a):
 
 
 def cmd_sync(a):
-    """Carry <published> to the remote site named by site.json `published_remote` (`user@host:/path`, never a tracked
+    """Carry <published> to Helm Akamai, named by site.json `published_remote` (`user@host:/path`, never a tracked
     file) with rsync — dry run unless --apply. Publication is the only exit from elak (principle P2), so publication
     owns the remote copy: a deploy of Helm cannot carry a directory outside its repository, and the published tree
     changes when something is published, not when Helm deploys."""
