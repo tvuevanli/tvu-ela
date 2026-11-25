@@ -60,7 +60,7 @@ def check(ok, what):
 
 
 doc = N.build(inp(), NOW)
-check(doc["schema"] == 2 and doc["generated_at"] == "2026-11-25T17:40:00+08:00", "schema 2 and generated_at with its offset")
+check(doc["schema"] == 3 and doc["generated_at"] == "2026-11-25T17:40:00+08:00", "schema 3 and generated_at with its offset")
 check(doc["stale_after"] == "2026-11-26T10:00:00+08:00", "after 17:30: stale after the next morning run (08:00) plus two hours")
 noon = N.build(inp(), datetime.datetime(2026, 11, 25, 9, 0, tzinfo=TZ))
 check(noon["stale_after"] == "2026-11-25T14:30:00+08:00", "after the morning run: stale after the 12:30 run plus two hours")
@@ -101,6 +101,27 @@ check(rel["state"] == "released" and rel["headline"] == "MediaHub 2.2.0, release
       and rel["release"]["released_bundle"]["name"] == "MediaHub 2.2.0", "released: the headline, the bundle, no planned date")
 check(all(m["decision"] is None for m in rel["must"]), "released: no must ticket asks a decision")
 
+# the head: words a reader renders as given
+h = doc["head"]
+check(h["title"] == "MediaHub 2.2.0 → prod-3 (UR/J2N Prod 3), Monday 30 Nov", "head.title: the lane by its MediaHub name, the UR environment in brackets, the day")
+check(h["lede"] == "2 tickets must ship, 2 are on the candidate (1 QA pass, 1 fail or no verdict) and 1 is in development; "
+      "the candidate is provisional until pinned.", "head.lede: the counts in one sentence, provisional until pinned")
+check(h["read"] == "Computed Wednesday 25 Nov 17:40; the fact store names no read time", "head.read: no facts time is said, never invented")
+check(doc["candidate"]["provisional"] is True, "candidate.provisional: true while no pin holds it")
+check(doc["candidate_verdicts"] == [{"key": "BM-1272", "verdict": "none", "url": "https://tvunetworks.atlassian.net/browse/BM-1272"},
+                                    {"key": "MH-3925", "verdict": "pass", "url": "https://tvunetworks.atlassian.net/browse/MH-3925"}],
+      "candidate_verdicts: one per candidate ticket, no reading is none, sorted fail → none → partial → n-a → pass")
+pinned = N.build(inp(candidate_source="pin", sources={"facts": {"what": "f", "at": "2026-11-25T08:02:00+00:00"}}), NOW)
+check(pinned["candidate"]["provisional"] is False and "provisional" not in pinned["head"]["lede"], "a pinned candidate is not provisional")
+check(pinned["head"]["read"] == "Facts as of Wednesday 25 Nov 16:02, computed Wednesday 25 Nov 17:40", "head.read: the oldest fact's time, in the file's offset")
+check(rel["head"]["title"] == "MediaHub 2.2.0 → prod-3 (UR/J2N Prod 3), released" and rel["candidate"]["provisional"] is False, "released: the title says released")
+check([N.verdict_of({"verdict": v}) for v in ("accepted", "dev-declared", "partial", "fail")] + [N.verdict_of(None)] == ["n-a", "none", "partial", "fail", "none"],
+      "promote's verdicts fold into the five: accepted ships nothing (n-a), a developer's word is no verdict")
+check(N.ur_env("prod-2-china") == "CN Prod2" and N.ur_env("daily-wed") is None, "the UR environment of a China lane; none for a lane without one")
+one = N.head("planned", "MediaHub 2.1.20", "prod-9", None, {"must": 1, "on_candidate": 1, "in_dev": 1}, [{"verdict": "fail"}], False, None, NOW)
+check(one["title"] == "MediaHub 2.1.20 → prod-9 (UR/J2N Prod 9)" and one["lede"].startswith("1 ticket must ship, 1 is on the candidate (0 QA pass, 1 fail or no verdict) and 1 is in development."),
+      "no planned date: no day in the title; one of each reads in the singular")
+
 ADDR = ".".join(["10", "12", "13", "14"])               # built here: a literal address in a tracked file is refused
 SECRET = "tok" + "en: " + "q" * 20
 with tempfile.TemporaryDirectory() as d:
@@ -125,7 +146,7 @@ with tempfile.TemporaryDirectory() as pub, tempfile.TemporaryDirectory() as remo
     got = sorted(os.listdir(os.path.join(remote, "releases")))
     check(out == "synced releases/ to <published_remote>" and got == ["README.md", "next.json"]
           and open(os.path.join(remote, "lanes", "lanes.md")).read() == "kept", "sync: releases/ carried, its stale file removed, lanes/ untouched")
-    check(json.load(open(os.path.join(remote, "releases", "next.json"), encoding="utf-8"))["schema"] == 2, "sync: the remote copy is the published, redacted file")
+    check(json.load(open(os.path.join(remote, "releases", "next.json"), encoding="utf-8"))["schema"] == 3, "sync: the remote copy is the published, redacted file")
     bad = N.sync(pub, os.path.join(remote, "no", "such", "parent", "x"))
     check(bad.startswith("not synced: rsync"), "sync: a failure is one line, never an exit")
 

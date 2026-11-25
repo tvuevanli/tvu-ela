@@ -11,7 +11,9 @@ Jenkins builds, the service repositories fetched) and the files ela wrote (the t
 report, the held candidate). It reads no source live and starts no model session. What the store lacks is
 a gap, never a live read; `sources.facts` names each source's read time.
 
-Schema version **2**. Version 2 (2026-11-25) added `priority` and `updated` to every ticket in `must`,
+Schema version **3**. Version 3 (2026-11-25) added `head` (the page's title, lede and read line as words),
+`candidate.provisional` and `candidate_verdicts`, so a reader renders the head without judgment; nothing was renamed
+or removed. Version 2 (2026-11-25) added `priority` and `updated` to every ticket in `must`,
 `on_candidate` and `in_dev`, and changed `in_dev[].updated` from a date to an ISO time.
 
 A field is only added when the schema changes. A rename or a removal raises
@@ -25,15 +27,17 @@ carried: only its verdict, its source and its time.
 
 | field | type | meaning |
 |---|---|---|
-| `schema` | int | `2` |
+| `schema` | int | `3` |
 | `generated_at` | ISO-8601 with offset | when the file was computed |
 | `stale_after` | ISO-8601 with offset | the next scheduled refresh plus two hours. A reader shows the data as stale after this time. |
 | `line` | string | the release train, as a key in map `release.yaml` (`"2.1"`) |
 | `state` | `"planned"` \| `"released"` | `planned`: the candidate is not yet an official bundle. `released`: a plain official bundle was cut after the candidate, and the file has been recomputed on it. |
 | `headline` | string | one display line: `MediaHub 2.2.0, planned for prod-3 on Monday 30 Nov`, or `MediaHub 2.2.0, released` |
+| `head` | object | the page's head as words, shown as written: see below |
 | `release` | object | `{name, lane, planned_for, released_bundle}`. `name` is the release's product name (`MediaHub 2.2.0`). `lane` is the prod lane it goes to. `planned_for` is `YYYY-MM-DD` or `null`. `released_bundle` is `null`, or once released `{name, id, created}`. |
 | `base` | bundle | the newest plain official bundle before the range: what the release compares against |
 | `candidate` | bundle + `source` | the planned bundle: the newest daily bundle (`source: "newest"`), or one held by `ela release next --pin` (`"pin"`) or named by `--candidate` (`"argument"`). In the `released` state, it is the bundle the release was cut after. |
+| `candidate_verdicts` | `[{key, verdict, url}]` | one entry per ticket in `on_candidate`: QA's verdict as one of `pass`, `partial`, `fail`, `none`, `n-a`. Sorted `fail` → `none` → `partial` → `n-a` → `pass`, then by key: the order a verdict strip shows. |
 | `lanes` | `[{role, lane, shown}]` | the column headings of the lane cells, in order (QA · daily · prod · CN) |
 | `must` | `[must]` | tickets labelled `release:must` |
 | `on_candidate` | `[ticket]` | every ticket the range carries (`ela promote tickets <line> <base> <candidate>`) |
@@ -45,7 +49,25 @@ carried: only its verdict, its source and its time.
 | `gaps` | `[{kind, detail}]` | what could not be read or judged, in words. An empty list means nothing is missing. |
 
 A **bundle** is `{name, id, created, rule}`. `created` is `YYYY-MM-DD HH:MM`, local time. `rule` says
-how it was chosen.
+how it was chosen. `candidate` adds `provisional`: `true` in the `planned` state until `ela release next --pin` holds
+a bundle, since until then the next refresh may move the candidate to a newer daily bundle; `false` once pinned and in
+the `released` state.
+
+## `head`
+
+`{title, lede, read}`, three display strings. A lane is named by its MediaHub name first, with the UR / J2N
+environment in brackets, because readers on the MediaHub side know the lanes, not the environments behind them.
+
+- `title`: `MediaHub 2.2.0 → prod-3 (UR/J2N Prod 3), Monday 30 Nov`. Without a planned date the day is left out. In
+  the `released` state it ends `, released` instead of the day.
+- `lede`: one sentence of counts: the tickets that must ship, those on the candidate with how many have QA pass and
+  how many fail or have no verdict (from `candidate_verdicts`), and those in development. When
+  `candidate.provisional` is `true` it ends `; the candidate is provisional until pinned.`
+- `read`: `Facts as of Wednesday 25 Nov 16:02, computed Wednesday 25 Nov 17:40`. The facts time is the oldest source the
+  file stands on (`sources.facts.at`); when the store names none, the line says so instead.
+
+QA's readings fold into the five verdicts: `accepted` (accepted as-is, the described change does not ship) is
+`n-a`; `dev-declared` (the developer's own word) and no reading are `none`.
 
 ## `must[]`
 

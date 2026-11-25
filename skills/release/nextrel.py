@@ -29,7 +29,7 @@ import argparse, datetime, json, os, re, subprocess, sys
 
 HERE = os.path.dirname(os.path.realpath(__file__))
 SKILLS = os.path.dirname(HERE)
-SCHEMA = 2                                       # 2: priority and updated (ISO) on every ticket; in_dev.updated was a date
+SCHEMA = 3                                       # 3: head, candidate.provisional, candidate_verdicts · 2: priority and updated on every ticket
 EX_USAGE, EX_NOTFOUND, EX_GUARD, EX_REMOTE = 2, 3, 4, 5
 PASSES = ("08:00", "12:30", "17:30")            # the runner's weekday runs that refresh the file: the morning run, midday, afternoon
 STALE_GRACE_H = 2
@@ -81,8 +81,68 @@ def headline(state, name, lane, planned_for):
         return f"{name}, released"
     if planned_for:
         d = datetime.date.fromisoformat(planned_for)
-        return f"{name}, planned for {lane} on {d.strftime('%A')} {d.day} {d.strftime('%b')}"
+        return f"{name}, planned for {lane} on {day_text(d)}"
     return f"{name}, planned for {lane}"
+
+
+def ur_env(lane):
+    """The UR / J2N environment behind a prod lane, for the brackets after its MediaHub name: prod-3 → UR/J2N Prod 3,
+    prod-2-china → CN Prod2; None when the lane names none."""
+    m = re.fullmatch(r"prod-(\d+)(-china)?", str(lane or ""))
+    if not m:
+        return None
+    return f"CN Prod{m.group(1)}" if m.group(2) else f"UR/J2N Prod {m.group(1)}"
+
+
+def day_text(d):
+    return f"{d.strftime('%A')} {d.day} {d.strftime('%b')}"
+
+
+VERDICT_ORDER = ("fail", "none", "partial", "n-a", "pass")       # the page's order: what needs attention first
+
+
+def verdict_of(qa):
+    """QA's reading as one of the page's five verdicts: accepted ships nothing, so not applicable; a developer's own
+    word or no reading is no verdict."""
+    v = (qa or {}).get("verdict") or "none"
+    return "n-a" if v == "accepted" else v if v in VERDICT_ORDER else "none"
+
+
+def candidate_verdicts(on):
+    rows = [{"key": t["key"], "verdict": verdict_of(t.get("qa")), "url": t["url"]} for t in on]
+    return sorted(rows, key=lambda r: (VERDICT_ORDER.index(r["verdict"]), r["key"]))
+
+
+def n_of(n, one, many):
+    return f"{n} {one if n == 1 else many}"
+
+
+def head(state, name, lane, planned_for, counts, verdicts, provisional, facts_at, now):
+    """The page's head as words, so a reader renders it without judgment: the title (the lane by its MediaHub name, the
+    UR environment in brackets), one sentence of counts, and the facts' time."""
+    env = ur_env(lane)
+    where = f"{lane} ({env})" if env else str(lane)
+    if state == "released":
+        title = f"{name} → {where}, released"
+    elif planned_for:
+        title = f"{name} → {where}, {day_text(datetime.date.fromisoformat(planned_for))}"
+    else:
+        title = f"{name} → {where}"
+    c = {v: sum(1 for r in verdicts if r["verdict"] == v) for v in VERDICT_ORDER}
+    on, must, dev = counts["on_candidate"], counts["must"], counts["in_dev"]
+    lede = (f"{n_of(must, 'ticket must', 'tickets must')} ship, {on} {'is' if on == 1 else 'are'} on the candidate "
+            f"({c['pass']} QA pass, {c['fail'] + c['none']} fail or no verdict) and {dev} {'is' if dev == 1 else 'are'} in development"
+            + ("; the candidate is provisional until pinned." if provisional else "."))
+    t = None
+    try:
+        t = datetime.datetime.fromisoformat(str(facts_at)) if facts_at else None
+    except ValueError:
+        t = None
+    t = (t if t and t.tzinfo else t.replace(tzinfo=now.tzinfo) if t else None)
+    stamp = lambda x: f"{day_text(x)} {x.strftime('%H:%M')}"  # noqa: E731
+    read = (f"Facts as of {stamp(t.astimezone(now.tzinfo))}, computed {stamp(now)}" if t else
+            f"Computed {stamp(now)}; the fact store names no read time")
+    return {"title": title, "lede": lede, "read": read}
 
 
 def bundle(b, rule=None, source=None):
@@ -212,6 +272,16 @@ def build(inp, now):
               "children": list(e.get("children") or [])} for e in tk.get("epics") or []]
     gaps += [g for g in tk.get("gaps") or [] if isinstance(g, dict)]
 
+    source = inp.get("candidate_source") or "newest"
+    candidate = bundle(inp.get("candidate"), source=source)
+    provisional = state == "planned" and source != "pin"
+    if candidate is not None:
+        candidate["provisional"] = provisional
+    verdicts = candidate_verdicts(on)
+    counts = {"must": len(must), "must_missing": sum(1 for m in must if not m["on_candidate"]), "on_candidate": len(on),
+              "in_dev": len(in_dev), "docker_changed": len(diff), "unbuilt_commits": sum(len(b["commits"]) for b in branches)}
+    sources = inp.get("sources") or {}
+
     return {
         "schema": SCHEMA,
         "generated_at": now.isoformat(timespec="seconds"),
@@ -219,18 +289,19 @@ def build(inp, now):
         "line": line,
         "state": state,
         "headline": headline(state, name, prod_lane, planned_for),
+        "head": head(state, name, prod_lane, planned_for, counts, verdicts, provisional, (sources.get("facts") or {}).get("at"), now),
         "release": {"name": name, "lane": prod_lane, "planned_for": planned_for, "released_bundle": rel_bundle},
         "base": bundle(inp.get("base")),
-        "candidate": bundle(inp.get("candidate"), source=inp.get("candidate_source") or "newest"),
+        "candidate": candidate,
+        "candidate_verdicts": verdicts,
         "lanes": list((inp.get("train") or {}).get("lanes") or []),
         "must": must,
         "on_candidate": on,
         "epics": epics,
         "in_dev": in_dev,
         "docker": {"bundle_diff": diff, "lanes": lanes, "branches": branches},
-        "counts": {"must": len(must), "must_missing": sum(1 for m in must if not m["on_candidate"]), "on_candidate": len(on),
-                   "in_dev": len(in_dev), "docker_changed": len(diff), "unbuilt_commits": sum(len(b["commits"]) for b in branches)},
-        "sources": inp.get("sources") or {},
+        "counts": counts,
+        "sources": sources,
         "gaps": gaps,
     }
 
