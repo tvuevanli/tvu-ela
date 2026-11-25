@@ -81,6 +81,11 @@ reaction; none is to be added silently.
   reader sees is the one that was approved. Same dry run, same word before `--apply`, same duplicate refusal
   (against his own last messages). No `--dm` and no team gate with it. Its standing caller is `ela mention answer`
   on his A (ADR 0022), where the mention card is the dry run.
+- **One message per audience, each ask to a named person** (the owner's rule, 2026-11-25, after a status reply
+  ended with a question for a customer's operations room that named no one). Findings and engineers' next steps
+  are one message; a question only the customer can answer is its own message that mentions the colleague who
+  relays to that customer (the reporter, the product manager or support), since the customer's people are not in
+  the channel. An ask that mentions no one is not sent.
 - **Reply in the thread** where the question lives (pass the permalink); a top-level post needs a reason
   Evan stated. A DM to anyone other than Evan needs him to name the person.
 - **Idempotent by content.** The script refuses a message identical to one the same identity already posted in
