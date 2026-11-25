@@ -15,6 +15,15 @@ failure is /ela:route's judgment.
                                                 process-log records around a moment for one service or one user
   loki  --pid <processId> | --service S | --query LogQL  [--since 5m | --from T --to T | --at T --window W] [--grep text]…
                                                 Loki lines through Observer (media services, by process id)
+  status --pid P | --graph G  [--since 6h | --from T --to T]
+                                                Observer status events per process (lifecycle, format descriptor,
+                                                connection state, alerts), runs folded; with --graph also the
+                                                graph-level J2N stages. Read where Loki has nothing: a site that
+                                                ships no logs still reports status
+  metrics --pid P | --graph G  [--kind frame|transport] [--since 30m] [--step 60]
+                                                Observer per-step metrics per process: video fps and bitrate,
+                                                jitter, audio; zero and missing points flagged. dockerType is
+                                                docker_<node type>, looked up from the graph
 
 Windows. A process-log or Loki read covers the last 5 minutes by default, or a few minutes around `--at`. A wider
 window is read only with `--wide "<reason>"`, and the reason is printed on the result: the limits on the shared log
@@ -534,6 +543,254 @@ def cmd_loki(a):
         print(f"note: {note}")
 
 
+# ── Observer: status events and frame / transport metrics ────────────────────
+# The two reads that reach a process when Loki has nothing: a site whose boxes ship no logs still reports its status
+# events and its per-minute frame metrics through statusReporter (verified 2026-11-25 on a customer's physical SDI
+# boxes whose Loki read was empty). Surface and quirks: elak knowledge/platform/observability/observer.md.
+
+STATUS_WINDOW = datetime.timedelta(hours=24)    # the widest status read per call: the server has no row cap
+METRICS_WINDOW = datetime.timedelta(hours=6)    # all-keys reads over longer windows time out on the server
+# The `…/status/container` codes are written by UR (Portal and background), not by the agent (observer.md).
+KNOWN_CODES = {
+    "0x80001010": "dispatched (UR sent the task)", "0x80001011": "task progress", "0x80001012": "task progress (image pulled)",
+    "0x80001013": "task-run reply ok", "0x80001014": "task-run failed", "0x80001015": "stopped",
+    "0x80001016": "terminated", "0x80001001": "start error", "0x82000070": "container init",
+}
+
+
+def observer(a):
+    tok = R.env_value("TVU_CC_BEARER_TOKEN", a.env_file)
+    if not tok:
+        die("no TVU_CC_BEARER_TOKEN (env, $ELA_ENV_FILE, or --env-file) — /ela:setup", EX_AUTH)
+    base = (R.env_value("TVU_OBSERVER_BASE", a.env_file) or OBSERVER_DEFAULT).rstrip("/")
+    return base, {"Authorization": f"Bearer {tok}"}
+
+
+def observer_post(a, route, body):
+    base, h = observer(a)
+    st, b = request(base + "/api/observer/v1/" + route, h, body=body, timeout=60)
+    if st in (401, 403):
+        die(f"Observer refused the bearer token (HTTP {st}) — TVU_CC_BEARER_TOKEN; /ela:setup", EX_AUTH)
+    if st != 200 or not isinstance(b, dict):
+        die(f"Observer {route}: HTTP {st} {str(b)[:200]}", EX_REMOTE)
+    return b
+
+
+def obs_window(a, default, cap):
+    w = window(a, "30m")
+    if w:
+        s, e = w
+    else:
+        e = now(); s = e - parse_span(a.since or default)
+    if e - s > cap:
+        die(f"this read covers {span_text(e - s)}; Observer is read at most {span_text(cap)} per call here. Step "
+            "back-dated windows (--from/--to) to go further", EX_USAGE)
+    return s, e
+
+
+def ela_json(*argv):
+    """Another ela verb's --json answer, or None."""
+    import shutil, subprocess
+    exe = shutil.which("ela")
+    if not exe:
+        return None
+    try:
+        r = subprocess.run([exe, *argv, "--json"], capture_output=True, text=True, timeout=120)
+        return json.loads(r.stdout) if r.returncode == 0 and r.stdout.strip() else None
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        return None
+
+
+def graph_processes(a):
+    """(app, graph id, [{pid, type, name, box}]) for --graph, or for the graph of --pid. The node type gives the
+    metrics' dockerType (`docker_<type>`); --graph with --type skips the lookups for one --pid."""
+    gid, pid = a.graph, a.pid
+    if pid and gid and a.type:
+        return "MediaHub", gid, [{"pid": pid, "type": a.type, "name": None, "box": None}]
+    if pid and not gid:
+        p = ela_json("process", pid) or {}
+        gid = p.get("graph_id")
+        if not gid:
+            die(f"process {pid}: no graph id from `ela process {pid}`; pass --graph G (and --type T)", EX_NOTFOUND)
+    g = ela_json("graph", gid) or {}
+    res = (g.get("results") or [{}])[0]
+    nodes = [n for n in res.get("nodes") or [] if n.get("process_id")]
+    if not nodes:
+        die(f"graph {gid}: no processes from `ela graph {gid}`", EX_NOTFOUND)
+    procs = [{"pid": n["process_id"], "type": n.get("type"), "name": n.get("name"),
+              "box": f"{n.get('box_type') or '?'} {n.get('public_ip') or n.get('box_id') or '?'}"} for n in nodes]
+    if pid:
+        procs = [p for p in procs if p["pid"] == pid] or [{"pid": pid, "type": a.type, "name": None, "box": None}]
+    if a.type:
+        for p in procs:
+            p["type"] = a.type
+    return res.get("app") or "MediaHub", gid, procs
+
+
+def parse_event(e):
+    """One status row → {code, level, time, detail}. A row may arrive as a JSON string, its detail too."""
+    if isinstance(e, str):
+        try:
+            e = json.loads(e)
+        except ValueError:
+            return {"code": None, "level": None, "time": None, "detail": e}
+    if not isinstance(e, dict):
+        return None
+    d = e.get("detail")
+    if isinstance(d, str) and d[:1] in "{[":
+        try:
+            d = json.loads(d)
+        except ValueError:
+            pass
+    return {"code": e.get("code"), "level": e.get("level"), "time": from_ms(e.get("timestamp")), "detail": d}
+
+
+def format_text(d):
+    """A format descriptor (`programs[…]`) in one line: video WxH, scan, fps, depth; audio tracks; data streams."""
+    out = []
+    for p in d.get("programs") or []:
+        v = p.get("video") or {}
+        if v:
+            scan = "i" if v.get("interlaced") or v.get("interlaceFlag") else "p"
+            codec = v.get("codec") if v.get("codec") not in (None, "N/A") else "uncompressed"
+            out.append(f"video {v.get('width')}x{v.get('height')}{scan}{v.get('fps')} {v.get('bitDepth')}-bit {codec}")
+        tr = (p.get("audio") or {}).get("tracks") or []
+        if tr:
+            out.append(f"audio {len(tr)} track(s) × {tr[0].get('channels')}ch {tr[0].get('sampleRate')}Hz")
+        n = (p.get("data") or {}).get("num")
+        if n:
+            out.append(f"data {n}")
+    return "; ".join(out) or "format (empty)"
+
+
+def describe(ev):
+    d, code = ev["detail"], ev["code"] or "?"
+    if isinstance(d, dict) and "programs" in d:
+        return "format: " + format_text(d)
+    if isinstance(d, dict) and ("peerIp" in d or "status" in d):
+        return f"connection {d.get('status')} peer {d.get('peerIp')}:{d.get('peerPort')} local {d.get('localPort')}"
+    name = KNOWN_CODES.get(code)
+    text = d if isinstance(d, str) else json.dumps(d, ensure_ascii=False) if d is not None else ""
+    if name:
+        return name if not text or text == name else f"{name} — {text}"
+    return text or "(no detail)"
+
+
+def collapse(events):
+    """Time-ordered events with runs of the same code and detail folded into one row (alerts re-emit ~every 21 s)."""
+    rows = []
+    for ev in sorted((e for e in events if e), key=lambda e: e["time"] or datetime.datetime.min.replace(tzinfo=UTC)):
+        sig = (ev["code"], json.dumps(ev["detail"], sort_keys=True, default=str))
+        if rows and rows[-1]["sig"] == sig:
+            rows[-1]["n"] += 1; rows[-1]["last"] = ev["time"]
+        else:
+            rows.append({"sig": sig, "n": 1, "first": ev["time"], "last": ev["time"], **ev})
+    return rows
+
+
+def cmd_status(a):
+    if not (a.pid or a.graph):
+        die("status needs --pid or --graph", EX_USAGE)
+    s, e = obs_window(a, "6h", STATUS_WINDOW)
+    app, gid, procs = graph_processes(a)
+    keys = {f"/ur/{app}/{gid}/{p['pid']}": p for p in procs}
+    prefixes = list(keys) + ([f"/ur/{app}/{gid}/status"] if not a.pid else [])
+    b = observer_post(a, "queryhistorybyprefix", {"prefixes": prefixes, "begintime": ms(s), "endtime": ms(e)})
+    searched = f"Observer status {', '.join(prefixes)} written {show_time(s)} … {show_time(e)}"
+    rows = {}
+    for k in b.get("data") or []:
+        key = k.get("key") or "?"
+        own = next((p for p in keys if key == p or key.startswith(p + "/")), key)
+        rows.setdefault(own, []).extend(parse_event(x) for x in k.get("data") or [])
+    if a.json:
+        print(json.dumps({"searched": searched, "graph": gid, "processes": [
+            {**(keys.get(k) or {"key": k}), "events": [{**{x: r[x] for x in ("code", "level", "detail", "n")},
+                                                        "first": r["first"].isoformat() if r["first"] else None,
+                                                        "last": r["last"].isoformat() if r["last"] else None}
+                                                       for r in collapse(v)]} for k, v in rows.items()]},
+                         ensure_ascii=False, indent=1, default=str))
+        return
+    if not rows:
+        die(f"no status events (code {b.get('code')}: nothing written in the window; the store lags 40–60 s) — "
+            f"searched {searched}", EX_NOTFOUND)
+    print(searched)
+    for k in list(keys) + [k for k in rows if k not in keys]:
+        p = keys.get(k) or {"pid": k, "type": "graph-level", "box": ""}
+        evs = collapse(rows.get(k, []))
+        print(f"\n{p['type'] or '?'}  {p['pid']}  {p.get('box') or ''}  — {len(evs) or 'no'} event(s)")
+        for r in evs:
+            rep = f" ×{r['n']} until {show_time(r['last'])}" if r["n"] > 1 else ""
+            text = describe(r)
+            print(f"  {show_time(r['first'])}  {r['code'] or '?'}  {r['level'] or '-':<7}  "
+                  f"{text if a.verbose else text[:a.width]}{rep}")
+
+
+def summarize_series(key, points, step_s, s, e):
+    """One metric key → counts, last value, min/max, zeros, and missing buckets against the window and step."""
+    pts = sorted((p for p in points if isinstance(p, dict) and p.get("value") is not None), key=lambda p: p.get("ts") or 0)
+    vals = [p["value"] for p in pts]
+    expected = max(1, int((e - s).total_seconds() // step_s))
+    out = {"key": key, "n": len(vals), "expected": expected, "zeros": sum(1 for v in vals if v == 0)}
+    if vals:
+        out.update(last=vals[-1], last_at=from_ms(pts[-1].get("ts")), first_at=from_ms(pts[0].get("ts")),
+                   min=min(vals), max=max(vals))
+    return out
+
+
+def num(v):
+    """A metric value short: 1.99G, 1.54M, 59.94."""
+    for div, unit in ((1e9, "G"), (1e6, "M"), (1e3, "k")):
+        if abs(v) >= div:
+            return f"{v / div:.3g}{unit}"
+    return f"{v:g}"
+
+
+def shown_key(key, all_keys):
+    """Without --all-keys: the video keys, the first audio track, and every transport key."""
+    return all_keys or not re.match(r"audio\.tracks\[[1-9]\d*\]", key)
+
+
+def cmd_metrics(a):
+    if not (a.pid or a.graph):
+        die("metrics needs --pid or --graph", EX_USAGE)
+    s, e = obs_window(a, "30m", METRICS_WINDOW)
+    app, gid, procs = graph_processes(a)
+    out = []
+    for p in procs:
+        if not p["type"]:
+            out.append({**p, "error": "no node type; pass --type"}); continue
+        for kind in a.kind:
+            b = observer_post(a, "queryMetricsHistoryData", {
+                "pid": p["pid"], "dockerType": "docker_" + p["type"], "metrics": kind, "beginTime": ms(s),
+                "endTime": ms(e), "keys": [], "step": a.step, "order": "desc"})
+            series = [summarize_series(k.get("key"), k.get("valueList") or [], a.step, s, e)
+                      for k in b.get("data") or [] if k.get("key") and shown_key(k["key"], a.all_keys)]
+            out.append({**p, "metrics": kind, "series": sorted(series, key=lambda x: x["key"])})
+    searched = f"Observer {'/'.join(a.kind)} metrics, step {a.step}s, {show_time(s)} … {show_time(e)}"
+    if a.json:
+        print(json.dumps({"searched": searched, "graph": gid, "processes": out}, ensure_ascii=False, indent=1, default=str))
+        return
+    print(searched)
+    print("note: a point is a sample per step, not a mean; frames arriving says nothing of the picture's content "
+          "(a black frame counts); no points is unknown (no such pid, an image without metrics, no data), not healthy")
+    for p in out:
+        print(f"\n{p.get('type') or '?'}  {p['pid']}  {p.get('box') or ''}  {p.get('metrics', '')}")
+        if p.get("error"):
+            print(f"  {p['error']}"); continue
+        if not p["series"]:
+            print("  no points"); continue
+        for x in p["series"]:
+            if not x["n"]:
+                print(f"  {x['key']:<34} no points"); continue
+            flags = []
+            if x["zeros"] and re.search(r"fps|bitRate", x["key"], re.I):
+                flags.append(f"{x['zeros']} zero point(s)")
+            if x["n"] < x["expected"] * 0.9:
+                flags.append(f"{x['expected'] - x['n']} of {x['expected']} steps missing")
+            print(f"  {x['key']:<34} last {num(x['last']):<8} at {show_time(x['last_at'])[11:19]}Z  "
+                  f"min {num(x['min'])}  max {num(x['max'])}  n {x['n']}{'  ⚠ ' + '; '.join(flags) if flags else ''}")
+
+
 def main():
     sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "configserver"))
     import redact; redact.guard_output()  # a credential inside a remote payload never reaches the terminal
@@ -570,8 +827,28 @@ def main():
     p = sub.add_parser("loki", help="Loki lines through Observer")
     p.add_argument("--pid"); p.add_argument("--service"); p.add_argument("--query")
     moment(p, "2m"); recent(p); common(p, 500)
+
+    def observed(p, since):
+        p.add_argument("--pid"); p.add_argument("--graph")
+        p.add_argument("--type", help="the node type (sdi_copier, sdi_decoder, …) when the graph lookup is skipped")
+        p.add_argument("--at"); p.add_argument("--window", help="± around --at (default 30m)")
+        p.add_argument("--from", dest="frm"); p.add_argument("--to")
+        p.add_argument("--since", default=since, help=f"the last N without --at (default {since})")
+        common(p, 0)
+
+    p = sub.add_parser("status", help="Observer status events of a process or every process of a graph")
+    observed(p, "6h")
+    p = sub.add_parser("metrics", help="Observer frame / transport metrics of a process or every process of a graph")
+    observed(p, "30m")
+    p.add_argument("--kind", action="append", choices=("frame", "transport"),
+                   help="frame (default) and/or transport; repeatable")
+    p.add_argument("--step", type=int, default=60, help="seconds per point (default 60)")
+    p.add_argument("--all-keys", action="store_true", help="every audio track, not only the first")
     a = ap.parse_args()
-    {"chain": cmd_chain, "java": cmd_java, "calls": cmd_calls, "loki": cmd_loki}[a.cmd](a)
+    if a.cmd == "metrics" and not a.kind:
+        a.kind = ["frame"]
+    {"chain": cmd_chain, "java": cmd_java, "calls": cmd_calls, "loki": cmd_loki,
+     "status": cmd_status, "metrics": cmd_metrics}[a.cmd](a)
 
 
 if __name__ == "__main__":

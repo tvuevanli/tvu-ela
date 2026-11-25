@@ -1,6 +1,6 @@
 ---
 name: logs
-description: Read a failure's logs first-hand — a trace id, an email and a moment, a process id. Use for "看日志", "这个 trace 在哪断的", "谁抛的这个错误码", or any failure whose evidence is in the services' own logs.
+description: Read a failure's logs first-hand — a trace id, an email and a moment, a process id. Use for "看日志", "这个 trace 在哪断的", "谁抛的这个错误码", or any failure whose evidence is in the services' own logs. Also a process's fps.
 user-invocable: true
 ---
 
@@ -52,11 +52,20 @@ needs `ela login tvu`, and exit 4 names it.
   box ships, on the box where it does not, with the UR team's help only for access to the box. A handoff names the
   media team for it, not UR: UR can open the box but cannot judge the module's lines, so a handoff to UR adds a hop
   before the one reader who can.
+- **Status and frame metrics reach where Loki does not.** A site that ships no logs still reports through
+  statusReporter: `ela logs status --graph <G>` gives every process's events (UR's lifecycle codes, the format
+  descriptor the module saw — resolution, scan, fps, depth, audio tracks — connection states and alerts, repeats
+  folded) and the graph's J2N stages; `ela logs metrics --graph <G>` gives each process's per-minute video fps and
+  bitrate, jitter and audio, zero and missing points flagged. Read both before any handoff for a process with no
+  lines: they clear or blame a node of the chain remotely (2026-11-25: a customer site's SDI boxes, empty in Loki,
+  showed the SDI out receiving 1080p59.94 at a steady 59.94 fps and 1.99 Gb/s, which moved the question from "no
+  frames" to the output stage). Their limits go into the answer: a frame counted is not a picture judged (a black
+  frame counts the same), a point is a sample per step, and no points is unknown, not healthy.
 - **A MediaBox process with no lines: its docker service's owner reads it on the box, UR opens the box** (the
   owner's rule, 2026-11-25). When `loki --pid` finds nothing for a graph's processes and they run as MediaBox
   containers (a wrapped image, a control port in `graph -d`), the thread mentions the owner of the suspect node's
   image (`ela find <image>` gives the owners, `ela who` their Slack id) with the graph, the process ids and their
-  boxes, and copies the UR area's ask-first person (`ela team areas`) for access to the box. When no owner is on
+  boxes, what `status` and `metrics` showed of each, and copies the UR area's ask-first person (`ela team areas`) for access to the box. When no owner is on
   record, the UR lead is mentioned and routes it. Shipping is per site, not per box type: a physical box in TVU's
   own office ships its SDI lines, a customer site's physical boxes may ship nothing (a site firewall that does not
   pass the reporting ports).
@@ -121,5 +130,7 @@ ela logs chain --help   # process-log records of one trace, the first failing ho
 ela logs calls --help   # process-log records around a moment for one service or user
 ela logs java --help    # java-log lines by trace, or by app around a moment
 ela logs loki --help    # Loki lines through Observer
+ela logs status --help  # Observer status events per process of a graph
+ela logs metrics --help # Observer per-minute frame / transport metrics per process
 ela configserver --help # step 4: a config key's value per environment (skills/configserver)
 ```

@@ -77,6 +77,7 @@ python3 tests/test_today_offline.py || fail=1
 python3 tests/test_today_head_offline.py || fail=1
 python3 tests/test_dry_offline.py || fail=1
 python3 tests/test_logs_window_offline.py >/dev/null || { echo "logs window offline failed"; fail=1; }
+python3 tests/test_logs_observer_offline.py >/dev/null || { echo "logs observer offline failed"; fail=1; }
 python3 tests/test_dry_corpus_offline.py || fail=1
 python3 tests/test_focus_offline.py || fail=1
 python3 tests/test_watch_offline.py || fail=1
