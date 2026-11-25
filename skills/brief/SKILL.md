@@ -700,7 +700,7 @@ The page is read in Obsidian, so its form is fixed:
 
 ## 3b — when the runner asked (unattended): the page and the numbered actions, written to files
 
-**The runner's day** (ela-runner): 08:00 the morning page · 13:00 · 17:30, after the QA deploy · 19:00 the evening
+**The runner's day** (ela-runner): 08:00 the morning page · 12:30 · 17:30, after the QA deploy · 19:00 the evening
 (replay, the reader, the carried verdicts) · 01:00. The hours of the owner's day, his DM window and holidays are
 `ela day --json`, never constants.
 

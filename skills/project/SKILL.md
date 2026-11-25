@@ -32,7 +32,7 @@ the head never uses one of those names).
   to it and the step, marked overdue when its date has passed, or, with no date, when the deadline has).
 - **Properties**: `deadline`, `next-step`, and the archive's watch fields: `keys` (the Jira keys to follow),
   `posted` and `channels` (Slack permalinks), `watch` (defaults to the deadline plus 14 days; empty stops it),
-  `watched`, `last`. The 13:00, 17:30 and 19:00 afterwards passes read the page like an archived note and append
+  `watched`, `last`. The 12:30, 17:30 and 19:00 afterwards passes read the page like an archived note and append
   one dated line per source per day under its Afterwards.
 
 Home lists each project below the line with its days left; the fourth line names a project's step instead of the

@@ -586,7 +586,7 @@ NUMBERED = re.compile(r"^(\d+)\s*[:：.)—–-]\s*(\S.*)$")
 
 def apply_lines(reports, date, lines):
     """His lines applied to the store: `pasted [date] [n]` ticks the row; `n: text` rewords row n; a bare line rewords
-    the day's one row. Each change is written once (a line applied at 13:00 is not applied again at 17:30). Returns
+    the day's one row. Each change is written once (a line applied at 12:30 is not applied again at 17:30). Returns
     {changed: [...], skipped: [...]}, having saved every month touched."""
     months, changed, skipped = {}, [], []
 

@@ -47,7 +47,7 @@ morning page's New tickets heading carries a pointer to it.
 
 - `ela recent` prints the page; `--json` the result; `--write` keeps the result as `<reports>/recent/<date>.json`
   (one file a day, rewritten within it) and the vault's next sync renders `recent.md` from the newest file.
-- The runner calls `ela recent --write` at the morning, 13:00, 17:30 and evening passes and on the refresh tick,
+- The runner calls `ela recent --write` at the morning, 12:30, 17:30 and evening passes and on the refresh tick,
   then `ela vault sync`.
 - Exit 5 when the Jira search fails; a missing lane read or test list is not a failure: the page names it under
   "Not read".

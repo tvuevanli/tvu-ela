@@ -7943,7 +7943,7 @@ def with_afterwards(text, lines):
 
 def cmd_afterwards(a):
     """Read what happened after each watched note left to-read and append it under the note's Afterwards, first stamping
-    the archived notes not yet stamped (archive_stamp); the runner calls this at 13:00, 17:30 and 19:00. Reads only; writes the vault and <reports>/ela/afterwards.jsonl."""
+    the archived notes not yet stamped (archive_stamp); the runner calls this at 12:30, 17:30 and 19:00. Reads only; writes the vault and <reports>/ela/afterwards.jsonl."""
     s = json.load(open(SITE))
     vault, reports = s["vault"], s.get("reports") or ""
     env = a.env_file or s.get("env")

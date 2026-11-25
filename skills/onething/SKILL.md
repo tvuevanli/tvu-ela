@@ -55,7 +55,7 @@ Site env: `ONETHING_SHEET` (the spreadsheet id), `ONETHING_WHOM` (his name in co
 
 - **The day's changes page** (`reference/days/<year>/<date>-changes.md`, "What changed"): its last section, *Your day, <the
   previous working day>*, is the block above. ela-runner inserts it after the morning's judge writes the page and
-  again at the 13:00, 17:30 and 19:00 passes, applying the page's own marks first: an `ela:` line under the section
+  again at the 12:30, 17:30 and 19:00 passes, applying the page's own marks first: an `ela:` line under the section
   rewords the row (`ela: 2: …` for row 2 of a day with several); a ticked `pasted n` marks the row as on the sheet. The vault keeps his lines and ticks through each rewrite.
 - **`reference/one-thing.md`** in the vault ("One Thing · <month>", type `one-thing`, a living page of the vault's page
   family rendered by the sync from the store): the month's rows not yet pasted, one *Copy to the sheet* block, a

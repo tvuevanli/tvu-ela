@@ -2994,7 +2994,7 @@ def snapshot_on_or_after(runner, date):
 
 def deploy_note(now, plan):
     """The line under the lanes table that places the read against the day's QA deploy (`ela day`: qa_deploy), so a
-    page read at 13:00 is known to predate the build; none on a day off or when the hour is not set."""
+    page read at 12:30 is known to predate the build; none on a day off or when the hour is not set."""
     qa = str(plan.get("qa_deploy") or "")
     if not plan.get("working_day") or not re.fullmatch(r"\d{2}:\d{2}", qa):
         return None
