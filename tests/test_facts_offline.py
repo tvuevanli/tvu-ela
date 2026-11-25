@@ -181,6 +181,9 @@ check("a stale cached key is not served", not J.cache_holds("MH-1", {"updated": 
 check("a fresh cached key after the sweep is served", J.cache_holds("MH-2", F.read_json(os.path.join(F.store_dir("jira", "issues"), "MH-2.json")) or
                                                              {"updated": J.updated_iso(STAMP), "read_at": F.now_iso()}))
 check("the owner-name JQL is served from the store", J.stored_query("assignee = currentUser() ORDER BY updated DESC", 1) is not None)
+# the store as it stands now: the second refresh rewrote the channel's read_at, which differs from the first
+# refresh's whenever the two passes straddle a second boundary
+chan = F.read_json(os.path.join(F.store_dir("slack"), "C1.json"))
 rows, at = S.history_rows("tok", "C1", NOW.timestamp() - 7200)
 check("slack history serves the channel store", rows and rows[0]["ts"] == TS and at == chan["read_at"])
 n = calls["slack"]
