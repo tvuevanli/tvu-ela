@@ -21,6 +21,8 @@
   release [--apply] [--json]  the team's versioned release (elak decisions/2026-11-25-published-knowledge-is-a-
                             versioned-release.md): whether one is due, what it would commit, the guard's verdict;
                             --apply commits it in <published>, recording elak's HEAD; it never pushes
+  mirror [--dry-run]        <published> → site.json `published_mirror`, a read-only Obsidian vault of its own, one way
+                            (withdrawn files removed; the vault's .obsidian/ kept), with a generated Home.md (mirror.py)
 
 The published directory is a subset of elak's own tree — the same paths, elak's names, no per-reader
 directories. Readers (Helm's context packs, the remote ela) point at these paths.
@@ -35,6 +37,7 @@ source's commit date. Exit codes: 0 ok · 2 usage (an uncommitted source include
 import argparse, datetime, json, os, re, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from addresses import IPV4, is_address   # noqa: E402 — one address rule, shared with hooks/content-guard.sh
+import mirror as M                       # noqa: E402 — the read-only Obsidian mirror of <published>
 
 EX_USAGE, EX_WRITE = 2, 5
 SITE = os.path.expanduser("~/.claude/ela/site.json")
@@ -1101,6 +1104,16 @@ def cmd_list(a):
         sys.exit(1)
 
 
+def cmd_mirror(a):
+    """<published> → `published_mirror` now; --dry-run lists what would change. Exit 5 when the mirror was refused or failed."""
+    s = site()
+    _, published = roots()
+    ok, line = M.mirror(published, os.environ.get("ELA_PUBLISH_MIRROR", s.get("published_mirror")), s.get("vault"), dry_run=a.dry_run)
+    print(line)
+    if not ok:
+        sys.exit(EX_WRITE)
+
+
 def main():
     ap = argparse.ArgumentParser(description="Publish elak sources into the published directory.")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -1123,6 +1136,8 @@ def main():
     p.add_argument("--apply", action="store_true"); p.add_argument("--json", action="store_true")
     p = sub.add_parser("sync", help="rsync <published> to site.json `published_remote` — dry run unless --apply")
     p.add_argument("--apply", action="store_true")
+    p = sub.add_parser("mirror", help="<published> → site.json `published_mirror`, the read-only Obsidian vault")
+    p.add_argument("--dry-run", action="store_true")
     for name, sp in sub.choices.items():
         if name in ("catalogue", "map", "roster", "doc", "pins", "all", "list"):
             sp.add_argument("--dirty", action="store_true", help="read elak's working tree instead of its last commit")
@@ -1131,7 +1146,9 @@ def main():
     # an unattended session (ELA_NO_APPLY=1) reads and dry-runs only; the owner's word applies a write
     if os.environ.get("ELA_NO_APPLY") and getattr(a, "apply", False):
         print("refused: --apply inside an unattended session (ELA_NO_APPLY)", file=sys.stderr); sys.exit(2)
-    {"catalogue": cmd_catalogue, "map": cmd_map, "roster": cmd_roster, "doc": cmd_doc, "pins": cmd_pins, "all": cmd_all, "list": cmd_list, "sync": cmd_sync, "lanes": cmd_lanes, "check": cmd_check, "release": cmd_release}[a.cmd](a)
+    {"catalogue": cmd_catalogue, "map": cmd_map, "roster": cmd_roster, "doc": cmd_doc, "pins": cmd_pins, "all": cmd_all,
+     "list": cmd_list, "sync": cmd_sync, "lanes": cmd_lanes, "check": cmd_check, "release": cmd_release,
+     "mirror": cmd_mirror}[a.cmd](a)
 
 
 if __name__ == "__main__":

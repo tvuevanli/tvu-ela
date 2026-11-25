@@ -2,6 +2,7 @@
 # ela verification: every script compiles, every capability answers --help, the guard's cases pass.
 set -u
 export ELA_TEST=1   # a live verb refuses unless the tool it would reach is a stub under the temp directory
+export ELA_PUBLISH_MIRROR=""   # no test refreshes the owner's read-only mirror; the mirror test names its own tmp target
 export ELA_FACTS_CALLS=0   # a test's stubbed call is not a live call: the day's calls log stays the machine's
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"; cd "$ROOT"; fail=0
 # Tripwire: nothing a test starts reaches a live system. The tools that would leave the machine or start a session
@@ -30,6 +31,7 @@ tests/test_content_guard.sh || fail=1
 python3 tests/test_manual_coverage.py || fail=1
 python3 tests/test_publish_stale.py || fail=1
 python3 tests/test_publish_redact.py || fail=1
+python3 tests/test_publish_mirror_offline.py >/dev/null 2>&1 || { echo "publish mirror offline failed"; fail=1; }
 python3 tests/test_configserver_redact_offline.py || fail=1
 python3 tests/test_apifox_public_offline.py >/dev/null 2>&1 || { echo "apifox public offline failed"; fail=1; }
 python3 tests/test_redact_push_offline.py || fail=1
