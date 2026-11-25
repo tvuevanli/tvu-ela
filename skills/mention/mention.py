@@ -397,6 +397,8 @@ def process(recs, reports, channel, thread, names, day, now, since=None, top=Non
                 replied(recs, reports, cur, ts, text, "message", now); touched.append(cur)
             cur = None
             continue
+        if cur and not tag.search(text):
+            answered_by(recs[cur], thread, m, names)
         if not tag.search(text):
             continue
         if ts in known:
@@ -439,6 +441,21 @@ def process(recs, reports, channel, thread, names, day, now, since=None, top=Non
             if m.get("user") == me and float(ts) > float(recs[cur]["ts"]) and asker and f"<@{asker}" in (m.get("text") or ""):
                 replied(recs, reports, cur, ts, m.get("text") or "", "channel", now); touched.append(cur); break
     return list(dict.fromkeys(touched))
+
+
+def answered_by(r, thread, m, names):
+    """Another person the ask also tagged answered it in the thread: kept on the record ({by, name, at, ts, first}),
+    the mention left open. The ask on today.md then says who answered and recommends `nothing needed`, since a
+    question put to several people is usually settled by one of them; his own reply still closes it."""
+    who = m.get("user")
+    if r.get("answered_by") or r["triage"] != "ask" or not who or who == r.get("by") or names.bot(who) \
+            or float(m["ts"]) <= float(r["ts"]):
+        return
+    ask = next((x.get("text") or "" for x in thread if x["ts"] == r["ts"]), "")
+    if not re.search(r"<@" + re.escape(who) + r"(?:\|[^>]*)?>", ask):
+        return
+    r["answered_by"] = {"by": who, "name": names.name(who), "at": iso(at_of(m["ts"])), "ts": m["ts"],
+                        "first": first_line(names.render(m.get("text") or ""))}
 
 
 def replied(recs, reports, rid, ts, text, how, now):
@@ -876,13 +893,16 @@ def asks(reports, now=None):
         if r["triage"] != "ask" or r["state"] not in ("waiting", "drafted") or not r.get("hold") or r.get("replied_at") or r.get("answer") or r.get("dm_at"):
             continue
         aid = f"mention:{r['id']}"
-        opts = ([{"letter": "A", "text": A_TEXT[offer], "does": f"ela mention answer {r['id']} A{shown}", "recommended": True}] if r.get("draft") else []) + [
+        other = r.get("answered_by")                       # a co-addressee answered: his reply is optional
+        opts = ([{"letter": "A", "text": A_TEXT[offer], "does": f"ela mention answer {r['id']} A{shown}", "recommended": not other}] if r.get("draft") else []) + [
             {"letter": "B", "text": "I will write it", "does": f"ela mention answer {r['id']} B", "recommended": False},
-            {"letter": "C", "text": "nothing needed", "does": f"ela mention answer {r['id']} C", "recommended": False}]
+            {"letter": "C", "text": "nothing needed", "does": f"ela mention answer {r['id']} C", "recommended": bool(other)}]
         where = f"[#{r['channel_name']}]({r['permalink']})" if r.get("permalink") else f"#{r['channel_name']}"   # one click to the thread
+        said = (f" {other['name']} answered at {other['at'][5:16].replace('T', ' ')}: “{md_links(other['first'])}”" if other else "")
         out.append({"id": aid, "question": f"{r['by_name']} asked you in {where} on {r['at'][5:16].replace('T', ' ')}, no reply yet: "
-                                           f"{r.get('ask') or r['first']}", "link": note_rel(r["id"]), "options": opts,
-                    "sig": f"{r['id']}:{'drafted' if r.get('draft') else 'bare'}" + (f":{shown.split()[-1]}" if shown else "")})
+                                           f"{r.get('ask') or r['first']}{said}", "link": note_rel(r["id"]), "options": opts,
+                    "sig": f"{r['id']}:{'drafted' if r.get('draft') else 'bare'}" + (f":{shown.split()[-1]}" if shown else "")
+                           + (f":answered-{other['ts']}" if other else "")})
     return out
 
 

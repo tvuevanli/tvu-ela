@@ -288,6 +288,22 @@ with tempfile.TemporaryDirectory() as tmp:
     check("an applied action, another thread's and a Jira action are left alone", not any("superseded" in acts[n] for n in (3, 4, 5)))
     check("on request it finds nothing more to mark", M.supersede(R, recs[a11], "again", at(10, 50, 16)) == [])
 
+    # an ask put to him and a peer, answered by the peer: still open, the answer shown, nothing needed recommended
+    OTHER = "U0OTHER"
+    t12 = [msg(ts(22, 0), ASKER, f"<@{PEER}> <@{ME}> how do we stop the copier hanging?"),
+           msg(ts(22, 5), OTHER, "same here"), msg(ts(22, 6), ASKER, "any idea?"), msg(ts(22, 7), BOT, "done in 23 s")]
+    walk(CH, t12, at(22, 8))
+    a12 = f"{CH}-{ts(22, 0)}"
+    check("an untagged person, the asker again or a bot is no answer", "answered_by" not in recs[a12])
+    t12.append(msg(ts(22, 10), PEER, "I created <https://jira.example/browse/MH-4103|MH-4103> for this"))
+    walk(CH, t12, at(22, 11))
+    M.save(R, recs)
+    x12 = [x for x in M.asks(R) if x["id"] == f"mention:{a12}"][0]
+    check("a tagged peer's answer: kept, the mention still open, the ask says who answered and recommends C",
+          recs[a12]["answered_by"]["name"] == "Peer" and not recs[a12].get("replied_at")
+          and "Peer answered at 11-12 22:10: “I created [MH-4103](https://jira.example/browse/MH-4103) for this”" in x12["question"]
+          and [o["letter"] for o in x12["options"] if o["recommended"]] == ["C"] and x12["sig"].endswith(f":answered-{ts(22, 10)}"))
+
     # the commitments reader
     C = lambda s: [c["class"] for c in M.commitments(s)[0]]
     check("Chinese vocabulary maps to the same classes", C("我来关联到 MH-1。") == ["link-named"] and C("更新一下父票的状态") == ["parent-status"]
