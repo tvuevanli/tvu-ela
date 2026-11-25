@@ -132,6 +132,7 @@ python3 tests/test_siteguard_offline.py || fail=1
 python3 tests/test_env_fallback_offline.py || fail=1
 python3 tests/test_lang_tag_offline.py || fail=1
 python3 tests/test_vault_name_offline.py || fail=1
+python3 tests/test_session_start_offline.py || fail=1
 if [ -s "$ELA_TRIPWIRE/hits" ]; then
   echo "tripwire: a test reached for a live system:"; sort -u "$ELA_TRIPWIRE/hits" | sed 's/^/  /'; fail=1
 fi

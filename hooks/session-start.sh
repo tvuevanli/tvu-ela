@@ -1,11 +1,92 @@
 #!/usr/bin/env bash
-# ela SessionStart hook. Prints context for the session: context/evan.md · the working preferences · the knowledge root ·
-# which mapped repo/area the cwd is in. Its one write is a start line in the session registry
-# (<runtime>/sessions.jsonl, sessions.py hook-start); no repo, no live system, never a commit.
+# ela SessionStart hook, run as several commands (hooks.json), each printing one part of the session's context:
+#   session-start.sh            context/evan.md · pointers to the rest of the site file · the knowledge root · which
+#                               mapped repo/area the cwd is in · the desk's pending line
+#   session-start.sh prefs I/K  part I of K of the working preferences, the first section of
+#                               ~/.claude/ela/working-with-evan.md, split at top-level bullets; K parts together are
+#                               the section whole
+# Claude Code injects a hook command's output only up to CAP characters (measured on 2.1.332, 2026-11-25: 10,000
+# injected, 10,001 saved to a file with a 2KB preview; characters, not bytes; each command has its own cap). Past it
+# the session sees the first 2KB, which is how the preferences stopped reaching every session once the single output
+# grew to ~20,700 characters. Hence one command per part, and each output measures itself: from WARN up a warning
+# goes on its first line, inside the preview, naming the overrun.
+# The one write is a start line in the session registry (<runtime>/sessions.jsonl, sessions.py hook-start), made by the
+# default part only; no repo, no live system, never a commit.
 set -u
 ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 SITE="$HOME/.claude/ela/site.json"
+PREFS="$HOME/.claude/ela/working-with-evan.md"
 CWD="${CLAUDE_PROJECT_DIR:-$PWD}"
+CAP=10000
+WARN=9000
+MODE="${1:-context}"
+
+# Print stdin; from WARN characters on, a warning comes first so it survives a persisted output's 2KB preview.
+emit() {
+  python3 -c '
+import sys
+cap, warn, what = int(sys.argv[1]), int(sys.argv[2]), sys.argv[3]
+t = sys.stdin.read().rstrip()
+if not t:
+    sys.exit(0)
+n = len(t)
+if n >= warn:
+    state = "OVER the cap: Claude Code shows this session only its first 2KB" if n > cap else "near the cap"
+    head = (f"ela: WARNING this SessionStart output ({what}) is {n:,} characters, {state} of {cap:,} per hook command; "
+            f"shorten its source or split it into another part in hooks/hooks.json. Until then Read the source in full.")
+    t = head + "\n\n" + t
+sys.stdout.write(t + "\n")
+' "$CAP" "$WARN" "$1"
+}
+
+if [ "$MODE" = "prefs" ]; then
+  [ "${ELA_GUEST:-}" = "1" ] && exit 0          # the owner's preferences are his, not a guest's
+  [ -f "$PREFS" ] || exit 0
+  python3 - "$PREFS" "${2:-1/1}" "$((WARN - 500))" <<'PY' | emit "working preferences part ${2:-1/1}"
+import re, sys
+path, part, budget = sys.argv[1], sys.argv[2], int(sys.argv[3])
+i, k = (int(x) for x in part.split("/"))
+lines = open(path, encoding="utf-8").read().splitlines(keepends=True)
+# The first `## ` section is the preferences; later sections are pointed at by the default part, not injected.
+ends = [n for n, l in enumerate(lines) if l.startswith("## ")]
+stop = ends[1] if len(ends) > 1 else len(lines)
+section = lines[:stop]
+# Blocks: a top-level bullet with its continuation lines; a block over the budget is split line by line.
+blocks, cur = [], []
+for n, l in enumerate(section):
+    if cur and (l.startswith("- ") or l.startswith("#")):
+        blocks.append(cur); cur = []
+    cur.append((n + 1, l))
+if cur:
+    blocks.append(cur)
+units = []
+for b in blocks:
+    if sum(len(l) for _, l in b) <= budget:
+        units.append(b)
+    else:
+        units.extend([x] for x in b)
+parts, cur, size = [], [], 0
+for u in units:
+    s = sum(len(l) for _, l in u)
+    if cur and size + s > budget:
+        parts.append(cur); cur, size = [], 0
+    cur.extend(u); size += s
+if cur:
+    parts.append(cur)
+home = "~/.claude/ela/working-with-evan.md"
+if len(parts) > k and i == k:
+    total = sum(len(l) for l in section)
+    print(f"ela: WARNING the working preferences ({total:,} characters) need {len(parts)} parts and hooks/hooks.json "
+          f"injects {k}; lines {parts[k][0][0]}-{parts[-1][-1][0]} of {home} did not reach this session. "
+          f"Read them now, before replying; then add a `prefs` part to hooks.json.\n")
+if i > len(parts):
+    sys.exit(0)
+p = parts[i - 1]
+print(f"(ela: {home}, working preferences part {i} of {min(k, len(parts))}, lines {p[0][0]}-{p[-1][0]})")
+sys.stdout.write("".join(l for _, l in p))
+PY
+  exit 0
+fi
 
 [ -t 0 ] || printf '%s' "$(cat)" | python3 "$ROOT/skills/sessions/sessions.py" hook-start >/dev/null 2>&1 || true
 
@@ -16,10 +97,19 @@ if [ "${ELA_GUEST:-}" = "1" ]; then
   exit 0
 fi
 
+{
 cat "$ROOT/context/evan.md" 2>/dev/null
-# working preferences live in the site dir (never committed), beside site.json and .env
-cat "$HOME/.claude/ela/working-with-evan.md" 2>/dev/null
 
+# The site file's later sections (his day, …) are pointed at, not injected: a session reads them when they matter.
+[ -f "$PREFS" ] && python3 - "$PREFS" <<'PY' 2>/dev/null
+import sys
+lines = open(sys.argv[1], encoding="utf-8").read().splitlines()
+heads = [(n + 1, l[3:].strip()) for n, l in enumerate(lines) if l.startswith("## ")]
+if heads[1:]:
+    print("\n## Read when it matters (not injected)")
+for n, title in heads[1:]:
+    print(f"- \"{title}\": `~/.claude/ela/working-with-evan.md` from line {n}.")
+PY
 
 [ -f "$SITE" ] || { echo; echo "ela: site file missing — run /ela:setup"; exit 0; }
 
@@ -77,4 +167,5 @@ if [ -z "${ELA_RUNNER_JOB:-}" ]; then
     [ -n "$LINE" ] && { echo; echo "$LINE"; }
   fi
 fi
+} | emit "session context"
 exit 0

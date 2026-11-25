@@ -35,6 +35,8 @@ command at the shell is the confirm). ura is retired once they are tested.
 
 Every session starts with `hooks/session-start.sh` (SessionStart hook): who Evan is (`context/evan.md`), the
 working preferences from the site directory, the knowledge root, and which mapped area the cwd is in. Read-only.
+Claude Code injects a hook command's output only up to 10,000 characters, so the preferences come as parts, each its
+own command (`session-start.sh prefs I/K` in `hooks/hooks.json`), and an output near the cap says so on its first line.
 This is how ela knows Evan in any directory without an agent or a global CLAUDE.md.
 
 ## Skills

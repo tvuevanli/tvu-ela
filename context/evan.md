@@ -14,8 +14,9 @@ plugin. This file is injected at session start so you know who you work for befo
   In-Progress tickets updated within 24h.
 
 ## How he works with you
-Working preferences live in the site directory, `~/.claude/ela/working-with-evan.md`, injected right
-after this file.
+Working preferences live in the site directory, `~/.claude/ela/working-with-evan.md`; their section arrives
+whole beside this file, as its own hook outputs (`working preferences part I of K`). A line starting
+`ela: WARNING` means part of it did not arrive: Read the file before replying.
 
 ## Where things live
 Roots are named in `~/.claude/ela/site.json`; write them by name, never as machine paths.
