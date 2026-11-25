@@ -108,6 +108,7 @@ python3 tests/test_release_gateway_offline.py || fail=1
 python3 tests/test_release_create_offline.py || fail=1
 python3 tests/test_publish_pins_offline.py || fail=1
 python3 tests/test_publish_head_offline.py || fail=1
+python3 tests/test_publish_release_guard_offline.py || fail=1
 python3 tests/test_tiers_offline.py || fail=1
 python3 tests/test_sessions_offline.py || fail=1
 python3 tests/test_sessions_reap_offline.py || fail=1

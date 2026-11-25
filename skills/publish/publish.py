@@ -14,6 +14,12 @@
                             --sync then carries lanes/ alone to `published_remote` (typing it is the confirm); a sync
                             that fails is a line, never a failed publication
   list                      every manifest row and whether its source changed since (exit 1 when a republish is due)
+  check [--json]            the release guard over the versioned part (knowledge/platform, knowledge/products, map/):
+                            refuses the owner's word or name as a source, a quotation attributed to a person, and the
+                            content guard's credential and quoted-sentence rules (exit 1, with the lines)
+  release [--apply] [--json]  the team's versioned release (elak decisions/2026-11-25-published-knowledge-is-a-
+                            versioned-release.md): whether one is due, what it would commit, the guard's verdict;
+                            --apply commits it in <published>, recording elak's HEAD; it never pushes
 
 The published directory is a subset of elak's own tree — the same paths, elak's names, no per-reader
 directories. Readers (Helm's context packs, the remote ela) point at these paths.
@@ -190,7 +196,7 @@ def render_catalogue(header, images, today):
         "# MediaHub media docker services — the catalogue",
         "",
         f"What runs as a media docker in MediaHub: {len(images)} docker images carrying {n_services} GM services. For each image: "
-        "who owns it, the GM services it registers (Evan's `mds-` slug, the name GM registers, GM's service id, the J2N "
+        "who owns it, the GM services it registers (the `mds-` slug, the name GM registers, GM's service id, the J2N "
         "process type, the MQTT topic, deployment status) and where its code lives (GitLab group paths). Helm's context "
         "packs read this file; ela's map is its source.",
         "",
@@ -788,12 +794,155 @@ def write_published_manifest(records, published):
     rows = [r for r in rows if len(r.strip().strip("|").split("|")) >= 5]
     today = datetime.date.today().isoformat()
     text = ["# What this directory is", "",
-            "A generated subset of elak, Evan's knowledge base — the same paths and names as elak's own tree, published for machines to read: "
-            "Helm's knowledge root and the remote ela point here. Nothing in it is edited by hand; a change is made in elak and published again "
-            "(`ela publish all`). The remote receives this directory by rsync; the private root never leaves the office machine.", "",
+            "The colleague tier of ela's knowledge: everything a colleague may be shown, generated from ela's private knowledge "
+            "base (elak) with the same paths and names. Helm, ela in Slack and mediahub-bot read it. Nothing in it is edited by "
+            "hand; a change is made in elak and published again (`ela publish all`).", "",
             f"Generated {today}. Rows: source in elak · published path here · published on · source's `verified:` then · reader.", "",
             "| source | published file | generated | source verified at publication | read by |", "|---|---|---|---|---|"] + [r.rstrip("\n") for r in rows]
     open(os.path.join(published, "MANIFEST.md"), "w", encoding="utf-8").write("\n".join(text) + "\n")
+    write_release_files(published)
+
+
+# ── the team's versioned release (elak decisions/2026-11-25-published-knowledge-is-a-versioned-release.md) ──
+
+RELEASE_SCOPE = ("knowledge/platform", "knowledge/products", "map")
+RELEASE_SHA = re.compile(r"^elak: ([0-9a-f]{7,40})$", re.M)
+RELEASE_README = """# MediaHub knowledge — the team's release
+
+Facts about MediaHub and the platform it runs on, as ela reads them first-hand: the code, Jira, the services' own
+records. Each commit here is one release, built from one commit of ela's private knowledge base (`elak:` in the
+commit message) and made on the product owner's signal.
+
+| path | holds |
+|---|---|
+| `knowledge/products/` | MediaHub itself: services, the release map's reading, Jira conventions, architecture |
+| `knowledge/platform/` | what MediaHub runs on: unified resources, media, gateway, observability, LinuxR |
+| `map/` | generated facts: services → owners → repos, release components, API projects, dependencies |
+
+Every document carries `verified:` (when it was last checked against its source) and `source:` (where to check it).
+A document is facts and knowledge only: no one's decisions, plans or opinions, and no one's quoted words; a source
+is a ticket, a thread, a commit or a file. Addresses are replaced by placeholders.
+
+Nothing here is edited by hand. A correction goes to the product owner, or to ela in Slack; it is made at the source
+and arrives in the next release. Paths are stable: Helm and mediahub-bot read them.
+"""
+
+
+def write_release_files(published):
+    """README.md and .gitignore at the root of <published>: the colleague's first page, and the scope git sees. Generated
+    here because nothing under <published> is written by hand (the location guard blocks it)."""
+    ignore = ["# generated by ela publish: only the release scope is versioned; the rest is the colleague tier, rsynced",
+              "/*", "!/README.md", "!/.gitignore", "!/map/", "!/knowledge/", "/knowledge/*"] + \
+             [f"!/{p}/" for p in RELEASE_SCOPE if p.startswith("knowledge/")] + ["*.tmp", ".*.tmp"]
+    for name, body in (("README.md", RELEASE_README), (".gitignore", "\n".join(ignore) + "\n")):
+        tmp = os.path.join(published, name + ".tmp")
+        open(tmp, "w", encoding="utf-8").write(body); os.replace(tmp, os.path.join(published, name))
+
+
+def owner_first_name(records):
+    """The owner's first name, from elak's git identity: read on the machine, never written in a tracked file."""
+    import subprocess
+    r = subprocess.run(["git", "-C", records, "config", "user.name"], capture_output=True, text=True)
+    return (r.stdout.split() or [""])[0]
+
+
+OWNER_SOURCE = re.compile(r"(?i)\b(?:product\s+|mediahub\s+)?owner'{0,2}s\s+(?:own\s+)?(?:word|ruling|reading|instruction|opinion|view|plan)\b")
+ATTRIBUTED_QUOTE = re.compile(r"[\"“][^\"”\n]{12,}[\"”]\s*\((?:[A-Z][a-z]+)[ ,]")
+
+
+def release_flags(text, name, first):
+    """The release guard's lines for one file → [(line, why, text)]: the content guard's rules (`guard_flags`, Jira
+    titles in json passing as facts), plus the owner's word or name cited and a quotation attributed to a person."""
+    out = [f for f in guard_flags(text, name)
+           if not (name.endswith(".yaml") and f[1] == QUOTED)]   # a yaml file's quotes are syntax: a label, a title
+    # a quotation attributed to a person, in prose, is caught by ATTRIBUTED_QUOTE below
+    by_name = re.compile(rf"\b{re.escape(first)}\b") if first else None
+    for n, line in enumerate(text.splitlines(), 1):
+        for rx, why in ((OWNER_SOURCE, "the owner's word as a source"), (by_name, "the owner by name"),
+                        (ATTRIBUTED_QUOTE, "a quotation attributed to a person")):
+            if rx and rx.search(line):
+                out.append((n, why, line.strip()[:100]))
+    return out
+
+
+def release_files(published):
+    """Every file in the release scope, relative to <published>, temporaries left out."""
+    out = []
+    for top in RELEASE_SCOPE:
+        for d, _, files in os.walk(os.path.join(published, top)):
+            out += [os.path.relpath(os.path.join(d, f), published) for f in files if not f.endswith(".tmp")]
+    return sorted(out)
+
+
+def run_check(records, published):
+    first = owner_first_name(records)
+    flags = []
+    for rel in release_files(published):
+        try:
+            text = open(os.path.join(published, rel), encoding="utf-8").read()
+        except (OSError, UnicodeDecodeError):
+            continue
+        flags += [(rel, n, why, line) for n, why, line in release_flags(text, rel, first)]
+    return flags
+
+
+def cmd_check(a):
+    records, published = roots()
+    flags = run_check(records, published)
+    if a.json:
+        print(json.dumps([{"file": f, "line": n, "why": w, "text": t} for f, n, w, t in flags], ensure_ascii=False))
+    else:
+        for f, n, w, t in flags:
+            print(f"{f}:{n}: {w}: {t}")
+        print(f"{len(flags)} line(s) refused" if flags else f"release guard: clean ({len(release_files(published))} files)")
+    sys.exit(1 if flags else 0)
+
+
+def last_release(published):
+    """The elak commit the last release recorded, or None (no repository, no commit yet)."""
+    import subprocess
+    r = subprocess.run(["git", "-C", published, "log", "-1", "--format=%B"], capture_output=True, text=True)
+    m = RELEASE_SHA.search(r.stdout) if r.returncode == 0 else None
+    return m.group(1) if m else None
+
+
+def cmd_release(a):
+    """Due · what would change · the guard. A release is due when elak changed in a source of the release scope since
+    the recorded commit; files the runner writes are outside the scope and never make one due."""
+    import subprocess
+    records, published = roots()
+    if not os.path.isdir(os.path.join(published, ".git")):
+        print(f"{published} is not a git repository: `git init` there first", file=sys.stderr); sys.exit(EX_USAGE)
+    write_release_files(published)
+    head = git(records, "rev-parse", "HEAD").decode().strip()
+    last = last_release(published)
+    if last:
+        changed = git(records, "diff", "--name-only", last, "HEAD", "--", *RELEASE_SCOPE).decode().split()
+    else:
+        changed = None
+    st = subprocess.run(["git", "-C", published, "status", "--porcelain", "--untracked-files=all"], capture_output=True, text=True).stdout.splitlines()
+    flags = run_check(records, published)
+    due = last is None or bool(changed)
+    report = {"elak_head": head[:12], "last_release": last, "due": due, "elak_changed": changed,
+              "would_commit": len(st), "refused": len(flags)}
+    if a.json and not a.apply:
+        print(json.dumps(report)); return
+    print(f"elak HEAD {head[:12]} · last release {last[:12] if last else 'none'} · "
+          + ("due" if due else "not due") + (f" ({len(changed)} source file(s) changed)" if changed else ""))
+    print(f"  {len(st)} path(s) would be committed in <published>; release guard: "
+          + (f"{len(flags)} line(s) refused — `ela publish check`" if flags else "clean"))
+    if not a.apply:
+        print("dry run — `ela publish release --apply` commits, on the owner's signal; nothing is pushed"); return
+    if flags:
+        print("refused: the release guard flags lines; fix them in elak and publish again", file=sys.stderr); sys.exit(1)
+    if not st:
+        print("nothing to commit"); return
+    subprocess.run(["git", "-C", published, "add", "-A"], check=True)
+    msg = f"release: knowledge and map from elak {head[:12]}\n\nelak: {head}\n"
+    r = subprocess.run(["git", "-C", published, "commit", "-q", "-m", msg], capture_output=True, text=True)
+    if r.returncode != 0:
+        print(f"commit failed: {(r.stderr or r.stdout).strip()[-300:]}", file=sys.stderr); sys.exit(EX_WRITE)
+    print(f"committed the release in <published> (elak {head[:12]}); not pushed")
 
 
 def cmd_all(a):
@@ -901,6 +1050,10 @@ def main():
     p = sub.add_parser("lanes", help="the lanes page and the test and dev lists → <published>/lanes/, for Helm")
     p.add_argument("--sync", action="store_true", help="then carry lanes/ alone to published_remote")
     p.add_argument("--json", action="store_true")
+    p = sub.add_parser("check", help="the release guard over the versioned part of <published> (exit 1 when it refuses a line)")
+    p.add_argument("--json", action="store_true")
+    p = sub.add_parser("release", help="the team's versioned release: due, what it commits, the guard — dry run unless --apply")
+    p.add_argument("--apply", action="store_true"); p.add_argument("--json", action="store_true")
     p = sub.add_parser("sync", help="rsync <published> to site.json `published_remote` — dry run unless --apply")
     p.add_argument("--apply", action="store_true")
     for name, sp in sub.choices.items():
@@ -911,7 +1064,7 @@ def main():
     # an unattended session (ELA_NO_APPLY=1) reads and dry-runs only; the owner's word applies a write
     if os.environ.get("ELA_NO_APPLY") and getattr(a, "apply", False):
         print("refused: --apply inside an unattended session (ELA_NO_APPLY)", file=sys.stderr); sys.exit(2)
-    {"catalogue": cmd_catalogue, "map": cmd_map, "roster": cmd_roster, "doc": cmd_doc, "pins": cmd_pins, "all": cmd_all, "list": cmd_list, "sync": cmd_sync, "lanes": cmd_lanes}[a.cmd](a)
+    {"catalogue": cmd_catalogue, "map": cmd_map, "roster": cmd_roster, "doc": cmd_doc, "pins": cmd_pins, "all": cmd_all, "list": cmd_list, "sync": cmd_sync, "lanes": cmd_lanes, "check": cmd_check, "release": cmd_release}[a.cmd](a)
 
 
 if __name__ == "__main__":

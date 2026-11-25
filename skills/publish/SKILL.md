@@ -7,7 +7,8 @@ user-invocable: true
 # /ela:publish — from elak to the directory machines read
 
 Self-contained. `publish.py` is the capability; `ela publish …` at the shell is the same thing. Roots
-from `site.json`: `elak` and `published` (`<projects>/elak-published`, not a repository).
+from `site.json`: `elak` and `published` (`<projects>/elak-published`, a local git repository whose
+`.gitignore` versions only the release scope; every rsync excludes `.git`).
 **The published directory is a subset of elak's own tree** — same paths, elak's names, no per-reader
 directories; readers (Helm's context packs, the remote ela) point at these paths.
 
@@ -19,9 +20,18 @@ $P roster         # knowledge/people/{people,responsibilities}.yaml → <publish
 $P map            # map/*.yaml + README.md → <published>/map/ (machine-readable; the remote ela's records/map roots)
 $P doc products/mediahub/team/layer-classification.md   # knowledge/<rel> → <published>/knowledge/<rel>, the elak document verbatim (front matter included) through redact; --reader "…" records who reads it
 $P list           # what the manifest says is published, and whether the source's verified: moved since (drift)
+$P check          # the release guard over knowledge/platform, knowledge/products, map/ (exit 1 with the lines)
+$P release        # due? · what it would commit · the guard — dry run; --apply commits on the owner's signal, never pushes
 ```
 
 ## Invariants
+- **The team's release is facts only** (elak `decisions/2026-11-25-published-knowledge-is-a-versioned-release.md`).
+  `check` refuses the owner's word, ruling or reading cited as a source, the owner's first name (read from elak's git
+  identity, never written in code), a quotation attributed to a person, a credential, and a quoted CJK sentence outside
+  a json or yaml value. A refusal is fixed in elak and published again, never in `<published>`. `release --apply` is
+  refused while `check` refuses a line; it records elak's `HEAD` as `elak: <sha>` in the commit, and a release is due
+  when elak changed under the scope since that commit. The push to GitLab is the owner's own signal, not a verb.
+  `people/`, `lanes/`, `releases/`, `reports/` and `MANIFEST.md` stay outside git (the generated `.gitignore`).
 - **A publication is written, not exported** (elak `publish/README.md`). The document opens by saying what
   it is, and every limit the source states — "the GM registry has not been read first-hand" — appears where
   the reader sees it. The generator carries `source:` and `note:` from the YAML into the document.
