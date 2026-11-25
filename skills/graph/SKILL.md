@@ -131,7 +131,8 @@ A customer report names a feed, a circuit, a person and a time, and no id. Start
   A moment without a zone is UTC; a report in local time is converted first. The window keeps a graph
   that lived during it, stopped ones included under `--any`.
 - **Nothing to go on** (no email, no id, only a customer or a person's name): say what is needed and
-  where it is copied from (the troubleshooting info button in the source or destination panel).
+  where it is copied from (the troubleshooting info button at the right of the source or destination
+  panel's top bar).
 
 ## 2c — who used a node type, and is it growing
 "用的人多吗", "who uses the YouTube source", "有哪些外部用户在用 Web Emulator": `usage` answers from J2N v2's
