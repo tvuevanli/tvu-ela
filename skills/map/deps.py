@@ -50,6 +50,8 @@ HEADER = """\
 # THREE BLIND SPOTS, ALL REAL
 #   1. `${key:default}` defaults are NOT what runs. Real addresses come from Spring Cloud Config per
 #      profile. This file says which service is called, never which host an environment reaches.
+#      Addresses in a default are placeholders: `<ip>` a numeric address, `<host>` a company host name;
+#      the key and the path beside one say what it serves.
 #   2. Event edges are invisible to a @FeignClient scan. `event_subscriptions.declared` parses the
 #      RabbitMQ groups in application.yml; Java-side bindings are only pointed at
 #      (`listener_files_to_read`) because there is one in the whole app layer and a regex fitted to a
@@ -343,7 +345,7 @@ def cmd_check(a):
     return 1 if stale else 0
 
 def _placeholders(text):
-    return text.count("<ip>") + text.count("<tailnet>")
+    return text.count("<ip>") + text.count("<tailnet>") + text.count("<host>")
 
 def cmd_redact(a):
     """Redact an artefact already on disk without rescanning: the same rule the write path applies."""
