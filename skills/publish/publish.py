@@ -773,7 +773,7 @@ def sync_dir(src, rel, target=None):
     target = target or site().get("published_remote")
     if not target:
         return "not synced: site.json has no published_remote"
-    argv = ["rsync", "-az", "--delete", src.rstrip("/") + "/", target.rstrip("/") + f"/{rel}/"]
+    argv = ["rsync", "-az", "--delete", "--exclude", ".git", src.rstrip("/") + "/", target.rstrip("/") + f"/{rel}/"]
     try:
         r = subprocess.run(argv, capture_output=True, text=True, timeout=300)
     except (OSError, subprocess.TimeoutExpired) as e:
