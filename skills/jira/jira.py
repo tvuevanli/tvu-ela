@@ -15,7 +15,7 @@ Usage:
     jira.py comment MH-1 [MH-2 …] --text '…' | --from-file f   [--apply]   # identical text is never re-posted
     jira.py transition MH-1 [MH-2 …] --to Review  [--terminal] [--apply]   # looked up by target status; a terminal one needs --terminal
     jira.py label MH-1 [MH-2 …] --add a,b --remove c           [--apply]   # only the delta is written
-    jira.py link MH-1 MH-2 --type Blocks|"is blocked by"|Relates [--apply]  # existing link of that type is a no-op
+    jira.py link MH-1 MH-2 [MH-3 …] --type Blocks|"is blocked by"|Relates [--apply]  # existing link of that type is a no-op
     jira.py unlink MH-1 --id <link id> [--apply]               # the reverse atoms: each applied write records its
     jira.py comment-delete MH-1 --id <comment id> [--apply]    # before-state and its undo in <reports>/ela/acts.jsonl;
     jira.py assign MH-1 --assignee <prior>|none [--apply]      # Fixed In and labels reverse through --remove
@@ -2178,37 +2178,53 @@ def link_exists(links, t, direction, other):
 
 
 def cmd_link(creds, args):
-    """Link <key> to <other>: '<key> <phrase> <other>'. Idempotent per (type, pair, direction)."""
-    key, other = extract_key(args.target), extract_key(args.other)
+    """Link <key> to each <other>: '<key> <phrase> <other>'. Idempotent per (type, pair, direction). Several others are
+    one write with one comment: the note announcing them is posted once on <key>, after every link landed (a set of
+    links a pass makes is one comment, not one each — MH-3998, 2026-11-25)."""
+    key = extract_key(args.target)
+    others = []
+    for o in [args.other] if isinstance(args.other, str) else args.other:
+        k = extract_key(o)
+        if k != key and k not in others:
+            others.append(k)
     types = _link_types(creds)
     t, direction = resolve_link(types, args.type)
     if not t:
         names = ", ".join(f"{x['name']} ({x['outward']} / {x['inward']})" for x in types
                           if "WBSGantt" not in x["name"] or x["outward"] == "contains")
         sys.exit(f"link: unknown type or phrase {args.type!r}; use one of: {names}")
-    f = _issue(creds, key, "summary,issuelinks")
-    exists = link_exists(f.get("issuelinks"), t, direction, other)
-    plan = link_plan(t, direction, key, other)
-    r = {"key": key, "other": other, "type": t["name"], "reads": plan["reads"], "target_reads": plan["target_reads"],
-         "dry_run": not args.apply, "created": False, "existing_link_id": (exists or {}).get("id")}
-    if exists:
-        _emit(args, r, [f"{plan['reads']}: link already exists"]); return
-    if not args.apply:
-        touched(args, key)
-        _emit(args, r, [f"DRY RUN — {plan['reads']}  ({t['name']})",
-                        f"  on {other} Jira will show: {plan['target_reads']}", "pass --apply to link"]); return
-    api_post(creds, "/rest/api/3/issueLink", plan["payload"])
-    after = link_exists(_issue(creds, key, "issuelinks").get("issuelinks"), t, direction, other)
-    r["created"] = True
-    touched(args, key)                                  # a link Jira made, even read back wrong, is announced
-    if not after:                                       # read back: a reversed link is named, never reported as done
-        r["created"] = False; r["error"] = "the link Jira holds does not read as asked; check both issues"
-        _emit(args, r, [f"WRONG — Jira does not show {plan['reads']}; check {key} and {other}"]); sys.exit(1)
-    r["link_id"] = after.get("id")
-    if r["link_id"]:
-        r["undo"] = undo_argv("unlink", key, "--id", r["link_id"])
-        record_act(key, "link", {"link": None, "reads": plan["reads"]}, r["undo"], {"link": str(r["link_id"])})
-    _emit(args, r, [f"linked: {plan['reads']} (on {other}: {plan['target_reads']})"])
+    links = _issue(creds, key, "summary,issuelinks").get("issuelinks")
+    rows, lines, wrong = [], [], []
+    for other in others:
+        exists = link_exists(links, t, direction, other)
+        plan = link_plan(t, direction, key, other)
+        r = {"key": key, "other": other, "type": t["name"], "reads": plan["reads"], "target_reads": plan["target_reads"],
+             "dry_run": not args.apply, "created": False, "existing_link_id": (exists or {}).get("id")}
+        rows.append(r)
+        if exists:
+            lines.append(f"{plan['reads']}: link already exists"); continue
+        if not args.apply:
+            touched(args, key)
+            lines += [f"DRY RUN — {plan['reads']}  ({t['name']})", f"  on {other} Jira will show: {plan['target_reads']}"]
+            continue
+        api_post(creds, "/rest/api/3/issueLink", plan["payload"])
+        after = link_exists(_issue(creds, key, "issuelinks").get("issuelinks"), t, direction, other)
+        r["created"] = True
+        touched(args, key)                              # a link Jira made, even read back wrong, is announced
+        if not after:                                   # read back: a reversed link is named, never reported as done
+            r["created"] = False; r["error"] = "the link Jira holds does not read as asked; check both issues"
+            lines.append(f"WRONG — Jira does not show {plan['reads']}; check {key} and {other}")
+            wrong.append(other); break
+        r["link_id"] = after.get("id")
+        if r["link_id"]:
+            r["undo"] = undo_argv("unlink", key, "--id", r["link_id"])
+            record_act(key, "link", {"link": None, "reads": plan["reads"]}, r["undo"], {"link": str(r["link_id"])})
+        lines.append(f"linked: {plan['reads']} (on {other}: {plan['target_reads']})")
+    if not args.apply and any(not r["existing_link_id"] for r in rows):
+        lines.append("pass --apply to link")
+    _emit(args, rows[0] if len(rows) == 1 else {"key": key, "links": rows}, lines)
+    if wrong:
+        sys.exit(1)
 
 
 # ── the reverse atoms: what undoes an act, each a dry run until --apply ───────────────────────
@@ -2706,8 +2722,9 @@ def main():
     p.add_argument("--apply", action="store_true"); p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_version)
 
-    p = sub.add_parser("link", help="link two issues — dry-run unless --apply; an existing link of that type is a no-op")
-    p.add_argument("target"); p.add_argument("other")
+    p = sub.add_parser("link", help="link an issue to one or more others — dry-run unless --apply; an existing link of "
+                       "that type is a no-op; several others are one write and one comment")
+    p.add_argument("target"); p.add_argument("other", nargs="+")
     p.add_argument("--type", required=True, help='link type or phrase: Relates · Blocks · "is blocked by" · Duplicate · Cloners · "contains" · "is contained in" · "implements"')
     p.add_argument("--apply", action="store_true"); p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_link)

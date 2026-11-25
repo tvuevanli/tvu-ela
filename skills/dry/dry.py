@@ -73,10 +73,17 @@ def strip_urls(text):
     return URL_RX.sub(keep, text or "")
 
 
+# A design file named in prose is not a ticket either: the design team names Figma files by the ticket they began for
+# ("design in Figma MH-2026 node 4119-5823" in MH-3998 named a file, and ela linked an unrelated Done ticket,
+# 2026-11-25). A key right after "Figma" (and an optional file/design/board word) or right before "node" is a file.
+DESIGN_RX = re.compile(r"\bfigma(?:\s+(?:file|design|board|frame|page|doc))?\s*[:#]?\s*" + KEY + r"\b"
+                       r"|\b" + KEY + r"\s+node\b", re.I)
+
+
 def ticket_keys(text):
-    """The ticket keys a text names: KEY_RX's matches outside URLs (a plain Jira browse link kept), less a standard's
-    name."""
-    return [k for k in KEY_RX.findall(strip_urls(text)) if k.split("-")[0] not in STANDARDS]
+    """The ticket keys a text names: KEY_RX's matches outside URLs (a plain Jira browse link kept) and outside a design
+    file's name (DESIGN_RX), less a standard's name."""
+    return [k for k in KEY_RX.findall(DESIGN_RX.sub(" ", strip_urls(text))) if k.split("-")[0] not in STANDARDS]
 EX_USAGE, EX_NOTFOUND, EX_REMOTE = 2, 3, 5
 MATURE_RUNS, MATURE_DAYS = 10, 3              # ten clean runs over at least three days (the brief of 2026-11-12)
 ASK_AGAIN_AFTER = 10                          # an unanswered or declined grant ask returns after ten more clean runs
@@ -92,7 +99,7 @@ CLASSES = {
         "atom": ("jira", "link"), "noun": ("link", "links"), "ladder": (3, 1), "base": 1,
         "rule": "a ticket named in the parent's description or comments, not linked to it yet, and not a subtask of a "
                 "ticket linked or proposed; `contains`, or `relates to` when the naming line says related",
-        "command": r"^ela jira link " + KEY + r" " + KEY + r" --type (?:contains|\"?relates to\"?)(?: --note-file \S+)?\s*$",
+        "command": r"^ela jira link " + KEY + r"(?: " + KEY + r")+ --type (?:contains|\"?relates to\"?)(?: --note-file \S+)?\s*$",
         "case": "MH-3735, 2026-11-12: links approved as a kind in one sentence; tier 1 by the decision of 2026-11-24 "
                 "(ela watches the MH board and acts on Jira, signing each write), each link announced by a signed note",
         "reverse": (("unlink", "--id"),),
@@ -607,6 +614,22 @@ def is_done(issue):
     return ((st.get("statusCategory") or {}).get("key") == "done") or (st.get("name") or "").lower() in DONE
 
 
+def older(child, parent):
+    """Whether `child` existed before `parent`: a ticket named that is older than the parent is a precedent or a
+    reference, never a child broken out of it (MH-3998 named MH-3800 as the path to follow, and ela linked it as
+    contained, 2026-11-25). By the created times, else by the key's number within one project; unknown → False."""
+    a, b = ((child.get("fields") or {}).get("created"), (parent.get("fields") or {}).get("created"))
+    if a and b:
+        try:
+            return parse_ts(a) < parse_ts(b)
+        except (TypeError, ValueError):
+            pass
+    ck, pk = child.get("key") or "", parent.get("key") or ""
+    if ck.split("-")[0] == pk.split("-")[0] and ck[len(ck.split("-")[0]) + 1:].isdigit() and pk[len(pk.split("-")[0]) + 1:].isdigit():
+        return int(ck.split("-")[1]) < int(pk.split("-")[1])
+    return False
+
+
 def select_link_named(parent, children, before=None):
     """The links a parent's own text names but Jira lacks: [(write)], [left out with why]. `children` {key: issue} for
     the named tickets (a key that could not be read is left out, named). `before` an ISO time: comments after it are not
@@ -654,7 +677,7 @@ def select_link_named(parent, children, before=None):
     writes = []
     for i, k in enumerate(proposed, 1):
         ch = children[k].get("fields") or {}
-        t = "relates to" if named[k]["relates"] else "contains"
+        t = "relates to" if named[k]["relates"] or older(children[k], parent) else "contains"
         cmd = f"ela jira link {pk} {k} --type " + ("\"relates to\"" if t == "relates to" else "contains")
         writes.append({"n": i, "target": k, "command": cmd,
                        "why": f"{(ch.get('summary') or '')[:60]} ({(ch.get('status') or {}).get('name') or '?'}) · named by "
@@ -790,11 +813,40 @@ def act(reports, cls, scope, writes, today, apply=False, runner=None, now=None):
 
 
 def link_note(scope, w):
-    """The signed note a link ela makes on its own carries (jira.py signs it): what was linked and why, in English."""
+    """The signed note a link set ela makes on its own carries (jira.py signs it): what was linked and why, in English.
+    `w` is one write; a merged write (merge_links) carries its parts, one line each, so one comment names them all."""
     m = re.search(r"--type (\"[^\"]+\"|\S+)", w["command"])
     t = (m.group(1) if m else "contains").strip('"')
-    return (f"Linked {w['target']} to {scope} ({scope} {t} {w['target']}): this ticket names it — {w['why']}. "
-            f"If the link is wrong, remove it or reply here, and ela stops linking on its own.")
+    parts = w.get("parts") or [w]
+    if len(parts) == 1:
+        return (f"Linked {w['target']} to {scope} ({scope} {t} {w['target']}): this ticket names it — {w['why']}. "
+                f"If the link is wrong, remove it or reply here, and ela stops linking on its own.")
+    return "\n".join([f"Linked {len(parts)} tickets to {scope} ({scope} {t} each): this ticket names them."]
+                     + [f"- {p['target']} — {p['why']}" for p in parts]
+                     + ["If a link is wrong, remove it or reply here, and ela stops linking on its own."])
+
+
+def merge_links(writes):
+    """A pass's link writes on one scope as one write per link type: one `ela jira link SCOPE A B … --type T`, so the
+    set is announced by one comment, not one per link (MH-3998, 2026-11-25). Each merged write keeps its parts."""
+    groups, order = {}, []
+    for w in writes:
+        m = re.match(r"^ela jira link (\S+) (\S+) (--type .+)$", " ".join(w["command"].split()))
+        if not m:
+            return writes
+        g = (m.group(1), m.group(3))
+        if g not in groups:
+            groups[g] = []; order.append(g)
+        groups[g].append(w)
+    out = []
+    for i, g in enumerate(order, 1):
+        ws = groups[g]
+        if len(ws) == 1:
+            out.append(dict(ws[0], n=i)); continue
+        out.append({"n": i, "target": " ".join(w["target"] for w in ws),
+                    "command": f"ela jira link {g[0]} " + " ".join(w["target"] for w in ws) + f" {g[1]}",
+                    "why": "; ".join(f"{w['target']}: {w['why']}" for w in ws), "parts": ws})
+    return out
 
 
 def place(reports, cls, scope, writes, left, today, apply=False, out_dir=None, runner=None, now=None):
@@ -808,11 +860,12 @@ def place(reports, cls, scope, writes, left, today, apply=False, out_dir=None, r
         if not writes:
             return {"batch": None, "state": "nothing to write", "did": [], "left_out": left}
         if cls == "link-named":
+            writes = merge_links(writes)
             d = out_dir or os.path.join(site().get("runtime") or os.path.join(reports, "..", ".ela"), "dry", today.isoformat())
             os.makedirs(d, exist_ok=True)
             signed = []
             for w in writes:
-                f = os.path.join(d, f"{scope}-link-{w['target']}.txt")
+                f = os.path.join(d, f"{scope}-link-{w['target'].replace(' ', '+')}.txt")
                 atomic_write(f, link_note(scope, w) + "\n")
                 signed.append(dict(w, command=f"{w['command']} --note-file {f}"))
             writes = signed

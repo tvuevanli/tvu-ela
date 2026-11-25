@@ -259,6 +259,21 @@ with tempfile.TemporaryDirectory() as R, tempfile.TemporaryDirectory() as VT:
 
 D.DECIDED = DECIDED
 
+# MH-3998, 2026-11-25: a Figma file named by a ticket key is not the ticket, and an older ticket named is a reference.
+check("a Figma file's name in prose names no ticket",
+      D.ticket_keys("Output Profile, design in Figma MH-2026 node 4119-5823.") == []
+      and D.ticket_keys("the Figma file: MH-2026") == [] and D.ticket_keys("see MH-2026 and MH-3997") == ["MH-2026", "MH-3997"])
+check("a ticket older than the parent is linked as related, never contained",
+      D.older({"key": "MH-3800"}, {"key": "MH-3998"}) and not D.older({"key": "MH-4001"}, {"key": "MH-3998"})
+      and D.older({"key": "MH-9", "fields": {"created": "2026-01-01T00:00:00.000+0800"}},
+                  {"key": "MH-1", "fields": {"created": "2026-02-01T00:00:00.000+0800"}})
+      and not D.older({"key": "EDPP-1"}, {"key": "MH-3998"}))
+check("link writes on one scope merge per type; a single link stays as it was",
+      [w["command"] for w in D.merge_links([{"n": 1, "target": "MH-2", "command": "ela jira link MH-1 MH-2 --type contains", "why": "a"},
+                                            {"n": 2, "target": "MH-3", "command": "ela jira link MH-1 MH-3 --type contains", "why": "b"},
+                                            {"n": 3, "target": "MH-4", "command": 'ela jira link MH-1 MH-4 --type "relates to"', "why": "c"}])]
+      == ["ela jira link MH-1 MH-2 MH-3 --type contains", 'ela jira link MH-1 MH-4 --type "relates to"'])
+
 # Vault plan 2026-11-24 step 3, under the decision of 2026-11-24 (ela watches the MH board and acts on Jira, signing each
 # write): link-named and parent-status are ela's own writes, not asks; a correction returns them to confirm.
 with tempfile.TemporaryDirectory() as R, tempfile.TemporaryDirectory() as out:
@@ -279,21 +294,23 @@ with tempfile.TemporaryDirectory() as R, tempfile.TemporaryDirectory() as out:
     at = lambda d: datetime.datetime.combine(d, datetime.time(10, 0), D.TZ)   # the pass's clock on that day
     r = D.place(R, "link-named", "MH-3735", writes, left, TUE, apply=True, out_dir=out, runner=fake, now=at(TUE))
     check("tier 1: the set is written, not asked; yesterday's open batch for the scope settles",
-          r["state"] == "applied" and len(ran) == 4 and all(a for _, a in ran)
+          r["state"] == "applied" and len(ran) == 2 and all(a for _, a in ran)
           and D.load_batch(R, old["id"])["state"] == "settled" and not [x for x in D.asks(R, TUE, ask_state={}) if x["kind"] == "batch"])
     note = open(ran[0][0].split("--note-file ")[1]).read()
-    check("each link carries its note file, a command the class admits; the note says what was linked and why, in English",
+    check("one write and one note per link type, a command the class admits; the note names every link and why, in English",
           all("--note-file " in c and __import__("re").match(D.CLASSES["link-named"]["command"], c) for c, _ in ran)
-          and note.startswith("Linked EDPP-3311 to MH-3735 (MH-3735 contains EDPP-3311): this ticket names it"))
+          and ran[0][0].startswith("ela jira link MH-3735 EDPP-3311 MH-3983 MH-3842 --type contains")
+          and note.startswith("Linked 3 tickets to MH-3735 (MH-3735 contains each): this ticket names them.")
+          and all(f"- {k} — " in note for k in ("EDPP-3311", "MH-3983", "MH-3842")) and note.count("If a link is wrong") == 1)
     _, lst = D.did(R, TUE.isoformat())
-    check("listed for ela/dry/did.md, each act by its batch and line", [a for a, _, _ in lst] == [f"{TUE}-link-named-MH-3735#{n}" for n in range(1, 5)])
+    check("listed for ela/dry/did.md, each act by its batch and line", [a for a, _, _ in lst] == [f"{TUE}-link-named-MH-3735#{n}" for n in range(1, 3)])
     check("one set a scope a day: a second pass the same day writes nothing",
-          D.place(R, "link-named", "MH-3735", writes, left, TUE, apply=True, out_dir=out, runner=fake, now=at(TUE))["state"] == "refused" and len(ran) == 4)
+          D.place(R, "link-named", "MH-3735", writes, left, TUE, apply=True, out_dir=out, runner=fake, now=at(TUE))["state"] == "refused" and len(ran) == 2)
     n = D.correct(R, "link-named", "correction", "MH-3735", "a reply disputing a link", now=datetime.datetime(2026, 11, 24, 16, tzinfo=D.TZ))
     WED = datetime.date(2026, 11, 25)
     r = D.place(R, "link-named", "MH-3735", writes, left, WED, apply=True, out_dir=out, runner=fake, now=at(WED))
     check("a correction returns the class to confirm and the decision does not undo the fall: the next set is asked",
-          "back to your confirm" in n and D.load_state(R)["link-named"]["tier"] == 3 and r["state"] == "open" and len(ran) == 4
+          "back to your confirm" in n and D.load_state(R)["link-named"]["tier"] == 3 and r["state"] == "open" and len(ran) == 2
           and [x["id"] for x in D.asks(R, WED, ask_state={}) if x["kind"] == "batch"] == [f"dry:{r['batch']}"])
     p = issue("MH-3735", issuelinks=[link(1, "contains", "MH-3983", "Review")], comment={"comments": []})
     w, _ = D.select_parent_status(p, OWNER, TUE, out)
