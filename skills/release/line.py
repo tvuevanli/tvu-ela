@@ -34,8 +34,8 @@ REPORT_BUILD = re.compile(r"For (\d+\.\d+) Release build (\d+)", re.I)
 
 
 def mh_name(lane):
-    """The lane as MediaHub's people and its release mails name it: qa-cn3 → QA-AWS3, daily-wed → Wednesday, prod-3 →
-    Prod 3, a China lane by the map's `shown`; the UR environment itself when no name is known."""
+    """The lane as MediaHub's people name it: a China lane by the map's `shown` (prod-2-china → CN Prod2), a .com QA
+    lane by its AWS name (qa-cn3 → QA-AWS3), every other lane by its own name (daily-wed, prod-3, daily-stage)."""
     lane = str(lane or "")
     try:
         for reg in (R.rmap("regions") or {}).values():
@@ -45,22 +45,58 @@ def mh_name(lane):
     except (Exception, SystemExit):
         pass
     m = re.fullmatch(r"qa-cn(\d+)", lane)
+    return f"QA-AWS{m.group(1)}" if m else lane
+
+
+def ur_lane_text(ur):
+    """A UR-side lane as the UR / J2N environment is said: daily-test2 → UR test2, prod-3 → UR/J2N Prod 3, daily-stage →
+    UR/J2N Stage; None for a lane that names no UR environment."""
+    ur = str(ur or "")
+    m = re.fullmatch(r"daily-(test\d+)", ur)
     if m:
-        return f"QA-AWS{m.group(1)}"
-    m = re.fullmatch(r"prod-(\d+)", lane)
+        return f"UR {m.group(1)}"
+    m = re.fullmatch(r"prod-(\d+)", ur)
     if m:
-        return f"Prod {m.group(1)}"
-    days = {"mon": "Monday", "tue": "Tuesday", "wed": "Wednesday", "thu": "Thursday", "fri": "Friday", "stage": "Stage"}
-    m = re.fullmatch(r"daily-(\w+)", lane)
-    if m and m.group(1) in days:
-        return days[m.group(1)]
-    return lane
+        return f"UR/J2N Prod {m.group(1)}"
+    return "UR/J2N Stage" if ur == "daily-stage" else None
+
+
+def ur_env(lane):
+    """The UR / J2N environment behind a MediaHub lane, from the map; None when the map does not say. In order: the
+    map's `lane_ur_env` entry for the lane (the declared word wins); a region's lane by the region's UR environments
+    (prod-2-china → UR/J2N cn2: its path prod2 is env cn2); a .com prod lane by its own number (prod-3 → UR/J2N Prod 3);
+    a line's daily lane by where that line's UR services run (`lane_for_slug` of j2n and ur-portal: 2.1's daily-wed →
+    daily-test2 → UR test2), only when every line that names the lane agrees. A QA lane has no derivation: which UR QA
+    environment a line's QA lane uses is not in the map."""
+    lane = str(lane or "")
+    try:
+        declared = (R.rmap("lane_ur_env") or {}).get(lane)
+        if declared:
+            return str(declared)
+        for reg in (R.rmap("regions") or {}).values():
+            if lane in ((reg or {}).get("lanes") or {}):
+                m = re.fullmatch(r"prod-(\d+)-\w+", lane)
+                envs = (((reg or {}).get("ur") or {}).get("envs") or {})
+                env = next((e for e, path in envs.items() if m and path == f"prod{m.group(1)}"), None)
+                return f"UR/J2N {env}" if env else None
+        if re.fullmatch(r"prod-\d+", lane):
+            return ur_lane_text(lane)
+        found = set()
+        for cfg in (R.rmap("lines") or {}).values():
+            if ((cfg or {}).get("lanes") or {}).get("daily") == lane:
+                slugs = (cfg.get("lane_for_slug") or {})
+                found |= {slugs.get(s, lane) for s in ("j2n", "ur-portal")}
+        return ur_lane_text(found.pop()) if len(found) == 1 else None
+    except (Exception, SystemExit):
+        return None
 
 
 def lane_label(lane):
-    """`QA-AWS3 (qa-cn3)`: MediaHub's name first, the UR environment in brackets."""
-    n = mh_name(lane)
-    return f"{n} ({lane})" if n != lane else lane
+    """The one display label of a lane: MediaHub's name first, the UR / J2N environment in brackets when the map names
+    it — `daily-wed (UR test2)`, `prod-3 (UR/J2N Prod 3)`, `CN Prod2 (UR/J2N cn2)`, `QA-AWS3` — never a UR environment
+    alone and never the lane's file token in brackets (the owner's naming rule, 2026-11-16/17)."""
+    n, env = mh_name(lane), ur_env(lane)
+    return f"{n} ({env})" if env else n
 
 
 def svc_name(slug):

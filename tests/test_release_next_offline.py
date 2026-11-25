@@ -117,7 +117,8 @@ check(pinned["head"]["read"] == "Facts as of Wednesday 25 Nov 16:02, computed We
 check(rel["head"]["title"] == "MediaHub 2.2.0 → prod-3 (UR/J2N Prod 3), released" and rel["candidate"]["provisional"] is False, "released: the title says released")
 check([N.verdict_of({"verdict": v}) for v in ("accepted", "dev-declared", "partial", "fail")] + [N.verdict_of(None)] == ["n-a", "none", "partial", "fail", "none"],
       "promote's verdicts fold into the five: accepted ships nothing (n-a), a developer's word is no verdict")
-check(N.ur_env("prod-2-china") == "CN Prod2" and N.ur_env("daily-wed") is None, "the UR environment of a China lane; none for a lane without one")
+check(N.lane_label("prod-3") == "prod-3 (UR/J2N Prod 3)" and N.lane_label("qa-cn3") == "QA-AWS3",
+      "a lane's label: the UR environment in brackets where the map names one, MediaHub's name alone where it does not")
 one = N.head("planned", "MediaHub 2.1.20", "prod-9", None, {"must": 1, "on_candidate": 1, "in_dev": 1}, [{"verdict": "fail"}], False, None, NOW)
 check(one["title"] == "MediaHub 2.1.20 → prod-9 (UR/J2N Prod 9)" and one["lede"].startswith("1 ticket must ship, 1 is on the candidate (0 QA pass, 1 fail or no verdict) and 1 is in development."),
       "no planned date: no day in the title; one of each reads in the singular")

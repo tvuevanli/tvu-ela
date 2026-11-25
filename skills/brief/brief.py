@@ -2346,6 +2346,14 @@ MATRIX_ROWS = ("mediahub-backend", "mediahub-frontend", "unified-streaming", "un
 LANE_SHOWN = {"qa-cn3": "QA-AWS3", "prod-2-china": "CN Prod2", "prod-1-china": "CN Prod1"}   # the name the release mails and the team use for the lane
 
 
+def lane_label(lane):
+    """The lane's display label, MediaHub's name first and the UR / J2N environment in brackets (release line.py
+    lane_label, the one place it is derived from the map): what a column or a heading shows."""
+    sys.path.insert(0, os.path.join(HERE, "..", "release"))
+    import line as LP                                      # noqa: E402
+    return LP.lane_label(lane)
+
+
 def snapshots(runner, date):
     """(today's versions snapshot, the last one before it), either None."""
     names = sorted(f for f in os.listdir(runner) if re.fullmatch(r"versions-\d{4}-\d{2}-\d{2}\.json", f)) if os.path.isdir(runner) else []
@@ -2571,7 +2579,8 @@ def line_matrix(line, args, env, rows, before, tested, pins, cand_doc, errors):
         except (OSError, ValueError, KeyError):
             errors.append({"source": "promote report", "error": f"unreadable: {report}"})
     regions = [region_reading(l, tested, rows, china_read(env, errors)) for l in region_lanes((cfg.get("lanes") or {}).get("prod"))]
-    return {"line": line, "lanes": [LANE_SHOWN.get(l, l) for l in lanes] + ([cand.get("label") or "next train"] if cand else []),
+    nxt = [cand.get("label") or "next train"] if cand else []
+    return {"line": line, "lanes": [LANE_SHOWN.get(l, l) for l in lanes] + nxt, "labels": [lane_label(l) for l in lanes] + nxt,
             "rows": table, "same": same, "gate": gate, "lane_ids": lanes, "pending": rec, "sources": lane_sources(rows, lanes),
             "regions": [r for r in regions if r["versions"] or not r["retiring"]]}   # a retiring lane no report names is gone
 
@@ -3120,7 +3129,7 @@ def write_lanes_page(outs, site, env, runner, tested, held=()):
     reports = site.get("reports") or os.path.join(site.get("projects", ""), "reports")
     runtime = site.get("runtime") or os.path.join(site.get("projects", ""), ".ela")
     now = datetime.datetime.now().astimezone()
-    shown = lambda l: LANE_SHOWN.get(l, l)  # noqa: E731
+    shown = lambda l: LANE_SHOWN.get(l, l)  # noqa: E731 — the short name the moves table matches build records by
     note = deploy_note(now, day_plan(now.date()))
     L = ["# The lanes", "", f"*{now:%Y-%m-%d %H:%M} · lines {', '.join(o['line'] for o in outs)}*", f"*{F.read_at_line()}*", "",
          "## Now", "", "| line | lane | build | since | QA |", "|---|---|---|---|---|"]
@@ -3145,17 +3154,17 @@ def write_lanes_page(outs, site, env, runner, tested, held=()):
     L += ["Each line's page holds its detail: " + " · ".join(f"[[releases/{o['line']}/{o['line']}|MediaHub {o['line']}]]" for o in outs), ""]
     L += ["## Per line", ""]
     for i, out in enumerate(outs):
-        body = [LEGEND, ""] + line_section(out, shown)
+        body = [LEGEND, ""] + line_section(out, lane_label)
         if i == 0:                                          # the QA cycle and the lists follow the morning's line
             body += (["", note] if note else []) + qa_cycle_block(now, runtime) + list_links(reports)
-        L += fold(f"Line {out['line']} · " + " ← ".join(shown(l) for l in out["lane_ids"]) + ": every service on every lane", body)
+        L += fold(f"Line {out['line']} · " + " ← ".join(lane_label(l) for l in out["lane_ids"]) + ": every service on every lane", body)
     L += ["## Differences", ""]
     import concurrent.futures
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(PAIRS) * len(outs)) as ex:
         futs = [(out["line"], a, b, ex.submit(pair_report, env, a, b, out["line"])) for out in outs for a, b in PAIRS]
         for line, a, b, fu in futs:
             try:
-                diff = differences(fu.result(), shown, held, line)
+                diff = differences(fu.result(), lane_label, held, line)
             except (LaneError, subprocess.TimeoutExpired, ValueError, KeyError) as e:
                 diff = [f"### {line} · {a} ahead of {b}", "", f"Not read: {str(e)[:200]}", ""]
             title = re.sub(r"^#+\s*", "", diff[0]) if diff else f"{line} · {a} ahead of {b}"
@@ -3255,7 +3264,8 @@ def lane_groups(out):
 
 def render_matrix(out):
     groups = lane_groups(out)
-    head = [" = ".join(out["lanes"][i] for i in g) for g in groups]
+    names = out.get("labels") or out["lanes"]                # a column is headed by the lane's display label
+    head = [" = ".join(names[i] for i in g) for g in groups]
     L = ["| | " + " | ".join(head) + " |", "|---|" + "---|" * len(head)]
     for r in out["rows"]:
         cells = []

@@ -96,13 +96,12 @@ def headline(state, name, lane, planned_for):
     return f"{name}, planned for {lane}"
 
 
-def ur_env(lane):
-    """The UR / J2N environment behind a prod lane, for the brackets after its MediaHub name: prod-3 → UR/J2N Prod 3,
-    prod-2-china → CN Prod2; None when the lane names none."""
-    m = re.fullmatch(r"prod-(\d+)(-china)?", str(lane or ""))
-    if not m:
-        return None
-    return f"CN Prod{m.group(1)}" if m.group(2) else f"UR/J2N Prod {m.group(1)}"
+def lane_label(lane):
+    """The lane's display label, MediaHub's name first and the UR / J2N environment in brackets (line.py lane_label,
+    the one place it is derived from the map): prod-3 → prod-3 (UR/J2N Prod 3)."""
+    sys.path.insert(0, HERE)
+    import line as LP                            # noqa: E402
+    return LP.lane_label(lane) if lane else str(lane)
 
 
 def day_text(d):
@@ -131,8 +130,7 @@ def n_of(n, one, many):
 def head(state, name, lane, planned_for, counts, verdicts, provisional, facts_at, now):
     """The page's head as words, so a reader renders it without judgment: the title (the lane by its MediaHub name, the
     UR environment in brackets), one sentence of counts, and the facts' time."""
-    env = ur_env(lane)
-    where = f"{lane} ({env})" if env else str(lane)
+    where = lane_label(lane)
     if state == "released":
         title = f"{name} → {where}, released"
     elif planned_for:

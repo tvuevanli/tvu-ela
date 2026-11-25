@@ -137,6 +137,11 @@ lanes each release line uses — all in `<elak>/map/release.yaml` (origin per bl
   when and QA's word; a lane ahead of its upstream and how it got there; the next promotion; the docker images that
   differ between lanes; one line per build with its detail folded; one line per promotion or deploy note. A source it
   cannot read is named on its one `Can't read` line, never filled in. A build has no note of its own any more.
+- **A lane has one display label** (`line.py lane_label`, used by the line page, the lanes page and the published
+  lists): MediaHub's name first, the UR / J2N environment in brackets where the map names it — `daily-wed (UR test2)`,
+  `prod-3 (UR/J2N Prod 3)`, `CN Prod2 (UR/J2N cn2)` — and MediaHub's name alone where it does not (`QA-AWS3`: no map
+  fact says which UR QA environment a QA lane uses). The map's `lane_ur_env: {lane: words}` declares one it cannot
+  derive. Never a UR environment alone, never the lane's file token in brackets.
 - **Prod's bundle is the newest official one** (`MediaHub <M.m>.N [(qualifier)]`, `MediaHub <M.m> rcN`, anchored; a
   side bundle such as "Docker Only" or "pre" never counts). A train may ship under a second product name (map
   `lines.<line>.ships_as`: the 2.1 train is "MediaHub 2.2.N" and "mh2.2@…" from 2026-11-30); every bundle query and

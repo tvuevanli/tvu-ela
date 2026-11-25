@@ -13,8 +13,10 @@ def check(name, cond):
         failures.append(name)
 
 B.R._MAP = {"lines": {
-    "2.1": {"lanes": {"qa": "qa-cn3", "daily": "daily-wed", "prod": "prod-3"}, "bundle_line": "mh2.1@", "bundle_lanes": {"qa": "qa", "daily": "daily-wed"}, "decided": "yes"},
-    "2.0": {"lanes": {"qa": "qa-cn2", "daily": "daily-stage", "prod": "prod-8"}, "bundle_line": "mh2.0@", "bundle_lanes": {"qa": "qa", "daily": "stage"}, "decided": "yes"},
+    "2.1": {"lanes": {"qa": "qa-cn3", "daily": "daily-wed", "prod": "prod-3"}, "bundle_line": "mh2.1@", "bundle_lanes": {"qa": "qa", "daily": "daily-wed"}, "decided": "yes",
+            "lane_for_slug": {"j2n": "daily-test2", "ur-portal": "daily-test2"}},
+    "2.0": {"lanes": {"qa": "qa-cn2", "daily": "daily-stage", "prod": "prod-8"}, "bundle_line": "mh2.0@", "bundle_lanes": {"qa": "qa", "daily": "stage"}, "decided": "yes",
+            "lane_for_slug": {"j2n": "daily-stage", "ur-portal": "daily-stage"}},
     "1.5": {"lanes": {"qa": "qa-cn1", "daily": "daily-fri", "prod": "prod-2"}, "bundle_line": "mh1.5@"},
     "1.1": {"lanes": {"qa": "qa-cn1", "daily": "daily-fri", "prod": "prod-9"}, "note": "prod tracking only"},
     "2.2": {"label": "release:mh-2.2", "note": "label only"}}, "regions": {}}
@@ -58,9 +60,9 @@ check("a promotion record whose target already runs its versions has no column, 
       gone["lanes"] == ["prod-3", "daily-wed", "QA-AWS3"] and gone["pending"].get("past")
       and "is past: prod-3 already runs its versions or newer" in "\n".join(B.train_lines(gone["pending"])) and "Open before" not in "\n".join(B.train_lines(gone["pending"])))
 check("two lanes on the same versions are one column, the bundle cells joined",
-      B.render_matrix(dict(outs[1], same=[], gate=None, lanes=outs[1]["lanes"][:3], rows=[dict(r, cells=r["cells"][:3]) for r in outs[1]["rows"]
+      B.render_matrix(dict(outs[1], same=[], gate=None, lanes=outs[1]["lanes"][:3], labels=outs[1]["labels"][:3], rows=[dict(r, cells=r["cells"][:3]) for r in outs[1]["rows"]
                                                                                         if r.get("service") != "mediahub-backend"]))
-      .startswith("| | prod-8 = qa-cn2 | daily-stage |"))
+      .startswith("| | prod-8 (UR/J2N Prod 8) = QA-AWS2 | daily-stage (UR/J2N Stage) |"))
 check("an inversion says why: the build that carried the version, past the daily lane when prod is ahead",
       B.ahead_why({"lanes": ["prod-3", "daily-wed", "QA-AWS3"], "lane_ids": ["prod-3", "daily-wed", "qa-cn3"], "rows": [
           {"row": "mediahub-backend", "service": "mediahub-backend", "cells": [{"version": "2.1.47+279"}, {"version": "2.1.46+278"}, {"version": "2.1.48"}]}]},
@@ -93,8 +95,10 @@ with tempfile.TemporaryDirectory() as d:
     check("the head is under 500 words and passes the presentation lint",
           len(V.outside_folds(page).split()) < 500 and V.present_lint("releases/lanes.md", page, generated=True) == [])
     check("each line's table is folded, in order, the legend inside it",
-          page.index("> [!note]- Line 2.1 · prod-3 ← daily-wed ← QA-AWS3") < page.index("> | | prod-3 | daily-wed | QA-AWS3 | Wednesday (build 78) → prod-3 |")
-          < page.index("> [!note]- Line 2.0 · prod-8 ← daily-stage ← qa-cn2") < page.index("> | | prod-8 | daily-stage | qa-cn2 | hotfix backend 2.0.11 (MH-3640) |")
+          page.index("> [!note]- Line 2.1 · prod-3 (UR/J2N Prod 3) ← daily-wed (UR test2) ← QA-AWS3")
+          < page.index("> | | prod-3 (UR/J2N Prod 3) | daily-wed (UR test2) | QA-AWS3 | Wednesday (build 78) → prod-3 |")
+          < page.index("> [!note]- Line 2.0 · prod-8 (UR/J2N Prod 8) ← daily-stage (UR/J2N Stage) ← QA-AWS2")
+          < page.index("> | | prod-8 (UR/J2N Prod 8) | daily-stage (UR/J2N Stage) | QA-AWS2 | hotfix backend 2.0.11 (MH-3640) |")
           and page.count("> *Legend: ▲") == 2 and "◐ QA passed part of it" in page)
     check("the QA cycle follows the first line only", page.count("*QA cycle*") == 1 and page.index("*QA cycle*") < page.index("> [!note]- Line 2.0"))
     check("differences are read for each line's two pairs, each folded and headed by line",
@@ -105,7 +109,8 @@ with tempfile.TemporaryDirectory() as d:
 buf = io.StringIO()
 with contextlib.redirect_stdout(buf):
     print(B.render_matrix(dict(outs[0], same=[], gate=None)))
-check("the morning's table is 2.1's", buf.getvalue().startswith("| | prod-3 | daily-wed | QA-AWS3 | Wednesday (build 78) → prod-3 |"))
+check("the morning's table is 2.1's, each column headed by its display label",
+      buf.getvalue().startswith("| | prod-3 (UR/J2N Prod 3) | daily-wed (UR test2) | QA-AWS3 | Wednesday (build 78) → prod-3 |"))
 # under the table: the pending record's open items, notes and the approval it waits on
 rec = {"candidate": {"label": "Wednesday (build 78) → prod-3", "versions": {}},
        "open_items": ["MH-3808 QA FAIL 10-30", "AMPP image pin 1.0.0.16 vs `latest`"], "notes": ["daily-wed bundle mh2.1@daily-wed-s2-d47"],

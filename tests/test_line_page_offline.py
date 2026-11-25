@@ -17,8 +17,9 @@ def check(name, cond):
     if not cond:
         failures.append(name)
 
-R._MAP = {"lines": {"2.1": {"lanes": {"qa": "qa-cn3", "daily": "daily-wed", "prod": "prod-3"}, "decided": "yes"}},
-          "regions": {"china": {"lanes": {"prod-2-china": {"shown": "CN Prod2", "line": "2.1"}}}}}
+R._MAP = {"lines": {"2.1": {"lanes": {"qa": "qa-cn3", "daily": "daily-wed", "prod": "prod-3"}, "decided": "yes",
+                            "lane_for_slug": {"j2n": "daily-test2", "ur-portal": "daily-test2"}}},
+          "regions": {"china": {"ur": {"envs": {"cn2": "prod2"}}, "lanes": {"prod-2-china": {"shown": "CN Prod2", "line": "2.1"}}}}}
 TODAY = datetime.date(2026, 11, 20)
 
 
@@ -43,7 +44,7 @@ def row(lane, service, version, host="prod", state=None):
 
 check("lanes are named MediaHub-first, the UR environment in brackets",
       [LP.lane_label(l) for l in ("qa-cn3", "daily-wed", "prod-3", "prod-2-china", "daily-stage", "qa-cn2", "prod-8")] ==
-      ["QA-AWS3 (qa-cn3)", "Wednesday (daily-wed)", "Prod 3 (prod-3)", "CN Prod2 (prod-2-china)", "Stage (daily-stage)", "QA-AWS2 (qa-cn2)", "Prod 8 (prod-8)"])
+      ["QA-AWS3", "daily-wed (UR test2)", "prod-3 (UR/J2N Prod 3)", "CN Prod2 (UR/J2N cn2)", "daily-stage", "QA-AWS2", "prod-8 (UR/J2N Prod 8)"])
 
 with tempfile.TemporaryDirectory() as tmp:
     reports, runtime = os.path.join(tmp, "reports"), os.path.join(tmp, "runtime")
@@ -111,34 +112,34 @@ with tempfile.TemporaryDirectory() as tmp:
     page = LP.render(d)
     now = page.split("## Now")[1].split("## Next promotion")[0]
     check("Now: one row per lane, MediaHub-first, with its build",
-          "| QA-AWS3 (qa-cn3) | build 99 |" in now and "| Wednesday (daily-wed) | build 95 |" in now and "| Prod 3 (prod-3) | build 98 |" in now
-          and "| CN Prod2 (prod-2-china) |" in now)
+          "| QA-AWS3 | build 99 |" in now and "| daily-wed (UR test2) | build 95 |" in now and "| prod-3 (UR/J2N Prod 3) | build 98 |" in now
+          and "| CN Prod2 (UR/J2N cn2) |" in now)
     check("QA's word: the QA lane's build without a report is under test; a lane's version QA reported shows its verdict",
-          re.search(r"\| QA-AWS3 \(qa-cn3\) \| build 99 \| 11-19 \| (under test|no report on build 99)", now) is not None
-          and "| Wednesday (daily-wed) | build 95 | 11-18 | pass 11-17; 1 unreported |" in now)
-    check("a lane ahead of its upstream says why: Prod 3 took build 98 past the daily lane",
-          "Prod 3 is ahead of Wednesday on MediaHub Backend 2.1.47 (theirs 2.1.46), UR Caller 2.1.98 (theirs 2.1.95): taken straight from QA-AWS3 build 98, past the daily lane" in now)
+          re.search(r"\| QA-AWS3 \| build 99 \| 11-19 \| (under test|no report on build 99)", now) is not None
+          and "| daily-wed (UR test2) | build 95 | 11-18 | pass 11-17; 1 unreported |" in now)
+    check("a lane ahead of its upstream says why: prod-3 took build 98 past the daily lane",
+          "prod-3 is ahead of daily-wed on MediaHub Backend 2.1.47 (theirs 2.1.46), UR Caller 2.1.98 (theirs 2.1.95): taken straight from QA-AWS3 build 98, past the daily lane" in now)
     cant = next((l for l in now.splitlines() if l.startswith("**Can't read:**")), "")
     check("one Can't read line names each gap in 15 words or fewer; why each could not be read is folded under it",
           cant == "**Can't read:** QA-AWS3, CN Prod2, daily → prod promote report, docker on QA-AWS3, titles of 3 tickets." and len(cant.split()) <= 17
-          and "> [!note]- Why each could not be read\n> - **QA-AWS3**: QA-AWS3 (qa-cn3): the QA host is not read" in now
+          and "> [!note]- Why each could not be read\n> - **QA-AWS3**: QA-AWS3: the QA host is not read" in now
           and "> - **daily → prod promote report**: none stored; `ela promote report 2.1 daily prod` writes it" in now)
     table = [l for l in now.splitlines() if l.startswith("| ") and "---" not in l][1:]
     check("the lane table is four short cells a lane, QA's word in six words or fewer; the per-service exceptions folded",
           all(len(l.strip("| ").split(" | ")) == 4 and len(l.strip("| ").split(" | ")[3].split()) <= 6 for l in table)
           and "> [!note]- Per service: builds, QA and the lane ahead" in now
-          and "> - Prod 3 is ahead of Wednesday on MediaHub Backend 2.1.47 (theirs 2.1.46)" in now)
-    check("the lane ahead of its upstream is one short sentence in the head", "\nProd 3 is ahead of Wednesday: build 98 went straight to it (a hotfix).\n" in now)
+          and "> - prod-3 is ahead of daily-wed on MediaHub Backend 2.1.47 (theirs 2.1.46)" in now)
+    check("the lane ahead of its upstream is one short sentence in the head", "\nprod-3 is ahead of daily-wed: build 98 went straight to it (a hotfix).\n" in now)
     check("the head passes the presentation lint", V.present_lint("releases/2.1/2.1.md", page, generated=True) == [])
     nxt = page.split("## Next promotion")[1].split("## Docker")[0]
     check("Next promotion: the candidate build, what is ready, what blocks it, the decision",
-          "**QA-AWS3 build 99 → Wednesday (daily-wed):** 3 tickets Wednesday does not run; 1 QA passed, 1 failed, 1 without a QA pass" in nxt
-          and "**Ready:** MH-4052" in nxt and "**Blocks:** MH-4065" in nxt and "QA fail 11-19" in nxt and "**Decision:** move QA-AWS3 build 99 to Wednesday" in nxt)
+          "**QA-AWS3 build 99 → daily-wed (UR test2):** 3 tickets daily-wed does not run; 1 QA passed, 1 failed, 1 without a QA pass" in nxt
+          and "**Ready:** MH-4052" in nxt and "**Blocks:** MH-4065" in nxt and "QA fail 11-19" in nxt and "**Decision:** move QA-AWS3 build 99 to daily-wed" in nxt)
     check("a promotion record its target already passed is said to be past under History, not in the head",
           "“Wednesday (build 78) → prod-3” is past" in page.split("## History")[1] and "is past" not in nxt)
     dock = page.split("## Docker")[1].split("## Builds")[0]
     check("Docker: only the image that differs between lanes, each version with its QA report or none and what it changed",
-          "- **mixer** · Wednesday 1.0.35 vs Prod 3 1.0.36 · QA report on 1.0.36: no" in dock and "copier" not in dock
+          "- **mixer** · daily-wed 1.0.35 vs prod-3 1.0.36 · QA report on 1.0.36: no" in dock and "copier" not in dock
           and "> - **mixer** (Docker Switcher): 1.0.36: no QA report; MH-3984" in dock and "1.0.35: no QA report; released 11-01, no ticket named" in dock)
     builds = page.split("## Builds")[1].split("## History")[0]
     lines = [l for l in builds.splitlines() if l.startswith("- ")]
@@ -169,7 +170,7 @@ with tempfile.TemporaryDirectory() as tmp:
                 [dict(r, lane="prod-3") for r in snap["rows"] if r["lane"] == "daily-wed"])
     write(os.path.join(runtime, "runner", "versions-2026-11-20.json"), same)
     page2 = LP.render(LP.gather("2.1", reports, runtime, TODAY))
-    check("two lanes running the same versions are one row", "| Wednesday (daily-wed) = Prod 3 (prod-3) | build 95 |" in page2
+    check("two lanes running the same versions are one row", "| daily-wed (UR test2) = prod-3 (UR/J2N Prod 3) | build 95 |" in page2
           and "ahead of" not in page2.split("## Next promotion")[0])
 
 print(f"\n{len(failures)} failure(s)" if failures else "\nall passed")
