@@ -692,6 +692,13 @@ def sync(published, target=None):
     return P.sync_dir(os.path.join(published, "releases"), "releases", target)
 
 
+def mirror_after(s, published):
+    """The read-only Obsidian mirror of <published>, refreshed after the write (publish/mirror.py); one line on stderr."""
+    sys.path.insert(0, os.path.join(SKILLS, "publish"))
+    import mirror as M                                 # noqa: E402
+    M.after_publish(s, published)
+
+
 def summary(doc):
     c = doc["counts"]
     L = [doc["headline"],
@@ -849,6 +856,7 @@ def main(argv=None):
             sys.exit(EX_GUARD)
         synced = sync(published) if a.sync else None
         s = R().site()
+        mirror_after(s, published)
         try:                                           # the clears wait for his A on today.md; nothing written to Jira
             doc_batch = propose_clears(doc, s.get("reports") or os.path.join(s.get("projects", ""), "reports"), now.date())
         except Exception as e:                         # noqa: BLE001 — the file is written; the batch is said missing

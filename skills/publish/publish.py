@@ -22,7 +22,9 @@
                             versioned-release.md): whether one is due, what it would commit, the guard's verdict;
                             --apply commits it in <published>, recording elak's HEAD; it never pushes
   mirror [--dry-run]        <published> → site.json `published_mirror`, a read-only Obsidian vault of its own, one way
-                            (withdrawn files removed; the vault's .obsidian/ kept), with a generated Home.md (mirror.py)
+                            (withdrawn files removed; the vault's .obsidian/ kept), with a generated Home.md (mirror.py).
+                            Every subcommand that writes <published> runs it afterwards, as do `ela release next --write`
+                            and `ela teamreport write`; its outcome is one line, never a failed publication
 
 The published directory is a subset of elak's own tree — the same paths, elak's names, no per-reader
 directories. Readers (Helm's context packs, the remote ela) point at these paths.
@@ -1114,6 +1116,9 @@ def cmd_mirror(a):
         sys.exit(EX_WRITE)
 
 
+WRITES_PUBLISHED = ("catalogue", "map", "roster", "doc", "pins", "all", "lanes")   # and `release --apply`
+
+
 def main():
     ap = argparse.ArgumentParser(description="Publish elak sources into the published directory.")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -1146,9 +1151,18 @@ def main():
     # an unattended session (ELA_NO_APPLY=1) reads and dry-runs only; the owner's word applies a write
     if os.environ.get("ELA_NO_APPLY") and getattr(a, "apply", False):
         print("refused: --apply inside an unattended session (ELA_NO_APPLY)", file=sys.stderr); sys.exit(2)
-    {"catalogue": cmd_catalogue, "map": cmd_map, "roster": cmd_roster, "doc": cmd_doc, "pins": cmd_pins, "all": cmd_all,
-     "list": cmd_list, "sync": cmd_sync, "lanes": cmd_lanes, "check": cmd_check, "release": cmd_release,
-     "mirror": cmd_mirror}[a.cmd](a)
+    run = {"catalogue": cmd_catalogue, "map": cmd_map, "roster": cmd_roster, "doc": cmd_doc, "pins": cmd_pins, "all": cmd_all,
+           "list": cmd_list, "sync": cmd_sync, "lanes": cmd_lanes, "check": cmd_check, "release": cmd_release,
+           "mirror": cmd_mirror}[a.cmd]
+    if a.cmd not in WRITES_PUBLISHED and not (a.cmd == "release" and a.apply):
+        run(a); return
+    try:
+        run(a)
+    except SystemExit as e:                  # a refusal before writing leaves <published> as it was, so no mirror;
+        if e.code in (None, 0) or (a.cmd == "lanes" and e.code == EX_USAGE):   # lanes exits 2 with its other pages written
+            M.after_publish(site())
+        raise
+    M.after_publish(site())
 
 
 if __name__ == "__main__":

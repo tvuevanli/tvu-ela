@@ -22,6 +22,7 @@ $P doc products/mediahub/team/layer-classification.md   # knowledge/<rel> → <p
 $P list           # what the manifest says is published, and whether the source's verified: moved since (drift)
 $P check          # the release guard over knowledge/platform, knowledge/products, map/ (exit 1 with the lines)
 $P release        # due? · what it would commit · the guard — dry run; --apply commits on the owner's signal, never pushes
+$P mirror [--dry-run]   # <published> → site.json `published_mirror`, the owner's read-only Obsidian vault (one way, Home.md generated)
 ```
 
 ## Invariants
@@ -37,6 +38,13 @@ $P release        # due? · what it would commit · the guard — dry run; --app
   the reader sees it. The generator carries `source:` and `note:` from the YAML into the document.
 - **Nothing under `<published>` is edited by hand.** The location guard blocks it; a change is made in elak
   and published again. No other machine receives a copy: the remote ela site retired (elak decision 2026-10-22), and every reader runs on the owner's box.
+- **The mirror is a read-only copy for reading, kept current by the writers.** Every subcommand that writes
+  `<published>`, `ela release next --write` and `ela teamreport write` refresh `published_mirror` afterwards
+  (`mirror.py`): rsync one way with `--delete`, so a withdrawn file leaves the mirror too; the vault's `.obsidian/`,
+  `.trash/` and `Home.md` are never deleted; `.git` is never carried. The target is refused when it overlaps
+  `<published>` or the working vault, or holds files without the mirror's `Home.md` marker, because `--delete` would
+  remove them. The outcome is one line on stderr and in `<runtime>/publish-mirror.log`; a failed mirror never fails
+  the publication. Nothing is edited in the mirror: an edit there is overwritten by the next publication.
 - **The manifest row is the record.** `publish/published.md` gets one row per source: source path,
   destination (by root name), published date, the source's `verified:` at that moment. Drift is computed
   from those two dates, never remembered.

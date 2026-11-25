@@ -108,6 +108,7 @@ flowchart LR
 | 代码改完了，要提 merge request 给仓的负责人 | `mr` | `ela mr-preflight` · `ela mr MH-3568 media-hub-front`（只打印 push 与 MR 请求，不执行） |
 | 要写 Jira / 发 Slack / 写 KB | 写原子 | 先 dry run，你说了再 `--apply` |
 | 改了地图、花名册或一份知识文档，要让 Helm、远端和 ela 自己读到 | `publish` | `ela publish all` · `ela publish doc <路径>` · `ela publish list` |
+| 想在 Obsidian 里读发布出去的知识（只读镜像，每次发布后自动刷新） | `publish` | 打开 site.json `published_mirror` 那个 vault，从 `Home.md` 开始 · `ela publish mirror --dry-run` |
 | 换了机器 / token 过期了 | `setup` | `/ela:setup` |
 | 想看 ela 自己现在什么状态 | `reports` | `ela reports list` |
 | 临时目录占地方了 | `runtime` | `ela runtime status` · `ela runtime clean` |

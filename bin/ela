@@ -287,7 +287,9 @@
   ela team <verb>                  the roster, first-hand: people|areas|who|emails|check
   ela who <person>                 one person by name, email, Uxxx or accountId; exit 3 when unknown
   ela publish <what>               render an elak source into <published> for machines to read:
-                                   catalogue|roster|map|all|list; the manifest row records it
+                                   catalogue|roster|map|all|list; the manifest row records it;
+                                   mirror [--dry-run]: the read-only Obsidian copy (site.json
+                                   published_mirror), refreshed after every publication anyway
   ela reports list|build           the owner's standing reports (markdown → HTML; a session
                                    publishes them as artifacts)
 

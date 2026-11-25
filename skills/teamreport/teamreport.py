@@ -832,6 +832,9 @@ def cmd_write(a):
     if flags:
         print("teamreport: the publish guard refused the report; the published copy is unchanged:\n  " + "\n  ".join(flags), file=sys.stderr)
         sys.exit(EX_REFUSED)
+    sys.path.insert(0, os.path.join(SKILLS, "publish"))
+    import mirror as M                       # noqa: E402 — the read-only Obsidian mirror of <published>, refreshed after the write
+    M.after_publish(site(), published_root())
     if a.json:
         print(json.dumps({"path": path, "kind": a.kind, "id": ident, "state": doc["state"], "model": model,
                           "keys": len(doc["keys"]), "removed": removed}, ensure_ascii=False))
