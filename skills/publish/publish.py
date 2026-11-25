@@ -463,20 +463,37 @@ IPV4 = re.compile(r"(?<![\d.])(?:\d{1,3}\.){3}\d{1,3}(?![\d.])")
 TAILNET = re.compile(r"\b[a-z0-9-]+\.[a-z0-9-]+\.ts\.net\b")
 
 
+PRIVATE = re.compile(r"^(?:10\.|192\.168\.|172\.(?:1[6-9]|2\d|3[01])\.|100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.)")
+
+
+def version_context(text, start, end, quad):
+    """A four-part number whose own neighbours say it is a version: a `+build` suffix (`a.b.c.d+198`,
+    `objectd@a.b.c.d+117`), a `v` prefix, or one side of a version change written with an arrow
+    (`a.b.c.d → a.b.c.d`) when it is not in a private range; an address change keeps its placeholder."""
+    if re.match(r"\+\d", text[end:end + 2]) or re.search(r"(?i)(?<![a-z])v$", text[max(0, start - 2):start]):
+        return True
+    near = text[max(0, start - 4):start] + "|" + text[end:end + 4]
+    return bool(re.search(r"→|->", near)) and not PRIVATE.match(quad)
+
+
 def redact(text):
     """The published tree is read inside the company but outside this machine: an address is replaced by
-    a placeholder, a tailnet name likewise. Version strings (1.0.0.12) are not addresses and stay; a host
+    a placeholder, a tailnet name likewise. Version strings (1.0.0.12) are not addresses and stay: on a line
+    that names a version, or where the number's own neighbours mark it as one (`version_context`); a host
     after `://` is always an address, whatever else its line says (`/v1/` in a URL path is not a version)."""
     def ip(m):
-        octets = m.group(0).split(".")
-        if all(int(o) <= 255 for o in octets) and not m.group(0).startswith(("127.", "0.0.0.0")):
+        quad = m.group(0)
+        octets = quad.split(".")
+        if all(int(o) <= 255 for o in octets) and not quad.startswith(("127.", "0.0.0.0")):
             if text[m.start() - 3:m.start()] == "://":
                 return "<ip>"
+            if version_context(text, m.start(), m.end(), quad):
+                return quad
             line_start = text.rfind("\n", 0, m.start()) + 1
             line = text[line_start:text.find("\n", m.end()) if text.find("\n", m.end()) != -1 else len(text)]
             if not re.search(r"(?i)version|build|image|tag|release|\bv\d", line):
                 return "<ip>"
-        return m.group(0)
+        return quad
     return TAILNET.sub("<tailnet>", IPV4.sub(ip, text))
 
 

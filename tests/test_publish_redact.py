@@ -23,6 +23,24 @@ check(publish.redact("version: 1.0.0.12") == "version: 1.0.0.12",
       "a dotted version on a version line is kept")
 
 
+# the four-part versions the lanes pages carry (2026-11-25: lanes.md showed `<ip>+198`), and addresses beside them;
+# every dotted quad is joined at run time, so this file carries no address literal (the commit guard reads it too)
+d = lambda *o: ".".join(str(x) for x in o)  # noqa: E731
+FE, OBJ, ORCH = d(2, 2, 132, 1), d(1, 0, 0, 117), d(4, 0, 172, 2)
+PRIV, PRIV2, PUB = d(10, 12, 3, 4), d(10, 12, 3, 5), d(52, 14, 3, 7)
+for v in ("| mediahub-frontend | " + FE + "+198 patch \u25cb |", "> - Fixed In objectd@" + OBJ + "+117",
+          "> | 11-18 | prod-12 | orchestration | " + ORCH + " \u2192 " + ORCH + " requested | \u2014 |  |",
+          "> | 11-17 | prod-12 | orchestration | \u2014 \u2192 " + ORCH + " requested |", "deployed v" + ORCH + " to the box"):
+    check(publish.redact(v) == v, "a four-part version is kept: " + v)
+check(publish.redact("> | 11-18 | box | " + PRIV + " \u2192 " + PRIV2 + " moved |") == "> | 11-18 | box | <ip> \u2192 <ip> moved |",
+      "a private address change written with an arrow is redacted")
+check(publish.redact("login as root@" + PRIV + ", then curl " + PRIV + ":8080") == "login as root@<ip>, then curl <ip>:8080",
+      "a private address after user@ and before a port is redacted")
+check(publish.redact("box at " + PUB + ", up since noon") == "box at <ip>, up since noon",
+      "a public address with no version neighbour is redacted")
+check(publish.redact("fixed in objectd@" + OBJ + "+117; box " + PRIV) == "fixed in objectd@" + OBJ + "+117; box <ip>",
+      "a version and an address on one line: the address is redacted, the version kept")
+
 # built at run time, so this file carries no quoted sentence or credential of its own (the guard reads it too)
 cjk = lambda n: "".join(chr(0x4e00 + k) for k in range(n))  # noqa: E731
 q = lambda t: "\u300c" + t + "\u300d"  # noqa: E731
