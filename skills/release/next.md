@@ -1,9 +1,15 @@
 # `releases/next.json`: the next MediaHub release, as data
 
 `ela release next --write` writes `<published>/releases/next.json`, and this file beside it as
-`<published>/releases/README.md`. The runner refreshes both in its 13:00, 17:30 and 19:00 passes on
-weekdays, and `--sync` carries `releases/` to Helm Akamai so it reads the same file. A reader such as Helm's `/release/next` page shows the fields as written. Every judgment is
+`<published>/releases/README.md`. The runner refreshes both on weekdays in its morning run at 08:00 (after
+its facts refresh, so QA's evening report is in it), at 12:30 and at 17:30, and `--sync` carries `releases/` to Helm Akamai so it reads the same file. A reader such as Helm's `/release/next` page shows the fields as written. Every judgment is
 made here, and the page makes none: it does not compute a state, filter tickets or parse a version.
+
+The file is computed from facts only: the fact store each pass refreshes at its head (`ela facts refresh`:
+the Jira sweep and its standing `release:must` and Fixed In queries, the bundle lists and bundle details,
+Jenkins builds, the service repositories fetched) and the files ela wrote (the train, the latest promotion
+report, the held candidate). It reads no source live and starts no model session. What the store lacks is
+a gap, never a live read; `sources.facts` names each source's read time.
 
 Schema version **1**. A field is only added when the schema changes. A rename or a removal raises
 `schema`, and readers are told before it ships.
@@ -32,7 +38,7 @@ carried: only its verdict, its source and its time.
 | `in_dev` | `[ticket]` | MH tickets In Progress or Review, updated within 14 days, that are not in `on_candidate` |
 | `docker` | object | see below |
 | `counts` | object | `{must, must_missing, on_candidate, in_dev, docker_changed, unbuilt_commits}` |
-| `sources` | object | each input with its time: `tickets`, `qa_report`, `train`, `jira` (`{what, at}`) |
+| `sources` | object | each input with its time: `facts` (the store's sources, `at` the oldest), `tickets`, `qa_report`, `train`, `jira` (`{what, at}`) |
 | `gaps` | `[{kind, detail}]` | what could not be read or judged, in words. An empty list means nothing is missing. |
 
 A **bundle** is `{name, id, created, rule}`. `created` is `YYYY-MM-DD HH:MM`, local time. `rule` says
@@ -42,8 +48,9 @@ how it was chosen.
 
 `{key, url, summary, type, status, assignee, tracked_since, on_candidate, position, cells, decision}`
 
-- `tracked_since`: when the label was added, as an ISO time from the ticket's changelog; `null` when
-  the changelog does not show it.
+- `tracked_since`: when the label was added, as an ISO time from the changelog the Jira sweep holds (14
+  days), else the time the previous file carried for the ticket; `null` when neither shows it (a label
+  added before the sweep's window, on a ticket new to the file).
 - `on_candidate`: whether the range carries it.
 - `position`: the furthest lane it has reached according to the train (`qa`, `daily`, `prod`, `cn`), or
   `null`.
@@ -56,7 +63,9 @@ how it was chosen.
 
 `{key, url, summary, type, status, assignee, parent, services, qa}`
 
-- `services`: the services whose commits or Fixed In name the ticket (`on_candidate` only).
+- `services`: the services whose commits or Fixed In name the ticket (`on_candidate` only). A ticket a
+  commit names but the Jira store holds no row of is listed with an empty `summary` and a
+  `ticket_not_in_facts` gap.
 - `docker`: the docker slugs whose Fixed In names it (`on_candidate` only).
 - `updated`: `YYYY-MM-DD` (`in_dev` only).
 - `qa`: `null`, or `{verdict, source, when}` as promote's evidence reads it from the latest saved

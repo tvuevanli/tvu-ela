@@ -17,10 +17,13 @@
   ela release next --pin REF --why "…" [--apply]   hold the candidate on one bundle; dry run unless --apply
   ela release next --unpin [--apply]                 the newest daily bundle again
 
-Read-only on every source (userservice, Jira, the reports); writes only <published>/releases/ and, with --pin --apply,
-<reports>/releases/next-pin.json. Stdlib only.
-Exit codes: 0 ok · 2 usage · 3 a bundle is not found or the prod host is unreadable · 4 the publish guard refused the
-file (the published copy is left as it was) · 5 a source failed.
+Reads facts only: the fact store the passes refresh at their head (`ela facts refresh`: the Jira sweep and its standing
+release:must and Fixed In queries, the bundle lists and details, Jenkins, the fetched code) and ela's own files (the
+train, the promotion report, the pin). It runs under ELA_FACTS_ONLY, so a read the store cannot answer is a gap in the
+file, never a live call; it starts no model session. --pin resolves its bundle live (an interactive write, not a pass).
+Writes only <published>/releases/ and, with --pin --apply, <reports>/releases/next-pin.json. Stdlib only.
+Exit codes: 0 ok · 2 usage · 3 the store cannot name the bundles · 4 the publish guard refused the file (the published
+copy is left as it was) · 5 a source failed.
 """
 import argparse, datetime, json, os, re, subprocess, sys
 
@@ -28,11 +31,10 @@ HERE = os.path.dirname(os.path.realpath(__file__))
 SKILLS = os.path.dirname(HERE)
 SCHEMA = 1
 EX_USAGE, EX_NOTFOUND, EX_GUARD, EX_REMOTE = 2, 3, 4, 5
-PASSES = ("13:00", "17:30", "19:00")            # the runner's weekday passes that refresh the file
+PASSES = ("08:00", "12:30", "17:30")            # the runner's weekday runs that refresh the file: the morning run, midday, afternoon
 STALE_GRACE_H = 2
-IN_DEV_JQL = 'project = MH AND status in ("In Progress", Review) AND updated >= -14d ORDER BY updated DESC'
+IN_DEV_STATUSES = ("In Progress", "Review")
 MUST_LABEL = "release:must"
-MUST_JQL = f'labels = "{MUST_LABEL}" ORDER BY key'
 BROWSE = "https://tvunetworks.atlassian.net/browse/"
 QA_REPORT_MAX_H = 36
 
@@ -225,7 +227,93 @@ def facts_of(doc):
     return [s for s in out if s]
 
 
-# ── reads ─────────────────────────────────────────────────────────────────────
+# ── reads: the fact store only ─────────────────────────────────────────────────
+# Every input comes from what the passes already read (<runtime>/facts/, refreshed at the head of each pass) and from
+# files ela wrote (the train, the promotion report, the pin). ELA_FACTS_ONLY is set before any read, so a source the
+# store lacks is refused and becomes a gap, never a live call; nothing here starts a model session.
+
+FACT_SOURCES = ("jira", "builds", "code")       # the store's sources this document is computed from
+
+
+def jira_module():
+    sys.path.insert(0, os.path.join(SKILLS, "jira"))
+    import jira as J                              # noqa: E402 — the Jira store's readers
+    return J
+
+
+def facts_module():
+    sys.path.insert(0, os.path.join(SKILLS, "facts"))
+    import facts as F                             # noqa: E402
+    return F
+
+
+def row_of_raw(i):
+    """A stored raw issue (the sweep's or a standing query's) as the row `ticket` reads."""
+    f = i.get("fields") or {}
+    name = lambda o, k="name": (o or {}).get(k)  # noqa: E731
+    return {"key": i.get("key"), "summary": f.get("summary") or "", "status": name(f.get("status")), "type": name(f.get("issuetype")),
+            "assignee": name(f.get("assignee"), "displayName"), "parent": (f.get("parent") or {}).get("key"), "updated": f.get("updated")}
+
+
+def sweep_issues():
+    """The Jira sweep's raw issues (facts/jira/changes.json): MH issues updated within its horizon, with changelog."""
+    F = facts_module()
+    return F.read_json(os.path.join(F.store_dir("jira"), "changes.json"), []) or []
+
+
+def must_from_store(gaps):
+    """(rows, read_at) of the standing `release-must` query; ([], None) and a gap when the store lacks it."""
+    F, J = facts_module(), jira_module()
+    doc = F.read_json(os.path.join(F.store_dir("jira", "queries"), "release-must.json")) or {}
+    if not doc.get("at"):
+        gaps.append({"kind": "jira_not_in_facts", "detail": "no stored release:must query (the next `ela facts refresh` reads it)"})
+        return [], None
+    if doc.get("jql") != J.STANDING["release-must"][0]:
+        gaps.append({"kind": "jira_not_in_facts", "detail": "the stored release:must query predates its current text"})
+    return [row_of_raw(i) for i in doc.get("issues") or []], doc.get("at")
+
+
+def must_since_of(keys, sweep, previous):
+    """{key: when release:must was added}: the sweep's changelog (a label added inside its horizon moved the issue, so the
+    sweep holds it), else the time the previous next.json carried for the key, else None."""
+    hist = {i.get("key"): ((i.get("changelog") or {}).get("histories") or []) for i in sweep}
+    prev = {m.get("key"): m.get("tracked_since") for m in (previous or {}).get("must") or []}
+    return {k: label_added(hist.get(k)) or prev.get(k) for k in keys}
+
+
+def in_dev_from_sweep(sweep, now, days=14):
+    """MH tickets In Progress or Review updated within `days`, newest first, from the sweep (its horizon is 14 days)."""
+    cutoff = (now - datetime.timedelta(days=days)).astimezone(datetime.timezone.utc)
+    J = jira_module()
+    out = []
+    for i in sweep:
+        r = row_of_raw(i)
+        if not str(r["key"] or "").startswith("MH-") or r["status"] not in IN_DEV_STATUSES:
+            continue
+        upd = J.updated_iso(r.get("updated") or "")
+        if upd and datetime.datetime.fromisoformat(upd).astimezone(datetime.timezone.utc) < cutoff:
+            continue
+        out.append(r)
+    return sorted(out, key=lambda r: J.updated_iso(r.get("updated") or ""), reverse=True)
+
+
+def facts_read(gaps, now):
+    """{source: read time} of the store's sources this document uses; a source older than the store's max age, or
+    never read, is a gap: the page states the age, it never hides it."""
+    F = facts_module()
+    out = {}
+    for src in FACT_SOURCES:
+        wm = F.watermark(src)
+        at, t = wm.get("at"), F.parse_iso(wm.get("at"))
+        out[src] = at
+        if t is None:
+            gaps.append({"kind": "facts_missing", "detail": f"facts {src}: never refreshed (ela facts refresh --source {src})"})
+        elif (now - t).total_seconds() > F.max_age_hours() * 3600:
+            gaps.append({"kind": "facts_old", "detail": f"facts {src}: read {t.strftime('%m-%d %H:%M')}, older than {F.max_age_hours():g}h"})
+        if wm.get("gap"):
+            gaps.append({"kind": "facts_gap", "detail": f"facts {src}: {str((wm.get('gap') or {}).get('why'))[:160]}"})
+    return out
+
 
 def run_json(argv, timeout):
     try:
@@ -242,23 +330,11 @@ def run_json(argv, timeout):
         return None, "not json"
 
 
-def jql(env_file, q, limit):
-    argv = ["python3", os.path.join(SKILLS, "jira", "jira.py")] + (["--env-file", env_file] if env_file else []) + ["jql", q, "--limit", str(limit), "--fresh", "--json"]
-    got, err = run_json(argv, 180)
-    return ((got or {}).get("issues") or []), (got or {}).get("read_at"), err
-
-
-def changelog(env_file, key):
-    sys.path.insert(0, os.path.join(SKILLS, "jira"))
-    import jira as J                                  # noqa: E402 — the changelog read the jira verbs use
-    creds, start, out = J.load_env(env_file), 0, []
-    while True:
-        page = J.api_get(creds, f"/rest/api/3/issue/{key}/changelog", {"startAt": start, "maxResults": 100})
-        vals = page.get("values") or []
-        out += vals
-        start += len(vals)
-        if page.get("isLast", True) or not vals:
-            return out
+def previous_doc(s):
+    try:
+        return json.load(open(os.path.join(s.get("published") or "", "releases", "next.json"), encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
 
 
 def pin_path(s):
@@ -296,7 +372,10 @@ def b_of(Rm, row, rule):
 
 
 def gather(line, candidate_ref, env_file, quiet=False):
-    """Every input `build` needs, read now. Exits 3 when the prod host cannot name the bundles."""
+    """Every input `build` needs, from the fact store and ela's own files; no source is read live (ELA_FACTS_ONLY).
+    Exits 3 when the store cannot name the bundles."""
+    os.environ["ELA_FACTS_ONLY"] = "1"
+    os.environ.pop("ELA_FACTS_FRESH", None)
     Rm = R()
     s = Rm.site()
     env_file = env_file or s.get("env")
@@ -304,11 +383,16 @@ def gather(line, candidate_ref, env_file, quiet=False):
     if not cfg:
         print(f"unknown release line {line!r}", file=sys.stderr); sys.exit(EX_USAGE)
     gaps, sources = [], {}
+    now = datetime.datetime.now().astimezone()
 
     def say(m):
         if not quiet:
             print(f"· {m}", file=sys.stderr, flush=True)
-    us = Rm.LazyUS(env_file, "prod")
+    read = facts_read(gaps, now)
+    stamps = {k: (facts_module().parse_iso(v).strftime("%m-%d %H:%M") if facts_module().parse_iso(v) else "never") for k, v in read.items()}
+    sources["facts"] = {"what": "<runtime>/facts/: " + " · ".join(f"{k} {v}" for k, v in stamps.items()),
+                        "at": min((v for v in read.values() if v), default=None)}     # the oldest source the file stands on
+    us = Rm.LazyUS(env_file, "prod")                    # under ELA_FACTS_ONLY a call is refused, never made
     pin = read_pin(s, line)
     ref, source = (candidate_ref, "argument") if candidate_ref else ((pin.get("bundle"), "pin") if pin and pin.get("bundle") else
                                                                      (f"{cfg.get('bundle_line') or f'mh{line}@'}{(cfg.get('lanes') or {}).get('daily')}", "newest"))
@@ -319,7 +403,7 @@ def gather(line, candidate_ref, env_file, quiet=False):
     except SystemExit as e:
         if e.code == EX_USAGE:
             raise
-        print("next: the prod host cannot name the bundles — run: ela login tvu", file=sys.stderr); sys.exit(EX_NOTFOUND)
+        print("next: the fact store cannot name the bundles — run: ela facts refresh --source builds", file=sys.stderr); sys.exit(EX_NOTFOUND)
     if not newest:
         print(f"next: no plain official MediaHub {line} bundle", file=sys.stderr); sys.exit(EX_NOTFOUND)
     released = str(newest.get("createTime") or "") > str(cand_row.get("createTime") or "~")
@@ -334,13 +418,14 @@ def gather(line, candidate_ref, env_file, quiet=False):
     base = b_of(Rm, base_row, "the newest plain official bundle" + (" before the release" if released else ""))
     cand = b_of(Rm, cand_row, rule if source != "pin" else f"held: {pin.get('why') or 'no reason given'}")
 
-    say(f"tickets {base['name']} → {to_ref}")
+    say(f"tickets {base['name']} → {to_ref} (from the fact store)")
     argv = ["python3", os.path.join(SKILLS, "promote", "promote.py")] + (["--env-file", env_file] if env_file else []) + \
         ["--quiet", "tickets", str(line), base["name"], to_ref, "--scope", "all", "--json"]
     tickets, err = run_json(argv, 1200)
     if err:
         print(f"next: promote tickets failed: {err}", file=sys.stderr); sys.exit(EX_REMOTE)
-    sources["tickets"] = {"what": f"ela promote tickets {line} \"{base['name']}\" \"{to_ref}\" --scope all", "at": datetime.datetime.now().astimezone().isoformat(timespec="seconds")}
+    sources["tickets"] = {"what": f"ela promote tickets {line} \"{base['name']}\" \"{to_ref}\" --scope all, from the fact store",
+                          "at": now.isoformat(timespec="seconds")}
 
     report, rname = qa_report(s, line)
     if report:
@@ -362,21 +447,13 @@ def gather(line, candidate_ref, env_file, quiet=False):
     else:
         gaps.append({"kind": "train_missing", "detail": f"no written train for {line} (ela train --line {line} --write); must tickets have no lane cells"})
 
-    say("jira: release:must, in development")
-    must_rows, at, err = jql(env_file, MUST_JQL, 100)
-    if err:
-        gaps.append({"kind": "jira_unread", "detail": f"release:must search: {err}"})
-    must_since = {}
-    for r in must_rows:
-        try:
-            must_since[r["key"]] = label_added(changelog(env_file, r["key"]))
-        except Exception as e:                         # one changelog unread is a gap, never a stop
-            must_since[r["key"]] = None
-            gaps.append({"kind": "changelog_unread", "detail": f"{r['key']}: {str(e)[:120]}"})
-    indev_rows, at2, err = jql(env_file, IN_DEV_JQL, 200)
-    if err:
-        gaps.append({"kind": "jira_unread", "detail": f"in-development search: {err}"})
-    sources["jira"] = {"what": f"{MUST_JQL} · {IN_DEV_JQL}", "at": at2 or at}
+    say("jira: release:must, in development (from the fact store)")
+    must_rows, must_at = must_from_store(gaps)
+    sweep = sweep_issues()
+    must_since = must_since_of([r["key"] for r in must_rows], sweep, previous_doc(s))
+    indev_rows = in_dev_from_sweep(sweep, now)
+    sources["jira"] = {"what": f"the standing release:must query · the sweep's {' / '.join(IN_DEV_STATUSES)} tickets updated within 14 days",
+                       "at": must_at or read.get("jira")}
     return {"line": str(line), "cfg": cfg, "base": base, "candidate": cand, "candidate_source": source, "released": released,
             "released_bundle": b_of(Rm, newest, "") if released else None, "tickets": tickets, "report": report, "train": train,
             "must_rows": must_rows, "must_since": must_since, "indev_rows": indev_rows, "sources": sources, "gaps": gaps}

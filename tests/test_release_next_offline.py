@@ -59,9 +59,11 @@ def check(ok, what):
 
 doc = N.build(inp(), NOW)
 check(doc["schema"] == 1 and doc["generated_at"] == "2026-11-25T17:40:00+08:00", "schema 1 and generated_at with its offset")
-check(doc["stale_after"] == "2026-11-25T21:00:00+08:00", "stale after the next pass (19:00) plus two hours")
+check(doc["stale_after"] == "2026-11-26T10:00:00+08:00", "after 17:30: stale after the next morning run (08:00) plus two hours")
+noon = N.build(inp(), datetime.datetime(2026, 11, 25, 9, 0, tzinfo=TZ))
+check(noon["stale_after"] == "2026-11-25T14:30:00+08:00", "after the morning run: stale after the 12:30 run plus two hours")
 fri = N.build(inp(), datetime.datetime(2026, 11, 27, 19, 30, tzinfo=TZ))
-check(fri["stale_after"] == "2026-11-30T15:00:00+08:00", "Friday evening: stale only after Monday's 13:00 pass")
+check(fri["stale_after"] == "2026-11-30T10:00:00+08:00", "Friday evening: stale only after Monday's morning run")
 check(doc["state"] == "planned" and doc["headline"] == "MediaHub 2.2.0, planned for prod-3 on Monday 30 Nov", "planned: the headline names 2.2.0, prod-3, Monday 30 Nov")
 check(doc["release"] == {"name": "MediaHub 2.2.0", "lane": "prod-3", "planned_for": "2026-11-30", "released_bundle": None}, "release block")
 check(N.release_name("MediaHub 2.1.19", []) == "MediaHub 2.1.20" and N.release_name("MediaHub 2.2.0", ["2.2"]) == "MediaHub 2.2.1", "no newer ships-as number: the next patch")

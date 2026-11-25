@@ -363,7 +363,8 @@ def collect_delta(a, lanes, gaps):
         path = repo_path(rec["repo"]) if rec["repo"] else None
         if not path:
             rec["note"] = f"repo not on disk: {rec['repo']} (ela clone)"; gaps.append({"kind": "repo_missing", "service": slug, "repo": rec["repo"]}); continue
-        say(f"git fetch {os.path.basename(path)}"); git(path, "fetch", "--quiet", "--all", timeout=90)
+        if not F.facts_only():                  # under ELA_FACTS_ONLY the facts pass fetched it (`code`); history is read as it is
+            say(f"git fetch {os.path.basename(path)}"); git(path, "fetch", "--quiet", "--all", timeout=90)
         if not (lo_b and hi_b):
             rec["note"] = f"cannot place both lane versions on Jenkins builds (from: {fhow}; to: {thow})"; continue
         for tag, sha in (("from", lo_b["sha"]), ("to", hi_b["sha"])):
@@ -451,9 +452,28 @@ def parse_fixed_in(text):
     return out
 
 
+NOT_STORED = {"not_in_facts": True}      # jira_read's answer for a key the store lacks under ELA_FACTS_ONLY
+
+
 def jira_read(env_file, key):
     ok, d, err = l1("jira", "read", key, env_file=env_file, timeout=60)
+    if not ok and F.NOT_IN_STORE in (err or ""):
+        return NOT_STORED
     return d if ok else None
+
+
+def fixed_in_rows(a, gaps, why):
+    """Under ELA_FACTS_ONLY, the Fixed In search rows from the store: jira's standing `fixed-in` query (every MH ticket
+    with a Fixed In updated within its window), served as stored; None when the store lacks it (a gap)."""
+    sys.path.insert(0, os.path.join(SKILLS, "jira"))
+    import jira as J                                  # noqa: E402 — the standing query's own text, so the store serves it
+    q, limit, extra = J.STANDING["fixed-in"]
+    args = ["jql", q, "--limit", str(limit)] + [x for f in extra for x in ("--field", f)]
+    ok, d, err = l1("jira", *args, env_file=a.env_file, timeout=120)
+    if not ok:
+        gaps.append({"kind": f"jira_{why}_lookup_failed", "detail": f"the stored Fixed In query: {err}"})
+        return None
+    return d.get("issues") or []
 
 
 JIRA_WORKERS = 6        # reads at once: one report reads hundreds of tickets, and the lanes page runs four reports
@@ -529,7 +549,18 @@ def collect_tickets(a, delta, gaps, docker=None):
     reverse, reverse_fi = {}, {}
     fid = (R.rmap("fixed_in") or {}).get("field") or "customfield_11252"
     cf = re.sub(r"\D", "", fid)
-    if versions:
+    def names_delta_build(fi):
+        return any(e["parsed"] and vlabel(e["parsed"]).split("+")[0] in in_delta.get(e["slug"], ()) for e in fi)
+    if versions and F.facts_only():                     # the stored Fixed In rows, matched here as exactly as the read below
+        for it in fixed_in_rows(a, gaps, "reverse") or []:
+            if any(ALIAS.fullmatch(l) for l in it.get("labels") or []):
+                continue
+            raw = (it.get("extra") or {}).get(fid)
+            fi = parse_fixed_in(adf_text(raw).strip() if raw else "")
+            if names_delta_build(fi):
+                reverse[it.get("key")] = "fixed_in_names_a_delta_build"
+                reverse_fi[it.get("key")] = fi
+    elif versions:
         say(f"jira reverse lookup on {len(versions)} build label(s)")
         clauses = " OR ".join(f'cf[{cf}] ~ "{sl}@{v}"' for sl, v in sorted(versions))
         ok, d, err = l1("jira", "jql", f"({clauses}) ORDER BY key", "--limit", "500", "--field", fid, env_file=a.env_file, timeout=120)
@@ -544,8 +575,6 @@ def collect_tickets(a, delta, gaps, docker=None):
             gaps.append({"kind": "jira_reverse_lookup_failed", "detail": err})
     for k in reverse:
         keys.setdefault(k, {"commits": [], "services": set()})
-    def names_delta_build(fi):
-        return any(e["parsed"] and vlabel(e["parsed"]).split("+")[0] in in_delta.get(e["slug"], ()) for e in fi)
     # the line's label: tickets the release names with no commit in the range — placement says whether they are
     # already on the target (MH-3579 on 2026-11-09: listed as new, on prod-3 since UR Caller 2.1.59)
     labelled, label_keys = set(), set()
@@ -572,6 +601,10 @@ def collect_tickets(a, delta, gaps, docker=None):
     issues = jira_read_all(a.env_file, sorted(keys))
     for k in sorted(keys):
         d = issues[k]
+        if d is NOT_STORED:                             # unknown, not absent: the store holds no row of it
+            out.append({"key": k, "exists": None, "commits": keys[k]["commits"], "services_in_delta": sorted(keys[k]["services"]),
+                        "docker": docker.get(k, []), "flags": ["not_in_facts"]})
+            gaps.append({"kind": "ticket_not_in_facts", "detail": f"{k}: no row in the Jira store (sweep, key cache or standing query)"}); continue
         if not d:
             out.append({"key": k, "exists": False, "commits": keys[k]["commits"], "flags": ["key_not_in_jira"]}); continue
         f = d.get("fields") or {}
@@ -1099,11 +1132,17 @@ def docker_tickets(a, docker, gaps):
     fid = (R.rmap("fixed_in") or {}).get("field") or "customfield_11252"
     cf = re.sub(r"\D", "", fid)
     say(f"jira: Fixed In of {len(moved)} changed docker image(s)")
-    # Jira's text search splits a slug at its hyphens and finds none of them whole; every docker entry starts `mds-`
-    ok, res, err = l1("jira", "jql", f'cf[{cf}] ~ "mds*" ORDER BY key', "--limit", "1000", "--field", fid, env_file=a.env_file, timeout=120)
+    if F.facts_only():
+        rows = fixed_in_rows(a, gaps, "docker")
+        ok, res, err = rows is not None, {"issues": rows or []}, ""
+        if not ok:
+            return {}
+    else:
+        # Jira's text search splits a slug at its hyphens and finds none of them whole; every docker entry starts `mds-`
+        ok, res, err = l1("jira", "jql", f'cf[{cf}] ~ "mds*" ORDER BY key', "--limit", "1000", "--field", fid, env_file=a.env_file, timeout=120)
     if not ok:
         gaps.append({"kind": "jira_docker_lookup_failed", "detail": err}); return {}
-    if len(res.get("issues") or []) >= 1000:
+    if not F.facts_only() and len(res.get("issues") or []) >= 1000:
         gaps.append({"kind": "jira_docker_lookup_truncated", "detail": "1000 rows"})
     by = {d["slug"]: d for d in moved}
     hits = {}
