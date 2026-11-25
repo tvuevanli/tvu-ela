@@ -31,7 +31,9 @@ in the oldest lane read of the window), the fixes under test (the fix stands on 
 reported from it (the ticket names the lane).
 
 **No line**: each ticket without a line label, with the label ela would infer from its Fixed In (the one line whose
-lanes run that slug in the same M.m series) and why, or why none can be. The page writes nothing: the label is a
+lanes run that slug in the same M.m series) and why, or why none can be. A ticket the inference places on the
+forward train is shown in that line's section instead, and no label is proposed for it: the forward train writes no
+`release:mh-*` label (vault `releases/release-naming.md` rule 7, adopted 2026-11-25). The page writes nothing: the label is a
 drafted action for the owner's word until the rule is closed.
 
 ## The page

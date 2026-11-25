@@ -68,9 +68,11 @@ res = RC.collect(ISSUES, CFG, ROWS, BEFORE, {}, TESTLISTS, NOW, 7, "https://jira
 by = {t["key"]: t for ln in res["lines"] for t in ln["tickets"]}
 no = {t["key"]: t for t in res["no_line"]}
 check("the line comes from the label; two labels or none is no line", by["MH-1"]["line"] == "2.1" and by["MH-5"]["line"] == "2.0" and by["MH-8"]["line"] == "2.2"
-      and {"MH-3", "MH-4", "MH-10"} <= set(no) and "MH-10" not in by)
+      and {"MH-4", "MH-10"} <= set(no) and "MH-10" not in by)
+check("no label but a Fixed In on the forward train: placed on 2.1 by Fixed In, no label proposed (release-naming rule 7)",
+      by["MH-3"]["line"] == "2.1" and "2.2.120+175 is in the 2.1 series on" in by["MH-3"]["placed_by"] and "MH-3" not in no)
 check("the sections run 2.1, 2.0, 2.2, then a line with tickets; an empty other line is left out", [l["line"] for l in res["lines"]] == ["2.1", "2.0", "2.2"])
-check("the counts name every line and no line", res["counts"] == {"2.1": 134, "2.0": 1, "2.2": 1, "no line": 3} and res["count"] == 139)
+check("the counts name every line and no line", res["counts"] == {"2.1": 135, "2.0": 1, "2.2": 1, "no line": 2} and res["count"] == 139)
 check("a fix carried by daily and QA but not prod stands at daily", by["MH-1"]["stands"]["text"] == "daily-wed" and by["MH-1"]["stands"]["role"] == "daily")
 check("an alias resolves, and a fix only QA carries names the QA build", by["MH-2"]["stands"]["text"] == "qa-cn3 (build 269)")
 check("a fix on prod with the China lane behind says so", by["MH-7"]["stands"]["text"] == "prod-3 · CN behind")
@@ -81,11 +83,11 @@ check("a Jira name is written the roster's way", by["MH-1"]["assignee"] == "Dev 
 check("seen on reads the lanes the ticket names", by["MH-1"]["seen_on"] == ["prod-3"] and by["MH-5"]["seen_on"] == ["qa-cn2"]
       and RC.lane_words("fails on CN Prod2 and Prod 3, not on daily-wed or Stage") == ["prod-2-china", "prod-3", "daily-wed", "daily-stage"])
 check("last change is the newest move in the window, or created, or updated",
-      by["MH-1"]["last"] == "Review 11-01" and by["MH-2"]["last"] == "created 10-30" and no["MH-3"]["last"] == "Fixed In 11-02"
+      by["MH-1"]["last"] == "Review 11-01" and by["MH-2"]["last"] == "created 10-30" and by["MH-3"]["last"] == "Fixed In 11-02"
       and no["MH-4"]["last"] == "updated 10-31" and by["MH-5"]["last"] == "assigned 10-29" and by["MH-7"]["last"] == "High 10-28")
 check("a move before the window is not an event", len(by["MH-1"]["events"]) == 1)
 check("the label ela would infer comes from the Fixed In series on a line's lanes, and says why none can be",
-      no["MH-3"]["infer"]["label"] == "release:mh-2.1" and "2.2.120+175 is in the 2.1 series on" in no["MH-3"]["infer"]["from"]
+      RC.infer_label([("mediahub-frontend", "2.2.120+175")], RC.lane_versions(ROWS), CFG)["label"] == "release:mh-2.1"
       and no["MH-4"]["infer"] == {"label": None, "line": None, "from": "no Fixed In"})
 lanes = {x["lane"]: x for x in res["lines"][0]["by_lane"]}
 check("by lane: the fix that reached daily in the window arrived there, the QA-only fix is under test, the prod bug is reported from prod",
@@ -106,7 +108,7 @@ check("a line with no lanes says so", "*label only — no lanes confirmed yet*" 
 check("the table folds after N rows and the By lane lists are folded", "> [!note]- " in page and " more\n> | ticket |" in page and "> [!note]- By lane\n> **qa-cn3 (QA-AWS3)** — arrived:" in page)
 check("the seven columns", "| ticket | type · status · assignee | P / due | seen on | fix stands at | QA said | last change |" in page)
 check("a row reads as designed", "| MH-1 · Player freezes on prod-3 after reconnect | Bug · Review · Dev Roster | High | prod-3 | daily-wed | pass on build 80 | Review 11-01 |" in page)
-check("no line names the label ela would infer and writes nothing", "| release:mh-2.1 |" in page and "No label is written" in page and "apply " not in page)
+check("no line names the label ela would infer and writes nothing", "| release:mh-2.1 |" not in page and "No label is written" in page and "apply " not in page)
 check("the page fits the vault's budget outside its folds", RC.open_units(page) <= 1200
       and V.reading_gate(V.Note("recent.md", RC.TITLE, page, {"type": "recent"})) == [])
 check("the vault's units and the page's agree", RC.units("word " * 10 + "[a](https://x/y) 参数") == V.reading_units("word " * 10 + "[a](https://x/y) 参数"))

@@ -3,7 +3,8 @@
 
 L1, stdlib only, read-only. One Jira search (tickets created or updated in the window, changelog expanded) is joined
 with what ela already reads: the line from the ticket's `release:mh-<line>` label (map/release.yaml § lines), where its
-fix stands from the Fixed In field against the lanes' versions as the last lane read saved them (`ela changes`,
+fix stands from the Fixed In field against the lanes' versions (a ticket with no line label whose Fixed In places it
+on the forward train is that train's: the forward train writes no release label, vault releases/release-naming.md) as the last lane read saved them (`ela changes`,
 `ela matrix --page`), what QA said from the lane test lists' state on disk (`ela testlist`), the lane a ticket names in
 its summary or description, and what moved on it in the window. Nothing is written to Jira; the "no line" section
 names the label ela would infer and leaves the write to a drafted action.
@@ -388,6 +389,11 @@ def collect(issues, cfg, rows, before, tested, testlists, now, days, jira_base="
     versions, before_versions = lane_versions(rows), (lane_versions(before) if before is not None else None)
     tickets = [ticket_row(i, cfg, versions, testlists, since, jira_base, names) for i in issues]
     tickets.sort(key=lambda t: t.get("updated") or "", reverse=True)
+    for t in tickets:                               # the forward train writes no label: its tickets are placed by Fixed In
+        if t["line"] is None:
+            inf = infer_label([(e.partition("@")[0], e.partition("@")[2] or None) for e in t["fixed_in"]], versions, cfg)
+            if inf["line"] and not R.writes_label(inf["line"]):
+                t["line"], t["placed_by"] = inf["line"], inf["from"]
     lines = []
     for line in line_order(cfg):
         mine = [t for t in tickets if t["line"] == line]
