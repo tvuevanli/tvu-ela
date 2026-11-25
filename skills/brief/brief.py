@@ -32,7 +32,9 @@ Lanes (project MH) and the flags computed per row, UTC now:
   proposals  mediahub-bot's knowledge proposals ela first saw in the window (24 hours, 72 on a Monday), from the fact
              store (`ela facts refresh`, source proposals): claim, evidence, source, thread · older, state, gap
 
-Output: --json → {"generated", "lanes": {<lane>: {"rows", "count", …}}, "errors": [{lane, query, exit, stderr}]}.
+Output: --json → {"generated", "lanes": {<lane>: {"rows", "count", …}}, "release_due", "errors": [{lane, query, exit, stderr}]}.
+`release_due` (the whole brief only): whether a release of <published> is due, from `publish.py release --json` read at
+most once a day and kept in <runtime>/runner/release-due-<date>.json; its `line` is the morning page's reminder, or null.
 A lane that could not be read is in `errors`, never an empty lane. No writes anywhere.
 
 Exit codes: 0 ok · 2 usage · 5 a lane could not be read (the rest is still printed).
@@ -723,6 +725,59 @@ def unheld_lanes(lanes, holds=None, today=None):
     return out, list(held.values())
 
 
+PUBLISH = os.path.join(HERE, "..", "publish", "publish.py")
+
+
+def release_due_line(r):
+    """The morning page's one line when `ela publish release --json` says a release of <published> is due, else None.
+    The release happens only on the owner's signal (elak decisions/2026-11-25-published-knowledge-is-a-versioned-
+    release.md); this line is the reminder, and it stays every morning until he releases."""
+    if not r.get("due"):
+        return None
+    changed = r.get("elak_changed")
+    n = len(changed) if changed is not None else r.get("would_commit") or 0
+    since = (r.get("last_release") or "")[:12] or "none"
+    guard = f"; the release guard refuses {r['refused']} line(s), `ela publish check`" if r.get("refused") else ""
+    return (f"elak-published: a release is due ({n} paths changed since {since}){guard}"
+            " → review in the mirror vault, then say publish")
+
+
+def release_due(today=None, runner_dir=None, run=None):
+    """Whether a release of <published> is due, read at most once a day: the day's first call runs `ela publish release
+    --json` (a dry run; it commits and posts nothing) and keeps the verdict in <runtime>/runner/release-due-<date>.json,
+    which every later call that day returns. A failed read is not kept, so the next call tries again.
+    → {date, read_at, due, changed, last_release, refused, line} or {date, line: None, error}."""
+    today = today or datetime.date.today().isoformat()
+    if runner_dir is None:
+        try:
+            site = json.load(open(SITE))
+        except (OSError, ValueError):
+            site = {}
+        runner_dir = os.path.join(site.get("runtime") or os.path.join(site.get("projects", ""), ".ela"), "runner")
+    path = os.path.join(runner_dir, f"release-due-{today}.json")
+    try:
+        return json.load(open(path, encoding="utf-8"))
+    except (OSError, ValueError):
+        pass
+    try:
+        r = (run or run_json)([sys.executable, PUBLISH, "release", "--json"], timeout=300)
+    except (LaneError, subprocess.TimeoutExpired, ValueError, OSError) as e:
+        return {"date": today, "line": None, "error": str(e.args[0] if e.args else e)[:300]}
+    changed = r.get("elak_changed")
+    out = {"date": today, "read_at": datetime.datetime.now().astimezone().isoformat(timespec="seconds"),
+           "due": bool(r.get("due")), "changed": len(changed) if changed is not None else None,
+           "last_release": r.get("last_release"), "refused": r.get("refused") or 0, "line": release_due_line(r)}
+    try:
+        os.makedirs(runner_dir, exist_ok=True)
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(out, f)
+        os.replace(tmp, path)
+    except OSError:
+        pass                                                # not kept: the line is still right, read again next call
+    return out
+
+
 def cmd_lanes(args):
     now = datetime.datetime.now(datetime.timezone.utc)
     want = [args.lane] if args.lane else list(LANES)
@@ -754,14 +809,17 @@ def cmd_lanes(args):
                 errors.append({"lane": name, **exc.args[0]})
 
     lanes, held = unheld_lanes(lanes)
+    due = None if args.lane else release_due()            # the whole brief only: one lane asked for is not the morning
     if args.json:
         print(json.dumps({"generated": now.strftime("%Y-%m-%dT%H:%M:%SZ"), "day": day_plan(datetime.date.today()),
-                          "lanes": lanes, "held": held, "errors": errors}, ensure_ascii=False))
+                          "lanes": lanes, "held": held, "release_due": due, "errors": errors}, ensure_ascii=False))
     else:
         print(f"# brief · jira lanes · {now.strftime('%Y-%m-%d %H:%M')}Z\n")
         for name in want:
             if name in lanes:
                 print_table(name, lanes[name])
+        if due and (due.get("line") or due.get("error")):
+            print(due.get("line") or f"elak-published release: not read ({due['error']})")
         for e in errors:
             print(f"## {e['lane']} — NOT READ (exit {e['exit']}): {e['stderr']}", file=sys.stderr)
     if errors:

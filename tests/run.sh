@@ -103,6 +103,7 @@ python3 tests/test_promote_constraints_offline.py || fail=1
 python3 tests/test_promote_pending_offline.py || fail=1
 python3 tests/test_brief_pending_offline.py || fail=1
 python3 tests/test_brief_lanes_offline.py || fail=1
+python3 tests/test_brief_release_due_offline.py || fail=1
 python3 tests/test_release_pins_offline.py || fail=1
 python3 tests/test_release_next_offline.py >/dev/null || { echo "release next offline failed"; fail=1; }
 python3 tests/test_release_next_facts_offline.py >/dev/null 2>&1 || { echo "release next facts-only offline failed"; fail=1; }

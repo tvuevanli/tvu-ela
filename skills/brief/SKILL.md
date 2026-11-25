@@ -464,6 +464,13 @@ answer ends with what he should do, what he can do, and how (working-with-evan.m
 **One place per day.** An item appears once. A key inside a lanes-table cell or a Changes page callout is evidence,
 not an appearance.
 
+**A due release of `<published>` is one line, never an item.** `release_due.line` in `<date>-brief.json` (`ela pick
+release_due.line --file …`), when it is not null, is the first bullet under `## FYI`, copied as it is: no box, no
+number, no Slack post, nothing committed. It comes back every morning until he releases (`ela publish release
+--apply` on his word), because brief.py reads the verdict once a day and the release changes it. A `release_due.error`
+is named in the gaps line. *Why: the team's knowledge is released only on his signal, and nothing else reminds him
+that one is due (elak decisions/2026-11-25-published-knowledge-is-a-versioned-release.md).*
+
 Then:
 
 ```
