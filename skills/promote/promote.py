@@ -9,6 +9,8 @@ Fixed In, a Fixed In against the build that carries it, a claim against QA's own
   tickets  <line> <from> <to> [--scope]          every key the delta names ∪ every ticket whose Fixed In names a delta build; reconciled
   evidence <line> <from> <to> [--scope] [--since YYYY-MM-DD]   QA verdicts per key from Jira comments, mail and Slack
   bundles  <line> <from> <to>                    the two lanes' newest bundles, docker service by docker service
+           lanes · commits · tickets also take two bundles for <from>/<to> (a name, an id, `base` for <from>): a release
+           note's range, bundle to bundle; tickets then adds the changed docker images' Fixed In tickets and the epics
   report   <line> <from> <to> [--purpose regular|prod-staging|demo] [--scope] [--out DIR]   all of it, ranked and capped
   plan     <line> <from> <to> --on YYYY-MM-DD --after "<condition>" [--carry KEY…] [--check] [--json]
            a planned promotion in the pending record (local file only, never Slack): the day, the condition in
@@ -171,6 +173,8 @@ def read_host(env_file, host, gaps):
 
 
 def collect_lanes(a, gaps):
+    if bundle_mode(a):
+        return collect_bundle_lanes(a, gaps)
     cfg = line_cfg(a.line)
     f_lane, t_lane = lane_name(cfg, a.src), lane_name(cfg, a.dst)
     hosts = {}
@@ -485,13 +489,27 @@ def person_area(roster, display_name):
     return ""
 
 
+def parent_of(f):
+    """A ticket's parent as {key, type, summary, status}, from the fields Jira returns with it; None without one."""
+    p = f.get("parent") or {}
+    if not p.get("key"):
+        return None
+    pf = p.get("fields") or {}
+    return {"key": p["key"], "type": (pf.get("issuetype") or {}).get("name"), "summary": pf.get("summary"),
+            "status": (pf.get("status") or {}).get("name")}
+
+
 ALIAS = re.compile(r"[A-Z][A-Z0-9]{1,5}-0\d{1,5}")      # a FloSports-style item id among a ticket's labels (MH-030)
 
 
-def collect_tickets(a, delta, gaps):
+def collect_tickets(a, delta, gaps, docker=None):
+    """`docker`: {key: [hits]} from docker_tickets — tickets an image tag in the range carries, kept with no commit."""
     cfg = line_cfg(a.line)
     label = cfg.get("label")
+    docker = docker or {}
     keys, refs = {}, {}
+    for k in docker:
+        keys.setdefault(k, {"commits": [], "services": set()})
     for s in delta["services"]:
         for c in s["commits"]:
             for k in c["owner_keys"]:
@@ -531,7 +549,7 @@ def collect_tickets(a, delta, gaps):
     # the line's label: tickets the release names with no commit in the range — placement says whether they are
     # already on the target (MH-3579 on 2026-11-09: listed as new, on prod-3 since UR Caller 2.1.59)
     labelled, label_keys = set(), set()
-    if label:
+    if label and not bundle_mode(a):                       # bundle to bundle: a ticket enters by a commit or a Fixed In, not by its label
         ok, d, err = l1("jira", "jql", f'labels = "{label}" AND updated >= -60d ORDER BY key', "--limit", "1000", env_file=a.env_file, timeout=180)
         if ok and len(d.get("issues") or []) >= 1000:
             gaps.append({"kind": "jira_label_lookup_truncated", "detail": f"{label}: 1000 rows; tickets past the last key are not read"})
@@ -545,7 +563,7 @@ def collect_tickets(a, delta, gaps):
             gaps.append({"kind": "jira_label_lookup_failed", "detail": err})
     # the text search matches loosely ("2.0.84" finds 2.0.841): a key it alone brought, whose Fixed In names no build in
     # the range, is dropped here on the search row's Fixed In, the same test the read below applies, without a read
-    loose = [k for k in reverse if k in reverse_fi and not keys[k]["commits"] and k not in label_keys and not names_delta_build(reverse_fi[k])]
+    loose = [k for k in reverse if k in reverse_fi and not keys[k]["commits"] and k not in label_keys and k not in docker and not names_delta_build(reverse_fi[k])]
     for k in loose:
         del keys[k]
     roster = load_roster()
@@ -570,7 +588,7 @@ def collect_tickets(a, delta, gaps):
         fi_raw = f.get(fid)
         fi_text = adf_text(fi_raw).strip() if fi_raw else ""
         fi = parse_fixed_in(fi_text)
-        if k in reverse and not keys[k]["commits"] and k not in label_keys and not names_delta_build(fi):
+        if k in reverse and not keys[k]["commits"] and k not in label_keys and k not in docker and not names_delta_build(fi):
             continue                        # the text search matched loosely; its Fixed In names no build in the range
         svcs = sorted(keys[k]["services"])
         flags = []
@@ -586,7 +604,7 @@ def collect_tickets(a, delta, gaps):
             flags.append("referenced_by_docs_only")
         if k in reverse and not keys[k]["commits"]:
             flags.append("fixed_in_claims_delta_build_but_no_commit_names_it")
-        if k in labelled or (k in label_keys and not keys[k]["commits"]):
+        if (k in labelled or (k in label_keys and not keys[k]["commits"])) and k not in docker:
             flags.append("labelled_only")
         # Fixed In vs carrier: every service with code commits should have a Fixed In entry inside the delta
         fi_by_slug = {e["slug"]: e for e in fi}
@@ -611,19 +629,27 @@ def collect_tickets(a, delta, gaps):
             comments.append({"who": who, "area": person_area(roster, who), "when": (c.get("created") or "")[:10], "text": adf_text(c.get("body")).strip()})
         out.append({"key": k, "exists": True, "summary": f.get("summary"), "status": st, "description": adf_text(f.get("description")).strip()[:6000] if f.get("description") else "", "assignee": asg, "labels": labels, "fixed_in": fi_text, "fixed_in_entries": fi,
                     "services_in_delta": svcs, "commits": keys[k]["commits"], "reverse": reverse.get(k), "flags": flags, "comments": comments,
-                    "url": d.get("url")})
+                    "url": d.get("url"), "docker": docker.get(k, []), "type": ((f.get("issuetype") or {}).get("name")),
+                    "parent": parent_of(f)})
     return {"line": a.line, "label": label, "tickets": out, "referenced_only": {k: v for k, v in refs.items() if k not in keys}}
 
 
 def cmd_tickets(a):
     gaps = []
     lanes = collect_lanes(a, gaps); delta = collect_delta(a, lanes, gaps)
-    res = collect_tickets(a, delta, gaps); res["gaps"] = gaps
+    dock = docker_tickets(a, lanes.get("docker") or [], gaps) if "docker" in lanes else {}
+    res = collect_tickets(a, delta, gaps, docker=dock); res["gaps"] = gaps
+    if "docker" in lanes:                                  # bundle to bundle: the images, and the epics the range's tickets sit under
+        res["bundles"] = lanes["bundles"]
+        res["docker"] = [dict(d, tickets=sorted(k for k, hs in dock.items() if any(h["slug"] == d.get("slug") for h in hs))) for d in lanes["docker"]]
+        res["epics"] = epics_of([t for t in res["tickets"] if t.get("exists")])
     if a.json:
         for t in res["tickets"]:
             t.pop("comments", None)
         print(json.dumps(res, ensure_ascii=False)); return
     print(f"# {a.line} tickets in {lanes['from']} → {lanes['to']}  ({len(res['tickets'])})")
+    for k, b in (res.get("bundles") or {}).items():
+        print(f"  {k}: {b['name']}  ({b['id']}, {b.get('created') or '?'}; {b.get('rule')})")
     for t in res["tickets"]:
         if not t["exists"]:
             print(f"  {t['key']:<9} NOT IN JIRA  commits: {len(t['commits'])}"); continue
@@ -632,6 +658,14 @@ def cmd_tickets(a):
             print(f"            ! {'; '.join(t['flags'])}")
     if res.get("referenced_only"):
         print("  referenced in commit bodies only (context, not carried): " + ", ".join(sorted(res["referenced_only"])))
+    if "docker" in res:
+        print(f"\n## docker images changed ({len(res['docker'])})")
+        for d in res["docker"]:
+            print(f"  {d['service']:<44} {d['from'] or '—':<22} → {d['to'] or '—':<22} {d['relation']:<10} "
+                  + (", ".join(d["tickets"]) if d["tickets"] else "no ticket's Fixed In names this range"))
+        print(f"\n## epics ({len(res['epics'])}) — each takes its children's version")
+        for e in res["epics"]:
+            print(f"  {e['key']:<9} [{str(e['status']):<11}] {str(e['summary'] or '')[:60]:<60} children: {', '.join(e['children'])}")
     for g in gaps:
         print(f"! {g}")
 
@@ -913,6 +947,186 @@ def cmd_bundles(a):
         print(f"  - only in to:   {x['service']} ({x['tag']})")
     for g in gaps:
         print(f"! {g}")
+
+
+# ── bundle to bundle: a release note's range ─────────────────────────────────
+# A release note compares two named bundles, never a lane (owner's ruling, 2026-11-25: MediaHub 2.1.19 → MediaHub 2.2.0).
+# The lanes and tickets verbs take a bundle name, an id or `base` for <from>/<to>; the two bundles' rows then stand in for
+# the two lanes and the same delta and ticket reconciliation runs. `base` is the newest plain official bundle of the train
+# created before <to> (release.release_base): a qualified one — (POC), (UR/J2N Prod 9), China, a customer's name — never.
+# A bundle's SaaS rows show its tag's version as the tag stands now (map release.yaml bundle_names.saas_rows_mirror_the_lane);
+# its docker rows are its own content. A docker image moves no commit range ela reads, so its tickets come from Fixed In.
+
+def is_bundle_ref(v):
+    v = str(v or "")
+    return v == "base" or "@" in v or v.startswith("MediaHub ") or bool(re.fullmatch(r"\d{15,20}", v))
+
+
+def bundle_mode(a):
+    return is_bundle_ref(a.src) or is_bundle_ref(a.dst)
+
+
+def _bundle_row(us, bid, name):
+    return next((b for b in R.bundle_list(us, name, 50) if str(b.get("bundleId")) == str(bid)), {"bundleId": bid, "bundleName": name})
+
+
+def docker_slugs():
+    """GM service id and GM name → mds slug, from the published services.yaml rows (release._gm_slugs reads the names)."""
+    by_id = {}
+    try:
+        text = open(os.path.join(R.site().get("map", ""), "services.yaml"), encoding="utf-8").read()
+    except OSError:
+        text = ""
+    for ln in text.splitlines():
+        m = re.match(r"^      - (\{.*\})\s*$", ln)
+        if m:
+            try:
+                row = json.loads(m.group(1))
+            except ValueError:
+                continue
+            if row.get("service_id") and row.get("slug"):
+                by_id.setdefault(str(row["service_id"]), str(row["slug"]))
+    return by_id, R._gm_slugs()
+
+
+def tag_version_at(service, tag, at):
+    """The version a prod tag carried for a service at `at` ("YYYY-MM-DD HH:MM"), from the saved lane reads
+    (<runtime>/runner, brief.lane_reads): the last read at or before it. (version, "YYYY-MM-DD HHMM") or (None, None)."""
+    runner = os.path.join(R.site().get("runtime") or os.path.join(R.site().get("projects", ""), ".ela"), "runner")
+    day, hm = at[:10], at[11:16].replace(":", "")
+    best = (None, None)
+    for d, t, rows in B.lane_reads(runner, since=(datetime.date.fromisoformat(day) - datetime.timedelta(days=14)).isoformat()):
+        if (d, t) > (day, hm):
+            break
+        for r in rows:
+            if r.get("service") == service and r.get("tag") == tag and r.get("host") == "prod" and r.get("version"):
+                best = (r["version"], f"{d} {t}")
+    return best
+
+
+def collect_bundle_lanes(a, gaps):
+    """Two bundles as the delta's two ends: the lanes structure collect_lanes returns, from the bundles' SaaS rows, plus
+    the docker rows that changed."""
+    if not is_bundle_ref(a.src) or not is_bundle_ref(a.dst) or a.dst == "base":
+        print("bundle to bundle: <from> and <to> are both bundles (a name, an id, or `base` for <from>)", file=sys.stderr); sys.exit(EX_USAGE)
+    us = R.LazyUS(a.env_file, "prod")
+    sides = {}
+    try:
+        bid, name, rule = R.resolve_bundle_loose(us, a.dst)
+        sides["to"] = dict(_bundle_row(us, bid, name), rule=rule)
+        if a.src == "base":
+            b = R.release_base(us, a.line, before=sides["to"])
+            if not b:
+                print(f"no plain official MediaHub {a.line} bundle before {name}", file=sys.stderr); sys.exit(EX_LANE)
+            sides["from"] = dict(b, rule=f"base: the newest plain official bundle before {name}")
+            say(f"base → {b.get('bundleName')}")
+        else:
+            bid, name, rule = R.resolve_bundle_loose(us, a.src)
+            sides["from"] = dict(_bundle_row(us, bid, name), rule=rule)
+        items = {k: R.bundle_detail(us, str(v["bundleId"])).get("serviceTagList") or [] for k, v in sides.items()}
+    except SystemExit as e:
+        if e.code == EX_USAGE:
+            raise
+        print("bundle to bundle: the prod host is unreadable — run: ela login tvu", file=sys.stderr); sys.exit(EX_LANE)
+    sids = R.rmap("service_ids") or {}
+    slugs = scope_slugs(a.scope)
+    to_at = R.when(sides["to"].get("createTime")) if sides["to"].get("createTime") else None
+    rows = {"from": {}, "to": {}}                    # slug → (version, tag)
+    for k, its in items.items():
+        for i in its:
+            for slug, field in (tuple(x) for x in sids.get(str(i.get("serviceId")), [])):
+                v = str(i.get(field) or "").strip()
+                if v:
+                    rows[k][slug] = (v, str(i.get("tagName") or ""))
+    out = []
+    for slug in slugs:
+        f, t = rows["from"].get(slug), rows["to"].get(slug)
+        side = lambda r, src="bundle row (its tag now)": r and {"version": r[0], "parsed": parse_version(r[0]), "tag": r[1], "host": "prod", "source": src, "at": now()}  # noqa: E731
+        # the from bundle's tag as it stood when the to bundle was made: read now, a tag the deploy has since moved
+        # would show the new release on both sides
+        old, when_read = tag_version_at(slug, f[1], to_at) if f and to_at else (None, None)
+        if f and not old:
+            gaps.append({"kind": "from_tag_not_in_lane_reads", "detail": f"{slug}: no saved read of {f[1]} at or before {to_at}; the tag's version now is used"})
+        fr, to = (side((old, f[1]), f"lane read {when_read}") if old else side(f)), side(t)
+        rel = None
+        if fr and to:
+            c = cmp_versions(slug, fr["parsed"], to["parsed"])
+            rel = {1: "from_ahead", 0: "same", -1: "to_ahead", None: "unparsed"}[c]
+        out.append({"service": slug, "from_lane": f and f[1], "to_lane": t and t[1], "from": fr, "to": to, "relation": rel,
+                    "other_lanes_ahead_of_to": [], "unreadable": []})
+    by_id, by_name = docker_slugs()
+    dk = {k: {str(i.get("serviceName") or "").strip(): i for i in its if str(i.get("serviceName") or "").startswith("Docker")} for k, its in items.items()}
+    docker = []
+    for gm in sorted(set(dk["from"]) | set(dk["to"])):
+        f, t = dk["from"].get(gm), dk["to"].get(gm)
+        ft, tt = f and str(f.get("tagName") or ""), t and str(t.get("tagName") or "")
+        if ft == tt:
+            continue
+        i = t or f
+        slug = by_id.get(str(i.get("serviceId"))) or by_name.get(gm)
+        pf, pt = parse_version(ft), parse_version(tt)
+        rel = "added" if not f else "removed" if not t else ({1: "from_ahead", -1: "to_ahead", 0: "same"}[(pf > pt) - (pf < pt)] if pf and pt else "named_tags_not_comparable")
+        docker.append({"service": gm, "slug": slug, "from": ft, "to": tt, "relation": rel})
+        if not slug:
+            gaps.append({"kind": "docker_slug_unknown", "detail": f"{gm}: no mds slug in map/services.yaml; its Fixed In entries cannot be matched"})
+    gaps.append({"kind": "saas_rows_are_the_tag_now", "detail": "a bundle's SaaS rows show its tag's current version, not a frozen snapshot (map release.yaml bundle_names): "
+                 f"<to> is its tags now; <from> its tags as the saved lane reads had them when <to> was made ({to_at})"})
+    fn, tn = sides["from"].get("bundleName"), sides["to"].get("bundleName")
+    return {"line": a.line, "from": fn, "to": tn, "services": out, "hosts_read": {"prod": True}, "docker": docker,
+            "bundles": {k: {"name": v.get("bundleName"), "id": str(v.get("bundleId")), "created": R.when(v.get("createTime")) if v.get("createTime") else None,
+                            "rule": v.get("rule")} for k, v in sides.items()}}
+
+
+def _tag_of(entry_version):
+    """`tvu/hls_copier:1.0.90` → `1.0.90`; a docker Fixed In entry's image tag."""
+    return str(entry_version or "").rsplit(":", 1)[-1].strip()
+
+
+def in_docker_range(tag, frm, to):
+    """Whether an image tag is inside (frm, to]: by version where all three parse, else equal to `to`."""
+    pv, pf, pt = parse_version(tag), parse_version(frm), parse_version(to)
+    if pv and pt and (pf or not frm):
+        return (not pf or pv > pf) and pv <= pt
+    return tag == to
+
+
+def docker_tickets(a, docker, gaps):
+    """{key: [{slug, entry, from, to}]}: tickets whose Fixed In names an image tag inside a changed docker row's range
+    (the release map's `mds-<slug>@<image>:<tag>` form, parsed by parse_fixed_in)."""
+    moved = [d for d in docker if d.get("slug") and d.get("to") and d["relation"] != "removed"]
+    if not moved:
+        return {}
+    fid = (R.rmap("fixed_in") or {}).get("field") or "customfield_11252"
+    cf = re.sub(r"\D", "", fid)
+    say(f"jira: Fixed In of {len(moved)} changed docker image(s)")
+    # Jira's text search splits a slug at its hyphens and finds none of them whole; every docker entry starts `mds-`
+    ok, res, err = l1("jira", "jql", f'cf[{cf}] ~ "mds*" ORDER BY key', "--limit", "1000", "--field", fid, env_file=a.env_file, timeout=120)
+    if not ok:
+        gaps.append({"kind": "jira_docker_lookup_failed", "detail": err}); return {}
+    if len(res.get("issues") or []) >= 1000:
+        gaps.append({"kind": "jira_docker_lookup_truncated", "detail": "1000 rows"})
+    by = {d["slug"]: d for d in moved}
+    hits = {}
+    for it in res.get("issues") or []:
+        raw = (it.get("extra") or {}).get(fid)
+        for e in parse_fixed_in(adf_text(raw).strip() if raw else ""):
+            d = by.get(e["slug"])
+            if e["docker"] and d and in_docker_range(_tag_of(e["version"]), d["from"], d["to"]):
+                hits.setdefault(it["key"], []).append({"slug": e["slug"], "entry": f"{e['slug']}@{e['version']}", "from": d["from"], "to": d["to"]})
+    return hits
+
+
+def epics_of(tickets):
+    """An epic takes its children's version: [{key, summary, status, children, services}] for each Epic parent of a
+    ticket in the range, the epic itself read from the child's parent field."""
+    out = {}
+    for t in tickets:
+        p = t.get("parent") or {}
+        if p.get("key") and str(p.get("type") or "").lower() == "epic":
+            e = out.setdefault(p["key"], {"key": p["key"], "summary": p.get("summary"), "status": p.get("status"), "children": [], "services": set()})
+            e["children"].append(t["key"])
+            e["services"] |= set(t.get("services_in_delta") or []) | {x["slug"] for x in t.get("docker") or []}
+    return [dict(e, services=sorted(e["services"])) for _, e in sorted(out.items())]
 
 
 def collect_untracked(a, delta, gaps):

@@ -13,6 +13,7 @@ P="ela promote"
 $P report 2.1 qa daily --purpose prod-staging --bundles --out <runtime>/promote   # everything, ranked; JSON + markdown
 $P report 2.1 qa prod --purpose prod-deploy --out <runtime>/promote                # the deploy gate: four fixed sections
 $P lanes|commits|tickets|evidence|bundles 2.1 qa daily                            # one step at a time when arguing with a finding
+$P tickets 2.1 base "MediaHub 2.2.0" --scope all                                 # a release note's range, bundle to bundle (below)
 $P proof text <file> --lane daily-wed | graph <id> --lane L | lane L           # the environment proof; `lane` reads the lane's own /base/version
 $P constraints [--json]                                                            # the standing constraints, each pin read now; exit 3 when one is over
 $P plan 2.1 daily prod --on 2026-11-06 --after "QA's report on Thursday's build" --carry MH-1860   # a planned promotion, local file only
@@ -64,6 +65,13 @@ lane behind it, the dry-run bundle command. The line's promotion stays here, and
   trailer) already in the target build's history places that part on the target (MH-3668); a part Fixed In calls new
   with no carrying commit in the range is `disputed`, a medium finding for the owner, never new (MH-3886). A label
   such as MH-030 is the item id the range's commits use for the ticket.
+- **A release note compares two bundles, never a lane** (owner's ruling, 2026-11-25). `lanes`, `commits` and
+  `tickets` take a bundle name, an id, or `base` for <from>: the newest plain official bundle of the train made before
+  <to> — never one with a qualifier, (POC), (UR/J2N Prod 9), China, a customer's name. The bundles' SaaS rows stand in
+  for the lanes: <to> as its tags are now, <from> as the saved lane reads had its tags when <to> was made, since a
+  deployed tag moves. Docker images that changed bring their tickets through Fixed In (`mds-<slug>@<image>:<tag>` inside
+  the range), each image listed with its tickets or "no ticket's Fixed In names this range"; the epics the tickets sit
+  under are listed with their children. The line's label brings no ticket in this mode.
 - **What the deploy needs is read, not asked for.** `prereqs.py` scans the release's tickets (description, comments)
   and the docs the range changes for deploy-time items (an SQL statement on a table, a one-off backfill call, a
   发版待办 list, a key = value beside a release word), lists the release-branch commits after the promoted build, and
