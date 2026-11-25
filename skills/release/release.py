@@ -2629,11 +2629,17 @@ def main():
     p.add_argument("--apply", action="store_true", help="register the images dev lacks, then create the docker-only dev bundle and read it back; one source only")
     p = sub.add_parser("line", help="one release line as one page: lanes, next promotion, docker differences, builds, history (local files only)")
     p.add_argument("line"); p.add_argument("--json", action="store_true")
+    p = sub.add_parser("next", help="the next release as data → <published>/releases/next.json: base, candidate, must, on the candidate, in development, docker (nextrel.py; `ela release next --help`)", add_help=False)
+    p.add_argument("rest", nargs=argparse.REMAINDER)
     p = sub.add_parser("login"); p.add_argument("target", nargs="?", choices=("qa", "tvu", "cn"), default="tvu"); p.add_argument("--force", action="store_true"); p.add_argument("--no-browser", action="store_true"); p.add_argument("--timeout", type=int, default=300); p.add_argument("--json", action="store_true")
     p.add_argument("--keepalive", action="store_true", help="tvu: one validation call that renews the session's idle TTL; never logs in, never retries")
     p.add_argument("--as", dest="as_", choices=("test",), help="tvu: sign in the second account product tests act as (session `tvu-test`, ela browser --as test); opens Chrome on ela's own profile")
     p.add_argument("--browser", choices=("chrome",), help="open the sign-in page in Google Chrome instead of the default browser")
     p.add_argument("--host", choices=("prod", "dev"), default="prod", help="tvu: dev signs the owner in on dev (session `tvu-dev`, kept apart from prod's `tvu-com`); opens Chrome on ela's own profile")
+    args = sys.argv[1:]                                # `next` is its own script: every flag after it is nextrel.py's
+    env = args[:2] if args[:1] == ["--env-file"] else []
+    if args[len(env):len(env) + 1] == ["next"]:
+        os.execvp("python3", ["python3", os.path.join(os.path.dirname(os.path.realpath(__file__)), "nextrel.py")] + env + args[len(env) + 1:])
     a = ap.parse_args()
     # An unattended session (ELA_NO_APPLY) reads and dry-runs: a bundle create, a pin or a reconcile batch writes to GM
     # or commits to elak, and runs on the owner's word through the runner's `apply N`, never from a session.

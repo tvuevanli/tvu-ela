@@ -99,6 +99,7 @@ python3 tests/test_promote_pending_offline.py || fail=1
 python3 tests/test_brief_pending_offline.py || fail=1
 python3 tests/test_brief_lanes_offline.py || fail=1
 python3 tests/test_release_pins_offline.py || fail=1
+python3 tests/test_release_next_offline.py >/dev/null || { echo "release next offline failed"; fail=1; }
 python3 tests/test_release_train_alias_offline.py || fail=1
 python3 tests/test_release_gateway_offline.py || fail=1
 python3 tests/test_release_create_offline.py || fail=1
