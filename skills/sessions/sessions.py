@@ -3,6 +3,7 @@
 
   sessions open <alias|path> [--name N] [--tab | --pane] [--brief FILE] [--permission-mode M] [--dry-run] ["brief"]
   sessions close <name> [--dry-run]
+  sessions reap [--apply] [--json] | reap --last
   sessions land <name> [--repo ela|runner] [--dry-run]
   sessions list [--limit 30] [--json]
   sessions usage [--since 7d|48h|YYYY-MM-DD] [--by kind|name|day|cwd|model] [--top 10] [--json]
@@ -32,6 +33,21 @@ are removed. Any failed step refuses with its reason and leaves main where it wa
 
 close: ends a live session by name: TERM to its Claude process, then its pane (`zellij action close-pane
 --pane-id`), and an end line "closed by desk" in the registry. The desk runs it after the worker's closing line.
+
+reap: every live session in the registry (not ended, its process alive) gets one state from first-hand facts, in
+this order: desk (the session reap runs in, one named ela or desk, or one started in the projects root: never
+touched) · runner (a runner job's own session: it ends itself) ·
+dirty (an uncommitted change in its worktree <work>/<N>/<repo>) · to-land (evan/<N> has commits beyond main, the
+worktree clean) · no-brief (no typed message, or the only reply asks for a task) · landed (the worktree is gone, or
+the branch has nothing beyond main after commits of its own, the worktree clean) · signed-off (the last reply's last
+line is `— ela out 🦀`) · waiting-owner (the last reply asks a question: its line is shown) · busy (anything else).
+One row each: name, state, minutes since the last reply, the reason.
+--apply, once each session has been idle 10 minutes: `land` each to-land whose last reply says it is ready (once;
+a refusal is reported and the session stays open), then `close` each landed session, and each signed-off one with
+nothing to land; a session started by hand (no name from `session open`) is only reported, since it closes on the
+owner's word. busy, dirty, waiting-owner and no-brief are never closed; `claude --resume <id>` brings back any
+closed one. The result goes to <runtime>/sessions/reap.json; --last prints its sessions left open, one line each
+(the desk's session start shows them).
 
 Under a test (ELA_TEST=1, exported by tests/run.sh) a live open or close refuses, exit 2, unless the zellij on PATH
 lies under the temp directory: a test reaches only a stub, never the owner's zellij or a real Claude session.
@@ -398,7 +414,22 @@ def live(name):
 
 
 def test_refusal():
-    """Under a test (ELA_TEST=1, which tests/run.sh exports), the reason a live open or close must not run: the zellij
+    """reap: every live session in the registry (not ended, its process alive) gets one state from first-hand facts, in
+this order: desk (the session reap runs in, one named ela or desk, or one started in the projects root: never
+touched) · runner (a runner job's own session: it ends itself) ·
+dirty (an uncommitted change in its worktree <work>/<N>/<repo>) · to-land (evan/<N> has commits beyond main, the
+worktree clean) · no-brief (no typed message, or the only reply asks for a task) · landed (the worktree is gone, or
+the branch has nothing beyond main after commits of its own, the worktree clean) · signed-off (the last reply's last
+line is `— ela out 🦀`) · waiting-owner (the last reply asks a question: its line is shown) · busy (anything else).
+One row each: name, state, minutes since the last reply, the reason.
+--apply, once each session has been idle 10 minutes: `land` each to-land whose last reply says it is ready (once;
+a refusal is reported and the session stays open), then `close` each landed session, and each signed-off one with
+nothing to land; a session started by hand (no name from `session open`) is only reported, since it closes on the
+owner's word. busy, dirty, waiting-owner and no-brief are never closed; `claude --resume <id>` brings back any
+closed one. The result goes to <runtime>/sessions/reap.json; --last prints its sessions left open, one line each
+(the desk's session start shows them).
+
+Under a test (ELA_TEST=1, which tests/run.sh exports), the reason a live open or close must not run: the zellij
     on PATH is not a stub under the temp directory, so it would reach the owner's real session; None when it may."""
     if os.environ.get("ELA_TEST") != "1":
         return None
@@ -701,6 +732,19 @@ def cmd_here(a):
     return 0
 
 
+def close_row(r):
+    """End one live session: TERM to its Claude process, then its pane, and an end line "closed by desk". → the steps."""
+    steps = [f"TERM {r['pid']}"] + ([f"zellij action close-pane --pane-id {r['pane']}"] if r.get("pane") else [])
+    try:
+        os.kill(int(r["pid"]), 15)
+    except (OSError, ValueError) as e:
+        print(f"session close: {e}", file=sys.stderr)
+    if r.get("pane") and os.environ.get("ZELLIJ_SESSION_NAME"):
+        subprocess.run(["zellij", "action", "close-pane", "--pane-id", str(r["pane"])], capture_output=True, text=True)
+    append({"event": "end", "id": r["id"], "at": now(), "reason": "closed by desk"})
+    return steps
+
+
 def cmd_close(a):
     r = live(a.name)
     if not r:
@@ -714,14 +758,226 @@ def cmd_close(a):
     if why:
         print(f"session close: {why}", file=sys.stderr)
         return 2
+    print(f"closed {a.name}: " + "; ".join(close_row(r)))
+    return 0
+
+
+# ── reap: which live sessions are done; on --apply the ready ones landed and the finished ones closed ──────────
+
+SIGN_OFF = "— ela out 🦀"
+IDLE_MIN = 10                                    # minutes a session sits idle before reap closes it
+ASKS_TASK = re.compile(r"what (would you like|should i|do you want|can i)|how can i help|what('s| is) the task|no (brief|task)"
+                       r'|需要我(做|帮)|我该做什么|要我做什么|有什么(任务|需要)', re.I)   # the same ask in Chinese
+READY = re.compile(r'ready to land|ready for (the )?land|session land \S+|可以 ?land|待 ?land', re.I)
+
+
+def _when_any(ts):
     try:
-        os.kill(int(r["pid"]), 15)
-    except (OSError, ValueError) as e:
-        print(f"session close: {e}", file=sys.stderr)
-    if r.get("pane") and os.environ.get("ZELLIJ_SESSION_NAME"):
-        subprocess.run(["zellij", "action", "close-pane", "--pane-id", str(r["pane"])], capture_output=True, text=True)
-    append({"event": "end", "id": r["id"], "at": now(), "reason": "closed by desk"})
-    print(f"closed {a.name}: " + "; ".join(steps))
+        t = datetime.datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+        return t if t.tzinfo else t.astimezone()
+    except ValueError:
+        return None
+
+
+def _prompt_text(content):
+    """A user line's typed words, or None for a tool result, a command echo or an insert of the harness."""
+    if isinstance(content, str):
+        text = content
+    elif isinstance(content, list):
+        if any(isinstance(b, dict) and b.get("type") == "tool_result" for b in content):
+            return None
+        text = "\n".join(b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text")
+    else:
+        return None
+    text = text.strip()
+    if not text or text.startswith(("<command-", "<local-command", "<system-reminder", "<task-notification")):
+        return None
+    return text
+
+
+def read_turns(transcript):
+    """What reap needs of a transcript: the typed prompts, the assistant's text replies (text, time), whether the
+    last turn ended (the last assistant message stopped at end_turn and nothing came after it), the last line's time.
+    None when it cannot be read."""
+    prompts, replies, ended, last = 0, [], False, None
+    try:
+        f = open(transcript, encoding="utf-8", errors="replace")
+    except (OSError, TypeError):
+        return None
+    with f:
+        for line in f:
+            try:
+                d = json.loads(line)
+            except ValueError:
+                continue
+            if not isinstance(d, dict) or d.get("isSidechain") is True:
+                continue
+            ts = _when_any(d["timestamp"]) if isinstance(d.get("timestamp"), str) else None
+            msg = d.get("message") if isinstance(d.get("message"), dict) else {}
+            if d.get("type") == "user" and not d.get("isMeta"):
+                last = ts or last
+                if _prompt_text(msg.get("content")) is not None:
+                    prompts += 1
+                ended = False                              # a prompt or a tool result: the turn goes on
+            elif d.get("type") == "assistant":
+                last = ts or last
+                content = msg.get("content") if isinstance(msg.get("content"), list) else []
+                text = "\n".join(b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text").strip()
+                if text:
+                    replies.append((text, ts))
+                ended = msg.get("stop_reason") == "end_turn"
+    return {"prompts": prompts, "replies": replies, "ended": ended, "last": last}
+
+
+def question_of(text):
+    """The reply's last line that asks something, or None."""
+    for line in reversed([x.strip() for x in (text or "").splitlines() if x.strip()]):
+        if line.rstrip("*_` ").endswith(("?", "？")):
+            return line
+    return None
+
+
+def worker_of(cwd):
+    """(name, repo) when cwd is a worker's worktree <work>/<N>/<repo> of ela or ela-runner, else None."""
+    w = work_root()
+    if not w or not cwd:
+        return None
+    rel = os.path.relpath(os.path.realpath(cwd), os.path.realpath(w))
+    parts = rel.split(os.sep)
+    if len(parts) >= 2 and parts[0] not in (".", "..") and parts[1] in GUARDED and NAME.fullmatch(parts[0]):
+        return parts[0], parts[1]
+    return None
+
+
+def worktree_state(n, repo):
+    """(state, reason) of a worker's branch evan/<n> and its worktree, from git: dirty, to-land, landed; None when
+    the branch never carried a commit of its own (a worker that has not committed yet has landed nothing)."""
+    wt, checkout, branch = os.path.join(work_root(), n, repo), os.path.join(site().get("projects") or "", repo), f"evan/{n}"
+    if not os.path.isdir(wt):
+        return "landed", f"the worktree {n}/{repo} is gone"
+    d = sorted(dirty(wt))
+    if d:
+        return "dirty", "uncommitted: " + ", ".join(d[:4]) + (f" and {len(d) - 4} more" if len(d) > 4 else "")
+    ahead = git(checkout, "rev-list", "--count", f"{BASE}..{branch}")
+    if ahead.returncode != 0:
+        return "landed", f"no branch {branch}"
+    if ahead.stdout.strip() != "0":
+        return "to-land", f"{branch} has {ahead.stdout.strip()} commit(s) beyond {BASE}, the worktree clean"
+    log = git(checkout, "reflog", "show", "--format=%gs", branch).stdout.splitlines()
+    if any(x.startswith(("commit", "rebase", "cherry-pick", "merge", "reset")) for x in log):
+        return "landed", f"{branch} has nothing beyond {BASE} and the worktree is clean"
+    return None, f"{branch} has no commit yet"
+
+
+def is_desk(r, mine):
+    """The sessions reap never closes: the one it runs in, and the desk (named ela or desk, or started in the projects
+    root)."""
+    projects = site().get("projects")
+    return (r["id"] in mine or r.get("name") in ("ela", DESK)
+            or bool(projects and r.get("cwd") and os.path.realpath(r["cwd"]) == os.path.realpath(projects)))
+
+
+def judge(r, now_, mine):
+    """One live session's state from first-hand facts: its worktree and branch in git, then its transcript."""
+    tr = transcript_of(r["id"])
+    t = read_turns(tr) if tr else None
+    text, when = (t["replies"][-1] if t and t["replies"] else ("", None))
+    idle_at = (t or {}).get("last") or _when_any(r.get("started") or "")
+    row = {"id": r["id"], "name": r.get("name") or "-", "cwd": shown_path(r.get("cwd") or "", *roots()),
+           "age": round((now_ - when).total_seconds() / 60) if when else None,
+           "idle": round((now_ - idle_at).total_seconds() / 60) if idle_at else None,
+           "question": None, "ready": bool(READY.search(text)), "worker": None, "branch": None, "action": None}
+
+    def done(state, reason):
+        row.update(state=state, reason=reason)
+        return row
+    if is_desk(r, mine):
+        return done("desk", "the desk: never reaped")
+    if r.get("job"):
+        return done("runner", f"a runner job ({r['job']}): it ends itself")
+    w = worker_of(r.get("cwd"))
+    state, why = worktree_state(*w) if w else (None, None)
+    if w:
+        row["worker"], row["branch"] = w[0], state
+        if state in ("dirty", "to-land"):
+            return done(state, why)
+    if t is None:
+        return done("busy", "no transcript yet")
+    if t["prompts"] == 0 or (len(t["replies"]) == 1 and t["ended"] and ASKS_TASK.search(text)):
+        return done("no-brief", "no first message" if t["prompts"] == 0 else "the only reply asks for a task")
+    if state == "landed":
+        return done("landed", why)
+    lines = [x.strip() for x in text.splitlines() if x.strip()]
+    if t["ended"] and lines and lines[-1] == SIGN_OFF:
+        return done("signed-off", "the last reply signs off" + (f"; {why}" if w else ""))
+    q = question_of(text) if t["ended"] else None
+    if q:
+        row["question"] = one_line(clean(q), 160)
+        return done("waiting-owner", row["question"])
+    if not t["ended"]:
+        return done("busy", "a turn under way")
+    return done("busy", "the last reply asks nothing and does not sign off" + (f"; {why}" if w else ""))
+
+
+def reap_file():
+    root = runtime_root()
+    return os.path.join(root, "sessions", "reap.json") if root else None
+
+
+def cmd_reap(a):
+    if a.last:
+        try:
+            got = json.load(open(reap_file() or "", encoding="utf-8"))
+        except (OSError, ValueError):
+            return 3
+        for line in got.get("kept") or []:
+            print(line)
+        return 0
+    why = test_refusal() if a.apply else None
+    if why:
+        print(f"session reap: {why}", file=sys.stderr)
+        return 2
+    now_, c = datetime.datetime.now().astimezone(), current()
+    live_rows = [r for r in sessions() if not r["ended"] and r.get("pid") and alive(r["pid"])]
+    by_id = {r["id"]: r for r in live_rows}
+    rows = [judge(r, now_, {c["id"]} if c else set()) for r in live_rows]
+    if a.apply:                                  # a session still at work in the last IDLE_MIN minutes is left alone
+        for row in rows:
+            if row["state"] == "to-land" and row["ready"] and (row["idle"] or 0) >= IDLE_MIN:
+                p = subprocess.run([sys.executable, os.path.realpath(__file__), "land", row["worker"]], capture_output=True, text=True)
+                if p.returncode == 0:
+                    row.update(state="landed", branch="landed", action="landed",
+                               reason=(p.stdout.strip().splitlines() or ["landed"])[-1])
+                else:
+                    err = (p.stderr or p.stdout).strip().replace(f"session land {row['worker']}: refused — ", "")
+                    row["action"] = "land refused: " + one_line(err, 200)
+                    continue
+            closable = row["state"] == "landed" or (row["state"] == "signed-off" and row["branch"] in (None, "landed"))
+            if not closable:
+                continue
+            if row["name"] == "-":                     # started by hand, not by `session open`: closes on the owner's word
+                row["action"] = "started by hand: closes on the owner's word"
+                continue
+            if (row["idle"] or 0) >= IDLE_MIN:
+                close_row(by_id[row["id"]])
+                row["action"] = "landed, closed" if row["action"] == "landed" else "closed"
+            else:
+                row["action"] = f"idle {row['idle']}m, under {IDLE_MIN}m: kept"
+        kept = [f"{r['name']}: {r['state']} — {r['action'] or r['reason']}" for r in rows
+                if r["state"] not in ("desk", "runner") and "closed" not in (r["action"] or "")]
+        path = reap_file()
+        if path:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump({"at": now(), "rows": rows, "kept": kept}, f, ensure_ascii=False, indent=1)
+    if a.json:
+        print(json.dumps(rows, ensure_ascii=False, indent=1))
+        return 0
+    if not rows:
+        print("no live session")
+    for r in rows:
+        age = f"{r['age']}m" if r["age"] is not None else "-"
+        print(f"{r['name'][:24]:<24} {r['state']:<13} {age:>6}  {r['reason']}" + (f"  [{r['action']}]" if r["action"] else ""))
     return 0
 
 
@@ -1022,6 +1278,10 @@ def main():
     g.add_argument("name")
     g.add_argument("--repo", choices=("ela", "runner", "ela-runner"))
     g.add_argument("--dry-run", action="store_true", help="the read-only checks and the steps; nothing moves")
+    r = sub.add_parser("reap", help="each live session's state (landed, to-land, dirty, no-brief, signed-off, busy, waiting-owner)")
+    r.add_argument("--apply", action="store_true", help="land the ready to-land sessions, close the finished idle ones")
+    r.add_argument("--last", action="store_true", help="the sessions the last --apply left open, one line each")
+    r.add_argument("--json", action="store_true")
     c = sub.add_parser("close", help="end a live session by name: its Claude process, then its pane")
     c.add_argument("name")
     c.add_argument("--dry-run", action="store_true")
@@ -1049,7 +1309,7 @@ def main():
         ap.error("unrecognized arguments: " + " ".join(extra))
     if a.cmd == "find" and a.since and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", a.since):
         ap.error("--since takes YYYY-MM-DD")
-    sys.exit({"find": cmd_find, "open": cmd_open, "close": cmd_close, "land": cmd_land, "list": cmd_list, "here": cmd_here, "usage": cmd_usage,
+    sys.exit({"find": cmd_find, "open": cmd_open, "close": cmd_close, "land": cmd_land, "reap": cmd_reap, "list": cmd_list, "here": cmd_here, "usage": cmd_usage,
               "hook-start": cmd_hook_start, "hook-end": cmd_hook_end}[a.cmd](a))
 
 

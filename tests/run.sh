@@ -104,6 +104,7 @@ python3 tests/test_publish_pins_offline.py || fail=1
 python3 tests/test_publish_head_offline.py || fail=1
 python3 tests/test_tiers_offline.py || fail=1
 python3 tests/test_sessions_offline.py || fail=1
+python3 tests/test_sessions_reap_offline.py || fail=1
 python3 tests/test_description_budget.py || fail=1
 python3 tests/test_graph_envs_offline.py || fail=1
 python3 tests/test_graph_usage_offline.py || fail=1

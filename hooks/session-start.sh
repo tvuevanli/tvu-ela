@@ -165,6 +165,9 @@ if [ -z "${ELA_RUNNER_JOB:-}" ]; then
   if [ -n "$PROJ" ] && [ "${CWD%/}" = "${PROJ%/}" ]; then
     LINE="$(timeout 5 python3 "$ROOT/skills/improve/improve.py" pending 2>/dev/null || true)"
     [ -n "$LINE" ] && { echo; echo "$LINE"; }
+    # the sessions the last `ela session reap --apply` (a runner pass) could not close, one line each
+    LEFT="$(timeout 5 python3 "$ROOT/skills/sessions/sessions.py" reap --last 2>/dev/null || true)"
+    [ -n "$LEFT" ] && { echo; echo "Sessions the last reap left open:"; echo "$LEFT"; }
   fi
 fi
 } | emit "session context"

@@ -133,6 +133,13 @@
                                    worktree, fast-forward main only when no dirty file there overlaps, push, remove the
                                    worktree; any failed step refuses with its reason and main stays
   ela session close <name>         end a live session: its Claude process, then its pane; the registry says closed by desk
+  ela session reap [--apply] [--json] | --last
+                                   each live session's state from git and its transcript: desk · runner · dirty · to-land ·
+                                   no-brief · landed · signed-off (`— ela out 🦀`) · waiting-owner (its question) · busy,
+                                   with minutes since its last reply; --apply, idle 10 minutes: land a to-land whose reply
+                                   says ready (once; a refusal is shown), close the landed and the signed-off with nothing
+                                   to land; never the desk, a hand-started, busy, dirty, waiting or brief-less one;
+                                   --last the sessions the last --apply left open (the desk's session start shows them)
   ela session list                 the sessions on this machine, newest first: name, cwd, started, ended, purpose
   ela session here [--json]        this session's id and /rename name
   ela session usage [--since 7d] [--by kind|name|day|cwd|model] [--top 10] [--json]

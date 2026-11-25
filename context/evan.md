@@ -40,7 +40,8 @@ A desk session named `ela` (its zellij tab is named `desk`) holds Evan's convers
 (`--tab` for a tab of its own). A worker runs where its target's rules live, and sends `ela` one line
 (SendMessage) when it starts, when it is blocked on Evan, and before it closes. A collapsed pane shows no
 permission prompt, so a blocked worker messages `ela` and the desk names the pane to expand. The desk closes a
-finished worker with `ela session close N` after its closing line; a session Evan started by hand closes only on
+finished worker with `ela session close N` after its closing line, and `ela session reap` (the runner's 13:00,
+17:30 and 19:00 passes run it with `--apply`) finds the finished ones, lands a ready branch and closes them; a session Evan started by hand closes only on
 his word; a name a live session holds is refused. A session named `topic-*` (`--pane --brief FILE`, beside the
 desk) holds one topic: it closes when done, sends its conclusion to `ela` as one line before closing (only `ela`
 writes the vault and elak and routes work), and briefs a worker directly only when its brief names that worker,
