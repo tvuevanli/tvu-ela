@@ -663,6 +663,7 @@ def collect_tickets(a, delta, gaps, docker=None):
         out.append({"key": k, "exists": True, "summary": f.get("summary"), "status": st, "description": adf_text(f.get("description")).strip()[:6000] if f.get("description") else "", "assignee": asg, "labels": labels, "fixed_in": fi_text, "fixed_in_entries": fi,
                     "services_in_delta": svcs, "commits": keys[k]["commits"], "reverse": reverse.get(k), "flags": flags, "comments": comments,
                     "url": d.get("url"), "docker": docker.get(k, []), "type": ((f.get("issuetype") or {}).get("name")),
+                    "priority": (f.get("priority") or {}).get("name"), "updated": f.get("updated"),
                     "parent": parent_of(f)})
     return {"line": a.line, "label": label, "tickets": out, "referenced_only": {k: v for k, v in refs.items() if k not in keys}}
 

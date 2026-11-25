@@ -29,7 +29,7 @@ import argparse, datetime, json, os, re, subprocess, sys
 
 HERE = os.path.dirname(os.path.realpath(__file__))
 SKILLS = os.path.dirname(HERE)
-SCHEMA = 1
+SCHEMA = 2                                       # 2: priority and updated (ISO) on every ticket; in_dev.updated was a date
 EX_USAGE, EX_NOTFOUND, EX_GUARD, EX_REMOTE = 2, 3, 4, 5
 PASSES = ("08:00", "12:30", "17:30")            # the runner's weekday runs that refresh the file: the morning run, midday, afternoon
 STALE_GRACE_H = 2
@@ -126,11 +126,26 @@ def label_added(histories, label=MUST_LABEL):
     return min(hits) if hits else None
 
 
+def iso_time(ts):
+    """A Jira stamp (2026-11-24T17:55:11.994-0800) or an ISO time as ISO-8601 with this machine's offset; None when
+    there is none."""
+    t = None
+    try:
+        t = datetime.datetime.strptime(str(ts or ""), "%Y-%m-%dT%H:%M:%S.%f%z")
+    except ValueError:
+        try:
+            t = datetime.datetime.fromisoformat(str(ts or ""))
+        except ValueError:
+            return None
+    return (t if t.tzinfo else t.astimezone()).astimezone().isoformat(timespec="seconds")
+
+
 def ticket(row, qa=None, **more):
     key, parent = row.get("key"), row.get("parent")
     parent = parent.get("key") if isinstance(parent, dict) else parent
     return dict({"key": key, "url": row.get("url") or BROWSE + str(key), "summary": row.get("summary") or "",
                  "type": row.get("type"), "status": row.get("status"), "assignee": row.get("assignee"),
+                 "priority": row.get("priority") or None, "updated": iso_time(row.get("updated")),
                  "parent": parent or None, "qa": qa}, **more)
 
 
@@ -178,7 +193,7 @@ def build(inp, now):
     for r in inp.get("indev_rows") or []:
         if r.get("key") in on_keys:
             continue
-        in_dev.append(ticket(r, qa_of(ev.get(r.get("key"))), updated=str(r.get("updated") or "")[:10] or None))
+        in_dev.append(ticket(r, qa_of(ev.get(r.get("key")))))
 
     lanes = []
     for s in (report.get("lanes") or {}).get("services") or []:
@@ -252,7 +267,7 @@ def row_of_raw(i):
     f = i.get("fields") or {}
     name = lambda o, k="name": (o or {}).get(k)  # noqa: E731
     return {"key": i.get("key"), "summary": f.get("summary") or "", "status": name(f.get("status")), "type": name(f.get("issuetype")),
-            "assignee": name(f.get("assignee"), "displayName"), "parent": (f.get("parent") or {}).get("key"), "updated": f.get("updated")}
+            "assignee": name(f.get("assignee"), "displayName"), "priority": name(f.get("priority")), "parent": (f.get("parent") or {}).get("key"), "updated": f.get("updated")}
 
 
 def sweep_issues():

@@ -13,6 +13,7 @@ BASE = {"name": "MediaHub 2.1.19", "id": "1572291615228403712", "created": "2026
 CAND = {"name": "mh2.1@daily-wed-s2-d57", "id": "1573277690348318720", "created": "2026-11-20 10:03", "rule": "prefix"}
 TICKETS = {"tickets": [
     {"key": "MH-3925", "exists": True, "summary": "Media Analyzer decode info panel does not show Scan Type", "status": "Done", "assignee": "A",
+     "priority": "High", "updated": "2026-11-24T17:55:11.994-0800",
      "type": "Bug", "parent": None, "services_in_delta": ["mediahub-frontend"], "docker": [], "url": "https://tvunetworks.atlassian.net/browse/MH-3925"},
     {"key": "BM-1272", "exists": True, "summary": "[topbar] 接入方升级 tvu-common-ui", "status": "DOING", "assignee": "B", "type": "Task",
      "parent": {"key": "BM-735", "type": "Epic"}, "services_in_delta": ["mediahub-frontend"], "docker": [{"slug": "mds-switcher", "entry": "x"}]},
@@ -32,7 +33,8 @@ REPORT = {"generated_at": "2026-11-25T03:03:33Z",
 TRAIN = {"at": "2026-11-25T13:05:00+08:00", "lanes": [{"role": "qa", "lane": "qa-cn3", "shown": "QA-AWS3"}, {"role": "daily", "lane": "daily-wed", "shown": "daily-wed"}],
          "rows": [{"key": "MH-4100", "also": [], "position": "qa", "cells": {"qa-cn3": {"arrived": "98", "verdict": "pass"}}},
                   {"key": "MH-3800", "also": ["MH-3925"], "position": "daily", "cells": {}}]}
-MUST = [{"key": "MH-3925", "summary": "Media Analyzer decode info panel does not show Scan Type", "status": "Done", "type": "Bug"},
+MUST = [{"key": "MH-3925", "summary": "Media Analyzer decode info panel does not show Scan Type", "status": "Done", "type": "Bug",
+         "priority": "Highest", "updated": "2026-11-25T09:00:00.000+0800"},
         {"key": "MH-4100", "summary": "A must ticket not yet on daily", "status": "Review", "type": "Bug"}]
 INDEV = [{"key": "MH-4097", "summary": "Source preview stage bar", "status": "Review", "updated": "2026-11-24T10:00:00.000+0800"},
          {"key": "MH-3925", "summary": "on the candidate already", "status": "Review", "updated": "2026-11-24"}]
@@ -58,7 +60,7 @@ def check(ok, what):
 
 
 doc = N.build(inp(), NOW)
-check(doc["schema"] == 1 and doc["generated_at"] == "2026-11-25T17:40:00+08:00", "schema 1 and generated_at with its offset")
+check(doc["schema"] == 2 and doc["generated_at"] == "2026-11-25T17:40:00+08:00", "schema 2 and generated_at with its offset")
 check(doc["stale_after"] == "2026-11-26T10:00:00+08:00", "after 17:30: stale after the next morning run (08:00) plus two hours")
 noon = N.build(inp(), datetime.datetime(2026, 11, 25, 9, 0, tzinfo=TZ))
 check(noon["stale_after"] == "2026-11-25T14:30:00+08:00", "after the morning run: stale after the 12:30 run plus two hours")
@@ -78,8 +80,14 @@ check(m1["on_candidate"] and m1["decision"] is None and m1["position"] == "daily
       "a must ticket on the candidate: no decision; train row found by alias; tracked from when the label was added")
 check(not m2["on_candidate"] and m2["decision"] == "hold or defer" and m2["cells"] == {"qa-cn3": {"arrived": "98", "verdict": "pass"}} and m2["tracked_since"] is None,
       "a must ticket not on the candidate asks hold or defer; its lane cells from the train")
-check([t["key"] for t in doc["in_dev"]] == ["MH-4097"] and doc["in_dev"][0]["updated"] == "2026-11-24" and doc["in_dev"][0]["qa"]["verdict"] == "fail",
-      "in development: not on the candidate, updated as a date, QA joined")
+when = lambda v: v and datetime.datetime.fromisoformat(v)  # noqa: E731
+check([t["key"] for t in doc["in_dev"]] == ["MH-4097"] and when(doc["in_dev"][0]["updated"]) == datetime.datetime(2026, 11, 24, 10, 0, tzinfo=TZ)
+      and doc["in_dev"][0]["qa"]["verdict"] == "fail", "in development: not on the candidate, updated as an ISO time, QA joined")
+oc = doc["on_candidate"][0]
+check(oc["priority"] == "High" and when(oc["updated"]) == datetime.datetime(2026, 11, 25, 9, 55, 11, tzinfo=TZ) and doc["on_candidate"][1]["priority"] is None
+      and doc["on_candidate"][1]["updated"] is None, "every ticket carries priority and updated (ISO), null when the store has none")
+check(doc["must"][0]["priority"] == "Highest" and when(doc["must"][0]["updated"]) == datetime.datetime(2026, 11, 25, 9, 0, tzinfo=TZ)
+      and all({"priority", "updated"} <= set(t) for k in ("must", "on_candidate", "in_dev") for t in doc[k]), "must rows too; the keys are always present")
 dk = doc["docker"]
 check(dk["bundle_diff"][0]["slug"] == "mds-switcher" and dk["lanes"][0]["from"] == {"lane": "daily-wed", "version": "v2.1.48 build280"}, "docker diff and lane versions")
 check([b["kind"] for b in dk["branches"]] == ["release", "feature", None] and dk["branches"][0]["commits"][0]["sha"] == "62ea93de", "branches: release or feature, commits not built")
@@ -117,7 +125,7 @@ with tempfile.TemporaryDirectory() as pub, tempfile.TemporaryDirectory() as remo
     got = sorted(os.listdir(os.path.join(remote, "releases")))
     check(out == "synced releases/ to <published_remote>" and got == ["README.md", "next.json"]
           and open(os.path.join(remote, "lanes", "lanes.md")).read() == "kept", "sync: releases/ carried, its stale file removed, lanes/ untouched")
-    check(json.load(open(os.path.join(remote, "releases", "next.json"), encoding="utf-8"))["schema"] == 1, "sync: the remote copy is the published, redacted file")
+    check(json.load(open(os.path.join(remote, "releases", "next.json"), encoding="utf-8"))["schema"] == 2, "sync: the remote copy is the published, redacted file")
     bad = N.sync(pub, os.path.join(remote, "no", "such", "parent", "x"))
     check(bad.startswith("not synced: rsync"), "sync: a failure is one line, never an exit")
 

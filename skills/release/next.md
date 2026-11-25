@@ -11,7 +11,10 @@ Jenkins builds, the service repositories fetched) and the files ela wrote (the t
 report, the held candidate). It reads no source live and starts no model session. What the store lacks is
 a gap, never a live read; `sources.facts` names each source's read time.
 
-Schema version **1**. A field is only added when the schema changes. A rename or a removal raises
+Schema version **2**. Version 2 (2026-11-25) added `priority` and `updated` to every ticket in `must`,
+`on_candidate` and `in_dev`, and changed `in_dev[].updated` from a date to an ISO time.
+
+A field is only added when the schema changes. A rename or a removal raises
 `schema`, and readers are told before it ships.
 
 The file is written atomically and passes through the publish redaction, so it holds no addresses.
@@ -22,7 +25,7 @@ carried: only its verdict, its source and its time.
 
 | field | type | meaning |
 |---|---|---|
-| `schema` | int | `1` |
+| `schema` | int | `2` |
 | `generated_at` | ISO-8601 with offset | when the file was computed |
 | `stale_after` | ISO-8601 with offset | the next scheduled refresh plus two hours. A reader shows the data as stale after this time. |
 | `line` | string | the release train, as a key in map `release.yaml` (`"2.1"`) |
@@ -46,7 +49,7 @@ how it was chosen.
 
 ## `must[]`
 
-`{key, url, summary, type, status, assignee, tracked_since, on_candidate, position, cells, decision}`
+`{key, url, summary, type, status, assignee, priority, updated, tracked_since, on_candidate, position, cells, decision}`
 
 - `tracked_since`: when the label was added, as an ISO time from the changelog the Jira sweep holds (14
   days), else the time the previous file carried for the ticket; `null` when neither shows it (a label
@@ -61,13 +64,17 @@ how it was chosen.
 
 ## `on_candidate[]` and `in_dev[]`
 
-`{key, url, summary, type, status, assignee, parent, services, qa}`
+`{key, url, summary, type, status, assignee, priority, updated, parent, services, qa}`
 
 - `services`: the services whose commits or Fixed In name the ticket (`on_candidate` only). A ticket a
   commit names but the Jira store holds no row of is listed with an empty `summary` and a
   `ticket_not_in_facts` gap.
 - `docker`: the docker slugs whose Fixed In names it (`on_candidate` only).
-- `updated`: `YYYY-MM-DD` (`in_dev` only).
+- `priority`: Jira's priority name (`Highest` … `Lowest`), or `null` when the store's row has none. Present on
+  every ticket in `must`, `on_candidate` and `in_dev`.
+- `updated`: when Jira last updated the ticket, ISO-8601 with offset, or `null`. Present on every ticket in
+  `must`, `on_candidate` and `in_dev`. Both come from the same stored Jira row as the rest of the ticket; a
+  reader may sort on them.
 - `qa`: `null`, or `{verdict, source, when}` as promote's evidence reads it from the latest saved
   promotion report. `verdict` is one of `pass`, `partial`, `fail`, `n-a`, `accepted`, `dev-declared`,
   `none`. `source` is `mail`, `jira`, `slack` or `report`.

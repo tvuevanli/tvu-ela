@@ -121,10 +121,11 @@ check(re.search(r"if not F\.facts_only\(\):[^\n]*\n\s+say\(f\"git fetch", src) i
 g = []
 check(N.must_from_store(g) == ([], None) and g[0]["kind"] == "jira_not_in_facts", "no stored release:must query is a gap")
 F.write_json(os.path.join(F.store_dir("jira", "queries"), "release-must.json"),
-             {"jql": J.STANDING["release-must"][0], "at": OLD, "issues": [{"key": "MH-1", "fields": {"summary": "m", "status": {"name": "Review"}}},
+             {"jql": J.STANDING["release-must"][0], "at": OLD, "issues": [{"key": "MH-1", "fields": {"summary": "m", "status": {"name": "Review"}, "priority": {"name": "High"}, "updated": "2026-11-24T10:00:00.000+0800"}},
                                                                           {"key": "MH-9", "fields": {"summary": "n"}}]})
 rows, at = N.must_from_store([])
-check([r["key"] for r in rows] == ["MH-1", "MH-9"] and at == OLD, "the must rows and their read time")
+check([r["key"] for r in rows] == ["MH-1", "MH-9"] and at == OLD and rows[0]["priority"] == "High" and rows[0]["updated"].startswith("2026-11-24T10"),
+      "the must rows, their priority and updated from the stored row, and the read time")
 since = N.must_since_of(["MH-1", "MH-9", "MH-10"], sweep, {"must": [{"key": "MH-9", "tracked_since": "2026-11-01T08:00:00.000+0800"}]})
 check(since == {"MH-1": "2026-11-24T09:00:00.000+0800", "MH-9": "2026-11-01T08:00:00.000+0800", "MH-10": None},
       "tracked since: the sweep's changelog, else the previous file's time, else none")
