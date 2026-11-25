@@ -46,6 +46,7 @@ import facts as F  # noqa: E402
 PROJECT = "MH"
 PRJ_CHANNEL = "prj_dev_mediahub"
 MAX_UPDATED, MAX_CREATED, MAX_PRJ, MAX_OTHER = 80, 40, 100, 80      # Helm's prompt caps, per section
+MAX_SLACK = 200                                                      # Helm's collection cap: the project channel first, then the latest
 MAX_SLACK_TEXT = 300
 MAX_MAIL, MAIL_BODY_CAP, MAIL_SNIPPET_CAP = 30, 1200, 200
 LONG_BLOCKED_DAYS = 60                                               # Helm weekly.py LONG_BLOCKED_DAYS
@@ -394,9 +395,14 @@ def daily_input(date_str, now=None):
     updated, created, jira_at, jira_gap = jira_window(start, end)
     blocked, _, board_at = board_state(now)
     slack, slack_at, slack_gap = slack_window(start, end, by_slack)
+    seen = len(slack)
+    if seen > MAX_SLACK:
+        prj_first = [m for m in slack if m["channel_name"] == PRJ_CHANNEL][:MAX_SLACK]
+        rest = [m for m in slack if m["channel_name"] != PRJ_CHANNEL][-(MAX_SLACK - len(prj_first)):] if len(prj_first) < MAX_SLACK else []
+        slack = sorted(prj_first + rest, key=lambda r: float(r["ts"]))
     mail, mail_at, mail_gap = mail_window(start, end, by_email)
     sources = {"jira": source_state(len(updated) + len(created) - len({i["key"] for i in created} & {i["key"] for i in updated}), jira_at, jira_gap),
-               "slack": source_state(len(slack), slack_at, slack_gap),
+               "slack": {**source_state(len(slack), slack_at, slack_gap), **({"cap_hit": True, "seen": seen} if seen > MAX_SLACK else {})},
                "mail": source_state(len(mail), mail_at, mail_gap)}
     sources["jira"]["board_read_at"] = board_at
     if not updated and not created and not slack and not mail:

@@ -96,6 +96,13 @@ check("the rules and the data are framed", p.index("Write the MediaHub team's en
 check("the input keys are the data's", {"MH-10", "MH-11", "MH-12", "MH-20"} <= set(inp["keys"]) and "MH-13" not in inp["keys"])
 check("sources carry status and counts", inp["sources"]["slack"]["count"] == 3 and inp["sources"]["mail"]["count"] == 3 and inp["sources"]["jira"]["status"] == "ok")
 
+saved = TR.MAX_SLACK
+TR.MAX_SLACK = 2
+capped = TR.daily_input(DAY, NOW)
+check("Slack past the cap keeps the project channel first and says so", capped["sources"]["slack"] == {**capped["sources"]["slack"], "count": 2, "cap_hit": True, "seen": 3}
+      and "lunch?" not in capped["prompt"] and "QA reproduced it" in capped["prompt"])
+TR.MAX_SLACK = saved
+
 # ── quiet and incomplete days ────────────────────────────────────────────────────────────────────────
 q = TR.daily_input("2026-11-15", datetime.datetime(2026, 11, 15, 22, 0, tzinfo=TZ))
 check("a day with nothing in any source is quiet, with no prompt", q["state"] == "quiet" and not q["prompt"])

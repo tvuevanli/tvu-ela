@@ -24,7 +24,7 @@ files, renders the report page and posts it to Slack; ela itself posts nothing. 
 | `model` | bool | whether a model wrote `narrative` (false for a stub) |
 | `narrative` | markdown | the report text, see below |
 | `keys` | [string] | every Jira key `narrative` cites; each one is in the data the narrative was written from |
-| `sources` | object | per source (`jira`, `slack`, `mail`; weekly: `jira`, `mail`, `dailies`): `status` (`ok` · `gap` · `unread` · weekly `dailies`: `missing`), `count`, `read_at` (the facts store's read), `gap` (why, when the store recorded one); `jira.board_read_at` is the read of the Blocked and In Progress tickets; `dailies.dates` the days whose narrative the week was written from |
+| `sources` | object | per source (`jira`, `slack`, `mail`; weekly: `jira`, `mail`, `dailies`): `status` (`ok` · `gap` · `unread` · weekly `dailies`: `missing`), `count`, `read_at` (the facts store's read), `gap` (why, when the store recorded one); `jira.board_read_at` is the read of the Blocked and In Progress tickets; `slack.cap_hit` and `slack.seen` when the day held more than 200 messages (the project channel is kept first, then the latest); `dailies.dates` the days whose narrative the week was written from |
 | `window` | [ISO time, ISO time] | the half-open window the data was taken from |
 | `removed` | object | what the checks took out of the model's text: `sections` (headings Helm owns), `keys` (Jira keys the data does not hold), `tokens` (weekly: version, build or bundle-shaped tokens), `lines` (a title, a Sources line), `missing_sections` (a required heading the text lacks). Empty when nothing was removed. |
 
