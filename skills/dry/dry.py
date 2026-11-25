@@ -75,9 +75,10 @@ def strip_urls(text):
 
 # A design file named in prose is not a ticket either: the design team names Figma files by the ticket they began for
 # ("design in Figma MH-2026 node 4119-5823" in MH-3998 named a file, and ela linked an unrelated Done ticket,
-# 2026-11-25). A key right after "Figma" (and an optional file/design/board word) or right before "node" is a file.
-DESIGN_RX = re.compile(r"\bfigma(?:\s+(?:file|design|board|frame|page|doc))?\s*[:#]?\s*" + KEY + r"\b"
-                       r"|\b" + KEY + r"\s+node\b", re.I)
+# 2026-11-25). A key right after "Figma" or the Chinese for design draft / design file (an optional file/design word, colon or quote between) is
+# a file. A key before "node" is not taken alone: "MH-4123 node list crash" names a ticket.
+DESIGN_RX = re.compile(r"(?:\bfigma|\u8bbe\u8ba1\u7a3f|\u8bbe\u8ba1\u6587\u4ef6)(?:\s*(?:file|design|board|frame|page|doc|\u6587\u4ef6|\u8bbe\u8ba1|\u7a3f)\b)?\s*[:\uff1a#]?\s*"
+                       r"[\"'\u201c\u300c]?" + KEY + r"\b", re.I)
 
 
 def ticket_keys(text):
@@ -99,7 +100,7 @@ CLASSES = {
         "atom": ("jira", "link"), "noun": ("link", "links"), "ladder": (3, 1), "base": 1,
         "rule": "a ticket named in the parent's description or comments, not linked to it yet, and not a subtask of a "
                 "ticket linked or proposed; `contains`, or `relates to` when the naming line says related",
-        "command": r"^ela jira link " + KEY + r"(?: " + KEY + r")+ --type (?:contains|\"?relates to\"?)(?: --note-file \S+)?\s*$",
+        "command": r"^ela jira link " + KEY + r" " + KEY + r" --type (?:contains|\"?relates to\"?)(?: --note-file \S+)?\s*$",
         "case": "MH-3735, 2026-11-12: links approved as a kind in one sentence; tier 1 by the decision of 2026-11-24 "
                 "(ela watches the MH board and acts on Jira, signing each write), each link announced by a signed note",
         "reverse": (("unlink", "--id"),),
@@ -615,9 +616,9 @@ def is_done(issue):
 
 
 def older(child, parent):
-    """Whether `child` existed before `parent`: a ticket named that is older than the parent is a precedent or a
-    reference, never a child broken out of it (MH-3998 named MH-3800 as the path to follow, and ela linked it as
-    contained, 2026-11-25). By the created times, else by the key's number within one project; unknown → False."""
+    """Whether `child` existed before `parent`. An older ticket that is already Done is a precedent or a reference,
+    not a child (MH-3998 named MH-3800, Done, as the path to follow, and ela linked it as contained, 2026-11-25); an
+    older open one may be a child an umbrella gathered, so `older` alone decides nothing. By the created times, else by the key's number within one project; unknown → False."""
     a, b = ((child.get("fields") or {}).get("created"), (parent.get("fields") or {}).get("created"))
     if a and b:
         try:
@@ -677,7 +678,7 @@ def select_link_named(parent, children, before=None):
     writes = []
     for i, k in enumerate(proposed, 1):
         ch = children[k].get("fields") or {}
-        t = "relates to" if named[k]["relates"] or older(children[k], parent) else "contains"
+        t = "relates to" if named[k]["relates"] or (older(children[k], parent) and is_done(children[k])) else "contains"
         cmd = f"ela jira link {pk} {k} --type " + ("\"relates to\"" if t == "relates to" else "contains")
         writes.append({"n": i, "target": k, "command": cmd,
                        "why": f"{(ch.get('summary') or '')[:60]} ({(ch.get('status') or {}).get('name') or '?'}) · named by "
@@ -763,7 +764,7 @@ def make_batch(reports, cls, scope, writes, left, today):
 
 
 # ── tier 1 by decision: written at the pass, kept on record ───────────────────────────────────────────────────
-def act(reports, cls, scope, writes, today, apply=False, runner=None, now=None):
+def act(reports, cls, scope, writes, today, apply=False, runner=None, now=None, note_dir=None):
     """One set of writes a tier-1 class makes without asking (TIER1_BY_DECISION), run in order through jira.py and kept
     as an applied batch: each write an act with its before-state and undo (jira.py's acts.jsonl, ELA_ACT), a record row
     each, and ela/dry/did.md lists them. A write that fails stops the set. The batch id is the class, the scope and the
@@ -794,7 +795,8 @@ def act(reports, cls, scope, writes, today, apply=False, runner=None, now=None):
             did.append(f"{w['n']} skipped: an earlier write of the set failed"); continue
         a_id = act_id(bid, w["n"])
         code, out = (runner(w["command"], apply) if runner else
-                     run_write(w["command"], apply, action=a_id, word=f"{cls} (tier 1 by decision)", cls=cls, own=True))
+                     run_write(w["command"], apply, action=a_id, word=f"{cls} (tier 1 by decision)", cls=cls, own=True,
+                               note_follows=bool(note_dir)))
         ok = code == 0
         w["outcome"] = "landed" if ok else "failed"
         if not ok:
@@ -804,6 +806,16 @@ def act(reports, cls, scope, writes, today, apply=False, runner=None, now=None):
         if apply and ok:
             append(reports, {"at": now_iso(now), "class": cls, "verdict": "applied", "as_drafted": True, "target": w["target"],
                              "command": w["command"], "why": w.get("why"), "batch": bid, "act": a_id, "source": "tier1"})
+    landed = [w for w in writes if w.get("outcome") == "landed"]
+    if note_dir and landed:                              # the set's one comment, naming only the links that landed
+        f = os.path.join(note_dir, f"{scope}-links.txt")
+        atomic_write(f, link_note(scope, landed) + "\n")
+        cmd = f"ela jira comment {scope} --from-file {f}"
+        code, out = (runner(cmd, apply) if runner else
+                     run_write(cmd, apply, action=f"{bid}#note", word=f"{cls} (tier 1 by decision)", cls=cls, own=True))
+        did.append(f"note {'applied' if apply else 'dry run'}: {'ok' if code == 0 else 'failed'} — "
+                   f"{(out.splitlines() or [''])[-1]}"[:300])
+        ok = ok and code == 0
     if apply:
         save_batch(reports, {"id": bid, "class": cls, "scope": scope, "made": now_iso(now), "state": "applied" if ok else "failed",
                              "writes": [{k: w[k] for k in ("n", "target", "command", "why", "outcome", "reason") if k in w} for w in writes],
@@ -812,64 +824,36 @@ def act(reports, cls, scope, writes, today, apply=False, runner=None, now=None):
     return {"batch": bid, "state": ("applied" if ok else "failed") if apply else "dry run", "ok": ok, "did": did}
 
 
-def link_note(scope, w):
-    """The signed note a link set ela makes on its own carries (jira.py signs it): what was linked and why, in English.
-    `w` is one write; a merged write (merge_links) carries its parts, one line each, so one comment names them all."""
-    m = re.search(r"--type (\"[^\"]+\"|\S+)", w["command"])
-    t = (m.group(1) if m else "contains").strip('"')
-    parts = w.get("parts") or [w]
-    if len(parts) == 1:
-        return (f"Linked {w['target']} to {scope} ({scope} {t} {w['target']}): this ticket names it — {w['why']}. "
+def link_note(scope, ws):
+    """The one signed comment a link set ela made on its own carries (jira.py signs it): what was linked and why, in
+    English, naming only the links that landed (MH-3998, 2026-11-25: one comment a set, never one a link)."""
+    def kind(w):
+        m = re.search(r"--type (\"[^\"]+\"|\S+)", w["command"])
+        return (m.group(1) if m else "contains").strip('"')
+    if len(ws) == 1:
+        w = ws[0]
+        return (f"Linked {w['target']} to {scope} ({scope} {kind(w)} {w['target']}): this ticket names it — {w['why']}. "
                 f"If the link is wrong, remove it or reply here, and ela stops linking on its own.")
-    return "\n".join([f"Linked {len(parts)} tickets to {scope} ({scope} {t} each): this ticket names them."]
-                     + [f"- {p['target']} — {p['why']}" for p in parts]
+    return "\n".join([f"Linked {len(ws)} tickets to {scope}: this ticket names them."]
+                     + [f"- {scope} {kind(w)} {w['target']} — {w['why']}" for w in ws]
                      + ["If a link is wrong, remove it or reply here, and ela stops linking on its own."])
-
-
-def merge_links(writes):
-    """A pass's link writes on one scope as one write per link type: one `ela jira link SCOPE A B … --type T`, so the
-    set is announced by one comment, not one per link (MH-3998, 2026-11-25). Each merged write keeps its parts."""
-    groups, order = {}, []
-    for w in writes:
-        m = re.match(r"^ela jira link (\S+) (\S+) (--type .+)$", " ".join(w["command"].split()))
-        if not m:
-            return writes
-        g = (m.group(1), m.group(3))
-        if g not in groups:
-            groups[g] = []; order.append(g)
-        groups[g].append(w)
-    out = []
-    for i, g in enumerate(order, 1):
-        ws = groups[g]
-        if len(ws) == 1:
-            out.append(dict(ws[0], n=i)); continue
-        out.append({"n": i, "target": " ".join(w["target"] for w in ws),
-                    "command": f"ela jira link {g[0]} " + " ".join(w["target"] for w in ws) + f" {g[1]}",
-                    "why": "; ".join(f"{w['target']}: {w['why']}" for w in ws), "parts": ws})
-    return out
 
 
 def place(reports, cls, scope, writes, left, today, apply=False, out_dir=None, runner=None, now=None):
     """Where a selection goes (link-named, parent-status; vault plan 2026-11-24 step 3). At tier 1 by decision it is
-    ela's own set: an open batch of the class and scope settles, each link gets its signed note file, and `act` writes
-    it (a dry run unless `apply`), listed in ela/dry/did.md with its undo. Back at confirm after a correction (tier 3),
+    ela's own set: an open batch of the class and scope settles, and `act` writes it (a dry run unless `apply`), each
+    link its own act with its own undo, then one signed comment naming the links that landed; listed in ela/dry/did.md. Back at confirm after a correction (tier 3),
     it is an ordinary batch, asked on today.md. → {"batch": id or None, "state", "did": [...], "left_out"}."""
     if cls in TIER1_BY_DECISION and load_state(reports)[cls]["tier"] == 1:
         if apply:
             make_batch(reports, cls, scope, [], left, today)          # yesterday's open ask for this scope leaves today.md
         if not writes:
             return {"batch": None, "state": "nothing to write", "did": [], "left_out": left}
+        d = None
         if cls == "link-named":
-            writes = merge_links(writes)
             d = out_dir or os.path.join(site().get("runtime") or os.path.join(reports, "..", ".ela"), "dry", today.isoformat())
             os.makedirs(d, exist_ok=True)
-            signed = []
-            for w in writes:
-                f = os.path.join(d, f"{scope}-link-{w['target'].replace(' ', '+')}.txt")
-                atomic_write(f, link_note(scope, w) + "\n")
-                signed.append(dict(w, command=f"{w['command']} --note-file {f}"))
-            writes = signed
-        r = act(reports, cls, scope, writes, today, apply=apply, runner=runner, now=now)
+        r = act(reports, cls, scope, writes, today, apply=apply, runner=runner, now=now, note_dir=d)
         return dict(r, left_out=left)
     b = make_batch(reports, cls, scope, writes, left, today)
     return {"batch": b["id"] if b else None, "state": b["state"] if b else "nothing to write",
@@ -889,7 +873,7 @@ def tier1_done(reports, day):
 
 
 # ── the answer ────────────────────────────────────────────────────────────────────────────────────────────────
-def run_write(command, apply, action=None, word=None, cls=None, own=False):
+def run_write(command, apply, action=None, word=None, cls=None, own=False, note_follows=False):
     """One write through its own capability: `ela jira …` becomes jira.py; --apply only when the answer carried it.
     The write log records the batch and the answer it ran under (ELA_ACTION, ELA_WORD); the act (ELA_ACT, the same
     id) and its class (ELA_CLASS) go with the before-state jira.py keeps, so `ela dry undo` can find it. `command`
@@ -901,7 +885,8 @@ def run_write(command, apply, action=None, word=None, cls=None, own=False):
     env = os.environ.get("ELA_ENV_FILE") or site().get("env")
     cmd = ["python3", JIRA] + (["--env-file", env] if env else []) + argv[2:] + (["--apply"] if apply else [])
     env = dict(os.environ, **({"ELA_ACTION": action, "ELA_ACT": action} if action else {}), **({"ELA_WORD": word} if word else {}),
-               **({"ELA_CLASS": cls} if cls else {}), **({"ELA_OWN": "1"} if own else {}))
+               **({"ELA_CLASS": cls} if cls else {}), **({"ELA_OWN": "1"} if own else {}),
+               **({"ELA_NOTE_FOLLOWS": "1"} if note_follows else {}))
     p = subprocess.run(cmd, capture_output=True, text=True, timeout=300, env=env)
     return p.returncode, (p.stdout + p.stderr).strip()
 

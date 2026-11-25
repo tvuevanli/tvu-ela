@@ -3797,7 +3797,8 @@ def improve_asks(reports, today):
 
 
 def watch_asks(reports, today):
-    """The board watch's topics that take an ordinary ask slot on today.md (decision 2026-11-24): what ela could not or
+    """The board watch's topics as asks (decision 2026-11-24; since 2026-11-25 they take no slot on today.md and live on
+    ela/watch.md, so this serves a tick left on an older page): what ela could not or
     may not decide on a ticket, his letters from the topic, answered by `ela watch answer` (a record; a chosen option's
     writes go out at the watch's next pass). The same topics reach his ela DM. A broken store costs these asks only."""
     try:
@@ -5228,11 +5229,11 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since
     dcands, dry_facts = dry_asks(reports, today, asks_state, dry_run)
     mcands = mention_asks(reports, today)                  # a person waiting on him leads the drafted writes
     icands = improve_asks(reports, today)                  # then the improvements that wait for his word
-    wcands = unheld(watch_asks(reports, today), focus.get("holds"), today)   # the board watch's topics, a held one aside
+    # the board watch's topics take no ask slot: they live on ela/watch.md, one line under Today (2026-11-25)
     qcands, cands = unheld(qcands, focus.get("holds"), today), unheld(cands, focus.get("holds"), today)   # a held subject asks nothing
     # a batch of drafted writes (the focus board's moves among them) comes before a question's carry nudge: the board
     # turns a question carried through two meetings into a Jira move, which the nudge only asks about
-    shown, more, _, asks_state = settle_asks(asks_state, mcands + dcands + wcands + icands + qcands + cands, today)
+    shown, more, _, asks_state = settle_asks(asks_state, mcands + dcands + icands + qcands + cands, today)
     for v in asks_state.values():                          # the slots are today's page's: yesterday's numbers mean nothing
         for k in ("slot", "options"):
             v.pop(k, None)

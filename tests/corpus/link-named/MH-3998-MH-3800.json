@@ -1,0 +1,55 @@
+{
+ "class": "link-named",
+ "origin": "2026-11-25-link-named-MH-3998#2",
+ "cause": "an older Done ticket named as the precedent, not a child",
+ "word": "the owner's word on 2026-11-25 in a session (\"I agree all, do\"): both links undone by ela dry undo, MH-3800 relinked as relates to",
+ "rejected": {
+  "target": "MH-3800",
+  "type": "contains"
+ },
+ "input": {
+  "parent": {
+   "key": "MH-3998",
+   "fields": {
+    "summary": "SCTE-35 include option on SRT, UDP and RTP destinations",
+    "status": {
+     "name": "Review"
+    },
+    "assignee": {
+     "displayName": "the owner"
+    },
+    "issuelinks": [],
+    "comment": {
+     "comments": []
+    },
+    "created": "2026-11-10T10:00:00.000+0800",
+    "description": {
+     "type": "doc",
+     "content": [
+      {
+       "type": "paragraph",
+       "content": [
+        {
+         "type": "text",
+         "text": "Store it as an objectd destination attribute, the same path as the ISSP containerFormat (MH-3800)."
+        }
+       ]
+      }
+     ]
+    }
+   }
+  },
+  "children": {
+   "MH-3800": {
+    "key": "MH-3800",
+    "fields": {
+     "summary": "ISSP / Grid container format: MPEG-TS vs TVULive (admin switch + destination field)",
+     "status": {
+      "name": "Done"
+     },
+     "created": "2026-10-20T10:00:00.000+0800"
+    }
+   }
+  }
+ }
+}

@@ -1725,6 +1725,9 @@ def note_problem(verb, note, own, to=None, terminal_ok=False):
     never moves a ticket to a terminal status (that stays the owner's word)."""
     if verb == "transition" and own and (terminal_ok or terminal(to or "")):
         return f"transition: {to} is a terminal status; ela never makes it on its own initiative; refused"
+    if verb == "link" and own and os.environ.get("ELA_NOTE_FOLLOWS") == "1":
+        return None                                      # a link set: `ela dry` posts its one comment after the set,
+                                                         # naming only the links that landed (MH-3998, 2026-11-25)
     if verb in FIELD_VERBS and own and not (note or "").strip():
         return (f"{verb}: a field change ela makes on its own initiative goes out only with its comment saying what "
                 f"changed and why (--note-file); refused")
@@ -2207,22 +2210,30 @@ def cmd_link(creds, args):
             touched(args, key)
             lines += [f"DRY RUN — {plan['reads']}  ({t['name']})", f"  on {other} Jira will show: {plan['target_reads']}"]
             continue
-        api_post(creds, "/rest/api/3/issueLink", plan["payload"])
+        try:
+            api_post(creds, "/rest/api/3/issueLink", plan["payload"])
+        except BaseException:
+            args.note_text = None                       # a set that did not land whole is not announced as landed
+            raise
         after = link_exists(_issue(creds, key, "issuelinks").get("issuelinks"), t, direction, other)
         r["created"] = True
         touched(args, key)                              # a link Jira made, even read back wrong, is announced
         if not after:                                   # read back: a reversed link is named, never reported as done
             r["created"] = False; r["error"] = "the link Jira holds does not read as asked; check both issues"
             lines.append(f"WRONG — Jira does not show {plan['reads']}; check {key} and {other}")
-            wrong.append(other); break
+            wrong.append(other); args.note_text = None; break
         r["link_id"] = after.get("id")
         if r["link_id"]:
             r["undo"] = undo_argv("unlink", key, "--id", r["link_id"])
             record_act(key, "link", {"link": None, "reads": plan["reads"]}, r["undo"], {"link": str(r["link_id"])})
         lines.append(f"linked: {plan['reads']} (on {other}: {plan['target_reads']})")
+    if not others:
+        lines.append(f"{key}: nothing to link (every other key is {key} itself or repeated)")
+    if wrong and len(others) > 1:
+        lines.append("the set's comment was not posted: not every link landed; say on the ticket which did")
     if not args.apply and any(not r["existing_link_id"] for r in rows):
         lines.append("pass --apply to link")
-    _emit(args, rows[0] if len(rows) == 1 else {"key": key, "links": rows}, lines)
+    _emit(args, rows[0] if len(rows) == 1 else {"key": key, "links": rows}, lines or [f"{key}: nothing to link"])
     if wrong:
         sys.exit(1)
 

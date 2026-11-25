@@ -268,11 +268,11 @@ check("a ticket older than the parent is linked as related, never contained",
       and D.older({"key": "MH-9", "fields": {"created": "2026-01-01T00:00:00.000+0800"}},
                   {"key": "MH-1", "fields": {"created": "2026-02-01T00:00:00.000+0800"}})
       and not D.older({"key": "EDPP-1"}, {"key": "MH-3998"}))
-check("link writes on one scope merge per type; a single link stays as it was",
-      [w["command"] for w in D.merge_links([{"n": 1, "target": "MH-2", "command": "ela jira link MH-1 MH-2 --type contains", "why": "a"},
-                                            {"n": 2, "target": "MH-3", "command": "ela jira link MH-1 MH-3 --type contains", "why": "b"},
-                                            {"n": 3, "target": "MH-4", "command": 'ela jira link MH-1 MH-4 --type "relates to"', "why": "c"}])]
-      == ["ela jira link MH-1 MH-2 MH-3 --type contains", 'ela jira link MH-1 MH-4 --type "relates to"'])
+check("a Done ticket older than the parent is related; an older open one may still be a child",
+      D.older({"key": "MH-3800"}, {"key": "MH-3998"}) and D.is_done({"fields": {"status": {"name": "Done"}}}))
+check("a Figma file named with a quote or in Chinese names no ticket; a key before 'node' in prose still does",
+      D.ticket_keys('Figma file "MH-2026"') == [] and D.ticket_keys("\u8bbe\u8ba1\u7a3f MH-2026") == []
+      and D.ticket_keys("MH-4123 node list crash") == ["MH-4123"])
 
 # Vault plan 2026-11-24 step 3, under the decision of 2026-11-24 (ela watches the MH board and acts on Jira, signing each
 # write): link-named and parent-status are ela's own writes, not asks; a correction returns them to confirm.
@@ -294,23 +294,33 @@ with tempfile.TemporaryDirectory() as R, tempfile.TemporaryDirectory() as out:
     at = lambda d: datetime.datetime.combine(d, datetime.time(10, 0), D.TZ)   # the pass's clock on that day
     r = D.place(R, "link-named", "MH-3735", writes, left, TUE, apply=True, out_dir=out, runner=fake, now=at(TUE))
     check("tier 1: the set is written, not asked; yesterday's open batch for the scope settles",
-          r["state"] == "applied" and len(ran) == 2 and all(a for _, a in ran)
+          r["state"] == "applied" and len(ran) == 5 and all(a for _, a in ran)
           and D.load_batch(R, old["id"])["state"] == "settled" and not [x for x in D.asks(R, TUE, ask_state={}) if x["kind"] == "batch"])
-    note = open(ran[0][0].split("--note-file ")[1]).read()
-    check("one write and one note per link type, a command the class admits; the note names every link and why, in English",
-          all("--note-file " in c and __import__("re").match(D.CLASSES["link-named"]["command"], c) for c, _ in ran)
-          and ran[0][0].startswith("ela jira link MH-3735 EDPP-3311 MH-3983 MH-3842 --type contains")
-          and note.startswith("Linked 3 tickets to MH-3735 (MH-3735 contains each): this ticket names them.")
-          and all(f"- {k} — " in note for k in ("EDPP-3311", "MH-3983", "MH-3842")) and note.count("If a link is wrong") == 1)
+    note = open(ran[-1][0].split("--from-file ")[1]).read()
+    check("each link its own write and act, a command the class admits; then one comment naming the links that landed",
+          all(__import__("re").match(D.CLASSES["link-named"]["command"], c) for c, _ in ran[:4])
+          and ran[-1][0].startswith("ela jira comment MH-3735 --from-file ")
+          and note.startswith("Linked 4 tickets to MH-3735: this ticket names them.")
+          and "- MH-3735 contains EDPP-3311 — " in note and note.count("If a link is wrong") == 1)
+    ran2 = []
+    def half(cmd, apply):
+        ran2.append(cmd); return (1, "boom") if " MH-3983 " in cmd + " " else (0, "ok")
+    with tempfile.TemporaryDirectory() as R2:
+        os.makedirs(os.path.join(R2, "ela", "dry"), exist_ok=True)
+        r2 = D.place(R2, "link-named", "MH-3735", writes, left, TUE, apply=True, out_dir=out, runner=half, now=at(TUE))
+        n2 = open(ran2[-1].split("--from-file ")[1]).read()
+        check("a set that fails part way: the comment names only what landed, never the whole set",
+              r2["state"] == "failed" and ran2[-1].startswith("ela jira comment") and "Linked EDPP-3311 to MH-3735" in n2
+              and "MH-3983" not in n2)
     _, lst = D.did(R, TUE.isoformat())
-    check("listed for ela/dry/did.md, each act by its batch and line", [a for a, _, _ in lst] == [f"{TUE}-link-named-MH-3735#{n}" for n in range(1, 3)])
+    check("listed for ela/dry/did.md, each act by its batch and line", [a for a, _, _ in lst] == [f"{TUE}-link-named-MH-3735#{n}" for n in range(1, 5)])
     check("one set a scope a day: a second pass the same day writes nothing",
-          D.place(R, "link-named", "MH-3735", writes, left, TUE, apply=True, out_dir=out, runner=fake, now=at(TUE))["state"] == "refused" and len(ran) == 2)
+          D.place(R, "link-named", "MH-3735", writes, left, TUE, apply=True, out_dir=out, runner=fake, now=at(TUE))["state"] == "refused" and len(ran) == 5)
     n = D.correct(R, "link-named", "correction", "MH-3735", "a reply disputing a link", now=datetime.datetime(2026, 11, 24, 16, tzinfo=D.TZ))
     WED = datetime.date(2026, 11, 25)
     r = D.place(R, "link-named", "MH-3735", writes, left, WED, apply=True, out_dir=out, runner=fake, now=at(WED))
     check("a correction returns the class to confirm and the decision does not undo the fall: the next set is asked",
-          "back to your confirm" in n and D.load_state(R)["link-named"]["tier"] == 3 and r["state"] == "open" and len(ran) == 2
+          "back to your confirm" in n and D.load_state(R)["link-named"]["tier"] == 3 and r["state"] == "open" and len(ran) == 5
           and [x["id"] for x in D.asks(R, WED, ask_state={}) if x["kind"] == "batch"] == [f"dry:{r['batch']}"])
     p = issue("MH-3735", issuelinks=[link(1, "contains", "MH-3983", "Review")], comment={"comments": []})
     w, _ = D.select_parent_status(p, OWNER, TUE, out)

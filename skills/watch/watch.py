@@ -769,7 +769,7 @@ def asks(reports, today):
     return out
 
 
-# ── the owner's DM: one root a day, a topic a reply, an open topic continued in its thread ────────────────────────
+# ── the owner's DM: a reminder, at most one a day, when a topic is new; the topics live on ela/watch.md ──────────
 SLACK = os.path.join(SKILLS, "slack", "slack.py")
 
 
@@ -984,7 +984,7 @@ def main():
     p.add_argument("topic"); p.add_argument("letter"); p.add_argument("--json", action="store_true"); p.set_defaults(func=cmd_answer)
     p = sub.add_parser("asks", help="the open topics, as today.md shows them")
     p.add_argument("--json", action="store_true"); p.set_defaults(func=cmd_asks)
-    p = sub.add_parser("dm", help="the owner's ela DM: one root a day, each topic a reply under it; a dry run unless --apply")
+    p = sub.add_parser("dm", help="the owner's ela DM: a reminder, at most one a day when a topic is new, pointing at ela/watch.md; a dry run unless --apply")
     p.add_argument("--apply", action="store_true"); p.add_argument("--json", action="store_true"); p.set_defaults(func=cmd_dm)
     a = ap.parse_args()
     a.func(a)

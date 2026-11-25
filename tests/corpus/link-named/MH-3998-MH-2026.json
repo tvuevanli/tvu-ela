@@ -1,0 +1,64 @@
+{
+ "class": "link-named",
+ "origin": "2026-11-25-link-named-MH-3998#1",
+ "cause": "Figma file named by a ticket key in prose",
+ "word": "the owner's word on 2026-11-25 in a session (\"I agree all, do\"): both links undone by ela dry undo, MH-3800 relinked as relates to",
+ "rejected": {
+  "target": "MH-2026",
+  "type": "contains"
+ },
+ "input": {
+  "parent": {
+   "key": "MH-3998",
+   "fields": {
+    "summary": "SCTE-35 include option on SRT, UDP and RTP destinations",
+    "status": {
+     "name": "Review"
+    },
+    "assignee": {
+     "displayName": "the owner"
+    },
+    "issuelinks": [],
+    "comment": {
+     "comments": []
+    },
+    "created": "2026-11-10T10:00:00.000+0800",
+    "description": {
+     "type": "doc",
+     "content": [
+      {
+       "type": "paragraph",
+       "content": [
+        {
+         "type": "text",
+         "text": "MH-3997: Output Profile (placeholder), design in Figma MH-2026 node 4119-5823."
+        }
+       ]
+      }
+     ]
+    }
+   }
+  },
+  "children": {
+   "MH-2026": {
+    "key": "MH-2026",
+    "fields": {
+     "summary": "[Prod9 & CN] The stop live prompt on the pack source will disappear after 1 hour.",
+     "status": {
+      "name": "Done"
+     },
+     "created": "2025-06-01T10:00:00.000+0800"
+    }
+   },
+   "MH-3997": {
+    "key": "MH-3997",
+    "fields": {
+     "summary": "Output Profile: Encoding (follow input by default) and Mux sections replace the Encoding Profile",
+     "status": {
+      "name": "Backlog"
+     }
+    }
+   }
+  }
+ }
+}
