@@ -797,7 +797,7 @@ def link_note(scope, w):
             f"If the link is wrong, remove it or reply here, and ela stops linking on its own.")
 
 
-def place(reports, cls, scope, writes, left, today, apply=False, out_dir=None, runner=None):
+def place(reports, cls, scope, writes, left, today, apply=False, out_dir=None, runner=None, now=None):
     """Where a selection goes (link-named, parent-status; vault plan 2026-11-24 step 3). At tier 1 by decision it is
     ela's own set: an open batch of the class and scope settles, each link gets its signed note file, and `act` writes
     it (a dry run unless `apply`), listed in ela/dry/did.md with its undo. Back at confirm after a correction (tier 3),
@@ -816,7 +816,7 @@ def place(reports, cls, scope, writes, left, today, apply=False, out_dir=None, r
                 atomic_write(f, link_note(scope, w) + "\n")
                 signed.append(dict(w, command=f"{w['command']} --note-file {f}"))
             writes = signed
-        r = act(reports, cls, scope, writes, today, apply=apply, runner=runner)
+        r = act(reports, cls, scope, writes, today, apply=apply, runner=runner, now=now)
         return dict(r, left_out=left)
     b = make_batch(reports, cls, scope, writes, left, today)
     return {"batch": b["id"] if b else None, "state": b["state"] if b else "nothing to write",

@@ -276,7 +276,8 @@ with tempfile.TemporaryDirectory() as R, tempfile.TemporaryDirectory() as out:
     def fake(cmd, apply):
         ran.append((cmd, apply)); return 0, "ok"
     TUE = datetime.date(2026, 11, 24)
-    r = D.place(R, "link-named", "MH-3735", writes, left, TUE, apply=True, out_dir=out, runner=fake)
+    at = lambda d: datetime.datetime.combine(d, datetime.time(10, 0), D.TZ)   # the pass's clock on that day
+    r = D.place(R, "link-named", "MH-3735", writes, left, TUE, apply=True, out_dir=out, runner=fake, now=at(TUE))
     check("tier 1: the set is written, not asked; yesterday's open batch for the scope settles",
           r["state"] == "applied" and len(ran) == 4 and all(a for _, a in ran)
           and D.load_batch(R, old["id"])["state"] == "settled" and not [x for x in D.asks(R, TUE, ask_state={}) if x["kind"] == "batch"])
@@ -287,10 +288,10 @@ with tempfile.TemporaryDirectory() as R, tempfile.TemporaryDirectory() as out:
     _, lst = D.did(R, TUE.isoformat())
     check("listed for ela/dry/did.md, each act by its batch and line", [a for a, _, _ in lst] == [f"{TUE}-link-named-MH-3735#{n}" for n in range(1, 5)])
     check("one set a scope a day: a second pass the same day writes nothing",
-          D.place(R, "link-named", "MH-3735", writes, left, TUE, apply=True, out_dir=out, runner=fake)["state"] == "refused" and len(ran) == 4)
+          D.place(R, "link-named", "MH-3735", writes, left, TUE, apply=True, out_dir=out, runner=fake, now=at(TUE))["state"] == "refused" and len(ran) == 4)
     n = D.correct(R, "link-named", "correction", "MH-3735", "a reply disputing a link", now=datetime.datetime(2026, 11, 24, 16, tzinfo=D.TZ))
     WED = datetime.date(2026, 11, 25)
-    r = D.place(R, "link-named", "MH-3735", writes, left, WED, apply=True, out_dir=out, runner=fake)
+    r = D.place(R, "link-named", "MH-3735", writes, left, WED, apply=True, out_dir=out, runner=fake, now=at(WED))
     check("a correction returns the class to confirm and the decision does not undo the fall: the next set is asked",
           "back to your confirm" in n and D.load_state(R)["link-named"]["tier"] == 3 and r["state"] == "open" and len(ran) == 4
           and [x["id"] for x in D.asks(R, WED, ask_state={}) if x["kind"] == "batch"] == [f"dry:{r['batch']}"])
