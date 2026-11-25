@@ -3,6 +3,10 @@
 import os, sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "skills", "jira"))
 import jira as J  # noqa: E402
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "skills", "release"))
+import release as R  # noqa: E402
+R._MAP = {"lines": {"2.1": {"label": "release:mh-2.1", "bundle_line": "mh2.1@", "ships_as": ["2.2"]},
+                    "2.0": {"label": "release:mh-2.0", "bundle_line": "mh2.0@"}, "2.2": {"label": "release:mh-2.2"}}}
 
 failures = []
 def check(name, cond):
@@ -18,5 +22,8 @@ check("no customer: label (the summary bracket carries it)", "bracket" in J.labe
 check("no feat: label (the component carries it)", "component" in J.label_problems(["feat:Audio"], V)[0])
 check("a retired bare label is refused, with its replacement", J.label_problems(["Fox"], V) == ["Fox: retired; use summary [Fox]"])
 check("an unknown bare label is refused", J.label_problems(["random"], V) == ["random: not in the vocabulary"])
+check("the forward train's release label is refused, under either name it ships as (release-naming rule 7)",
+      len(J.train_label_refusals(["release:mh-2.1", "release:mh-2.2", "release:2.1"])) == 3)
+check("a maintenance train's label and every other label pass", J.train_label_refusals(["release:mh-2.0", "flag:closing", "pending-svc:x"]) == [])
 print("jira labels: all offline checks passed" if not failures else f"jira labels: {len(failures)} failed")
 sys.exit(1 if failures else 0)

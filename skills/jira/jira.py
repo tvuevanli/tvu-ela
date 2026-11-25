@@ -2011,6 +2011,27 @@ def label_problems(labels, vocab):
     return out
 
 
+def train_label_refusals(labels):
+    """The release labels ela never adds: the forward train's (`release:mh-2.1`, and `release:mh-2.2`, the name it
+    ships under). Its content is computed bundle to bundle and Fixed In records where a fix landed, so the label is a
+    third copy; a maintenance train (`release:mh-2.0`) keeps its own (vault releases/release-naming.md rule 7, adopted
+    2026-11-25). Removing one is always allowed. No override: the rule has no exception to write."""
+    out = []
+    for x in labels:
+        m = re.fullmatch(r"release:(?:mh-)?(\d+\.\d+)", x)
+        if not m:
+            continue
+        try:
+            sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "release"))
+            import release as R
+            refused = not R.writes_label(m.group(1))
+        except Exception:                                  # noqa: BLE001 — the map unread: refuse, the safe side
+            refused = True
+        if refused:
+            out.append(f"{x}: the forward train writes no release label; Fixed In and the bundle diff say where a fix landed")
+    return out
+
+
 def _label_one(creds, key, add, rem, apply):
     f = _issue(creds, key, "summary,labels")
     cur = f.get("labels") or []
@@ -2130,6 +2151,9 @@ def cmd_label(creds, args):
     add, rem = _split_csv(args.add), _split_csv(args.remove)
     if not add and not rem:
         sys.exit("label: nothing to do — pass --add and/or --remove")
+    refused = train_label_refusals(add)
+    if refused:
+        sys.exit("label: refused —\n  " + "\n  ".join(refused))
     vocab = vocabulary()
     problems = label_problems(add, vocab) if vocab else []
     if problems:
@@ -2547,6 +2571,9 @@ def cmd_close(creds, args):
     text = _read_text(args)
     add = _fixed_in_args(args.fixed_in) if args.fixed_in else []
     labels = _split_csv(args.label)
+    refused = train_label_refusals(labels)
+    if refused:
+        sys.exit("close: refused —\n  " + "\n  ".join(refused))
     me = (api_get(creds, "/rest/api/3/myself") or {}).get("accountId")
     results, lines, failed = [], [], False
     if getattr(args, "terminal", False) and len(_keys(args.targets)) > 1:
@@ -2780,7 +2807,7 @@ def main():
     p = sub.add_parser("close", help="propose a close: Fixed In + labels + comment + flag:closing + the ticket assigned to you; the status is your own click in Jira — dry-run unless --apply")
     p.add_argument("targets", nargs="+", help="issue keys or browse URLs")
     p.add_argument("--fixed-in", help="'<slug>@<version>[; …]' to append (release map grammar)")
-    p.add_argument("--label", help="comma-separated labels to add, e.g. release:mh-2.0,release:mh-2.1")
+    p.add_argument("--label", help="comma-separated labels to add, e.g. release:mh-2.0 (a maintenance train; the forward train takes none)")
     p.add_argument("--text", help="the closing comment; `@name` mentions resolve through the roster; a `---` line starts the collapsed technical part")
     p.add_argument("--from-file", help="read the comment from a file instead")
     p.add_argument("--allow-no-comment", action="store_true", help="propose without a comment (normally refused: the assignee and the reporter must see why)")
