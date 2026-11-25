@@ -879,7 +879,8 @@ def asks(reports, now=None):
         opts = ([{"letter": "A", "text": A_TEXT[offer], "does": f"ela mention answer {r['id']} A{shown}", "recommended": True}] if r.get("draft") else []) + [
             {"letter": "B", "text": "I will write it", "does": f"ela mention answer {r['id']} B", "recommended": False},
             {"letter": "C", "text": "nothing needed", "does": f"ela mention answer {r['id']} C", "recommended": False}]
-        out.append({"id": aid, "question": f"{r['by_name']} asked you in #{r['channel_name']} on {r['at'][5:16].replace('T', ' ')}, no reply yet: "
+        where = f"[#{r['channel_name']}]({r['permalink']})" if r.get("permalink") else f"#{r['channel_name']}"   # one click to the thread
+        out.append({"id": aid, "question": f"{r['by_name']} asked you in {where} on {r['at'][5:16].replace('T', ' ')}, no reply yet: "
                                            f"{r.get('ask') or r['first']}", "link": note_rel(r["id"]), "options": opts,
                     "sig": f"{r['id']}:{'drafted' if r.get('draft') else 'bare'}" + (f":{shown.split()[-1]}" if shown else "")})
     return out

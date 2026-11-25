@@ -4,7 +4,7 @@ raised; a thread he answers inside the wait produces no message and, where his r
 by class; an ask left unanswered produces one message with the facts, a reply to paste and A / B / C; a prod incident
 produces its facts at once and no draft; his reply while a draft is pending withdraws it; outside his hours the ask
 takes a slot on today.md. Nothing reaches Slack or Jira: threads and tickets are fixtures."""
-import datetime, json, os, sys, tempfile
+import datetime, json, os, re, sys, tempfile
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "skills", "mention"))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "skills", "vault"))
 import mention as M  # noqa: E402
@@ -216,7 +216,7 @@ with tempfile.TemporaryDirectory() as tmp:
     c5, c10 = cands[f"mention:{a5}"], cands[f"mention:{a10}"]
     check("today.md: a held mention is an ordinary ask candidate, whole, linked to its page, his letters kept",
           c5["whole"] and c5["link"] == f"ela/mentions/{a5}" and [o["letter"] for o in V.ask_options(c5)] == ["A", "B", "C"]
-          and [o["letter"] for o in V.ask_options(c10)] == ["B", "C"] and c5["text"].startswith("Asker asked you in #dev on 11-12 21:00, no reply yet: "))
+          and [o["letter"] for o in V.ask_options(c10)] == ["B", "C"] and re.match(r"Asker asked you in \[#dev\]\(https?://\S+\) on 11-12 21:00, no reply yet: ", c5["text"]))
     pages = V.mention_pages(R, FRI)
     check("the vault page of each held mention, typed", set(pages) == {f"ela/mentions/{a5}.md", f"ela/mentions/{a10}.md"}
           and 'type: "mention"' in pages[f"ela/mentions/{a5}.md"] and "## Draft reply" in pages[f"ela/mentions/{a5}.md"])
