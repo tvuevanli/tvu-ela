@@ -122,7 +122,7 @@ F.tvukb_checkout = lambda: kb_clone
 F.code_repos = lambda: {"media/tvu-kb": kb_clone, "web/gone": os.path.join(TMP, "no-such-checkout")}   # the code source's repos
 
 # ── the first refresh ───────────────────────────────────────────────────────────────────────────────
-class A: env_file = None; source = None; fresh = False; json = False
+class A: env_file = None; source = None; fresh = False; json = False; if_older = None
 F.cmd_refresh(A())
 check("the tvu-kb checkout's revision is its watermark", F.watermark("tvukb").get("rev") == KBX.head(kb_clone) and not F.watermark("tvukb").get("gap"))
 cw = F.watermark("code")
@@ -164,6 +164,16 @@ check("no thread is read again when its parent did not move", calls["slack"] - b
 check("the store's content is the same after the second refresh",
       F.read_json(os.path.join(F.store_dir("mail"), "index.json"))["release"]["ids"] == ["m1", "m4"]
       and len(F.read_json(os.path.join(F.store_dir("jira"), "changes.json"))) == 2)
+
+# ── a read by age: a pass between the fixed reads reads only what is old or has a gap ─────────────────────
+before = dict(calls)
+class ByAge(A): if_older = 4
+F.cmd_refresh(ByAge())
+check("--if-older reads nothing when every source is younger", calls == before and F.watermark("jira")["at"] == second["jira"]["at"])
+F.set_watermark("jira", at="2020-01-01T00:00:00+00:00")
+F.cmd_refresh(ByAge())
+check("--if-older reads a source older than the hours, and only it", calls["jira"] > before["jira"] and calls["slack"] == before["slack"]
+      and calls["mail"] == before["mail"])
 
 # ── a failing source keeps its content and records a gap ──────────────────────────────────────────
 def broken(*a, **k):

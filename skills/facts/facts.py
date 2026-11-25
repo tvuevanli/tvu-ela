@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The fact store: every source read once per pass into <runtime>/facts/, dated; the verbs read the store.
 
-  facts.py [--env-file F] refresh [--source jira|slack|mail|lanes|builds]... [--fresh] [--json]
+  facts.py [--env-file F] refresh [--source jira|slack|mail|lanes|builds]... [--fresh] [--if-older H] [--json]
   facts.py status [--json]
   facts.py calls [--date D] [--json]          a day's live calls: the fixed reads, and the rest by caller and verb
   facts.py runtime refresh|show|prove <graph>|initconfig …   lane runtime facts (runtime.py)
@@ -551,11 +551,40 @@ def links_update():
         return {"error": f"{type(e).__name__}: {str(e)[:160]}"}
 
 
+def young(source, hours):
+    """Whether the source's last read is younger than `hours` and did not fail whole: a read by age skips it. A
+    partial gap (one host refused, a China login not admitted) stands until the next fixed read: re-reading the
+    whole source for it on every pass would spend the read again to meet the same refusal."""
+    wm = watermark(source)
+    t = parse_iso(wm.get("at"))
+    gap = wm.get("gap") or {}
+    return bool(t) and not (gap and not gap.get("partial")) and (now() - t).total_seconds() < hours * 3600
+
+
+def lock_refresh():
+    """One read at a time: a second `refresh` waits for the first, then (under --if-older) finds the sources young
+    and reads nothing. Two reads at once would load, fetch and save the same channel files and lose each other's
+    updates. Held until the process exits."""
+    try:
+        import fcntl
+        fh = open(os.path.join(store_dir("calls"), ".refresh.lock"), "w")
+        fcntl.flock(fh, fcntl.LOCK_EX)
+        return fh
+    except (ImportError, OSError):
+        return None
+
+
 def cmd_refresh(a):
     os.environ["ELA_FACTS_READING"] = "1"                   # the read's own calls, and its subprocesses', are the read
+    held = lock_refresh()  # noqa: F841 — kept open for the life of the read
     sources = a.source or list(SOURCES)
     out, failed = {}, []
     for s in sources:
+        if getattr(a, "if_older", None) is not None and young(s, a.if_older):
+            line = f"{s}: read {str(watermark(s).get('at'))[11:16]}, younger than {a.if_older:g}h; not read again"
+            out[s] = {"ok": True, "skipped": True, "line": line, "watermark": watermark(s)}
+            print(line, file=sys.stderr, flush=True)
+            continue
         try:
             line = REFRESH[s](a.env_file, a.fresh)
             out[s] = {"ok": True, "line": line, "watermark": watermark(s)}
@@ -571,10 +600,11 @@ def cmd_refresh(a):
             out[s] = {"ok": False, "line": line, "watermark": watermark(s)}
             failed.append(s)
         print(line, file=sys.stderr, flush=True)
-    links = links_update() if len(failed) < len(sources) else None
+    read = [k for k, v in out.items() if not v.get("skipped")]
+    links = links_update() if read and len(failed) < len(read) else None
     if a.json:
         print(json.dumps({"at": now_iso(), "sources": out, "failed": failed, "links": links}, ensure_ascii=False))
-    if failed and len(failed) == len(sources):
+    if failed and len(failed) == len(read):
         sys.exit(EX_REMOTE)
 
 
@@ -644,6 +674,8 @@ def main():
     p = sub.add_parser("refresh", help="read each source forward from its watermark")
     p.add_argument("--source", action="append", choices=SOURCES, help="one source (repeatable); default all")
     p.add_argument("--fresh", action="store_true", help="ignore the watermarks: read every source whole")
+    p.add_argument("--if-older", type=float, metavar="HOURS",
+                   help="read only the sources whose last read is older than HOURS or has a gap (a pass between the fixed reads)")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_refresh)
     p = sub.add_parser("status", help="each source's read time, freshness, size and gap")

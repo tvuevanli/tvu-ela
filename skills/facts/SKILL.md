@@ -22,6 +22,15 @@ user-invocable: true
 | `proposals` | mediahub-bot's knowledge proposals (each marked `mhbot-knowledge-proposal v1`): the replies under the bot's daily parent in its proposals channel over the last 8 days, through the Slack store, and the JSON files in its `data/knowledge-proposals/` directory when it is on this machine; site.json `knowledge_proposals` → `{"channel": <id>, "dir": <path>}`, either left out = that route not read (a state); a route set and unreadable is a gap and the other is still read; one record per claim (the bot's own claim key), with the routes it came by and when ela first saw it, kept 60 days | the brief's `proposals` lane, `ela facts proposals show [--hours N] [--json]` |
 | `runtime` | per followed lane (release.yaml lines, daily and prod) and per config-server service (each repo's own `bootstrap.properties`): the lane's profile (`elk.config.env` = the lane token), the instance the java-log shows running it, the profile chain a graph proved (`ela facts runtime prove <graph>`: its trace → the UR Caller instance that created it, its processes → the gateway that bridged them), and the keys whose value differs between the lane profile read alone and that chain; the initConfig the owner's browser session received (`ela browser env`, kept under the lane the version panel proved, keys and non-secret values only) | `ela facts runtime show`, promote's configuration section, `ela configserver effective <app> <chain>` |
 
+**Fixed reads, and a read by age between them.** The runner reads every source at four fixed times on a working
+day: 07:45 (the morning page), 12:30, 17:30 and 22:00 (the team report, which also serves the 01:00 night pass). Every
+other pass calls `refresh --if-older 4`: a source read less than four hours ago without a whole failure is not read
+again, so the 09:30, 10:00 and 19:00 passes use the read before them, and a Monday, a holiday or a failed read
+corrects itself at the next pass. A partial gap (one host refused) waits for the next fixed read. A pass that writes
+where others read reads its Jira first, `--source jira` (the board watch, the 09:30 and 10:00 sends). One refresh
+runs at a time (a file lock); a second waits, then finds the sources young. Plan: vault
+`ela/2026-11-25-plan-read-once-at-fixed-times.md`.
+
 A verb serves the store while the source's watermark is younger than `ELA_FACTS_MAX_AGE` hours (default 6) and
 says so on stderr with the read time. A gap (a host that refused, Jenkins down) keeps the previous content and is
 recorded in the watermark; the serving verb then answers as the live read would (the lanes' exit 4, an empty
