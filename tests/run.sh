@@ -32,6 +32,7 @@ python3 tests/test_publish_redact.py || fail=1
 python3 tests/test_configserver_redact_offline.py || fail=1
 python3 tests/test_apifox_public_offline.py >/dev/null 2>&1 || { echo "apifox public offline failed"; fail=1; }
 python3 tests/test_redact_push_offline.py || fail=1
+python3 tests/test_team_find_offline.py >/dev/null 2>&1 || { echo "team find offline failed"; fail=1; }
 python3 tests/test_setup_secret_offline.py || fail=1
 python3 tests/test_mr_dryrun.py || fail=1
 python3 tests/test_fixedin_offline.py || fail=1
