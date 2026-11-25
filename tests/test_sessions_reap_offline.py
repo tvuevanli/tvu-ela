@@ -166,6 +166,24 @@ with tempfile.TemporaryDirectory() as tmp:
           and not any(x.startswith(("tl:", "sig:", "desk:", "ela:", "runner-x:")) for x in left), "--last: one line per session the pass left open, the desk not among them")
     check(not os.path.exists(zlog), "no pane was named, so zellij was never called")
 
+    # a pane zellij holds after its session ended (the worker exited, or was closed from outside zellij) is swept
+    panes = [{"id": 9, "title": "held", "exited": True}, {"id": 10, "title": "live", "exited": False},
+             {"id": 11, "title": "renamed", "exited": True}, {"id": 12, "is_plugin": True, "title": "held", "exited": True}]
+    json.dump(panes, open(os.path.join(tmp, "panes.json"), "w"))
+    open(os.path.join(stubs, "zellij"), "w").write(f'#!/bin/sh\nprintf "%s\\n" "$*" >> "{zlog}"\n'
+                                                   f'case "$*" in *list-panes*) cat "{tmp}/panes.json";; esac\nexit 0\n')
+    t0 = "2026-11-25T10:00:00+08:00"
+    with open(os.path.join(rt, "sessions.jsonl"), "a") as f:
+        for sid, name, pane in (("s-held", "held", "9"), ("s-live", "live", "10"), ("s-other", "other", "11")):
+            f.write(json.dumps({"event": "start", "id": sid, "at": t0, "name": name, "cwd": "/x", "pid": 1, "pane": pane, "zellij": "z"}) + "\n")
+            f.write(json.dumps({"event": "end", "id": sid, "at": t0, "reason": "other"}) + "\n")
+    p = run(["reap", "--apply"])
+    calls = open(zlog).read().splitlines() if os.path.exists(zlog) else []
+    closes = [c for c in calls if "close-pane" in c]
+    check(p.returncode == 0 and "--session z action list-panes --json" in calls
+          and closes == ["--session z action close-pane --pane-id terminal_9"] and "held" in p.stderr,
+          f"--apply closes the exited pane of an ended session by its id and name, nothing else: {closes}")
+
     e = dict(os.environ, HOME=home, ELA_TEST="1", PATH=os.path.join(tmp, "none") + os.pathsep + "/usr/bin:/bin")
     p = subprocess.run([sys.executable, SCRIPT, "reap", "--apply"], capture_output=True, text=True, env=e)
     check(p.returncode == 2 and "ELA_TEST=1" in p.stderr, "under ELA_TEST --apply with no stub zellij refuses")

@@ -32,8 +32,9 @@ file in the checkout is one the change touches; then main is fast-forwarded, pus
 are removed. Any failed step refuses with its reason and leaves main where it was; a failed rebase is aborted.
 --dry-run makes the read-only checks and prints the steps. Exit 4 for a refusal, 5 when git fails after main moved.
 
-close: ends a live session by name: TERM to its Claude process, then its pane (`zellij action close-pane
---pane-id`), and an end line "closed by desk" in the registry. The desk runs it after the worker's closing line.
+close: ends a live session by name: TERM to its Claude process, then its pane (`zellij --session S action close-pane
+--pane-id`, S the zellij session the hook recorded at start, so the runner's reap closes panes from outside zellij),
+and an end line "closed by desk" in the registry. The desk runs it after the worker's closing line.
 
 open on ela or ela-runner refuses without a first message (--brief FILE or the quoted brief): a worker opened with
 none sits asking what to do. --no-brief opens it so on purpose.
@@ -52,7 +53,8 @@ One row each: name, state, minutes since the last reply, the reason.
 a refusal is reported and the session stays open), then `close` each landed session, and each signed-off one with
 nothing to land; a session started by hand (no name from `session open`) is only reported, since it closes on the
 owner's word. busy, dirty, waiting-owner and no-brief are never closed; `claude --resume <id>` brings back any
-closed one. The result goes to <runtime>/sessions/reap.json; --last prints its sessions left open, one line each
+closed one. --apply also closes every pane zellij still holds for an ended session (exited, its id and title the
+session's recorded pane and name): a worker that exits by itself leaves one. The result goes to <runtime>/sessions/reap.json; --last prints its sessions left open, one line each
 (the desk's session start shows them).
 
 Under a test (ELA_TEST=1, exported by tests/run.sh) a live open or close refuses, exit 2, unless the zellij on PATH
@@ -401,8 +403,16 @@ def one_line80(text):
 WORKERS, DESK = "workers", "desk"
 
 
+def zellij_bin():
+    """zellij on PATH, else ~/.local/bin/zellij: a systemd user unit's PATH (the runner's reap) omits ~/.local/bin."""
+    return shutil.which("zellij") or os.path.expanduser("~/.local/bin/zellij")
+
+
 def zellij_out(*args):
-    p = subprocess.run(["zellij", *args], capture_output=True, text=True)
+    try:
+        p = subprocess.run([zellij_bin(), *args], capture_output=True, text=True)
+    except OSError:
+        return None
     return p.stdout if p.returncode == 0 else None
 
 
@@ -446,7 +456,8 @@ One row each: name, state, minutes since the last reply, the reason.
 a refusal is reported and the session stays open), then `close` each landed session, and each signed-off one with
 nothing to land; a session started by hand (no name from `session open`) is only reported, since it closes on the
 owner's word. busy, dirty, waiting-owner and no-brief are never closed; `claude --resume <id>` brings back any
-closed one. The result goes to <runtime>/sessions/reap.json; --last prints its sessions left open, one line each
+closed one. --apply also closes every pane zellij still holds for an ended session (exited, its id and title the
+session's recorded pane and name): a worker that exits by itself leaves one. The result goes to <runtime>/sessions/reap.json; --last prints its sessions left open, one line each
 (the desk's session start shows them).
 
 Under a test (ELA_TEST=1, which tests/run.sh exports), the reason a live open or close must not run: the zellij
@@ -760,17 +771,54 @@ def cmd_here(a):
     return 0
 
 
+def pane_close_argv(r):
+    """The zellij call that closes a session's pane, addressed by the zellij session it started in, so it works from
+    outside zellij too (the runner's reap runs under systemd); None when the pane or its zellij session is unknown.
+    A row from before the zellij session was recorded falls back to the caller's own zellij session."""
+    zs = r.get("zellij") or os.environ.get("ZELLIJ_SESSION_NAME")
+    if not r.get("pane") or not zs:
+        return None
+    return ["zellij", "--session", zs, "action", "close-pane", "--pane-id", str(r["pane"])]
+
+
 def close_row(r):
-    """End one live session: TERM to its Claude process, then its pane, and an end line "closed by desk". → the steps."""
-    steps = [f"TERM {r['pid']}"] + ([f"zellij action close-pane --pane-id {r['pane']}"] if r.get("pane") else [])
+    """End one live session: TERM to its Claude process, then its pane, and an end line "closed by desk". → the steps.
+    The pane is closed by id in its own zellij session: a command pane whose process ended otherwise stays, held."""
+    argv = pane_close_argv(r)
+    steps = [f"TERM {r['pid']}"] + ([" ".join(argv)] if argv else [])
     try:
         os.kill(int(r["pid"]), 15)
     except (OSError, ValueError) as e:
         print(f"session close: {e}", file=sys.stderr)
-    if r.get("pane") and os.environ.get("ZELLIJ_SESSION_NAME"):
-        subprocess.run(["zellij", "action", "close-pane", "--pane-id", str(r["pane"])], capture_output=True, text=True)
+    if argv:
+        subprocess.run([zellij_bin(), *argv[1:]], capture_output=True, text=True)
     append({"event": "end", "id": r["id"], "at": now(), "reason": "closed by desk"})
     return steps
+
+
+def sweep_held():
+    """Close the panes left behind by ended sessions: a pane zellij holds after its process exited (`exited`), whose id
+    and title match an ended session's recorded pane and name in that zellij session. A worker that exits by itself, or
+    one closed before its zellij session was recorded, leaves such a pane. → the names whose pane was closed."""
+    ended = {}
+    for r in sessions():
+        zs = r.get("zellij") or os.environ.get("ZELLIJ_SESSION_NAME")
+        if r["ended"] and r.get("pane") and r.get("name") and zs:
+            ended[(zs, str(r["pane"]), r["name"])] = r
+    swept = []
+    for zs in sorted({k[0] for k in ended}):
+        try:
+            panes = json.loads(zellij_out("--session", zs, "action", "list-panes", "--json") or "[]")
+        except ValueError:
+            continue
+        for p in panes if isinstance(panes, list) else []:
+            if not isinstance(p, dict) or p.get("is_plugin") or not p.get("exited"):
+                continue
+            if (zs, str(p.get("id")), p.get("title")) in ended:
+                subprocess.run([zellij_bin(), "--session", zs, "action", "close-pane", "--pane-id", f"terminal_{p['id']}"],
+                               capture_output=True, text=True)
+                swept.append(p.get("title"))
+    return swept
 
 
 def cmd_close(a):
@@ -778,7 +826,8 @@ def cmd_close(a):
     if not r:
         print(f"session close: no live session named {a.name}", file=sys.stderr)
         return 3
-    steps = [f"TERM {r['pid']}"] + ([f"zellij action close-pane --pane-id {r['pane']}"] if r.get("pane") else [])
+    argv = pane_close_argv(r)
+    steps = [f"TERM {r['pid']}"] + ([" ".join(argv)] if argv else [])
     if a.dry_run:
         print("\n".join(steps))
         return 0
@@ -1020,6 +1069,8 @@ def cmd_reap(a):
                 row["action"] = "landed, closed" if row["action"] == "landed" else "closed"
             else:
                 row["action"] = f"idle {row['idle']}m, under {IDLE_MIN}m: kept"
+        for name in sweep_held():
+            print(f"swept the held pane of {name}", file=sys.stderr)
         kept = [f"{r['name']}: {r['state']} — {r['action'] or r['reason']}" for r in rows
                 if r["state"] not in ("desk", "runner") and "closed" not in (r["action"] or "")]
         path = reap_file()
@@ -1103,7 +1154,8 @@ def cmd_hook_start(a):
             "cwd": d.get("cwd") or os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd(),
             "purpose": os.environ.get("ELA_SESSION_PURPOSE") or None,
             "job": os.environ.get("ELA_RUNNER_JOB") or None,
-            "pid": claude_pid(), "pane": os.environ.get("ZELLIJ_PANE_ID") or None})
+            "pid": claude_pid(), "pane": os.environ.get("ZELLIJ_PANE_ID") or None,
+            "zellij": os.environ.get("ZELLIJ_SESSION_NAME") or None})
     return 0
 
 
@@ -1137,11 +1189,12 @@ def sessions(unstarted=False):
         except ValueError:
             continue
         r = rows.setdefault(e.get("id"), {"id": e.get("id"), "name": None, "cwd": None, "started": None, "ended": None, "purpose": None,
-                                          "pid": None, "pane": None, "job": None, "usage": None})
+                                          "pid": None, "pane": None, "zellij": None, "job": None, "usage": None})
         if e.get("event") == "start":
             r["started"] = r["started"] or e.get("at")
             r["ended"] = None
             r["pid"], r["pane"] = e.get("pid") or r["pid"], e.get("pane") or r["pane"]   # a resume is a new process
+            r["zellij"] = e.get("zellij") or r["zellij"]
             r["name"] = r["name"] or e.get("name")
             r["cwd"] = r["cwd"] or e.get("cwd")
             r["job"] = r["job"] or e.get("job")
