@@ -771,16 +771,23 @@ def publish_versions(s, dst):
 
 def sync_lanes(dst):
     """rsync <published>/lanes/ to `published_remote`/lanes/; → a one-line outcome, never an exit."""
+    return sync_dir(dst, "lanes")
+
+
+def sync_dir(src, rel, target=None):
+    """rsync one generated directory of <published> (`src`, already redacted and guarded where it was written) to
+    `published_remote`/<rel>/, its stale files removed there; nothing else of the remote tree is touched. `target`: the
+    remote root instead of site.json's (tests). → a one-line outcome, never an exit."""
     import subprocess
-    target = site().get("published_remote")
+    target = target or site().get("published_remote")
     if not target:
         return "not synced: site.json has no published_remote"
-    argv = ["rsync", "-az", "--delete", dst.rstrip("/") + "/", target.rstrip("/") + "/lanes/"]
+    argv = ["rsync", "-az", "--delete", src.rstrip("/") + "/", target.rstrip("/") + f"/{rel}/"]
     try:
         r = subprocess.run(argv, capture_output=True, text=True, timeout=300)
     except (OSError, subprocess.TimeoutExpired) as e:
         return f"not synced: {str(e)[:160]}"
-    return "synced lanes/ to <published_remote>" if r.returncode == 0 else f"not synced: rsync {r.returncode}: {(r.stderr or '').strip()[-160:]}"
+    return f"synced {rel}/ to <published_remote>" if r.returncode == 0 else f"not synced: rsync {r.returncode}: {(r.stderr or '').strip()[-160:]}"
 
 
 def write_published_manifest(records, published):

@@ -106,4 +106,23 @@ with tempfile.TemporaryDirectory() as d:
     N.publish(nb, d)
     check(ADDR not in open(path, encoding="utf-8").read(), "an address is redacted")
 
+# --sync: releases/ alone carried to the remote root, stale files removed there, nothing else touched
+with tempfile.TemporaryDirectory() as pub, tempfile.TemporaryDirectory() as remote:
+    N.publish(doc, pub)
+    os.makedirs(os.path.join(remote, "releases")); open(os.path.join(remote, "releases", "old.json"), "w").write("{}")
+    os.makedirs(os.path.join(remote, "lanes")); open(os.path.join(remote, "lanes", "lanes.md"), "w").write("kept")
+    out = N.sync(pub, remote)
+    got = sorted(os.listdir(os.path.join(remote, "releases")))
+    check(out == "synced releases/ to <published_remote>" and got == ["README.md", "next.json"]
+          and open(os.path.join(remote, "lanes", "lanes.md")).read() == "kept", "sync: releases/ carried, its stale file removed, lanes/ untouched")
+    check(json.load(open(os.path.join(remote, "releases", "next.json"), encoding="utf-8"))["schema"] == 1, "sync: the remote copy is the published, redacted file")
+    bad = N.sync(pub, os.path.join(remote, "no", "such", "parent", "x"))
+    check(bad.startswith("not synced: rsync"), "sync: a failure is one line, never an exit")
+
+try:
+    N.main(["--sync"]); code = 0
+except SystemExit as e:
+    code = e.code
+check(code == 2, "--sync without --write is a usage error, before any read")
+
 sys.exit(1 if fails else 0)

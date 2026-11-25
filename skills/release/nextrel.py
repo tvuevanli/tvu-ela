@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The next MediaHub release, as data: `ela release next` → <published>/releases/next.json (schema: next.md beside this file).
 
-  ela release next [--line 2.1] [--candidate REF] [--write] [--json]
+  ela release next [--line 2.1] [--candidate REF] [--write [--sync]] [--json]
       base         the newest plain official bundle of the train (release.release_base)
       candidate    the newest daily bundle of the line, or the held one (--pin), or --candidate REF (name, id or prefix)
       must         tickets labelled release:must: status, when the label was added, a cell per lane from the train
@@ -12,6 +12,8 @@
     When a plain official bundle was cut after the candidate, the state is `released` and the range is recomputed on
     that bundle (from the official before it). Without --write the document is printed (--json) or summarised; --write
     publishes it atomically through the publish redaction and copies next.md as releases/README.md.
+    --sync then carries releases/ alone to site.json `published_remote`, where the remote Helm reads it (as `publish
+    lanes --sync` carries lanes/; typing it is the confirm); the outcome is one line, `synced` in --json, never a failure.
   ela release next --pin REF --why "…" [--apply]   hold the candidate on one bundle; dry run unless --apply
   ela release next --unpin [--apply]                 the newest daily bundle again
 
@@ -401,6 +403,13 @@ def publish(doc, published):
     return os.path.join(d, "next.json"), None
 
 
+def sync(published, target=None):
+    """<published>/releases/ to the remote site, the way lanes/ goes (publish.sync_dir) → its one-line outcome."""
+    sys.path.insert(0, os.path.join(SKILLS, "publish"))
+    import publish as P                                # noqa: E402
+    return P.sync_dir(os.path.join(published, "releases"), "releases", target)
+
+
 def summary(doc):
     c = doc["counts"]
     L = [doc["headline"],
@@ -453,6 +462,7 @@ def main(argv=None):
     ap.add_argument("--line", default="2.1", help="the release train, a key of map release.yaml lines (default 2.1)")
     ap.add_argument("--candidate", help="a bundle name, id or prefix instead of the newest daily bundle, for this run")
     ap.add_argument("--write", action="store_true", help="publish <published>/releases/next.json (atomic, redacted) and its README.md")
+    ap.add_argument("--sync", action="store_true", help="with --write: carry releases/ to published_remote for the remote Helm")
     ap.add_argument("--json", action="store_true", help="print the document")
     ap.add_argument("--pin", metavar="REF", help="hold the candidate on this bundle (name, id or prefix); with --why; dry run unless --apply")
     ap.add_argument("--why", help="why the candidate is held")
@@ -464,6 +474,8 @@ def main(argv=None):
         return cmd_pin(a)
     if a.apply:
         print("--apply goes with --pin or --unpin; --write publishes the document", file=sys.stderr); sys.exit(EX_USAGE)
+    if a.sync and not a.write:
+        print("--sync goes with --write: it carries the file just written", file=sys.stderr); sys.exit(EX_USAGE)
     now = datetime.datetime.now().astimezone()
     doc = build(gather(a.line, a.candidate, a.env_file, quiet=a.quiet), now)
     if a.write:
@@ -474,10 +486,11 @@ def main(argv=None):
         if flags:
             print("next: the publish guard refused next.json; the published copy is unchanged:\n  " + "\n  ".join(flags), file=sys.stderr)
             sys.exit(EX_GUARD)
+        synced = sync(published) if a.sync else None
         if not a.json:
-            print(f"wrote <published>/releases/next.json (schema {SCHEMA}, {doc['state']})")
-    if a.json:
-        print(json.dumps(doc, ensure_ascii=False))
+            print(f"wrote <published>/releases/next.json (schema {SCHEMA}, {doc['state']})" + (f" · {synced}" if synced else ""))
+    if a.json:                                         # `synced` is this run's outcome, never a field of the file
+        print(json.dumps(dict(doc, synced=synced) if a.write and a.sync else doc, ensure_ascii=False))
     else:
         print(summary(doc))
 

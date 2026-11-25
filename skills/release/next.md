@@ -2,7 +2,7 @@
 
 `ela release next --write` writes `<published>/releases/next.json`, and this file beside it as
 `<published>/releases/README.md`. The runner refreshes both in its 13:00, 17:30 and 19:00 passes on
-weekdays. A reader such as Helm's `/release/next` page shows the fields as written. Every judgment is
+weekdays, and `--sync` carries `releases/` to the remote site so the remote Helm reads the same file. A reader such as Helm's `/release/next` page shows the fields as written. Every judgment is
 made here, and the page makes none: it does not compute a state, filter tickets or parse a version.
 
 Schema version **1**. A field is only added when the schema changes. A rename or a removal raises
