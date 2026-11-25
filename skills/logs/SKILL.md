@@ -52,12 +52,14 @@ needs `ela login tvu`, and exit 4 names it.
   box ships, on the box where it does not, with the UR team's help only for access to the box. A handoff names the
   media team for it, not UR: UR can open the box but cannot judge the module's lines, so a handoff to UR adds a hop
   before the one reader who can.
-- **A MediaBox process with no lines goes to the UR lead** (the owner's rule, 2026-11-25). When `loki --pid`
-  finds nothing for a graph's processes and they run as MediaBox containers (a wrapped image, a control port in
-  `graph -d`), the next hop is the UR area's ask-first person (`ela team areas`), mentioned in the thread with the
-  graph, the process ids and their boxes; the UR lead routes it to the owner of log shipping or of the docker
-  service. Shipping is per site, not per box type: a physical box in TVU's own office ships its SDI lines, a
-  customer site's physical boxes may ship nothing (a site firewall that does not pass the reporting ports).
+- **A MediaBox process with no lines: its docker service's owner reads it on the box, UR opens the box** (the
+  owner's rule, 2026-11-25). When `loki --pid` finds nothing for a graph's processes and they run as MediaBox
+  containers (a wrapped image, a control port in `graph -d`), the thread mentions the owner of the suspect node's
+  image (`ela find <image>` gives the owners, `ela who` their Slack id) with the graph, the process ids and their
+  boxes, and copies the UR area's ask-first person (`ela team areas`) for access to the box. When no owner is on
+  record, the UR lead is mentioned and routes it. Shipping is per site, not per box type: a physical box in TVU's
+  own office ships its SDI lines, a customer site's physical boxes may ship nothing (a site firewall that does not
+  pass the reporting ports).
   The SDI modules log as `service_name` `capture` (SDI in) and `render` (SDI out), files `capture_<pid>.log` and
   `render_<pid>.log`.
 - **A chain is cleared node by node, upstream first, each on its own box.** Before a downstream node is blamed,
