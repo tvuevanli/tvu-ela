@@ -36,8 +36,10 @@ table and enters the next cut list: a verb carries a price, per elak `blueprint/
 Each Helm skill that duplicates an ela skill is removed when ela's passes the same input with no
 unexplained difference (ADR 0005). Pairs: daily-brief/standup → brief · triage → route ·
 breakdown → breakdown · slack-summary → digest · promote, promote-note, release-gate, release-note →
-promote · nudge, evidence-fill, ticket-hygiene → the phase 6 composites. Helm keeps what has no ela
-counterpart: its pages, scheduler, store, permissions, deployment.
+promote · nudge, evidence-fill, ticket-hygiene → the phase 6 composites · the daily and weekly team report
+narrative → teamreport, after a week side by side with the comparison note per run (vault
+ela/2026-11-25-plan-helm-redesign.md, step 6). Helm keeps what has no ela counterpart: its pages, scheduler, store,
+permissions, deployment, and the report's parsed Release & QA block and Slack post.
 
 ## Not built, on purpose
 

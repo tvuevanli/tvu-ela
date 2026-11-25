@@ -172,6 +172,11 @@
   ela recent [--days 7] [--write]  the week's MH tickets placed by release line (the line's train, where each fix
                                    stands, what QA said, what moved) and by lane; --write keeps the result under
                                    <reports>/recent/ and the vault's sync renders the recent page from it
+  ela teamreport prompt|write|compare|show daily|weekly [--date D | --week YYYY-Www]
+                                   the team's daily and weekly report narrative from the fact store: prompt (the
+                                   writing rules and the data, for a model), write (checked and published to
+                                   <published>/reports/, which Helm renders and posts; ela posts nothing), compare
+                                   (Helm's report and ela's side by side, <runtime>/drafts/report-compare/)
   ela train --line 2.1 [--json] [--write] [--page] [--parity]
                                    the line's train: one row per fix with a cell per lane (qa · daily · prod · the aligned
                                    CN lane): the build that carried it there, the lane's verdict, its position, a
@@ -339,7 +344,7 @@ VERBS = {
     "facts": ("facts", None), "doctor": ("doctor", None),
     "sentry": ("sentry", None),
     "promote": ("promote", None), "runtime": ("runtime", None),
-    "recent": ("recent", None), "train": ("train", None), "docker": ("docker", None),
+    "recent": ("recent", None), "teamreport": ("teamreport", None), "train": ("train", None), "docker": ("docker", None),
     "onething": ("onething", None), "project": ("project", None), "focus": ("focus", None), "watch": ("watch", None),
     "brief": ("brief", "lanes"), "yesterday": ("brief", "yesterday"), "changes": ("brief", "changes"), "matrix": ("brief", "matrix"), "page-check": ("brief", "page-check"), "day": ("brief", "day"), "meeting": ("brief", "meeting"), "ticket": ("ticket", None), "review": ("review", None), "vault": ("vault", None), "note": ("vault", "note"), "secret": ("setup", "secret"),
     "mr": ("mr", "create"), "mr-preflight": ("mr", "preflight"),
