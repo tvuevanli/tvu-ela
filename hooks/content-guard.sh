@@ -20,14 +20,12 @@
 set -u
 [ -n "${ELA_GUARD_SKIP:-}" ] && exit 0
 mode="${1:-pre-commit}"
-python3 - "$mode" "${2:-}" <<'PY'
-import re, subprocess, sys
+ELA_ROOT="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)" python3 - "$mode" "${2:-}" <<'PY'
+import os, re, subprocess, sys
+sys.path.insert(0, os.path.join(os.environ["ELA_ROOT"], "skills", "publish"))
+from addresses import addresses   # one address rule, shared with the publish redaction (a version number is not one)
 mode, msgfile = sys.argv[1], sys.argv[2]
 
-def octets_ok(m):
-    return all(0 <= int(o) <= 255 for o in m.group(0).split("."))
-IPV4 = re.compile(r"(?<![\d.])(?:\d{1,3}\.){3}\d{1,3}(?![\d.])")
-VERSION_LINE = re.compile(r"(?i)version|build|image|tag|release|\bv\d")
 
 ANY_FILE = [
     (re.compile(r"xox[abpe]-[A-Za-z0-9-]{10,}"), "Slack token"),
@@ -61,8 +59,7 @@ def scan_line(path, line, is_md):
     trigger_line = is_md and line.strip().startswith("description:")   # trigger vocabulary carries terms, not quotations; same rule as guard-location.sh
     for rx, why in ANY_FILE:
         if rx.search(line): hits.append(why)
-    m = IPV4.search(line)
-    if m and octets_ok(m) and not VERSION_LINE.search(line) and not m.group(0).startswith(("127.", "0.0.0.0", "255.")):
+    if addresses(line):
         hits.append("IPv4 address")
     for rx, why in UTTERANCE:
         m = rx.search(line)
