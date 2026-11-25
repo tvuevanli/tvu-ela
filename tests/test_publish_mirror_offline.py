@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """`publish/mirror.py`: <published> is copied one way into a read-only Obsidian vault with a generated Home.md; a
-withdrawn file leaves the mirror, the vault's .obsidian/ survives, .git is never carried, and a target that is not a
+withdrawn file leaves the mirror, the vault's .obsidian/ survives and takes the working vault's appearance, .git is never carried, and a target that is not a
 mirror (or overlaps <published> or the working vault) is refused. Runs in a temporary directory; no site is read."""
 import os, sys, tempfile
 
@@ -72,6 +72,39 @@ with tempfile.TemporaryDirectory() as t:
     check(not mirror.mirror(pub, os.path.join(vault, "published"), vault)[0], "a mirror inside the working vault is refused")
     check(not mirror.mirror(pub, os.path.join(pub, "m"), vault)[0], "a mirror inside <published> is refused")
     check(not mirror.mirror(pub, "", vault)[0], "no target: refused")
+
+    import json
+    ob = os.path.join(vault, ".obsidian")
+    put(os.path.join(ob, "appearance.json"), json.dumps({"cssTheme": "Minimal", "enabledCssSnippets": ["ela"], "baseFontSize": 17}))
+    put(os.path.join(ob, "app.json"), json.dumps({"readableLineLength": True, "showLineNumber": True,
+                                                  "userIgnoreFilters": ["ela/attachments/"], "newFileLocation": "root"}))
+    put(os.path.join(ob, "snippets", "ela.css"), "body { --file-line-width: 94%; }\n.metadata-menu-x { display: none; }\n")
+    put(os.path.join(ob, "themes", "Minimal", "theme.css"), "/* theme */\n")
+    put(os.path.join(ob, "community-plugins.json"), json.dumps(["metadata-menu", "homepage"]))
+    for f in ("workspace.json", "hotkeys.json", "bookmarks.json", "plugins/homepage/data.json"):
+        put(os.path.join(ob, f), "{\"secret\": \"x\"}")
+    mob = os.path.join(dst, ".obsidian")
+    put(os.path.join(mob, "app.json"), json.dumps({"readableLineLength": False, "spellcheck": True}))
+    put(os.path.join(mob, "appearance.json"), json.dumps({"enabledCssSnippets": ["mine"], "theme": "obsidian"}))
+    ok, line = mirror.mirror(pub, dst, vault, dry_run=True)
+    check("would copy" in line and json.load(open(os.path.join(mob, "app.json")))["readableLineLength"] is False,
+          "a dry run names the appearance it would copy and writes none of it")
+    ok, line = mirror.mirror(pub, dst, vault)
+    app, look = json.load(open(os.path.join(mob, "app.json"))), json.load(open(os.path.join(mob, "appearance.json")))
+    check(app["readableLineLength"] is True and app["showLineNumber"] is True, "app.json's display keys arrive")
+    check(app.get("spellcheck") is True, "the reader's own app.json key in the mirror stays")
+    check("userIgnoreFilters" not in app and "newFileLocation" not in app, "app.json's non-display keys are not carried")
+    check(look["cssTheme"] == "Minimal" and look["baseFontSize"] == 17 and look["theme"] == "obsidian",
+          "appearance.json is merged: the theme and fonts arrive, the reader's other key stays")
+    check(look["enabledCssSnippets"] == ["ela", "mine"], "the working vault's snippets are enabled, the reader's own kept")
+    check(os.path.isfile(os.path.join(mob, "snippets", "ela.css")) and os.path.isfile(os.path.join(mob, "themes", "Minimal", "theme.css")),
+          "snippets/ and themes/ are copied")
+    check(not any(os.path.exists(os.path.join(mob, f)) for f in ("workspace.json", "hotkeys.json", "bookmarks.json", "plugins")),
+          "workspace, hotkeys, bookmarks and plugins are never copied")
+    check("needs a plugin not copied: snippets/ela.css names plugin metadata-menu" in line and "homepage" not in line.split("needs")[1],
+          "a snippet that names a community plugin is reported, the plugin not copied")
+    ok, line = mirror.mirror(pub, dst, vault)
+    check("appearance: unchanged" in line, "a second run finds the appearance unchanged: " + line[-70:])
 
     log = os.path.join(t, "runtime")
     os.environ["ELA_PUBLISH_MIRROR"] = dst

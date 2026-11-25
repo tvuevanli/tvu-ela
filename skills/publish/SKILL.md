@@ -45,6 +45,10 @@ $P mirror [--dry-run]   # <published> → site.json `published_mirror`, the owne
   `<published>` or the working vault, or holds files without the mirror's `Home.md` marker, because `--delete` would
   remove them. The outcome is one line on stderr and in `<runtime>/publish-mirror.log`; a failed mirror never fails
   the publication. Nothing is edited in the mirror: an edit there is overwritten by the next publication.
+  The mirror looks like the working vault (site.json `vault`, read, never hard-coded): `appearance.json`, `themes/`,
+  `snippets/` and the display keys of `app.json` are merged into the mirror's `.obsidian/`, the reader's other keys
+  kept; workspace, plugins, hotkeys and bookmarks are never copied, and a snippet that names a community plugin is
+  reported, the plugin not copied.
 - **The manifest row is the record.** `publish/published.md` gets one row per source: source path,
   destination (by root name), published date, the source's `verified:` at that moment. Drift is computed
   from those two dates, never remembered.
