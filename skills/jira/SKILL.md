@@ -176,7 +176,6 @@ and does nothing without `--apply`. Each is idempotent, so a re-run after a part
 | `close` | each step's own no-op | **a proposal, never a status change**: `--fixed-in`, `--label`, the comment (`--text` / `--from-file`), `flag:closing` and the ticket assigned to the owner, shown together as one dry run and applied in that order; the status is then his own click in Jira. Refused without a comment (`--allow-no-comment` overrides): the assignee and the reporter must see why. On a partial failure the dry run says which steps are done; a re-run skips them |
 | `priority` | the issue already has `--to` | raises freely; lowering is refused when the changelog shows a person ever set the priority (a rule never overrides that word); `--why` posts the rule as a comment. Drafted under `priority-by-rule` (tier 3 until the owner promotes it) |
 | `due` | the due date already reads `--date` | sets a missing due date only; a date already there is never moved; `--why` posts the rule as a comment. Drafted under `due-by-rule` (tier 3 until promoted) |
-| `version` | create: the name exists · release: already released · set: the issue's Fix Version already has it | `create <name> [--release-date D]`, `release <name>`, `set KEY… --name <name>` (additive; a Fix Version is never removed) |
 
 A refusal from this script is the answer, not an obstacle: never reach the Jira API another way to get past it.
 When the rule itself is wrong, change it here in ela's repository, under ela's rules, and say so (2026-10-22,

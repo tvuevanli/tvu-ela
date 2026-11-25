@@ -22,8 +22,6 @@ Usage:
     jira.py fixed-in MH-1 [MH-2 …] --add 'slug@1.2.3; slug2@4.5.6' [--apply]  # append-only; present entries skipped
     jira.py priority MH-1 [MH-2 …] --to High [--why "rule"] [--apply]   # raises; never lowers one a person set
     jira.py due MH-1 [MH-2 …] --date 2026-11-04 [--why "rule"] [--apply]  # sets a missing date; never moves one
-    jira.py version create|release <name> [--release-date D] [--project MH] [--apply]
-    jira.py version set MH-1 [MH-2 …] --name <name> [--apply]   # Fix Version, additive
 
 A write ela makes on its own initiative (ELA_CLASS board-watch) is signed: a comment gets the signature line and the
 language rule; assign, transition, priority, due and link need --note-file, the comment that announces the change,
@@ -2034,7 +2032,9 @@ def _label_one(creds, key, add, rem, apply):
     return r, [f"{key}: labels " + " ".join((["+" + x for x in to_add] + ["-" + x for x in to_rem]))]
 
 
-# ── priority, due date and Fix Version: the fields the engineering rules keep true ──────────────────────
+# ── priority and due date: the fields the engineering rules keep true ───────────────────────────────────
+# No Jira version verb: MediaHub keeps no Fix or Affects Version; Fixed In is the one record of where a fix landed
+# and a release's content is computed bundle to bundle (vault releases/release-naming.md, adopted 2026-11-25).
 
 PRIORITIES = ("Highest", "High", "Medium", "Low", "Lowest")
 
@@ -2117,64 +2117,6 @@ def cmd_due(creds, args):
         results.append(r)
     if not args.apply and any(not r["from"] for r in results):
         lines.append("pass --apply to set the due date")
-    _emit(args, {"results": results} if len(results) > 1 else results[0], lines)
-
-
-def _versions(creds, project):
-    return api_get(creds, f"/rest/api/3/project/{project}/versions") or []
-
-
-def cmd_version(creds, args):
-    """Fix Versions, one atom: create (a no-op when the name exists), release (a no-op when released), set (adds the
-    version to each issue's Fix Version; never removes one)."""
-    vs = {v.get("name"): v for v in _versions(creds, args.project)}
-    if args.act in ("create", "release"):
-        if len(args.names) != 1:
-            sys.exit(f"version {args.act}: one name")
-        name = args.names[0]
-        v = vs.get(name)
-        if args.act == "create":
-            r = {"name": name, "exists": bool(v), "dry_run": not args.apply, "created": False}
-            if v:
-                _emit(args, r, [f"version {name}: already exists"]); return
-            if not args.apply:
-                _emit(args, r, [f"DRY RUN — create version {name} in {args.project}" + (f", release date {args.release_date}" if args.release_date else ""),
-                                "pass --apply to create"]); return
-            pid = api_get(creds, f"/rest/api/3/project/{args.project}").get("id")
-            body = {"name": name, "projectId": int(pid)}
-            if args.release_date:
-                body["releaseDate"] = args.release_date
-            api_post(creds, "/rest/api/3/version", body)
-            r["created"] = True
-            _emit(args, r, [f"version {name}: created"]); return
-        if not v:
-            sys.exit(f"version release: no version {name!r} in {args.project}")
-        r = {"name": name, "released": bool(v.get("released")), "dry_run": not args.apply, "changed": False}
-        if v.get("released"):
-            _emit(args, r, [f"version {name}: already released"]); return
-        date = args.release_date or v.get("releaseDate") or datetime.date.today().isoformat()
-        if not args.apply:
-            _emit(args, r, [f"DRY RUN — release version {name}, date {date}", "pass --apply to release"]); return
-        _request(creds, f"/rest/api/3/version/{v['id']}", payload={"released": True, "releaseDate": date}, method="PUT")
-        r["changed"] = True
-        _emit(args, r, [f"version {name}: released {date}"]); return
-    if not args.name or args.name not in vs:
-        sys.exit(f"version set: --name must be an existing version of {args.project} (create it first)")
-    results, lines = [], []
-    for key in _keys(args.names):
-        f = _issue(creds, key, "summary,fixVersions")
-        cur = [x.get("name") for x in f.get("fixVersions") or []]
-        r = {"key": key, "fix_versions": cur, "add": args.name, "dry_run": not args.apply, "changed": False}
-        if args.name in cur:
-            lines.append(f"{key}: Fix Version already has {args.name}")
-        elif not args.apply:
-            lines.append(f"DRY RUN — {key}  {f.get('summary', '')}\n  Fix Version {', '.join(cur) or '(none)'} + {args.name}")
-        else:
-            _request(creds, f"/rest/api/3/issue/{key}", payload={"update": {"fixVersions": [{"add": {"name": args.name}}]}}, method="PUT")
-            r["changed"] = True; lines.append(f"{key}: Fix Version + {args.name}")
-        results.append(r)
-    if not args.apply and any(args.name not in r["fix_versions"] for r in results):
-        lines.append("pass --apply to add the Fix Version")
     _emit(args, {"results": results} if len(results) > 1 else results[0], lines)
 
 
@@ -2791,14 +2733,6 @@ def main():
     p.add_argument("--why", help="the rule, posted as a comment with the change")
     p.add_argument("--apply", action="store_true"); p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_due)
-
-    p = sub.add_parser("version", help="Fix Versions: create · release · set (additive) — dry-run unless --apply")
-    p.add_argument("act", choices=("create", "release", "set"))
-    p.add_argument("names", nargs="+", help="create/release: the version name · set: issue keys")
-    p.add_argument("--name", help="set: the version to add"); p.add_argument("--release-date", help="YYYY-MM-DD")
-    p.add_argument("--project", default="MH")
-    p.add_argument("--apply", action="store_true"); p.add_argument("--json", action="store_true")
-    p.set_defaults(func=cmd_version)
 
     p = sub.add_parser("link", help="link an issue to one or more others — dry-run unless --apply; an existing link of "
                        "that type is a no-op; several others are one write and one comment")
