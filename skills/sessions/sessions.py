@@ -9,7 +9,7 @@
   sessions usage [--since 7d|48h|YYYY-MM-DD] [--by kind|name|day|cwd|model] [--top 10] [--json]
   sessions find <word> [<word>…] [--since YYYY-MM-DD] [--limit 20] [--json]
   sessions here [--json]              this session: its id, its name (/rename) and its transcript
-  sessions hook-start | hook-end      the plugin's SessionStart / SessionEnd hooks; hook JSON on stdin
+  sessions hook-start | hook-end | hook-stop   the plugin's SessionStart / SessionEnd / Stop hooks; hook JSON on stdin
 
 open: a Claude session where the target's rules live, by default a stacked pane in the tab named `workers` (made
 when missing; one pane expanded, the others title bars), the pane titled with the session's name; --tab opens a tab
@@ -57,11 +57,16 @@ a refusal is reported and the session stays open), then `close` each landed sess
 nothing to land; a session started by hand (no name from `session open`) is only reported, since it closes on the
 owner's word. busy, dirty, waiting-owner and no-brief are never closed; `claude --resume <id>` brings back any
 closed one. --apply also closes every pane zellij still holds for an ended session (exited, its id and title the
-session's recorded pane and name): a worker that exits by itself leaves one. The result goes to <runtime>/sessions/reap.json; --last prints its sessions left open, one line each
+session's recorded pane and name, a ⏳ or 🦀 mark aside): a worker that exits by itself leaves one. The result goes to <runtime>/sessions/reap.json; --last prints its sessions left open, one line each
 (the desk's session start shows them).
 
 Under a test (ELA_TEST=1, exported by tests/run.sh) a live open or close refuses, exit 2, unless the zellij on PATH
 lies under the temp directory: a test reaches only a stub, never the owner's zellij or a real Claude session.
+
+hook-stop: the plugin's Stop hook. After each turn it reads the last reply's closing line and sets the session's zellij
+pane title (`rename-pane --pane-id $ZELLIJ_PANE_ID`, which reaches a stacked pane in an unfocused tab): `⏳ <name>`
+when it is `⏳ ela pending · …`, `🦀 <name>` when it is `— ela out 🦀`, `<name>` otherwise. Outside zellij it does
+nothing. The model writes the line; no hook can read a session's timers (CronList) or background tasks itself.
 
 here: the session a command runs in, so a note it writes can say where it came from (`ela note stamp`). The id
 is the registry's live row for the Claude process above the command, else that process's `--resume`/`--session-id`
@@ -460,7 +465,7 @@ a refusal is reported and the session stays open), then `close` each landed sess
 nothing to land; a session started by hand (no name from `session open`) is only reported, since it closes on the
 owner's word. busy, dirty, waiting-owner and no-brief are never closed; `claude --resume <id>` brings back any
 closed one. --apply also closes every pane zellij still holds for an ended session (exited, its id and title the
-session's recorded pane and name): a worker that exits by itself leaves one. The result goes to <runtime>/sessions/reap.json; --last prints its sessions left open, one line each
+session's recorded pane and name, a ⏳ or 🦀 mark aside): a worker that exits by itself leaves one. The result goes to <runtime>/sessions/reap.json; --last prints its sessions left open, one line each
 (the desk's session start shows them).
 
 Under a test (ELA_TEST=1, which tests/run.sh exports), the reason a live open or close must not run: the zellij
@@ -819,7 +824,7 @@ def sweep_held():
         for p in panes if isinstance(panes, list) else []:
             if not isinstance(p, dict) or p.get("is_plugin") or not p.get("exited"):
                 continue
-            if (zs, str(p.get("id")), p.get("title")) in ended:
+            if (zs, str(p.get("id")), base_title(p.get("title"))) in ended:
                 subprocess.run([zellij_bin(), "--session", zs, "action", "close-pane", "--pane-id", f"terminal_{p['id']}"],
                                capture_output=True, text=True)
                 swept.append(p.get("title"))
@@ -847,7 +852,9 @@ def cmd_close(a):
 # ── reap: which live sessions are done; on --apply the ready ones landed and the finished ones closed ──────────
 
 SIGN_OFF = "— ela out 🦀"
-IDLE_MIN = 10                                    # minutes a session sits idle before reap closes it
+PENDING = "⏳ ela pending"                         # `⏳ ela pending · <what it waits for> · <until when>`
+MARK = {"pending": "⏳ ", "out": "🦀 "}           # the pane title's prefix for a reply's closing mark
+IDLE_MIN = 10                                   # minutes a session sits idle before reap closes it
 ASKS_TASK = re.compile(r"what (would you like|should i|do you want|can i)|how can i help|what('s| is) the task|no (brief|task)"
                        r'|需要我(做|帮)|我该做什么|要我做什么|有什么(任务|需要)', re.I)   # the same ask in Chinese
 READY = re.compile(r'ready to land|ready for (the )?land|session land \S+|可以 ?land|待 ?land', re.I)
@@ -909,6 +916,49 @@ def read_turns(transcript):
                     replies.append((text, ts))
                 ended = msg.get("stop_reason") == "end_turn"
     return {"prompts": prompts, "replies": replies, "ended": ended, "last": last}
+
+
+def closing_mark(text):
+    """What a reply's last line says of the session: "out" (`— ela out 🦀`: nothing open), "pending" (`⏳ ela pending ·
+    …`: it waits for a timer, a background task, a peer or the owner), else None."""
+    lines = [x.strip() for x in (text or "").splitlines() if x.strip()]
+    if not lines:
+        return None
+    if lines[-1] == SIGN_OFF:
+        return "out"
+    return "pending" if lines[-1].startswith(PENDING) else None
+
+
+def base_title(title):
+    """A pane title without the closing-mark prefixes the Stop hook puts in front of it."""
+    title = title or ""
+    while title.startswith(tuple(MARK.values())):
+        title = title[2:]
+    return title
+
+
+def last_reply(transcript, tail=1 << 20):
+    """The last assistant text of a transcript, read from its last `tail` bytes (a Stop hook runs on every turn, and a
+    long transcript is megabytes), or None."""
+    try:
+        with open(transcript, "rb") as f:
+            f.seek(0, 2)
+            f.seek(max(0, f.tell() - tail))
+            lines = f.read().decode("utf-8", "replace").splitlines()
+    except (OSError, TypeError):
+        return None
+    for line in reversed(lines):
+        try:
+            d = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(d, dict) or d.get("isSidechain") is True or d.get("type") != "assistant":
+            continue
+        content = (d.get("message") or {}).get("content") if isinstance(d.get("message"), dict) else None
+        text = "\n".join(b.get("text", "") for b in content or [] if isinstance(b, dict) and b.get("type") == "text").strip()
+        if text:
+            return text
+    return None
 
 
 def question_of(text):
@@ -1180,6 +1230,28 @@ def cmd_hook_end(a):
     return 0
 
 
+def cmd_hook_stop(a):
+    """Stop: the pane's title carries the last reply's closing mark, ⏳ while the session waits, 🦀 when it is out,
+    nothing otherwise, so a glance at the stacked title bars tells which sessions are safe to close. Silent outside
+    zellij, and whenever zellij cannot be read; it never blocks the stop."""
+    pane, d = os.environ.get("ZELLIJ_PANE_ID"), hook_input()
+    if not pane or not os.environ.get("ZELLIJ"):
+        return 0
+    text = d.get("last_assistant_message") if isinstance(d.get("last_assistant_message"), str) else None
+    mark = closing_mark(text if text is not None else last_reply(d.get("transcript_path")))
+    try:
+        panes = json.loads(zellij_out("action", "list-panes", "--json") or "[]")
+    except ValueError:
+        return 0
+    p = next((p for p in panes if isinstance(p, dict) and not p.get("is_plugin") and str(p.get("id")) == pane), None)
+    if not p or not base_title(p.get("title")):
+        return 0
+    title = MARK.get(mark, "") + base_title(p.get("title"))
+    if title != p.get("title"):
+        zellij_out("action", "rename-pane", "--pane-id", f"terminal_{pane}", title)
+    return 0
+
+
 def sessions(unstarted=False):
     """One record per session id: the first start, the last end (cleared by a later resume), the purpose. A session
     whose start line is missing (started before the registry, or by a hook that failed) only with `unstarted`."""
@@ -1416,6 +1488,7 @@ def main():
     h.add_argument("--json", action="store_true")
     sub.add_parser("hook-start", help="SessionStart: append a start line (hook JSON on stdin)")
     sub.add_parser("hook-end", help="SessionEnd: append an end line (hook JSON on stdin)")
+    sub.add_parser("hook-stop", help="Stop: mark the zellij pane title ⏳ or 🦀 from the last reply's closing line")
     f = sub.add_parser("find", help="sessions whose first prompt or final answer carries every word")
     f.add_argument("words", nargs="+")
     f.add_argument("--since", help="YYYY-MM-DD: only sessions started on or after this date")
@@ -1429,7 +1502,7 @@ def main():
     if a.cmd == "find" and a.since and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", a.since):
         ap.error("--since takes YYYY-MM-DD")
     sys.exit({"find": cmd_find, "open": cmd_open, "close": cmd_close, "land": cmd_land, "reap": cmd_reap, "list": cmd_list, "here": cmd_here, "usage": cmd_usage,
-              "hook-start": cmd_hook_start, "hook-end": cmd_hook_end}[a.cmd](a))
+              "hook-start": cmd_hook_start, "hook-end": cmd_hook_end, "hook-stop": cmd_hook_stop}[a.cmd](a))
 
 
 if __name__ == "__main__":

@@ -1,5 +1,5 @@
 {
-  "description": "ela — SessionStart: context injection, one command per part so each stays under Claude Code's 10,000-character cap per hook output (the working preferences in `prefs I/K` parts); its one write is a start line in the session registry (<runtime>/sessions.jsonl). SessionEnd: an end line in that registry; report an uncommitted or unpushed elak, never commit it — knowledge is committed by hand after Evan's confirm. PreToolUse: the write guard — place (nothing under the published directory, nothing in ela/helm from a session started elsewhere, nothing under a remote site's elak, nothing under <elak> outside blueprint/knowledge/map) and content (no tracked file and no commit message may quote what someone said, name a person, or narrate what a session got wrong). UserPromptSubmit: the standalone language tag `#zh` (any case, outside a URL, a code span or a path) in the owner's message adds context to answer in Chinese from that message to the end of the conversation; a vault note named by its title, an alias or its file name (matched against <runtime>/vault-index.json, which the vault sync writes) adds one `vault note: <path>` line each, at most five; neither blocks.",
+  "description": "ela — SessionStart: context injection, one command per part so each stays under Claude Code's 10,000-character cap per hook output (the working preferences in `prefs I/K` parts); its one write is a start line in the session registry (<runtime>/sessions.jsonl). SessionEnd: an end line in that registry; report an uncommitted or unpushed elak, never commit it — knowledge is committed by hand after Evan's confirm. PreToolUse: the write guard — place (nothing under the published directory, nothing in ela/helm from a session started elsewhere, nothing under a remote site's elak, nothing under <elak> outside blueprint/knowledge/map) and content (no tracked file and no commit message may quote what someone said, name a person, or narrate what a session got wrong). Stop: the zellij pane title carries the last reply's closing mark, ⏳ while the session waits and 🦀 when it is out (sessions.py hook-stop); silent outside zellij, never blocks. UserPromptSubmit: the standalone language tag `#zh` (any case, outside a URL, a code span or a path) in the owner's message adds context to answer in Chinese from that message to the end of the conversation; a vault note named by its title, an alias or its file name (matched against <runtime>/vault-index.json, which the vault sync writes) adds one `vault note: <path>` line each, at most five; neither blocks.",
   "hooks": {
     "SessionStart": [
       {
@@ -79,6 +79,18 @@
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/hooks/vault-name.sh",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/pane-mark.sh",
             "timeout": 5
           }
         ]

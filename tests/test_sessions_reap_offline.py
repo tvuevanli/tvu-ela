@@ -167,7 +167,7 @@ with tempfile.TemporaryDirectory() as tmp:
     check(not os.path.exists(zlog), "no pane was named, so zellij was never called")
 
     # a pane zellij holds after its session ended (the worker exited, or was closed from outside zellij) is swept
-    panes = [{"id": 9, "title": "held", "exited": True}, {"id": 10, "title": "live", "exited": False},
+    panes = [{"id": 9, "title": "🦀 held", "exited": True}, {"id": 10, "title": "live", "exited": False},
              {"id": 11, "title": "renamed", "exited": True}, {"id": 12, "is_plugin": True, "title": "held", "exited": True}]
     json.dump(panes, open(os.path.join(tmp, "panes.json"), "w"))
     open(os.path.join(stubs, "zellij"), "w").write(f'#!/bin/sh\nprintf "%s\\n" "$*" >> "{zlog}"\n'
