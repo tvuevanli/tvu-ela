@@ -117,7 +117,7 @@ CLASSES = {
         "reverse": (("comment-delete", "--id"),),
     },
     "release-reconcile": {
-        "says": "add the missing Fixed In and release label to the tickets of a build a lane took",
+        "says": "add the missing Fixed In, and a maintenance train's release label, to the tickets of a build a lane took",
         "atom": ("jira", "fixed-in+label"), "noun": ("build's Jira gaps", "builds' Jira gaps"), "ladder": (3, 1), "base": 3,
         "rule": "the release-reconcile work's: each ticket a build's announcement names, read against Jira after the "
                 "release thread is quiet; Fixed In appended from the builds ledger, the build's label added; one batch "
@@ -126,6 +126,17 @@ CLASSES = {
         "command": r"^ela release reconcile [\w-]+(?:\s+--build\s+\d+)*\s+--batch\s*$",
         "case": "39 fixed-in and 3 label writes in writes.jsonl, all attended; the rule landed 2026-11-12",
         "reverse": (("fixed-in", "--remove"), ("label", "--remove")),
+    },
+    "release-must-clear": {
+        "says": "remove release:must from the tickets the deployed release shipped",
+        "atom": ("jira", "label"), "noun": ("label clear", "label clears"), "ladder": (3,), "base": 3,
+        "rule": "`ela release next`'s: a ticket labelled release:must whose fix is in a plain official bundle (the "
+                "released bundle's content, or the base's) and has arrived on the line's prod lane by the train's cell; "
+                "one batch per line, added to until answered",
+        "command": r"^ela jira label " + KEY + r" --remove release:must\s*$",
+        "case": "vault releases/release-naming.md rule 6, adopted 2026-11-25: release:must is a process label that "
+                "always means still owed, cleared at the deploy that ships the ticket, and only on his approve",
+        "reverse": (("label", "--add"),),
     },
     "assign-by-rule": {
         "says": "assign by a written routing rule",
@@ -1168,6 +1179,8 @@ def class_of_action(a):
         return "close"
     if kind == "slack" and re.search(r"\bslack post @|\bDM\b|archives/D[A-Z0-9]+", cmd):
         return "message-to-person"
+    if re.match(CLASSES["release-must-clear"]["command"], " ".join(cmd.split())):
+        return "release-must-clear"
     if kind in ("fixed-in", "label") or re.match(r"^ela jira (?:fixed-in|label)\b", cmd):
         return "release-reconcile"
     if kind == "assign" or re.match(r"^ela jira assign\b", cmd):

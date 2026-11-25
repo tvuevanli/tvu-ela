@@ -16,8 +16,11 @@ Schema version **3**. Version 3 (2026-11-25) added `head` (the page's title, led
 or removed. Version 2 (2026-11-25) added `priority` and `updated` to every ticket in `must`,
 `on_candidate` and `in_dev`, and changed `in_dev[].updated` from a date to an ISO time.
 
-A field is only added when the schema changes. A rename or a removal raises
-`schema`, and readers are told before it ships.
+Version 3 also added `must[].shipped`, `must[].history`, `must_cleared` and `counts.must_shipped` /
+`counts.must_cleared`: `release:must` is cleared at the deploy that ships the ticket (vault
+`releases/release-naming.md` rule 6), and `head.lede` names the shipped must tickets in its one sentence.
+
+A rename or a removal raises `schema`, and readers are told before it ships.
 
 The file is written atomically and passes through the publish redaction, so it holds no addresses.
 Ticket titles, commit subjects and people's display names are carried as facts. No QA quotation is
@@ -39,12 +42,13 @@ carried: only its verdict, its source and its time.
 | `candidate` | bundle + `source` | the planned bundle: the newest daily bundle (`source: "newest"`), or one held by `ela release next --pin` (`"pin"`) or named by `--candidate` (`"argument"`). In the `released` state, it is the bundle the release was cut after. |
 | `candidate_verdicts` | `[{key, verdict, url}]` | one entry per ticket in `on_candidate`: QA's verdict as one of `pass`, `partial`, `fail`, `none`, `n-a`. Sorted `fail` → `none` → `partial` → `n-a` → `pass`, then by key: the order a verdict strip shows. |
 | `lanes` | `[{role, lane, shown}]` | the column headings of the lane cells, in order (QA · daily · prod · CN) |
-| `must` | `[must]` | tickets labelled `release:must` |
+| `must` | `[must]` | tickets labelled `release:must`: still owed |
+| `must_cleared` | `[must]` | tickets whose `release:must` was cleared on the owner's approve in the last 14 days, the clear the last entry of `history`; `decision` is `null` |
 | `on_candidate` | `[ticket]` | every ticket the range carries (`ela promote tickets <line> <base> <candidate>`) |
 | `epics` | `[{key, url, summary, status, children}]` | the epics of tickets in `on_candidate` |
 | `in_dev` | `[ticket]` | MH tickets In Progress or Review, updated within 14 days, that are not in `on_candidate` |
 | `docker` | object | see below |
-| `counts` | object | `{must, must_missing, on_candidate, in_dev, docker_changed, unbuilt_commits}` |
+| `counts` | object | `{must, must_missing, must_shipped, must_cleared, on_candidate, in_dev, docker_changed, unbuilt_commits}` |
 | `sources` | object | each input with its time: `facts` (the store's sources, `at` the oldest), `tickets`, `qa_report`, `train`, `jira` (`{what, at}`) |
 | `gaps` | `[{kind, detail}]` | what could not be read or judged, in words. An empty list means nothing is missing. |
 
@@ -71,7 +75,7 @@ QA's readings fold into the five verdicts: `accepted` (accepted as-is, the descr
 
 ## `must[]`
 
-`{key, url, summary, type, status, assignee, priority, updated, tracked_since, on_candidate, position, cells, decision}`
+`{key, url, summary, type, status, assignee, priority, updated, tracked_since, on_candidate, position, cells, decision, shipped, history}`
 
 - `tracked_since`: when the label was added, as an ISO time from the changelog the Jira sweep holds (14
   days), else the time the previous file carried for the ticket; `null` when neither shows it (a label
@@ -83,6 +87,15 @@ QA's readings fold into the five verdicts: `accepted` (accepted as-is, the descr
   (`ela train`), keyed by the `lane` values in `lanes[]`. A lane with no cell is absent.
 - `decision`: `null`, or `"hold or defer"` when the state is `planned` and the candidate does not carry
   the ticket. It is the one item on the page that asks for a decision.
+- `shipped`: `null`, or `{bundle, lane, arrived, since}` once the ticket has shipped. Shipped means a plain
+  official bundle carries it: the released bundle's content in the `released` state, the base while `planned`
+  (the candidate is never official). It also means the prod lane carries its fix by the train's cell, so the bundle
+  has been deployed. A shipped ticket's `release:must` is proposed for clearing: `ela release next --write`
+  places one dry-run batch per line (`ela dry`, class `release-must-clear`), asked on the owner's today.md. The
+  label is removed only on his A.
+- `history`: the ticket's history line, oldest first: `[{at, event, …}]`, where `event` is `labelled`,
+  `shipped` (`bundle`, `lane`), `clear proposed` (`batch`) or `cleared` (`batch`, `by`). `at` is ISO-8601, or `null`
+  when no time is known.
 
 ## `on_candidate[]` and `in_dev[]`
 

@@ -91,7 +91,7 @@ check(doc["must"][0]["priority"] == "Highest" and when(doc["must"][0]["updated"]
 dk = doc["docker"]
 check(dk["bundle_diff"][0]["slug"] == "mds-switcher" and dk["lanes"][0]["from"] == {"lane": "daily-wed", "version": "v2.1.48 build280"}, "docker diff and lane versions")
 check([b["kind"] for b in dk["branches"]] == ["release", "feature", None] and dk["branches"][0]["commits"][0]["sha"] == "62ea93de", "branches: release or feature, commits not built")
-check(doc["counts"] == {"must": 2, "must_missing": 1, "on_candidate": 2, "in_dev": 1, "docker_changed": 1, "unbuilt_commits": 1}, "counts")
+check(doc["counts"] == {"must": 2, "must_missing": 1, "must_shipped": 0, "must_cleared": 0, "on_candidate": 2, "in_dev": 1, "docker_changed": 1, "unbuilt_commits": 1}, "counts")
 check(doc["lanes"] == TRAIN["lanes"] and any(g["kind"] == "saas_rows_are_the_tag_now" for g in doc["gaps"]), "lane headings from the train; promote's gaps carried")
 check(any(g["kind"] == "branch_unread" and "(no branch)" in g["detail"] for g in doc["gaps"]), "a branch the report could not read is a gap")
 check("quote" not in json.dumps(doc), "no QA quotation is carried")

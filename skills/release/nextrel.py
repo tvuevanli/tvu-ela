@@ -4,7 +4,9 @@
   ela release next [--line 2.1] [--candidate REF] [--write [--sync]] [--json]
       base         the newest plain official bundle of the train (release.release_base)
       candidate    the newest daily bundle of the line, or the held one (--pin), or --candidate REF (name, id or prefix)
-      must         tickets labelled release:must: status, when the label was added, a cell per lane from the train
+      must         tickets labelled release:must: status, when the label was added, a cell per lane from the train;
+                   `shipped` once a plain official bundle carrying it is on the prod lane, and its history line
+      must_cleared tickets whose release:must was cleared on his approve, the clear on their history line
       on_candidate `ela promote tickets <line> <base> <candidate> --scope all`, each joined to QA's latest verdict as
                    promote's evidence reads it in the latest saved promotion report (<reports>/promote/<line>-daily-prod.json)
       in_dev       MH tickets In Progress or Review, updated within 14 days, not on the candidate
@@ -21,7 +23,11 @@ Reads facts only: the fact store the passes refresh at their head (`ela facts re
 release:must and Fixed In queries, the bundle lists and details, Jenkins, the fetched code) and ela's own files (the
 train, the promotion report, the pin). It runs under ELA_FACTS_ONLY, so a read the store cannot answer is a gap in the
 file, never a live call; it starts no model session. --pin resolves its bundle live (an interactive write, not a pass).
-Writes only <published>/releases/ and, with --pin --apply, <reports>/releases/next-pin.json. Stdlib only.
+With --write, the clears of release:must on shipped tickets are proposed as one dry-run batch of the
+release-must-clear class (ela dry; <reports>/ela/dry/), asked on today.md and applied only on his A; nothing here writes
+to Jira. Writes only <published>/releases/, that batch and, with --pin --apply, <reports>/releases/next-pin.json.
+
+Stdlib only.
 Exit codes: 0 ok · 2 usage · 3 the store cannot name the bundles · 4 the publish guard refused the file (the published
 copy is left as it was) · 5 a source failed.
 """
@@ -35,6 +41,8 @@ PASSES = ("08:00", "12:30", "17:30")            # the runner's weekday runs that
 STALE_GRACE_H = 2
 IN_DEV_STATUSES = ("In Progress", "Review")
 MUST_LABEL = "release:must"
+CLEAR_CLASS = "release-must-clear"               # ela dry's class: the clears wait for his A (vault releases/release-naming.md rule 6)
+CLEARED_KEEP_DAYS = 14                            # a cleared ticket stays in must_cleared this long, its clear on its history line
 BROWSE = "https://tvunetworks.atlassian.net/browse/"
 QA_REPORT_MAX_H = 36
 
@@ -130,7 +138,9 @@ def head(state, name, lane, planned_for, counts, verdicts, provisional, facts_at
         title = f"{name} → {where}"
     c = {v: sum(1 for r in verdicts if r["verdict"] == v) for v in VERDICT_ORDER}
     on, must, dev = counts["on_candidate"], counts["must"], counts["in_dev"]
-    lede = (f"{n_of(must, 'ticket must', 'tickets must')} ship, {on} {'is' if on == 1 else 'are'} on the candidate "
+    shipped = counts.get("must_shipped") or 0
+    lede = (f"{n_of(must, 'ticket must', 'tickets must')} ship" + (f" ({shipped} shipped, the label's clear waiting on your A)" if shipped else "")
+            + f", {on} {'is' if on == 1 else 'are'} on the candidate "
             f"({c['pass']} QA pass, {c['fail'] + c['none']} fail or no verdict) and {dev} {'is' if dev == 1 else 'are'} in development"
             + ("; the candidate is provisional until pinned." if provisional else "."))
     t = None
@@ -240,14 +250,32 @@ def build(inp, now):
     on_keys = {t["key"] for t in on}
 
     trows = train_rows(inp.get("train"))
-    must = []
+    cleared_rec = cleared_of(inp.get("clear_records"), now)
+    proposed = proposed_of(inp.get("clear_batches"))
+    ship_name = rel_bundle["name"] if rel_bundle else (inp.get("base") or {}).get("name")
+    must, must_cleared = [], []
     for r in inp.get("must_rows") or []:
         k = r.get("key")
         tr = trows.get(k) or {}
         carried = k in on_keys
-        must.append(ticket(r, qa_of(ev.get(k)), tracked_since=(inp.get("must_since") or {}).get(k), on_candidate=carried,
-                           position=tr.get("position"), cells=tr.get("cells") or {},
-                           decision="hold or defer" if state == "planned" and not carried else None))
+        m = ticket(r, qa_of(ev.get(k)), tracked_since=(inp.get("must_since") or {}).get(k), on_candidate=carried,
+                   position=tr.get("position"), cells=tr.get("cells") or {},
+                   decision="hold or defer" if state == "planned" and not carried else None)
+        m["shipped"] = shipped_of(m, state, prod_lane, ship_name)
+        c = cleared_rec.get(k)
+        if c and (iso_time(m.get("tracked_since")) or "") > c["at"]:
+            c = None                                   # labelled again after the clear: owed again
+        m["history"] = history_of(m, proposed.get(k), c)
+        (must_cleared if c else must).append(m)        # the store still shows a label his A removed: cleared
+    prev = {x.get("key"): x for x in ((inp.get("previous") or {}).get("must") or []) + ((inp.get("previous") or {}).get("must_cleared") or [])}
+    have = {m["key"] for m in must_cleared + must}
+    for k, c in sorted(cleared_rec.items()):
+        if k in have:
+            continue
+        p = dict(prev.get(k) or ticket({"key": k}))
+        p["history"] = history_of(p, None, c)
+        p["decision"] = None
+        must_cleared.append(p)
 
     in_dev = []
     for r in inp.get("indev_rows") or []:
@@ -278,7 +306,8 @@ def build(inp, now):
     if candidate is not None:
         candidate["provisional"] = provisional
     verdicts = candidate_verdicts(on)
-    counts = {"must": len(must), "must_missing": sum(1 for m in must if not m["on_candidate"]), "on_candidate": len(on),
+    counts = {"must": len(must), "must_missing": sum(1 for m in must if not m["on_candidate"]),
+              "must_shipped": sum(1 for m in must if m.get("shipped")), "must_cleared": len(must_cleared), "on_candidate": len(on),
               "in_dev": len(in_dev), "docker_changed": len(diff), "unbuilt_commits": sum(len(b["commits"]) for b in branches)}
     sources = inp.get("sources") or {}
 
@@ -296,6 +325,7 @@ def build(inp, now):
         "candidate_verdicts": verdicts,
         "lanes": list((inp.get("train") or {}).get("lanes") or []),
         "must": must,
+        "must_cleared": must_cleared,
         "on_candidate": on,
         "epics": epics,
         "in_dev": in_dev,
@@ -306,9 +336,88 @@ def build(inp, now):
     }
 
 
+def shipped_of(m, state, prod_lane, bundle_name):
+    """{bundle, lane, arrived, since} when the ticket has shipped, else None. Shipped: the plain official bundle it
+    reached carries it (the released bundle's content in the released state; the base, so not the candidate, while
+    planned) and the line's prod lane carries its fix by the train's cell (Fixed In against the lane's own version, so
+    the bundle has been deployed). The candidate's content alone is never shipped: it is not an official bundle yet."""
+    cell = (m.get("cells") or {}).get(prod_lane) or {}
+    if not prod_lane or not bundle_name or not cell.get("arrived"):
+        return None
+    if (state == "released") != bool(m.get("on_candidate")):
+        return None
+    return {"bundle": bundle_name, "lane": prod_lane, "arrived": cell.get("arrived"), "since": cell.get("since")}
+
+
+def proposed_of(batches):
+    """{key: {at, batch}} for each ticket an open release-must-clear batch asks to clear."""
+    out = {}
+    for b in batches or []:
+        if b.get("class") != CLEAR_CLASS or b.get("state") not in ("open", "failed"):
+            continue
+        for w in b.get("writes") or []:
+            if w.get("outcome") not in ("landed", "struck"):
+                out[w.get("target")] = {"at": iso_time(b.get("carried_at") or b.get("made")), "batch": b.get("id")}
+    return out
+
+
+def cleared_of(rows, now, days=CLEARED_KEEP_DAYS):
+    """{key: {at, batch, act}}: release:must clears applied on his A (ela dry's record) within `days`."""
+    out = {}
+    cutoff = now - datetime.timedelta(days=days)
+    for r in rows or []:
+        if r.get("class") != CLEAR_CLASS or r.get("verdict") not in ("applied", "edited") or not r.get("target"):
+            continue
+        at = iso_time(r.get("at"))
+        if not at or datetime.datetime.fromisoformat(at) < cutoff:
+            continue
+        if r["target"] not in out or at > out[r["target"]]["at"]:
+            out[r["target"]] = {"at": at, "batch": r.get("batch"), "act": r.get("act")}
+    return out
+
+
+def history_of(m, proposed, cleared):
+    """The ticket's history line: [{at, event, …}] oldest first — labelled, shipped, clear proposed, cleared."""
+    h = [x for x in (m.get("history") or []) if x.get("event") not in ("clear proposed", "cleared")]
+    if not any(x.get("event") == "labelled" for x in h) and iso_time(m.get("tracked_since")):
+        h.append({"at": iso_time(m["tracked_since"]), "event": "labelled"})
+    s = m.get("shipped")
+    if s and not any(x.get("event") == "shipped" for x in h):
+        h.append({"at": iso_time(s.get("since")) if s.get("since") else None, "event": "shipped", "bundle": s["bundle"], "lane": s["lane"]})
+    if proposed and not cleared:
+        h.append({"at": proposed["at"], "event": "clear proposed", "batch": proposed["batch"]})
+    if cleared:
+        h.append({"at": cleared["at"], "event": "cleared", "batch": cleared["batch"], "by": "the owner's approve"})
+    return sorted(h, key=lambda x: x.get("at") or "")
+
+
+def clear_writes(doc):
+    """The release-must-clear batch's writes: one label removal per must ticket that has shipped."""
+    out = []
+    for m in doc.get("must") or []:
+        s = m.get("shipped")
+        if s:
+            out.append({"n": len(out) + 1, "target": m["key"], "command": f"ela jira label {m['key']} --remove {MUST_LABEL}",
+                        "why": f"shipped: {s['bundle']} is on {s['lane']} (fix arrived {s.get('arrived')}); release:must means still owed"})
+    return out
+
+
+def dry_module():
+    sys.path.insert(0, os.path.join(SKILLS, "dry"))
+    import dry as D                               # noqa: E402 — the batches' one reader and writer
+    return D
+
+
+def propose_clears(doc, reports, today):
+    """Place the clears as one batch of the release-must-clear class (open until his A; a batch with nothing left to
+    clear settles). → the batch id, or None when there is nothing to clear."""
+    b = dry_module().make_batch(reports, CLEAR_CLASS, f"mh-{doc['line']}", clear_writes(doc), [], today)
+    return b["id"] if b else None
+
+
 def facts_of(doc):
     """The strings the document cites as fields (titles, commit subjects): the publish guard passes a quotation in one."""
-    out = [t.get("summary") or "" for k in ("must", "on_candidate", "in_dev", "epics") for t in doc.get(k) or []]
+    out = [t.get("summary") or "" for k in ("must", "must_cleared", "on_candidate", "in_dev", "epics") for t in doc.get(k) or []]
     out += [c.get("subject") or "" for b in (doc.get("docker") or {}).get("branches") or [] for c in b.get("commits") or []]
     return [s for s in out if s]
 
@@ -536,13 +645,22 @@ def gather(line, candidate_ref, env_file, quiet=False):
     say("jira: release:must, in development (from the fact store)")
     must_rows, must_at = must_from_store(gaps)
     sweep = sweep_issues()
-    must_since = must_since_of([r["key"] for r in must_rows], sweep, previous_doc(s))
+    previous = previous_doc(s)
+    must_since = must_since_of([r["key"] for r in must_rows], sweep, previous)
+    reports = s.get("reports") or os.path.join(s.get("projects", ""), "reports")
+    try:
+        D = dry_module()
+        clear_batches, clear_records = [b for b in D.batches(reports) if b.get("class") == CLEAR_CLASS], D.record(reports)
+    except Exception as e:                             # noqa: BLE001 — the dry store unread: clears are not judged
+        clear_batches, clear_records = [], []
+        gaps.append({"kind": "dry_store_unread", "detail": f"ela dry's store: {str(e)[:160]}; release:must clears not shown"})
     indev_rows = in_dev_from_sweep(sweep, now)
     sources["jira"] = {"what": f"the standing release:must query · the sweep's {' / '.join(IN_DEV_STATUSES)} tickets updated within 14 days",
                        "at": must_at or read.get("jira")}
     return {"line": str(line), "cfg": cfg, "base": base, "candidate": cand, "candidate_source": source, "released": released,
             "released_bundle": b_of(Rm, newest, "") if released else None, "tickets": tickets, "report": report, "train": train,
-            "must_rows": must_rows, "must_since": must_since, "indev_rows": indev_rows, "sources": sources, "gaps": gaps}
+            "must_rows": must_rows, "must_since": must_since, "indev_rows": indev_rows, "sources": sources, "gaps": gaps,
+            "previous": previous, "clear_batches": clear_batches, "clear_records": clear_records}
 
 
 # ── write ─────────────────────────────────────────────────────────────────────
@@ -581,6 +699,10 @@ def summary(doc):
          f"  must {c['must']} ({c['must_missing']} not on the candidate) · on the candidate {c['on_candidate']} · in development {c['in_dev']}"
          f" · docker changed {c['docker_changed']} · unbuilt commits {c['unbuilt_commits']}"]
     L += [f"  must {m['key']} {m['status']} — {m['decision']}" for m in doc["must"] if m.get("decision")]
+    L += [f"  must {m['key']} shipped in {m['shipped']['bundle']} on {m['shipped']['lane']}: clear release:must, on your A"
+          for m in doc["must"] if m.get("shipped")]
+    L += [f"  cleared {m['key']} {next((h['at'][:10] for h in m.get('history') or [] if h.get('event') == 'cleared' and h.get('at')), '')}"
+          for m in doc.get("must_cleared") or []]
     L += [f"  gap: {g['detail']}" for g in doc["gaps"]]
     return "\n".join(L)
 
@@ -650,8 +772,15 @@ def main(argv=None):
             print("next: the publish guard refused next.json; the published copy is unchanged:\n  " + "\n  ".join(flags), file=sys.stderr)
             sys.exit(EX_GUARD)
         synced = sync(published) if a.sync else None
+        s = R().site()
+        try:                                           # the clears wait for his A on today.md; nothing written to Jira
+            doc_batch = propose_clears(doc, s.get("reports") or os.path.join(s.get("projects", ""), "reports"), now.date())
+        except Exception as e:                         # noqa: BLE001 — the file is written; the batch is said missing
+            doc_batch = None
+            print(f"next: the release:must clears were not proposed: {e}", file=sys.stderr)
         if not a.json:
-            print(f"wrote <published>/releases/next.json (schema {SCHEMA}, {doc['state']})" + (f" · {synced}" if synced else ""))
+            print(f"wrote <published>/releases/next.json (schema {SCHEMA}, {doc['state']})" + (f" · {synced}" if synced else "")
+                  + (f" · clears asked as dry:{doc_batch}" if doc_batch else ""))
     if a.json:                                         # `synced` is this run's outcome, never a field of the file
         print(json.dumps(dict(doc, synced=synced) if a.write and a.sync else doc, ensure_ascii=False))
     else:
