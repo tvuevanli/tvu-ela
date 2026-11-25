@@ -477,7 +477,10 @@ def prompt_text(scanned, rows, decisions_path):
     L = [f"# The MH board watch · {scanned['date']}", "",
          f"Follow /ela:watch. {len(rows)} ticket{'s' if len(rows) != 1 else ''} due a decision; write one decision per "
          f"ticket to {decisions_path} as the skill describes, then check it with `ela watch decide --from {decisions_path}` "
-         "(a dry run). Nothing here is applied by you.", ""]
+         "(a dry run). Nothing here is applied by you.",
+         "Every act and none carries \"confidence\": high | medium | low, and below high a \"doubt\": one line on what "
+         "the evidence leaves open; decide refuses one without them. Low may still act: the owner reviews it first. An "
+         "act you would not defend to the assignee is an ask.", ""]
     for r in rows:
         L += [f"## {r['key']} · {r['summary']}",
               f"{r['status']} · {r['assignee'] or 'nobody'} · {r['priority']}" + (f" · due {r['due']}" if r.get("due") else "")
@@ -585,10 +588,11 @@ def act_writes(key, d, reports):
     #                                    MH's Automation copies a comment to the linked tickets (MH-3998, 2026-11-25)
     p = os.path.join(drafts_dir(reports), f"{key}-{hashlib.sha1(text.encode()).hexdigest()[:8]}.txt")
     why = clip(d.get("why") or "", 200) or "the board watch's decision"
+    sure = {k: d[k] for k in ("confidence", "doubt") if d.get(k)}      # on each write's record row: did.md sorts by it
     if writes:                                                 # field changes first: their note must go out before a
         order = sorted(writes, key=lambda w: w.get("verb") == "link")   # link exists, or the rule copies it there too
-        return p, text, [{"target": key, "command": command_of(key, w, p), "why": why} for w in order]
-    return p, text, [{"target": key, "command": f"ela jira comment {key} --from-file {p}", "why": why}]
+        return p, text, [{"target": key, "command": command_of(key, w, p), "why": why, **sure} for w in order]
+    return p, text, [{"target": key, "command": f"ela jira comment {key} --from-file {p}", "why": why, **sure}]
 
 
 def dry_mod():
@@ -617,6 +621,19 @@ def put_topic(topics, key, d, today, summary=""):
     return tid, True
 
 
+LEVELS = ("low", "medium", "high")
+
+
+def unsure(d):
+    """What is wrong with an act's or a none's confidence: it must be high, medium or low, and below high it names its
+    doubt (the owner reviews low first, so a missing level would hide one). → a reason, or None."""
+    if d.get("confidence") not in LEVELS:
+        return "an act or a none carries its confidence: high, medium or low"
+    if d["confidence"] != "high" and not (d.get("doubt") or "").strip():
+        return f"confidence {d['confidence']} carries its doubt: what the evidence leaves open"
+    return None
+
+
 def decide(decisions, scanned, facts, reports, now, apply=False, runner=None):
     """The session's decisions checked and carried. → {date, acts, asks, none, refused, answered}."""
     D = dry_mod()
@@ -631,6 +648,8 @@ def decide(decisions, scanned, facts, reports, now, apply=False, runner=None):
             out["refused"].append({"key": key, "why": "not due a decision in today's scan"}); continue
         iss = read_json(os.path.join(facts, "jira", "issues", f"{key}.json"), {})
         rec = st["tickets"].setdefault(key, {"first": today.isoformat()})
+        if verdict in ("act", "none") and unsure(d):
+            out["refused"].append({"key": key, "why": unsure(d)}); continue
         if verdict == "act":
             problem = check_act(key, d, iss, rec, today.isoformat())
             if problem:
@@ -656,9 +675,10 @@ def decide(decisions, scanned, facts, reports, now, apply=False, runner=None):
             if apply:
                 rec.update(decided=now.isoformat(timespec="seconds"), verdict="ask", pending=[])
         elif verdict == "none":
-            out["none"].append({"key": key, "why": d.get("why") or ""})
-            if apply:
-                rec.update(decided=now.isoformat(timespec="seconds"), verdict="none", pending=[])
+            sure = {"confidence": d["confidence"], "doubt": (d.get("doubt") or "").strip()}
+            out["none"].append({"key": key, "why": d.get("why") or "", **sure})
+            if apply:                                          # the why and the level stay: ela/watch.md lists today's nones
+                rec.update(decided=now.isoformat(timespec="seconds"), verdict="none", pending=[], why=clip(d.get("why") or "", 200), **sure)
         else:
             out["refused"].append({"key": key, "why": f"verdict {verdict!r}: act, ask or none"})
     out["answered"] = carry_answers(topics, st, facts, reports, now, apply, runner)
@@ -803,7 +823,7 @@ def page(reports, today, base=""):
     ts = sorted(open_topics(reports), key=lambda t: (t["first"], t["key"]))
     L = ["# Board watch · waiting for your letter", ""]
     if not ts:
-        return "\n".join(L + ["Nothing waits: every topic has its letter.", ""])
+        return "\n".join(L + ["Nothing waits: every topic has its letter.", ""] + nothing_due(reports, today, base))
     L += [f"{len(ts)} topic{'s' if len(ts) != 1 else ''} wait. Answer each in the CLI: `ela watch answer watch:<KEY> <letter>`; "
           "a chosen option's writes go out at the watch's next pass. `ela watch asks` lists the same.", ""]
     for t in ts:
@@ -811,7 +831,38 @@ def page(reports, today, base=""):
         L += [f"### {link} {t.get('summary') or ''}".rstrip(), "", f"Open since {t['first']}. {t['question']}", ""]
         L += [f"- **{o['letter']}**: {o['text']} · `ela watch answer {t['id']} {o['letter']}`" for o in t["options"]]
         L += [""]
-    return "\n".join(L)
+    return "\n".join(L + nothing_due(reports, today, base))
+
+
+def nones(reports, today):
+    """Today's none verdicts from the store: [{key, why, confidence, doubt}], low confidence first. One recorded before
+    confidence was is low; its why, when the store lacks it, is read from the day's decisions file."""
+    day = today.isoformat()
+    rows = [(k, r) for k, r in load_state(reports)["tickets"].items()
+            if r.get("verdict") == "none" and (r.get("decided") or "")[:10] == day]
+    if not rows:
+        return []
+    filed = {d.get("key"): d for d in (read_json(os.path.join(reports, "ela", "watch", f"{day}-decisions.json"), {})
+                                       .get("decisions") or []) if isinstance(d, dict)}
+    out = [{"key": k, "why": r.get("why") or (filed.get(k) or {}).get("why") or "",
+            "confidence": r.get("confidence") if r.get("confidence") in LEVELS else "low", "doubt": r.get("doubt") or ""}
+           for k, r in rows]
+    return sorted(out, key=lambda x: (LEVELS.index(x["confidence"]), x["key"]))
+
+
+def nothing_due(reports, today, base=""):
+    """The closing section of ela/watch.md: what the watch judged had nothing due today, so a wrong none can be caught.
+    Nothing to answer here: he corrects one by saying so."""
+    got = nones(reports, today)
+    if not got:
+        return []
+    L = ["## Judged nothing due today", "", "Tickets the watch looked at and left alone, the least sure first. Say so "
+         "if one needed something.", ""]
+    for x in got:
+        link = f"[{x['key']}]({base}/browse/{x['key']})" if base else x["key"]
+        lv = "" if x["confidence"] == "high" else f"**{x['confidence'].capitalize()}**: {x['doubt'] or 'no doubt was recorded'} — "
+        L.append(f"- {link}: {lv}{x['why'] or 'no reason was recorded'}")
+    return L + [""]
 
 
 def dm_plan(topics, today, base=""):

@@ -104,7 +104,7 @@ with tempfile.TemporaryDirectory() as t:
     # no re-comment on a disputed ticket for 7 days
     day3 = NOW + datetime.timedelta(days=3)
     got3 = {"triggered": [{"key": "MH-22", "summary": "x"}, {"key": "MH-21", "summary": "y"}], "replies": []}
-    act = lambda k: {"key": k, "verdict": "act", "writes": [], "comment": f"A nudge on {k}: what is the next step?"}  # noqa: E731
+    act = lambda k: {"key": k, "verdict": "act", "confidence": "high", "writes": [], "comment": f"A nudge on {k}: what is the next step?"}  # noqa: E731
     r = W.decide({"decisions": [act("MH-22"), act("MH-21")]}, got3, facts, reports, day3, apply=False, runner=runner)
     check("within 7 days a disputed ticket gets no comment; an undisputed one does",
           [x["key"] for x in r["refused"]] == ["MH-22"] and "until 2026-12-01" in r["refused"][0]["why"]

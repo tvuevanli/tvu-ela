@@ -309,7 +309,7 @@ with tempfile.TemporaryDirectory() as R, tempfile.TemporaryDirectory() as out:
         check("a set that fails part way stops there and posts nothing",
               r2["state"] == "failed" and not [c for c in ran2 if c.startswith("ela jira comment")])
     _, lst = D.did(R, TUE.isoformat())
-    check("listed for ela/dry/did.md, each act by its batch and line", [a for a, _, _ in lst] == [f"{TUE}-link-named-MH-3735#{n}" for n in range(1, 5)])
+    check("listed for ela/dry/did.md, each act by its batch and line", [a for a, _, _, _ in lst] == [f"{TUE}-link-named-MH-3735#{n}" for n in range(1, 5)])
     check("one set a scope a day: a second pass the same day writes nothing",
           D.place(R, "link-named", "MH-3735", writes, left, TUE, apply=True, out_dir=out, runner=fake, now=at(TUE))["state"] == "refused" and len(ran) == 4)
     n = D.correct(R, "link-named", "correction", "MH-3735", "a reply disputing a link", now=datetime.datetime(2026, 11, 24, 16, tzinfo=D.TZ))

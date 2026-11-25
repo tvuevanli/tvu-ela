@@ -666,11 +666,12 @@ def select_link_named(parent, children, before=None):
                     continue
                 times[k] = times.get(k, 0) + 1
                 if k in named:
+                    named[k]["people"] |= who != "description"
                     continue
                 if k.split("-")[0] != proj and not verb:
                     loose.setdefault(k, who); continue
                 rel = bool(re.search(r"\brelate[sd]?\b|相关", line, re.I))
-                named[k] = {"who": who, "at": (at or "")[:10], "relates": rel}
+                named[k] = {"who": who, "at": (at or "")[:10], "relates": rel, "people": who != "description"}
                 order.append(k)
     left = [f"{k} — another project's key named by {who} with no link verb on its line" for k, who in loose.items()
             if k not in named and k not in linked]
@@ -692,7 +693,9 @@ def select_link_named(parent, children, before=None):
         ch = children[k].get("fields") or {}
         t = "relates to" if named[k]["relates"] or (older(children[k], parent) and is_done(children[k])) else "contains"
         cmd = f"ela jira link {pk} {k} --type " + ("\"relates to\"" if t == "relates to" else "contains")
-        writes.append({"n": i, "target": k, "command": cmd,
+        sure = {"confidence": "high"} if named[k]["people"] else {   # a person named it: high; the description alone: medium
+            "confidence": "medium", "doubt": DESCRIPTION_ONLY}
+        writes.append({"n": i, "target": k, "command": cmd, **sure,
                        "why": f"{(ch.get('summary') or '')[:60]} ({(ch.get('status') or {}).get('name') or '?'}) · named by "
                               f"{named[k]['who']}" + (f", {named[k]['at']}" if named[k]["at"] else "")})
     return writes, left
@@ -817,7 +820,8 @@ def act(reports, cls, scope, writes, today, apply=False, runner=None, now=None):
                    f"{(out.splitlines() or [''])[-1]}"[:300])
         if apply and ok:
             append(reports, {"at": now_iso(now), "class": cls, "verdict": "applied", "as_drafted": True, "target": w["target"],
-                             "command": w["command"], "why": w.get("why"), "batch": bid, "act": a_id, "source": "tier1"})
+                             "command": w["command"], "why": w.get("why"), "batch": bid, "act": a_id, "source": "tier1",
+                             **{k: w[k] for k in ("confidence", "doubt") if w.get(k)}})
     if apply:
         save_batch(reports, {"id": bid, "class": cls, "scope": scope, "made": now_iso(now), "state": "applied" if ok else "failed",
                              "writes": [{k: w[k] for k in ("n", "target", "command", "why", "outcome", "reason") if k in w} for w in writes],
@@ -843,9 +847,24 @@ def place(reports, cls, scope, writes, left, today, apply=False, out_dir=None, r
             "did": [f"{len(b['writes'])} write(s) asked on today.md"] if b else [], "left_out": left}
 
 
+DESCRIPTION_ONLY = "only the description names it; no comment by a person does"
+LEVELS = ("low", "medium", "high")     # how sure the decision was; did.md lists low first, under "Review first"
+
+
+def level_of(r):
+    """A tier-1 row's confidence: its own; else, for a row written before confidence was recorded, a board-watch act is
+    low (a model's judgment nobody reviewed) and a rule class's is medium when only the description named the key."""
+    if r.get("confidence") in LEVELS:
+        return r["confidence"]
+    if r.get("class") == "board-watch":
+        return "low"
+    return "medium" if "named by description" in str(r.get("why") or "") else "high"
+
+
 def tier1_done(reports, day):
-    """The tier-1 acts written on `day` (record rows from `act`): [(act id, text, undo)], the undo the reverse atom
-    jira.py kept for it (`ela dry undo <act> --apply`), or a note when the verb has none."""
+    """The tier-1 acts written on `day` (record rows from `act`): [(act id, text, undo, level)], the undo the reverse atom
+    jira.py kept for it (`ela dry undo <act> --apply`), or a note when the verb has none; a row below high opens with its
+    level and its doubt."""
     rows = [r for r in record(reports) if r.get("source") == "tier1" and (r.get("at") or "")[:10] == day]
     kept = {a.get("act") for a in acts(reports)}
     names, told, out = None, set(), []
@@ -856,7 +875,10 @@ def tier1_done(reports, day):
             names = roster_names() if names is None else names
             said = write_words(r["command"], names, told)
             text = f"{said} — why: {r.get('why')}" if said and r.get("why") else said or text
-        out.append((r["act"], f"{r.get('target')}: {text}", undo))
+        lv = level_of(r)
+        said = r.get("doubt") or (DESCRIPTION_ONLY if r.get("class") != "board-watch" else "no doubt was recorded")
+        doubt = "" if lv == "high" else f"**{lv.capitalize()}**: {first_sentence(said).rstrip('.')}. "
+        out.append((r["act"], f"{doubt}{r.get('target')}: {text}", undo, lv))
     return out
 
 
@@ -1114,7 +1136,7 @@ def fold_corrections(reports):
 
 def did(reports, day):
     """What granted classes did without confirm on a day, from the runner's actions files: tier-1 actions under a class
-    rule, applied. → (Facts line or None, [(n, text, undo)])."""
+    rule, applied. → (Facts line or None, [(n, text, undo, level)]), low confidence first."""
     try:
         ran = json.load(open(os.path.join(reports, "runner", f"{day}-actions.json"), encoding="utf-8"))
     except (OSError, ValueError):
@@ -1131,7 +1153,8 @@ def did(reports, day):
     for c, _ in sets:                                      # a tier-1 class counts its sets, one per ticket
         counts[c] = counts.get(c, 0) + 1
     words = ", ".join(f"{n} {CLASSES[c]['noun'][0] if n == 1 else CLASSES[c]['noun'][1]}" for c, n in counts.items() if c in CLASSES)
-    return f"ela did: {words}", [(a["n"], a.get("text") or a.get("command"), f"ela: undo {a['n']}") for a in rows] + own
+    listed = [(a["n"], a.get("text") or a.get("command"), f"ela: undo {a['n']}", "high") for a in rows] + own
+    return f"ela did: {words}", sorted(listed, key=lambda x: LEVELS.index(x[3]))   # low first: what to review first
 
 
 # ── his review of did.md ───────────────────────────────────────────────────────────────────────────────────────
@@ -1491,7 +1514,7 @@ def cmd_acts(a):
 def cmd_did(a):
     day = a.date or datetime.datetime.now(TZ).date().isoformat()
     line, rows = did(reports_root(a), day)
-    emit(a, {"line": line, "rows": rows}, [line or "ela did nothing without confirm"] + [f"  {n}. {t} · {u}" for n, t, u in rows])
+    emit(a, {"line": line, "rows": rows}, [line or "ela did nothing without confirm"] + [f"  {n}. {t} · {u}" for n, t, u, _ in rows])
 
 
 def main():

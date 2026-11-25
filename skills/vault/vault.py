@@ -3744,8 +3744,8 @@ def dry_asks(reports, today, asks_state, dry_run=False):
 
 def dry_pages(vault, reports, today, record=True, jira_base=""):
     """ela/dry/<batch>.md for each batch waiting: written once, then his (a struck or edited line is what the answer
-    reads), and ela/dry/did.md, today's acts without confirm with the word that undoes each, each key a link to its Jira
-    page."""
+    reads), and ela/dry/did.md, today's acts without confirm with the word that undoes each: low confidence first under
+    "Review first", each key a link to its Jira page."""
     out = {}
     try:
         D = dry_mod()
@@ -3771,11 +3771,17 @@ def dry_pages(vault, reports, today, record=True, jira_base=""):
             k = str(n) if "#" in str(n) else f"{today.isoformat()}#{n}"
             got = marks.get(k)
             return "" if not got else " — ok" if got[0] == "ok" else f" — wrong: {got[1] or '(no cause given)'}"
+        def row(n, t, u):
+            return f"- {n}. {link_keys(t, jira_base)[0]} · `{u}`{mark(n)}"
+        low = [row(n, t, u) for n, t, u, lv in rows if lv == "low"]
+        rest = [row(n, t, u) for n, t, u, lv in rows if lv != "low"]          # did() sorts medium before high
+        body = ((["## Review first", "", "Low confidence: ela acted, and the doubt says what the evidence left open.", ""] + low
+                 + (["", "## The rest", ""] if rest else [])) if low else []) + rest
         out[rel_did] = front([], {"type": "dry", "date": today.isoformat()}) + "\n".join(
             [f"# Done by ela · {today:%a %Y-%m-%d}", "", "Writes ela made without asking. Beside a line write `ok`, or "
              "`wrong: <why>`: wrong returns the class to your confirm, and the why admits the case to the class's corpus so "
              "the selector is tested against it. Write the undo word here or on today.md and ela reverses that one.", ""]
-            + ([f"- {n}. {link_keys(t, jira_base)[0]} · `{u}`{mark(n)}" for n, t, u in rows] or ["Nothing today."])) + "\n"
+            + (body or ["Nothing today."])) + "\n"
     except Exception:                                      # noqa: BLE001
         pass
     return out
@@ -3822,7 +3828,7 @@ def watch_page(reports, today, base=""):
     where the topics live; the DM only reminds (the owner's word, 2026-11-25). A broken store costs the page only."""
     try:
         WA = watch_mod()
-        if not WA.open_topics(reports):                    # nothing waits: no page, as no line on today.md
+        if not WA.open_topics(reports) and not WA.nones(reports, today):   # nothing waits and nothing judged: no page
             return {}
         return {WA.WATCH_PAGE: front([], {"type": "watch", "date": today.isoformat()}) + WA.page(reports, today, base)}
     except Exception:                                      # noqa: BLE001

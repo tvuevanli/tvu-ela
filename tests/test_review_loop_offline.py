@@ -62,7 +62,7 @@ with tempfile.TemporaryDirectory() as tmp:
           sorted(r["verdict"] for r in rows) == ["confirmed", "corrected", "corrected"])
     check("wrong returns the class to confirm", D.load_state(R)["board-watch"]["tier"] == 3)
     check("the rewritten page shows each mark beside its line",
-          f"- {D_}-board-watch-MH-1#1. MH-1: commented — why: MH-1: signed comment · `no reverse atom: undo it on the ticket` — ok" in out
+          f"- {D_}-board-watch-MH-1#1. **Low**: no doubt was recorded. MH-1: commented — why: MH-1: signed comment · `no reverse atom: undo it on the ticket` — ok" in out
           and "— wrong: SCTE-35 is the standard, not a ticket" in out and "— wrong: (no cause given)" in out)
     check("the page says what the marks do", "`wrong: <why>`" in out and "corpus" in out)
 

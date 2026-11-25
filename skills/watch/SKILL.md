@@ -34,6 +34,14 @@ One of three, never more than one set per ticket:
 - **none** — nothing is due after all (the trigger is noise, the ticket is moving, the question was answered
   elsewhere). Say why in one line. Prefer none to a comment that adds nothing.
 
+An act you would not defend to the assignee is an ask.
+
+**Confidence.** Every act and every none carries `confidence`: `high` (the evidence settles it), `medium` (it
+points one way but leaves something open) or `low` (a judgment the evidence does not settle). Below high, add
+`doubt`: one line on what the evidence leaves open. A decision without them is refused. Low still acts: the owner
+reviews low first (ela/dry/did.md opens with it under "Review first"; ela/watch.md lists each none with its level),
+so the level is honest, not a gate.
+
 **Comment sparingly.** MH's Jira Automation copies every comment to each linked ticket (the owner found ela's notes
 flooding linked tickets, 2026-11-25; the rule is not his to change). A comment goes out only when someone on the
 ticket must read or answer it there: a question they owe, a change made to their ticket. A recap, a status the
@@ -77,7 +85,8 @@ Write `<reports>/ela/watch/<date>-decisions.json` (the prompt names the path):
 
 ```json
 {"decisions": [
-  {"key": "MH-1", "verdict": "act", "why": "one line for the owner's review",
+  {"key": "MH-1", "verdict": "act", "why": "one line for the owner's review", "confidence": "medium",
+   "doubt": "the trace ends in the player, but nobody on the ticket has said so",
    "writes": [{"verb": "assign", "assignee": "<accountId>"}, {"verb": "transition", "to": "Review"},
               {"verb": "priority", "to": "High"}, {"verb": "due", "date": "2026-12-01"},
               {"verb": "link", "other": "MH-2", "type": "relates to"}],
@@ -85,7 +94,7 @@ Write `<reports>/ela/watch/<date>-decisions.json` (the prompt names the path):
   {"key": "MH-3", "verdict": "ask", "question": "Close MH-3 as fixed on prod-3, or keep it for the QA pass?",
    "options": [{"letter": "A", "text": "keep it in Review for QA"},
                {"letter": "B", "text": "you close it yourself"}]},
-  {"key": "MH-4", "verdict": "none", "why": "the reviewer answered in Slack; nothing is waiting"}
+  {"key": "MH-4", "verdict": "none", "why": "the reviewer answered in Slack; nothing is waiting", "confidence": "high"}
  ],
  "replies": [{"key": "MH-5", "reply": "10234", "disputes": false},
              {"key": "MH-6", "reply": "10240", "disputes": "unsure"}]}

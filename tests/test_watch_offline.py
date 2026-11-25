@@ -100,18 +100,18 @@ with tempfile.TemporaryDirectory() as t:
     ran = []
     runner = lambda cmd, apply: (ran.append((cmd, apply)) or (0, "ok"))   # noqa: E731
     decisions = {"decisions": [
-        {"key": "MH-1", "verdict": "act", "why": "the UI owner holds review", "writes": [{"verb": "assign", "assignee": "acc-ui"}],
+        {"key": "MH-1", "verdict": "act", "confidence": "high", "why": "the UI owner holds review", "writes": [{"verb": "assign", "assignee": "acc-ui"}],
          "comment": "Assigned to the UI owner: the change under review is in the player."},
-        {"key": "MH-2", "verdict": "act", "writes": [{"verb": "transition", "to": "Done"}], "comment": "Closing: merged."},
-        {"key": "MH-3", "verdict": "act", "writes": [{"verb": "label", "to": "x"}], "comment": "x"},
-        {"key": "MH-7", "verdict": "act", "writes": [{"verb": "due", "date": "2026-12-01"}], "comment": ""},
-        {"key": "MH-12", "verdict": "act", "writes": [], "comment": "The fix is on daily; QA can test it there."},
-        {"key": "MH-6", "verdict": "act", "writes": [], "comment": "Dev One's performance on this is poor."},
+        {"key": "MH-2", "verdict": "act", "confidence": "high", "writes": [{"verb": "transition", "to": "Done"}], "comment": "Closing: merged."},
+        {"key": "MH-3", "verdict": "act", "confidence": "high", "writes": [{"verb": "label", "to": "x"}], "comment": "x"},
+        {"key": "MH-7", "verdict": "act", "confidence": "high", "writes": [{"verb": "due", "date": "2026-12-01"}], "comment": ""},
+        {"key": "MH-12", "verdict": "act", "confidence": "high", "writes": [], "comment": "The fix is on daily; QA can test it there."},
+        {"key": "MH-6", "verdict": "act", "confidence": "high", "writes": [], "comment": "Dev One's performance on this is poor."},
         {"key": "MH-11", "verdict": "ask", "question": "Reopened by QA: send it back to Dev One, or hold for the 2.2 line?",
          "options": [{"letter": "A", "text": "back to Dev One", "writes": [{"verb": "assign", "assignee": "acc-dev"}],
                       "comment": "Back to Dev One: QA reopened it on daily."}, {"letter": "B", "text": "hold it"}]},
-        {"key": "MH-9", "verdict": "none", "why": "it moves on the line's train"},
-        {"key": "MH-77", "verdict": "act", "writes": [], "comment": "x"},
+        {"key": "MH-9", "verdict": "none", "confidence": "high", "why": "it moves on the line's train"},
+        {"key": "MH-77", "verdict": "act", "confidence": "high", "writes": [], "comment": "x"},
     ]}
     r = W.decide(decisions, got2, facts, reports, later, apply=False, runner=runner)
     why = {x["key"]: x["why"] for x in r["refused"]}
@@ -156,7 +156,7 @@ with tempfile.TemporaryDirectory() as t:
     check("a ticket written today is left alone; a decided one does not trigger again until it moves",
           "MH-1" in got3["skipped"]["done_today"] and "MH-9" not in keys3 and "MH-11" not in keys3)
     ran.clear()
-    r = W.decide({"decisions": [{"key": "MH-1", "verdict": "act", "writes": [], "comment": "Another."}]},
+    r = W.decide({"decisions": [{"key": "MH-1", "verdict": "act", "confidence": "high", "writes": [], "comment": "Another."}]},
                  dict(got2), facts, reports, later, apply=True, runner=runner)
     check("one set per ticket a day: a second is refused", "one set of writes a day" in r["refused"][0]["why"] and ran == [])
 
@@ -282,6 +282,82 @@ with tempfile.TemporaryDirectory() as t:
     check("a tick on today.md records the letter through the watch", V.settle_one(reports, state, "watch:MH-31", "A",
                                                                                   "ela watch answer watch:MH-31 A", day2.date())
           and W.load_topics(reports)["topics"]["watch:MH-31"]["closed"]["letter"] == "A")
+
+
+# confidence: every act and none carries it, below high with its doubt; did.md and watch.md list the least sure first
+with tempfile.TemporaryDirectory() as reports:
+    os.makedirs(os.path.join(reports, "ela", "dry"), exist_ok=True)
+    day = datetime.date(2026, 11, 25)
+    scanned = {"triggered": [{"key": k} for k in ("MH-40", "MH-41", "MH-42", "MH-43")]}
+    r = W.decide({"decisions": [
+        {"key": "MH-40", "verdict": "act", "writes": [], "comment": "A nudge."},
+        {"key": "MH-41", "verdict": "none", "why": "moving", "confidence": "low"},
+        {"key": "MH-42", "verdict": "none", "why": "moving", "confidence": "sure"},
+        {"key": "MH-43", "verdict": "ask", "question": "Which owner?", "options": [{"letter": "A", "text": "UI"}]}]},
+        scanned, reports, reports, datetime.datetime(2026, 11, 25, 9, tzinfo=TZ))
+    check("the session's prompt asks for the confidence, since an older installed skill may not",
+          '"confidence": high | medium | low' in W.prompt_text({"date": "2026-11-25"}, [], "f.json"))
+    why = {x["key"]: x["why"] for x in r["refused"]}
+    check("an act or a none without its confidence is refused; below high without a doubt is refused; an ask needs none",
+          "confidence" in why.get("MH-40", "") and "doubt" in why.get("MH-41", "") and "confidence" in why.get("MH-42", "")
+          and [x["key"] for x in r["asks"]] == ["MH-43"])
+
+    note = os.path.join(reports, "note.txt")
+    open(note, "w").write("Assigned to the UI owner: the `player` trace ends there. The rest is detail nobody needs here, "
+                          "repeated at length so that the comment runs well past the length a did.md row can carry whole, "
+                          "and then some more words, and more again, until it is plainly too long.\n")
+    at = lambda h: f"2026-11-25T{h:02d}:00:00+08:00"   # noqa: E731
+    D.append(reports, {"at": at(9), "class": "board-watch", "verdict": "applied", "target": "MH-50", "source": "tier1",
+                       "command": f"ela jira assign MH-50 --assignee acc-ui --note-file {note}", "why": "UI holds it, see MH-49",
+                       "batch": "2026-11-25-board-watch-MH-50", "act": "2026-11-25-board-watch-MH-50#1", "confidence": "high"})
+    D.append(reports, {"at": at(9), "class": "board-watch", "verdict": "applied", "target": "MH-50", "source": "tier1",
+                       "command": f"ela jira transition MH-50 --to Review --note-file {note}", "why": "UI holds it, see MH-49",
+                       "batch": "2026-11-25-board-watch-MH-50", "act": "2026-11-25-board-watch-MH-50#2", "confidence": "high"})
+    D.append(reports, {"at": at(10), "class": "board-watch", "verdict": "applied", "target": "MH-51", "source": "tier1",
+                       "command": "ela jira due MH-51 --date 2026-12-01 --note-file /nonexistent", "why": "stalled",
+                       "batch": "2026-11-25-board-watch-MH-51", "act": "2026-11-25-board-watch-MH-51#1"})   # before confidence: low
+    D.append(reports, {"at": at(11), "class": "link-named", "verdict": "applied", "target": "MH-61", "source": "tier1",
+                       "command": "ela jira link MH-60 MH-61 --type contains", "why": "x (Open) · named by description",
+                       "batch": "2026-11-25-link-named-MH-60", "act": "2026-11-25-link-named-MH-60#1"})
+    D.roster_names = lambda: {"acc-ui": "Uma Interface"}
+    _, rows = D.did(reports, day.isoformat())
+    text = {n: t for n, t, _, _ in rows}
+    check("did.md rows: low first, then medium, then high",
+          [lv for *_, lv in rows] == ["low", "medium", "high", "high"] and rows[0][0] == "2026-11-25-board-watch-MH-51#1")
+    check("a board-watch row names its write in plain words, the assignee by name, and the comment's first sentence once a set",
+          text["2026-11-25-board-watch-MH-50#1"].startswith("MH-50: assigned to Uma Interface; its comment: \"Assigned to the "
+                                                             "UI owner: the 'player' trace ends there.\" — why: UI holds it")
+          and text["2026-11-25-board-watch-MH-50#2"] == "MH-50: moved to Review — why: UI holds it, see MH-49")
+    check("a row below high opens with its level and its doubt",
+          text["2026-11-25-board-watch-MH-51#1"].startswith("**Low**: no doubt was recorded. MH-51: due date set to 2026-12-01")
+          and text["2026-11-25-link-named-MH-60#1"].startswith("**Medium**: "))
+    sys.path.insert(0, os.path.join(ROOT, "skills", "vault"))
+    import vault as V  # noqa: E402
+    pg = V.dry_pages(reports, reports, day, record=False, jira_base="https://j")["ela/dry/did.md"]
+    check("did.md: the low rows under Review first, every key a link, the act id and undo word left as they were",
+          pg.index("## Review first") < pg.index("MH-51") < pg.index("## The rest") < pg.index("MH-60")
+          and "[MH-49](https://j/browse/MH-49)" in pg and "- 2026-11-25-board-watch-MH-50#1. [MH-50](https://j/browse/MH-50): " in pg
+          and {i for i, m, _ in D.did_marks(pg.replace("on the ticket`", "on the ticket` ok"))}
+          == {"2026-11-25-board-watch-MH-50#1", "2026-11-25-board-watch-MH-50#2", "2026-11-25-board-watch-MH-51#1",
+              "2026-11-25-link-named-MH-60#1"})
+
+    st = W.load_state(reports)
+    st["tickets"].update({"MH-70": {"verdict": "none", "decided": at(9), "why": "the train carries it", "confidence": "high"},
+                          "MH-71": {"verdict": "none", "decided": at(9), "why": "answered in Slack", "confidence": "medium",
+                                    "doubt": "the Slack answer may not cover QA"},
+                          "MH-72": {"verdict": "none", "decided": at(9)},
+                          "MH-73": {"verdict": "none", "decided": "2026-11-24T09:00:00+08:00", "why": "yesterday"}})
+    W.write_json(W.state_path(reports), st)
+    W.write_json(os.path.join(reports, "ela", "watch", "2026-11-25-decisions.json"),
+                 {"decisions": [{"key": "MH-72", "verdict": "none", "why": "filed before confidence"}]})
+    pg = W.page(reports, day, "https://j")
+    tail = pg[pg.index("## Judged nothing due today"):]
+    check("watch.md closes with today's nones, least sure first, each linked with its level and doubt; no CLI line",
+          tail.index("MH-72") < tail.index("MH-71") < tail.index("MH-70") and "MH-73" not in tail and "ela watch answer" not in tail
+          and "- [MH-72](https://j/browse/MH-72): **Low**: no doubt was recorded — filed before confidence" in tail
+          and "**Medium**: the Slack answer may not cover QA — answered in Slack" in tail
+          and "- [MH-70](https://j/browse/MH-70): the train carries it" in tail)
+    check("the page is written for its nones even when no topic waits", list(V.watch_page(reports, day, "https://j")) == ["ela/watch.md"])
 
 print("watch: all offline checks passed" if not fails else f"watch: {len(fails)} failed")
 sys.exit(1 if fails else 0)
