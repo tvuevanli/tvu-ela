@@ -61,6 +61,9 @@ with tempfile.TemporaryDirectory() as tmp:
     worktree("fr")                                 # opened, nothing committed yet: not landed
     worktree("ld", commit="e.txt")            # its commit reached main another way: landed
     git(ela, "merge", "-q", "--ff-only", "evan/ld")
+    worktree("pl", commit="pl.txt")           # landed, but its last reply still waits: pending, never closed
+    git(ela, "merge", "-q", "--ff-only", "evan/pl")
+    worktree("pt", commit="pt.txt")           # to-land, ready, and waiting: landed, not closed
     base_sha = git(ela, "rev-parse", "--short", "main").stdout.strip()
     # landed, then the worktree and branch removed as `session land` leaves them; the only reply still asks for a task
     worktree("lb", commit="lb.txt")
@@ -107,6 +110,11 @@ with tempfile.TemporaryDirectory() as tmp:
     session("s-sig", "sig", "/x", [user("look"), reply("The answer.\n\n— ela out 🦀")])
     session("s-sig-new", "signew", "/x", [user("look"), reply("The answer.\n\n— ela out 🦀", ts=new)])
     session("s-wait", "wait", "/x", [user("look"), reply("Two ways.\n\n**Shall I take A?**")])
+    wait = "\n\n⏳ ela pending · the desk's reply · after the land"
+    session("s-pend", "pend", "/x", [user("look"), reply("Asked the peer." + wait)])
+    session("s-pl", "pl", W("pl"), [user("do it"), reply("Landed." + wait)])
+    session("s-pt", "pt", W("pt"), [user("do it"), reply("Committed. Ready to land: `ela session land pt`." + wait)])
+    session("s-dec", "dec", "/x", [user("look"), reply("Built both.\n\n**⚖️ Needs your decision**\n- the label: say `apply next`")])
     session("s-busy", "busy", "/x", [user("look"), reply("Working on it.", stop="tool_use")])
     session("s-desk", "desk", projects, [user("hello"), reply("Fine.\n\n— ela out 🦀")])
     session("s-root", None, projects, [user("hello"), reply("Fine.\n\n— ela out 🦀")])
@@ -136,6 +144,11 @@ with tempfile.TemporaryDirectory() as tmp:
     check(st.get("s-sig") == "signed-off" and st.get("s-sig-new") == "signed-off", "signed-off: the last line is the sign-off")
     check(st.get("s-wait") == "waiting-owner" and rows["s-wait"]["question"] == "**Shall I take A?**",
           "waiting-owner carries the question line")
+    check(st.get("s-pend") == "pending" and rows["s-pend"]["reason"].startswith("⏳ ela pending · the desk's reply")
+          and st.get("s-pl") == "pending" and st.get("s-pt") == "to-land" and rows["s-pt"]["pending"],
+          "a last line `⏳ ela pending · …` is pending, even when its commit already reached main")
+    check(st.get("s-dec") == "waiting-owner" and rows["s-dec"]["question"] == "⚖️ Needs your decision",
+          "an open ⚖️ Needs your decision is waiting-owner, though no line ends with a question mark")
     check(st.get("s-busy") == "busy" and st.get("s-desk") == "desk" and st.get("s-root") == "desk",
           "a turn under way is busy; the desk by name or by the projects root is never reaped")
     check(st.get("s-ela") == "desk" and st.get("s-job") == "runner", "the desk named ela is the desk; a runner job's session is its own")
@@ -156,6 +169,10 @@ with tempfile.TemporaryDirectory() as tmp:
           "a refused land is reported and the session stays open")
     check("under 10m" in (rows.get("s-sig-new", {}).get("action") or ""), "a signed-off session idle under 10 minutes is kept")
     check(procs["s-dt"].poll() is None, "a dirty worktree is never closed, even signed off")
+    check(all(procs[k].poll() is None for k in ("s-pend", "s-pl", "s-pt", "s-dec")),
+          "pending and an open decision are never closed")
+    check(rows.get("s-pt", {}).get("action") == "landed" and os.path.exists(os.path.join(ela, "pt.txt")),
+          "a ready to-land that waits is landed, and its session kept")
     check(st.get("s-hand") == "signed-off" and rows["s-hand"]["action"] == "started by hand: closes on the owner's word"
           and procs["s-hand"].poll() is None, "a signed-off session started by hand is reported, not closed")
     lines = open(os.path.join(rt, "sessions.jsonl")).read().splitlines()

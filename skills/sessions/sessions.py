@@ -46,16 +46,18 @@ reap: every live session in the registry (not ended, its process alive) gets one
 this order: desk (the session reap runs in, one named ela or desk, or one started in the projects root: never
 touched) · runner (a runner job's own session: it ends itself) ·
 dirty (an uncommitted change in its worktree <work>/<N>/<repo>) · to-land (evan/<N> has commits beyond main, the
-worktree clean) · landed (a commit of its own reached main: the branch has nothing beyond main after commits of its
+worktree clean) · pending (the last reply's last line is `⏳ ela pending · …`: it waits for a timer, a background
+task, a peer or the owner; never closed, landed or not) · landed (a commit of its own reached main: the branch has nothing beyond main after commits of its
 own, or main's reflog records `merge evan/<N>`, or a reply names a commit main gained after the session started; or
 the worktree is gone) · no-brief (no commit of its own on main, and no typed message or the only reply asks for a
 task) · signed-off (the last reply's last
-line is `— ela out 🦀`) · waiting-owner (the last reply asks a question: its line is shown) · busy (anything else).
+line is `— ela out 🦀`) · waiting-owner (the last reply asks a question or
+opens `⚖️ Needs your decision`: its line is shown) · busy (anything else).
 One row each: name, state, minutes since the last reply, the reason.
 --apply, once each session has been idle 10 minutes: `land` each to-land whose last reply says it is ready (once;
 a refusal is reported and the session stays open), then `close` each landed session, and each signed-off one with
 nothing to land; a session started by hand (no name from `session open`) is only reported, since it closes on the
-owner's word. busy, dirty, waiting-owner and no-brief are never closed; `claude --resume <id>` brings back any
+owner's word. busy, dirty, pending, waiting-owner and no-brief are never closed (a ready pending one is landed, not closed); `claude --resume <id>` brings back any
 closed one. --apply also closes every pane zellij still holds for an ended session (exited, its id and title the
 session's recorded pane and name, a ⏳ or 🦀 mark aside): a worker that exits by itself leaves one. The result goes to <runtime>/sessions/reap.json; --last prints its sessions left open, one line each
 (the desk's session start shows them).
@@ -454,16 +456,18 @@ reap: every live session in the registry (not ended, its process alive) gets one
 this order: desk (the session reap runs in, one named ela or desk, or one started in the projects root: never
 touched) · runner (a runner job's own session: it ends itself) ·
 dirty (an uncommitted change in its worktree <work>/<N>/<repo>) · to-land (evan/<N> has commits beyond main, the
-worktree clean) · landed (a commit of its own reached main: the branch has nothing beyond main after commits of its
+worktree clean) · pending (the last reply's last line is `⏳ ela pending · …`: it waits for a timer, a background
+task, a peer or the owner; never closed, landed or not) · landed (a commit of its own reached main: the branch has nothing beyond main after commits of its
 own, or main's reflog records `merge evan/<N>`, or a reply names a commit main gained after the session started; or
 the worktree is gone) · no-brief (no commit of its own on main, and no typed message or the only reply asks for a
 task) · signed-off (the last reply's last
-line is `— ela out 🦀`) · waiting-owner (the last reply asks a question: its line is shown) · busy (anything else).
+line is `— ela out 🦀`) · waiting-owner (the last reply asks a question or
+opens `⚖️ Needs your decision`: its line is shown) · busy (anything else).
 One row each: name, state, minutes since the last reply, the reason.
 --apply, once each session has been idle 10 minutes: `land` each to-land whose last reply says it is ready (once;
 a refusal is reported and the session stays open), then `close` each landed session, and each signed-off one with
 nothing to land; a session started by hand (no name from `session open`) is only reported, since it closes on the
-owner's word. busy, dirty, waiting-owner and no-brief are never closed; `claude --resume <id>` brings back any
+owner's word. busy, dirty, pending, waiting-owner and no-brief are never closed (a ready pending one is landed, not closed); `claude --resume <id>` brings back any
 closed one. --apply also closes every pane zellij still holds for an ended session (exited, its id and title the
 session's recorded pane and name, a ⏳ or 🦀 mark aside): a worker that exits by itself leaves one. The result goes to <runtime>/sessions/reap.json; --last prints its sessions left open, one line each
 (the desk's session start shows them).
@@ -854,6 +858,7 @@ def cmd_close(a):
 SIGN_OFF = "— ela out 🦀"
 PENDING = "⏳ ela pending"                         # `⏳ ela pending · <what it waits for> · <until when>`
 MARK = {"pending": "⏳ ", "out": "🦀 "}           # the pane title's prefix for a reply's closing mark
+DECISION = re.compile(r"^[#>*_ \t]*⚖\ufe0f?[ \t]*(Needs your decision|待你决策)", re.M)   # the heading of an open decision
 IDLE_MIN = 10                                   # minutes a session sits idle before reap closes it
 ASKS_TASK = re.compile(r"what (would you like|should i|do you want|can i)|how can i help|what('s| is) the task|no (brief|task)"
                        r'|需要我(做|帮)|我该做什么|要我做什么|有什么(任务|需要)', re.I)   # the same ask in Chinese
@@ -1041,7 +1046,8 @@ def judge(r, now_, mine):
     row = {"id": r["id"], "name": r.get("name") or "-", "cwd": shown_path(r.get("cwd") or "", *roots()),
            "age": round((now_ - when).total_seconds() / 60) if when else None,
            "idle": round((now_ - idle_at).total_seconds() / 60) if idle_at else None,
-           "question": None, "ready": bool(READY.search(text)), "worker": None, "branch": None, "action": None}
+           "question": None, "ready": bool(READY.search(text)), "worker": None, "branch": None, "action": None,
+           "pending": closing_mark(text) == "pending"}
 
     def done(state, reason):
         row.update(state=state, reason=reason)
@@ -1058,6 +1064,8 @@ def judge(r, now_, mine):
             return done(state, why)
     if t is None:
         return done("busy", "no transcript yet")
+    if row["pending"]:                           # it waits for a timer, a task, a peer or the owner: never closed
+        return done("pending", one_line(clean(text.strip().splitlines()[-1].strip()), 160) + (f"; {why}" if w else ""))
     if state == "landed":                        # a commit of its own reached BASE: landed, whatever the first reply asked
         if why.startswith(f"evan/{w[0]} has nothing beyond"):
             return done("landed", why)
@@ -1072,6 +1080,8 @@ def judge(r, now_, mine):
     if t["ended"] and lines and lines[-1] == SIGN_OFF:
         return done("signed-off", "the last reply signs off" + (f"; {why}" if w else ""))
     q = question_of(text) if t["ended"] else None
+    if t["ended"] and DECISION.search(text):
+        q = DECISION.search(text).group(0).strip(" \t#>*_")
     if q:
         row["question"] = one_line(clean(q), 160)
         return done("waiting-owner", row["question"])
@@ -1113,7 +1123,8 @@ def cmd_reap(a):
                     err = (p.stderr or p.stdout).strip().replace(f"session land {row['worker']}: refused — ", "")
                     row["action"] = "land refused: " + one_line(err, 200)
                     continue
-            closable = row["state"] == "landed" or (row["state"] == "signed-off" and row["branch"] in (None, "landed"))
+            closable = not row["pending"] and (row["state"] == "landed"
+                                               or (row["state"] == "signed-off" and row["branch"] in (None, "landed")))
             if not closable:
                 continue
             if row["name"] == "-":                     # started by hand, not by `session open`: closes on the owner's word
@@ -1469,7 +1480,7 @@ def main():
     g.add_argument("name")
     g.add_argument("--repo", choices=("ela", "runner", "ela-runner"))
     g.add_argument("--dry-run", action="store_true", help="the read-only checks and the steps; nothing moves")
-    r = sub.add_parser("reap", help="each live session's state (landed, to-land, dirty, no-brief, signed-off, busy, waiting-owner)")
+    r = sub.add_parser("reap", help="each live session's state (landed, to-land, dirty, pending, no-brief, signed-off, busy, waiting-owner)")
     r.add_argument("--apply", action="store_true", help="land the ready to-land sessions, close the finished idle ones")
     r.add_argument("--last", action="store_true", help="the sessions the last --apply left open, one line each")
     r.add_argument("--json", action="store_true")
