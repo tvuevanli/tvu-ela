@@ -991,9 +991,32 @@ def resolve_email(who, env_file):
     print(f"{who!r} is neither an address, a site alias ({', '.join(emails) or 'none'}) nor a roster name — pass the full address, or add the person to the roster", file=sys.stderr); sys.exit(EX_USAGE)
 
 
+def email_variants(email):
+    """J2N matches an owner email as stored, case included; customers' addresses are stored as their admin typed
+    them (an all-capitals domain is common). The address as given first, then the other usual spellings."""
+    if "@" not in (email or ""):
+        return [email]
+    local, dom = email.rsplit("@", 1)
+    return list(dict.fromkeys([email, email.lower(), f"{local}@{dom.upper()}", f"{local.lower()}@{dom.upper()}",
+                               email.upper()]))
+
+
 def cmd_graphs(ur, a):
     a.email = resolve_email(a.email, a.env_file)
-    envs = ur.order if a.all else ([normalise(a.env)] if a.env else ur.order)
+    asked, out = a.email, []
+    for a.email in email_variants(asked):
+        out = graphs_for(ur, a)
+        if out:
+            break
+    if out and a.email != asked and not a.json:
+        print(f"# {asked} matched nothing; J2N stores it as {a.email}", file=sys.stderr)
+    if not out:
+        a.email = asked
+    print_graphs(a, out)
+
+
+def graphs_for(ur, a):
+    envs = a.envs_read = ur.order if a.all else ([normalise(a.env)] if a.env else ur.order)
     out, seen = [], set()
     mode = "any" if getattr(a, "any", False) else ("deleted" if getattr(a, "deleted", False) else "")
     for e in envs:
@@ -1032,6 +1055,12 @@ def cmd_graphs(ur, a):
             out.append({"via": e, "count": len(rows), "graphs": rows})
             if not a.all:
                 break
+    return out
+
+
+def print_graphs(a, out):
+    envs = getattr(a, "envs_read", None) or []
+    mode = "any" if getattr(a, "any", False) else ("deleted" if getattr(a, "deleted", False) else "")
     if a.json:
         print(json.dumps({"email": a.email, "object": a.object, "results": out}, ensure_ascii=False)); return
     if not out:
