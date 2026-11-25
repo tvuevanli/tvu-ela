@@ -1059,11 +1059,14 @@ STANDING_LIMIT = 300
 FIXED_IN_DAYS = 120         # a release's range reaches back to the last official bundle; four months covers any of them
 # name → (jql, limit, extra fields). `release-must` and `fixed-in` serve `ela release next` and promote's Fixed In
 # lookups from the store (the next release reads facts only): every ticket labelled release:must, and every MH ticket
-# with a Fixed In updated within FIXED_IN_DAYS, its Fixed In read with the row.
+# with a Fixed In updated within FIXED_IN_DAYS, its Fixed In read with the row. `board-state`, every MH ticket Blocked or
+# In Progress now, serves the team report (`ela teamreport`): a blocked ticket's `updated` never moves, so the sweep's
+# 14-day horizon misses exactly the long-blocked ones the report must list.
 STANDING = {"incidents": ("project = MH AND parent = MH-2342 AND statusCategory != Done ORDER BY updated ASC", STANDING_LIMIT, ()),
             "release-must": ('labels = "release:must" ORDER BY key', 200, ()),
             "fixed-in": (f"project = MH AND cf[{re.sub(r'[^0-9]', '', FIXED_IN_FIELD)}] is not EMPTY AND updated >= -{FIXED_IN_DAYS}d ORDER BY key",
-                         3000, (FIXED_IN_FIELD,))}
+                         3000, (FIXED_IN_FIELD,)),
+            "board-state": ('project = MH AND status in ("Blocked", "In Progress") ORDER BY updated ASC', STANDING_LIMIT, ())}
 
 
 def search_rows(creds, jql, limit, extra=()):
