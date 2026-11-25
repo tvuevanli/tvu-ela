@@ -231,8 +231,9 @@ python3 "${CLAUDE_PLUGIN_ROOT}/skills/promote/note.py" lint <vault note> --slack
    scheduled): key · what changed in the reporter's words · the lane and build to test on. Written in English,
    ready to paste to the QA lead under the owner's name; it is the answer to "what does QA still need to test"
    (2026-10-21) and is not posted by this skill.
-4. **Jira backfills as dry runs** — `jira label <key> --add release:mh-<line>`, a `jira comment` proposing the
-   Fixed In value with its evidence — never `--apply` without his word per key.
+4. **Jira backfills as dry runs** — a `jira comment` proposing the Fixed In value with its evidence, and on a
+   maintenance train only `jira label <key> --add release:mh-<line>` (the forward train writes no release label:
+   its content is computed bundle to bundle) — never `--apply` without his word per key.
 5. **What is kept** — the facts belong to the promotion thread, which is where they were posted and where
    the decisions follow them; do not write a second copy. Into `<elak>/blueprint/` goes only what the run
    established about **ela** — a parity result, a capability that now holds — with the thread permalink.

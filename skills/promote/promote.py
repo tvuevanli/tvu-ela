@@ -625,7 +625,7 @@ def collect_tickets(a, delta, gaps, docker=None):
             continue                        # the text search matched loosely; its Fixed In names no build in the range
         svcs = sorted(keys[k]["services"])
         flags = []
-        if label and label not in labels:
+        if label and label not in labels and R.writes_label(a.line):   # the forward train owes no label (release-naming rule 7)
             flags.append("no_release_label")
         commit_kinds = {c["kind"] for c in keys[k]["commits"]}
         code_commits = [c for c in keys[k]["commits"] if c["kind"] not in ("docs", "chore", "test", "style")]
