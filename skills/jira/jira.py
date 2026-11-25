@@ -60,7 +60,8 @@ OWNER_TTL_H = 24           # the owner-name JQL runs once a day
 
 # Closed vocabulary — one token, one owning layer. A title that does not start
 # with exactly one of these is invalid; no caller may create it.
-# [UR] is UR in the broad sense, J2N included (the owner's word, 2026-11-10; it replaced [J2N]).
+# [UR] is UR in the broad sense, J2N included; it replaced [J2N] on 2026-11-10
+# (elak knowledge/products/mediahub/jira/conventions.md, closed prefix vocabulary).
 LAYER_TOKENS = ("[Infra]", "[UR]", "[Media]", "[App]", "[UI]", "[QA]", "[Design]")
 
 # The MH "Fixed In" field (map/release.yaml fixed_in.field). Its value is a
