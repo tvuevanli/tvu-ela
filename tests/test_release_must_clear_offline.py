@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """release:must cleared at the deploy that ships the ticket, offline (vault releases/release-naming.md rule 6): shipped
 is a plain official bundle carrying the ticket and the prod lane carrying its fix; the clears are one dry-run batch of
-the release-must-clear class, applied only on his A; and a clear lands on the ticket's history line in next.json. Nothing here reads a source or writes to Jira or Slack."""
+the release-must-clear class, applied only on his A; a clear lands on the ticket's history line in next.json; and the
+Friday summary in Slack mrkdwn. Nothing here reads a source or writes to Jira or Slack."""
 import datetime, os, re, sys, tempfile
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "skills", "release"))
@@ -122,5 +123,19 @@ again = N.build(inp(must_since={"MH-4": "2026-11-30T12:00:00.000+0800"}), NOW)
 check("MH-4" in {m["key"] for m in again["must"]} and "MH-4" not in {m["key"] for m in again["must_cleared"]},
       "labelled again after the clear: owed again")
 
+# ── the Friday summary ───────────────────────────────────────────────────────────────────────────────────────────
+fri = N.build(inp(released=False, released_bundle=None, clear_records=[], report={"evidence": {"keys": {
+    "MH-1": {"verdict": "fail", "source": "jira"}, "MH-2": {"verdict": "pass", "source": "mail"}}}}),
+    datetime.datetime(2026, 11, 27, 17, 35, tzinfo=TZ))
+fri["on_candidate"].append({"key": "MH-6", "url": URL + "MH-6", "summary": "a <tag> & more", "assignee": "Dev", "qa": None})
+text = N.slack_summary(fri, datetime.datetime(2026, 11, 27, 17, 36, tzinfo=TZ))
+check(text.startswith("_Dry run, to you only") and "*MediaHub 2.2.0* → prod-3, planned for Monday 30 Nov" in text,
+      "the summary opens as a dry run to him, then the release, its lane and date")
+check("*QA fail (1)*\n• <" + URL + "MH-1|MH-1> ticket MH-1" in text and "*No QA verdict (2)*" in text
+      and "<" + URL + "MH-6|MH-6> a &lt;tag&gt; &amp; more · Dev" in text,
+      "fail and no-verdict tickets listed as Slack links, text escaped")
+check("*Must, not on the candidate: hold or defer (" in text and "• must 4, " in text and "on the candidate 3: QA fail 1 · no QA verdict 2" in text,
+      "the key figures and the must tickets the candidate lacks")
+check(not re.search(r"\*\*|^#|\[[^\]]+\]\(|^---|^\s+[-*] ", text, re.M), "Slack mrkdwn: no Markdown bold, heading, link, rule or nested list")
 print("release must clear: all offline checks passed" if not fails else f"release must clear: {len(fails)} failed")
 sys.exit(1 if fails else 0)

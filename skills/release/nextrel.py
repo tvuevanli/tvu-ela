@@ -27,6 +27,9 @@ With --write, the clears of release:must on shipped tickets are proposed as one 
 release-must-clear class (ela dry; <reports>/ela/dry/), asked on today.md and applied only on his A; nothing here writes
 to Jira. Writes only <published>/releases/, that batch and, with --pin --apply, <reports>/releases/next-pin.json.
 
+  ela release next --slack [--json]   the Friday summary of the published next.json in Slack mrkdwn, for the owner's
+                                      direct message as a dry run (the runner sends it at the Friday 17:30 pass); it
+                                      reads only that file and writes nothing
 Stdlib only.
 Exit codes: 0 ok · 2 usage · 3 the store cannot name the bundles · 4 the publish guard refused the file (the published
 copy is left as it was) · 5 a source failed.
@@ -707,6 +710,77 @@ def summary(doc):
     return "\n".join(L)
 
 
+SLACK_LIST_MAX = 15                               # tickets per section of the Friday summary; the rest counted
+
+
+def slack_escape(s):
+    return str(s or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def slack_ticket(t):
+    who = f" · {slack_escape(t['assignee'])}" if t.get("assignee") else ""
+    summ = slack_escape((t.get("summary") or "").strip())
+    summ = summ if len(summ) <= 90 else summ[:89].rstrip() + "…"
+    return f"• <{t.get('url') or BROWSE + str(t['key'])}|{t['key']}> {summ}{who}"
+
+
+def slack_section(title, rows):
+    if not rows:
+        return []
+    L = [f"*{title} ({len(rows)})*"] + [slack_ticket(t) for t in rows[:SLACK_LIST_MAX]]
+    if len(rows) > SLACK_LIST_MAX:
+        L.append(f"• … and {len(rows) - SLACK_LIST_MAX} more on /release/next")
+    return L + [""]
+
+
+def no_verdict(t):
+    return not t.get("qa") or (t["qa"].get("verdict") or "none") in ("none", "dev-declared")
+
+
+def slack_summary(doc, now=None):
+    """The Friday summary of the candidate in Slack mrkdwn (never Markdown: `*bold*`, `•`, `<url|label>`), for the
+    owner's direct message as a dry run: the release, its date and lane, the key figures, the must tickets the
+    candidate lacks, and the tickets QA failed or has given no verdict on. Pure: reads only the document."""
+    rel, c = doc.get("release") or {}, doc.get("counts") or {}
+    when = ""
+    if rel.get("planned_for"):
+        d = datetime.date.fromisoformat(rel["planned_for"])
+        when = f", planned for {d.strftime('%A')} {d.day} {d.strftime('%b')}"
+    elif doc.get("state") == "released":
+        when = ", released"
+    on = doc.get("on_candidate") or []
+    fail = [t for t in on if (t.get("qa") or {}).get("verdict") == "fail"]
+    none = [t for t in on if no_verdict(t)]
+    missing = [m for m in doc.get("must") or [] if not m.get("on_candidate")]
+    cand, base = doc.get("candidate") or {}, doc.get("base") or {}
+    L = ["_Dry run, to you only: the candidate summary. Nothing is posted anywhere else._", "",
+         f"*{slack_escape(rel.get('name') or doc.get('headline'))}* → {slack_escape(rel.get('lane') or '?')}{when}",
+         f"Candidate `{cand.get('name')}` ({cand.get('source')}) · base `{base.get('name')}`",
+         f"• must {c.get('must', 0)}, {c.get('must_missing', 0)} not on the candidate"
+         + (f", {c['must_shipped']} shipped" if c.get("must_shipped") else ""),
+         f"• on the candidate {c.get('on_candidate', 0)}: QA fail {len(fail)} · no QA verdict {len(none)}",
+         f"• in development {c.get('in_dev', 0)} · docker changed {c.get('docker_changed', 0)} · unbuilt commits {c.get('unbuilt_commits', 0)}",
+         ""]
+    L += slack_section("Must, not on the candidate: hold or defer", missing)
+    L += slack_section("QA fail", fail)
+    L += slack_section("No QA verdict", none)
+    stamp = str(doc.get("generated_at") or "")[:16].replace("T", " ")
+    stale = now is not None and doc.get("stale_after") and now.isoformat(timespec="seconds") > str(doc["stale_after"])
+    gaps = len(doc.get("gaps") or [])
+    L.append(f"_From next.json computed {stamp}" + (" (stale)" if stale else "") + (f" · {gaps} gap{'s' if gaps != 1 else ''}" if gaps else "") + "._")
+    return "\n".join(L)
+
+
+def cmd_slack(a):
+    """Print the Friday summary of the published next.json; exit 3 when there is none."""
+    published = R().site().get("published")
+    doc = previous_doc({"published": published})
+    if not doc:
+        print("next: no published releases/next.json to summarise (ela release next --write)", file=sys.stderr); sys.exit(EX_NOTFOUND)
+    text = slack_summary(doc, datetime.datetime.now().astimezone())
+    print(json.dumps({"text": text, "generated_at": doc.get("generated_at")}, ensure_ascii=False) if a.json else text)
+
+
 def cmd_pin(a):
     Rm = R()
     s = Rm.site()
@@ -754,7 +828,11 @@ def main(argv=None):
     ap.add_argument("--unpin", action="store_true", help="the newest daily bundle again; dry run unless --apply")
     ap.add_argument("--apply", action="store_true")
     ap.add_argument("--quiet", action="store_true", help="no progress lines on stderr")
+    ap.add_argument("--slack", action="store_true", help="the Friday summary of the published next.json in Slack mrkdwn, "
+                    "for the owner's direct message as a dry run; reads only that file, writes nothing")
     a = ap.parse_args(argv)
+    if a.slack:
+        return cmd_slack(a)
     if a.pin or a.unpin:
         return cmd_pin(a)
     if a.apply:
