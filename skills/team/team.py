@@ -118,8 +118,22 @@ def _norm(s):
     return re.sub(r"[^a-z0-9@.]", "", (s or "").lower())
 
 
+MIN_FRAGMENT = 3   # a shorter query matches only whole: `me` once matched the "me" inside a colleague's first name
+
+
+def _alias(q):
+    """An alias from site.json `emails` (`me`, `li`, …) → its address; anything else as given."""
+    try:
+        emails = site().get("emails") or {}
+    except SystemExit:
+        emails = {}
+    return emails.get(q.strip(), q) if isinstance(emails, dict) else q
+
+
 def find(people, q):
-    """Exact on email / slack id / jira id first, then name (whole, then fragment, then squashed)."""
+    """An alias first (site.json `emails`), then exact on email / slack id / jira id, then name (whole, first name,
+    then a fragment of at least MIN_FRAGMENT characters, then squashed)."""
+    q = _alias(q)
     ql, qn = q.strip().lower(), _norm(q)
     if not ql:
         return []
@@ -134,6 +148,8 @@ def find(people, q):
     hits = [p for p in people if p["name"].lower().split()[0] == ql]
     if hits:
         return hits
+    if len(ql) < MIN_FRAGMENT:
+        return []
     hits = [p for p in people if ql in p["name"].lower() or ql in (p.get("jira_name") or "").lower()]
     if hits:
         return hits
