@@ -363,6 +363,7 @@ def _store_fresh():
 
 def http(url, payload=None, cookie=None, timeout=20):
     if F:
+        F.refuse("release", urllib.parse.urlsplit(url).path)
         F.trace("release", url.split("?")[0])
     headers = {"Accept": "application/json"}
     if cookie:
@@ -583,6 +584,8 @@ class LazyUS:
         self.env_file, self._us = env_file, None
 
     def call(self, path, payload=None):
+        if F:
+            F.refuse("release", f"userservice {self.kind} {path.split('?')[0]}")
         if self._us is None:
             self._us = US(self.env_file, self.kind)
         return self._us.call(path, payload)
@@ -982,7 +985,7 @@ def _bundle_list(us, line, limit=50, fresh=False):
         body = us.call("/userGroup/user-group/tagBundle/page",
                        {"bundleName": line, "operator": "", "createStartTime": "", "createEndTime": "", "pageNum": 1, "pageSize": limit})
     except SystemExit as e:
-        if F:
+        if F and not F.facts_only():                      # a refused read is the reader's gap, not the host's
             prev = F.read_json(_bundles_path(us.kind, line), {}) or {}
             prev["gap"] = {"at": F.now_iso(), "exit": e.code if isinstance(e.code, int) else EX_REMOTE, "why": f"read failed (exit {e.code})"}
             F.write_json(_bundles_path(us.kind, line), prev)
@@ -996,6 +999,56 @@ def _bundle_list(us, line, limit=50, fresh=False):
 def refresh_bundles(env_file, host, line, limit):
     """`ela facts refresh`: one list per host and line, written through; (rows, gap)."""
     return _refresh_read(lambda: bundle_list(LazyUS(env_file, host), line, limit, fresh=True))
+
+
+# per line: the newest daily bundles, the newest plain officials (a released state compares the newest official with
+# the one before it), and the depth of the list they are chosen from
+DETAIL_DAILY, DETAIL_OFFICIAL, DETAIL_LIST = 2, 3, 50
+
+
+def detail_ids(us, line, cfg, pin=None):
+    """{bundle id: name} whose details a release reads for one line: the newest daily bundles of its daily lane, the
+    newest plain officials, and the candidate `ela release next` holds (`pin`, its record)."""
+    out = {}
+    bl, daily = cfg.get("bundle_line"), (cfg.get("lanes") or {}).get("daily")
+    key = lambda b: str(b.get("createTime") or "")  # noqa: E731
+    if bl and daily:
+        rows = sorted((b for b in bundle_list(us, f"{bl}{daily}", DETAIL_LIST) if lane_token_match(b.get("bundleName"), bl, daily)), key=key, reverse=True)
+        out.update({str(b["bundleId"]): str(b.get("bundleName")) for b in rows[:DETAIL_DAILY]})
+    if bl:
+        rows = sorted((b for b in bundle_list(us, f"MediaHub {line}", DETAIL_LIST) if is_plain_official(str(b.get("bundleName") or ""), line)), key=key, reverse=True)
+        out.update({str(b["bundleId"]): str(b.get("bundleName")) for b in rows[:DETAIL_OFFICIAL]})
+    if pin and pin.get("id"):
+        out[str(pin["id"])] = str(pin.get("bundle") or pin["id"])
+    return out
+
+
+def refresh_bundle_details(env_file):
+    """`ela facts refresh`, after the bundle lists: each followed line's bundle details (detail_ids), read live and
+    written through, so promote's bundle-to-bundle range and `ela release next` read them from the store. A bundle's
+    rows are its tags' versions now, so they are read every pass. → (count read, gaps)."""
+    us, ids, gaps = LazyUS(env_file, "prod"), {}, []
+    try:
+        sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+        import nextrel as N                     # noqa: E402 — the candidate the next-release file holds
+        pins = lambda line: N.read_pin(site(), line)  # noqa: E731
+    except ImportError:
+        pins = lambda line: None  # noqa: E731
+    for line, cfg in (rmap("lines") or {}).items():
+        if not isinstance(cfg, dict) or not cfg.get("bundle_line"):
+            continue
+        try:
+            ids.update(detail_ids(us, str(line), cfg, pins(str(line))))
+        except SystemExit as e:
+            gaps.append(f"details {line}: bundle list unreadable (exit {e.code})")
+    got = 0
+    for bid, name in sorted(ids.items()):
+        try:
+            if bundle_detail(us, bid, fresh=True):
+                got += 1
+        except SystemExit as e:
+            gaps.append(f"detail {name}: exit {e.code}")
+    return got, gaps
 
 
 def bundle_detail(us, bundle_id, fresh=False):

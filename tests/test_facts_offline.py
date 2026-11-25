@@ -117,11 +117,15 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import tvukb_fixture as KBX  # noqa: E402
 kb_work, kb_clone = KBX.make(TMP)
 F.tvukb_checkout = lambda: kb_clone
+F.code_repos = lambda: {"media/tvu-kb": kb_clone, "web/gone": os.path.join(TMP, "no-such-checkout")}   # the code source's repos
 
 # ── the first refresh ───────────────────────────────────────────────────────────────────────────────
 class A: env_file = None; source = None; fresh = False; json = False
 F.cmd_refresh(A())
 check("the tvu-kb checkout's revision is its watermark", F.watermark("tvukb").get("rev") == KBX.head(kb_clone) and not F.watermark("tvukb").get("gap"))
+cw = F.watermark("code")
+check("code: each release repo fetched once; one that fails is a partial gap, the others stand",
+      cw.get("repos") == ["media/tvu-kb", "web/gone"] and list(cw.get("failed") or {}) == ["web/gone"] and "web/gone" in str((cw.get("gap") or {}).get("why")))
 KBX.push(kb_work)
 first = {s: dict(F.watermark(s)) for s in F.SOURCES}
 check("every source has a watermark with a read time", all(first[s].get("at") for s in F.SOURCES))

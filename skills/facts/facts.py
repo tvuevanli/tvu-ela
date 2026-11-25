@@ -42,7 +42,7 @@ import argparse, datetime, json, os, sys, time
 HERE = os.path.dirname(os.path.realpath(__file__))
 SKILLS = os.path.dirname(HERE)
 SITE = os.path.expanduser("~/.claude/ela/site.json")
-SOURCES = ("jira", "slack", "mail", "lanes", "builds", "runtime", "tvukb", "proposals")
+SOURCES = ("jira", "slack", "mail", "lanes", "builds", "code", "runtime", "tvukb", "proposals")
 EX_USAGE, EX_REMOTE = 2, 5
 JIRA_HORIZON_DAYS = 14          # how far back the Jira sweep keeps changed issues (recent's 7 days, Monday's 72 hours)
 SLACK_HORIZON_DAYS = 8          # the window of parents re-read each pass, so a reply to an older thread is seen
@@ -97,16 +97,39 @@ def max_age_hours():
 
 
 def fresh(at, max_age_h=None):
-    """Whether a read stamped `at` (ISO) is young enough to serve."""
+    """Whether a read stamped `at` (ISO) is young enough to serve. Under ELA_FACTS_ONLY any stored read is: the
+    consumer reads nothing live and states the store's age itself."""
     t = parse_iso(at)
     if t is None:
         return False
+    if facts_only():
+        return True
     return (now() - t).total_seconds() <= (max_age_h if max_age_h is not None else max_age_hours()) * 3600
 
 
 def forced_fresh():
     """ELA_FACTS_FRESH=1: every verb reads live (a consumer's --fresh is passed down this way)."""
     return bool(os.environ.get("ELA_FACTS_FRESH"))
+
+
+NOT_IN_STORE = "not in the facts store"
+EX_NOT_IN_STORE = 7
+
+
+def facts_only():
+    """ELA_FACTS_ONLY=1: a verb answers from the store alone and reads no source live (`ela release next` sets it,
+    and its subprocesses inherit it). A read the store cannot answer is refused (refuse), never made."""
+    return bool(os.environ.get("ELA_FACTS_ONLY")) and not forced_fresh()
+
+
+def refuse(source, what):
+    """Under ELA_FACTS_ONLY, stop the live read a verb was about to make: one trace line, one stderr line naming what
+    the store lacked, exit 7. A caller that turns a failed read into a gap names it as a gap of the store."""
+    if not facts_only():
+        return
+    trace(source, f"refused {what}")
+    print(f"{source}: {what}: {NOT_IN_STORE} (ELA_FACTS_ONLY; run `ela facts refresh`)", file=sys.stderr, flush=True)
+    sys.exit(EX_NOT_IN_STORE)
 
 
 def trace(source, what):
@@ -337,18 +360,25 @@ def refresh_builds(env_file, full):
             wanted.add(("prod", f"MediaHub {line}"))
     if cn_state(R, env_file) != "not configured":           # the China host's own list, under its own query and directory
         wanted.add(("cn", R.default_line("cn")))
+    for line, cfg in lines.items():                         # each daily lane's own list: the candidate of `release next`
+        daily = (cfg.get("lanes") or {}).get("daily")
+        if cfg.get("bundle_line") and daily:
+            wanted.add(("prod", f"{cfg['bundle_line']}{daily}"))
     bundles = 0
     for host, line in sorted(wanted):
         rows, gap = R.refresh_bundles(env_file, host, line, BUNDLES_LIMIT)
         bundles += len(rows or [])
         if gap:
             gaps.append(f"bundles {host} {line}: {gap}")
-    set_watermark("builds", at=now_iso(), jobs=len(jobs), builds=got, bundle_lists=len(wanted), bundles=bundles, seconds=round(time.time() - t0, 1))
+    details, dgaps = R.refresh_bundle_details(env_file)    # after the lists: the bundles a release compares, each image's tag
+    gaps += dgaps
+    set_watermark("builds", at=now_iso(), jobs=len(jobs), builds=got, bundle_lists=len(wanted), bundles=bundles, details=details,
+                  seconds=round(time.time() - t0, 1))
     if gaps:
         set_gap("builds", "; ".join(gaps), partial=True)
     else:
         clear_gap("builds")
-    return f"builds: {len(jobs)} jobs, {got} builds, {len(wanted)} bundle lists ({bundles} bundles)" + (f" — gaps: {'; '.join(gaps)[:300]}" if gaps else "") + f", {time.time() - t0:.1f}s"
+    return f"builds: {len(jobs)} jobs, {got} builds, {len(wanted)} bundle lists ({bundles} bundles), {details} bundle details" + (f" — gaps: {'; '.join(gaps)[:300]}" if gaps else "") + f", {time.time() - t0:.1f}s"
 
 
 def refresh_runtime(env_file, full):
@@ -367,6 +397,49 @@ def refresh_runtime(env_file, full):
         clear_gap("runtime")
     return (f"runtime: {n} lane·service row(s), {proven} chain(s) proven by a graph"
             + (f" — gaps: {'; '.join(out['gaps'])}" if out["gaps"] else "") + f", {time.time() - t0:.1f}s")
+
+
+CODE_WORKERS = 4
+
+
+def code_repos():
+    """{repo: checkout path} for every repository the release map names (release.yaml `repos`) that is on disk under
+    <code> (site.json `dir_names` first); a repo not cloned is left out, as promote's delta reports it."""
+    sys.path.insert(0, os.path.join(SKILLS, "release"))
+    import release as R  # noqa: E402
+    code, dn = site().get("code") or "", site().get("dir_names") or {}
+    out = {}
+    for repo in sorted(set((R.rmap("repos") or {}).values())):
+        for cand in (dn.get(repo), repo):
+            if cand and os.path.isdir(os.path.join(code, cand, ".git")):
+                out[repo] = os.path.join(code, cand); break
+    return out
+
+
+def refresh_code(env_file, full):
+    """`git fetch --all` once per pass in each service repository the release map names, so promote's delta and
+    `ela release next` read commit ranges from local history and fetch nothing themselves. The checkouts are read-only
+    (never merged into, never edited); the watermark holds each repo's outcome."""
+    import subprocess
+    from concurrent.futures import ThreadPoolExecutor
+    t0, repos = time.time(), code_repos()
+    def fetch(path):
+        try:
+            r = subprocess.run(["git", "-C", path, "fetch", "--quiet", "--all", "--prune"], capture_output=True, text=True, timeout=120)
+            return None if r.returncode == 0 else ((r.stderr or r.stdout).strip().splitlines() or [f"exit {r.returncode}"])[-1][:160]
+        except (OSError, subprocess.TimeoutExpired) as e:
+            return str(e)[:160]
+    with ThreadPoolExecutor(CODE_WORKERS) as ex:
+        errs = dict(zip(repos, ex.map(fetch, repos.values())))
+    bad = {k: v for k, v in errs.items() if v}
+    set_watermark("code", at=now_iso(), repos=sorted(repos), failed=bad, seconds=round(time.time() - t0, 1))
+    if bad and len(bad) == len(repos):
+        raise RuntimeError("; ".join(f"{k}: {v}" for k, v in list(bad.items())[:3]))
+    if bad:
+        set_gap("code", "not fetched: " + "; ".join(f"{k}: {v}" for k, v in bad.items())[:300], partial=True)
+    else:
+        clear_gap("code")
+    return f"code: {len(repos) - len(bad)} of {len(repos)} repos fetched" + (f" — gaps: {', '.join(bad)}" if bad else "") + f", {time.time() - t0:.1f}s"
 
 
 TVUKB = ("media", "tvu-kb")      # the media team's knowledge base checkout, under <code>; skills/tvukb calls its bin/kb
@@ -423,7 +496,7 @@ def refresh_proposals(env_file, full):
 
 
 REFRESH = {"jira": refresh_jira, "slack": refresh_slack, "mail": refresh_mail, "lanes": refresh_lanes, "builds": refresh_builds,
-           "runtime": refresh_runtime, "tvukb": refresh_tvukb, "proposals": refresh_proposals}
+           "code": refresh_code, "runtime": refresh_runtime, "tvukb": refresh_tvukb, "proposals": refresh_proposals}
 
 
 def links_update():

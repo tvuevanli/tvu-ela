@@ -188,6 +188,7 @@ def _request(creds, path, params=None, payload=None, method="GET"):
 
 def _request_raw(creds, path, params=None, payload=None, method="GET"):
     if F:
+        F.refuse("jira", f"{method} {path}")
         F.trace("jira", f"{method} {path}")
     url = creds["JIRA_BASE_URL"] + path
     if params:
@@ -834,14 +835,42 @@ def cache_holds(key, cached):
     return F.fresh(read_at, SHORT_TTL_H)
 
 
+def stored_issue(creds, key):
+    """Under ELA_FACTS_ONLY, the newest row the store holds for a key that has no key-cache entry: the sweep's raw issue
+    (fields, changelog, comments), else a standing query's row (its fields only, no comments); None when neither."""
+    rec = next((i for i in (F.read_json(os.path.join(F.store_dir("jira"), "changes.json"), []) or []) if i.get("key") == key), None)
+    comments = True
+    if not rec:
+        comments = False
+        for name in STANDING:
+            doc = F.read_json(os.path.join(F.store_dir("jira", "queries"), f"{name}.json")) or {}
+            rec = next((dict(i, read_at=doc.get("at")) for i in doc.get("issues") or [] if i.get("key") == key), None)
+            if rec:
+                break
+    if not rec:
+        return None
+    f = rec.get("fields") or {}
+    out = {"key": key, "url": f"{creds['JIRA_BASE_URL']}/browse/{key}", "fields": f, "updated": updated_iso(f.get("updated") or ""),
+           "read_at": rec.get("read_at"), "has_comments": comments}
+    if comments:
+        out["comments"] = rec.get("comments") or []
+    return out
+
+
 def issue_doc(creds, key, comments=True, fresh=False):
     """One issue as `read --json` prints it: {key, url, fields, comments, updated, read_at}. Served from the store's key
-    cache (facts/jira/issues/<KEY>.json) while the sweep says the issue has not moved; a live read writes through."""
+    cache (facts/jira/issues/<KEY>.json) while the sweep says the issue has not moved; a live read writes through. Under
+    ELA_FACTS_ONLY a key the cache lacks is served from the sweep or a standing query (stored_issue), else refused."""
     path = os.path.join(F.store_dir("jira", "issues"), f"{key}.json") if F else None
     cached = F.read_json(path) if path else None
     if cached and not fresh and cache_holds(key, cached) and (cached.get("has_comments") or not comments):
         F.served("jira", cached.get("read_at"), key)
         return cached
+    if F and F.facts_only() and not fresh:
+        doc = stored_issue(creds, key)
+        if doc:
+            F.served("jira", doc.get("read_at"), f"{key} (sweep or standing query)")
+            return doc
     data = api_get(creds, f"/rest/api/3/issue/{key}", {"fields": "*all"})
     f = data.get("fields") or {}
     doc = {"key": data.get("key"), "url": f"{creds['JIRA_BASE_URL']}/browse/{data.get('key')}", "fields": f,
@@ -1026,8 +1055,15 @@ def cmd_read(creds, args):
 
 # ── the standing queries: run once per refresh, served to the verbs that ask the same JQL ─────────────
 OWNER_JQL = "assignee = currentUser() ORDER BY updated DESC"
-STANDING = {"incidents": "project = MH AND parent = MH-2342 AND statusCategory != Done ORDER BY updated ASC"}
 STANDING_LIMIT = 300
+FIXED_IN_DAYS = 120         # a release's range reaches back to the last official bundle; four months covers any of them
+# name → (jql, limit, extra fields). `release-must` and `fixed-in` serve `ela release next` and promote's Fixed In
+# lookups from the store (the next release reads facts only): every ticket labelled release:must, and every MH ticket
+# with a Fixed In updated within FIXED_IN_DAYS, its Fixed In read with the row.
+STANDING = {"incidents": ("project = MH AND parent = MH-2342 AND statusCategory != Done ORDER BY updated ASC", STANDING_LIMIT, ()),
+            "release-must": ('labels = "release:must" ORDER BY key', 200, ()),
+            "fixed-in": (f"project = MH AND cf[{re.sub(r'[^0-9]', '', FIXED_IN_FIELD)}] is not EMPTY AND updated >= -{FIXED_IN_DAYS}d ORDER BY key",
+                         3000, (FIXED_IN_FIELD,))}
 
 
 def search_rows(creds, jql, limit, extra=()):
@@ -1055,9 +1091,9 @@ def standing_queries(creds):
     if not F:
         return
     d = F.store_dir("jira", "queries")
-    for name, jql in STANDING.items():
-        F.write_json(os.path.join(d, f"{name}.json"), {"jql": jql, "limit": STANDING_LIMIT, "at": F.now_iso(),
-                                                       "issues": search_rows(creds, jql, STANDING_LIMIT)})
+    for name, (jql, limit, extra) in STANDING.items():
+        F.write_json(os.path.join(d, f"{name}.json"), {"jql": jql, "limit": limit, "extra": list(extra), "at": F.now_iso(),
+                                                       "issues": search_rows(creds, jql, limit, extra)})
     owner = F.read_json(os.path.join(F.store_dir("jira"), "owner.json"), {}) or {}
     if not F.fresh(owner.get("at"), OWNER_TTL_H):
         F.write_json(os.path.join(F.store_dir("jira"), "owner.json"), {"jql": OWNER_JQL, "limit": 1, "at": F.now_iso(),
@@ -1079,13 +1115,11 @@ def stored_query(jql, limit, extra=()):
     doc = F.read_json(_jql_path(q, limit, extra))
     if doc and F.fresh(doc.get("at"), SHORT_TTL_H):
         return doc
-    if extra:                                   # a standing query's store holds no extra fields
-        return None
-    if q == OWNER_JQL and limit == 1:
+    if q == OWNER_JQL and limit == 1 and not extra:
         doc = F.read_json(os.path.join(F.store_dir("jira"), "owner.json"))
         return doc if doc and F.fresh(doc.get("at"), OWNER_TTL_H) else None
-    for name, standing in STANDING.items():
-        if q == standing:
+    for name, (standing, _, fields) in STANDING.items():
+        if q == standing and set(extra) <= set(fields):
             doc = F.read_json(os.path.join(F.store_dir("jira", "queries"), f"{name}.json"))
             if doc and F.fresh(doc.get("at")) and (limit <= doc.get("limit", 0) or len(doc.get("issues") or []) < doc.get("limit", 0)):
                 return doc
