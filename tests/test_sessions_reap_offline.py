@@ -151,6 +151,13 @@ with tempfile.TemporaryDirectory() as tmp:
     p = subprocess.run([sys.executable, SCRIPT, "reap", "--apply"], capture_output=True, text=True, env=e)
     check(p.returncode == 2 and "ELA_TEST=1" in p.stderr, "under ELA_TEST --apply with no stub zellij refuses")
 
+    # open on ela with no first message is refused; --no-brief opens it on purpose
+    p = run(["open", "ela", "--dry-run", "--tab", "--name", "w9"])
+    check(p.returncode == 2 and "--brief FILE or the quoted brief" in p.stderr, "open on ela with no brief is refused")
+    p = run(["open", "ela", "--dry-run", "--tab", "--name", "w9", "--no-brief"])
+    check(p.returncode == 0 and "worktree add -b evan/w9" in p.stdout, "--no-brief opens it on purpose")
+    p = run(["open", "ela", "--dry-run", "--tab", "--name", "w9", "--brief", "/b/x.md"])
+    check(p.returncode == 0, "--brief FILE is a first message")
     for pr in procs.values():
         if pr.poll() is None:
             pr.kill()

@@ -34,6 +34,9 @@ are removed. Any failed step refuses with its reason and leaves main where it wa
 close: ends a live session by name: TERM to its Claude process, then its pane (`zellij action close-pane
 --pane-id`), and an end line "closed by desk" in the registry. The desk runs it after the worker's closing line.
 
+open on ela or ela-runner refuses without a first message (--brief FILE or the quoted brief): a worker opened with
+none sits asking what to do. --no-brief opens it so on purpose.
+
 reap: every live session in the registry (not ended, its process alive) gets one state from first-hand facts, in
 this order: desk (the session reap runs in, one named ela or desk, or one started in the projects root: never
 touched) · runner (a runner job's own session: it ends itself) ·
@@ -414,7 +417,10 @@ def live(name):
 
 
 def test_refusal():
-    """reap: every live session in the registry (not ended, its process alive) gets one state from first-hand facts, in
+    """open on ela or ela-runner refuses without a first message (--brief FILE or the quoted brief): a worker opened with
+none sits asking what to do. --no-brief opens it so on purpose.
+
+reap: every live session in the registry (not ended, its process alive) gets one state from first-hand facts, in
 this order: desk (the session reap runs in, one named ela or desk, or one started in the projects root: never
 touched) · runner (a runner job's own session: it ends itself) ·
 dirty (an uncommitted change in its worktree <work>/<N>/<repo>) · to-land (evan/<N> has commits beyond main, the
@@ -449,6 +455,10 @@ def cmd_open(a):
     if not cwd:
         print(f"session open: {name}", file=sys.stderr)
         return 3
+    if guarded(cwd) and not (a.brief or a.brief_file or a.no_brief):
+        print(f"session open: a worker on {guarded(cwd)} starts with its task — pass --brief FILE or the quoted brief "
+              "(--no-brief to open it without one, on purpose)", file=sys.stderr)
+        return 2
     repo = None if a.in_place else guarded(cwd)
     prep, note = None, ""
     if repo:
@@ -1273,6 +1283,7 @@ def main():
     o.add_argument("--brief", dest="brief_file", metavar="FILE", help="a brief file: the first message points to it")
     o.add_argument("--permission-mode")
     o.add_argument("--in-place", action="store_true", help="ela or ela-runner: the shared checkout itself, not a worktree")
+    o.add_argument("--no-brief", action="store_true", help="ela or ela-runner: open with no first message, on purpose")
     o.add_argument("--dry-run", action="store_true", help="print the layout and the command; open nothing")
     g = sub.add_parser("land", help="rebase evan/N on main, test, fast-forward main, push, remove the worktree")
     g.add_argument("name")
