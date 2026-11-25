@@ -221,7 +221,8 @@ def refresh_jira(env_file, full):
         counts[proj] = len(issues)
         for i in issues:
             changed[i["key"]] = J.sweep_issue(i, at)
-    keep_after = (now() - datetime.timedelta(days=JIRA_HORIZON_DAYS)).isoformat()
+    # in UTC, as updated_iso writes: a +08:00 string compared as text with a UTC one dropped issues up to 8h early
+    keep_after = (now() - datetime.timedelta(days=JIRA_HORIZON_DAYS)).astimezone(datetime.timezone.utc).isoformat(timespec="seconds")
     for k in list(changed):
         upd = J.updated_iso((changed[k].get("fields") or {}).get("updated"))
         if upd and upd < keep_after:
