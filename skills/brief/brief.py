@@ -1630,7 +1630,7 @@ def pin_findings(named, pin):
     """Prod follows the newest official bundle; a pin only holds it on an older one, on purpose (ela ADR 0013). While a
     newer official exists the hold is his decision again: keep it, or unpin to follow the newest."""
     rel = [x for x in named if R.is_official(str(x.get("bundleName", "")), LINE)]
-    newest = max(rel, key=lambda x: str(x.get("createTime") or ""), default=None)
+    newest = next(iter(R.prod_bundles(named, LINE)), None)  # the newest plain official: a qualified one is never prod's
     if not newest or not pin or str(pin.get("id")) == str(newest.get("bundleId")):
         return []
     pinned = next((x for x in rel if pin and str(x.get("bundleId")) == str(pin.get("id"))), None)
@@ -1648,14 +1648,11 @@ DOCKER_LEDGER = os.path.join("releases", "docker-versions.jsonl")
 
 
 def lane_bundles(env, line, role, host, cfg):
-    """A lane's bundles, newest first. Prod's is the owner's pin when there is one (ADR 0012), then the release-named
-    ones; the others follow the lane token."""
+    """A lane's bundles, newest first. Prod's is the owner's pin when there is one (ADR 0012), then the plain
+    release-named ones (release.prod_bundles); the others follow the lane token."""
     if role == "prod":
         got = run_json(["python3", RELEASE, *env, "bundles", f"MediaHub {line}", "--host", host, "--limit", "50", "--json"], timeout=120)["bundles"]
-        got = sorted((b for b in got if R.is_official(str(b.get("bundleName", "")), line)), key=lambda b: str(b.get("createTime") or ""), reverse=True)
-        pin = R.read_pins().get(line) or {}
-        pinned = next((b for b in got if str(b.get("bundleId")) == str(pin.get("id"))), None)
-        return ([pinned] + [b for b in got if b is not pinned and str(b.get("createTime") or "") < str(pinned.get("createTime") or "")]) if pinned else got
+        return R.prod_bundles(got, line, R.read_pins().get(line))
     tok = (cfg.get("bundle_lanes") or {}).get(role, "")
     got = run_json(["python3", RELEASE, *env, "bundles", cfg.get("bundle_line") or "", "--host", host, "--limit", "50", "--json"], timeout=120)["bundles"]
     got = [b for b in got if R.lane_token_match(b.get("bundleName"), cfg.get("bundle_line") or "", tok)]
@@ -2542,11 +2539,8 @@ def line_matrix(line, args, env, rows, before, tested, pins, cand_doc, errors):
             if role == "prod":                              # the owner's pin first (ADR 0012), then the newest release name
                 named = run_json(["python3", RELEASE, *env, "bundles", f"MediaHub {line}", "--host", host, "--limit", "50", "--json"], timeout=120)["bundles"]
                 pin = R.read_pins().get(line) or {}
-                b = next((x for x in named if pin and str(x.get("bundleId")) == str(pin.get("id"))), None)
-                how = "official"
-                if b is None:
-                    b = max((x for x in named if R.is_official(str(x.get("bundleName", "")), line)), key=lambda x: str(x.get("createTime") or ""), default=None)
-                    how = "by name"
+                b = next(iter(R.prod_bundles(named, line, pin)), None)   # the pin, else the newest plain official
+                how = "official" if b is not None and pin.get("id") and str(b.get("bundleId")) == str(pin.get("id")) else "by name"
             if b is None and role != "prod":                # prod has no token lane: an rc bundle is special-purpose (2026-10-27)
                 got = run_json(["python3", RELEASE, *env, "bundles", cfg.get("bundle_line") or "", "--host", host, "--limit", "50", "--json"], timeout=120)["bundles"]
                 got = [x for x in got if R.lane_token_match(x.get("bundleName"), cfg.get("bundle_line") or "", toks.get(role, ""))]

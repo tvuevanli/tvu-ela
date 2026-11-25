@@ -66,6 +66,25 @@ check("the release base before 2.2.0 is 2.1.19, not POC or UR/J2N",
       R.release_base(None, "2.1", before=HOST["MediaHub 2.2"][0])["bundleName"] == "MediaHub 2.1.19")
 check("the release base with no bound is the newest plain one", R.release_base(None, "2.1")["bundleName"] == "MediaHub 2.2.0")
 
+# ── prod's bundle is plain: a qualified official is another lane's or a customer's ──
+saved = HOST.pop("MediaHub 2.2")
+check("before 2.2.0 exists, prod's official is 2.1.19, not (UR/J2N Prod 9) or (POC)",
+      R.official_bundle(None, "2.1")["bundleName"] == "MediaHub 2.1.19")
+HOST["MediaHub 2.2"] = saved
+check("prod's bundles: plain officials newest first", [b["bundleId"] for b in R.prod_bundles(R.bundle_list(None, "MediaHub 2.1"), "2.1")] == [5, 1, 4])
+check("a pin on a qualified official is honoured, the older plain ones follow",
+      [b["bundleId"] for b in R.prod_bundles(R.bundle_list(None, "MediaHub 2.1"), "2.1", {"id": "3"})] == [3, 1, 4])
+check("a pin that names no official bundle is ignored",
+      [b["bundleId"] for b in R.prod_bundles(R.bundle_list(None, "MediaHub 2.1"), "2.1", {"id": "99"})] == [5, 1, 4])
+R.read_pins = lambda: {"2.1": {"id": "1", "official": "MediaHub 2.1.19"}}
+check("the pin wins over a newer plain official", R.official_bundle(None, "2.1")["bundleName"] == "MediaHub 2.1.19")
+R.read_pins = lambda: {}
+named = R.bundle_list(None, "MediaHub 2.1")
+f = B.pin_findings(named, {"id": "4", "official": "MediaHub 2.1.18"})
+check("a pin finding names the newest plain official", len(f) == 1 and "MediaHub 2.2.0" in f[0]["what"])
+check("no pin finding when the pin is the newest plain official, a qualified newer one aside",
+      B.pin_findings([x for x in named if x["bundleId"] != 5], {"id": "1", "official": "MediaHub 2.1.19"}) == [])
+
 # ── the brief reads a 2.2-named daily bundle as the line's lane ─────────────
 cfgs = {"2.1": R._MAP["lines"]["2.1"], "2.0": R._MAP["lines"]["2.0"]}
 check("brief: mh2.2@daily-wed → daily-wed", B.bundle_lane("mh2.2@daily-wed-s1-d1", cfgs) == "daily-wed")

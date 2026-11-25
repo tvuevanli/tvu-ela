@@ -1341,12 +1341,26 @@ def cmd_bundle_diff(a):
 # ── create: a new bundle from a base, one service at a time ─────────────────
 
 def official_bundle(us, line):
-    """Prod's bundle for a line ("2.1"): the owner's pin (ADR 0012), else the newest "MediaHub <line>.N". An rc bundle
-    is a special-purpose bundle, not prod's lane (owner's ruling, 2026-10-27), so it is never the answer."""
-    pin = read_pins().get(line) or {}
-    rows = [x for x in bundle_list(us, f"MediaHub {line}", 50) if is_official(str(x.get("bundleName") or ""), line)]
-    return next((x for x in rows if pin and str(x.get("bundleId")) == str(pin.get("id"))), None) or \
-        max(rows, key=lambda x: str(x.get("createTime") or ""), default=None)
+    """Prod's bundle for a line ("2.1"): the owner's pin (ADR 0012), else the newest plain "MediaHub <line>.N"
+    (prod_bundles). An rc bundle is a special-purpose bundle, not prod's lane (owner's ruling, 2026-10-27), so it is
+    never the answer."""
+    return next(iter(prod_bundles(bundle_list(us, f"MediaHub {line}", 50), line, read_pins().get(line))), None)
+
+
+def prod_bundles(rows, line, pin=None):
+    """The bundle rows prod's lane has run, newest first: the owner's pin when it names an official bundle (ADR 0012),
+    then the plain officials (is_plain_official) older than it; with no pin, every plain official. A qualified
+    official — "MediaHub 2.1.19 (UR/J2N Prod 9)", "MediaHub 2.1.20 (POC)" — is built for another lane or a customer,
+    so it is the line's prod bundle only when the owner pins it; the newest-by-name rule took the Prod 9 bundle as
+    prod-3's on 2026-11-25."""
+    key = lambda x: str(x.get("createTime") or "")  # noqa: E731
+    pin = pin or {}
+    pinned = next((x for x in rows if pin.get("id") and str(x.get("bundleId")) == str(pin.get("id"))
+                   and is_official(str(x.get("bundleName") or ""), line)), None)
+    plain = sorted((x for x in rows if is_plain_official(str(x.get("bundleName") or ""), line)), key=key, reverse=True)
+    if pinned is None:
+        return plain
+    return [pinned] + [x for x in plain if x is not pinned and key(x) < key(pinned)]
 
 
 def name_rules(line):
