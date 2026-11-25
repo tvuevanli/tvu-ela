@@ -71,18 +71,26 @@ check("an agent's owner is the person whose name it starts with",
 r90 = RC.reconcile(record("90"), ISSUES, t90)
 r91 = RC.reconcile(record("91"), ISSUES, t91)
 want91 = {("MH-3998", "fixed-in", "unified-streaming@2.1.91+382"), ("MH-3998", "fixed-in", "unified-media-frontend@3.0.44+201"),
-          ("MH-3998", "label", None), ("MH-3987", "fixed-in", "unified-streaming@2.1.91+382"), ("MH-3987", "label", None),
-          ("MH-3988", "fixed-in", "mediahub-frontend@2.2.130+187"), ("MH-3988", "label", None),
+          ("MH-3987", "fixed-in", "unified-streaming@2.1.91+382"),
+          ("MH-3988", "fixed-in", "mediahub-frontend@2.2.130+187"),
           ("MH-3891", "rework", "unified-streaming@2.1.91+382"), ("MH-3887", "rework", "unified-streaming@2.1.91+382")}
 check("build 91: the owner's two skipped tickets, MH-3988 moved bare, the rework not appended — and nothing else",
       misses(r91) == want91)
 # the record of the threads named MH-1860, MH-3883 and MH-3941 for build 90; read against the same rule, the backend
 # changelog of 2.1.43 also names MH-3887 (no backend entry) and MH-3795 (Fixed In 2.1.40): rework not appended
-want90 = {("MH-1860", "fixed-in", "mediahub-frontend@2.2.129+186"), ("MH-1860", "label", None),
+want90 = {("MH-1860", "fixed-in", "mediahub-frontend@2.2.129+186"),
           ("MH-3883", "fixed-in", "mediahub-backend@2.1.43+275"), ("MH-3941", "rework", "mediahub-frontend@2.2.129+186"),
           ("MH-3887", "fixed-in", "mediahub-backend@2.1.43+275"), ("MH-3795", "rework", "mediahub-backend@2.1.43+275")}
-check("build 90: MH-1860 without Fixed In or label, MH-3883 Done without one, MH-3941 one build behind, and the rule's two more",
+check("build 90: MH-1860 without Fixed In, MH-3883 Done without one, MH-3941 one build behind, and the rule's two more",
       misses(r90) == want90)
+check("2.1 is the forward train: no release label is owed or proposed (release-naming rule 7)",
+      R.forward_train() == "2.1" and not R.writes_label("2.1") and not R.writes_label("2.2")
+      and r91["label"] is None and r90["label"] is None)
+check("a maintenance train keeps its numbered label", R.writes_label("2.0") and not R.writes_label(""))
+r20 = RC.reconcile(dict(record("91"), line="2.0"), ISSUES, t91)
+check("on a maintenance train the label is still a miss and in the batch",
+      r20["label"] == "release:mh-2.0" and ("MH-3998", "label", None) in misses(r20)
+      and ["label", "MH-3998", "--add", "release:mh-2.0"] in [c for _, c in RC.batch_commands(r20)])
 check("the tickets in order owe nothing, MH-3926's bare entry included",
       "MH-3926" in r91["ok"] and "MH-3881" in r90["ok"] and len(r91["ok"]) == 14 and len(r90["ok"]) == 9)
 check("no status or assignee miss: what the threads announced is what Jira holds",
@@ -118,17 +126,16 @@ check("a ticket Jira did not return is a gap, never in order",
 note = R.build_note(record("91"), r91)
 table = note.split("## Jira gaps")[1] if "## Jira gaps" in note else ""
 check("the release note carries the Jira gaps table: ticket, what is missing, the proposed entry",
-      "| ticket | what is missing | proposed |" in table and "| MH-3988 Pre-start permission request omits credentials, hits prod billing · Review | no mediahub-frontend entry for 2.2.130; no release:mh-2.1 | "
-      "mediahub-frontend@2.2.130+187; label release:mh-2.1 |" in table and "| MH-3927 Graphics Insertion trusts destination attribute overlayAppId, allowing cross-tenant … · Review | reverted into MH-3926" in table)
+      "| ticket | what is missing | proposed |" in table and "| MH-3988 Pre-start permission request omits credentials, hits prod billing · Review | no mediahub-frontend entry for 2.2.130 | "
+      "mediahub-frontend@2.2.130+187 |" in table and "| MH-3927 Graphics Insertion trusts destination attribute overlayAppId, allowing cross-tenant … · Review | reverted into MH-3926" in table)
 check("nothing when there is none", "Jira gaps" not in R.build_note(record("91"), dict(r91, rows=[], questions=[]))
       and "Jira gaps" not in R.build_note(record("91")))
 check("one ask for every build in the window",
       RC.ask_text([r90, r91]) == "QA-AWS3 builds 90, 91: 9 tickets lack Fixed In or the label.")
 cmds = [t for res in (r90, r91) for _, t in RC.batch_commands(res)]
-check("the batch: a Fixed In append and a label add per ticket, nothing else",
+check("the batch on the forward train: a Fixed In append per ticket, no label, nothing else",
       ["fixed-in", "MH-3998", "--add", "unified-streaming@2.1.91+382; unified-media-frontend@3.0.44+201"] in cmds
-      and ["label", "MH-3998", "--add", "release:mh-2.1"] in cmds
-      and all(c[0] in ("fixed-in", "label") and c[2] == "--add" and "--remove" not in c and "--clear" not in c for c in cmds))
+      and all(c[0] == "fixed-in" and c[2] == "--add" and "--remove" not in c and "--clear" not in c for c in cmds))
 check("MH-3927 is not in the batch, nor a status or assignee", not any("MH-3927" in c for c in cmds))
 merged = RC.merged_commands([r90, r91])
 check("a ticket two builds carry is one append naming both entries",

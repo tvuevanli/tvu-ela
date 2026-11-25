@@ -9,7 +9,8 @@ keys. For each ticket of the build, read now:
             same series. A bare entry (`unified-streaming@2.1.91`) and its canonical form (`2.1.91+382`) are one fix.
             None: the entry is missing. Only older ones: rework the build carries was not appended. An existing entry
             is never rewritten; the proposal is an append. `flag:no-version` and `flag:non-carrier` tickets owe none.
-  label     the line's release label (map/release.yaml lines.<line>.label).
+  label     the line's release label (map/release.yaml lines.<line>.label), on a maintenance train only: the forward
+            train writes no release:mh-* label (release.writes_label).
   status    at or past what the release thread announced (Review), when it announced one for the key.
   assignee  the person the thread announced (`改派 Erin`, `派 Alice：MH-…`), on a ticket not yet Done.
 
@@ -209,7 +210,9 @@ def reconcile(rec, issues, reading=None, label=None):
     reading: thread_reading() or None (not read). → {build, lane, lane_name, line, name, label, rows, questions, gaps,
     ok}: rows are the tickets with a gap, each {key, agent, misses: [{kind, what, entry?}], add: [entries], label?};
     ok the keys that owe nothing."""
-    label = label if label is not None else ((R().rmap("lines") or {}).get(str(rec.get("line"))) or {}).get("label")
+    if label is None:
+        line = str(rec.get("line") or "")
+        label = ((R().rmap("lines") or {}).get(line) or {}).get("label") if R().writes_label(line) else None
     numbers = build_numbers(reading)
     gaps = [] if reading is not None else ["release thread not read: status and assignee not judged"]
     carried = {}

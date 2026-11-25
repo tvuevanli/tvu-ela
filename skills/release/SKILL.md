@@ -121,13 +121,15 @@ lanes each release line uses — all in `<elak>/map/release.yaml` (origin per bl
   takes the build record's services, versions and keys as the scope and reads each ticket now: a Fixed In entry for
   every service that carries it at or past this build's version in its series (a bare `unified-streaming@2.1.91` and
   `2.1.91+382` are one fix; only older entries is rework not appended: the new entry is appended, an existing one is
-  never rewritten; `flag:no-version` and `flag:non-carrier` owe none), the line's release label, and — from the
+  never rewritten; `flag:no-version` and `flag:non-carrier` owe none), the line's release label on a maintenance
+  train only (the forward train, the map line whose `bundle_line` is the morning's, writes no `release:mh-*` label:
+  its content is computed bundle to bundle), and — from the
   release thread the record cites — the status (Review) and assignee announced for the key. A key the thread says was
   reverted and folded into another is not a Fixed In matter: it is an open question (ADR 0016) to that ticket's
   holder. The reading is kept beside the record (`<name>.reconcile.json`); the release note's Jira gaps table is
   rendered from it, and the same miss by one agent on three builds is one open question to the agent's owner, with a
   message drafted for the owner of ela to send. `--batch` is the one write path: per ticket a `jira fixed-in --add`
-  and a `jira label --add`, dry run unless `--apply`, refused under `ELA_NO_APPLY`. ela posts nothing in the release
+  and, on a maintenance train, a `jira label --add`, dry run unless `--apply`, refused under `ELA_NO_APPLY`. ela posts nothing in the release
   thread; the engineers' agents keep doing the Jira side, ela checks it.
 - **One line, one page.** `$R line <line>` renders what the vault writes as `releases/<line>/<line>.md` on every sync,
   from local files only (the build records, the lane reads, QA's reports per version, the stored promote reports, the

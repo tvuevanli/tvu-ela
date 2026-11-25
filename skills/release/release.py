@@ -27,7 +27,7 @@ L1: subcommands, --json, stdlib only. No store, no scheduler: every answer is th
   changes  [lane] [--check FILE] [--tickets]  what a lane's newest build changed, by service and what for, from its
                                           record; --tickets: each ticket under its service, key, title, status, assignee
   reconcile <lane> [--build N] [--batch [--apply]]  the build's tickets against Jira: a Fixed In covering this build's
-                                          version of each service, the release label, the status and assignee the
+                                          version of each service, a maintenance train's release label, the status and assignee the
                                           release thread announced; a fold is an open question. Read-only; the reading
                                           is kept beside the record. --batch: the appends and labels, dry run first
   login    [qa|tvu|cn] [--force]          qa: tvutest account login → SID (2h), printed for the env file.
@@ -930,6 +930,20 @@ def train_of(ver):
     """The line a product version belongs to: the line whose ships_as names it, else the version itself."""
     v = _line_key(ver) or str(ver or "")
     return next((k for k, c in (rmap("lines") or {}).items() if isinstance(c, dict) and v in [str(x) for x in (c.get("ships_as") or [])]), v)
+
+
+def forward_train():
+    """The line the morning follows and new work rides on: the map line whose bundle_line is DEFAULT_LINE ("2.1")."""
+    return next((k for k, c in (rmap("lines") or {}).items() if isinstance(c, dict) and c.get("bundle_line") == DEFAULT_LINE),
+                DEFAULT_LINE.removeprefix("mh").rstrip("@"))
+
+
+def writes_label(line):
+    """Whether ela proposes a line's release label on a ticket. The forward train writes none: its content is computed
+    bundle to bundle and Fixed In records where a fix landed, so the label was a third copy (656 tickets on 2.1). A
+    parallel maintenance train keeps its numbered label, the only thing that tells the two trains apart on a ticket
+    (vault releases/release-naming.md rule 7, adopted 2026-11-25)."""
+    return bool(line) and train_of(str(line)) != forward_train()
 
 
 def train_queries(query):
