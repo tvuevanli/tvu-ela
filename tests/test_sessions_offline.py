@@ -37,7 +37,7 @@ def claudes():
     return found
 
 
-NAMES = {"desk", "busy", "runner-dev", "topic-x", "runner", "look", "w1", "w2"}
+NAMES = {"desk", "busy", "runner-dev", "topic-x", "runner", "look", "w1", "w2", "f1", "f2"}
 
 
 def check(ok, what):
@@ -252,6 +252,30 @@ with tempfile.TemporaryDirectory() as tmp:
         os.environ.pop(k, None)
         if v is not None:
             os.environ[k] = v
+    # opening a worker leaves the owner's focus where it was: back to the tab focused before the switch to workers
+    tabs_stub = os.path.join(tmp, "tabs-bin")
+    os.makedirs(tabs_stub)
+    tlog = os.path.join(tmp, "tabs-zellij.log")
+    open(os.path.join(tabs_stub, "zellij"), "w").write(
+        '#!/bin/sh\nprintf "%s\\n" "$*" >> "' + tlog + '"\n'
+        'case "$*" in\n'
+        '  "action query-tab-names") printf "primary\\nworkers\\nmy cases\\n" ;;\n'
+        '  "action current-tab-info --json") [ -e "' + tmp + '/no-info" ] && exit 1; printf \'{"name": "my cases", "tab_id": 3}\' ;;\n'
+        'esac\nexit 0\n')
+    os.chmod(os.path.join(tabs_stub, "zellij"), 0o755)
+    p = run(["open", "runner", "--in-place", "--name", "f1", "x"], stub=False, ZELLIJ_SESSION_NAME="t",
+            PATH=tabs_stub + os.pathsep + os.environ["PATH"])
+    calls = open(tlog).read().splitlines()
+    check(p.returncode == 0 and calls[2] == "action go-to-tab-name workers" and calls[3].startswith("run --stacked --name f1")
+          and calls[-1] == "action go-to-tab-by-id 3",
+          "a worker opens in the workers tab and focus returns to the tab focused before (my cases), not to workers")
+    open(tlog, "w").close()
+    open(os.path.join(tmp, "no-info"), "w").close()
+    p = run(["open", "runner", "--in-place", "--name", "f2", "x"], stub=False, ZELLIJ_SESSION_NAME="t",
+            PATH=tabs_stub + os.pathsep + os.environ["PATH"])
+    calls = open(tlog).read().splitlines()
+    check(p.returncode == 0 and calls[-1].startswith("run --stacked --name f2") and not any("go-to-tab-by-id" in c for c in calls),
+          "when the focused tab cannot be read and there is no desk tab, no return switch is invented")
     # nothing reached the owner's zellij or started a Claude: every zellij call is the stub's, and claude never ran
     seen = open(os.path.join(tmp, "zellij.log")).read().splitlines() if os.path.exists(os.path.join(tmp, "zellij.log")) else []
     check(len(seen) == 2 and seen[0] == "action query-tab-names" and seen[1].startswith("action new-tab --name w1 --cwd " + wt),

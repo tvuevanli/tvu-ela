@@ -17,7 +17,8 @@ of its own, --pane a pane beside the current one (a topic session beside the des
 alias (ela, runner, elak, helm, reports, published), `code/<ref>` resolved by map.py where, or a directory.
 --brief FILE makes the first message a pointer to that file. The default name is the alias. It refuses a name a
 live session holds (started, not ended, its process alive). Outside zellij it refuses. --dry-run prints the layout
-and the commands. Focus returns to the tab named `desk` when there is one.
+and the commands. Opening in the workers tab leaves focus where it was: the tab focused before the switch, found by
+`zellij action current-tab-info`, or the tab named `desk` when that cannot be read.
 
 open on ela or ela-runner (the alias or the checkout's path) does not start the worker in the shared checkout:
 every `ela` command, the runner and every session run that checkout, so an unfinished edit there is production.
@@ -403,6 +404,15 @@ def zellij_out(*args):
     return p.stdout if p.returncode == 0 else None
 
 
+def focused_tab():
+    """The stable id of the tab focused now (`zellij action current-tab-info --json`, zellij 0.44+); None when unknown."""
+    try:
+        tab = json.loads(zellij_out("action", "current-tab-info", "--json") or "null")
+        return int(tab["tab_id"])
+    except (ValueError, TypeError, KeyError):
+        return None
+
+
 def alive(pid):
     try:
         os.kill(int(pid), 0)
@@ -511,8 +521,12 @@ def cmd_open(a):
     else:
         layout = chrome(f"pane stacked=true {{\n        {pane}\n    }}")
         runs = [["zellij", "action", "new-tab", "--name", WORKERS, "--cwd", cwd, "--layout", "<layout>"]]
-    if mode == "workers" and DESK in tabs:
-        runs.append(["zellij", "action", "go-to-tab-name", DESK])
+    if mode == "workers":   # the switch to the workers tab must not move the owner: back to the tab focused before it
+        back = focused_tab() if os.environ.get("ZELLIJ_SESSION_NAME") else None
+        if back is not None:
+            runs.append(["zellij", "action", "go-to-tab-by-id", str(back)])
+        elif DESK in tabs:
+            runs.append(["zellij", "action", "go-to-tab-name", DESK])
     if a.dry_run:
         if prep:
             print(" ".join(shlex.quote(x) for x in prep))
