@@ -132,9 +132,18 @@ with tempfile.TemporaryDirectory() as t:
     r = W.decide(decisions, got2, facts, reports, later, apply=True, runner=runner)
     check("applied: the set runs through ela dry's tier-1 class, the batch kept as applied",
           ran == [(a1["writes"][0], True)] and D.load_batch(reports, "2026-11-24-board-watch-MH-1")["state"] == "applied")
+    D.roster_names = lambda: {"acc-ui": "Uma Interface"}
     line, rows = D.did(reports, "2026-11-24")
     check("did.md lists it, with the undo or the honest gap", line == "ela did: 1 ticket set" and rows[0][0] == "2026-11-24-board-watch-MH-1#1"
           and "MH-1" in rows[0][1] and rows[0][2] == "no reverse atom: undo it on the ticket")
+    check("did.md names the write in plain words, the assignee by name, and the comment it posted",
+          rows[0][1] == "MH-1: assigned to Uma Interface; its comment: \"Assigned to the UI owner: the change under review "
+                        "is in the player.\" — why: the UI owner holds review")
+    sys.path.insert(0, os.path.join(ROOT, "skills", "vault"))
+    import vault as V  # noqa: E402
+    check("each key on did.md is a link; the act id is left as it is",
+          "- 2026-11-24-board-watch-MH-1#1. [MH-1](https://j/browse/MH-1): assigned to Uma Interface"
+          in V.dry_pages(reports, reports, datetime.date(2026, 11, 24), record=False, jira_base="https://j")["ela/dry/did.md"])
     with open(D.acts_path(reports), "a") as f:
         f.write(json.dumps({"act": "2026-11-24-board-watch-MH-1#1", "class": "board-watch", "key": "MH-1", "verb": "assign",
                             "undo": ["ela", "jira", "assign", "MH-1", "--assignee", "none"]}) + "\n")

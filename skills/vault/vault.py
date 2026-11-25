@@ -3742,9 +3742,10 @@ def dry_asks(reports, today, asks_state, dry_run=False):
     return out, facts
 
 
-def dry_pages(vault, reports, today, record=True):
+def dry_pages(vault, reports, today, record=True, jira_base=""):
     """ela/dry/<batch>.md for each batch waiting: written once, then his (a struck or edited line is what the answer
-    reads), and ela/dry/did.md, today's acts without confirm with the word that undoes each."""
+    reads), and ela/dry/did.md, today's acts without confirm with the word that undoes each, each key a link to its Jira
+    page."""
     out = {}
     try:
         D = dry_mod()
@@ -3774,7 +3775,7 @@ def dry_pages(vault, reports, today, record=True):
             [f"# Done by ela · {today:%a %Y-%m-%d}", "", "Writes ela made without asking. Beside a line write `ok`, or "
              "`wrong: <why>`: wrong returns the class to your confirm, and the why admits the case to the class's corpus so "
              "the selector is tested against it. Write the undo word here or on today.md and ela reverses that one.", ""]
-            + ([f"- {n}. {t} · `{u}`{mark(n)}" for n, t, u in rows] or ["Nothing today."])) + "\n"
+            + ([f"- {n}. {link_keys(t, jira_base)[0]} · `{u}`{mark(n)}" for n, t, u in rows] or ["Nothing today."])) + "\n"
     except Exception:                                      # noqa: BLE001
         pass
     return out
@@ -5286,7 +5287,7 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since
         shown, more, dropped, questions_line=qline)))
     if not dry_run and desk.get("head_inputs"):            # what the head was judged against: the runner's judge reads it
         H.save(reports, desk["head_inputs"], H.INPUTS)
-    planned.update(dry_pages(s["vault"], reports, today, record=not dry_run))
+    planned.update(dry_pages(s["vault"], reports, today, record=not dry_run, jira_base=jira_base))
     planned.update(mention_pages(reports, today))
     planned.update(watch_page(reports, today, jira_base))
     if questions:

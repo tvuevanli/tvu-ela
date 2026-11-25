@@ -848,11 +848,66 @@ def tier1_done(reports, day):
     jira.py kept for it (`ela dry undo <act> --apply`), or a note when the verb has none."""
     rows = [r for r in record(reports) if r.get("source") == "tier1" and (r.get("at") or "")[:10] == day]
     kept = {a.get("act") for a in acts(reports)}
-    out = []
+    names, told, out = None, set(), []
     for r in rows:
         undo = f"ela dry undo {r['act']} --apply" if r.get("act") in kept else "no reverse atom: undo it on the ticket"
-        out.append((r["act"], f"{r.get('target')}: {r.get('why') or r.get('command')}", undo))
+        text = r.get("why") or r.get("command")
+        if r.get("class") == "board-watch" and r.get("command"):
+            names = roster_names() if names is None else names
+            said = write_words(r["command"], names, told)
+            text = f"{said} — why: {r.get('why')}" if said and r.get("why") else said or text
+        out.append((r["act"], f"{r.get('target')}: {text}", undo))
     return out
+
+
+def roster_names():
+    """{Jira accountId: name} from the roster (team.py), so a did.md row names a person, not an id; {} when it cannot be
+    read: the row then shows the id."""
+    try:
+        sys.path.insert(0, os.path.join(HERE, "..", "team"))
+        import team as T                                   # noqa: E402
+        return {p["jira"]: p["name"] for p in T.read_roster()[1] if p.get("jira")}
+    except (Exception, SystemExit):                        # noqa: BLE001 — a missing roster costs the names only
+        return {}
+
+
+def first_sentence(text, n=200):
+    """The whole text when short, else its first sentence (clipped at n); backticks dropped, since did.md reads the undo
+    word from the first backtick pair after a row's ` · `."""
+    t = " ".join((text or "").replace("`", "'").split())
+    if len(t) > n:
+        m = re.match(r"(.+?[.!?。？！])(?:\s|$)", t)
+        t = m.group(1) if m and len(m.group(1)) <= n else t[:n - 1].rstrip() + "…"
+    return t
+
+
+def write_words(command, names, told):
+    """One board-watch write in plain words: the field it set (the assignee by name) and the comment it posted, the
+    comment shown once per set (`told`: the note files already shown; jira.py posts an identical note once)."""
+    try:
+        argv = shlex.split(command)
+    except ValueError:
+        return ""
+    verb, opt = argv[2] if len(argv) > 2 else "", {}
+    for i, x in enumerate(argv):
+        if x.startswith("--") and i + 1 < len(argv):
+            opt[x] = argv[i + 1]
+    said = {"assign": lambda: f"assigned to {names.get(opt.get('--assignee'), opt.get('--assignee'))}",
+            "transition": lambda: f"moved to {opt.get('--to')}",
+            "priority": lambda: f"priority set to {opt.get('--to')}",
+            "due": lambda: f"due date set to {opt.get('--date')}",
+            "link": lambda: f"linked to {argv[4] if len(argv) > 4 else '?'} ({opt.get('--type')})",
+            "comment": lambda: "commented"}.get(verb, lambda: verb)()
+    note = opt.get("--note-file") or opt.get("--from-file")
+    if note and note not in told:
+        told.add(note)
+        try:
+            body = first_sentence(open(note, encoding="utf-8").read())
+        except OSError:
+            body = ""
+        if body:
+            said += f"; {'comment' if verb == 'comment' else 'its comment'}: \"{body}\""
+    return said
 
 
 # ── the answer ────────────────────────────────────────────────────────────────────────────────────────────────
