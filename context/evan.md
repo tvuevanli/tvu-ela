@@ -45,7 +45,10 @@ permission prompt, so a blocked worker messages `ela` and the desk names the pan
 finished worker with `ela session close N` after its closing line, and `ela session reap` (the runner's 12:30,
 17:30 and 19:00 passes run it with `--apply`) finds the finished ones, lands a ready branch and closes them; a
 worker on ela or ela-runner is opened with its brief; a session Evan started by hand closes only on
-his word; a name a live session holds is refused. A session named `topic-*` (`--pane --brief FILE`, beside the
+his word; a name a live session holds is refused. A reply that leaves the session waiting (a timer, a background agent or shell, a
+worker's or peer's reply, his input) ends with one line `⏳ ela pending · <what> · <until when>`, repeated while the
+wait lasts, as `— ela out 🦀` ends one that leaves nothing; the Stop hook copies the mark into the pane title and
+reap never closes a ⏳ session. A session named `topic-*` (`--pane --brief FILE`, beside the
 desk) holds one topic: it closes when done, sends its conclusion to `ela` as one line before closing (only `ela`
 writes the vault and elak and routes work), and briefs a worker directly only when its brief names that worker,
 copying `ela` one line. When another session asks the desk for a worker, the desk opens it with `--for <that
