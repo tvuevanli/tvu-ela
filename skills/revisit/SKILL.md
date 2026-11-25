@@ -137,8 +137,11 @@ One `jira.py close` per ticket, dry run first — a proposal the owner finishes 
   service is unmapped, the sha is not in a checkout, the change was replaced by later tickets) → the
   field stays as it is and the comment names the commit instead. Published
   `mediahub/jira/conventions.md` holds the rule; `map/release.yaml` holds only the grammar.
-- **Labels** — `release:mh-<line>` for every release line whose lane carries the fix by ancestry
-  (`map/release.yaml` lane → line); two lines, two labels. **The 1.5 line is not tracked**: no
+- **Labels** — `release:mh-<line>` only for a parallel maintenance train whose lane carries the fix by
+  ancestry (`map/release.yaml` lane → line), never for the forward train (`ela release` names it: the map
+  line whose `bundle_line` is the morning's, 2.1 today): its content is computed bundle to bundle and
+  Fixed In already says where the fix landed (vault `releases/release-naming.md` rule 7, adopted
+  2026-11-25). A label already on the ticket stays; none is removed. **The 1.5 line is not tracked**: no
   `release:mh-1.5`, and no sentence about 1.5 in the comment, whatever fixed-in reports for it
   (owner, 2026-10-20, MH-2449 and MH-3156).
 - **The comment** — English by default; bilingual (English first) only when the ticket's own text is
