@@ -212,6 +212,31 @@ os.environ.pop("ELA_FACTS_MAX_AGE")
 line = F.read_at_line()
 check("the facts line names every source with its time", all(s in line for s in F.SOURCES))
 
+# ── the day's calls log: every live call, the fixed reads told apart from every other caller ────────────────────────
+os.environ.pop("ELA_FACTS_TRACE", None)
+os.environ.pop("ELA_FACTS_CALLS", None)                     # tests/run.sh turns the log off; this store is a temp one
+day = F.now().date().isoformat()
+try:
+    os.remove(F.calls_path(day))
+except OSError:
+    pass
+os.environ["ELA_FACTS_READING"] = "1"
+F.trace("slack", "conversations.history")
+os.environ.pop("ELA_FACTS_READING")
+os.environ["ELA_FACTS_CALLER"] = "mention-watch"
+F.trace("slack", "conversations.replies"); F.trace("slack", "conversations.replies"); F.trace("jira", "GET /issue/MH-1")
+F.trace("jira", "refused GET /search")
+os.environ.pop("ELA_FACTS_CALLER")
+F.trace("mail", "messages")
+s = F.calls_summary(F.read_calls(day))
+check("the calls log counts the fixed reads and the rest apart", s["total"] == 5 and s["read"] == 1 and s["outside_total"] == 4)
+check("the rest is told by caller and source", s["outside"]["mention-watch"]["calls"] == 3 and s["outside"]["session"]["calls"] == 1
+      and sum(v.get("slack", 0) for v in s["outside"]["mention-watch"]["verbs"].values()) == 2)
+os.environ["ELA_FACTS_CALLS"] = "0"
+F.trace("slack", "x")
+os.environ.pop("ELA_FACTS_CALLS")
+check("ELA_FACTS_CALLS=0 logs nothing; a refused read is not a call", len(F.read_calls(day)) == 5)
+
 shutil.rmtree(TMP, ignore_errors=True)
 if failures:
     print(f"facts: {len(failures)} check(s) failed"); sys.exit(1)

@@ -2,6 +2,7 @@
 # ela verification: every script compiles, every capability answers --help, the guard's cases pass.
 set -u
 export ELA_TEST=1   # a live verb refuses unless the tool it would reach is a stub under the temp directory
+export ELA_FACTS_CALLS=0   # a test's stubbed call is not a live call: the day's calls log stays the machine's
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"; cd "$ROOT"; fail=0
 # Tripwire: nothing a test starts reaches a live system. The tools that would leave the machine or start a session
 # are stubs first on PATH, and every Python refuses a non-loopback connect (tests/tripwire/sitecustomize.py); each

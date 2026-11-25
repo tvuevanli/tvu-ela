@@ -56,6 +56,10 @@ read` serves a key the cache lacks from the sweep or a standing query. A consume
   refills it. Nothing in it is a record; the records are the dated files under `<reports>` and `<runtime>/runner/`.
 - **One live call is one trace line.** `ELA_FACTS_TRACE=1` prints `facts-trace <source> <what>` per request, so a
   pass can be measured: `ELA_FACTS_TRACE=1 ela changes --hours 24 2>&1 >/dev/null | grep -c facts-trace`.
+- **Every live call is counted for the day.** Each call also goes to `<runtime>/facts/calls/<date>.jsonl` with its
+  caller: `read` inside `facts refresh`, else `ELA_FACTS_CALLER` (the runner names each pass and service), else
+  `session`. `ela facts calls [--date D]` shows the fixed reads' share and the rest by caller, verb and source, so a
+  consumer that still reads for itself is seen. `ELA_FACTS_CALLS=0` turns it off (`tests/run.sh` does).
 
 ## Verification
 `tests/test_facts_offline.py` (fixtures, no network): the watermark after a first refresh, a second refresh that

@@ -3,6 +3,7 @@
 
   facts.py [--env-file F] refresh [--source jira|slack|mail|lanes|builds]... [--fresh] [--json]
   facts.py status [--json]
+  facts.py calls [--date D] [--json]          a day's live calls: the fixed reads, and the rest by caller and verb
   facts.py runtime refresh|show|prove <graph>|initconfig …   lane runtime facts (runtime.py)
   facts.py proposals show [--hours N] [--json]   mediahub-bot's knowledge proposals (proposals.py)
 
@@ -132,9 +133,46 @@ def refuse(source, what):
     sys.exit(EX_NOT_IN_STORE)
 
 
+def caller():
+    """Who made a live call, for the day's calls log: `read` inside `ela facts refresh` (the read itself), else
+    ELA_FACTS_CALLER (the runner names each pass and service: morning, midday, vault-watch, mention-watch, …), else
+    `session` (a person's or a session's own verb)."""
+    return "read" if os.environ.get("ELA_FACTS_READING") else (os.environ.get("ELA_FACTS_CALLER") or "session")
+
+
+def verb():
+    """The verb that made the call: the script's name and its first word, `slack mentions`, `jira read`."""
+    name = os.path.splitext(os.path.basename(sys.argv[0] or "?"))[0]
+    word = next((w for w in sys.argv[1:] if not w.startswith("-") and "=" not in w and "/" not in w), "")
+    return f"{name} {word}".strip()
+
+
+def calls_path(day=None):
+    return os.path.join(runtime_root(), "facts", "calls", f"{day or now().date().isoformat()}.jsonl")
+
+
+def log_call(source, what):
+    """One JSON line per live call into <runtime>/facts/calls/<date>.jsonl, every process, so a day's reads outside
+    the fixed reads are counted by caller (`facts calls`). ELA_FACTS_CALLS=0 turns it off; a write that fails is
+    never the call's failure."""
+    if os.environ.get("ELA_FACTS_CALLS") == "0":
+        return
+    try:
+        p = calls_path()
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps({"at": now().strftime("%H:%M:%S"), "caller": caller(), "verb": verb(),
+                                 "source": source, "what": str(what)[:120]}, ensure_ascii=False) + "\n")
+    except OSError:
+        pass
+
+
 def trace(source, what):
-    """One line per live call when ELA_FACTS_TRACE is set, so a pass can count what it still reads: `1` prints to
-    stderr; a path appends to that file, which is what a consumer's subprocesses (their stderr captured) need."""
+    """Every live call is logged for the day (log_call). One more line per call when ELA_FACTS_TRACE is set, so a
+    pass can count what it still reads: `1` prints to stderr; a path appends to that file, which is what a
+    consumer's subprocesses (their stderr captured) need."""
+    if not str(what).startswith("refused "):
+        log_call(source, what)
     t = os.environ.get("ELA_FACTS_TRACE")
     if not t:
         return
@@ -514,6 +552,7 @@ def links_update():
 
 
 def cmd_refresh(a):
+    os.environ["ELA_FACTS_READING"] = "1"                   # the read's own calls, and its subprocesses', are the read
     sources = a.source or list(SOURCES)
     out, failed = {}, []
     for s in sources:
@@ -559,6 +598,45 @@ def cmd_status(a):
         print(f"  {s:<8} {stamp:<17} {'fresh' if r['fresh'] else 'stale':<6} {r['bytes'] / 1e6:6.1f} MB{gap}")
 
 
+def read_calls(day):
+    rows = []
+    try:
+        for line in open(calls_path(day), encoding="utf-8"):
+            try:
+                rows.append(json.loads(line))
+            except ValueError:
+                continue
+    except OSError:
+        pass
+    return rows
+
+
+def calls_summary(rows):
+    """The day's live calls: the total, the fixed reads' share, and the rest by caller → verb → source, most first."""
+    out = {"total": len(rows), "read": sum(1 for r in rows if r.get("caller") == "read"), "outside": {}}
+    for r in rows:
+        if r.get("caller") == "read":
+            continue
+        c = out["outside"].setdefault(r.get("caller") or "?", {"calls": 0, "verbs": {}})
+        c["calls"] += 1
+        v = c["verbs"].setdefault(r.get("verb") or "?", {})
+        v[r.get("source") or "?"] = v.get(r.get("source") or "?", 0) + 1
+    out["outside_total"] = out["total"] - out["read"]
+    return out
+
+
+def cmd_calls(a):
+    day = a.date or now().date().isoformat()
+    s = calls_summary(read_calls(day))
+    if a.json:
+        print(json.dumps({"date": day, **s}, ensure_ascii=False)); return
+    print(f"live calls {day}: {s['total']} · the fixed reads {s['read']} · outside them {s['outside_total']}")
+    for name, c in sorted(s["outside"].items(), key=lambda kv: -kv[1]["calls"]):
+        print(f"  {name:<14} {c['calls']:>5}")
+        for v, src in sorted(c["verbs"].items(), key=lambda kv: -sum(kv[1].values())):
+            print(f"    {v:<28} " + " · ".join(f"{k} {n}" for k, n in sorted(src.items(), key=lambda kv: -kv[1])))
+
+
 def main():
     ap = argparse.ArgumentParser(description="the fact store: every source read once per pass into <runtime>/facts/")
     ap.add_argument("--env-file", help="ela's env file")
@@ -571,6 +649,10 @@ def main():
     p = sub.add_parser("status", help="each source's read time, freshness, size and gap")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_status)
+    p = sub.add_parser("calls", help="a day's live calls: the fixed reads, and the rest by caller and verb")
+    p.add_argument("--date", help="YYYY-MM-DD (default today)")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_calls)
     p = sub.add_parser("runtime", help="lane runtime facts: refresh|show|prove <graph>|initconfig (runtime.py)", add_help=False)
     p.add_argument("rest", nargs=argparse.REMAINDER)
     p.set_defaults(func=lambda a: os.execvp("python3", ["python3", os.path.join(HERE, "runtime.py")]
