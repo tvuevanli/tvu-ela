@@ -1799,8 +1799,8 @@ def copy_reach(creds, key):
     2026-11-25; the rule's conditions are not readable without Jira admin). [] when the read fails."""
     try:
         links = _issue(creds, key, "issuelinks").get("issuelinks") or []
-    except Exception:
-        return []
+    except (Exception, SystemExit):                      # _request_raw exits on an HTTP error; the comment is posted
+        return []                                        # already, so a failed read must not fail the write
     return [k for k in ((l.get("outwardIssue") or l.get("inwardIssue") or {}).get("key") for l in links) if k]
 
 

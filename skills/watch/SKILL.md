@@ -23,8 +23,8 @@ One of three, never more than one set per ticket:
 
 - **act** — ela itself writes. The writes are any of: `assign` (an accountId from the roster), `transition` to
   a non-terminal status (In Progress, Review, Reopened, Blocked, On Hold, Backlog), `priority`, `due`, `link`
-  — and one `comment` that says, to the people on the ticket, what changed and why. A set of links alone posts
-  no comment: the link shows on both tickets and its reason stays in ela/dry/did.md. A comment alone is an act
+  — and one `comment` that says, to the people on the ticket, what changed and why. A set of links alone carries
+  no comment (one given is refused): the link shows on both tickets and its reason stays in ela/dry/did.md. A comment alone is an act
   too (a question to the assignee, a nudge on a stall, the answer a reply was waiting for).
 - **ask** — the owner decides. Use it when the right move is unclear, when the evidence does not settle it,
   and always for what ela never does: a terminal status (Done, Closed, Cancelled, Won't Fix, Failed), a Slack

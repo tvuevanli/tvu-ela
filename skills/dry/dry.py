@@ -100,7 +100,7 @@ CLASSES = {
         "atom": ("jira", "link"), "noun": ("link", "links"), "ladder": (3, 1), "base": 1,
         "rule": "a ticket named in the parent's description or comments, not linked to it yet, and not a subtask of a "
                 "ticket linked or proposed; `contains`, or `relates to` when the naming line says related",
-        "command": r"^ela jira link " + KEY + r" " + KEY + r" --type (?:contains|\"?relates to\"?)(?: --note-file \S+)?\s*$",
+        "command": r"^ela jira link " + KEY + r" " + KEY + r" --type (?:contains|\"?relates to\"?)\s*$",
         "case": "MH-3735, 2026-11-12: links approved as a kind in one sentence; tier 1 by the decision of 2026-11-24 "
                 "(ela watches the MH board and acts on Jira); since 2026-11-25 a link carries no comment (MH's Automation "
                 "copies each comment to the linked tickets), its reason and undo in ela/dry/did.md",

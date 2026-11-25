@@ -112,5 +112,15 @@ with tempfile.TemporaryDirectory() as t:
     check("a change whose comment breaks the language rule is refused before the change", code == 2 and "bilingual" in err
           and not [c for c in calls if c[0] in ("PUT", "POST")])
 
+_saved = J._issue
+def _boom(*a, **k):
+    sys.exit("HTTP 429")
+J._issue = _boom
+check("a failed read of the links after a comment posted is no failure: no reach, no exit", J.copy_reach({}, "MH-1") == [])
+J._issue = lambda *a, **k: {"issuelinks": [{"outwardIssue": {"key": "MH-2"}}, {"inwardIssue": {"key": "MH-3"}}]}
+check("the reach is every linked ticket, either direction", J.copy_reach({}, "MH-1") == ["MH-2", "MH-3"])
+J._issue = _saved
+
 print("jira signed: all offline checks passed" if not failures else f"jira signed: {len(failures)} failed")
 sys.exit(1 if failures else 0)
+

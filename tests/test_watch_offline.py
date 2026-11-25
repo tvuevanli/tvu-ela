@@ -162,13 +162,15 @@ with tempfile.TemporaryDirectory() as t:
     _, ltext, lw = W.act_writes("MH-14", lk, reports)
     check("a set of links alone needs no comment and posts none; its command carries no note and the class admits it",
           W.check_act("MH-14", dict(lk, comment=""), iss14, {"said": []}, "2026-11-24") is None and ltext == ""
+          and "carries no comment" in (W.check_act("MH-14", lk, iss14, {"said": []}, "2026-11-24") or "")
           and "--note-file" not in lw[0]["command"] and not [w for w in lw if "jira comment" in w["command"]]
           and __import__("re").match(D.CLASSES["board-watch"]["command"], lw[0]["command"]))
     mixed = {"writes": [{"verb": "link", "other": "MH-15", "type": "relates to"}, {"verb": "due", "date": "2026-12-01"}],
              "comment": "Due date set from the release plan."}
     _, mtext, mw = W.act_writes("MH-14", mixed, reports)
-    check("a link beside a field change: the field change carries the note, the link none",
-          mtext and "--note-file" not in mw[0]["command"] and "--note-file" in mw[1]["command"]
+    check("a link beside a field change: the field change goes first with the note, the link after with none",
+          mtext and mw[0]["command"].startswith("ela jira due") and "--note-file" in mw[0]["command"]
+          and mw[1]["command"].startswith("ela jira link") and "--note-file" not in mw[1]["command"]
           and W.check_act("MH-14", dict(mixed, comment=""), iss14, {"said": []}, "2026-11-24") is not None)
 
     # the owner's topics: today.md's asks, his letter, the chosen option carried out at the next pass

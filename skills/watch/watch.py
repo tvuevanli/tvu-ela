@@ -562,7 +562,8 @@ def check_act(key, d, iss, rec, today):
         return "one write per field in a set"
     text = (d.get("comment") or "").strip()
     if writes and all(w["verb"] == "link" for w in writes):
-        return None                                            # links alone: no comment goes out (act_writes drops it)
+        return None if not text else ("a set of links alone carries no comment (MH's Automation copies it to the "
+                                      "ticket just linked): drop the comment, or send it as its own act")
     if not text:
         return "every set carries its comment: what changed and why"
     if ABOUT_PEOPLE.search(text):
@@ -584,8 +585,9 @@ def act_writes(key, d, reports):
     #                                    MH's Automation copies a comment to the linked tickets (MH-3998, 2026-11-25)
     p = os.path.join(drafts_dir(reports), f"{key}-{hashlib.sha1(text.encode()).hexdigest()[:8]}.txt")
     why = clip(d.get("why") or "", 200) or "the board watch's decision"
-    if d.get("writes"):
-        return p, text, [{"target": key, "command": command_of(key, w, p), "why": why} for w in d["writes"]]
+    if writes:                                                 # field changes first: their note must go out before a
+        order = sorted(writes, key=lambda w: w.get("verb") == "link")   # link exists, or the rule copies it there too
+        return p, text, [{"target": key, "command": command_of(key, w, p), "why": why} for w in order]
     return p, text, [{"target": key, "command": f"ela jira comment {key} --from-file {p}", "why": why}]
 
 
