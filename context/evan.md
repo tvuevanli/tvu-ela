@@ -25,8 +25,10 @@ Roots are named in `~/.claude/ela/site.json`; write them by name, never as machi
   written there by a hook. What merely happened is cited, never stored; drafts go to `<runtime>`.
 - **published** (`<published>`): output of `ela publish`, addresses redacted; every read verb, Helm and
   the remote site read it; never edited.
-- **Helm** (`<projects>/helm`): Evan's own ops app and the Slack bot; its AI capabilities are ela's —
-  no judgment work inside Helm.
+- **Helm** (`<projects>/helm`): Evan's own ops app (web pages, scheduler, store); its AI capabilities are
+  ela's — no judgment work inside Helm. It is not the Slack bot: in Slack the app is **ela** (`@ela`), posted
+  by ela-runner's Slack service, which folds everything after an answer's first blank line into a collapsed
+  *Details* box (a Block Kit `container` block).
 - **Code**: `<code>/<alias>/<remote path>`, read-only; changes happen in `<work>/<KEY>/<repo>`
   worktrees (`map.py find|sync|worktree`).
 - Start each session where the target's rules live; ela is already there.

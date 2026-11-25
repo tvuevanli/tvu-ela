@@ -10,17 +10,18 @@ ela 是一个 Claude Code 插件加一个 `ela` 命令。它把做 MediaHub 产�
 定人、跟踪、自己动手改**——做成一套能力，在任何目录都在。这份说明书是正本，放在 ela 仓的
 `docs/manual.md`，随代码一起改；`tests/run.sh` 会检查每个动词和每个 skill 都在这里出现过。
 
-**版本** 0.37.0 · **入口**：会话里的 `/ela:xxx`、终端里的 `ela xxx`、Helm 的页面和 Slack bot（经
-`clients/ela.py`）· **写操作全部默认 dry run**。
+**版本** 0.37.0 · **入口**：会话里的 `/ela:xxx`、终端里的 `ela xxx`、Helm 的页面（经 `clients/ela.py`）、Slack 里的 `@ela`（ela-runner 的 Slack 服务）· **写操作全部默认 dry run**。
 
 ```mermaid
 flowchart LR
   You(["你"]) --> S["会话里<br>/ela:xxx"]
   You --> C["终端里<br>ela xxx"]
-  You --> H["Helm / Slack<br>(经 clients/ela.py)"]
+  You --> H["Helm 页面<br>(经 clients/ela.py)"]
+  You --> SL["Slack 里的 @ela<br>(ela-runner)"]
   S --> L2
   C --> L1
   H --> L1
+  SL --> L1
   subgraph ela
     L2["L2 判断技能<br>explain · brief · breakdown · route · probe<br>feasible · arch · digest · promote · ask · task"] --> L1
     L1["L1 感官脚本<br>14 个第一手数据源 + 地图 + 发布"]
