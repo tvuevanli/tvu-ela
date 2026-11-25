@@ -122,8 +122,8 @@ def home_text(root, now=None):
                 L.append(f"- [{_title(os.path.join(root, r))}]({_link(r)})")
             L.append("")
         if t["data"]:
-            L += [f"_{t['data']} data file(s) (json) beside these notes are read by Helm; Obsidian shows them in the "
-                  "file list only._", ""]
+            L += [f"_{t['data']} data file(s) (json, yaml) beside these notes are read by machines, Helm among them; "
+                  "Obsidian shows them in the file list only._", ""]
     return "\n".join(L).rstrip() + "\n"
 
 
