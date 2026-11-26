@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The owner's manual, offline: its source lints clean, the lint names an ela plan of MANUAL_FROM or later that
-its `covers` leaves out (never a baseline plan), and today.md's foot links it; test_vault_offline checks the sync writes it."""
-import datetime, os, sys, tempfile
+its `covers` leaves out (never a baseline plan), today.md's foot links it, and it names every tag hooks/lang-tag.sh recognises; test_vault_offline checks the sync writes it."""
+import datetime, os, re, sys, tempfile
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "skills", "vault"))
 import vault as V  # noqa: E402
@@ -21,6 +21,14 @@ check("the manual names the plans it covers", len(V.list_prop(fl, "covers")) >= 
 check("no line of the manual reads as an instruction to the watcher", not V.GUIDE.search(body))
 check("the manual meets its own lint: no spec line, head within budget",
       V.spec_lint(V.MANUAL, src, True) == [] and V.present_lint(V.MANUAL, src, True) == [])
+
+
+hook = open(os.path.join(ROOT, "hooks", "lang-tag.sh"), encoding="utf-8").read()
+tags = set(re.findall(r'\btagged\("([a-z]+)"\)', hook))
+check("the hook recognises tags (the check below has something to compare)", {"zh", "send"} <= tags)
+missing = sorted(t for t in tags if not re.search(r"`#" + t + r"`", body))
+check(f"every tag hooks/lang-tag.sh recognises is in the manual's In a session (missing: {missing or 'none'})",
+      not missing and "## In a session" in body)
 
 
 def plan(vault, name, date, status="live", target="ela"):
