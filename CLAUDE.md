@@ -78,7 +78,9 @@ Hence the session switch for team-stack lanes, and hence ela as a plugin: presen
   typing the action verb is the confirm.
 - Push to a shared lane (`master`, `main`, `develop`, `release*`) of any repository that is not the
   owner's.
-- Commit to elak from a hook. Knowledge is written on the owner's word and committed by hand (ADR 0001).
+- Commit to elak from a hook. Knowledge is written on the owner's word, or as a cited feature mechanism by an attended
+  session, and committed and pushed by the session that wrote it under elak's commit rules; an unattended session
+  drafts to `<runtime>/drafts/` instead (ADR 0026).
 - Depend on a legacy location. Credentials and paths are copied once into the site directory.
 - Build ahead of its phase (`ROADMAP.md`).
 

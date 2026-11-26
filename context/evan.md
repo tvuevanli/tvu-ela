@@ -22,8 +22,9 @@ whole beside this file, as its own hook outputs (`working preferences part I of 
 Roots are named in `~/.claude/ela/site.json`; write them by name, never as machine paths.
 - **ela** (`<projects>/ela`): definitions only — skills, agents, hooks. No knowledge.
 - **elak** (`<elak>`, private): `blueprint/` principles, decisions, status, exit evidence · `knowledge/`
-  written readings · `map/` generated facts. Written on Evan's word, committed by hand; nothing is
-  written there by a hook. What merely happened is cited, never stored; drafts go to `<runtime>`.
+  written readings · `map/` generated facts. Written on Evan's word (or a cited feature mechanism, by an
+  attended session) and committed by the session that wrote it (ADR 0026); never by a hook or an
+  unattended session. What merely happened is cited, never stored; drafts go to `<runtime>`.
 - **published** (`<published>`): output of `ela publish`, addresses redacted; every read verb, Helm and
   Helm Akamai read it; never edited.
 - **Helm** (`<projects>/helm`): Evan's own ops app (web pages, scheduler, store); its AI capabilities are
