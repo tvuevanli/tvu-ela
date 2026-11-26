@@ -201,6 +201,10 @@ its row and named as not covered, but does not decide the verdict: the ticket is
 
 - Test on an unproven session, or on a lane whose build does not carry the fix, and say it did.
 - Judge a scheduled behaviour by the browser's clock, or wait for midnight when a faked clock answers the case.
-- Press Save, start a stream, schedule a route, or change the account, without a confirm for that step and its cleanup.
+- Press Save, start a stream or schedule a route under the owner's account `el`. Under the test account `li` it may
+  (the owner's word, 2026-11-26): set up what the case needs (a graph, a source, a destination), run it, and stop or
+  remove what it created when the run ends; `el` is used only to switch `li`'s bundle to the lane under test. The
+  usual input is a YouTube source, and the app's HLS output (the preview) is an acceptable view of the output unless the
+  case is about another output.
 - Keep selectors or expectations as knowledge: they belong to the file at the build, read each time.
-- Replace QA: the report says what a browser observed on one lane; QA's verdict on the ticket is theirs.
+- Close a ticket: a pass with its proof goes on the ticket and into its close bundle; the close is the owner's letter or QA's click.
