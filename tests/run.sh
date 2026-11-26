@@ -90,6 +90,7 @@ python3 tests/test_logs_observer_offline.py >/dev/null || { echo "logs observer 
 python3 tests/test_dry_corpus_offline.py || fail=1
 python3 tests/test_focus_offline.py || fail=1
 python3 tests/test_watch_offline.py || fail=1
+python3 tests/test_asks_teach_offline.py >/dev/null 2>&1 || { echo "asks teach offline failed"; fail=1; }
 python3 tests/test_watch_disputes_offline.py || fail=1
 python3 tests/test_dry_undo_offline.py || fail=1
 python3 tests/test_mention_offline.py || fail=1

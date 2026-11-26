@@ -13,7 +13,7 @@ ela runs on its own and writes this vault. You do two things here: give a **fact
 
 1. **Open [[today]].** Read **In short**: at most five lines, most urgent first, each with what it means and what to do; the last line says where to start.
    Under **Today**, the line **Team yesterday** opens the team daily report as it went out to Slack, with a **For you** block on top (at most three lines: your tickets, mentions of you, and any line that contradicts Jira). On Mondays a second line opens the weekly.
-2. **Answer what is under Needs you.** Each ask is lettered; A is ela's recommendation. Tick a box, or write `ela: A` under it (`ela: 2 B` anywhere on the page). An ask you leave does nothing; after three working mornings it moves to [[reference/dropped|dropped asks]].
+2. **Answer what is under Needs you.** Each ask needs a *fact* or a *ruling*; A is ela's recommendation, with its reason. Tick a box or write `ela: A` under it; words after the letter are kept as your reason. An unanswered ask expires after three working mornings.
 3. **Follow a link only when a line is not enough.** The morning page and the changes page under `reference/days/` hold the evidence behind today.md; you do not need to read them every day. On Fridays the changes page ends with **Quiet for two weeks**: live notes whose text has not changed in 14 days, with what each waits for; write `done` on one that is finished, or leave it.
 
 ## Where things live
@@ -42,7 +42,10 @@ On any live row or ask, as a tick or an `ela:` line under it:
 The vault is read every three minutes, 08:30–19:00 on working days: a line taken shows `✓ 10:42`, a refused one `✗` with the reason folded under it. A line written outside those hours is taken the next working morning.
 
 > [!note]- The board watch: answering it, and correcting what it wrote
-> To answer a topic: `ela watch answer watch:<KEY> <letter>` in a terminal. Each decision the watch makes carries a confidence: high and medium are written to Jira and listed on `ela/dry/did.md` (everything below high under **Review first**, at the top, with what the evidence leaves open); low, or a case ela cannot decide, is not written: it waits at the top of [[ela/watch|ela/watch]] under **Confirm first**, where A carries out what ela proposed. Tickets the watch judged nothing due close that page, least sure first. To correct something ela wrote on its own: `wrong: <why>` beside its line on `ela/dry/did.md`; the reason is kept, so the same mistake is not repeated.
+> To answer a topic: tick a letter on [[ela/watch|ela/watch]], or write `ela: B because …` under it, or `ela watch answer watch:<KEY> <letter> [words]` in a terminal. Each topic shows how sure ela was. Each decision the watch makes carries a confidence: high and medium are written to Jira and listed on `ela/dry/did.md` (everything below high under **Review first**, at the top, with what the evidence leaves open); low, or a case ela cannot decide, is not written: it waits at the top of [[ela/watch|ela/watch]] under **Confirm first**, where A carries out what ela proposed. Tickets the watch judged nothing due close that page, least sure first. To correct something ela wrote on its own: `wrong: <why>` beside its line on `ela/dry/did.md`; the reason is kept, so the same mistake is not repeated.
+
+> [!note]- Your reasons and facts: how ela keeps them
+> Your words after a letter (`ela: 2 B because QA already said it`, or a plain line under the box you ticked) are kept with the answer. A letter against ela's A is a correction: ela keeps it with your reason in that kind of ask's own record and cites it the next time the same kind of case comes up. Without a reason it waits for one; the next ask of that kind says so in one line, and `ela: because …` under that ask gives it (for the board watch also `ela watch cause watch:<KEY> <why>`). A fact you give (who owns an area, whose account a name is, a date no source has) is kept by its kind and subject and is not asked again for another ticket. An ask that expires names its note and [[reference/dropped|dropped asks]].
 
 ## What ela does on its own, and what stays yours
 
@@ -67,8 +70,7 @@ Slack only reminds; the question itself is always here. A direct message from el
 
 ## Coming
 
-> [!note]- Two changes on their way
-> - Each ask will say whether it needs a **fact** or a **ruling**, and a ruling ask will carry ela's reason for you to confirm or correct ([[2026-11-26-plan-ela-runs-on-its-own-asks-teach-it|plan]]).
+> [!note]- A change on its way
 > - The release line page will gain **Fixes on their way**: each fix from build to prod with what changed, what QA tested, the verdict, ela's judgment of its impact on the deploy, and what is next; today.md's Facts will become **Since you last looked** ([[2026-11-26-plan-fixes-followed-to-prod-one-home-per-fact|plan]]).
 
 ---

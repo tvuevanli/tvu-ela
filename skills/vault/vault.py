@@ -4671,6 +4671,17 @@ def watch_page(reports, today, base=""):
         return {}
 
 
+def settle_watch_page(vault, reports, dry_run=False):
+    """His answers on ela/watch.md as the vault has it (a tick, or `ela: B because …` under a topic), recorded as the
+    CLI's `ela watch answer` records them, before the page is written again. A broken store costs these answers only."""
+    try:
+        WA = watch_mod()
+        text = open(os.path.join(vault, WA.WATCH_PAGE), encoding="utf-8").read()
+        return WA.settle_page(reports, text, WA.now_tz(), dry_run)
+    except Exception:                                      # noqa: BLE001
+        return []
+
+
 def watch_line(reports):
     """today.md's one line for the board watch, whatever the ask cap shows: how many topics wait, the page behind it."""
     try:
@@ -4679,7 +4690,7 @@ def watch_line(reports):
     except Exception:                                      # noqa: BLE001
         return None
     return (f"- [[{WA.WATCH_PAGE[:-3]}|The board watch]]: {n} topic{'s' if n != 1 else ''} wait for your letter "
-            "(`ela watch answer watch:<KEY> <letter>`)") if n else None
+            "(tick one on the page)") if n else None
 
 
 def watch_mod():
@@ -6244,6 +6255,7 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since
         planned[focus_mod().BOARD] = focus["text"]
     asks_state = load_asks(reports)
     settle_letters(s["vault"], reports, asks_state, today, dry_run)   # his letters the sync acts on itself, before the asks are counted
+    settle_watch_page(s["vault"], reports, dry_run)        # his ticks and letters on ela/watch.md, before the page is rewritten
     cands = ask_candidates(today, week_actions(reports, today), notes + native)
     qcands = question_asks(questions, today, week_actions(reports, today)) if questions else []
     dcands, dry_facts = dry_asks(reports, today, asks_state, dry_run)
