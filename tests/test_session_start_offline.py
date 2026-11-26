@@ -132,13 +132,37 @@ check("## Who Evan is" not in ev, "the head sits beside the section it replaces"
 # is met by cutting reasons first, and the phrases a rule rests on are held by the required-phrase checks instead
 # (vault plan ela/2026-11-26-plan-context-budget, decision after round 2).
 CEILINGS = {
-    "CLAUDE.md": 11579,          # 2026-11-26: the size after the Gate's sentence on ela's own design
+    "CLAUDE.md": 9485,           # 2026-11-26: 11,579 → 9,485 when the head, the layer table and two reasons moved to their one home
     "context/evan.md": 6712,     # 2026-11-26: the size that day (check 5 keeps the hook's own room under the warning line)
 }
 for rel, ceiling in CEILINGS.items():
     size = len(open(os.path.join(ROOT, rel), encoding="utf-8").read())
     check(size <= ceiling, f"{rel} is {size:,} characters, over its ceiling of {ceiling:,}: cut it back, or raise the "
                            f"ceiling in this test with the date and the reason")
+
+# 6d. The phrases CLAUDE.md's rules rest on: a compression keeps every one (the list was written before the first cut).
+CHARTER = [
+    "Presence is not enrollment", "ela holds no product code and no knowledge", "Independent cognition",
+    "Delegated execution", "never filled with a counterpart's summary", "Never delegated",
+    "team-stack", "repo-local", "bare", "read-only", "Start each session where the rules live",
+    "dry run by default, `--apply` explicit", "Confirm gates live in the adapter",
+    "Implement in a team-stack repository itself", "Edit a counterpart's repository",
+    "without an explicit confirm", "typing the action verb is", "Push to a shared lane", "`release*`",
+    "Commit to elak from a hook", "drafts to `<runtime>/drafts/`", "ADR 0026",
+    "never a machine path or a host address", "never edited in place", "skills/vault/manual.md",
+    "go through `<published>`", "Disk is the fact", "No tracked file names a git host by address",
+    "Cite, never copy", "Evidence outranks report", "One task, one worktree, one session; pathspec commits only",
+    "One phase at a time", "One concern per commit", "hooks/content-guard.sh", "Input is not output",
+    "People appear as roles", "A file over 1,500 lines", "read by line range, never whole", "ADR 0027",
+    "changed only in a worktree", "fast-forward merges only", "`ela session land N`", "ADR 0028",
+    "four one-line checks", "the strongest alternative, including doing nothing and rebuilding the part from the root",
+    "always showing the option ela would reject", "For ela's own design ela decides", "ADR 0006",
+    "`tests/run.sh`", "`docs/manual*.md`",
+]
+charter = " ".join(open(os.path.join(ROOT, "CLAUDE.md"), encoding="utf-8").read().split())
+for ph in CHARTER:
+    check(" ".join(ph.split()) in charter, f"required phrase gone from CLAUDE.md: {ph!r}")
+check(os.path.isfile(os.path.join(ROOT, ".claude", "rules", "layers.md")), "CLAUDE.md points at .claude/rules/layers.md, which is gone")
 
 # 7. The required phrases: the injected preferences still carry what each decision rests on.
 # A rewrite of the preferences (a compression, a reorder, a merge of two rules) is gated by this list: one scenario per
