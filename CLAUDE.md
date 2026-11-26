@@ -96,6 +96,10 @@ Hence the session switch for team-stack lanes, and hence ela as a plugin: presen
 | reports | `<projects>/reports` | ela's output for the owner (pages, verifications, logs); copied to a private backup branch daily |
 | vault | `<vault>` (site.json `vault`) | the owner's Obsidian vault: generated pages, plus the documents whose source it is (`source: "vault"`: the overview, the workflow, plans for his decision, the library's topics), which ela writes in place; ADR 0008, 0009 |
 
+A change to how the owner uses the vault (a page he reads, a word he writes, what reaches him) updates
+`skills/vault/manual.md`, which the sync writes to the vault root, in the same commit; `ela vault lint` names a later
+ela plan its `covers` leaves out.
+
 Reads of the map and the roster go through `<published>` on every machine (site.json `map`); the
 private map is the publish source (`map_source`). Whatever a verb needs at runtime is thereby forced
 through the publish gate.
