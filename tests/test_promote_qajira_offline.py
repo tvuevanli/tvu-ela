@@ -59,6 +59,14 @@ p = Q.parse("QA 复验结果 — retest\nscope line\n✅ TC-A case one\n✅ TC-B
 check("per-case markers are counted when no count line exists", p["counts"] == {"pass": 3, "fail": 0, "pending": 2})
 check("a warning or untested case beside passes is partial, with the cases as open points", p["verdict"] == "partial" and any("TC-C" in x for x in p["open_points"]))
 
+# MH-4065 shape (2026-11-25): a case table whose result cell names the follow-up fix; a case listed twice is one case
+f = Q.parse(C["cases"], "MH-4065")["failed"]
+check("the failed cases are read in QA's words, once each, a passed row and the headline left out",
+      [x["case"] for x in f] == ["TC13", "TC18"] and "EIP" in f[0]["text"] and "Fail" not in f[0]["text"])
+check("a failed case keeps the ticket its line names (a follow-up fix)", f[0]["keys"] == ["MH-4111"] and f[1]["keys"] == [])
+f = Q.parse("QA 复验结果\n✅ TC-A ok\n❌ TC-B the stage bar stays at 95%\n")["failed"]
+check("a ❌ marker line is a failed case, its words without the case id", [x["case"] for x in f] == ["TC-B"] and f[0]["text"] == "the stage bar stays at 95%")
+
 if failures:
     print(f"qajira: {len(failures)} failure(s)"); sys.exit(1)
 print("qajira: all offline checks passed")

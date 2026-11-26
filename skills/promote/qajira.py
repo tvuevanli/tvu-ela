@@ -19,6 +19,8 @@ A comment counts when its author is a QA person in the roster (team.records, are
 The environment block (验证环境, a pasted version panel) is proven with envproof.panel: the lane and the versions
 the verdict was observed on. Splits: the keys a QA comment names after split / 拆 / 转 / 单独提 / 新建, and the
 ticket's Jira links of type Cloners or a split type; each split is read once and its own verdict and status shown.
+Failed cases: each case row or ❌ line QA marked failed, in QA's words, with the tickets it names (`failed`); the train's
+deploy view shows them as the test that failed.
 """
 import argparse, json, os, re, subprocess, sys
 sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "setup"))
@@ -42,6 +44,9 @@ OPEN_LINE = re.compile(r"(?i)^\W*(" + "|".join([r"说明", r"存在的问题", r
 OPEN_CTX = re.compile(r"(?i)" + "|".join([r"另开", r"跟踪", r"未覆盖", r"未实现", r"仍", r"依然", r"still", r"not covered", r"pending", r"待\s*PM", r"需\s*PM", r"遗漏"]))
 POS_W = re.compile("|".join([r"未看到", r"没有再", r"不再出现", r"已正常", r"恢复正常", r"已解决"]))
 NEG_W = re.compile("|".join([r"但是", r"还是", r"仍然", r"依然", r"问题", r"不同步", r"很慢", r"卡顿", r"\b卡\b", r"失败"]))
+FAIL_CASE = re.compile(r"❌|\bFail(?:ed)?\b|不通过|未修复")      # a case row QA marked failed
+HEADLINE = re.compile(r"(?i)^\W*(?:" + "|".join([r"验证结果", r"测试结果", r"QA\s*result"]) + ")")   # the comment's own result line
+CASE_ID = re.compile(r"\b(TC[-_ ]?(?:\d+[a-z]?|[A-Z])|Case[-_ ]?\d+)\b")
 DATE = re.compile(r"(?:" + "|".join(["验证日期", "测试日期", "实测"]) + r")[^0-9]{0,8}(\d{4})[-/.年](\d{1,2})[-/.月](\d{1,2})")
 
 
@@ -119,7 +124,35 @@ def parse(text, key=None):
         import envproof as E  # noqa: E402
         env = E.panel(t)
     return {"verdict": v, "counts": counts, "flags": flags, "open_points": open_points, "head": head, "env": env,
-            "splits": list(dict.fromkeys(splits)), "tested_on": tested_on}
+            "splits": list(dict.fromkeys(splits)), "tested_on": tested_on, "failed": failed_cases(t)}
+
+
+def failed_cases(text):
+    """The cases QA marked failed, in QA's own words, once each: [{case, text, keys}] from a table row (`| TC13 | … | ❌
+    Fail (MH-4111) |`) or a marker line (`❌ TC-C …`) below the headline; `keys` the tickets the case line names (a
+    follow-up fix or a split). The deploy page shows these as the test that failed, never a summary of them."""
+    out, seen = [], set()
+    for ln in (text or "").splitlines()[1:]:
+        s = ln.strip()
+        if not s or not FAIL_CASE.search(s) or HEADLINE.match(s):
+            continue
+        cells = [c.strip() for c in s.strip("|").split("|")] if s.startswith("|") else [s]
+        if s.startswith("|") and not FAIL_CASE.search(cells[-1]):
+            continue                                   # a table row whose result cell is not a fail (a word in its text)
+        if not s.startswith("|") and not s.startswith("❌"):
+            continue
+        m = CASE_ID.search(s)
+        case = m.group(1).replace(" ", "") if m else None
+        words = " ".join(c for c in cells if c and c != case and not FAIL_CASE.fullmatch(c) and not re.fullmatch(r"❌\s*Fail.*", c))
+        words = re.sub(r"^❌\s*", "", words).strip()
+        if case and words.startswith(m.group(1)):
+            words = words[len(m.group(1)):].strip(" :：-")
+        ident = case or words[:60]
+        if ident in seen:
+            continue
+        seen.add(ident)
+        out.append({"case": case, "text": words, "keys": [k for k in dict.fromkeys(KEY_RE.findall(s))]})
+    return out
 
 
 def adf_text(node):

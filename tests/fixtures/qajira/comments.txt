@@ -31,3 +31,10 @@ Backend: v2.1.33 build264 2026-10-22 09:42:12
 验证结果：未修复 ❌ 0 Pass + 2 Fail
 === copy
 MH-3932 验证结果：⚠️ 21 Pass + 2 Fail
+=== cases
+验证结果：主功能通过但有遗漏点 ⚠️ 14 Pass + 2 Fail + 2 N/A（含 regression 检查）
+| TC | 场景 | 结果 |
+| TC12 | Fail-safe 文案正确 | ✅ Pass |
+| TC13 | 源配置的 EIP 不存在时 toast 撞码 | ❌ Fail (MH-4111) |
+| TC18 | 区域名多对一映射各取第一条 | ❌ Fail |
+| TC13 | 源配置的 EIP 不存在时 toast 撞码 | ❌ Fail (MH-4111) |
