@@ -184,7 +184,12 @@
                                    the line's train: one row per fix with a cell per lane (qa · daily · prod · the aligned
                                    CN lane): the build that carried it there, the lane's verdict, its position, a
                                    regression; --write keeps <reports>/train/<line>.json, --page writes lanes/train-<line>.md,
-                                   --parity compares its QA view with the lane's test list (exit 1 when they differ)
+                                   --parity compares its QA view with the lane's test list (exit 1 when they differ);
+                                   each row carries QA's failed case and its impact on the next move (blocks, your
+                                   call, not yet verified, does not block, ready), shown on the line page
+  ela train answer impact:<KEY> A|B [--why TEXT]
+                                   rule on a your-call fix: A agrees with ela's leaning, B the other way; kept with its
+                                   kind in <reports>/train/rulings.jsonl as the next case's precedent
   ela onething facts --date D | --month YYYY-MM   the owner's own Jira actions and Slack messages per day, for
                                    his One Thing rows; sheet --month (rows already there) · render --rows F (the day's
                                    entry into the store <reports>/onething/) · block --date D (the day's section for

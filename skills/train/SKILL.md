@@ -23,6 +23,30 @@ to-read/2026-11-02-the-train-one-object-behind-the-test-list-and-the-lane-status
 | qa_only | the row is named by QA only: a key the QA lane's report mails give a verdict (pass, fail, N/A) that no release mail named — a bug QA filed and closed or reopened mid-cycle, a customer task tested on the build it rode. It arrives on the build of the first report that judged it; a sub-task of a row joins that row's `also` instead; a withdrawn ticket gets none; keys only of the train's projects (QA's case ids share the key's shape). Marked `◇` on the page | the QA lane's report mails |
 | position | the furthest of qa → daily → prod with an arrival; `dev` when none. The aligned China prod lane is a fourth cell, never a position | the cells |
 | regression | a fail or an incident on daily or prod after a pass on QA; the row is P1 with the reason "regression on <lane> <build>, passed <qa lane> on <build>" | the cells |
+| change | the change-log line the build's mail carries for the row | the release mails |
+| qa_word, qa_report | QA's latest Jira result (verdict, counts, its failed cases in QA's words with the tickets each names, the comment's link) and QA's own line in the newest report mail that judges the key | `qajira.verdict_of`, `promote.key_verdicts` |
+| impact | the row's effect on its next move (QA → daily, daily → prod): `group` blocks · your-call · unverified · no-block · ready (arrived for a row on prod), `reason`, `next`, `move`; for your call `leaning` and `lean_reason`, drafted; `kind` (layer + a criterion of a closed list), `proofs`, `failed_tests`, `sig` | `fixes.judge`, below |
+
+## Impact: what a fix does to its next move
+
+Judged under the hiding bar (vault ela/2026-11-26-plan-ela-runs-on-its-own-asks-teach-it): a wrong "does not block"
+takes a risk out of the owner's sight, so it is ela's only on a mechanical proof, and every test fails closed.
+
+- **blocks**, on first-hand evidence: an incident naming the key on a prod lane; a fail on daily or prod; a pass on QA
+  that a later build fails; QA's "not fixed"; QA's own words that the fix brought a regression.
+- **does not block**, only when all hold: each failed case is outside the fix by proof (its line names a split ticket,
+  QA's words put it out of scope, or its follow-up fix has a QA pass on a build no newer than the one moving; a lane's
+  config switch would count, but no config is read yet); the incidents were read and none names the key; no earlier
+  pass on QA or prod; no ruling of the owner's of the same kind says blocks. QA's prose alone never proves it.
+- **your call**, anything else: a ruling ask on today.md (ADR 0014's cap; the rest wait on the line page), ela's leaning
+  as A with its reason, the other way as B. `ela train answer impact:<KEY> A|B [--why]` (or his letter on today.md)
+  appends the ruling to `<reports>/train/rulings.jsonl` with its kind; it decides that case while its `sig` (verdict,
+  build, failed cases) holds, and is cited for the next case of the kind, never standing in for a proof.
+- **not yet verified**: the build the fix rides has no QA word yet (an earlier build's fail is named); **ready**: QA
+  passed, or the fix passed before the lane's list began. A row on prod is not on its way.
+
+The line page shows this as **Fixes on their way** (blocks and your call never folded, a does-not-block row one
+visible line with its reason, Ready a count); today.md's **Since you last looked** links each changed row.
 
 **A verdict is per lane.** A QA report mail belongs to the lane its subject names. A reply in the release thread
 ("MH-1 pass on build 78") belongs to the QA lane. A QA person's ticket comment belongs to the QA lane, unless it
@@ -57,6 +81,7 @@ at it, only a re-send of that build. They retire after a week of parity (the des
 - Every build carries a second parity: each key the window's QA report mails (the line's lanes) name has a row, as a
   key or an `also`, or the train names it — `report_keys_missing`, and a line under the gaps. A key the QA lane's
   reports judge gets a row named by QA only, so what remains there is a key only another lane's report judges.
+- `ela train answer impact:<KEY> A|B [--why TEXT]` keeps the owner's ruling on a your-call row (above).
 - Reads only: mail (release and report mails), Jira (the keys, their comments; the incidents lane), Slack (the QA
   release channel's threads), the saved lane reads and the state files. Writes only under `<reports>`. Exit 5 when
   the release mails cannot be read; a source that fails otherwise is a line under "Not read" on the page.

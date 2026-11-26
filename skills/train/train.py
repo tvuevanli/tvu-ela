@@ -597,8 +597,9 @@ def trains_on_disk(s):
 
 
 def main():
-    if sys.argv[1:2] == ["answer"]:
-        return answer_main(sys.argv[2:])
+    rest = sys.argv[3:] if sys.argv[1:2] == ["--env-file"] else sys.argv[1:]   # `ela` puts its env file first
+    if rest[:1] == ["answer"]:
+        return answer_main(rest[1:])
     ap = argparse.ArgumentParser(description="the train: one object per release line, one row per fix with a cell per lane")
     ap.add_argument("--env-file", help="ela's env file")
     ap.add_argument("--line", required=True, help="the release line (2.1)")
