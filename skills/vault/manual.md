@@ -60,6 +60,8 @@ Two tags, each written alone in your message (not quoted, not in code):
 
 Every word and button you can use with ela in Slack, and who else reaches it: [[ela/controls|your controls in Slack]].
 
+What the MediaHub PM asked for in the design channel and ela already carried out, each request with its undo: [[releases/pm-requests|the PM's release requests]].
+
 Slack only reminds; the question itself is always here. A direct message from ela means one of: a prod incident addressed to you (at any hour), a question put to you that is still unanswered after its wait (inside your DM hours; outside them it becomes an ask on [[today]]), or one of ela's passes failing. Board-watch topics get at most one reminder a day, when a topic is new. The daily and weekly team reports are the only posts that go out on their own.
 
 ## Coming
