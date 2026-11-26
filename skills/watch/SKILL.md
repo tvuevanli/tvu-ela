@@ -207,7 +207,8 @@ time. Open no project and no other page: a project is bounded work the desk open
 features/ pages (the owner's ruling of 2026-11-26) come with their own plan. When the topic is a capability that will
 outlive this ticket (two or more tickets, configuration or lanes to follow), say so on the page in one line, "a feature
 page fits: <key>, <title>", which the desk reads. The mechanism you read first-hand (flow, configuration keys, error
-codes) stays on the ticket page with its sources; an unattended session does not write elak.
+codes) stays on the ticket page with its sources, and may be drafted to `<runtime>/drafts/<slug>.md` for the desk to
+admit: an unattended session never writes elak (ADR 0026).
 
 **The decision.** Write `<reports>/ela/watch/<date>-judge-<KEY>.json` with one decision in the pass's form
 (`{"decisions": [{...}]}`): act, ask or none, with confidence and doubt as above. It is checked against the judge

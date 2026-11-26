@@ -16,10 +16,12 @@ draft until Evan says post.
 The `how` form takes a mechanism named in the owner's words (a command line, a reported field, a
 status model, "who calls whom") and no ticket. It runs §0–§3 as written, skips the drafted comments
 of §4, and ends with (a) the mechanism chain — each hop with file:line at the commit read, values and
-defaults where the code fixes them, and what the chain does NOT assert — and (b) a `knowledge/` draft
-written to `<runtime>/drafts/<slug>.md` in elak's house style (front matter `verified`, `source` =
-repo@sha file:line only, no session or transcript cited, no names), for the owner to admit with
-"记下来" (knowledge/README's one-year test).
+defaults where the code fixes them, and what the chain does NOT assert — and (b) the mechanism as a
+`knowledge/` entry in elak's house style (front matter `verified`, `source` = repo@sha file:line only,
+no session or transcript cited, no names), held to knowledge/README's one-year test. An attended
+session writes it to elak itself, as a product capability's cited mechanism needs no "记下来" (ADR
+0026), and commits it by explicit path and pushes; an unattended session writes it to
+`<runtime>/drafts/<slug>.md` for the desk to admit.
 
 The `fix` form takes a ticket whose fix is said to be shipped and answers one question: does it work on
 the lane (default prod-3)? It is §fix below in place of §1–§4; "deployed" is a fact it starts from, never
@@ -122,7 +124,11 @@ Write, in this shape:
   layer; redacted or absent, it is stated as *needs the owner to confirm the config*, never guessed.
 
 ## 4 — record and draft
-- Record what the probe **established**, not that it ran — drafted here, written on Evan's word: the conclusion and its paths go where the
+- Record what the probe **established**, not that it ran. A mechanism read first-hand and cited (a
+  flow, configuration keys, error codes) is written by an attended session without asking and
+  committed by explicit path (ADR 0026); an unattended session drafts it to `<runtime>/drafts/`. A
+  verdict or judgment (a root cause, a fix's worth) is drafted here and written on Evan's word. Either
+  way the conclusion and its paths go where the
   knowledge base's placement test sends them (elak `blueprint/principles.md` P1) — a platform
   finding to `knowledge/platform/<component>/`, an ela finding to `blueprint/`. A dated file of "what
   the probe did" is a diary and is not kept; the agentic-observability `investigation-*.md` files are
