@@ -923,7 +923,9 @@ def asks(reports, now=None):
             {"letter": "C", "text": "nothing needed", "does": f"ela mention answer {r['id']} C", "recommended": bool(other)}]
         where = f"[#{r['channel_name']}]({r['permalink']})" if r.get("permalink") else f"#{r['channel_name']}"   # one click to the thread
         said = (f" {other['name']} answered at {other['at'][5:16].replace('T', ' ')}: “{md_links(other['first'])}”" if other else "")
-        out.append({"id": aid, "question": f"{r['by_name']} asked you in {where} on {r['at'][5:16].replace('T', ' ')}, no reply yet: "
+        reason = (f"{other['name']} already answered in the thread" if other else
+                  f"the draft answers what was asked, from the facts on the card (triaged: {REASONS.get(r['reason'], r['reason'])})")
+        out.append({"id": aid, "reason": reason, "question": f"{r['by_name']} asked you in {where} on {r['at'][5:16].replace('T', ' ')}, no reply yet: "
                                            f"{r.get('ask') or r['first']}{said}", "link": note_rel(r["id"]), "options": opts,
                     "sig": f"{r['id']}:{'drafted' if r.get('draft') else 'bare'}" + (f":{shown.split()[-1]}" if shown else "")
                            + (f":answered-{other['ts']}" if other else "")})
@@ -967,6 +969,8 @@ def tally(reports):
     by = {}
     for row in read_log(reports):
         t = by.setdefault(row.get("reason") or "?", {"kind": KIND_OF.get(row.get("reason")), "fired": 0, "replied": 0, "withdrawn": 0, "A": 0, "B": 0, "C": 0, "closed": 0, "expired": 0, "not-needed": 0})
+        if row.get("outcome") == "cause":                  # a cause given later completes a correction; not an outcome
+            continue
         if row.get("outcome"):
             t[row["outcome"]] = t.get(row["outcome"], 0) + 1
         else:
@@ -1021,7 +1025,7 @@ def said_of(r):
     return {"A": "A: the draft is yours to paste.", "B": "B: left to you.", "C": "C: closed, and counted against this kind of mention."}.get(letter, "")
 
 
-def answer(reports, ref, letter, ctx=None, now=None, post=None, shown=None):
+def answer(reports, ref, letter, ctx=None, now=None, post=None, shown=None, note=None):
     """His letter on a mention's ask. A on a card that offered a post (ADR 0022) posts that card's text, once, under
     the checks below, and closes the mention; A on a card that said to paste leaves the draft to him and prepares
     what it commits to by class. B: he writes it. C: nothing was needed; closed, and counted against the triage
@@ -1055,7 +1059,10 @@ def answer(reports, ref, letter, ctx=None, now=None, post=None, shown=None):
         save(reports, recs)
         if not done:                                       # he had replied: closed by his reply, nothing posted
             return dict(r, said=said_of(r))
-    r["answer"] = {"letter": letter, "at": iso(now)}
+    note = " ".join(str(note).split()) if note else (more if letter != "A" and more else None)
+    rec = recommended(r)
+    r["answer"] = {"letter": letter, "at": iso(now), **({"note": note} if note else {})}
+    wrong = bool(rec) and letter != rec
     if letter == "C":
         r.update(state="closed", closed={"at": iso(now), "why": "nothing needed (his C)"})
         supersede(reports, r, f"the owner's C on mention {rid}: nothing needed", now)
@@ -1067,9 +1074,43 @@ def answer(reports, ref, letter, ctx=None, now=None, post=None, shown=None):
     if letter == "A" and ctx:
         ctx = ctx() if callable(ctx) else ctx
         follow(r, r.get("reply") or "", [x["key"] for x in (r.get("facts") or {}).get("keys") or []], ctx, source="draft")
-    log(reports, {"at": iso(now), "id": rid, "reason": r["reason"], "outcome": letter, **({"posted": r["posted"]["as"]} if r.get("posted") else {})})
+    log(reports, {"at": iso(now), "id": rid, "reason": r["reason"], "outcome": letter, **({"posted": r["posted"]["as"]} if r.get("posted") else {}),
+                  **({"class": r["reason"], "target": rid, "act": f"mention:{rid}", "cause": note, "source": "mention",
+                      "corpus": "admitted" if note else "waiting for a cause"} if wrong else {})})
     save(reports, recs)
     return dict(r, said=said_of(r))
+
+
+def recommended(r):
+    """The letter the ask recommended (asks()): A on a drafted reply nobody else answered, C when a co-addressee did."""
+    if r.get("answered_by"):
+        return "C"
+    return "A" if r.get("draft") else None
+
+
+def cause(reports, rid, note, now=None):
+    """His cause for an earlier letter against ela's recommendation that came without one: kept on the answer and as a
+    newer triage-log row for the same act (the row shape of dry's corpus)."""
+    recs, now = load(reports), now or datetime.datetime.now(TZ)
+    r = recs.get(rid)
+    if not r or not r.get("answer"):
+        raise KeyError(rid)
+    r["answer"]["note"] = " ".join(str(note).split())
+    log(reports, {"at": iso(now), "id": rid, "reason": r["reason"], "outcome": "cause", "class": r["reason"], "target": rid,
+                  "act": f"mention:{rid}", "verdict": r["answer"]["letter"], "cause": r["answer"]["note"], "source": "mention",
+                  "corpus": "admitted"})
+    save(reports, recs)
+    return r
+
+
+def corrections(reports):
+    """Mention's corrections, the newest row per act: a letter against ela's recommendation, its cause or the wait for
+    one. → [{class, target, act, verdict, cause, corpus, at, source}]."""
+    rows = {}
+    for row in read_log(reports):
+        if row.get("source") == "mention" and row.get("act"):
+            rows[row["act"]] = dict(row, verdict=row.get("verdict") or row.get("outcome"))
+    return list(rows.values())
 
 
 def post_reply(recs, reports, r, offer, post, shown, ctx, now):
