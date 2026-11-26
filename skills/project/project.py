@@ -11,7 +11,7 @@ blueprint/decisions/2026-11-04-projects-are-bounded-work-with-one-page-each.md.
 Usage:
     project.py [--env-file F] list [--json]                        each project: key, deadline, days left, open asks
     project.py [--env-file F] show <key> [--json]                  one project: its facts, asks, notes, keys and threads
-    project.py [--env-file F] new <key> --deadline YYYY-MM-DD [--title T]   the folder and an empty page with the head skeleton
+    project.py [--env-file F] new <key> [--deadline YYYY-MM-DD] [--title T]   the folder and an empty page with the head skeleton
     project.py [--env-file F] keys <key> --add KEY... [--json]     add Jira keys to the page's `keys`
 
 Exit codes: 0 ok · 2 usage or site · 3 no such project, or the project already exists.
@@ -52,7 +52,7 @@ def one(vault, key, today):
     """(facts, rows) of project `key`, or exit 3."""
     pages = V.project_pages(vault)
     if key not in pages:
-        print(f"no project {key!r}: " + (", ".join(sorted(pages)) if pages else "none yet; `ela project new <key> --deadline YYYY-MM-DD`"),
+        print(f"no project {key!r}: " + (", ".join(sorted(pages)) if pages else "none yet; `ela project new <key> [--deadline YYYY-MM-DD]`"),
               file=sys.stderr); sys.exit(3)
     facts = V.project_facts(key, pages[key], today, V.project_path(vault, key))
     return facts, V.project_rows(vault, key, page=facts["path"])
@@ -82,7 +82,7 @@ def cmd_list(a):
     if a.json:
         print(json.dumps(out, ensure_ascii=False)); return
     if not out:
-        print("no projects yet: `ela project new <key> --deadline YYYY-MM-DD`"); return
+        print("no projects yet: `ela project new <key> [--deadline YYYY-MM-DD]`"); return
     w = max(len(f["key"]) for f in out)
     print(f"{'key':<{w}}  deadline    days left  open asks  title")
     for f in out:
@@ -110,12 +110,14 @@ def cmd_show(a):
 
 def skeleton(key, title, deadline, today):
     """The page's front matter and head: the desk's sections, empty, above the marker the sync writes below."""
-    fm = V.front([], {"title": title, "type": "project", "date": today.isoformat(), "deadline": deadline, "source": "vault"})
+    fm = V.front([], {k: v for k, v in {"title": title, "type": "project", "date": today.isoformat(), "deadline": deadline,
+                                        "source": "vault"}.items() if v})
     body = [f"# {title}", "",
             "*The head is the desk's text until you write `ela: keep this` and its facts go to elak; the sync writes everything "
             f"from *{V.PROJECT_HEAD_END[3:]}* down on each pass. Fill the sections in your own words; the first unticked box under "
             "*Next step* is the step Home may name, or set `next-step` in the properties.*", ""]
-    hints = {"Goal": "What TVU must prove, in one paragraph.", "Dates": f"{deadline} — what happens on that day, and the dates before it.",
+    hints = {"Goal": "What TVU must prove, in one paragraph.", "Dates": (f"{deadline} — what happens on that day, and the dates before it." if deadline else
+                                                                 "No date is committed yet; the dates so far."),
              "Parties": "- customer: \n- others: \n- TVU: who does what", "What is known": "- ", "Next step": "- [ ] "}
     for h in HEAD_SECTIONS:
         body += [f"## {h}", "", hints[h], ""]
@@ -128,20 +130,20 @@ def cmd_new(a):
     key = a.key.strip().lower()
     if not KEY.match(key):
         print(f"not a project key: {a.key!r} (lowercase letters, digits and hyphens)", file=sys.stderr); sys.exit(2)
-    try:
-        deadline = datetime.date.fromisoformat(a.deadline)
+    try:                                                   # optional: a date only when one is committed, never invented
+        deadline = datetime.date.fromisoformat(a.deadline) if a.deadline else None
     except (TypeError, ValueError):
         print(f"--deadline takes YYYY-MM-DD, not {a.deadline!r}", file=sys.stderr); sys.exit(2)
     folder = os.path.join(s["vault"], V.PROJECTS, key)
     if os.path.exists(folder):
         print(f"project {key!r} exists: {V.PROJECTS}/{key}/", file=sys.stderr); sys.exit(3)
     title = (a.title or key.replace("-", " ")).strip()
-    fm, head = skeleton(key, title, deadline.isoformat(), today)
+    fm, head = skeleton(key, title, deadline.isoformat() if deadline else None, today)
     os.makedirs(folder)
     n = V.project_note(key, fm + head, s["vault"], [], today, jira_base(a.env_file or s.get("env")))
     V.atomic_write(page_path(s["vault"], key), n.front_text + n.head + n.tail)
-    print(f"{V.PROJECTS}/{key}/{key}.md: written, deadline {deadline.isoformat()} ({V.days_words((deadline - today).days)}); "
-          "fill its head, then `ela project keys` for the tickets it watches")
+    print(f"{V.PROJECTS}/{key}/{key}.md: written, " + (f"deadline {deadline.isoformat()} ({V.days_words((deadline - today).days)})"
+          if deadline else "no deadline until one is committed") + "; fill its head, then `ela project keys` for the tickets it watches")
 
 
 def cmd_keys(a):
@@ -176,7 +178,7 @@ def main():
     p.set_defaults(func=cmd_show)
     p = sub.add_parser("new", help="create projects/<key>/ and the page's head skeleton")
     p.add_argument("key")
-    p.add_argument("--deadline", required=True, help="YYYY-MM-DD")
+    p.add_argument("--deadline", help="YYYY-MM-DD, only when a date is committed (optional since the 2026-11-11 review)")
     p.add_argument("--title", help="the page's title; the key with spaces when absent")
     p.set_defaults(func=cmd_new)
     p = sub.add_parser("keys", help="add Jira keys to a project's page, which the afterwards pass then watches")

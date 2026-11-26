@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The project verbs, offline: new makes the folder and the page's skeleton with a first tail, keys adds to the watch,
 list and show read the pages as data."""
-import contextlib, datetime, io, json, os, sys, tempfile, types
+import shutil, contextlib, datetime, io, json, os, sys, tempfile, types
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "skills", "project"))
 import project as P  # noqa: E402
@@ -49,6 +49,12 @@ with tempfile.TemporaryDirectory() as t:
     check("new refuses an existing key, a bad key and a bad deadline",
           call(P.cmd_new, key="sb", deadline=dl)[0] == 3 and call(P.cmd_new, key="Bad Key", deadline=dl)[0] == 2
           and call(P.cmd_new, key="ok", deadline="next week")[0] == 2 and not os.path.exists(os.path.join(vault, "projects", "ok")))
+    code, out = call(P.cmd_new, key="nodate", deadline=None, title="No date")
+    nd = open(os.path.join(vault, "projects", "nodate", "nodate.md")).read() if code == 0 else ""
+    check("new without a deadline: no date is invented, none counted down",
+          code == 0 and "no deadline until one is committed" in out and not any(l.startswith("deadline:") for l in V.split_front(nd)[0])
+          and "No date is committed yet" in nd)
+    shutil.rmtree(os.path.join(vault, "projects", "nodate"))
     code, out = call(P.cmd_keys, key="sb", add=["MH-1", "mh-2"])
     check("keys adds to the page's keys, uppercased, deduplicated, as a list", code == 0 and 'keys: ["MH-1", "MH-2"]' in open(page).read()
           and "nothing new" in call(P.cmd_keys, key="sb", add=["MH-2"])[1] and call(P.cmd_keys, key="sb", add=["bogus"])[0] == 2

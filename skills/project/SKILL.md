@@ -45,7 +45,7 @@ view.
 |---|---|---|
 | `ela project list [--json]` | every project: key, deadline, days left, open asks (its notes waiting on the owner's word), title | nothing |
 | `ela project show <key> [--json]` | one project's facts, asks, notes, keys, threads and watch | nothing |
-| `ela project new <key> --deadline YYYY-MM-DD [--title T]` | the folder and the page with the head skeleton (Goal, Deadline, Parties, What is known, Next step) and a first tail; refuses an existing key | the vault |
+| `ela project new <key> [--deadline YYYY-MM-DD] [--title T]` | the folder and the page with the head skeleton (Goal, Dates, Parties, What is known, Next step) and a first tail; a deadline only when one is committed, never set to fill the field; refuses an existing key | the vault |
 | `ela project keys <key> --add MH-… [--json]` | adds keys to the page's `keys`, deduplicated | the page's front matter |
 
 Exit codes: 0 ok · 2 usage or site · 3 no such project (or it exists already, on `new`).
