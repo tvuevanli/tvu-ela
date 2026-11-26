@@ -204,7 +204,8 @@ its row and named as not covered, but does not decide the verdict: the ticket is
 - Press Save, start a stream or schedule a route under the owner's account `el`. Under the test account `li` it may
   (the owner's word, 2026-11-26): set up what the case needs (a graph, a source, a destination), run it, and stop or
   remove what it created when the run ends; `el` is used only to switch `li`'s bundle to the lane under test. The
-  usual input is a YouTube source, and the app's HLS output (the preview) is an acceptable view of the output unless the
-  case is about another output.
+  source follows the case: YouTube, HTML and HLS sources are at hand; a passthrough case cannot use YouTube; an SRT
+  input is pushed by ela itself or by MediaHub from another source. The app's HLS output (the preview) is an acceptable
+  view of the output unless the case is about another output.
 - Keep selectors or expectations as knowledge: they belong to the file at the build, read each time.
-- Close a ticket: a pass with its proof goes on the ticket and into its close bundle; the close is the owner's letter or QA's click.
+- Leave a verified ticket open: a pass with its proof on the ticket closes it (the owner's word, 2026-11-26); a fail reopens or reassigns it with the proof.
