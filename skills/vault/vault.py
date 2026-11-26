@@ -322,6 +322,18 @@ VIEWS = {
       - property: parked
         direction: DESC
   - type: table
+    name: Plans
+    filters:
+      and:
+        - 'type == "plan"'
+    groupBy:
+      property: file.folder
+      direction: ASC
+    order: [date, formula.note, status, target, next]
+    sort:
+      - property: date
+        direction: DESC
+  - type: table
     name: Cases
     filters:
       and:
