@@ -3744,8 +3744,9 @@ def dry_asks(reports, today, asks_state, dry_run=False):
 
 def dry_pages(vault, reports, today, record=True, jira_base=""):
     """ela/dry/<batch>.md for each batch waiting: written once, then his (a struck or edited line is what the answer
-    reads), and ela/dry/did.md, today's acts without confirm with the word that undoes each: low confidence first under
-    "Review first", each key a link to its Jira page."""
+    reads), and ela/dry/did.md, today's acts without confirm with the word that undoes each: every row below high under
+    "Review first" at the top (medium, and a board-watch row recorded before confidence was, counted low; a low act
+    itself no longer writes, it waits on ela/watch.md), each key a link to its Jira page."""
     out = {}
     try:
         D = dry_mod()
@@ -3773,9 +3774,9 @@ def dry_pages(vault, reports, today, record=True, jira_base=""):
             return "" if not got else " — ok" if got[0] == "ok" else f" — wrong: {got[1] or '(no cause given)'}"
         def row(n, t, u):
             return f"- {n}. {link_keys(t, jira_base)[0]} · `{u}`{mark(n)}"
-        low = [row(n, t, u) for n, t, u, lv in rows if lv == "low"]
-        rest = [row(n, t, u) for n, t, u, lv in rows if lv != "low"]          # did() sorts medium before high
-        body = ((["## Review first", "", "Low confidence: ela acted, and the doubt says what the evidence left open.", ""] + low
+        low = [row(n, t, u) for n, t, u, lv in rows if lv != "high"]          # did() sorts low, medium, high
+        rest = [row(n, t, u) for n, t, u, lv in rows if lv == "high"]
+        body = ((["## Review first", "", "Not fully sure: ela acted, and the doubt says what the evidence left open.", ""] + low
                  + (["", "## The rest", ""] if rest else [])) if low else []) + rest
         out[rel_did] = front([], {"type": "dry", "date": today.isoformat()}) + "\n".join(
             [f"# Done by ela · {today:%a %Y-%m-%d}", "", "Writes ela made without asking. Beside a line write `ok`, or "

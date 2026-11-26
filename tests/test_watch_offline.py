@@ -334,8 +334,8 @@ with tempfile.TemporaryDirectory() as reports:
     sys.path.insert(0, os.path.join(ROOT, "skills", "vault"))
     import vault as V  # noqa: E402
     pg = V.dry_pages(reports, reports, day, record=False, jira_base="https://j")["ela/dry/did.md"]
-    check("did.md: the low rows under Review first, every key a link, the act id and undo word left as they were",
-          pg.index("## Review first") < pg.index("MH-51") < pg.index("## The rest") < pg.index("MH-60")
+    check("did.md: the rows below high under Review first, every key a link, the act id and undo word left as they were",
+          pg.index("## Review first") < pg.index("MH-51") < pg.index("MH-60") < pg.index("## The rest") < pg.index("MH-50#1")
           and "[MH-49](https://j/browse/MH-49)" in pg and "- 2026-11-25-board-watch-MH-50#1. [MH-50](https://j/browse/MH-50): " in pg
           and {i for i, m, _ in D.did_marks(pg.replace("on the ticket`", "on the ticket` ok"))}
           == {"2026-11-25-board-watch-MH-50#1", "2026-11-25-board-watch-MH-50#2", "2026-11-25-board-watch-MH-51#1",

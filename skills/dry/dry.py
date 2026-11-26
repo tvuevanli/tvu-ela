@@ -848,7 +848,7 @@ def place(reports, cls, scope, writes, left, today, apply=False, out_dir=None, r
 
 
 DESCRIPTION_ONLY = "only the description names it; no comment by a person does"
-LEVELS = ("low", "medium", "high")     # how sure the decision was; did.md lists low first, under "Review first"
+LEVELS = ("low", "medium", "high")     # how sure the decision was; did.md lists below high first, under "Review first"
 
 
 def level_of(r):
