@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
-"""Dead links, offline: a link written inside code is not a link; a dead link in a generated page is settled by the
-sync (a successor from the rename history, a project's folder note, a build's line page; else plain text keeping its
-label); `tidy --links --unlink` does the same to a note the vault owns and logs each one."""
+"""Dead links and quiet notes, offline: a link written inside code is not a link; a dead link in a generated page is
+settled by the sync (a successor from the rename history, a project's folder note, a build's line page; else plain
+text keeping its label); `tidy --links --unlink` does the same to a note the vault owns and logs each one; a work
+note's body date survives a property change and moves on a body change; Friday's quiet list names a live work note
+quiet for two weeks with what it waits for, and leaves out a done one and one in history/."""
 import datetime, json, os, sys, tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -59,6 +61,33 @@ with tempfile.TemporaryDirectory() as vault, tempfile.TemporaryDirectory() as re
     rows = [json.loads(l) for l in open(os.path.join(reports, "ela", "vault-unlinked.jsonl"))]
     check("unlink_dead: plain text in the note, the link and its line logged first",
           "See the old page and" in text and rows[0]["target"] == "gone" and "[[gone|the old page]]" in rows[0]["lines"][0])
+
+with tempfile.TemporaryDirectory() as vault:
+    fri = datetime.date(2026, 11, 27)
+    put(vault, "ela/2026-11-01-plan-a.md", "---\ntype: \"plan\"\nstatus: \"live\"\nwaits-on: \"the web team\"\n---\n# Plan A\n\nbody\n")
+    put(vault, "ela/2026-11-01-plan-b.md", "---\ntype: \"plan\"\nstatus: \"live\"\n---\n# Plan B\n\n- [ ] A\n- [ ] B\n")
+    put(vault, "ela/2026-11-01-plan-c.md", "---\ntype: \"plan\"\nstatus: \"done\"\n---\n# Plan C\n")
+    put(vault, "ela/history/2026-11-01-plan-d.md", "---\ntype: \"plan\"\nstatus: \"live\"\n---\n# Plan D\n")
+    put(vault, "ela/2026-11-20-plan-e.md", "---\ntype: \"plan\"\nstatus: \"live\"\n---\n# Plan E\n")
+    put(vault, "ela/page.md", "---\ntype: \"system\"\n---\n# a page\n")
+    first = V.body_dates(vault, None, fri)
+    check("a first reading starts no later than today, pages left out", "ela/page.md" not in first and all(v[1] <= fri.isoformat() for v in first.values()))
+    old = {r: [v[0], "2026-11-05"] for r, v in first.items()}
+    old["ela/2026-11-20-plan-e.md"][1] = "2026-11-20"
+    put(vault, "ela/2026-11-01-plan-a.md", "---\ntype: \"plan\"\nstatus: \"live\"\nwaits-on: \"the web team\"\nnext: \"x\"\n---\n# Plan A\n\nbody\n")
+    b = V.body_dates(vault, old, fri)
+    check("a property change keeps the body's date", b["ela/2026-11-01-plan-a.md"][1] == "2026-11-05")
+    rows = V.quiet_notes(vault, b, fri)
+    names = [r[0] for r in rows]
+    check("quiet: live notes unchanged 14 days, not a done one, not history/, not a recent one",
+          names == ["ela/2026-11-01-plan-a.md", "ela/2026-11-01-plan-b.md"])
+    check("quiet: what each waits for, from its own properties",
+          rows[0][3] == "the web team" and rows[1][3] == "your word (2 open boxes)")
+    sec = V.quiet_section(rows, fri)
+    check("the section: one plain line, the list folded, no box to tick", sec.startswith("## Quiet for two weeks")
+          and "> [!note]-" in sec and "[ ]" not in sec)
+    put(vault, "ela/2026-11-01-plan-b.md", "---\ntype: \"plan\"\nstatus: \"live\"\n---\n# Plan B\n\n- [ ] A\n")
+    check("a body change moves the date to today", V.body_dates(vault, b, fri)["ela/2026-11-01-plan-b.md"][1] == fri.isoformat())
 
 print(f"{failures} failure(s)")
 sys.exit(1 if failures else 0)

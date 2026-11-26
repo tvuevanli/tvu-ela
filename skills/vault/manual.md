@@ -14,7 +14,7 @@ ela runs on its own and writes this vault. You do two things here: give a **fact
 1. **Open [[today]].** Read **In short**: at most five lines, most urgent first, each with what it means and what to do; the last line says where to start.
    Under **Today**, the line **Team yesterday** opens the team daily report as it went out to Slack, with a **For you** block on top (at most three lines: your tickets, mentions of you, and any line that contradicts Jira). On Mondays a second line opens the weekly.
 2. **Answer what is under Needs you.** Each ask is lettered; A is ela's recommendation. Tick a box, or write `ela: A` under it (`ela: 2 B` anywhere on the page). An ask you leave does nothing; after three working mornings it moves to [[reference/dropped|dropped asks]].
-3. **Follow a link only when a line is not enough.** The morning page and the changes page under `reference/days/` hold the evidence behind today.md; you do not need to read them every day.
+3. **Follow a link only when a line is not enough.** The morning page and the changes page under `reference/days/` hold the evidence behind today.md; you do not need to read them every day. On Fridays the changes page ends with **Quiet for two weeks**: live notes whose text has not changed in 14 days, with what each waits for; write `done` on one that is finished, or leave it.
 
 ## Where things live
 

@@ -5877,6 +5877,108 @@ def services_note(s, vault, today):
                 src_rel="published:map/services.yaml")
 
 
+# the Friday quiet list: a live work note whose body has not changed for QUIET_DAYS is named on Friday's changes page
+# with what it waits for; it is a list to read, never an ask and never a close (the owner closes, or the note moves on)
+QUIET_DAYS = 14
+
+
+def backup_tree(s):
+    """The runner's backup work tree (<runtime>/backup/work, ela-runner's BACKUP_WORK), where the nightly copies of the
+    vault have their history."""
+    return os.path.join(s.get("runtime") or "", "backup", "work") if s.get("runtime") else None
+
+
+def backup_since(backup, rel, d):
+    """The date of the oldest nightly backup (the runner's backup work tree, the vault under vault/) from which on the
+    note's body has read as digest d, renames followed; None when no backup holds it. A backup's date is when it ran,
+    so the date found is never earlier than the truth."""
+    if not backup or not os.path.isdir(os.path.join(backup, ".git")):
+        return None
+    try:
+        log = subprocess.run(["git", "-C", backup, "log", "--follow", "--name-only", "--format=@%H %cs", "--", f"vault/{rel}"],
+                             capture_output=True, text=True, timeout=30).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None
+    since = None
+    for block in log.split("@")[1:]:
+        head, *paths = [l for l in block.splitlines() if l.strip()]
+        sha, day = head.split()
+        if not paths:
+            break
+        got = subprocess.run(["git", "-C", backup, "show", f"{sha}:{paths[0]}"], capture_output=True, text=True)
+        if got.returncode != 0 or digest(split_front(got.stdout)[1].strip()) != d:
+            break
+        since = day
+    return since
+
+
+def body_dates(vault, old, today, planned=None, backup=None):
+    """{path: [body digest, date the body last changed]} for every work note: a body that reads as the manifest's last
+    digest keeps its date, a changed one gets today; one seen for the first time starts at the oldest nightly backup
+    that already holds this body (backup_since), else at its file's modification date, never quieter than the truth.
+    planned, the text this sync writes, stands for the file on disk."""
+    out = {}
+    for rel, text in vault_notes(vault):
+        text = (planned or {}).get(rel, text)
+        fl, body = split_front(text)
+        if family_of(props_of(fl).get("type")) != "work":
+            continue
+        d, prev = digest(body.strip()), (old or {}).get(rel)
+        if prev and prev[0] == d:
+            out[rel] = prev
+        elif prev:
+            out[rel] = [d, today.isoformat()]
+        else:
+            try:
+                seen = datetime.date.fromtimestamp(os.path.getmtime(os.path.join(vault, rel)))
+            except OSError:
+                seen = today
+            kept = backup_since(backup, rel, d)
+            out[rel] = [d, min(datetime.date.fromisoformat(kept) if kept else seen, seen, today).isoformat()]
+    return out
+
+
+def waits_for(props, body):
+    """What a live work note waits for, from its own properties: open boxes (his word), `built` (his accept),
+    `waits-on` (others), else its `next`."""
+    boxes = len(re.findall(r"^\s*[-*] \[ \]", body, re.M))
+    if boxes:
+        return f"your word ({boxes} open box{'es' if boxes > 1 else ''})"
+    if props.get("built"):
+        return "your accept of what was built"
+    if props.get("waits-on"):
+        return f"{props['waits-on']}"
+    return f"next: {props['next']}" if props.get("next") else "nothing named"
+
+
+def quiet_notes(vault, bodies, today):
+    """[(path, title, since, waits for)] of the live work notes whose body has not changed for QUIET_DAYS, oldest first;
+    the record folders (archive/, any history/) left out."""
+    cut, out = (today - datetime.timedelta(days=QUIET_DAYS)).isoformat(), []
+    for rel, text in vault_notes(vault):
+        got = bodies.get(rel)
+        if not got or got[1] > cut or top(rel) == ARCHIVE or "/history/" in f"/{rel}":
+            continue
+        fl, body = split_front(text)
+        props = props_of(fl)
+        if family_of(props.get("type")) != "work" or is_done(props):
+            continue
+        out.append((rel, h1(body) or props.get("title") or os.path.basename(rel)[:-3], got[1], waits_for(props, body)))
+    return sorted(out, key=lambda x: (x[2], x[0]))
+
+
+def quiet_section(rows, today):
+    """Friday's section on the changes page: one plain line, the list folded under it; '' when nothing is quiet."""
+    if not rows:
+        return ""
+    lines = [f"## Quiet for two weeks", "",
+             f"{len(rows)} live work note{'s' if len(rows) > 1 else ''} unchanged since {(today - datetime.timedelta(days=QUIET_DAYS)):%m-%d} "
+             "or before: close one with `done` if it is finished, or leave it. Nothing here is asked or closed for you.", "",
+             "> [!note]- The notes, oldest first"]
+    lines += [f"> - [[{r[:-3]}|{t}]] · unchanged since {d[5:]} · waits for {w}" for r, t, d, w in rows]
+    return "\n".join(lines) + "\n"
+
+
 def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since=None, dry_run=False, questions=None):
     reports = s.get("reports")
     enotes, titles = elak_notes(s.get("elak"))
@@ -6049,6 +6151,12 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since
     planned[f"{ELA}/about-this-vault.md"] = README.replace(SPEC_MARK, "\n".join(("> " + l).rstrip() for l in spec_text().splitlines()))
     for name, text in VIEWS.items():
         planned[f"{ELA}/{name}.base"] = text
+    changes = f"{DAYS}/{today:%Y}/{today.isoformat()}-changes.md"
+    if today.weekday() == 4 and changes in planned:        # Friday: the live work notes gone quiet, read, never asked
+        bodies = body_dates(s["vault"], manifest_of(s["vault"]).get("bodies"), today, backup=backup_tree(s))
+        sec = quiet_section(quiet_notes(s["vault"], bodies, today), today)
+        if sec:
+            planned[changes] = planned[changes].rstrip("\n") + "\n\n" + sec
     planned, _ = settle_links(planned, s["vault"], reports)   # a generated page carries no dead link: fixed here, so every sync keeps it
     return planned, files, notes, warnings, {n.path for n in native}, inferred
 
@@ -7777,7 +7885,8 @@ def cmd_sync(a):
                                         "seen": {r: d for r, d in seen.items() if r in planned},
                                         "home": {"open": is_open, "looked": looked, "before": before},
                                         "moved": moved_paths(old_moved, today), "moved_until": old_moved.get("until"),
-                                        "source_ticks": source_ticks, "said": said, "native": sorted(native_paths)}, indent=0))
+                                        "source_ticks": source_ticks, "said": said, "native": sorted(native_paths),
+                                        "bodies": body_dates(vault, manifest_of(vault).get("bodies"), today, planned, backup_tree(s))}, indent=0))
         for rel in gone:
             try:
                 os.remove(os.path.join(vault, rel))
