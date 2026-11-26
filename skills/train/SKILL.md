@@ -24,9 +24,11 @@ to-read/2026-11-02-the-train-one-object-behind-the-test-list-and-the-lane-status
 | regression | a fail or an incident on daily or prod after a pass on QA; the row is P1 with the reason "regression on <lane> <build>, passed <qa lane> on <build>" | the cells |
 
 **A verdict is per lane.** A QA report mail belongs to the lane its subject names. A reply in the release thread
-("MH-1 pass on build 78") belongs to the QA lane. A QA person's ticket comment belongs to the furthest lane whose
-arrival label its version names (2.1.78 is the daily release of that name), else to the QA lane when it names one
-of its build numbers, else to the furthest lane the fix had reached when the comment was written. `incident` is an
+("MH-1 pass on build 78") belongs to the QA lane. A QA person's ticket comment belongs to the QA lane, unless it
+proves another lane where the fix has a record: a pasted version panel whose ENV names it (`promote/envproof.panel`),
+or its own words naming it and not the QA lane. A version alone proves no lane. A fail on daily or prod therefore
+counts only from a source bound to that lane (its report mail, an incident) or a QA comment proven there; a verdict a
+daily or prod test-list state recorded from a comment is not taken. `incident` is an
 open customer incident (the brief's incidents lane: sub-tasks of the umbrella) naming the key, raised after the fix
 arrived on a prod lane. `n/a` on a lane below the position means the lane's list began after the fix passed through;
 it is never a demand on QA.

@@ -67,7 +67,7 @@ def comment(who, text, at):
 ISSUES = {"MH-1": {"fields": {"summary": "The dialog shows the wrong field", "assignee": {"displayName": "Dev Person"}, "status": {"name": "Review"}, "priority": {"name": "High"}}, "comments": []},
           "MH-2": {"fields": {"summary": "Art page input replays", "status": {"name": "Review"}}, "comments": []},
           "MH-3": {"fields": {"summary": "Player freezes after reconnect", "status": {"name": "Done"}},
-                   "comments": [comment("QA Person", "fail on 2.1.78 — freezes again on daily", "2026-10-31T09:00:00.000+0800")]},
+                   "comments": [comment("QA Person", "fail on 2.1.78 — freezes again on daily-wed", "2026-10-31T09:00:00.000+0800")]},
           "MH-4": {"fields": {"summary": "Upload fails on large files", "status": {"name": "Done"}}, "comments": []},
           "MH-5": {"fields": {"summary": "YouTube source volume", "status": {"name": "Done"}}, "comments": []},
           "MH-6": {"fields": {"summary": "Encoding Profile bitrate upper limit", "status": {"name": "Review"}, "labels": ["customer-issue"]}, "comments": []},
@@ -85,10 +85,7 @@ check("the line's lanes: qa, daily, prod, then the aligned China lane; a retirin
 check("a left row's why reads back as a verdict", TR.left_verdict("pass on build 75 (2026-10-23, QA report)") == ("pass", "build 75", "2026-10-23", "QA report")
       and TR.left_verdict("withdrawn: Won't Do") is None)
 
-READS = [("2026-10-29", "0000", [{"service": "mediahub-frontend", "lane": "qa-cn3", "version": "v2.2.123 build178 2026-10-29", "host": "qa"}]),
-         ("2026-10-30", "0000", LANE_READ + [{"service": "mediahub-frontend", "lane": "qa-cn3", "version": "v2.2.123 build178 2026-10-29", "host": "qa"},
-                                             {"service": "mediahub-frontend", "lane": "daily-wed", "version": "v2.2.123 build178 2026-10-29", "host": "prod"}])]
-res = TR.collect("2.1", CFG, STATES, MAILS, REPORTS, [], ISSUES, INCIDENTS, NOW, sprint={"MH-2"}, regions=REGIONS, qa=QA, lane_read=LANE_READ, reads=READS)
+res = TR.collect("2.1", CFG, STATES, MAILS, REPORTS, [], ISSUES, INCIDENTS, NOW, sprint={"MH-2"}, regions=REGIONS, qa=QA, lane_read=LANE_READ)
 by = {r["id"]: r for r in res["rows"]}
 check("one row per fix across the lanes; a withdrawn ticket rides nowhere", set(by) == {"MH-1", "MH-2", "MH-3", "MH-4", "MH-5", "MH-6", NT} and res["withdrawn"] == ["MH-7"])
 check("a new QA build from the mails adds its rows; a build at or under seed_after does not", "MH-6" in by and "MH-99" not in by and res["builds"]["qa-cn3"] == ["75", "76", "79", "80"])
@@ -122,27 +119,41 @@ check("an incident naming the key after the prod arrival is the prod verdict; la
       and not by["MH-5"]["regression"] and by["MH-5"]["position"] == "prod")
 recs = {"qa-cn3": {"label": "78", "first_at": "2026-10-28T18:00:00+08:00"}, "daily-wed": {"label": "2.1.78", "first_at": "2026-10-30T10:48:00+08:00"}}
 L = TR.line_lanes("2.1", CFG, REGIONS)
-check("a comment naming a service version both lanes ran goes to QA, the lane QA tests; the lane it names in words wins",
-      TR.verdict_lane("2026-10-29T20:00", "2.2.123 build 178", L, recs, ["78"], READS) == "qa-cn3"
-      and TR.verdict_lane("2026-10-30T20:00", "2.2.123 build 178", L, recs, ["78"], READS) == "qa-cn3"
-      and TR.verdict_lane("2026-10-30T20:00", "2.2.123 build 178", L, recs, ["78"], READS, ["daily-wed"]) == "daily-wed"
-      and TR.verdict_lane("2026-10-30T20:00", "2.2.123 build 178", L, recs, ["78"], READS, ["prod-3"]) == "qa-cn3")
+check("a QA comment belongs to the QA lane whatever version it names; a panel or its words name another lane",
+      TR.verdict_lane(L, recs) == "qa-cn3" and TR.verdict_lane(L, recs, {"words": ["daily-wed"], "panel": None}) == "daily-wed"
+      and TR.verdict_lane(L, recs, {"words": ["prod-3"], "panel": None}) == "qa-cn3"
+      and TR.verdict_lane(L, recs, {"words": ["daily-wed", "qa-cn3"], "panel": None}) == "qa-cn3"
+      and TR.verdict_lane(L, recs, {"words": ["qa-cn3"], "panel": "daily-wed"}) == "daily-wed")
+check("with no record on the QA lane a comment naming no other lane is placed nowhere",
+      TR.verdict_lane(L, {"daily-wed": recs["daily-wed"]}) is None)
 check("the lanes a comment names, keyed by its time", TR.comment_lanes({"comments": [comment("QA Person", "still fails on daily-wed and Prod 3", "2026-10-31T09:00:00.000+0800")]})
-      == {"2026-10-31T09:00+08:00": ["prod-3", "daily-wed"]})
+      == {"2026-10-31T09:00+08:00": {"words": ["prod-3", "daily-wed"], "panel": None}})
 check("the prefetch's errors reach the page as named keys, never a record",
       TR.plain_gaps(["jira read MEDIAHF-254: {'query': '--env-file /x/.env read', 'exit': 1}", "jira read TVUCCM-4: {'exit': 1}", "QA report mails: {'stderr': 'x'}"])
       == ["2 tickets not readable (another project, or no permission): MEDIAHF-254, TVUCCM-4", "QA report mails"])
 check("three or more unreadable keys are counted by project, not listed",
       TR.plain_gaps([f"jira read {k}: {{'exit': 1}}" for k in ("MEDIAHF-254", "MEDIAHF-250", "TVUCCM-4")])
       == ["3 tickets not readable (another project, or no permission): 2 in MEDIAHF, 1 in TVUCCM, each on its row above"])
-check("a comment naming the daily release's label goes to daily; a QA build number to QA; else the furthest lane reached",
-      TR.verdict_lane("2026-10-31T09:00", "2.1.78", L, recs, ["78"]) == "daily-wed" and TR.verdict_lane("2026-10-31T09:00", "build 78", L, recs, ["78"]) == "qa-cn3"
-      and TR.verdict_lane("2026-10-31T09:00", "1.0.11", L, recs, ["78"]) == "qa-cn3" and TR.verdict_lane("2026-10-31T09:00", "1.0.11", L, {"daily-wed": recs["daily-wed"]}, ["78"]) == "daily-wed")
 daily_state = dict(STATES, **{"daily-wed": dict(STATES["daily-wed"], rows={"MH-4": dict(srow("MH-4", "MH-4", "20261030", "2026-10-30T10:48:00+08:00", "fail"),
                                                                                         verdict_version="build 76", verdict_date="2026-10-27", verdict_source=None)})})
 with_state = TR.collect("2.1", CFG, daily_state, MAILS, REPORTS, [], ISSUES, INCIDENTS, NOW, regions=REGIONS, qa=QA)
 check("a lane's recorded comment that belongs to another lane by the rule is not that lane's verdict (no false regression)",
       {r["id"]: r for r in with_state["rows"]}["MH-4"]["cells"]["daily-wed"]["verdict"] == "untested" and not {r["id"]: r for r in with_state["rows"]}["MH-4"]["regression"])
+# MH-4065, 2026-11-25: QA's fail naming only a service version, written after the fix reached daily, is QA's
+placed = dict(STATES, **{"qa-cn3": dict(STATES["qa-cn3"], rows={"MH-10": srow("MH-10", "MH-10", "79", "2026-10-29T17:53:00+08:00")}),
+                         "daily-wed": dict(STATES["daily-wed"], rows={"MH-10": dict(srow("MH-10", "MH-10", "20261030", "2026-10-30T10:48:00+08:00", "fail"),
+                                                                                    verdict_version="2.2.148 build 212", verdict_date="2026-10-31", verdict_source=None)})})
+issues10 = dict(ISSUES, **{"MH-10": {"fields": {"summary": "EIP pool", "status": {"name": "Review"}},
+                                     "comments": [comment("QA Person", "fail: TC13 still wrong on 2.2.148 build 212", "2026-10-31T09:00:00.000+0800")]}})
+r10 = {r["id"]: r for r in TR.collect("2.1", CFG, placed, {}, REPORTS, [], issues10, INCIDENTS, NOW, regions=REGIONS, qa=QA)["rows"]}["MH-10"]
+check("a QA comment naming only a version sits on the QA lane; the daily list's copy of it is no daily fail, so no regression",
+      r10["cells"]["qa-cn3"]["verdict"] == "fail" and r10["cells"]["qa-cn3"]["version"] == "2.2.148 build 212"
+      and r10["cells"]["daily-wed"]["verdict"] == "untested" and not r10["regression"])
+late = dict(placed, **{"qa-cn3": dict(placed["qa-cn3"], rows={"MH-10": srow("MH-10", "MH-10", "80", "2026-11-01T17:53:00+08:00")})})
+r10 = {r["id"]: r for r in TR.collect("2.1", CFG, late, {}, REPORTS, [], issues10, INCIDENTS, NOW, regions=REGIONS, qa=QA)["rows"]}["MH-10"]
+check("written before the fix reached QA, it still never falls to the lane the fix had reached (daily)",
+      r10["cells"]["daily-wed"]["verdict"] == "untested" and r10["cells"]["qa-cn3"]["verdict"] == "untested")
+check("a comment with no panel proves no lane by panel", TR.panel_lane("fail on build 99") is None and TR.panel_lane("ENV: nowhere-env\nfoo 1.0") is None)
 check("a pass on QA then untested on daily is no regression", by["MH-4"]["cells"]["daily-wed"]["verdict"] == "untested" and not by["MH-4"]["regression"])
 check("the customer label is P1, the dialog row is auto, the owner is named", by["MH-6"]["priority"] == "P1" and by["MH-1"]["auto"] and by["MH-1"]["owner"] == "Dev Person")
 check("the China lane is a cell, never a position", "prod-2-china" in [l["lane"] for l in res["lanes"]] and all(r["position"] != "cn" for r in res["rows"]))

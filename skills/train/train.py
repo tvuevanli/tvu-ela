@@ -150,58 +150,62 @@ def lane_rows(lane, state, mails, reports, issues):
     return out, ordered, withdrawn
 
 
+def panel_lane(text):
+    """The lane a pasted version panel (验证环境, ENV: …) in a comment proves, by the environment proof's parser; None
+    when the comment pastes no panel or the panel names no lane."""
+    if "ENV:" not in (text or ""):
+        return None
+    sys.path.insert(0, os.path.join(SKILLS, "promote"))
+    import envproof as E  # noqa: E402  — the proof promote and qajira already use
+    try:
+        return (E.panel(text) or {}).get("lane")
+    except (SystemExit, OSError, ValueError):
+        return None
+
+
 def comment_lanes(issue):
-    """{comment time: [lanes]} for the ticket's comments that name a lane in words (prod-3, CN Prod2, daily-wed, QA-AWS3),
-    keyed the way `comment_verdicts` stamps its rows, so a verdict can be placed on the lane the comment names."""
+    """{comment time: {"words": [lanes], "panel": lane}} for the ticket's comments that name a lane in words (prod-3,
+    CN Prod2, daily-wed, QA-AWS3) or paste a version panel whose ENV proves one, keyed the way `comment_verdicts`
+    stamps its rows, so a verdict can be placed on the lane the comment names."""
     out = {}
     for c in (issue or {}).get("comments") or []:
         at = B.parse_ts(c.get("created") or "")
-        lanes = RC.lane_words(J.body_text(c.get("body")) or "")
-        if at and lanes:
-            out[at.astimezone().isoformat(timespec="minutes")] = lanes
+        text = J.body_text(c.get("body")) or ""
+        lanes, panel = RC.lane_words(text), panel_lane(text)
+        if at and (lanes or panel):
+            out[at.astimezone().isoformat(timespec="minutes")] = {"words": lanes, "panel": panel}
     return out
 
 
-def verdict_lane(at, version, lanes, recs, qa_builds, reads=None, named_lanes=()):
-    """The lane a QA comment judges. The lane its words name, when the fix has a record there. Else by the version it
-    names: the nearest lane of the path a saved lane read dated by then shows running that service version (QA tests
-    on the QA lane; a version both QA and daily run is QA's unless the words say otherwise), else the lane whose
-    arrival label it names (2.1.78 is the daily release of that name), else the QA lane when it names one of its
-    build numbers; with no version to go by, the nearest lane the fix had reached when the comment was written."""
-    ver, day = version or "", (at or "")[:10]
-    for lane in named_lanes or ():
-        if lane in recs:
-            return lane
-    path = [lane for role, lane in lanes if role in ROLES and lane in recs]
-    pv = R.parse_version(ver)
-    if pv and pv[4]:
-        ran = {r.get("lane") for d, _, rows in reads or [] if d <= day for r in rows
-               if B.is_lane_row(r) and B.vkey(r.get("version")) == (pv[:4], pv[4])}
-        hit = [lane for lane in path if lane in ran]
-        if hit:
-            return hit[0]
-    named = [lane for lane in path if recs[lane].get("label") and re.search(r"(?<![\d.])" + re.escape(str(recs[lane]["label"])) + r"(?![\d.])", ver)]
-    if named:
-        return named[0]
-    b = re.search(r"build\s*(\d+)\b", ver, re.I)
+def verdict_lane(lanes, recs, named=None):
+    """The lane a QA person's comment judges: the QA lane, unless the comment proves another lane where the fix has a
+    record — a pasted version panel whose ENV names it, or its own words naming it (and not the QA lane too). A
+    version alone proves no lane: on 2026-11-25 QA's "2.2.148 build 212" on MH-4065 fell, by the version rules this
+    replaces, to the nearest lane the fix had reached, and all nine daily and prod fails in the 2.1 train were QA
+    comments placed that way. None when the fix has no record on the QA lane and the comment names no other."""
     qa_lane = dict(lanes).get("qa")
-    if b and b.group(1) in (qa_builds or ()) and qa_lane in recs:
-        return qa_lane
-    return next((lane for lane in path if (recs[lane].get("first_at") or "")[:16] <= (at or "")[:16]), None)
+    named = named or {}
+    if named.get("panel") in recs:
+        return named["panel"]
+    words = [lane for lane in named.get("words") or () if lane in recs]
+    if words and qa_lane not in words:
+        return words[0]
+    return qa_lane if qa_lane in recs else None
 
 
-def lane_verdicts(t, also, lanes, recs, said, issues, qa, qa_builds, reads=None):
+def lane_verdicts(t, also, lanes, recs, said, issues, qa):
     """{lane: (verdict, version, date, source)}: each lane's latest word after the fix arrived there — its report mails
     (lane-bound), the release thread's replies (the QA lane), QA's ticket comments placed by `verdict_lane` — else the
-    verdict the lane's state recorded, when a comment it recorded belongs to that lane by the same rule (the per-lane
-    lists took every comment after their own arrival), else untested."""
+    verdict the lane's state recorded, else untested. On daily and prod a recorded verdict counts only from a report
+    mail: the per-lane lists took every QA comment after their own arrival, and a comment proves its lane only by its
+    words or panel, which the train reads from the comment itself above."""
     found = {lane: list(r["found"]) for lane, r in recs.items()}
     since = min((r.get("first_at") or "" for r in recs.values()), default="")
     qa_lane = dict(lanes).get("qa")
     for k in [t, *also] if t else []:
         words = comment_lanes(issues.get(k))
         for at_, v, ver, src in TL.comment_verdicts(issues.get(k), qa, since):
-            lane = verdict_lane(at_, ver, lanes, recs, qa_builds, reads, words.get(at_))
+            lane = verdict_lane(lanes, recs, words.get(at_))
             if lane:
                 found[lane].append((at_, v, ver, src))
     if qa_lane in recs:
@@ -215,8 +219,8 @@ def lane_verdicts(t, also, lanes, recs, said, issues, qa, qa_builds, reads=None)
             out[lane] = (VERDICT_WORD.get(mine[-1][1], mine[-1][1]), mine[-1][2], mine[-1][0][:10], mine[-1][3])
             continue
         sv = r.get("state_verdict")
-        if sv and not re.match(r"QA (summary )?report", str(sv[3] or "")) and verdict_lane(sv[2], sv[1], lanes, recs, qa_builds, reads) != lane:
-            sv = None                                   # a comment the lane's list took after its own arrival, judged elsewhere by the rule
+        if sv and lane != qa_lane and not re.match(r"QA (summary )?report", str(sv[3] or "")):
+            sv = None                                   # a QA comment the lane's list took after its own arrival: not proof of the lane
         out[lane] = sv or ("untested", None, None, None)
     return out
 
@@ -233,13 +237,13 @@ def incident_on(key, cell, incidents):
     return None
 
 
-def row_of(rid, lanes, per_lane, said, issues, incidents, sprint, soon, qa, names=None, reads=None):
+def row_of(rid, lanes, per_lane, said, issues, incidents, sprint, soon, qa, names=None):
     """One row of the train from its records on each lane."""
     recs = {lane: per_lane[lane][0][rid] for _, lane in lanes if rid in per_lane[lane][0]}
     first = next(iter(recs.values()))
     t = first["ticket"]
     qa_lane = dict(lanes).get("qa")
-    verdicts = lane_verdicts(t, first["also"], lanes, recs, said, issues, qa, per_lane[qa_lane][1] if qa_lane else (), reads)
+    verdicts = lane_verdicts(t, first["also"], lanes, recs, said, issues, qa)
     f = ((issues.get(t) if t else None) or {}).get("fields") or {}
     title = f.get("summary") or next((r["log"][0] for r in recs.values() if r["log"]), None) or next((r["focus"] for r in recs.values() if r["focus"]), "")
     layers = sorted({l for r in recs.values() for l in r["layers"]})
@@ -285,11 +289,10 @@ def row_of(rid, lanes, per_lane, said, issues, incidents, sprint, soon, qa, name
 
 
 def collect(line, cfg, states, mails, reports, said, issues, incidents, at, sprint=frozenset(), soon=False, regions=None,
-            qa=None, lane_read=None, before=None, tested=None, names=None, gaps=(), reads=None):
+            qa=None, lane_read=None, before=None, tested=None, names=None, gaps=()):
     """The train of one line. Pure: every source is given. states/mails/reports: {lane: …}; said: the release threads'
     verdicts; issues: {key: the ticket as `ela jira read --json` gives it}; incidents: the open incident rows, None
-    when not read; lane_read/before: the newest saved lane reads for the versions row; reads: every saved lane read
-    [(date, HHMM, rows)], which place a comment's service version on the lane that ran it."""
+    when not read; lane_read/before: the newest saved lane reads for the versions row."""
     lanes = line_lanes(line, cfg, regions)
     qa = qa if qa is not None else TL.qa_people()[0]
     per_lane = {lane: lane_rows(lane, (states or {}).get(lane), (mails or {}).get(lane), (reports or {}).get(lane) or [], issues)
@@ -298,7 +301,7 @@ def collect(line, cfg, states, mails, reports, said, issues, incidents, at, spri
     for _, lane in lanes:
         ids += [rid for rid in per_lane[lane][0] if rid not in ids]
     withdrawn = sorted({w for _, lane in lanes for w in per_lane[lane][2]})
-    rows = [row_of(rid, lanes, per_lane, said, issues, incidents, sprint, soon, qa, names, reads) for rid in ids if rid not in withdrawn]
+    rows = [row_of(rid, lanes, per_lane, said, issues, incidents, sprint, soon, qa, names) for rid in ids if rid not in withdrawn]
     rows.sort(key=lambda r: (not r["regression"], r["priority"], ROLE_RANK[r["position"]], r["id"]))
     return {"line": str(line), "at": at.isoformat(timespec="minutes"), "lanes": [{"role": r, "lane": l, "shown": shown(l)} for r, l in lanes],
             "builds": {lane: per_lane[lane][1] for _, lane in lanes}, "rows": rows, "withdrawn": withdrawn,
@@ -520,7 +523,7 @@ def main():
     except (OSError, ValueError):
         tested = {}
     res = collect(line, cfg, states, mails, {l: reports.get(l) or [] for _, l in lanes}, said, cache, incidents, at,
-                  TL.sprint_keys(s), TL.departs_soon(s, at), regions, lane_read=rows, before=before, tested=tested, gaps=gaps, reads=reads)
+                  TL.sprint_keys(s), TL.departs_soon(s, at), regions, lane_read=rows, before=before, tested=tested, gaps=gaps)
     res["read_at"] = B.facts_read_at()
     if a.parity:
         qa_lane = dict(lanes)["qa"]
