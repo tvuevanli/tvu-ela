@@ -85,6 +85,12 @@ early = [dict(r) for r in rows]
 early[4] = row("MH-4100", "fail", history=[h("pass", "build 98", "2026-11-18T18:00"), h("fail", "build 100", "2026-11-25T18:43")])
 got = judged(early, issues)
 check("an earlier pass on record makes it blocks (passed before, fails now)", got["MH-4100"]["impact"]["group"] == "blocks")
+same = [dict(r) for r in rows]
+same[4] = row("MH-4100", "fail", history=[h("pass", "2.2.136 build 196", "2026-11-25T13:37", "comment by Erin Zhang"), h("fail", "build 100", "2026-11-25T18:43")])
+got = judged(same, dict(issues, **{"MH-4100": issue("MH-4100", C["pass"])}))
+check("QA's pass and QA's fail the same day are a conflict, not a regression: your call, leaning blocks (MH-4016 shape)",
+      got["MH-4100"]["impact"]["group"] == "your-call" and got["MH-4100"]["impact"]["leaning"] == "blocks"
+      and "says pass, a later QA word says fail" in got["MH-4100"]["impact"]["reason"])
 late = [dict(r) for r in rows]
 late[5] = row("MH-4111", "pass", arrived="102", history=[h("pass", "build 102", "2026-11-26T18:43")])
 got = judged(late, issues)

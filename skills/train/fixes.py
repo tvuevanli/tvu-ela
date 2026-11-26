@@ -180,7 +180,7 @@ def judge(row, lanes, by_key, incidents, rulings=()):
     v = qa_cell.get("verdict")
     if v == "fail":
         last_fail = max((h.get("at") or "" for h in hist if h["verdict"] == "fail"), default="9")
-        passed = [h for h in hist if h["verdict"] == "pass" and (h.get("at") or "") < last_fail]
+        passed = [h for h in hist if h["verdict"] == "pass" and (h.get("at") or "")[:10] < last_fail[:10]]   # a pass the same day is a conflict, not a regression
         if passed:
             return done("blocks", f"passed QA on {passed[-1]['version']}, fails on {qa_cell.get('version')}", "a fix, then QA again")
         if word.get("verdict") == "fail":
@@ -209,7 +209,10 @@ def firm_or_ask(row, lanes, by_key, incidents, rulings, out, word, qa_cell, move
     key, qa_lane = row.get("key"), lane_of(lanes, "qa")
     failed, proofs, tests = word.get("failed") or [], [], []
     moving = build_no(((row.get("cells") or {}).get(qa_lane) or {}).get("arrived"))
-    if not word.get("head"):
+    if word.get("verdict") == "pass":
+        criterion = "fail"
+        tests.append(f"QA's Jira comment of {str(word.get('when'))[5:10]} says pass, a later QA word says fail")
+    elif not word.get("head"):
         criterion = "report-only"
         tests.append("QA named no case in Jira: the failing case is not read")
     elif not failed:
