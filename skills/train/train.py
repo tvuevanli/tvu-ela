@@ -333,12 +333,13 @@ def collect(line, cfg, states, mails, reports, said, issues, incidents, at, spri
 def report_parity(reports, rows, withdrawn=()):
     """The keys the window's QA report mails give a verdict (pass, fail, N/A — the report reader's own lines, so a bug
     QA filed under "new issues" or a test-case id is not one) that the train has no row for, as a row's key or an
-    `also`; sorted, a withdrawn row counting as present. On 2026-11-24 QA reported MH-4097 on a re-sent build the
+    `also`, in a project the train's rows come from; sorted, a withdrawn row counting as present. On 2026-11-24 QA reported MH-4097 on a re-sent build the
     train never read."""
     named = {k for rs in (reports or {}).values() for r in rs or [] for k in B.keys_in(r.get("text") or "")
              if any(v in ("pass", "fail", "n-a") for v, _ in TL.P.key_verdicts(r.get("text") or "", k))}
     have = {k for r in rows for k in [r.get("key"), *(r.get("also") or [])] if k} | set(withdrawn)
-    return sorted(named - have, key=lambda k: (k.split("-")[0], int(k.split("-")[1]) if k.split("-")[1].isdigit() else 0))
+    projects = {k.split("-")[0] for k in have}            # QA's case ids (CON-14, SW-10) share the key's shape, not a project
+    return sorted({k for k in named - have if k.split("-")[0] in projects}, key=lambda k: (k.split("-")[0], int(k.split("-")[1]) if k.split("-")[1].isdigit() else 0))
 
 
 def parity_gap(missing):
