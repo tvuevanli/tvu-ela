@@ -135,6 +135,8 @@ check("## Who Evan is" not in ev, "the head sits beside the section it replaces"
 # check runs where that text exists and is skipped elsewhere; ELA_PREFS_CHECK=FILE checks a candidate text before it
 # replaces the live one.
 REQUIRED = {
+    "design: a rework at scale is allowed (2026-11-26)": [
+        "A rework at scale is allowed", "argued from the roots", "rebuilding the part from the root"],
     "slack: nothing posts on its own (2026-11-12)": [
         "Nothing posts to Slack on its own except the daily and weekly reports", "dry run first",
         "leaves only on his approve", "No timer, veto window or standing rule sends one for him", "retires tier 2"],
