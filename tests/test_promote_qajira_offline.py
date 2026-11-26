@@ -67,6 +67,19 @@ check("a failed case keeps the ticket its line names (a follow-up fix)", f[0]["k
 f = Q.parse("QA 复验结果\n✅ TC-A ok\n❌ TC-B the stage bar stays at 95%\n")["failed"]
 check("a ❌ marker line is a failed case, its words without the case id", [x["case"] for x in f] == ["TC-B"] and f[0]["text"] == "the stage bar stays at 95%")
 
+# a Jira table in ADF: verdict_of reads each case row as one line (adf_text puts each cell on its own line)
+def para(t):
+    return {"type": "paragraph", "content": [{"type": "text", "text": t}]}
+def trow(*cells):
+    return {"type": "tableRow", "content": [{"type": "tableCell", "content": [para(c)]} for c in cells]}
+adf = {"type": "doc", "content": [para("QA result: partial 2 Pass + 1 Fail"), para("ENV line"), para("scope line"),
+                                  {"type": "table", "content": [trow("TC1", "first case", "✅ Pass"), trow("TC2", "second case breaks", "❌ Fail (MH-4111)")]}]}
+issue = {"key": "MH-4065", "fields": {"status": {"name": "Review"}, "issuelinks": []},
+         "comments": [{"author": {"displayName": "Erin Zhang"}, "created": "2026-11-25T01:00", "body": adf, "id": "9"}]}
+f = Q.verdict_of(issue, QA)["latest"]["failed"]
+check("a failed case in an ADF table keeps its id, its words and its follow-up key",
+      [(x["case"], x["text"], x["keys"]) for x in f] == [("TC2", "second case breaks", ["MH-4111"])])
+
 if failures:
     print(f"qajira: {len(failures)} failure(s)"); sys.exit(1)
 print("qajira: all offline checks passed")

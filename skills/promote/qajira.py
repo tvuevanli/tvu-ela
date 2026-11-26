@@ -172,6 +172,22 @@ def adf_text(node):
                     " " if t in ("tableCell", "tableHeader") else "")
 
 
+def adf_rows(node):
+    """ADF as text with each table row on one line, `| a | b |`: the failed cases are read from rows, while `adf_text`
+    (one line per cell paragraph) stays the text the verdict is read from."""
+    if isinstance(node, list):
+        return "".join(adf_rows(n) for n in node)
+    if not isinstance(node, dict):
+        return adf_text(node)
+    if node.get("type") == "tableRow":
+        cells = [" ".join(adf_text(c.get("content") or []).split()) for c in node.get("content") or []]
+        return "| " + " | ".join(cells) + " |\n"
+    if node.get("type") in ("text", "hardBreak"):
+        return adf_text(node)
+    inner = adf_rows(node.get("content") or [])
+    return inner + ("\n" if node.get("type") in ("paragraph", "heading", "listItem", "codeBlock", "blockquote") else "")
+
+
 def qa_names():
     sys.path.insert(0, os.path.join(SKILLS, "team"))
     try:
@@ -216,6 +232,8 @@ def verdict_of(issue, qa=None, key=None):
         if key and mentioned and key not in mentioned and len(mentioned) > 0 and re.match(r"^\W*" + KEY_RE.pattern, text.strip()):
             continue                                           # a copy of another ticket's report, headed by its key
         p = parse(text, key)
+        if p and not isinstance(c.get("body"), str):
+            p["failed"] = failed_cases(adf_rows(c.get("body")))   # a table's case rows, one line each
         if p:
             results.append({**p, "who": who, "when": (c.get("created") or "")[:16], "id": c.get("id")})
     f = issue.get("fields") or {}
