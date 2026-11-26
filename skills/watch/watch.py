@@ -70,6 +70,16 @@ is kept once in watch/corrections.jsonl with its case kind (the trigger kind, th
                                                 decision on any human change, so its state comes back judged; never
                                                 legacy while tracked. --until ends it on that day
   untrack KEY… [--json]                         end tracking; the row is kept, marked ended
+  review  prompt [--json] | settle --from FILE [--apply] | release [--apply]
+                                                the second reading, once a pass after the decision: a ruling ask whose
+                                                option A is only the watch's own writes, and a low act, wait as
+                                                review-pending (off ela/watch.md and the DM) until a reader session with
+                                                the decider's tools settles one by a first-hand source {kind, ref} from
+                                                SOURCES, or releases it to the owner marked "read twice, not settled".
+                                                release (the runner, on the reader's failure or timeout) hands every
+                                                pending one to him marked "not read twice"; one pending past
+                                                REVIEW_WAIT_H is shown so marked anyway. A settled low act stays held
+                                                for him, its source shown (LOW_ACTS_SETTLE_ON_READ)
   measure [--weeks N] [--json]                  the share of ticket work ela settled without the owner, week by week:
                                                 decisions (the backlog apart), corrections, nones a person overturned,
                                                 and every ticket change attributed (app, ela unattended, the owner
@@ -809,6 +819,57 @@ def dry_mod():
     return D
 
 
+# ── the second reading (plan ela/2026-11-26-plan-sweep-judges-every-field, first slice 3) ─────────────────────────────
+# A case is settled on a second reading only by a first-hand source of one of these kinds, never by a second model's
+# agreement: a closed list, so "the reader thought so" cannot pass as evidence.
+SOURCES = ("reporter-comment",   # the reporter's (or assignee's) own comment on the ticket: its id or link
+           "qa-report",          # QA's report: the mail, Slack permalink or Jira comment that carries it
+           "build-record",       # a build or bundle record: the Jenkins build, the GM bundle, the image tag
+           "config-value",       # a config value read first-hand: the config server key and environment
+           "roster",             # the roster: who owns the area (ela team)
+           "owner-fact")         # a fact the owner gave (ela asks fact): its kind and key
+REVIEW_WAIT_H = 3                # a case still pending this long after it was decided reaches the owner, not read twice
+LOW_ACTS_SETTLE_ON_READ = False  # first slice 4: a low act settled by the reader stays held until the owner's amendment
+#                                  of decision 2026-11-24 is recorded beside it and SKILL.md says so; then it is written
+NOT_READ_TWICE = "not read twice"
+PRIORITY_ORDER = ("Lowest", "Low", "Medium", "High", "Highest")
+
+
+def rereadable(writes, row):
+    """Whether a case may go to the second reading: it carries writes, all within the watch's own verbs, none of them
+    what is never ela's (a terminal status, a lowered priority). A close, release scope, a person, Slack, Fixed In or
+    labels have no watch verb, so an ask about them goes straight to the owner."""
+    if not writes:
+        return False
+    for w in writes:
+        v = w.get("verb")
+        if v not in VERBS:
+            return False
+        if v == "transition" and (J.terminal(str(w.get("to") or "")) or str(w.get("to") or "").strip().lower() == "closed"):
+            return False
+        if v == "priority" and row.get("priority") in PRIORITY_ORDER and w.get("to") in PRIORITY_ORDER \
+                and PRIORITY_ORDER.index(w["to"]) < PRIORITY_ORDER.index(row["priority"]):
+            return False
+    return True
+
+
+def review_state(t, now=None):
+    """A topic's second-reading state: None (never sent), pending, settled, held (a low act the reader settled, kept for
+    the owner), unsettled (read twice, reaches him) or released (not read twice: failure, timeout or REVIEW_WAIT_H)."""
+    r = t.get("review") or {}
+    st = r.get("state")
+    if st == "pending" and now is not None:
+        since = parse_ts(r.get("since"))
+        if since and now - since > datetime.timedelta(hours=REVIEW_WAIT_H):
+            return "released"
+    return st
+
+
+def visible(t, now=None):
+    """Whether an open topic is the owner's to see: not while the second reading has it (until REVIEW_WAIT_H)."""
+    return not t.get("closed") and review_state(t, now or now_tz()) != "pending"
+
+
 def topic_id(key):
     return f"watch:{key}"
 
@@ -959,6 +1020,8 @@ def decide(decisions, scanned, facts, reports, now, apply=False, runner=None, ju
             if d["confidence"] == "low":                       # nothing to Jira: the owner confirms it first
                 ask = held_ask(d)
                 tid, new = put_topic(topics, key, ask, today.isoformat(), due[key].get("summary") or "", trigger_kind(due[key]))
+                if new and rereadable(d.get("writes") or [], due[key]):
+                    topics["topics"][tid]["review"] = {"state": "pending", "since": now.isoformat(timespec="seconds")}
                 out["held"].append({"key": key, "topic": tid, "new": new, "question": ask["question"],
                                     "doubt": ask["unsure"]["doubt"], "proposed": ask["options"][0]["text"]})
                 if apply:
@@ -999,7 +1062,11 @@ def decide(decisions, scanned, facts, reports, now, apply=False, runner=None, ju
                     out.setdefault("known", []).append({"key": key, "fact": f, "value": have["value"], "source": have.get("source")})
                     continue
             tid, new = put_topic(topics, key, d, today.isoformat(), due[key].get("summary") or "", trigger_kind(due[key]))
-            out["asks"].append({"key": key, "topic": tid, "new": new, "question": d["question"]})
+            first = (d.get("options") or [{}])[0] if d.get("options") else {}
+            if new and d.get("kind", "ruling") == "ruling" and rereadable(first.get("writes") or [], due[key]):
+                topics["topics"][tid]["review"] = {"state": "pending", "since": now.isoformat(timespec="seconds")}
+            out["asks"].append({"key": key, "topic": tid, "new": new, "question": d["question"],
+                                "review": (topics["topics"][tid].get("review") or {}).get("state")})
             if apply:
                 rec.update(decided=now.isoformat(timespec="seconds"), verdict="ask", pending=[])
                 keep(key, "ask", d, ask=d.get("kind") if d.get("kind") in ASK_KINDS else "ruling")
@@ -1228,6 +1295,8 @@ def outcomes(reports):
     waiting = {r["act"] for r in corrections(reports) if r.get("corpus") == "waiting for a cause"}
     for t in load_topics(reports)["topics"].values():
         c = t.get("closed") or {}
+        if c.get("by") == "second reading":                  # settled by ela, not an answer of his
+            continue
         if c.get("superseded_by"):                         # a judgment took its place: neither agreed nor wrong
             out["superseded"] += 1
         elif not c.get("letter"):
@@ -1240,8 +1309,15 @@ def outcomes(reports):
     return out
 
 
-def open_topics(reports):
-    return [t for t in load_topics(reports)["topics"].values() if not t.get("closed")]
+def open_topics(reports, now=None):
+    """The open topics the owner sees: a case the second reading still holds is left out (see `visible`)."""
+    return [t for t in load_topics(reports)["topics"].values() if visible(t, now)]
+
+
+def pending_review(reports, now=None):
+    """The topics the second reading holds now."""
+    return [t for t in load_topics(reports)["topics"].values()
+            if not t.get("closed") and review_state(t, now or now_tz()) == "pending"]
 
 
 def asks(reports, today):
@@ -1489,6 +1565,123 @@ def judge_prompt_text(row, iss, facts, reports, vault, page, path, base=""):
 # ── the owner's DM: a reminder, at most one a day, when a topic is new; the topics live on ela/watch.md ──────────
 SLACK = os.path.join(SKILLS, "slack", "slack.py")
 
+# ── the second reading's verbs ────────────────────────────────────────────────────────────────────────────────────
+def review_path(reports, day):
+    return os.path.join(reports, "ela", "watch", f"{day}-review.json")
+
+
+def review_prompt(reports, facts, now):
+    """The reader's input: each pending case with the decider's question, leaning, options and doubt, the ticket's
+    fields and last comments, and the closed list of sources that may settle it. → {date, file, sources, cases}."""
+    cases = []
+    for t in sorted(pending_review(reports, now), key=lambda t: t["key"]):
+        iss = read_json(os.path.join(facts, "jira", "issues", f"{t['key']}.json"), {})
+        f = fields(iss)
+        cases.append({"topic": t["id"], "key": t["key"], "summary": t.get("summary") or "", "held_act": bool(t.get("unsure")),
+                      "question": t["question"], "reason": t.get("reason"), "doubt": (t.get("unsure") or {}).get("doubt"),
+                      "options": [{"letter": o["letter"], "text": o["text"]} for o in t["options"]],
+                      "status": name(f.get("status")), "assignee": name(f.get("assignee")) or None, "priority": name(f.get("priority")),
+                      "comments": [{"by": name(c.get("author")), "at": str(c.get("created") or "")[:16], "ela": is_ela(c),
+                                    "text": clip(text_of(c.get("body")), 500)} for c in comments(iss)[-5:]]})
+    return {"date": now.date().isoformat(), "file": review_path(reports, now.date().isoformat()), "sources": list(SOURCES),
+            "cases": cases}
+
+
+def review_text(doc):
+    L = [f"# The board watch · second reading · {doc['date']}", "",
+         f"Follow /ela:watch, section \"The second reading\". {len(doc['cases'])} case{'s' if len(doc['cases']) != 1 else ''} "
+         f"the decider could not settle. Write one entry per case to {doc['file']}, then check it with "
+         f"`ela watch review settle --from {doc['file']}` (a dry run). A case is settled only by a first-hand source you "
+         f"read yourself, given as {{\"kind\", \"ref\"}} with kind one of: {', '.join(doc['sources'])}. Agreeing with "
+         "the decider is not a source.", ""]
+    for c in doc["cases"]:
+        L += [f"## {c['key']} · {c['summary']}", f"{c['status']} · {c['assignee'] or 'nobody'} · {c['priority']}"
+              + (" · a low act, held" if c["held_act"] else " · a ruling ask"), "", f"Question: {c['question']}"]
+        L += [f"- {o['letter']}: {o['text']}" for o in c["options"]]
+        if c.get("doubt"):
+            L += [f"Doubt: {c['doubt']}"]
+        L += [""] + [f"> {x['at']} {x['by']}{' (ela)' if x['ela'] else ''}: {x['text']}" for x in c["comments"]] + [""]
+    return "\n".join(L)
+
+
+def review_settle(entries, reports, now, apply=False):
+    """The reader's entries carried: {topic, settles, letter, source: {kind, ref}, why}. A case settles only with a
+    letter the topic offers and a source from SOURCES with a ref; then a ruling ask is closed with that letter by the
+    second reading (its writes go out at the next decide --apply, like his letter would), and a low act stays held for
+    the owner with the source shown (LOW_ACTS_SETTLE_ON_READ). Anything else reaches the owner marked read twice, not
+    settled, with what was tried. A pending case the file leaves out stays pending. → {settled, held, unsettled, refused}."""
+    topics = load_topics(reports)
+    out = {"settled": [], "held": [], "unsettled": [], "refused": []}
+    log = []
+    for e in entries.get("cases") or entries.get("entries") or []:
+        t = topics["topics"].get(e.get("topic"))
+        if not t or t.get("closed") or (t.get("review") or {}).get("state") != "pending":
+            out["refused"].append({"topic": e.get("topic"), "why": "not a case the second reading holds"}); continue
+        src, letter = e.get("source") or {}, str(e.get("letter") or "").upper()
+        why = " ".join(str(e.get("why") or "").split())
+        problem = None
+        if e.get("settles") is True:
+            if src.get("kind") not in SOURCES or not str(src.get("ref") or "").strip():
+                problem = f"a settled case names its first-hand source {{kind, ref}}, kind one of {', '.join(SOURCES)}"
+            elif letter not in [o["letter"] for o in t["options"]]:
+                problem = f"{t['id']} offers {', '.join(o['letter'] for o in t['options'])}, not {letter or 'no letter'}"
+        settles = e.get("settles") is True and not problem
+        stamp = now.isoformat(timespec="seconds")
+        if settles and t.get("unsure") and not LOW_ACTS_SETTLE_ON_READ:
+            row = {"key": t["key"], "topic": t["id"], "letter": letter, "source": src, "why": why}
+            out["held"].append(row)
+            if apply:
+                t["review"] = {"state": "held", "since": t["review"].get("since"), "read": stamp, "letter": letter,
+                               "source": {"kind": src["kind"], "ref": src["ref"]}, "why": why}
+        elif settles:
+            out["settled"].append({"key": t["key"], "topic": t["id"], "letter": letter, "source": src, "why": why})
+            if apply:
+                t["review"] = {"state": "settled", "since": t["review"].get("since"), "read": stamp,
+                               "source": {"kind": src["kind"], "ref": src["ref"]}, "why": why}
+                t["closed"] = {"letter": letter, "at": stamp, "by": "second reading", "note": why or None}
+        else:
+            tried = problem or why or "the reader found no first-hand source"
+            out["unsettled"].append({"key": t["key"], "topic": t["id"], "why": tried})
+            if apply:
+                t["review"] = {"state": "unsettled", "since": t["review"].get("since"), "read": stamp, "why": tried}
+        held = settles and t.get("unsure") and not LOW_ACTS_SETTLE_ON_READ
+        log.append({"at": stamp, "key": t["key"], "verdict": "reread", "topic": t["id"],
+                    "outcome": "held" if held else "settled" if settles else "unsettled", "letter": letter if settles else None,
+                    "source": src if settles else None})
+    if apply:
+        write_json(topics_path(reports), topics)
+        log_decided(reports, log)
+    return out
+
+
+def review_release(reports, now, apply=False):
+    """Every case the second reading still holds reaches the owner, marked not read twice: the runner calls it when the
+    reader failed or timed out, so no case waits on a reading that will not come. → [topic ids]."""
+    topics = load_topics(reports)
+    done = []
+    for t in topics["topics"].values():
+        if not t.get("closed") and (t.get("review") or {}).get("state") == "pending":
+            done.append(t["id"])
+            if apply:
+                t["review"] = dict(t["review"], state="released", read=now.isoformat(timespec="seconds"), why=NOT_READ_TWICE)
+    if apply and done:
+        write_json(topics_path(reports), topics)
+    return done
+
+
+def review_mark(t, now=None):
+    """The line ela/watch.md shows under a topic the second reading saw, or None."""
+    st, r = review_state(t, now or now_tz()), t.get("review") or {}
+    if st == "held":
+        src = r.get("source") or {}
+        return (f"*Read twice*: the reader settles it ({r.get('letter')}) on {src.get('kind')} {src.get('ref')}"
+                + (f" — {r['why']}" if r.get("why") else "") + ". Still yours: a low act is not written on a second reading yet.")
+    if st == "unsettled":
+        return f"*Read twice, not settled*: {r.get('why') or 'no first-hand source found'}."
+    if st == "released":
+        return f"*{NOT_READ_TWICE.capitalize()}*: the second reading did not run in time."
+    return None
+
 
 # ── the measure: how much ticket work ela settles without the owner ───────────────────────────────────────────────
 MEASURE_PAGE = "ela/watch-measure.md"   # its own page: the daily pages stay free of ela's own numbers (plan asks-teach-it)
@@ -1595,6 +1788,8 @@ def measure(facts, reports, owner, today, weeks=6):
     The backlog (decisions on a ticket only a state trigger made due: stalled, owner-held …) is counted apart. Every
     ticket change of the week is attributed (WHO). → [{week, ...}]."""
     decided = [r for r in read_jsonl(decided_path(reports)) if parse_ts(r.get("at"))]
+    rereads = [r for r in decided if r.get("verdict") == "reread"]
+    decided = [r for r in decided if r.get("verdict") != "reread"]
     corr = [r for r in corrections(reports) if r.get("kind") == "correction"]
     topics = load_topics(reports)["topics"].values()
     out = []
@@ -1616,14 +1811,18 @@ def measure(facts, reports, owner, today, weeks=6):
             over = [r for r in nones if any(c["key"] == r["key"] and c["who"] == "human" and within(c["at"], r)
                                             and c["field"] in (r.get("judged_unneeded") or []) for c in changes)]
             asks = [r for r in rs if r["verdict"] in ("ask", "held")]
-            settled = len(acts) - len(hit) + len(nones) - len(over)
+            reread = [r for r in asks if any(x["key"] == r["key"] and x.get("outcome") == "settled" and within(x["at"], r)
+                                             for x in rereads)]
+            settled = len(acts) - len(hit) + len(nones) - len(over) + len(reread)
             return {"decided": len(rs), "acts": len(acts), "corrected": len(hit), "nones": len(nones),
                     "nones_unfielded": sum(1 for r in nones if r.get("judged_unneeded") is None), "overturned": len(over),
                     "asks": sum(1 for r in asks if r["verdict"] == "ask"), "held": sum(1 for r in asks if r["verdict"] == "held"),
+                    "settled_on_review": len(reread),
                     "settled": settled, "share": round(settled / len(rs), 3) if rs else None}
         backlog = [r for r in rows if r.get("kinds") and all(k in BACKLOG for k in r["kinds"])]
         fresh = [r for r in rows if r not in backlog]
-        answered = [t for t in topics if (t.get("closed") or {}).get("at", "")[:10] >= mon.isoformat()
+        answered = [t for t in topics if (t.get("closed") or {}).get("by") != "second reading"
+                    and (t.get("closed") or {}).get("at", "")[:10] >= mon.isoformat()
                     and (t.get("closed") or {}).get("at", "")[:10] < (mon + datetime.timedelta(days=7)).isoformat()]
         out.append({"week": mon.isoformat(), "changed": part(fresh), "backlog": part(backlog),
                     "answers": {"agreed": sum(1 for t in answered if t["closed"].get("letter") == t["options"][0]["letter"]),
@@ -1684,12 +1883,12 @@ WATCH_PAGE = "ela/watch.md"        # the vault page every open topic lives on; t
 SUMMARY_CUT = 90                   # a ticket's title in the reminder: whole up to here, then cut at a word
 
 
-def page(reports, today, base="", vault=None):
+def page(reports, today, base="", vault=None, now=None):
     """ela/watch.md: every open topic, oldest first: the ticket, whether it needs a fact or a ruling, the session's
     confidence, the question, each letter as a box he ticks (or an `ela:` line he writes under it, read by
     settle_page) and the CLI line; a low-confidence act held for his confirm first, under its own heading, with its
     doubt. The vault is where the topics live; Slack only reminds (the owner's word, 2026-11-25)."""
-    ts = sorted(open_topics(reports), key=lambda t: (t["first"], t["key"]))
+    ts = sorted(open_topics(reports, now), key=lambda t: (t["first"], t["key"]))
     L = ["# Board watch · waiting for your letter", "", f"How much ela settles without you, week by week: [[{MEASURE_PAGE[:-3]}|the measure]].", ""]
     if not ts:
         return "\n".join(L + ["Nothing waits: every topic has its letter.", ""] + judged_section(reports, vault, today, base)
@@ -1707,6 +1906,7 @@ def page(reports, today, base="", vault=None):
         return ([f"### {link} {t.get('summary') or ''}".rstrip(), "",
                  f"*{t.get('kind') or 'ruling'}* · {sure} · open since {t['first']}. {t['question']}", ""]
                 + ([f"**Doubt**: {doubt}", ""] if doubt else [])
+                + ([review_mark(t, now), ""] if review_mark(t, now) else [])
                 + [f"- [ ] {o['letter']}{' (recommended)' if i == 0 and t.get('kind', 'ruling') == 'ruling' else ''}: {o['text']}"
                    for i, o in enumerate(t["options"])]
                 + ["", f"CLI: `ela watch answer {t['id']} <letter> [words]`", ""])
@@ -1800,7 +2000,11 @@ def nothing_due(reports, today, base=""):
     return L + [""]
 
 
-def dm_plan(topics, today, base=""):
+# ── the owner's DM: a reminder, at most one a day, when a topic is new; the topics live on ela/watch.md ──────────
+SLACK = os.path.join(SKILLS, "slack", "slack.py")
+
+
+def dm_plan(topics, today, base="", now=None):
     """What today's DM pass sends: at most one reminder a day, and only when a topic is new since the last reminder:
     how many are new, how many wait in all, the new ones a line each, and where they live (the vault page) and how to
     answer (the CLI). No thread per topic, no repeat for an open one, no line when one settles: the vault page carries
@@ -1808,7 +2012,7 @@ def dm_plan(topics, today, base=""):
     day = today.isoformat()
     if topics["roots"].get(day):
         return []
-    open_ = [t for t in topics["topics"].values() if not t.get("closed")]
+    open_ = [t for t in topics["topics"].values() if visible(t, now)]
     fresh = sorted((t for t in open_ if not t.get("thread")), key=lambda t: t["key"])
     if not fresh:
         return []
@@ -2030,6 +2234,37 @@ def cmd_untrack(a):
     emit(a, got, [f"{k}: no longer tracked" for k in got] or ["none of them was tracked"])
 
 
+def cmd_review(a):
+    s = site()
+    reports, facts = roots(s)
+    now = now_tz()
+    if a.step == "prompt":
+        doc = review_prompt(reports, facts, now)
+        write_json(os.path.join(reports, "ela", "watch", f"{now:%Y-%m-%d-%H%M}-review-prompt.json"), doc)
+        if a.json:
+            print(json.dumps(doc, ensure_ascii=False, indent=1))
+        else:
+            print(review_text(doc) if doc["cases"] else "no case waits for a second reading")
+        return
+    if a.apply and os.environ.get("ELA_NO_APPLY"):
+        print("refused: review --apply inside an unattended session (ELA_NO_APPLY); the runner applies after the session",
+              file=sys.stderr); sys.exit(EX_USAGE)
+    if a.step == "release":
+        got = review_release(reports, now, apply=a.apply)
+        emit(a, got, [f"{x}: to the owner, {NOT_READ_TWICE}" for x in got] or ["no case was pending"]
+             + ([] if a.apply else ["dry run; --apply releases"]))
+        return
+    path = a.from_file or review_path(reports, now.date().isoformat())
+    entries = read_json(path, None)
+    if entries is None:
+        print(f"no entries in {path}", file=sys.stderr); sys.exit(EX_NOTFOUND)
+    r = review_settle(entries, reports, now, apply=a.apply)
+    emit(a, r, [f"{x['key']}: settled {x['letter']} on {x['source'].get('kind')} {x['source'].get('ref')}" for x in r["settled"]]
+         + [f"{x['key']}: settled {x['letter']} on {x['source'].get('kind')} {x['source'].get('ref')}, held for the owner (a low act)" for x in r["held"]]
+         + [f"{x['key']}: to the owner, read twice, not settled — {x['why']}" for x in r["unsettled"]]
+         + [f"{x['topic']}: refused — {x['why']}" for x in r["refused"]] + ([] if a.apply else ["dry run; --apply carries them"]))
+
+
 def cmd_measure(a):
     s = site()
     reports, facts = roots(s)
@@ -2090,6 +2325,9 @@ def main():
     p.add_argument("--json", action="store_true"); p.set_defaults(func=cmd_track)
     p = sub.add_parser("untrack", help="end tracking; the row is kept, marked ended")
     p.add_argument("keys", nargs="+"); p.add_argument("--json", action="store_true"); p.set_defaults(func=cmd_untrack)
+    p = sub.add_parser("review", help="the second reading: prompt, settle --from FILE, release; a dry run unless --apply")
+    p.add_argument("step", choices=("prompt", "settle", "release")); p.add_argument("--from", dest="from_file")
+    p.add_argument("--apply", action="store_true"); p.add_argument("--json", action="store_true"); p.set_defaults(func=cmd_review)
     p = sub.add_parser("measure", help="the share of ticket work ela settled without the owner, week by week, with every change attributed")
     p.add_argument("--weeks", type=int, default=6); p.add_argument("--json", action="store_true"); p.set_defaults(func=cmd_measure)
     p = sub.add_parser("asks", help="the open topics, as today.md shows them")
