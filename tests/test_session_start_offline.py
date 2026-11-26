@@ -92,7 +92,17 @@ for entry in hj["hooks"]["SessionStart"]:
     parts = [c[1] for c in cmds if c and c[0] == "prefs"]
     k = len(parts)
     check(k >= 1 and sorted(parts) == [f"{i}/{k}" for i in range(1, k + 1)], f"{entry['matcher']}: prefs parts {parts}")
-    check([] in cmds, f"{entry['matcher']}: no default part")
+    check(cmds and cmds[0] == [], f"{entry['matcher']}: the default part, which opens with the head, is not listed first")
+
+# 6b. The head (what ela is for, the roots) opens context/evan.md within 2,000 characters: it is read on every turn of
+# every session, and a root that grows a clause there is a rule that belongs in the preferences instead.
+ev = open(os.path.join(ROOT, "context", "evan.md"), encoding="utf-8").read()
+a, b = ev.find("## What ela is for"), ev.find("## How he works with you")
+check(0 < a < 400 and b > a, "context/evan.md does not open with the head (## What ela is for … ## Roots)")
+head = ev[a:b].strip()
+check(len(head) <= 2000, f"the head is {len(head):,} characters, over 2,000")
+check("## Roots" in head and all(f"- R{i} " in head for i in range(7)), "the head lacks one of the roots R0..R6")
+check("## Who Evan is" not in ev, "the head sits beside the section it replaces")
 
 # 7. The required phrases: the injected preferences still carry what each decision rests on.
 # A rewrite of the preferences (a compression, a reorder, a merge of two rules) is gated by this list: one scenario per
