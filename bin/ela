@@ -203,13 +203,14 @@
                                    hold/resume park a subject on every page; up/down ask for a Jira priority move;
                                    moves and scrum (the Read AI report after the scrum) draft one dry-run batch, asked
                                    A/B on today.md — nothing reaches Jira before his A
-  ela watch scan|prompt|decide|answer|asks|dm|track   the whole MH board watched (decision 2026-11-24): every open ticket
+  ela watch scan|prompt|decide|answer|asks|dm|track|measure   the whole MH board watched (decision 2026-11-24): every open ticket
                                    tracked each pass, the triggered ones (a change, a question, a wrong assignee or
                                    status, a stall; the owner's first) decided by a session (/ela:watch); decide
                                    --from F carries them: an act is ela's own signed Jira set (dry run until --apply,
                                    one per ticket a day, listed in ela/dry/did.md with its undo), an ask a topic for you
                                    on ela/watch.md, answered in the CLI (dm: a reminder, at most one a day when one is new);
-                                   track|untrack KEY… [--why T] [--until D]: a ticket due a decision on any human change
+                                   track|untrack KEY… [--why T] [--until D]: a ticket due a decision on any human change;
+                                   measure: the weekly share ela settled without you (ela/watch-measure.md)
   ela meeting --key K              a meeting's note in the vault (meetings/<key>.md): --raise / --propose TEXT add an
                                    item (140 characters at most, --detail folds under it), --rule moves ruled and
                                    dropped items under Ruled by date, --slack the list as Slack writes it, --json with

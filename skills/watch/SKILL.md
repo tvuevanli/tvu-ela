@@ -119,11 +119,16 @@ Write `<reports>/ela/watch/<date>-decisions.json` (the prompt names the path):
                {"letter": "B", "text": "you close it yourself"}]},
   {"key": "MH-7", "verdict": "ask", "kind": "fact", "confidence": "low", "fact": {"kind": "owner", "key": "WebRenderer"},
    "question": "Who owns the WebRenderer now?", "options": [{"letter": "A", "text": "write the owner after the letter"}]},
-  {"key": "MH-4", "verdict": "none", "why": "the reviewer answered in Slack; nothing is waiting", "confidence": "high"}
+  {"key": "MH-4", "verdict": "none", "why": "the reviewer answered in Slack; nothing is waiting", "confidence": "high",
+   "judged_unneeded": ["assignee", "status", "priority", "due", "links", "comment"]}
  ],
  "replies": [{"key": "MH-5", "reply": "10234", "disputes": false},
              {"key": "MH-6", "reply": "10240", "disputes": "unsure"}]}
 ```
+
+A none names in `judged_unneeded` the fields you looked at and judged need no change, from: assignee, status,
+priority, due, links, comment. It is how ela measures itself: a none whose field a person then changes within a week
+counts as a miss, so name only what you actually judged.
 
 Then run `ela watch decide --from <that file>`: a dry run that checks every decision against the gates
 (the verbs, terminal statuses, one set a day, the language rule, a repeated comment) and shows each write as

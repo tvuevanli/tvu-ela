@@ -4757,13 +4757,19 @@ def watch_asks(reports, today):
 
 def watch_page(reports, today, base="", vault=None):
     """ela/watch.md: every open board-watch topic with its letters and the CLI line for each (watch.page), then the
-    owner's tickets judged this week, each with its verdict and home. The vault is where the topics live; the DM only
-    reminds (the owner's word, 2026-11-25). A broken store costs the page only."""
+    owner's tickets judged this week, each with its verdict and home; and ela/watch-measure.md, the weekly share ela
+    settled without him (watch.measure_page) once decisions are on record. The vault is where the topics live; the DM
+    only reminds (the owner's word, 2026-11-25). A broken store costs the page only."""
     try:
         WA = watch_mod()
+        out = {}
+        if os.path.exists(WA.decided_path(reports)):       # the weekly measure: its own page, linked once from ela/watch.md
+            _, facts = WA.roots(WA.site())
+            out[WA.MEASURE_PAGE] = front([], {"type": "watch", "date": today.isoformat()}) + WA.measure_page(
+                facts, reports, WA.owner_of(facts), today)
         if not WA.open_topics(reports) and not WA.nones(reports, today) and not WA.judged_section(reports, vault, today):
-            return {}                                      # nothing waits and nothing judged: no page
-        return {WA.WATCH_PAGE: front([], {"type": "watch", "date": today.isoformat()}) + WA.page(reports, today, base, vault)}
+            return out                                     # nothing waits and nothing judged: no page
+        return dict(out, **{WA.WATCH_PAGE: front([], {"type": "watch", "date": today.isoformat()}) + WA.page(reports, today, base, vault)})
     except Exception:                                      # noqa: BLE001
         return {}
 

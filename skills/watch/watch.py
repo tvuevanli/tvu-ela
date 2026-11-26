@@ -70,11 +70,19 @@ is kept once in watch/corrections.jsonl with its case kind (the trigger kind, th
                                                 decision on any human change, so its state comes back judged; never
                                                 legacy while tracked. --until ends it on that day
   untrack KEY… [--json]                         end tracking; the row is kept, marked ended
+  measure [--weeks N] [--json]                  the share of ticket work ela settled without the owner, week by week:
+                                                decisions (the backlog apart), corrections, nones a person overturned,
+                                                and every ticket change attributed (app, ela unattended, the owner
+                                                through ela, the owner in Jira, a person); the vault page
+                                                ela/watch-measure.md, linked once from ela/watch.md
   asks    [--json]                              the open topics; the vault's sync puts them on ela/watch.md (and a
                                                 line on today.md), where they live
   dm      [--apply] [--json]                    the owner's ela DM, a reminder only: at most one message a day, when a
                                                 topic is new — the count, the new ones a line each, the vault page and
                                                 the CLI verb; no thread per topic; a dry run unless --apply
+Kept for the measure and any later replay: <reports>/ela/watch/decided.jsonl (each carried decision: verdict,
+confidence, trigger kinds, fields written, and on a none `judged_unneeded`), <reports>/ela/watch/<date>-<HHMM>-prompt.json
+(each pass's prompt as JSON, beside its scan).
 Store: <reports>/ela/watch.json (per ticket: the last pass's snapshot, pending triggers, the last decision, the day of
 its last set of writes, the comments ela said, the replies judged, the day a reply disputed ela), <reports>/ela/watch/<date>-scan.json, <reports>/ela/watch-topics.json,
 <reports>/ela/drafts/watch/ (each comment's text, the file a write names), <reports>/ela/watch/corrections.jsonl
@@ -888,6 +896,35 @@ def unsure(d):
     return None
 
 
+FIELDS = ("assignee", "status", "priority", "due", "links", "comment")   # what a none may judge unneeded: a closed list
+VERB_FIELD = {"assign": "assignee", "transition": "status", "priority": "priority", "due": "due", "link": "links"}
+
+
+def decided_path(reports):
+    return os.path.join(reports, "ela", "watch", "decided.jsonl")
+
+
+def log_decided(reports, rows):
+    """Append the pass's carried decisions to decided.jsonl, the measure's record of what ela judged."""
+    if not rows:
+        return
+    p = decided_path(reports)
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    with open(p, "a", encoding="utf-8") as f:
+        for r in rows:
+            f.write(json.dumps(r, ensure_ascii=False) + "\n")
+
+
+def unneeded(d):
+    """A none's `judged_unneeded`: the fields the session judged need no change, from FIELDS. → (list or None, problem)."""
+    v = d.get("judged_unneeded")
+    if v is None:
+        return None, None
+    if not isinstance(v, list) or any(x not in FIELDS for x in v):
+        return None, f"judged_unneeded: a list from {', '.join(FIELDS)}"
+    return sorted(set(v)), None
+
+
 def decide(decisions, scanned, facts, reports, now, apply=False, runner=None, judge=None):
     """The session's decisions checked and carried. An act at low confidence passes the same gates and is then held as
     the owner's topic instead of written. With `judge` (a key), the judging session's one decision, checked against the
@@ -901,6 +938,11 @@ def decide(decisions, scanned, facts, reports, now, apply=False, runner=None, ju
     out = {"date": today.isoformat(), "acts": [], "held": [], "asks": [], "none": [], "refused": [], "answered": []}
     out.update(judge_replies(decisions, scanned, st, topics, reports, now, apply))
     quiet = quiets(reports, today.isoformat())
+    log = []
+
+    def keep(key, verdict, d, **more):
+        log.append({"at": now.isoformat(timespec="seconds"), "key": key, "verdict": verdict, "confidence": d.get("confidence"),
+                    "kinds": [t["kind"] for t in due[key].get("triggers") or [] if t.get("kind") in KINDS], **more})
     for d in decisions.get("decisions") or []:
         key, verdict = d.get("key"), d.get("verdict")
         if key not in due:
@@ -921,6 +963,7 @@ def decide(decisions, scanned, facts, reports, now, apply=False, runner=None, ju
                                     "doubt": ask["unsure"]["doubt"], "proposed": ask["options"][0]["text"]})
                 if apply:
                     rec.update(decided=now.isoformat(timespec="seconds"), verdict="ask", pending=[])
+                    keep(key, "held", d, fields=[VERB_FIELD.get(w.get("verb")) for w in d.get("writes") or []])
                 continue
             path, text, writes = act_writes(key, d, reports)
             os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -934,6 +977,8 @@ def decide(decisions, scanned, facts, reports, now, apply=False, runner=None, ju
             if apply and got["state"] in ("applied", "open"):
                 rec.update(acted=today.isoformat(), decided=now.isoformat(timespec="seconds"), verdict="act", pending=[],
                            kinds=[t["kind"] for t in due[key].get("triggers") or [] if t.get("kind") in KINDS])
+                keep(key, "act", d, fields=[VERB_FIELD.get(w.get("verb")) for w in d.get("writes") or []]
+                     + (["comment"] if text else []), state=got["state"])
                 if judge:
                     supersede(topics, key, judge_path(reports, today.isoformat(), key), now)
                 if text:
@@ -957,11 +1002,16 @@ def decide(decisions, scanned, facts, reports, now, apply=False, runner=None, ju
             out["asks"].append({"key": key, "topic": tid, "new": new, "question": d["question"]})
             if apply:
                 rec.update(decided=now.isoformat(timespec="seconds"), verdict="ask", pending=[])
+                keep(key, "ask", d, ask=d.get("kind") if d.get("kind") in ASK_KINDS else "ruling")
         elif verdict == "none":
+            fields_ok, problem = unneeded(d)
+            if problem:
+                out["refused"].append({"key": key, "why": problem}); continue
             sure = {"confidence": d["confidence"], "doubt": (d.get("doubt") or "").strip()}
-            out["none"].append({"key": key, "why": d.get("why") or "", **sure})
+            out["none"].append({"key": key, "why": d.get("why") or "", "judged_unneeded": fields_ok, **sure})
             if apply:                                          # the why and the level stay: ela/watch.md lists today's nones
                 rec.update(decided=now.isoformat(timespec="seconds"), verdict="none", pending=[], why=clip(d.get("why") or "", 200), **sure)
+                keep(key, "none", d, judged_unneeded=fields_ok)
                 if judge:
                     supersede(topics, key, judge_path(reports, today.isoformat(), key), now)
         else:
@@ -969,6 +1019,7 @@ def decide(decisions, scanned, facts, reports, now, apply=False, runner=None, ju
     out["answered"] = [] if judge else carry_answers(topics, st, facts, reports, now, apply, runner)
     if apply:
         out["corrections"] = fold_corrections(reports, st)
+        log_decided(reports, log)
         write_json(state_path(reports), st)
         write_json(topics_path(reports), topics)
     return out
@@ -1439,6 +1490,187 @@ def judge_prompt_text(row, iss, facts, reports, vault, page, path, base=""):
 SLACK = os.path.join(SKILLS, "slack", "slack.py")
 
 
+# ── the measure: how much ticket work ela settles without the owner ───────────────────────────────────────────────
+MEASURE_PAGE = "ela/watch-measure.md"   # its own page: the daily pages stay free of ela's own numbers (plan asks-teach-it)
+SETTLE_DAYS = 7                         # a none a person overturns within this is not settled
+WRITE_FIELD = {"assign": "assignee", "transition": "status", "priority": "priority", "due": "duedate", "link": "link",
+               "unlink": "link", "label": "labels", "labels": "labels", "fixed-in": "fix version", "fixedin": "fix version"}
+CHANGE_FIELD = {"assignee": "assignee", "status": "status", "priority": "priority", "duedate": "due", "due date": "due",
+                "link": "links", "comment": "comment"}
+BACKLOG = ("unassigned", "behind", "unanswered", "owner-held", "stalled")   # state kinds: the ticket was waiting, not changed
+WHO = ("app", "ela unattended", "owner through ela", "owner in Jira", "human")
+
+
+def read_jsonl(path):
+    out = []
+    try:
+        for line in open(path, encoding="utf-8"):
+            try:
+                out.append(json.loads(line))
+            except ValueError:
+                continue
+    except OSError:
+        pass
+    return out
+
+
+def writes_log(reports):
+    """ela's applied Jira writes (jira.py's writes.jsonl): [{at (datetime), key, verb, unattended}]. Unattended: written
+    inside an unattended session, by a runner job, or by a tier-1 class at its pass (`word` "… (tier 1 by decision)");
+    anything else was the owner's word in a session."""
+    out = []
+    for r in read_jsonl(os.path.join(reports, "ela", "writes.jsonl")):
+        at = parse_ts(r.get("at"))
+        if at and r.get("system") == "jira" and r.get("ok", True) and r.get("key"):
+            alone = bool(r.get("unattended") or r.get("job")) or "(tier 1 by decision)" in str(r.get("word") or "")
+            out.append({"at": at, "key": r["key"], "verb": str(r.get("verb") or ""), "unattended": alone})
+    return out
+
+
+def ela_write(writes, key, at, field):
+    """The write in ela's log that made a change on the owner's account: same ticket, within MOVED_MARGIN, and the
+    write's verb names this field (a comment matches any write: each field write posts its note). → row or None."""
+    f = (field or "").lower()
+    best = None
+    for w in writes:
+        if w["key"] != key or abs(w["at"] - at) > MOVED_MARGIN:
+            continue
+        wf = WRITE_FIELD.get(w["verb"])
+        if f == "comment" or wf == f or (wf is None and w["verb"] != "comment"):   # an unknown verb matches by time alone
+            if best is None or abs(w["at"] - at) < abs(best["at"] - at):
+                best = w
+    return best
+
+
+def attribute(facts, reports, owner, start, end):
+    """Every change to an MH ticket in [start, end): field changes from the fact store's changelog, comments from the
+    issue files, each attributed: app; ela unattended or the owner through ela (the owner's account, matched to a write in
+    writes.jsonl by ticket, field and time); the owner in Jira (his account, no write of ela's); human. → [{key, at,
+    field, who, by}]."""
+    writes, out, seen = writes_log(reports), [], set()
+
+    def who(person, key, at, field, signed=False):
+        if is_app(person):
+            return "app"
+        if is_owner(person, owner):
+            w = ela_write(writes, key, at, field)
+            if w:
+                return "ela unattended" if w["unattended"] else "owner through ela"
+            return "owner through ela" if signed else "owner in Jira"
+        return "human"
+    for k, hs in changelog_of(facts).items():
+        if not k.startswith(PROJECT + "-"):
+            continue
+        for h in hs:
+            at = parse_ts(h.get("created"))
+            if not at or not (start <= at < end) or h.get("id") in seen:
+                continue
+            seen.add(h.get("id"))
+            for it in h.get("items") or []:
+                f = str(it.get("field") or "").lower()
+                out.append({"key": k, "at": at.astimezone(TZ).isoformat(timespec="minutes"), "field": CHANGE_FIELD.get(f, f),
+                            "who": who(h.get("author"), k, at, f), "by": name(h.get("author"))})
+    d = os.path.join(facts or "", "jira", "issues")
+    for fn in sorted(os.listdir(d)) if os.path.isdir(d) else []:
+        if not (fn.startswith(PROJECT + "-") and fn.endswith(".json")):
+            continue
+        iss = read_json(os.path.join(d, fn), {}) or {}
+        for c in comments(iss):
+            at = parse_ts(c.get("created"))
+            if at and start <= at < end:
+                out.append({"key": iss.get("key") or fn[:-5], "at": at.astimezone(TZ).isoformat(timespec="minutes"), "field": "comment",
+                            "who": "app" if is_bot(c) else who(c.get("author"), iss.get("key"), at, "comment", is_ela(c)),
+                            "by": name(c.get("author"))})
+    return sorted(out, key=lambda x: x["at"])
+
+
+def week_of(day):
+    return day - datetime.timedelta(days=day.weekday())
+
+
+def measure(facts, reports, owner, today, weeks=6):
+    """The share of ticket work ela settled without the owner, per week (Monday first), newest first. Work is each
+    decision the watch carried (decided.jsonl). Settled by ela: an act no correction touched, and a none no person
+    overturned within SETTLE_DAYS (a change by a person to a field it judged unneeded); asks and held acts reach the owner.
+    The backlog (decisions on a ticket only a state trigger made due: stalled, owner-held …) is counted apart. Every
+    ticket change of the week is attributed (WHO). → [{week, ...}]."""
+    decided = [r for r in read_jsonl(decided_path(reports)) if parse_ts(r.get("at"))]
+    corr = [r for r in corrections(reports) if r.get("kind") == "correction"]
+    topics = load_topics(reports)["topics"].values()
+    out = []
+    for i in range(weeks):
+        mon = week_of(today) - datetime.timedelta(days=7 * i)
+        start = datetime.datetime.combine(mon, datetime.time(), TZ)
+        end = start + datetime.timedelta(days=7)
+        rows = [r for r in decided if start <= parse_ts(r["at"]) < end]
+        changes = attribute(facts, reports, owner, start, end + datetime.timedelta(days=SETTLE_DAYS))
+        week_changes = [c for c in changes if parse_ts(c["at"]) < end]
+
+        def part(rs):
+            acts = [r for r in rs if r["verdict"] == "act"]
+            nones = [r for r in rs if r["verdict"] == "none"]
+            def within(at, r):                         # after the decision, inside SETTLE_DAYS
+                a, b = parse_ts(at), parse_ts(r["at"])
+                return bool(a and b) and datetime.timedelta(minutes=-1) <= a - b <= datetime.timedelta(days=SETTLE_DAYS)
+            hit = [r for r in acts if any(c.get("target") == r["key"] and within(c.get("at"), r) for c in corr)]
+            over = [r for r in nones if any(c["key"] == r["key"] and c["who"] == "human" and within(c["at"], r)
+                                            and c["field"] in (r.get("judged_unneeded") or []) for c in changes)]
+            asks = [r for r in rs if r["verdict"] in ("ask", "held")]
+            settled = len(acts) - len(hit) + len(nones) - len(over)
+            return {"decided": len(rs), "acts": len(acts), "corrected": len(hit), "nones": len(nones),
+                    "nones_unfielded": sum(1 for r in nones if r.get("judged_unneeded") is None), "overturned": len(over),
+                    "asks": sum(1 for r in asks if r["verdict"] == "ask"), "held": sum(1 for r in asks if r["verdict"] == "held"),
+                    "settled": settled, "share": round(settled / len(rs), 3) if rs else None}
+        backlog = [r for r in rows if r.get("kinds") and all(k in BACKLOG for k in r["kinds"])]
+        fresh = [r for r in rows if r not in backlog]
+        answered = [t for t in topics if (t.get("closed") or {}).get("at", "")[:10] >= mon.isoformat()
+                    and (t.get("closed") or {}).get("at", "")[:10] < (mon + datetime.timedelta(days=7)).isoformat()]
+        out.append({"week": mon.isoformat(), "changed": part(fresh), "backlog": part(backlog),
+                    "answers": {"agreed": sum(1 for t in answered if t["closed"].get("letter") == t["options"][0]["letter"]),
+                                "against": sum(1 for t in answered if t["closed"].get("letter") != t["options"][0]["letter"]
+                                               and t.get("kind", "ruling") == "ruling")},
+                    "changes": {w: sum(1 for c in week_changes if c["who"] == w) for w in WHO},
+                    "partial": mon == week_of(today)})
+    return out
+
+
+def pct(x):
+    return "—" if x is None else f"{round(x * 100)}%"
+
+
+def measure_page(facts, reports, owner, today):
+    """ela/watch-measure.md: the share settled without the owner, this week against the last, then the weeks as a table
+    and the attribution of every change, folded."""
+    ws = measure(facts, reports, owner, today)
+    now_, last = ws[0], ws[1] if len(ws) > 1 else None
+    L = ["# Board watch · how much ela settles without you", "",
+         f"This week so far: **{pct(now_['changed']['share'])}** of {now_['changed']['decided']} judged tickets settled without you"
+         + (f"; last week {pct(last['changed']['share'])} of {last['changed']['decided']}." if last else "."),
+         f"Backlog judged apart: {pct(now_['backlog']['share'])} of {now_['backlog']['decided']}.", "",
+         "Settled = an act nobody corrected within a week, or a none nobody overturned (a person changing a field it judged "
+         "unneeded). Asks and held acts reached you. Nothing here needs an answer.", "",
+         "> [!note]- Week by week", ">",
+         "> | week | judged | settled | share | acts (corrected) | nones (overturned) | asks | held | backlog share | your answers: agreed / against |",
+         "> |---|---|---|---|---|---|---|---|---|---|"]
+    for w in ws:
+        c, b = w["changed"], w["backlog"]
+        L.append(f"> | {w['week']}{' (so far)' if w['partial'] else ''} | {c['decided']} | {c['settled']} | {pct(c['share'])} | "
+                 f"{c['acts']} ({c['corrected']}) | {c['nones']} ({c['overturned']}) | {c['asks']} | {c['held']} | "
+                 f"{pct(b['share'])} of {b['decided']} | {w['answers']['agreed']} / {w['answers']['against']} |")
+    L += ["", "> [!note]- Who changed MH tickets", ">", "> | week | " + " | ".join(WHO) + " |", "> |---|" + "---|" * len(WHO)]
+    for w in ws:
+        L.append(f"> | {w['week']} | " + " | ".join(str(w["changes"][x]) for x in WHO) + " |")
+    unf = sum(w["changed"]["nones_unfielded"] + w["backlog"]["nones_unfielded"] for w in ws)
+    if unf:
+        L += ["", f"{unf} none{'s' if unf != 1 else ''} named no field judged unneeded (recorded before the field existed); "
+              "they count as settled unless corrected."]
+    return "\n".join(L + [""])
+
+
+def prompt_keep_path(reports, now):
+    return os.path.join(reports, "ela", "watch", f"{now:%Y-%m-%d-%H%M}-prompt.json")
+
+
 def jira_base(s=None):
     env = (s or site()).get("env")
     try:
@@ -1458,7 +1690,7 @@ def page(reports, today, base="", vault=None):
     settle_page) and the CLI line; a low-confidence act held for his confirm first, under its own heading, with its
     doubt. The vault is where the topics live; Slack only reminds (the owner's word, 2026-11-25)."""
     ts = sorted(open_topics(reports), key=lambda t: (t["first"], t["key"]))
-    L = ["# Board watch · waiting for your letter", ""]
+    L = ["# Board watch · waiting for your letter", "", f"How much ela settles without you, week by week: [[{MEASURE_PAGE[:-3]}|the measure]].", ""]
     if not ts:
         return "\n".join(L + ["Nothing waits: every topic has its letter.", ""] + judged_section(reports, vault, today, base)
                          + nothing_due(reports, today, base))
@@ -1675,15 +1907,16 @@ def cmd_prompt(a):
     got = load_scan(reports, day)
     rows = prompt_rows(got, facts)
     path = decisions_path(reports, day.isoformat())
+    try:
+        cited = asks_mod().precedents(reports, "watch")
+    except (ValueError, OSError):
+        cited = []
+    doc = {"date": got["date"], "decisions_file": path, "tickets": rows, "waiting": got.get("waiting"),
+           "replies": got.get("replies") or [], "precedents": cited}
+    write_json(prompt_keep_path(reports, now_tz()), doc)     # the corpus a later replay runs over
     if a.json:
-        print(json.dumps({"date": got["date"], "decisions_file": path, "tickets": rows, "waiting": got.get("waiting"),
-                          "replies": got.get("replies") or []},
-                         ensure_ascii=False, indent=1))
+        print(json.dumps({k: v for k, v in doc.items() if k != "precedents"}, ensure_ascii=False, indent=1))
     else:
-        try:
-            cited = asks_mod().precedents(reports, "watch")
-        except (ValueError, OSError):
-            cited = []
         print(prompt_text(got, rows, path, cited))
 
 
@@ -1797,6 +2030,15 @@ def cmd_untrack(a):
     emit(a, got, [f"{k}: no longer tracked" for k in got] or ["none of them was tracked"])
 
 
+def cmd_measure(a):
+    s = site()
+    reports, facts = roots(s)
+    ws = measure(facts, reports, owner_of(facts), now_tz().date(), weeks=a.weeks)
+    emit(a, ws, [f"{w['week']}{' (so far)' if w['partial'] else ''}: {pct(w['changed']['share'])} of {w['changed']['decided']} "
+                 f"settled without the owner · backlog {pct(w['backlog']['share'])} of {w['backlog']['decided']} · changes "
+                 + ", ".join(f"{x} {w['changes'][x]}" for x in WHO) for w in ws])
+
+
 def cmd_asks(a):
     got = asks(site().get("reports") or "", now_tz().date())
     emit(a, got, [f"- {x['question']} " + " · ".join(f"{o['letter']} {o['text']}" for o in x["options"]) for x in got]
@@ -1848,6 +2090,8 @@ def main():
     p.add_argument("--json", action="store_true"); p.set_defaults(func=cmd_track)
     p = sub.add_parser("untrack", help="end tracking; the row is kept, marked ended")
     p.add_argument("keys", nargs="+"); p.add_argument("--json", action="store_true"); p.set_defaults(func=cmd_untrack)
+    p = sub.add_parser("measure", help="the share of ticket work ela settled without the owner, week by week, with every change attributed")
+    p.add_argument("--weeks", type=int, default=6); p.add_argument("--json", action="store_true"); p.set_defaults(func=cmd_measure)
     p = sub.add_parser("asks", help="the open topics, as today.md shows them")
     p.add_argument("--json", action="store_true"); p.set_defaults(func=cmd_asks)
     p = sub.add_parser("dm", help="the owner's ela DM: a reminder, at most one a day when a topic is new, pointing at ela/watch.md; a dry run unless --apply")
