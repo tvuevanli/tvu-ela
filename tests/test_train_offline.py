@@ -99,6 +99,18 @@ check("a re-sent build's new item has a row arrived on that build; the build is 
       "MH-8" in by2 and by2["MH-8"]["cells"]["qa-cn3"]["arrived"] == "79" and by2["MH-8"]["cells"]["qa-cn3"]["since"] == "2026-10-30"
       and "MH-8" not in by)
 check("a row a re-sent older build names moves its first arrival back to that build", by["MH-6"]["cells"]["qa-cn3"]["arrived"] == "80" and by2["MH-6"]["cells"]["qa-cn3"]["arrived"] == "79")
+SEEN = dict(MAILS, **{"qa-cn3": MAILS["qa-cn3"] + [
+                    # build 79's own mail, already read into the state, names MH-2's row with a key the row lacks
+                    {"build": "79", "label": "79", "at": "2026-10-29T17:53:00+08:00", "id": "m79", "subject": "[Release Mediahub QA-AWS3] For 2.1 Release build 79",
+                     "focus": [{"text": "MH-2 / MH-10 the dialog title", "keys": ["MH-2", "MH-10"]}], "log": []}]})
+REP10 = dict(REPORTS, **{"qa-cn3": REPORTS["qa-cn3"] + [{"at": "2026-10-31T11:00", "build": "80", "summary": False, "subject": "Daily Test Report build 80",
+                                                        "text": "MH-10 pass\n"}]})
+res3 = TR.collect("2.1", CFG, STATES, SEEN, REP10, [], ISSUES, INCIDENTS, NOW, regions=REGIONS, qa=QA)
+by3 = {r["id"]: r for r in res3["rows"]}
+check("a key a mail names on a row it already read joins the row's also; the row's arrival stands",
+      "MH-10" in by3["MH-2"]["also"] and by3["MH-2"]["cells"]["qa-cn3"]["arrived"] == "79" and "MH-10" not in by3)
+check("a report key carried as an also is no parity gap", "MH-10" not in res3["report_keys_missing"]
+      and "MH-10" in TR.collect("2.1", CFG, STATES, MAILS, REP10, [], ISSUES, INCIDENTS, NOW, regions=REGIONS, qa=QA)["report_keys_missing"])
 check("a no-ticket row named again by a later build keeps its first build", by[NT]["cells"]["qa-cn3"]["arrived"] == "79")
 c1 = by["MH-1"]["cells"]
 check("the QA cell carries the state's fail with its build; no other lane has it", c1["qa-cn3"]["verdict"] == "fail" and c1["qa-cn3"]["arrived"] == "75"

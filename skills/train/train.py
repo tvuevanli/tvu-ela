@@ -103,19 +103,22 @@ def lane_rows(lane, state, mails, reports, issues):
             withdrawn.append(rid)
             continue
         rows.setdefault(rid, dict(r, _state_verdict=left_verdict(r.get("why"))))
-    builds = dict(state.get("builds") or {})
+    builds = {k: dict(v) for k, v in (state.get("builds") or {}).items()}
     floor = int(state.get("seed_after") or 0)
-    builds = {k: dict(v) for k, v in builds.items()}
     for b in mails or []:
-        if not TL.take_mail(builds, b, floor, mails):     # a build is its mail: a re-sent build is read again
-            continue
-        TL.record_mail(builds, b)
+        fresh = TL.take_mail(builds, b, floor, mails)     # a build is its mail: a re-sent build is read again
+        if fresh:
+            TL.record_mail(builds, b)
         for beh in TL.behaviours(b):
             owner = TL.owner_of(beh["keys"], issues)
             text = " · ".join(beh["focus"]) or " · ".join(l["text"] for l in beh["log"])
             rid = owner or TL.nt_id(beh["log"][0]["text"] if beh["log"] else text)
-            if rid in rows:
-                TL.merge_build(rows[rid], b)                # a re-send's rows merge with the first mail's
+            if rid in rows:                                 # every mail of the window, read or not: its keys join the row
+                TL.merge_keys(rows[rid], beh["keys"])
+                if fresh:
+                    TL.merge_build(rows[rid], b)            # a re-send's rows merge with the first mail's
+                continue
+            if not fresh:
                 continue
             rows[rid] = {"id": rid, "ticket": owner, "also": [k for k in beh["keys"] if k != owner],
                          "focus": " · ".join(beh["focus"]) or None, "log": [l["text"] for l in beh["log"]],

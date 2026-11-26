@@ -215,5 +215,8 @@ check("a re-send of an older build naming a row moves its first arrival back, it
       row == {"builds": ["100", "101"], "first_build": "100", "first_at": "2026-11-24T18:00", "last_build": "101", "last_at": "2026-11-25T18:00"})
 TL.merge_build(row, dict(m100, build="102", at="2026-11-27T10:00"))
 check("a later build moves its last forward", row["last_build"] == "102" and row["first_build"] == "100")
+r2 = {"ticket": "MH-3988", "also": ["MH-4000"]}
+TL.merge_keys(r2, ["MH-3988", "MH-4003", "MH-4006", "MH-4000"])
+check("a row named again with new keys carries them as also, once each", r2["also"] == ["MH-4000", "MH-4003", "MH-4006"])
 
 sys.exit(1 if failures else 0)

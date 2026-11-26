@@ -288,6 +288,14 @@ def record_mail(builds, b):
         entry.setdefault("resent", []).append({"at": b["at"], "mail": b["id"], "subject": b["subject"]})
 
 
+def merge_keys(row, keys):
+    """A row named again with keys it does not carry: they join its `also`. Build 92 named MH-3988's row again with
+    MH-4003 and MH-4006, and only the keys of the build that opened the row were kept, so QA's verdict on MH-4006
+    had no row."""
+    have = {row.get("ticket"), *(row.get("also") or [])}
+    row["also"] = list(row.get("also") or []) + [k for k in keys if k not in have]
+
+
 def merge_build(row, b):
     """A row named again by the build b: the build joins its builds; an earlier build (a re-send of an older build
     naming the row for the first time) moves its first arrival back; a later one moves its last forward."""
@@ -560,6 +568,7 @@ def collect_lane(lane, shown, mails, reports, s, env, cache, gaps, said=()):
             if rid in st["rows"] or (left and int(left["first_build"]) >= int(b["build"])):
                 if rid in st["rows"]:                       # named again: what QA said before a later build no longer settles it
                     merge_build(st["rows"][rid], b)
+                    merge_keys(st["rows"][rid], beh["keys"])
                 continue
             st["left"].pop(rid, None)
             layers = sorted({l["layer"] for l in beh["log"] if l["layer"]})
