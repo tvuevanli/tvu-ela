@@ -36,6 +36,9 @@ check("a holiday is not a working day", M.window(dict(DAY, holidays=["2026-11-12
 # triage: the closed vocabulary
 T = lambda text, bot=False, ch="dev": M.triage(text, ME, bot, ch)
 check("a bot's ready-to-test is a notice", T(f"build 91 sent <@U0QA> <@{ME}> QA can start", bot=True) == ("notice", "bot-notice"))
+check("a bot's release mail tagging QA and him, with a 'whether' about another team, is a notice",
+      T(f"Release build 101 <@U0QA> <@U0QB> <@{ME}> \u53ef\u4ee5\u5f00\u6d4b mx-media \u672a\u56de\u590d\u662f\u5426\u8865\u53d1 #99", bot=True) == ("notice", "bot-notice"))
+check("a bot that puts a question to him alone is still an ask", T(f"<@{ME}> can you approve the deploy?", bot=True) == ("ask", "question"))
 check("a link's own question mark asks nothing", T(f"<@{ME}> synced this thread with <https://x.example/browse/MH-1?focusedCommentId=2|MH-1>", bot=True) == ("notice", "bot-notice"))
 check("a bot that asks is an ask", T(f"<@{ME}> can you decide whether this ships?", bot=True) == ("ask", "question"))
 check("the tags before an FYI are a notice", T(f"<@U0X> use cn-north-1 <@U0Y> <@{ME}> FYI") == ("notice", "fyi-tail"))
@@ -139,6 +142,17 @@ with tempfile.TemporaryDirectory() as tmp:
           lines[0] == "<https://jira.example/browse/MH-3735|MH-3735> Backlog · Owner · Fixed In ur-caller@2.1.90 · MH-3735 summary"
           and "no Fixed In" in lines[1] and lines[2] == "not read (not in the Jira fact store): MH-7001" and len(lines) <= M.FACT_LINES
           and tl and tl[0].startswith("<https://slack.example/archives/C0QA/p1|#qa 11-10> names MH-3735"))
+    M.save(R, dict(recs, **{"Q-1": dict(recs[a2], id="Q-1")}))
+    import argparse as _ap, contextlib as _cl, io as _io
+    with _cl.redirect_stdout(_io.StringIO()):
+        M.cmd_draft(_ap.Namespace(reports=R, ref="Q-1", ask="QA's release mail copies him.", reading="a release mail to QA; he is only copied",
+                                  reply_file=None, not_needed=True, fact=None, postable=False, fresh=False, json=True, now=None))
+    q = M.load(R)["Q-1"]
+    check("--not-needed: the mention closes on ela's reading, no card is owed or sent, the tally counts it",
+          q["state"] == "closed" and "nothing needed" in q["closed"]["why"] and not q.get("draft")
+          and "Q-1" not in {d["id"] for d in M.todo(M.load(R), DAY, at(11, 33))}
+          and M.tally(R)[q["reason"]]["not-needed"] == 1)
+    recs = M.load(R); recs.pop("Q-1"); M.save(R, recs)
     path, text = M.make_draft(recs[a2], R, "Asker asks which build carries the MH-3735 fix.", "It is in build 90. I'll link MH-3842 to MH-3735.", at(11, 32))
     check("the message: the ask, the facts, the reply to paste, the dry runs it implies, the three letters",
           "Asker asks which build" in text and "*Facts*" in text and "```\nIt is in build 90." in text

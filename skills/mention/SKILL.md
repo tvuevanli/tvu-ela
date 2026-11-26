@@ -39,7 +39,11 @@ today.md with the same options. An ask still open after three working days is cl
 5. Decide whether the reply is postable by ela: it only acknowledges ("got it, thanks") or relays a fact that is on
    record. A reply that judges, commits him to something, declines or disagrees is not, and neither is one you are
    unsure about. Not postable is the default; say `--postable` only when sure.
-6. `$MENTION draft <ref> --ask "<the sentence>" --reading "<one line: whether the ask still needs him, and why>"
+6. **First decide whether he is needed at all.** He is not when he is only copied: an announcement or a release
+   mail to QA, a cc, a thread others are already moving, a question put to someone else. Then
+   `$MENTION draft <ref> --ask "<the sentence>" --reading "<why nothing is needed>" --not-needed` closes it and
+   nothing reaches him. Never send a card whose reading is "probably not": that is `--not-needed`. Otherwise:
+   `$MENTION draft <ref> --ask "<the sentence>" --reading "<one line: whether the ask still needs him, and why>"
    --reply-file <file> [--fact <key or link>]… [--postable]` writes the card to the store and prints it, with what A on
    it will do. `--reading` is required. A `--fact` is a key or link `$MENTION facts` printed for this mention, or
    `none`; any other is refused. Nothing is sent. A `# mrkdwn:` line names text Slack would print literally:

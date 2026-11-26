@@ -26,14 +26,15 @@ mention closes, a drafted Slack action aimed at the same thread in the runner's 
   triage  <permalink> [--fresh] [--json]  how one message would be triaged, with the reason; nothing is recorded
   facts   <id|permalink> [--fresh] [--json]  the tickets the thread names (state, owner, Fixed In) and the related
                                           threads from the links index
-  draft   <id|permalink> --ask "…" --reading "…" --reply-file F [--fact X]… [--postable] [--json]
+  draft   <id|permalink> --ask "…" --reading "…" (--reply-file F [--fact X]… [--postable] | --not-needed) [--json]
                                           the message for him, written to the store. Its first line says what it is
                                           and what is asked of him (--ask, one sentence), its second whether the ask
                                           still needs him (--reading); then three facts at most (--fact: a ticket key
                                           or a related thread's link that bears on the answer, `none` for none), the
                                           reply, the dry runs it implies, A / B / C. Nothing is sent. --postable: the
                                           reply only acknowledges or relays a fact, so the `ela` setting may offer to
-                                          post it
+                                          post it. --not-needed: the reading is that nothing is
+                                          needed of him; the mention closes and no card is sent
   sent    <id> [--ts T]                   the runner's word that the message reached him; the hash of the text the
                                           card showed is kept
   answer  <id|dm ts> <A|B|C> [--shown H] [--json]
@@ -96,7 +97,7 @@ REASONS = {
     "bare-mention": "names him with no words of its own (a file or the message above is the ask)",
     "addressed": "names him in a statement; no rule calls it a notice",
     "broadcast": "tags many people and puts no question to him alone",
-    "bot-notice": "a bot's announcement that asks nothing",
+    "bot-notice": "a bot's announcement that asks nothing of him alone",
     "fyi-tail": "names him only in the tags before an FYI",
     "cc-tail": "names him only in a cc",
 }
@@ -120,6 +121,9 @@ def triage(text, me, bot=False, channel=""):
     text = re.sub(r"<(?:https?|mailto)[^>]*>|https?://\S+", " ", text)   # a link's own `?` asks nothing
     if (PROD_RX.search(text) or (channel or "").lower().startswith("prod")) and INCIDENT_RX.search(text):
         return "incident", "incident"
+    if bot and not asked_alone(text, me):
+        return "notice", "bot-notice"                     # a bot announces: a "whether" about someone else in a release
+                                                          # mail is not put to him (#mediahub-qa-release, 2026-11-25)
     if len(set(re.findall(r"<@([A-Z0-9]+)", text))) >= BROADCAST_MIN and not asked_alone(text, me):
         return "notice", "broadcast"                      # an announcement to many: its "please" is not put to him
     if ASK_RX.search(text):
@@ -951,7 +955,7 @@ def waiting(reports):
 def tally(reports):
     by = {}
     for row in read_log(reports):
-        t = by.setdefault(row.get("reason") or "?", {"kind": KIND_OF.get(row.get("reason")), "fired": 0, "replied": 0, "withdrawn": 0, "A": 0, "B": 0, "C": 0, "closed": 0, "expired": 0})
+        t = by.setdefault(row.get("reason") or "?", {"kind": KIND_OF.get(row.get("reason")), "fired": 0, "replied": 0, "withdrawn": 0, "A": 0, "B": 0, "C": 0, "closed": 0, "expired": 0, "not-needed": 0})
         if row.get("outcome"):
             t[row["outcome"]] = t.get(row["outcome"], 0) + 1
         else:
@@ -1231,6 +1235,17 @@ def cmd_draft(a):
     r = find(recs, a.ref)
     if r["triage"] != "ask" or r.get("replied_at") or r["state"] not in ("waiting", "drafted"):
         print(f"{r['id']}: no draft is owed ({line_of(r)})", file=sys.stderr); sys.exit(EX_USAGE)
+    if a.not_needed:                                       # the reading says nothing is needed: no card reaches him
+        why = " ".join((a.reading or "").split())
+        r.update(state="closed", reading=why, closed={"at": iso(now), "why": f"ela's reading: nothing needed — {why}"})
+        log(r_["reports"], {"at": iso(now), "id": r["id"], "reason": r["reason"], "outcome": "not-needed"})
+        supersede(r_["reports"], r, f"mention {r['id']} closed: nothing needed", now)
+        save(r_["reports"], recs)
+        emit(a, {"id": r["id"], "state": "closed", "not_needed": True, "reading": why},
+             [f"{r['id']}: closed, nothing sent — {why}"])
+        return
+    if not a.reply_file:
+        print("--reply-file is required unless --not-needed", file=sys.stderr); sys.exit(EX_USAGE)
     try:
         reply = open(a.reply_file, encoding="utf-8").read()
     except OSError as e:
@@ -1346,7 +1361,9 @@ def main():
     verb("show", cmd_show, "ref")
     verb("triage", cmd_triage, "permalink", fresh, user)
     verb("facts", cmd_facts, "ref", fresh)
-    verb("draft", cmd_draft, "ref", (("--ask",), {"required": True}), (("--reply-file",), {"required": True}),
+    verb("draft", cmd_draft, "ref", (("--ask",), {"required": True}), (("--reply-file",), {}),
+         (("--not-needed",), {"action": "store_true", "help": "the reading is that nothing is needed of him: close it, send "
+                                                               "no card (a cc, an announcement, a thread already moving)"}),
          (("--reading",), {"required": True, "help": "one line: whether the ask still needs him, and why (the card's second line)"}),
          (("--fact",), {"action": "append", "help": f"a fact that bears on the answer, {FACT_LINES} at most: a ticket key, a related thread's "
                                                     "link, or `none`; default: the tickets the thread names"}),
