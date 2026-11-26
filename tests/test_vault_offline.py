@@ -213,7 +213,7 @@ with tempfile.TemporaryDirectory() as tmp:
     check("today.md is the one page: facts, needs you, today, then one line of links; Home points to it",
           all(f"## {x}" in above for x in ("Facts", "Needs you", "Today")) and f"[[reference/days/{today[:4]}/{today}-brief|morning page]]" in home
           and "[[reference/dropped|dropped asks]]" in home and not V.GUIDE.search(home) and len(V.plain(above).split()) <= V.TODAY_WORDS
-          and "[[today]]" in open(f"{vault}/home.md").read() and os.path.exists(f"{vault}/{V.DROPPED}"))
+          and (("[[today]]" in open(f"{vault}/home.md").read()) if datetime.date.fromisoformat(today) <= V.HOME_POINTER_UNTIL else not os.path.exists(f"{vault}/home.md")) and os.path.exists(f"{vault}/{V.DROPPED}"))
     check("the changes page is a day page in reference/days/, linked from today.md", os.path.exists(f"{vault}/reference/days/{today[:4]}/{today}-changes.md")
           and f"[[reference/days/{today[:4]}/{today}-changes|what changed]]" in home)
     check("today.md's footer links neither the board nor recent, retired angles", "[[recent" not in home and "[[board" not in home)
@@ -288,10 +288,10 @@ with tempfile.TemporaryDirectory() as tmp:
           'status: "done"' in open(r4).read() and (lambda m: sync() == 0 and os.path.exists(r4) and os.path.getmtime(r4) == m)(os.path.getmtime(r4))
           and any(r.get("by") == "owner" and r.get("fate") == "archived" and r["path"].endswith("review-4.md") for r in rows()))
     try:
-        V.cmd_finish(types.SimpleNamespace(path="home.md", to="delete")); refused = False
+        V.cmd_finish(types.SimpleNamespace(path=V.TODAY, to="delete")); refused = False
     except SystemExit:
         refused = True
-    check("finish refuses a living page", refused and os.path.exists(f"{vault}/home.md"))
+    check("finish refuses a living page", refused and os.path.exists(f"{vault}/{V.TODAY}"))
     r6 = f"{vault}/reference/{today[:4]}-03-01-decision-2.md"
     check("a live note carries an empty next field", 'next: ""' in open(r6).read() and "done:" not in open(r6).read())
     txt = open(r6).read(); open(r6, "w").write(txt.replace('next: ""', 'next: "done"'))
