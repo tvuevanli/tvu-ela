@@ -42,6 +42,34 @@ SKILLS = {
                      "the order wrong, handed back, question, noise, tickable", "the check fails an unjudged one",
                      "the check fails an unaudited one", "the verb refuses a longer one", "No dated meeting note is written"],
     },
+    "watch": {
+        "parts": ["judge.md", "second-reading.md"],
+        "ceiling": 13579,   # 2026-11-26: 18,796 before judge mode and the second reading became parts
+        "headings": ["The second reading", "Judge mode: a ticket that reaches the owner arrives judged"],   # the runner's prompts name them
+        "core": ["An act you would not defend to the assignee is an ask", "Comment sparingly", "never a close",
+                 "Do not answer the reply yourself", "Do not sign it", "Read `judge.md` first", "Read `second-reading.md` first"],
+        "anywhere": ["A letter he gave binds the verdict", "an unattended session never writes elak (ADR 0026)",
+                     "Agreeing with the decider is not a source", "not read twice"],
+    },
+    "jira": {
+        "parts": ["atoms.md"],
+        "ceiling": 15321,   # 2026-11-26: 20,969 before the field atoms' table became a part
+        "headings": ["A requirement is a project", "Classifying a ticket ela processes"],
+        "core": ["is refused unless `--terminal` is passed", "`close` is a proposal, never a status change",
+                 "never reach the Jira API another way to get past it", "never pass `--apply` until Evan has",
+                 "one ticket's bundle", "Read `atoms.md` beside this file", "carries no comment"],
+        "anywhere": ["append-only union", "`@name` is a real mention", "lowering is refused", "a date already there is never moved",
+                     "a reporter's evidence is refused"],
+    },
+    "promote": {
+        "parts": ["release-note.md", "pending.md", "checkers.md", "slack-body.md"],
+        "ceiling": 20055,   # 2026-11-26: 24,010 before the four parts
+        "core": ["A partial is never shown as a pass", "never infer a pass from silence", "Read-only until his word",
+                 "A stop is lifted only by the owner", "Nothing from a run reaches the owner until two independent checkers",
+                 "two sends, two confirms", "never `--apply` without his word per key", "Read `checkers.md` before spawning them"],
+        "anywhere": ["A release note compares two bundles, never a lane", "never the drafting session's conclusions",
+                     "`note.py lint` refuses a note without it", "never blanks a filled candidate", "*Open points* — numbered questions"],
+    },
 }
 bad = []
 for skill, spec in sorted(SKILLS.items()):

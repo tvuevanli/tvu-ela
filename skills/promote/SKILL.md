@@ -33,6 +33,18 @@ One docker image moving on its own — QA's summary report for `copier:1.0.88`, 
 `ela docker [--image I]` joins that image's report to the lanes' bundles and gives ready / not ready and, for a daily
 lane behind it, the dry-run bundle command. The line's promotion stays here, and prod moves only with the line.
 
+## Parts read by mode
+
+This file is the assessment of a line's promotion between lanes. Four parts sit beside it (`${CLAUDE_PLUGIN_ROOT}/skills/promote/<name>`); each is
+read **first**, whole, by the run that needs it:
+
+| when | Read |
+|---|---|
+| <from> is a bundle name, an id or `base` (a release note's range) | `release-note.md` |
+| `plan`, `close`, or a cell of `<reports>/promote/pending.json` to read or rule | `pending.md` |
+| a run's result is about to be shown to the owner (§1b) | `checkers.md` |
+| the Slack body is written (§2, output 2) | `slack-body.md` |
+
 ## Invariants
 - **Every source is checked against another.** A commit's ticket is the key in its subject (the body's key only
   when the subject has none; a body-cited key is a reference, not a carried ticket). A ticket's Fixed In is
@@ -65,13 +77,6 @@ lane behind it, the dry-run bundle command. The line's promotion stays here, and
   trailer) already in the target build's history places that part on the target (MH-3668); a part Fixed In calls new
   with no carrying commit in the range is `disputed`, a medium finding for the owner, never new (MH-3886). A label
   such as MH-030 is the item id the range's commits use for the ticket.
-- **A release note compares two bundles, never a lane** (owner's ruling, 2026-11-25). `lanes`, `commits` and
-  `tickets` take a bundle name, an id, or `base` for <from>: the newest plain official bundle of the train made before
-  <to> — never one with a qualifier, (POC), (UR/J2N Prod 9), China, a customer's name. The bundles' SaaS rows stand in
-  for the lanes: <to> as its tags are now, <from> as the saved lane reads had its tags when <to> was made, since a
-  deployed tag moves. Docker images that changed bring their tickets through Fixed In (`mds-<slug>@<image>:<tag>` inside
-  the range), each image listed with its tickets or "no ticket's Fixed In names this range"; the epics the tickets sit
-  under are listed with their children. The line's label brings no ticket in this mode.
 - **What the deploy needs is read, not asked for.** `prereqs.py` scans the release's tickets (description, comments)
   and the docs the range changes for deploy-time items (an SQL statement on a table, a one-off backfill call, a
   发版待办 list, a key = value beside a release word), lists the release-branch commits after the promoted build, and
@@ -111,22 +116,9 @@ lane behind it, the dry-run bundle command. The line's promotion stays here, and
   never by rewording the finding. An expired constraint is listed for seven days, then dropped. The file is
   written only when the owner confirms the proposing note; this skill never writes it. A missing file is no
   constraints.
-- **A report written with `--out` opens the pending promotion for its line and lanes.** `<reports>/promote/pending.json`
-  holds one record per line and lane pair (`{"2.1|daily-wed|prod-3": {...}, "2.0|qa-cn2|prod-8": {...}}`): the line,
-  the lanes, the report's path and the candidate: the source lane's version per service. The next run for the same
-  line and lanes refreshes that record and no other; a cell the owner still has to choose is written there as
-  `{"awaiting": "owner", "options": [...], "why": "..."}` and kept until he rules, as are the fields the report does
-  not produce (label, bundle, open_items, notes, waiting_on). A source lane the run could not read never blanks a
-  filled candidate: the last good versions stand, marked `stale: "<when> source unreadable"`. The morning shows each
-  line's candidate as the next train on the lanes page and each awaiting cell as a decision for him; `close` ends one
-  record when the promotion shipped or was dropped (`--line`/`--to` when several are open).
-- **A planned promotion is on the same record.** `plan <line> <from> <to> --on YYYY-MM-DD --after "<condition>"
-  [--carry KEY…]` writes the day, the condition in words and the keys the train carries (the local file only, never
-  Slack); the lanes block, the next-train column and `report` show it as one line — "planned Fri 11-06 after QA's
-  report on Thursday's build · carries MH-1860 (feature/MH-1860 not merged into release2.1 in 3 repos as of 11-04)".
-  Every `plan`, `plan --check` and `report` run, and every lanes-page pass, re-checks three facts as ✓/·/✗ lines: each
-  carried key's branches against `origin/release<line>` in every mapped checkout (the refs as last fetched), whether
-  the newest QA build's release mail names the key, and whether that build has a QA report. `close` clears the plan.
+- **A report written with `--out` opens the pending promotion for its line and lanes**, and a planned promotion is on
+  the same record (`<reports>/promote/pending.json`; `plan` writes the local file only, never Slack): `pending.md`.
+- **A release note compares two bundles, never a lane** (owner's ruling, 2026-11-25): `release-note.md`.
 - **Rank and cap.** Evan reads at most twelve findings; the rest are counted. A noisy report is an unread one.
 - **Read-only until his word.** Posting (`slack post --apply`), Jira backfills (`jira label|comment … --apply`)
   and the record in elak each wait for an explicit yes, one per action.
@@ -167,24 +159,9 @@ every checkable claim with the read that settles it, split by checker:
 python3 "${CLAUDE_PLUGIN_ROOT}/skills/promote/note.py" claims <runtime>/promote/<stem>.json
 ```
 
-- Spawn the **Jira checker** and the **system checker** in one message, in parallel, each a fresh agent given the draft
-  note, the report JSON's path and its own claim list only, never the drafting session's conclusions. The Jira checker reads
-  each ticket's QA comment, counts, environment block and splits, and each Fixed In; the system checker reads lane
-  versions (`promote proof lane`), profile chains (`facts runtime show`, `configserver effective <app> <chain>`), code
-  and branch state (git), live dependencies and the shipped versions. Each returns per claim: confirmed / wrong (with
-  the first-hand reading) / unread (with why).
-- Every line of the Slack text and every list in the note is a claim of its own: a list is checked for what it
-  leaves out (call sites, versions a flag arrives in, the endpoints a call really uses), and a Slack line for the cause
-  it states. On the 2026-11-09 rerun, the misses were all of this shape (an incomplete list of gateway call sites, the
-  build a flag first arrives in, a Slack line naming the wrong cause).
-  Two shapes need the read spelled out, because a checker that verified the gate or the range still passed them
-  (the 2026-11-09 rerun): a list of call sites is checked by enumerating every caller of the mechanism (`git grep` the
-  method, every path), not by confirming the ones listed; a range claim ("206 → 208 adds …") is checked per item with
-  `git merge-base --is-ancestor <item commit> <each build>`, and the note names the build each item first arrives in.
-- A claim either checker cannot read is written as unread in the note, never kept as stated. A wrong claim is corrected
-  in the note before it is shown, and the checker's reading is cited.
-- The note ends its body with `## Checked`: when, the two checkers, how many claims each confirmed, corrected and left
-  unread, and each correction in one line. `note.py lint` refuses a note without it.
+Read `checkers.md` before spawning them: the two checkers and what each reads, the two shapes of claim a checker
+passes unless the read is spelled out, what an unread or wrong claim becomes, and the note's `## Checked` section,
+without which `note.py lint` refuses the note.
 
 ## 2 — output, in this order
 **One note per promotion** (gap 10). The note is the vault's `releases/<line>/<date>-promote-<from>-to-<to>.md` (the line is the folder's),
@@ -218,14 +195,8 @@ python3 "${CLAUDE_PLUGIN_ROOT}/skills/promote/note.py" lint <vault note> --slack
    `<runtime>/promote/<date>-<line>-<from>-<to>.post.md`, then `slack post <target> --file …` as a **dry run** and
    `--preview` (DM'd to Evan) before any send. Title first (`[MH <line>] <from> → <to> promotion — <scope>`), body
    into the thread; two sends, two confirms. When Evan has already posted the title, the body is the reply in his
-   thread. The body is a fixed layout, at most about forty lines; the review page holds the detail:
-   - *Versions* — one ``` block, a padded column per lane and per candidate build, a row per service.
-   - *<candidate build> — QA results* — one line per ticket: marker · key link · a few words · QA's verdict and date.
-     *New bugs from that round* under it, one line each, with severity.
-   - *Carried along from <earlier builds>* — what the target lane also gains: the unverified tickets one per line,
-     the verified ones as a single ✅ line of keys, ticketless commits as one counted line.
-   - *<next build> — not yet tested* — one line of keys, when a newer build is on the from-lane.
-   - *Open points* — numbered questions, one line each.
+   thread. The body is a fixed layout, at most about forty lines; the review page holds the detail. Read
+   `slack-body.md` for the layout before writing it.
    No verdict, and no decision of Evan's, even one he has stated in the session: he writes it in the thread.
 3. **The QA list** — one line per ticket in the delta whose QA state is not verified (dev-declared, none, not
    scheduled): key · what changed in the reporter's words · the lane and build to test on. Written in English,
