@@ -8,7 +8,8 @@ twice: a fact under its kind and key, a correction with its cause in the store o
 
   precedents [--domain D] [--kind K] [--waiting] [--json]
                                 the corrections kept with a cause, read from each domain's own store: dry's corpus
-                                (his did.md `wrong: <why>`), the board watch's corrections, mention's triage log. A
+                                (his did.md `wrong: <why>`), the board watch's corrections, mention's triage log, the
+                                train's deploy-impact rulings (a kind `<layer>:<criterion>`, or the criterion alone). A
                                 judge cites one of the same domain and kind. --waiting adds those still waiting for a
                                 cause. A kind outside the domain's closed list is refused (exit 2)
   fact get KIND KEY [--json]    the fact he gave for this kind and key, or exit 3 when none
@@ -22,7 +23,7 @@ Fact kinds are a closed list (FACT_KINDS). A key is matched case- and space-inse
 store up before it is raised (`known`): the board watch refuses a fact ask whose answer is already kept.
 
 Stores: the site's facts-given.json beside site.json (ELA_ASKS_FACTS_DIR stands in for it in tests); <elak>/knowledge/facts-given.json; the domains' own stores under
-<reports>/ela/ (dry/record.jsonl, watch/corrections.jsonl, mentions/triage.jsonl).
+<reports>/ela/ (dry/record.jsonl, watch/corrections.jsonl, mentions/triage.jsonl) and <reports>/train/rulings.jsonl.
 """
 import argparse, datetime, json, os, sys
 
@@ -41,7 +42,7 @@ FACT_KINDS = {
     "date": "a date no source carries: a leave, a release window, a customer's deadline",
     "scope": "whether a case is in a release's or a ticket's scope",
 }
-DOMAINS = ("dry", "watch", "mention")
+DOMAINS = ("dry", "watch", "mention", "deploy-impact")   # deploy-impact: the train's rulings on a fix's QA fail
 
 
 def site():
@@ -116,8 +117,8 @@ def give(kind, key, value, source, durable=False, apply=False, site_dir=None, el
 
 
 # ── precedents: each domain keeps its own store; this reads them in one row shape ───────────────────────────────
-def mod(name):
-    sys.path.insert(0, os.path.join(SKILLS, name))
+def mod(name, skill=None):
+    sys.path.insert(0, os.path.join(SKILLS, skill or name))
     return __import__(name)
 
 
@@ -129,6 +130,8 @@ def kinds(domain):
         return tuple(mod("watch").KINDS)
     if domain == "mention":
         return tuple(mod("mention").REASONS)
+    if domain == "deploy-impact":                          # a kind is `<layer>:<criterion>`; the criterion is the closed half
+        return tuple(mod("fixes", "train").CRITERIA)
     raise ValueError(f"domain {domain!r}: one of {', '.join(DOMAINS)}")
 
 
@@ -143,6 +146,8 @@ def rows(reports, domain):
         got = mod("watch").corrections(reports)
     elif domain == "mention":
         got = mod("mention").corrections(reports)
+    elif domain == "deploy-impact":
+        got = mod("fixes", "train").corrections(reports)
     else:
         raise ValueError(f"domain {domain!r}: one of {', '.join(DOMAINS)}")
     return [{"domain": domain, "kind": r.get("class"), "target": r.get("target"), "act": r.get("act"),
@@ -155,7 +160,7 @@ def precedents(reports, domain=None, kind=None, waiting=False):
     outside the domain's closed list raises ValueError: a precedent filed under no kind cannot be matched to a case."""
     if kind and not domain:
         raise ValueError("a kind is read within its domain: give --domain")
-    if kind and kind not in kinds(domain):
+    if kind and kind.rsplit(":", 1)[-1] not in kinds(domain):
         raise ValueError(f"{domain} kind {kind!r}: one of {', '.join(kinds(domain))}")
     out = []
     for d in ([domain] if domain else DOMAINS):
@@ -163,7 +168,7 @@ def precedents(reports, domain=None, kind=None, waiting=False):
             out += rows(reports, d)
         except (OSError, ImportError):
             continue
-    out = [r for r in out if (not kind or r["kind"] == kind) and (waiting or r["corpus"] == "admitted" and r["cause"])]
+    out = [r for r in out if (not kind or r["kind"] == kind or str(r["kind"] or "").endswith(":" + kind)) and (waiting or r["corpus"] == "admitted" and r["cause"])]
     return sorted(out, key=lambda r: str(r.get("at") or ""), reverse=True)
 
 

@@ -422,8 +422,10 @@ def since_lines(trains, since, page_of, n=5):
 
 
 def asks(trains, page_of):
-    """Each your-call row as a today.md ask: one line of question, ela's leaning as A with its reason, the other way as
-    B; the letter is recorded by `answer`. [{id, text, whole, options, sig, link}]; the vault's ask cap applies."""
+    """Each your-call row as a today.md ruling ask, in the vault's ask shape: one line of question with ela's leaning,
+    the leaning as A carrying ela's drafted reason (`reason`, rendered by the vault in the recommended option), the
+    other way as B; a tick or `ela: A because …` answers it on the page, its words kept as the ruling's cause, and the
+    letter is recorded by `answer`. [{id, text, whole, options, sig, reason, link}]; the vault's ask cap applies."""
     out = []
     for t in trains or []:
         for r in t.get("rows") or []:
@@ -434,9 +436,10 @@ def asks(trains, page_of):
             lanes = t.get("lanes") or []
             other = "blocks" if imp["leaning"] == "does not block" else "does not block"
             aid = f"impact:{r['key']}"
-            out.append({"id": aid, "whole": True, "sig": imp["sig"], "kind": imp.get("kind"),
+            out.append({"id": aid, "whole": True, "sig": imp["sig"], "impact_kind": imp.get("kind"),
+                        "reason": imp.get("lean_reason") or "",
                         "text": f"Does {r['key']}'s QA fail block {shown_of(lanes, mv[0])} → {shown_of(lanes, mv[1])}? "
-                                f"ela leans {imp['leaning']}: {short(imp.get('lean_reason'), 220)}",
+                                f"ela leans {imp['leaning']}",
                         "link": f"{page_of(t['line'])}#^{anchor(r['key'])}",
                         "options": [{"letter": "A", "text": f"right: {imp['leaning']}", "does": f"ela train answer {aid} A", "recommended": True},
                                     {"letter": "B", "text": f"wrong: it {other}; say why under the ask", "does": f"ela train answer {aid} B",
@@ -486,6 +489,30 @@ def answer(reports, aid, letter, train, why=None, now=None):
         fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
     return rec
 
+
+def cause(reports, aid, note, now=None):
+    """His cause, given after a letter that waited for one (`ela: because …` under the next ask of its kind on
+    today.md): a copy of that ruling with the cause, appended, so the store keeps both and the newest row per ask
+    and case is the one read. Raises KeyError when no ruling of this ask is on record. → the row."""
+    last = next((r for r in reversed(read_rulings(reports)) if r.get("id") == aid), None)
+    if not last:
+        raise KeyError(aid)
+    rec = dict(last, cause=note, corpus="admitted", caused=(now or datetime.datetime.now().astimezone()).isoformat(timespec="seconds"))
+    with open(rulings_path(reports), "a", encoding="utf-8") as fh:
+        fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    return rec
+
+
+def corrections(reports):
+    """His rulings in the precedent shape `ela asks precedents --domain deploy-impact` reads, the newest row per ask
+    and case: {at, class, target, act, verdict, cause, corpus}; class is the kind (`<layer>:<criterion>`), verdict
+    `right` when he agreed with ela's leaning and `wrong` when he ruled the other way."""
+    newest = {}
+    for r in read_rulings(reports):
+        newest[(r.get("id"), r.get("sig"))] = r
+    return [{"at": r.get("caused") or r.get("at"), "class": r.get("kind"), "target": r.get("key"), "act": r.get("id"),
+             "verdict": "right" if r.get("letter") == "A" else "wrong", "ruled": r.get("ruled"), "cause": r.get("cause"),
+             "corpus": r.get("corpus")} for r in newest.values()]
 
 if __name__ == "__main__":
     print(__doc__)

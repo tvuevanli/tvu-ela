@@ -59,7 +59,8 @@ check("at most five lines outside the fold", len([l for l in since.splitlines() 
 needs = page.split("## Needs you", 1)[1].split("## Today", 1)[0]
 check("a your-call fix is a ruling ask: ela's leaning as A with its reason, the other way as B, linking its row",
       "1. *ruling* · Does MH-4100's QA fail block QA-AWS3 → daily-wed (UR test2)? ela leans does not block" in needs
-      and "- [ ] A (recommended): right: does not block" in needs and "- [ ] B: wrong: it blocks; say why under the ask" in needs
+      and "- [ ] A (recommended): right: does not block — ela's reason: QA: main fix works (14 Pass + 1 Fail)" in needs
+      and "ela leans does not block: QA" not in needs and "- [ ] B: wrong: it blocks; say why under the ask" in needs
       and "→ [[releases/2.1/2.1#^fix-mh-4100|its row]]" in needs)
 today = page.split("## Today", 1)[1]
 check("rulings over the ask cap stay on the line page, and today.md says how many",
@@ -82,6 +83,28 @@ with tempfile.TemporaryDirectory() as reports:
     kept = [json.loads(l) for l in open(os.path.join(reports, "train", "rulings.jsonl"))]
     check("his A is kept with its kind and ela's leaning as his ruling", acted and kept[0]["ruled"] == "does not block"
           and kept[0]["kind"] == "App:partial" and st["impact:MH-4100"]["answered"]["letter"] == "A")
+    st["impact:MH-4101"] = {"first": "2026-11-26", "sig": "s", "slot": 2, "rec": "A",
+                            "options": {"A": "ela train answer impact:MH-4101 A", "B": "ela train answer impact:MH-4101 B"}}
+    V.settle_one(reports, st, "impact:MH-4101", "B", "ela train answer impact:MH-4101 B", THU, note="the stage bar is customer-facing")
+    kept = [json.loads(l) for l in open(os.path.join(reports, "train", "rulings.jsonl"))]
+    check("`ela: B because …` on today.md keeps his words as the ruling's cause", kept[-1]["ruled"] == "does not block"
+          and kept[-1]["cause"] == "the stage bar is customer-facing" and kept[-1]["corpus"] == "admitted")
+    st["impact:MH-4102"] = {"first": "2026-11-26", "sig": "s", "slot": 3, "rec": "A",
+                            "options": {"A": "ela train answer impact:MH-4102 A", "B": "ela train answer impact:MH-4102 B"}}
+    V.settle_one(reports, st, "impact:MH-4102", "B", "ela train answer impact:MH-4102 B", THU)
+    check("a B with no words waits for a cause", st["impact:MH-4102"]["answered"].get("cause") == "waiting")
+    st["impact:MH-4903"] = {"first": "2026-11-26", "slot": 4}
+    V.settle_cause(reports, st, "impact:MH-4903", "QA's TC13 is the main path", THU)
+    kept = [json.loads(l) for l in open(os.path.join(reports, "train", "rulings.jsonl"))]
+    check("his later `ela: because …` completes the waiting ruling in the train's store",
+          kept[-1]["id"] == "impact:MH-4102" and kept[-1]["cause"] == "QA's TC13 is the main path" and kept[-1]["corpus"] == "admitted"
+          and st["impact:MH-4102"]["answered"]["cause"] == "given")
+    sys.path.insert(0, os.path.join(ROOT, "skills", "asks"))
+    import asks as A  # noqa: E402
+    got = A.precedents(reports, "deploy-impact")
+    check("the train's rulings are precedents of domain deploy-impact, newest row per case, by full kind or criterion",
+          sorted(p["target"] for p in got) == ["MH-4101", "MH-4102"] and all(p["kind"] == "App:partial" for p in got)
+          and len(A.precedents(reports, "deploy-impact", "partial")) == 2 and len(A.precedents(reports, "deploy-impact", "App:partial")) == 2)
 
 if failures:
     print(f"\ntoday fixes: {len(failures)} failure(s)"); sys.exit(1)

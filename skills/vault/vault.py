@@ -4462,6 +4462,8 @@ def teach(reports, aid, letter, note):
             WA.cause(reports, aid, note, WA.now_tz())
         elif aid.startswith("mention:"):
             mention_mod().cause(reports, aid.split(":", 1)[1], note)
+        elif aid.startswith("impact:"):
+            fixes_mod().cause(reports, aid, note)
     except (KeyError, ValueError, AttributeError):
         pass
 
@@ -4503,7 +4505,7 @@ def settle_one(reports, state, aid, letter, does, today, dry_run=False, note=Non
         held = None
         for t in written_trains(reports):
             try:
-                held = fixes_mod().answer(reports, parts[3], parts[4], t)
+                held = fixes_mod().answer(reports, parts[3], parts[4], t, why=note)
                 break
             except KeyError:
                 continue
