@@ -107,7 +107,7 @@ with tempfile.TemporaryDirectory() as R:
     due = {"triggered": [{"key": "MH-1", "summary": "one", "triggers": [{"kind": "unanswered", "says": "x"}]},
                          {"key": "MH-2", "summary": "two", "triggers": [{"kind": "owner-held", "says": "y"}]}]}
     dec = {"decisions": [{"key": "MH-1", "verdict": "ask", "kind": "ruling", "confidence": "medium", "why": "the reporter asked QA",
-                          "question": "Hand it to QA?", "options": [{"letter": "A", "text": "assign to QA"}, {"letter": "B", "text": "leave it"}]},
+                          "question": "Hand it to QA?", "options": [{"letter": "A", "text": "QA takes it"}, {"letter": "B", "text": "leave it"}]},
                          {"key": "MH-2", "verdict": "ask", "kind": "fact", "confidence": "low", "fact": {"kind": "owner", "key": "WebRenderer"},
                           "question": "Who owns the WebRenderer?", "options": [{"letter": "A", "text": "tell ela"}]}]}
     out = W.decide(dec, due, facts, R, NOW, apply=True)
@@ -115,10 +115,10 @@ with tempfile.TemporaryDirectory() as R:
     t1, t2 = tp["watch:MH-1"], tp["watch:MH-2"]
     check("a topic carries its class, kind and confidence; a ruling's reason sits in option A",
           (t1["class"], t1["kind"], t1["confidence"]) == ("unanswered", "ruling", "medium")
-          and t1["options"][0]["text"] == "assign to QA — ela's reason: the reporter asked QA" and t2["kind"] == "fact")
+          and t1["options"][0]["text"] == "QA takes it — ela's reason: the reporter asked QA" and t2["kind"] == "fact")
     pg = W.page(R, THU)
     check("ela/watch.md: boxes to tick, the kind and confidence, and how to answer on the page",
-          "- [ ] A (recommended): assign to QA — ela's reason: the reporter asked QA" in pg and "*ruling* · confidence medium" in pg
+          "- [ ] A (recommended): QA takes it — ela's reason: the reporter asked QA" in pg and "*ruling* · confidence medium" in pg
           and "*fact* · confidence low" in pg and "tick a letter, or write `ela: B because …`" in pg)
     said = pg.replace("- [ ] B: leave it", "- [x] B: leave it", 1).replace(
         "CLI: `ela watch answer watch:MH-2", "ela: A — the media team's web lead\nCLI: `ela watch answer watch:MH-2", 1)
@@ -160,7 +160,7 @@ with tempfile.TemporaryDirectory() as R:
     bad = W.decide({"decisions": [{"key": "MH-3", "verdict": "ask", "kind": "fact", "question": "?", "fact": {"kind": "mood", "key": "x"}}]},
                    {"triggered": rows}, facts, R, NOW)
     check("a fact ask outside the fact kinds is refused", bad["refused"] and "fact" in bad["refused"][0]["why"])
-    check("watch outcomes count agreed, wrong and open", W.outcomes(R) == {"agreed": 1, "wrong": 1, "waiting_cause": 0, "open": 0})
+    check("watch outcomes count agreed, wrong and open", W.outcomes(R) == {"agreed": 1, "wrong": 1, "waiting_cause": 0, "open": 0, "superseded": 0})
 
 # ── mention keeps its own corrections ────────────────────────────────────────────────────────────────────────
 with tempfile.TemporaryDirectory() as R:

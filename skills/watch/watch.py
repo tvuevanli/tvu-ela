@@ -44,6 +44,17 @@ comment on that ticket for DISPUTE_QUIET_DAYS.
                                                 `ela dry` (each a dry run unless --apply), asks stored as topics,
                                                 and the owner's answered asks carried out; nothing is applied
                                                 without --apply
+  judge   [--date D] [--json]                   the judge queue: the owner's tickets in Review or handed to him, due a
+                                                judging (one session per ticket, the runner's deep reading in its judge
+                                                mode; plan ela/2026-11-26-plan-tickets-reach-you-judged)
+  judge-prompt KEY [--write PAGE] [--date D] [--json]
+                                                the judging session's input: the ticket, every comment, its links, its
+                                                home in the vault, the owner's topics on it (a letter binds)
+  decide  --judge KEY [--from FILE] [--apply]   the judging session's one decision (<reports>/ela/watch/<date>-judge-
+                                                KEY.json), checked against the judge queue; an act or none closes the
+                                                ticket's open topic as superseded
+  judged  KEY --verdict TEXT | --failed         the runner's record of a judging, after the page and decide: one line,
+                                                its own clock (watch.json `judgment`), appended to watch/judgments.jsonl
   answer  TOPIC A|B|C [WORDS…] [--json]         his letter on a topic (a tick or an `ela:` line on ela/watch.md, or
                                                 said): recorded with his words; an option with writes is carried out at
                                                 the next decide --apply. A letter other than A on a ruling is a
@@ -422,7 +433,7 @@ def scan(facts, reports, now, holds=None, lines=None, owner=None, write=False, b
     holds = H.for_reports(reports, now.date()) if holds is None else holds
     lines = current_lines() if lines is None else lines
     today = now.date().isoformat()
-    rows, skipped, tracked, replies = [], {"legacy": 0, "held": [], "done_today": []}, 0, []
+    rows, skipped, tracked, replies, judge = [], {"legacy": 0, "held": [], "done_today": []}, 0, [], []
     for iss in open_tickets(facts):
         key = iss["key"]
         rec = st["tickets"].setdefault(key, {"first": today})
@@ -433,6 +444,8 @@ def scan(facts, reports, now, holds=None, lines=None, owner=None, write=False, b
         prev = rec.get("snap")
         pend = [p for p in rec.get("pending") or []]
         new = change_triggers(iss, prev, owner)
+        if any(s.startswith("handed to the owner") for _, s in new):
+            rec["handed"] = now.isoformat(timespec="seconds")   # the judging's own clock: kept past the quick pass's decision
         pend += [list(x) for x in new if list(x) not in pend]
         rec["pending"], rec["snap"] = pend, snap(iss)
         if legacy(iss, now, lines):
@@ -442,6 +455,12 @@ def scan(facts, reports, now, holds=None, lines=None, owner=None, write=False, b
         if H.holding(holds, [key], fields(iss).get("summary") or "", now.date()):
             skipped["held"].append(key)
             continue
+        why = judge_due(iss, rec, owner, now)
+        if why:
+            f = fields(iss)
+            judge.append({"key": key, "summary": f.get("summary") or "", "status": name(f.get("status")),
+                          "priority": name(f.get("priority")), "updated": str(f.get("updated") or "")[:16], "why": why,
+                          "handed": why == HANDED, "fails": int(rec.get("judge_fails") or 0)})
         if rec.get("acted") == today:
             skipped["done_today"].append(key)
             continue
@@ -461,7 +480,7 @@ def scan(facts, reports, now, holds=None, lines=None, owner=None, write=False, b
                              if r["priority"] in ("Highest", "High", "Medium", "Low", "Lowest") else 5, r["key"]))
     out = {"date": today, "at": now.isoformat(timespec="seconds"), "tracked": tracked, "skipped": skipped,
            "triggered": rows[:MAX_PER_PASS], "waiting": [r["key"] for r in rows[MAX_PER_PASS:]], "owner": owner.get("name"),
-           "replies": replies}
+           "replies": replies, "judge": judge_order(judge)}
     if write:
         st["passes"] = (st["passes"] + [{"at": out["at"], "tracked": tracked, "triggered": len(rows)}])[-60:]
         write_json(state_path(reports), st)
@@ -643,7 +662,7 @@ ASK_KINDS = ("fact", "ruling")         # what a topic needs from him: a fact ela
 
 def put_topic(topics, key, d, today, summary="", cls=None):
     """The owner's topic for a ticket: one open topic per ticket; an ask on an open one updates it in place, so its
-    thread and its first day stay. A topic carries its class (the trigger kind), whether it needs a fact or a ruling, the
+    thread and its first day stay; a new ask on a closed one keeps the closed topic, his letter with it, in `history`. A topic carries its class (the trigger kind), whether it needs a fact or a ruling, the
     session's confidence, and, for a ruling, ela's reason written into option A (plan 2026-11-26, asks teach ela)."""
     tid = topic_id(key)
     t = topics["topics"].get(tid)
@@ -659,9 +678,10 @@ def put_topic(topics, key, d, today, summary="", cls=None):
     if t and not t.get("closed"):
         t.update(question=d["question"], options=opts, asked=today, unsure=d.get("unsure"), **meta)
         return tid, False
+    was = ([*(t.get("history") or []), {k: v for k, v in t.items() if k != "history"}] if t else [])
     topics["topics"][tid] = {"id": tid, "key": key, "summary": summary, "question": d["question"], "options": opts,
                              "first": today, "asked": today, "thread": None, "posted": {}, "closed": None,
-                             "unsure": d.get("unsure"), **meta}
+                             "unsure": d.get("unsure"), **meta, **({"history": was} if was else {})}
     return tid, True
 
 
@@ -717,19 +737,23 @@ def unsure(d):
     return None
 
 
-def decide(decisions, scanned, facts, reports, now, apply=False, runner=None):
+def decide(decisions, scanned, facts, reports, now, apply=False, runner=None, judge=None):
     """The session's decisions checked and carried. An act at low confidence passes the same gates and is then held as
-    the owner's topic instead of written. → {date, acts, held, asks, none, refused, answered}."""
+    the owner's topic instead of written. With `judge` (a key), the judging session's one decision, checked against the
+    scan's judge queue instead of the quick pass's tickets: an act or a none closes the ticket's open topic as
+    superseded, and nobody's letters are carried here. → {date, acts, held, asks, none, refused, answered}."""
     D = dry_mod()
     today = now.date()
     st, topics = load_state(reports), load_topics(reports)
-    due = {r["key"]: r for r in scanned.get("triggered") or []}
+    due = ({r["key"]: r for r in scanned.get("judge") or [] if r["key"] == judge} if judge
+           else {r["key"]: r for r in scanned.get("triggered") or []})
     out = {"date": today.isoformat(), "acts": [], "held": [], "asks": [], "none": [], "refused": [], "answered": []}
     out.update(judge_replies(decisions, scanned, st, topics, reports, now, apply))
     for d in decisions.get("decisions") or []:
         key, verdict = d.get("key"), d.get("verdict")
         if key not in due:
-            out["refused"].append({"key": key, "why": "not due a decision in today's scan"}); continue
+            out["refused"].append({"key": key, "why": "not due judging in today's scan" if judge else
+                                   "not due a decision in today's scan"}); continue
         iss = read_json(os.path.join(facts, "jira", "issues", f"{key}.json"), {})
         rec = st["tickets"].setdefault(key, {"first": today.isoformat()})
         if verdict in ("act", "none") and unsure(d):
@@ -757,11 +781,16 @@ def decide(decisions, scanned, facts, reports, now, apply=False, runner=None):
             out["acts"].append({"key": key, "writes": [w["command"] for w in writes], "comment": text, **got})
             if apply and got["state"] in ("applied", "open"):
                 rec.update(acted=today.isoformat(), decided=now.isoformat(timespec="seconds"), verdict="act", pending=[])
+                if judge:
+                    supersede(topics, key, judge_path(reports, today.isoformat(), key), now)
                 if text:
                     rec.setdefault("said", []).append(hashlib.sha1(norm(text).encode()).hexdigest()[:16])
         elif verdict == "ask":
             if not (d.get("question") or "").strip():
                 out["refused"].append({"key": key, "why": "an ask carries its question"}); continue
+            hollow = hollow_option(d)
+            if hollow:
+                out["refused"].append({"key": key, "why": hollow}); continue
             if d.get("kind") == "fact":                        # a fact he gave once is not asked again (plan 2026-11-26)
                 f = d.get("fact") or {}
                 try:
@@ -780,9 +809,11 @@ def decide(decisions, scanned, facts, reports, now, apply=False, runner=None):
             out["none"].append({"key": key, "why": d.get("why") or "", **sure})
             if apply:                                          # the why and the level stay: ela/watch.md lists today's nones
                 rec.update(decided=now.isoformat(timespec="seconds"), verdict="none", pending=[], why=clip(d.get("why") or "", 200), **sure)
+                if judge:
+                    supersede(topics, key, judge_path(reports, today.isoformat(), key), now)
         else:
             out["refused"].append({"key": key, "why": f"verdict {verdict!r}: act, ask or none"})
-    out["answered"] = carry_answers(topics, st, facts, reports, now, apply, runner)
+    out["answered"] = [] if judge else carry_answers(topics, st, facts, reports, now, apply, runner)
     if apply:
         write_json(state_path(reports), st)
         write_json(topics_path(reports), topics)
@@ -940,11 +971,13 @@ def corrections(reports):
 def outcomes(reports):
     """How the watch's topics ended, for ela's own measure: answered with A, against ela (with or without a cause),
     still open. A topic does not expire from ela/watch.md; one that ends unanswered is open, not agreed."""
-    out = {"agreed": 0, "wrong": 0, "waiting_cause": 0, "open": 0}
+    out = {"agreed": 0, "wrong": 0, "waiting_cause": 0, "open": 0, "superseded": 0}
     waiting = {r["act"] for r in corrections(reports) if r.get("corpus") == "waiting for a cause"}
     for t in load_topics(reports)["topics"].values():
         c = t.get("closed") or {}
-        if not c.get("letter"):
+        if c.get("superseded_by"):                         # a judgment took its place: neither agreed nor wrong
+            out["superseded"] += 1
+        elif not c.get("letter"):
             out["open"] += 1
         elif c["letter"] == t["options"][0]["letter"] or t.get("kind") == "fact":
             out["agreed"] += 1
@@ -972,6 +1005,234 @@ def asks(reports, today):
     return out
 
 
+# ── judging: a ticket that reaches the owner arrives judged, not listed (plan ela/2026-11-26-plan-tickets-reach-you-
+# judged). The quick pass above decides many tickets in one session; a ticket assigned to him in Review, or handed to
+# him, is also read in depth, one session per ticket (the runner's deep reading in its judge mode), and its verdict is
+# what today.md shows where it names the ticket. The judgment keeps its own clock (`judgment`), apart from `decided`.
+HANDED = "handed to you"
+JUDGE_AGAIN_DAYS = 3                    # one re-judging in this many days, unless the status or the assignee changed
+JUDGE_FAIL_BACK = 2                     # a pick that failed this often goes to the back of the queue
+VERDICT_MAX = 160
+QA_VERDICT = re.compile(r"\b(?:QA|tested|verified|retest(?:ed)?|TC\d+)\b[^\n]{0,80}?\b(?:pass(?:ed|es)?|fail(?:ed|s)?)\b|"
+                        r"\b(?:pass(?:ed)?|fail(?:ed)?)\b[^\n]{0,40}?\b(?:TC\d+|test cases?|QA)\b|"
+                        r"\u6d4b\u8bd5(?:\u901a\u8fc7|\u5931\u8d25|\u4e0d\u901a\u8fc7)|\u9a8c\u8bc1(?:\u901a\u8fc7|\u5931\u8d25)", re.I)
+WRITE_WORDS = re.compile(r"^\s*(?:re-?assign|assign|hand (?:it )?(?:back|over|to)|move|transition|set (?:the |a )?(?:priority|due)|"
+                         r"raise|lower|link)\b", re.I)
+
+
+def judge_due(iss, rec, owner, now):
+    """Why a ticket is due judging, or None: assigned to the owner, in Review or handed to him, and never judged, or since
+    its judgment its status or assignee changed, or (after JUDGE_AGAIN_DAYS) someone other than him, ela or Jira
+    Automation asked a question or gave a QA verdict on it."""
+    f, s = fields(iss), snap(iss)
+    if not is_owner(f.get("assignee"), owner):
+        return None
+    j = rec.get("judgment") or {}
+    handed = bool(rec.get("handed")) and (not j.get("at") or rec["handed"] > j["at"])
+    if s["status"] != "Review" and not handed:
+        return None
+    if not j.get("at"):
+        return HANDED if handed else "in Review with you, never judged"
+    if handed:
+        return HANDED
+    if s["status"] != j.get("status"):
+        return f"moved {j.get('status')} → {s['status']} since its judgment"
+    at = parse_ts(j["at"])
+    if at and now - at < datetime.timedelta(days=JUDGE_AGAIN_DAYS):
+        return None
+    for c in comments(iss):
+        ct = parse_ts(c.get("created"))
+        if not ct or (at and ct <= at) or is_ela(c) or is_bot(c) or is_owner(c.get("author"), owner):
+            continue
+        t = text_of(c.get("body"))
+        if asks_something(t):
+            return f"{name(c.get('author'))} asked since its judgment"
+        if QA_VERDICT.search(t):
+            return f"{name(c.get('author'))} gave a QA verdict since its judgment"
+    return None
+
+
+def judge_order(rows):
+    """The judge queue: a pick that failed JUDGE_FAIL_BACK times last, then by priority, a hand-over before a Review, the
+    longest-waiting first."""
+    pri = ("Highest", "High", "Medium", "Low", "Lowest")
+    return sorted(rows, key=lambda r: (r.get("fails", 0) >= JUDGE_FAIL_BACK, pri.index(r["priority"]) if r.get("priority") in pri
+                                       else 5, not r.get("handed"), r.get("updated") or "", r["key"]))
+
+
+def hollow_option(d):
+    """Why an ask is refused when one of its options names a write it does not carry, else None: ticking it would do
+    nothing (the 2026-11-26 topic on MH-4065 offered "assign to Erin Zhang …" with no writes)."""
+    for o in d.get("options") or []:
+        if WRITE_WORDS.match(o.get("text") or "") and not (o.get("writes") or o.get("comment")):
+            return (f"option {o.get('letter')} says \"{clip(o.get('text'), 60)}\" but carries no writes: give it the writes "
+                    "and the comment, or word it as what the owner does himself")
+    return None
+
+
+def judge_path(reports, day, key):
+    return os.path.join(reports, "ela", "watch", f"{day}-judge-{key}.json")
+
+
+def supersede(topics, key, by, now):
+    """The ticket's open topic closed by a judgment: no letter, kept, counted apart from agreed and wrong."""
+    t = topics["topics"].get(topic_id(key))
+    if t and not t.get("closed"):
+        t["closed"] = {"superseded_by": by, "at": now.isoformat(timespec="seconds")}
+    return t
+
+
+def one_line(text):
+    return " ".join((text or "").split())
+
+
+def judged(reports, facts, key, now, verdict=None, failed=False):
+    """The runner's record of a judging, after the ticket's page exists and `decide --judge` succeeded: the verdict (one
+    line, ela's own) and the ticket's status and assignee at the time; or, `failed`, one more failure of the pick. Each
+    judgment is also appended to <reports>/ela/watch/judgments.jsonl, so an earlier one is kept. → the record."""
+    st = load_state(reports)
+    rec = st["tickets"].setdefault(key, {"first": now.date().isoformat()})
+    if failed:
+        rec["judge_fails"] = int(rec.get("judge_fails") or 0) + 1
+        write_json(state_path(reports), st)
+        return {"key": key, "fails": rec["judge_fails"]}
+    v = one_line(verdict)
+    if not v:
+        raise ValueError("a judgment carries its verdict: one line, ela's own")
+    if len(v) > VERDICT_MAX:
+        raise ValueError(f"the verdict is {len(v)} characters; one line of at most {VERDICT_MAX}: the reasons go on the ticket's page")
+    iss = read_json(os.path.join(facts, "jira", "issues", f"{key}.json"), {})
+    s = snap(iss)
+    at = now.isoformat(timespec="seconds")
+    j = {"key": key, "at": at, "verdict": v, "status": s["status"], "assignee": s["assignee"], "summary": fields(iss).get("summary") or ""}
+    rec["judgment"], rec["judge_fails"] = {k: x for k, x in j.items() if k != "key"}, 0
+    rec["decided"] = max(rec.get("decided") or "", at)      # a judgment is a decision: the quick pass waits for a move
+    write_json(state_path(reports), st)
+    p = os.path.join(reports, "ela", "watch", "judgments.jsonl")
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    with open(p, "a", encoding="utf-8") as f:
+        f.write(json.dumps(j, ensure_ascii=False) + "\n")
+    return j
+
+
+def judgments(reports, since=None):
+    """{key: judgment} for each ticket's latest judgment, at or after `since` (an ISO date) when given."""
+    out = {}
+    for key, rec in load_state(reports)["tickets"].items():
+        j = rec.get("judgment") or {}
+        if j.get("at") and (not since or j["at"][:10] >= since):
+            out[key] = dict(j, key=key)
+    return out
+
+
+PAGE_DIRS = ("features", "projects")    # the vault's pages that hold a topic: a feature, else a project (the vault's homes)
+FRONT_KEYS = re.compile(r"^keys:[ \t]*(.*)$", re.M)
+
+
+def homes(vault, key):
+    """The vault pages that already hold this ticket: the feature and project pages whose `keys` list its own key (a
+    linked ticket does not count), then its ticket pages (`<date>-deep-<key>.md`), newest first. → [vault path]."""
+    out, low = [], key.lower()
+    for top in PAGE_DIRS:
+        d = os.path.join(vault or "", top)
+        for n in sorted(os.listdir(d)) if vault and os.path.isdir(d) else []:
+            p = os.path.join(d, n, n + ".md") if not n.endswith(".md") else os.path.join(d, n)
+            try:
+                head = open(p, encoding="utf-8").read(4000)
+            except OSError:
+                continue
+            m = head.startswith("---") and FRONT_KEYS.search(head.split("\n---", 1)[0])
+            if m and key in re.findall(r"[A-Z][A-Z0-9]+-\d+", m.group(1)):
+                out.append(os.path.relpath(p, vault).replace(os.sep, "/"))
+    pages = []
+    for top, dirs, fs in os.walk(vault) if vault and os.path.isdir(vault) else []:
+        dirs[:] = [x for x in dirs if not x.startswith(".")]
+        pages += [os.path.relpath(os.path.join(top, f), vault).replace(os.sep, "/") for f in fs
+                  if re.fullmatch(rf"\d{{4}}-\d{{2}}-\d{{2}}-deep-{re.escape(low)}(?:-judged)?\.md", f.lower())]
+    return out + sorted(pages, key=os.path.basename, reverse=True)
+
+
+JUDGED_DAYS = 7                         # how long a judgment stays on ela/watch.md's list
+JUDGED_HEAD = "Your tickets judged"
+
+
+def home_link(vault, key):
+    """Where today.md and ela/watch.md send him for a judged ticket: the feature or project page listing its key, else its
+    newest ticket page. → (vault path without .md, label) or None."""
+    hs = homes(vault, key)
+    if not hs:
+        return None
+    h = hs[0]
+    if h.split("/", 1)[0] in PAGE_DIRS:
+        try:
+            m = re.search(r'^title:[ \t]*"?(.*?)"?[ \t]*$', open(os.path.join(vault, h), encoding="utf-8").read(2000), re.M)
+        except OSError:
+            m = None
+        lab = (m.group(1) if m else "") or os.path.basename(h)[:-3]
+        return h[:-3], lab.split(" · ")[0].replace("|", "/").replace("[", "").replace("]", "")
+    return h[:-3], "its page"
+
+
+def judged_section(reports, vault, today, base=""):
+    """ela/watch.md's list of the owner's tickets judged in the last JUDGED_DAYS: each ticket, ela's verdict, its home."""
+    got = judgments(reports, (today - datetime.timedelta(days=JUDGED_DAYS - 1)).isoformat())
+    if not got:
+        return []
+    L = [f"## {JUDGED_HEAD}", "", "Your tickets in Review or handed to you, each read to the bottom by ela: its verdict, and "
+         "the page with the facts, the next steps and a code reading of what QA did not test. Say so under one if it is wrong.", ""]
+    for j in sorted(got.values(), key=lambda j: j["at"], reverse=True):
+        link = f"[{j['key']}]({base}/browse/{j['key']})" if base else j["key"]
+        h = home_link(vault, j["key"])
+        L.append(f"- {link} {clip(j.get('summary'), 70)} · {j['status']} · {j['at'][5:10]}: {j['verdict']}"
+                 + (f" → [[{h[0]}|{h[1]}]]" if h else ""))
+    return L + [""]
+
+
+def topics_on(reports, key):
+    """Every watch topic on a ticket, the closed ones with his letter, oldest first: the current one and its history."""
+    t = load_topics(reports)["topics"].get(topic_id(key))
+    return [*(t.get("history") or []), {k: v for k, v in t.items() if k != "history"}] if t else []
+
+
+def judge_prompt_text(row, iss, facts, reports, vault, page, path, base=""):
+    """The judging session's input for one ticket (follow /ela:watch judge)."""
+    f, key = fields(iss), row["key"]
+    links = []
+    for l in f.get("issuelinks") or []:
+        o, how = (l.get("outwardIssue"), (l.get("type") or {}).get("outward")) if l.get("outwardIssue") else \
+            (l.get("inwardIssue"), (l.get("type") or {}).get("inward"))
+        if o:
+            of = o.get("fields") or {}
+            links.append(f"- {how} {o.get('key')} · {name(of.get('status'))} · {clip(of.get('summary'), 90)}")
+    par = f.get("parent") or {}
+    if par.get("key"):
+        links.append(f"- parent {par['key']} · {clip((par.get('fields') or {}).get('summary'), 90)}")
+    hs = homes(vault, key)
+    L = [f"# Judge {key} · {f.get('summary') or ''}", "",
+         f"Follow /ela:watch judge. Due because: {row['why']}. Write the ticket's page to {page} and your one decision to "
+         f"{path}, then check it with `ela watch decide --judge {key} --from {path}` (a dry run). Run nothing with --apply; "
+         "the runner applies it and records your verdict.", "",
+         f"{name(f.get('status'))} · {name(f.get('assignee')) or 'nobody'} · {name(f.get('priority'))}"
+         + (f" · due {f.get('duedate')}" if f.get("duedate") else "") + f" · labels {', '.join(f.get('labels') or []) or 'none'}"
+         + (f" · fix versions {', '.join(v.get('name', '') for v in f.get('fixVersions') or [])}" if f.get("fixVersions") else ""), "",
+         "## Its home in the vault", ""]
+    L += [f"- {h}" for h in hs] or ["- none: the topic is new to the owner (see the skill: a feature page, or the ticket page as its entry)"]
+    L += ["", "## Linked tickets (hints, not its home)", ""] + (links or ["- none"])
+    ts = topics_on(reports, key)
+    L += ["", "## The owner's topics on it (a letter he gave binds your verdict unless later evidence says otherwise)", ""]
+    for t in ts:
+        c = t.get("closed") or {}
+        state = (f"answered {c['letter']} {c.get('at', '')[:16]}" + (f" — his words: {c['note']}" if c.get("note") else "")
+                 if c.get("letter") else "superseded" if c.get("superseded_by") else "open")
+        L += [f"- {t.get('first')} · {state} · {t.get('question')}"] + [f"    - {o['letter']}: {o['text']}" for o in t.get("options") or []]
+    if not ts:
+        L += ["- none"]
+    L += ["", "## Description", "", clip(text_of(f.get("description")), 3000) or "(empty)", "", "## Comments, oldest first", ""]
+    L += [f"> {str(c.get('created') or '')[:16]} {name(c.get('author'))}{' (ela)' if is_ela(c) else ''}"
+          f"{' (copied by automation)' if is_bot(c) else ''}: {clip(text_of(c.get('body')), 1200)}" for c in comments(iss)] or ["(none)"]
+    return "\n".join(L) + "\n"
+
+
 # ── the owner's DM: a reminder, at most one a day, when a topic is new; the topics live on ela/watch.md ──────────
 SLACK = os.path.join(SKILLS, "slack", "slack.py")
 
@@ -989,7 +1250,7 @@ WATCH_PAGE = "ela/watch.md"        # the vault page every open topic lives on; t
 SUMMARY_CUT = 90                   # a ticket's title in the reminder: whole up to here, then cut at a word
 
 
-def page(reports, today, base=""):
+def page(reports, today, base="", vault=None):
     """ela/watch.md: every open topic, oldest first: the ticket, whether it needs a fact or a ruling, the session's
     confidence, the question, each letter as a box he ticks (or an `ela:` line he writes under it, read by
     settle_page) and the CLI line; a low-confidence act held for his confirm first, under its own heading, with its
@@ -997,7 +1258,8 @@ def page(reports, today, base=""):
     ts = sorted(open_topics(reports), key=lambda t: (t["first"], t["key"]))
     L = ["# Board watch · waiting for your letter", ""]
     if not ts:
-        return "\n".join(L + ["Nothing waits: every topic has its letter.", ""] + nothing_due(reports, today, base))
+        return "\n".join(L + ["Nothing waits: every topic has its letter.", ""] + judged_section(reports, vault, today, base)
+                         + nothing_due(reports, today, base))
     L += [f"{len(ts)} topic{'s' if len(ts) != 1 else ''} wait. Answer each here: tick a letter, or write `ela: B because …` "
           "under the topic (the words after the letter are kept as your reason; a fact topic's words are the fact). Or in "
           "the CLI: `ela watch answer watch:<KEY> <letter> [words]`. A chosen option's writes go out at the watch's next "
@@ -1023,7 +1285,7 @@ def page(reports, today, base=""):
             L += ["## Asks", ""]
     for t in rest:
         L += topic(t)
-    return "\n".join(L + nothing_due(reports, today, base))
+    return "\n".join(L + judged_section(reports, vault, today, base) + nothing_due(reports, today, base))
 
 
 # His answers written on ela/watch.md itself: a ticked option, or an `ela:` line under a topic, both with his words kept
@@ -1232,11 +1494,11 @@ def cmd_decide(a):
     now = now_tz()
     day = day_of(a)
     got = load_scan(reports, day)
-    path = a.from_file or decisions_path(reports, day.isoformat())
+    path = a.from_file or (judge_path(reports, day.isoformat(), a.judge) if a.judge else decisions_path(reports, day.isoformat()))
     decisions = read_json(path, None)
     if decisions is None:
         print(f"no decisions in {path}", file=sys.stderr); sys.exit(EX_NOTFOUND)
-    r = decide(decisions, got, facts, reports, now, apply=a.apply)
+    r = decide(decisions, got, facts, reports, now, apply=a.apply, judge=a.judge)
     emit(a, r, [f"{x['key']}: reply {x['reply']} by {x['by']} disputes ela — corrected {x['act'] or x['key']}, asked as "
                 f"{x['topic']}, no comment until {x['quiet_until']}" for x in r["disputes"]]
          + [f"{x['key']}: reply {x['reply']} by {x['by']} agrees" for x in r["agreed"]]
@@ -1247,6 +1509,53 @@ def cmd_decide(a):
          + [f"{x['key']}: refused — {x['why']}" for x in r["refused"]]
          + [f"{x['topic']}: the owner's letter — {x.get('state') or x.get('refused')}" for x in r["answered"]]
          + ([] if a.apply else ["dry run; --apply writes the acts and stores the asks"]))
+
+
+def judge_row(got, key):
+    row = next((r for r in got.get("judge") or [] if r["key"] == key), None)
+    if row is None:
+        print(f"{key} is not due judging in the scan of {got.get('date')}: `ela watch judge` lists the queue", file=sys.stderr)
+        sys.exit(EX_NOTFOUND)
+    return row
+
+
+def cmd_judge(a):
+    s = site()
+    reports, _ = roots(s)
+    got = load_scan(reports, day_of(a))
+    q = got.get("judge") or []
+    emit(a, {"date": got["date"], "judge": q}, [f"- {r['key']} {r['priority']} · {r['status']} · {clip(r['summary'], 60)} — {r['why']}"
+                                               + (f" · failed {r['fails']}×" if r.get("fails") else "") for r in q]
+         or ["nothing due judging"])
+
+
+def cmd_judge_prompt(a):
+    s = site()
+    reports, facts = roots(s)
+    day = day_of(a)
+    row = judge_row(load_scan(reports, day), a.key)
+    iss = read_json(os.path.join(facts, "jira", "issues", f"{a.key}.json"), None)
+    if iss is None:
+        print(f"no facts for {a.key}", file=sys.stderr); sys.exit(EX_NOTFOUND)
+    page = a.write or os.path.join(reports, "ela", f"{day.isoformat()}-deep-{a.key}-judged.md")
+    path = judge_path(reports, day.isoformat(), a.key)
+    if a.json:
+        print(json.dumps({"key": a.key, "row": row, "page": page, "decision_file": path, "homes": homes(s.get("vault"), a.key),
+                          "topics": topics_on(reports, a.key)}, ensure_ascii=False, indent=1))
+    else:
+        print(judge_prompt_text(row, iss, facts, reports, s.get("vault"), page, path, jira_base(s)))
+
+
+def cmd_judged(a):
+    s = site()
+    reports, facts = roots(s)
+    if not a.failed and not a.verdict:
+        print("judged: --verdict TEXT, or --failed", file=sys.stderr); sys.exit(EX_USAGE)
+    try:
+        j = judged(reports, facts, a.key, now_tz(), verdict=a.verdict, failed=a.failed)
+    except ValueError as e:
+        print(str(e), file=sys.stderr); sys.exit(EX_USAGE)
+    emit(a, j, [f"{a.key}: failed {j['fails']}×" if a.failed else f"{a.key}: judged — {j['verdict']}"])
 
 
 def cmd_answer(a):
@@ -1298,8 +1607,19 @@ def main():
     p.add_argument("--date"); p.add_argument("--json", action="store_true"); p.set_defaults(func=cmd_prompt)
     p = sub.add_parser("decide", help="the session's decisions checked and carried; a dry run unless --apply")
     p.add_argument("--from", dest="from_file", help="the decisions file (default <reports>/ela/watch/<date>-decisions.json)")
+    p.add_argument("--judge", metavar="KEY", help="the judging session's one decision on KEY, checked against the judge queue "
+                   "(default file <reports>/ela/watch/<date>-judge-KEY.json)")
     p.add_argument("--date"); p.add_argument("--apply", action="store_true"); p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_decide)
+    p = sub.add_parser("judge", help="the judge queue of the day's scan: the owner's tickets due a judging, in order")
+    p.add_argument("--date"); p.add_argument("--json", action="store_true"); p.set_defaults(func=cmd_judge)
+    p = sub.add_parser("judge-prompt", help="the judging session's input for one ticket of the queue")
+    p.add_argument("key"); p.add_argument("--write", metavar="PAGE", help="the ticket page the session writes "
+                   "(default <reports>/ela/<date>-deep-KEY-judged.md, apart from a deep pick's page)")
+    p.add_argument("--date"); p.add_argument("--json", action="store_true"); p.set_defaults(func=cmd_judge_prompt)
+    p = sub.add_parser("judged", help="the runner's record of a judging: the verdict, or --failed")
+    p.add_argument("key"); p.add_argument("--verdict", help="one line, ela's own verdict"); p.add_argument("--failed", action="store_true")
+    p.add_argument("--json", action="store_true"); p.set_defaults(func=cmd_judged)
     p = sub.add_parser("answer", help="his letter on a topic: recorded; a chosen option's writes go out at the next pass")
     p.add_argument("topic"); p.add_argument("letter")
     p.add_argument("note", nargs="*", help="his words after the letter: the cause of a letter against ela, or the fact asked for")
