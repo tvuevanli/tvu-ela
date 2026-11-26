@@ -61,6 +61,7 @@ check(p2.startswith("ela: WARNING") and "need 3 parts" in p2 and "did not reach 
       f"overrun not named on the last part's first line: {p2[:200]!r}")
 check(len(p2) <= CAP, f"overrun part itself over the cap: {len(p2)}")
 check(not run(h, "prefs", "1/2").startswith("ela: WARNING"), "part 1 warned; only the last part names the overrun")
+check(run(h, "prefs", "4/6") == "" and run(h, "prefs", "3/6").startswith("(ela:"), "a part past the section's end printed something")
 shutil.rmtree(h)
 
 # 3. A guest session gets no preferences.

@@ -10,6 +10,11 @@
 # the session sees the first 2KB, which is how the preferences stopped reaching every session once the single output
 # grew to ~20,700 characters. Hence one command per part, and each output measures itself: from WARN up a warning
 # goes on its first line, inside the preview, naming the overrun.
+# hooks.json runs more `prefs` parts than the section needs today; a part past the section's end prints nothing, so a
+# section that grows a part still arrives whole. The outputs do not reach the session in hooks.json's order (observed
+# 2026-11-26 on a four-part run: 2, 1, 4, 3, then the default part): the commands of one matcher run side by side.
+# No part may therefore rely on being read before another, and the preferences are ordered safety first, so the rules
+# a wrong action cannot take back sit in the earliest lines whichever part lands first.
 # The one write is a start line in the session registry (<runtime>/sessions.jsonl, sessions.py hook-start), made by the
 # default part only; no repo, no live system, never a commit.
 set -u
