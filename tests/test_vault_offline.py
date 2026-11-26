@@ -1392,6 +1392,19 @@ with tempfile.TemporaryDirectory() as rt:
           in V.front([], dict(got["releases/media-docker-services.md"].props, title=got["releases/media-docker-services.md"].title)))
 
 with tempfile.TemporaryDirectory() as rt:
+    check("no PM requests page in the reports, none written",
+          V.PM_REQUESTS_PAGE not in {n.path for n in V.report_notes(rt, datetime.date(2026, 11, 26))})
+    os.makedirs(os.path.join(rt, "runner"))
+    open(os.path.join(rt, "runner", "pm-requests.md"), "w").write(
+        "# The PM's release requests\n\nNewest first.\n\n- 2026-11-26 10:02 · MH-4049 · release:must added · "
+        "[the request](https://x.slack.com/archives/C1/p1) · undo: `ela jira label MH-4049 --remove release:must --apply`\n")
+    pm = {n.path: n for n in V.report_notes(rt, datetime.date(2026, 11, 26))}.get(V.PM_REQUESTS_PAGE)
+    check("the PM's release requests: the runner's page in releases/, its undo kept, a page type",
+          pm is not None and pm.title == "The PM's release requests" and pm.props["type"] == "pm-requests"
+          and pm.props["date"] == "2026-11-26" and "--remove release:must --apply" in pm.body
+          and pm.src_rel == "runner/pm-requests.md" and not V.type_lint(V.PM_REQUESTS_PAGE, "pm-requests"))
+
+with tempfile.TemporaryDirectory() as rt:
     check("no system pages in the reports, none copied",
           not any(n.path.startswith(V.ELA + "/") for n in V.report_notes(rt, datetime.date(2026, 11, 26))))
     os.makedirs(os.path.join(rt, "system"))

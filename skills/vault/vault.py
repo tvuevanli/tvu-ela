@@ -35,6 +35,8 @@ A vault in another layout is not synced: `vault.py migrate` lists the one pass, 
                                                 Deadline); projects/<key>-<slug>/ holds the page and its notes once
                                                 they sit beside it; `ela project list|show|new|keys`
     releases/lanes.md                           the lanes across lines (ela matrix --page)
+    releases/pm-requests.md                     the MediaHub PM's release:must requests ela carried out, each with its
+                                                undo (ela-runner's design channel, runner/pm-requests.md)
     releases/<line>/                            a release line: <line>.md the way in (release line.py, rewritten each
                                                 sync: lanes, next promotion, docker differences, one line per build),
                                                 each live promote, deploy, docker check and hotfix, verifications;
@@ -144,7 +146,7 @@ BUDGET = {"ticket": 700, "topic": 800, "guide": 1200, "board": 1000, "day": 1200
 # A type outside it, or a family outside its folders, is a lint line on the sync, never a failure.
 TYPE_FAMILY = {"decision": "decision", "plan": "plan", "sprint": "plan",
                "ticket": "reading", "review": "reading", "verify": "reading", "verify-plan": "reading",
-               "home": "page", "today": "page", "manual": "page", "dropped": "page", "board": "page", "lanes": "page", "docker": "page", "recent": "page", "one-thing": "page", "test-list": "page", "dev-list": "page", "train": "page", "program": "page", "line": "page",
+               "home": "page", "today": "page", "manual": "page", "dropped": "page", "board": "page", "lanes": "page", "pm-requests": "page", "docker": "page", "recent": "page", "one-thing": "page", "test-list": "page", "dev-list": "page", "train": "page", "program": "page", "line": "page",
                "guide": "page", "vocabulary": "page", "system": "page", "constraints": "page", "readme": "page", "meeting": "page",
                "report": "page", "project": "page", "services": "page", "questions": "page",
                "day": "day", "reader": "day", "case": "case", "draft": "draft"}
@@ -244,7 +246,7 @@ ela writes this vault from first-hand sources, and it holds things and angles (e
 | `manual.md` | how you use the vault: your day, the words you write, what reaches you; reviewed against each new ela plan |
 | `meetings/` | `focus.md`, the focus board: one row per item MediaHub is pushing, Jira priority then due date, each meeting a view of it (at most seven rows), held subjects in one folded line; `open-questions.md`, every team question, linked from the board; a dated meeting page is history in `archive/meetings/` |
 | `projects/` | one page per project, `<key>-<slug>.md`; a folder `<key>-<slug>/` once notes sit beside the page |
-| `releases/` | a folder per line: its line page `<line>.md`, the way in (where the line stands, what can move next, what could not be read, its builds), and each live promote and deploy; `lists/` its train, dev and test lists; `history/` its builds' old notes, the old record and every closed note (a promote closes itself once its target lane runs the build); `lanes.md` across lines |
+| `releases/` | a folder per line: its line page `<line>.md`, the way in (where the line stands, what can move next, what could not be read, its builds), and each live promote and deploy; `lists/` its train, dev and test lists; `history/` its builds' old notes, the old record and every closed note (a promote closes itself once its target lane runs the build); `lanes.md` across lines; `pm-requests.md` the MediaHub PM's release:must requests ela carried out, each with its undo |
 | `cases/` | one note per customer case |
 | `reference/` | what serves no single thing: product reviews, the day pages, One Thing, dropped asks |
 | `ela/` | ela's own pages and history |
@@ -796,6 +798,12 @@ def report_notes(reports, today, runtime=None, helm=None):
         dm = re.search(r"\*(\d{4}-\d{2}-\d{2})", body)
         body = lanes_live(layout5_links(body), helm)
         notes.append(Note(LANES_PAGE, "The lanes", body, {"type": "lanes", "date": dm.group(1) if dm else None}, fl, src_rel="lanes/lanes.md"))
+    pp = os.path.join(reports, "runner", "pm-requests.md")
+    if os.path.isfile(pp):                                 # the PM's release requests ela carried out, newest first, each with its undo
+        fl, body = split_front(open(pp, encoding="utf-8").read())
+        dm = re.search(r"^- (\d{4}-\d{2}-\d{2})", body, re.M)
+        notes.append(Note(PM_REQUESTS_PAGE, h1(body) or "The PM's release requests", body,
+                          {"type": "pm-requests", "date": dm.group(1) if dm else None}, fl, src_rel="runner/pm-requests.md"))
     on = onething_note(reports, today)
     if on:                                                 # his One Thing rows not yet pasted, rendered from the store each sync
         notes.append(on)
@@ -1514,6 +1522,10 @@ def reader_heading(body, date):
 
 
 LANES_PAGE, ONE_THING, DOCKER_PAGE = f"{RELEASES}/lanes.md", f"{REF}/one-thing.md", f"{RELEASES}/media-docker-services.md"
+# the MediaHub PM's release:must requests that the runner carried out in a design channel, each with its undo, so the
+# owner overrules after (elak decision 2026-11-26-the-pms-release-requests-run-first-the-owner-overrules-after.md);
+# the runner rewrites <reports>/runner/pm-requests.md on each request, the sync copies it here
+PM_REQUESTS_PAGE = f"{RELEASES}/pm-requests.md"
 DOCKER_ALIASES = ["mds", "docker", "Docker candidates"]   # the page's older names: links and the switcher keep working
 OLD_LANE_LINK = re.compile(r"\[\[lanes/([^\]|#]+)")
 
