@@ -359,5 +359,47 @@ with tempfile.TemporaryDirectory() as reports:
           and "- [MH-70](https://j/browse/MH-70): the train carries it" in tail)
     check("the page is written for its nones even when no topic waits", list(V.watch_page(reports, day, "https://j")) == ["ela/watch.md"])
 
+# a low-confidence act writes nothing: it is held as the owner's topic, A its writes as decided, listed first on watch.md
+with tempfile.TemporaryDirectory() as t:
+    facts, reports = os.path.join(t, "facts"), os.path.join(t, "reports")
+    os.makedirs(os.path.join(facts, "jira", "issues")); os.makedirs(os.path.join(reports, "ela"))
+    issue(facts, "MH-80", "Nobody on it", status="Review", who=None)
+    issue(facts, "MH-81", "Asked plainly", who=DEV)
+    scanned = {"triggered": [{"key": "MH-80", "summary": "Nobody on it"}, {"key": "MH-81", "summary": "Asked plainly"}]}
+    low = {"key": "MH-80", "verdict": "act", "confidence": "low", "doubt": "two areas could own the player trace",
+           "why": "the trace ends in the player", "writes": [{"verb": "assign", "assignee": "acc-ui"}],
+           "comment": "Assigned to the UI owner: the trace in the last comment ends in the player."}
+    ask = {"key": "MH-81", "verdict": "ask", "question": "Keep it for 2.2?", "options": [{"letter": "A", "text": "keep"}]}
+    ran = []
+    runner = lambda cmd, apply: (ran.append((cmd, apply)) or (0, "ok"))   # noqa: E731
+    D.roster_names = lambda: {"acc-ui": "Uma Interface"}
+    when = datetime.datetime(2026, 11, 26, 9, tzinfo=TZ)
+    for apply in (False, True):
+        r = W.decide({"decisions": [ask, low]}, scanned, facts, reports, when, apply=apply, runner=runner)
+    check("a low act: no write, dry or applied, and no batch; it is held as one topic",
+          ran == [] and not D.batches(reports) and r["acts"] == [] and [x["key"] for x in r["held"]] == ["MH-80"]
+          and not [x for x in D.record(reports) if x.get("target") == "MH-80"])
+    tp = W.load_topics(reports)["topics"]["watch:MH-80"]
+    check("its option A carries the writes and the comment exactly as decided; B leaves it; the doubt is kept",
+          tp["options"][0]["writes"] == low["writes"] and tp["options"][0]["comment"] == low["comment"]
+          and "assign to Uma Interface" in tp["options"][0]["text"] and tp["options"][1]["writes"] == []
+          and tp["unsure"]["doubt"] == low["doubt"] and "the trace ends in the player" in tp["question"])
+    st = W.load_state(reports)["tickets"]["MH-80"]
+    check("the ticket's record says ask, so it does not trigger again tomorrow", st["verdict"] == "ask" and st["pending"] == [])
+    bad = W.decide({"decisions": [dict(low, writes=[{"verb": "transition", "to": "Done"}])]}, scanned, facts, reports, when)
+    check("a low act still passes the gates first: a terminal status is refused, not held",
+          bad["held"] == [] and "terminal" in bad["refused"][0]["why"])
+    pg = W.page(reports, when.date(), "https://j")
+    check("watch.md: the held topic first under Confirm first, with its doubt line, above the ordinary asks",
+          pg.index("## Confirm first: ela was not sure") < pg.index("[MH-80]") < pg.index("**Doubt**: two areas could own")
+          < pg.index("## Asks") < pg.index("[MH-81]"))
+    check("the asks list it first, its doubt in the text", [x["id"] for x in W.asks(reports, when.date())] == ["watch:MH-80", "watch:MH-81"]
+          and "Doubt: two areas could own" in W.asks(reports, when.date())[0]["question"])
+    W.answer(reports, "watch:MH-80", "A", when)
+    r = W.decide({"decisions": []}, {"triggered": []}, facts, reports, when + datetime.timedelta(days=1), apply=True, runner=runner)
+    check("his A carries the writes at the next pass, recorded high: his word, not a row to review first",
+          ran and ran[0][0].startswith("ela jira assign MH-80 --assignee acc-ui --note-file ")
+          and [x.get("confidence") for x in D.record(reports) if x.get("target") == "MH-80"] == ["high"])
+
 print("watch: all offline checks passed" if not fails else f"watch: {len(fails)} failed")
 sys.exit(1 if fails else 0)

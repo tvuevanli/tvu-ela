@@ -38,9 +38,17 @@ An act you would not defend to the assignee is an ask.
 
 **Confidence.** Every act and every none carries `confidence`: `high` (the evidence settles it), `medium` (it
 points one way but leaves something open) or `low` (a judgment the evidence does not settle). Below high, add
-`doubt`: one line on what the evidence leaves open. A decision without them is refused. Low still acts: the owner
-reviews low first (ela/dry/did.md opens with it under "Review first"; ela/watch.md lists each none with its level),
-so the level is honest, not a gate.
+`doubt`: one line on what the evidence leaves open. A decision without them is refused. The level decides what
+happens (the owner's ruling, 2026-11-26):
+
+- `high`: the writes go out, and ela/dry/did.md lists them.
+- `medium`: the writes go out, and did.md lists them first, under "Review first".
+- `low`: nothing is written to Jira. `decide` holds the act as the owner's topic: the question carries your `why`,
+  option A is your writes and comment exactly as written (carried out at the next pass once he chooses it), option B
+  leaves the ticket. ela/watch.md lists it first, under "Confirm first: ela was not sure", with your `doubt`.
+
+So write a low act in full, as you would send it: he confirms it as written or leaves it. When you cannot say what
+the act should be, write an ask instead. A none lists its level too (ela/watch.md, the least sure first).
 
 **Comment sparingly.** MH's Jira Automation copies every comment to each linked ticket (the owner found ela's notes
 flooding linked tickets, 2026-11-25; the rule is not his to change). A comment goes out only when someone on the

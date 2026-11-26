@@ -23,7 +23,9 @@ so nothing is written on a schedule; a change trigger waits as pending until a d
 The decision itself is judgment: a model session (the runner starts one, as for its other judgment passes, following
 /ela:watch) reads `prompt`, writes one decision per triggered ticket to a file, and `decide` checks and carries them:
 act (the writes, one set per ticket a day, through `ela dry`'s tier-1 class board-watch, each announced by a signed
-comment that jira.py signs and checks), ask (the owner's topic: today.md and his ela DM, `asks`/`dm`), or none.
+comment that jira.py signs and checks), ask (the owner's topic: today.md and his ela DM, `asks`/`dm`), or none. An act
+at low confidence writes nothing: it is held as the owner's topic, A its writes and comment exactly as decided, B leave
+it, listed first on ela/watch.md under "Confirm first" (the owner's ruling, 2026-11-26).
 Never by ela, always an ask: a terminal status, a Slack post under his name, a customer channel, anything about people.
 
 A reply after ela's signed comment is judged too: the session marks each one the scan lists as disputing the comment or
@@ -479,8 +481,9 @@ def prompt_text(scanned, rows, decisions_path):
          f"ticket to {decisions_path} as the skill describes, then check it with `ela watch decide --from {decisions_path}` "
          "(a dry run). Nothing here is applied by you.",
          "Every act and none carries \"confidence\": high | medium | low, and below high a \"doubt\": one line on what "
-         "the evidence leaves open; decide refuses one without them. Low may still act: the owner reviews it first. An "
-         "act you would not defend to the assignee is an ask.", ""]
+         "the evidence leaves open; decide refuses one without them. A low act writes nothing to Jira: it waits on "
+         "ela/watch.md for the owner's confirm, its writes and comment as option A. An act you would not defend to the "
+         "assignee is an ask.", ""]
     for r in rows:
         L += [f"## {r['key']} · {r['summary']}",
               f"{r['status']} · {r['assignee'] or 'nobody'} · {r['priority']}" + (f" · due {r['due']}" if r.get("due") else "")
@@ -614,11 +617,45 @@ def put_topic(topics, key, d, today, summary=""):
     opts = [{"letter": o.get("letter") or "ABC"[i], "text": o.get("text") or "", "writes": o.get("writes") or [],
              "comment": o.get("comment") or ""} for i, o in enumerate(opts[:3])]
     if t and not t.get("closed"):
-        t.update(question=d["question"], options=opts, asked=today)
+        t.update(question=d["question"], options=opts, asked=today, unsure=d.get("unsure"))
         return tid, False
     topics["topics"][tid] = {"id": tid, "key": key, "summary": summary, "question": d["question"], "options": opts,
-                             "first": today, "asked": today, "thread": None, "posted": {}, "closed": None}
+                             "first": today, "asked": today, "thread": None, "posted": {}, "closed": None,
+                             "unsure": d.get("unsure")}
     return tid, True
+
+
+def write_phrase(w, names):
+    """One write of a set in plain words for an option's text."""
+    v = w.get("verb")
+    if v == "assign":
+        return f"assign to {names.get(w['assignee']) or w['assignee']}"
+    if v == "transition":
+        return f"move to {w['to']}"
+    if v == "priority":
+        return f"priority {w['to']}"
+    if v == "due":
+        return f"due date {w['date']}"
+    if v == "link":
+        return f"link to {w['other']} ({w['type']})"
+    return str(v)
+
+
+def held_ask(d):
+    """A low-confidence act as the owner's topic: nothing is written until he chooses A, which carries the writes and the
+    comment exactly as the session decided them (through `answer` and the next `decide --apply`); B leaves the ticket."""
+    D = dry_mod()
+    names = D.roster_names() if any(w.get("verb") == "assign" for w in d.get("writes") or []) else {}
+    said = [write_phrase(w, names) for w in d.get("writes") or []]
+    text = (d.get("comment") or "").strip()
+    if text and not (d.get("writes") and all(w.get("verb") == "link" for w in d["writes"])):
+        said.append(f"comment \"{clip(text, 200)}\"")
+    why = (d.get("why") or "").strip().rstrip(".") or "no reason was recorded"
+    return {"question": f"ela would act here but is not sure. Why: {why}. Carry it out?",
+            "unsure": {"why": why, "doubt": (d.get("doubt") or "").strip()},
+            "options": [{"letter": "A", "text": "carry it out: " + "; ".join(said), "writes": d.get("writes") or [],
+                         "comment": d.get("comment") or ""},
+                        {"letter": "B", "text": "leave it: nothing is written"}]}
 
 
 LEVELS = ("low", "medium", "high")
@@ -635,12 +672,13 @@ def unsure(d):
 
 
 def decide(decisions, scanned, facts, reports, now, apply=False, runner=None):
-    """The session's decisions checked and carried. → {date, acts, asks, none, refused, answered}."""
+    """The session's decisions checked and carried. An act at low confidence passes the same gates and is then held as
+    the owner's topic instead of written. → {date, acts, held, asks, none, refused, answered}."""
     D = dry_mod()
     today = now.date()
     st, topics = load_state(reports), load_topics(reports)
     due = {r["key"]: r for r in scanned.get("triggered") or []}
-    out = {"date": today.isoformat(), "acts": [], "asks": [], "none": [], "refused": [], "answered": []}
+    out = {"date": today.isoformat(), "acts": [], "held": [], "asks": [], "none": [], "refused": [], "answered": []}
     out.update(judge_replies(decisions, scanned, st, topics, reports, now, apply))
     for d in decisions.get("decisions") or []:
         key, verdict = d.get("key"), d.get("verdict")
@@ -654,6 +692,14 @@ def decide(decisions, scanned, facts, reports, now, apply=False, runner=None):
             problem = check_act(key, d, iss, rec, today.isoformat())
             if problem:
                 out["refused"].append({"key": key, "why": problem}); continue
+            if d["confidence"] == "low":                       # nothing to Jira: the owner confirms it first
+                ask = held_ask(d)
+                tid, new = put_topic(topics, key, ask, today.isoformat(), due[key].get("summary") or "")
+                out["held"].append({"key": key, "topic": tid, "new": new, "question": ask["question"],
+                                    "doubt": ask["unsure"]["doubt"], "proposed": ask["options"][0]["text"]})
+                if apply:
+                    rec.update(decided=now.isoformat(timespec="seconds"), verdict="ask", pending=[])
+                continue
             path, text, writes = act_writes(key, d, reports)
             os.makedirs(os.path.dirname(path), exist_ok=True)
             with open(path, "w", encoding="utf-8") as f:
@@ -748,7 +794,8 @@ def carry_answers(topics, st, facts, reports, now, apply, runner):
         key = t["key"]
         iss = read_json(os.path.join(facts, "jira", "issues", f"{key}.json"), {})
         rec = st["tickets"].setdefault(key, {"first": today.isoformat()})
-        d = {"writes": opt.get("writes") or [], "comment": opt.get("comment") or "", "why": f"the owner's {c['letter']} on {t['id']}"}
+        d = {"writes": opt.get("writes") or [], "comment": opt.get("comment") or "", "why": f"the owner's {c['letter']} on {t['id']}",
+             "confidence": "high"}                             # his word settles it: not a row to review first
         problem = check_act(key, d, iss, rec, today.isoformat())
         if problem:
             done.append({"topic": t["id"], "key": key, "refused": problem})
@@ -791,8 +838,9 @@ def asks(reports, today):
     """The open topics as today.md shows its asks: a question, lettered options, each letter answered by `ela watch
     answer`, which records it (the writes of a chosen option go out at the next pass)."""
     out = []
-    for t in sorted(open_topics(reports), key=lambda t: (t["first"], t["key"])):
-        text = f"{t['key']} {t.get('summary') or ''}: {t['question']}".strip()
+    for t in sorted(open_topics(reports), key=lambda t: (not t.get("unsure"), t["first"], t["key"])):
+        doubt = (t.get("unsure") or {}).get("doubt")
+        text = f"{t['key']} {t.get('summary') or ''}: {t['question']}".strip() + (f" Doubt: {doubt}" if doubt else "")
         out.append({"id": t["id"], "question": text, "first": t["first"],
                     "options": [{"letter": o["letter"], "text": o["text"], "does": f"ela watch answer {t['id']} {o['letter']}",
                                  "recommended": i == 0} for i, o in enumerate(t["options"])],
@@ -818,7 +866,7 @@ WATCH_PAGE = "ela/watch.md"        # the vault page every open topic lives on; t
 
 def page(reports, today, base=""):
     """ela/watch.md: every open topic, oldest first: the ticket, the question, each letter with the CLI line that
-    answers it. The vault is where the topics live; Slack only reminds (the owner's word, 2026-11-25: he answers in
+    answers it; a low-confidence act held for his confirm first, under its own heading, with its doubt. The vault is where the topics live; Slack only reminds (the owner's word, 2026-11-25: he answers in
     the CLI, not in a thread)."""
     ts = sorted(open_topics(reports), key=lambda t: (t["first"], t["key"]))
     L = ["# Board watch · waiting for your letter", ""]
@@ -826,11 +874,23 @@ def page(reports, today, base=""):
         return "\n".join(L + ["Nothing waits: every topic has its letter.", ""] + nothing_due(reports, today, base))
     L += [f"{len(ts)} topic{'s' if len(ts) != 1 else ''} wait. Answer each in the CLI: `ela watch answer watch:<KEY> <letter>`; "
           "a chosen option's writes go out at the watch's next pass. `ela watch asks` lists the same.", ""]
-    for t in ts:
+    unsure, rest = [t for t in ts if t.get("unsure")], [t for t in ts if not t.get("unsure")]
+
+    def topic(t):
         link = f"[{t['key']}]({base}/browse/{t['key']})" if base else t["key"]
-        L += [f"### {link} {t.get('summary') or ''}".rstrip(), "", f"Open since {t['first']}. {t['question']}", ""]
-        L += [f"- **{o['letter']}**: {o['text']} · `ela watch answer {t['id']} {o['letter']}`" for o in t["options"]]
-        L += [""]
+        doubt = (t.get("unsure") or {}).get("doubt")
+        return ([f"### {link} {t.get('summary') or ''}".rstrip(), "", f"Open since {t['first']}. {t['question']}", ""]
+                + ([f"**Doubt**: {doubt}", ""] if doubt else [])
+                + [f"- **{o['letter']}**: {o['text']} · `ela watch answer {t['id']} {o['letter']}`" for o in t["options"]] + [""])
+    if unsure:                                             # the owner's ruling, 2026-11-26: a low act waits for him, first
+        L += ["## Confirm first: ela was not sure", "", "ela would have written these itself, but the evidence does not "
+              "settle them. Nothing goes to Jira until you choose A.", ""]
+        for t in unsure:
+            L += topic(t)
+        if rest:
+            L += ["## Asks", ""]
+    for t in rest:
+        L += topic(t)
     return "\n".join(L + nothing_due(reports, today, base))
 
 
@@ -997,6 +1057,7 @@ def cmd_decide(a):
          + [f"{x['key']}: reply {x['reply']} by {x['by']} agrees" for x in r["agreed"]]
          + [f"{x['key']}: reply {x['reply']} refused — {x['why']}" for x in r["refused_replies"]]
          + [f"{x['key']}: act — {x['state']}" + "".join(f"\n    {d}" for d in x["did"]) for x in r["acts"]]
+         + [f"{x['key']}: held for the owner's confirm ({x['topic']}) — {x['proposed']}" for x in r["held"]]
          + [f"{x['key']}: ask — {x['question']}" for x in r["asks"]] + [f"{x['key']}: nothing due — {x['why']}" for x in r["none"]]
          + [f"{x['key']}: refused — {x['why']}" for x in r["refused"]]
          + [f"{x['topic']}: the owner's letter — {x.get('state') or x.get('refused')}" for x in r["answered"]]
