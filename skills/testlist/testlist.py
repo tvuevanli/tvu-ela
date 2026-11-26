@@ -85,6 +85,8 @@ sys.path.insert(0, os.path.join(SKILLS, "promote"))
 import promote as P  # noqa: E402  — a report's verdict line for one key
 sys.path.insert(0, os.path.join(SKILLS, "jira"))
 import jira as J  # noqa: E402  — rich text as plain text
+sys.path.insert(0, os.path.join(SKILLS, "slack"))
+import slacktext as ST  # noqa: E402  — a title escaped for a Slack line
 
 EX_USAGE, EX_NOROW, EX_REMOTE = 2, 3, 5
 JIRA_URL = "https://tvunetworks.atlassian.net/browse/"
@@ -1221,9 +1223,9 @@ def qa_line(n, p):
     """`n. <link> + <link> short title · why · 7d · ⚠ no steps`; a row with no ticket is "No ticket · title"."""
     if p["ticket"]:
         name = " + ".join(f"<{u}|{k}>" for k, u in [(p["ticket"], p["url"]), *[(k, JIRA_URL + k) for k in p.get("also") or []]])
-        head = f"{name} {title_of(p['title'])}".rstrip()
+        head = f"{name} {ST.esc(title_of(p['title']))}".rstrip()
     else:
-        head = f"No ticket · {title_of(p['title'])}"
+        head = f"No ticket · {ST.esc(title_of(p['title']))}"
     tail = [x for x in (why_word(p), f"{p['age']}d" if p.get("age") is not None else None,
                         "⚠ no steps" if not steps_known(p) else None) if x]
     return f"{n}. " + " · ".join([head, *tail])
@@ -1628,7 +1630,7 @@ def dev_line(r, group):
     who = page_name(r["who"]) if r["who"] not in ("—", None) else None
     extra = [f"{r['age']}d"] if group == "Overdue" and r.get("age") is not None else \
         [r["reason"]] if group in ("Asks", "Also") else []
-    return "• " + (f"{who}: " if who else "") + " · ".join([f"<{r['url']}|{r['ticket']}> {title_of(r['title'])}".rstrip(), *extra])
+    return "• " + (f"{who}: " if who else "") + " · ".join([f"<{r['url']}|{r['ticket']}> {ST.esc(title_of(r['title']))}".rstrip(), *extra])
 
 
 def no_ticket_lines(rows):
@@ -1637,7 +1639,7 @@ def no_ticket_lines(rows):
     for r in rows:
         by.setdefault(r.get("build") or "?", []).append(r)
     return [f"• build {b}: {len(rs)} change{'s' if len(rs) > 1 else ''} with no ticket ("
-            + "; ".join(title_of(r["title"], 70) for r in rs) + ")" for b, rs in by.items()]
+            + "; ".join(ST.esc(title_of(r["title"], 70)) for r in rs) + ")" for b, rs in by.items()]
 
 
 def dev_text(line, plan, at):

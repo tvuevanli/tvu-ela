@@ -72,4 +72,7 @@ check("Dev today: no nt- id, no 'overdue since', no chat words", "nt-" not in de
 dtab = TL.dev_table(dplan)
 check("the dev vault form is a Markdown table", dtab.startswith("| group | developer | ticket | title | age · why |")
       and "| Overdue | Wilson Wang | [MH-3569](" in dtab and "| 52d |" in dtab, dtab)
+l = TL.qa_line(1, row("MH-9", "[App] Save <draft> & publish", "P1", "Jira High", 1))
+check("a title in a Slack line is escaped: < > & are Slack's control characters",
+      l.startswith(f"1. <{U}MH-9|MH-9> Save &lt;draft&gt; &amp; publish") and TL.short("Save <draft>") == "Save <draft>", l)
 sys.exit(1 if failures else 0)
