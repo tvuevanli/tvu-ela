@@ -173,6 +173,14 @@ check("regressions first, then priority", [r["id"] for r in res["rows"]][:3] == 
 check("the versions row comes from the lane read, cell by cell", [v["lane"] for v in res["versions"]] == ["qa-cn3", "daily-wed", "prod-3", "prod-2-china"]
       and res["versions"][0]["cells"]["mediahub-backend"].startswith("2.1.37+269"))
 
+check("every key in the line's QA report mails has a row: nothing to name", res["report_keys_missing"] == [] and not any("report mails" in g for g in res["gaps"]))
+named = dict(REPORTS, **{"qa-cn3": REPORTS["qa-cn3"] + [{"at": "2026-11-01T10:00", "build": "80", "summary": False, "subject": "Test Report build 80",
+                                                         "text": "MH-6 pass\nMH-4097 fail\nMH-7 pass\nMH-9 pass\nCON-14 login case\n"}]})
+gapped = TR.collect("2.1", CFG, STATES, MAILS, named, [], ISSUES, INCIDENTS, NOW, regions=REGIONS, qa=QA)
+check("a key a QA report names with no row is listed under the gaps; an also-key, a withdrawn row and a key with no verdict line do not",
+      gapped["report_keys_missing"] == ["MH-4097"]
+      and gapped["gaps"][-1] == "1 key with a verdict in the window's QA report mails and no row in the train: MH-4097")
+
 view = TR.qa_view(res)
 check("the QA view is the rows with no pass on QA", view == {"MH-1": "fail", "MH-6": "untested"})
 p = TR.parity(res, STATES["qa-cn3"])

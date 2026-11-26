@@ -317,12 +317,32 @@ def collect(line, cfg, states, mails, reports, said, issues, incidents, at, spri
     withdrawn = sorted({w for _, lane in lanes for w in per_lane[lane][2]})
     rows = [row_of(rid, lanes, per_lane, said, issues, incidents, sprint, soon, qa, names) for rid in ids if rid not in withdrawn]
     rows.sort(key=lambda r: (not r["regression"], r["priority"], ROLE_RANK[r["position"]], r["id"]))
+    missing = report_parity({lane: (reports or {}).get(lane) for _, lane in lanes}, rows, withdrawn)
+    gaps = list(gaps) + ([parity_gap(missing)] if missing else [])
     return {"line": str(line), "at": at.isoformat(timespec="minutes"), "lanes": [{"role": r, "lane": l, "shown": shown(l)} for r, l in lanes],
             "builds": {lane: per_lane[lane][1] for _, lane in lanes}, "rows": rows, "withdrawn": withdrawn,
-            "versions": versions_row(lanes, lane_read or [], before, tested or {}), "counts": counts(rows, lanes), "gaps": list(gaps),
+            "versions": versions_row(lanes, lane_read or [], before, tested or {}), "counts": counts(rows, lanes), "gaps": gaps, "report_keys_missing": missing,
             "sources": {"states": sorted(l for l in (states or {}) if (states[l] or {}).get("rows")), "mails": sorted(l for l in (mails or {}) if mails[l]),
                         "reports": sorted(l for l in (reports or {}) if reports[l]), "thread_replies": len(said or ()),
                         "incidents": incidents is not None, "lane_read": bool(lane_read)}}
+
+
+def report_parity(reports, rows, withdrawn=()):
+    """The keys the window's QA report mails give a verdict (pass, fail, N/A — the report reader's own lines, so a bug
+    QA filed under "new issues" or a test-case id is not one) that the train has no row for, as a row's key or an
+    `also`; sorted, a withdrawn row counting as present. On 2026-11-24 QA reported MH-4097 on a re-sent build the
+    train never read."""
+    named = {k for rs in (reports or {}).values() for r in rs or [] for k in B.keys_in(r.get("text") or "")
+             if any(v in ("pass", "fail", "n-a") for v, _ in TL.P.key_verdicts(r.get("text") or "", k))}
+    have = {k for r in rows for k in [r.get("key"), *(r.get("also") or [])] if k} | set(withdrawn)
+    return sorted(named - have, key=lambda k: (k.split("-")[0], int(k.split("-")[1]) if k.split("-")[1].isdigit() else 0))
+
+
+def parity_gap(missing):
+    """The page's line for report keys with no row; None when every key has one."""
+    if not missing:
+        return None
+    return f"{len(missing)} key{'s' if len(missing) != 1 else ''} with a verdict in the window's QA report mails and no row in the train: " + ", ".join(missing)
 
 
 def counts(rows, lanes):

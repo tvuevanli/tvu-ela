@@ -46,6 +46,8 @@ at it, only a re-send of that build. They retire after a week of parity (the des
   budget 1,200 outside folds).
 - `--parity` compares the train's QA view (rows whose QA cell has no pass) with the lane's test-list state: missing
   rows, extra rows, verdicts that differ; exit 0 when equal, 1 otherwise. Run it before anything retires.
+- Every build carries a second parity: each key the window's QA report mails (the line's lanes) name has a row, as a
+  key or an `also`, or the train names it — `report_keys_missing`, and a line under the gaps.
 - Reads only: mail (release and report mails), Jira (the keys, their comments; the incidents lane), Slack (the QA
   release channel's threads), the saved lane reads and the state files. Writes only under `<reports>`. Exit 5 when
   the release mails cannot be read; a source that fails otherwise is a line under "Not read" on the page.
