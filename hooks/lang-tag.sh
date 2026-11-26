@@ -11,7 +11,9 @@
 # A tag that is quoted ('#zh', "#zh", `#zh`) is a mention of the tag, not the tag; a desk brief to a worker (it opens
 # with "desk brief", or carries the worktree note `ela session open` appends) is the desk's text, not the owner's
 # message, so a tag in it is a mention too. Reason: a worker brief about this hook quoted '#zh' and switched the
-# worker to Chinese (2026-11-25).
+# worker to Chinese (2026-11-25). A cross-session message (it carries a `<cross-session-message` element, or opens
+# with "Another Claude session sent a message") is a peer session's text, so it gets no tag context either. Reason: a
+# worker's report naming `#zh` and `#send` switched the desk to Chinese and approved a Slack send (2026-11-26).
 # No tag: no output. Always exit 0: this hook never blocks a prompt.
 # One tag only, by the owner's word (2026-11-24): bare `zh`, `chn`, `cn` and `中文` misfired on ordinary text;
 # `zhn` replaced them, then `#zh` replaced `zhn` (his word, the same day), the `#` keeping it off ordinary text.
@@ -25,6 +27,8 @@ except Exception:
     sys.exit(0)
 if re.match(r"\s*desk brief\b", prompt, re.I) or "the desk lands it with `ela session land" in prompt:
     sys.exit(0)                                                    # a desk brief: the desk speaks, not the owner
+if "<cross-session-message" in prompt or re.match(r"\s*Another Claude session sent a message", prompt, re.I):
+    sys.exit(0)                                                    # a peer session's message, not the owner's
 text = re.sub(r"```.*?(```|$)", " ", prompt, flags=re.S)          # fenced code
 text = re.sub(r"`[^`\n]*`", " ", text)                             # code spans
 text = re.sub(r"\b[a-z][a-z0-9+.-]*://\S+", " ", text, flags=re.I) # URLs

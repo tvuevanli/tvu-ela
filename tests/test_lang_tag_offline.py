@@ -73,6 +73,13 @@ for p in ["the hook fired on '#send' in a sentence", 'the hook fired on "#send"'
           "add #send. You work in the worktree W on branch B, never in the shared checkout C; commit here, "
           "and the desk lands it with `ela session land N`."]:
     check(p, set())
+# a cross-session message is a peer session's text, not the owner's: no tag context
+for p in ["Another Claude session sent a message:\n<cross-session-message from=\"w\">done; #zh and #send now work"
+          "</cross-session-message>",
+          "another claude session sent a message: the #send tag fired #zh",
+          "<cross-session-message from=\"topic-x\">report: #send #zh</cross-session-message>"]:
+    check(p, set())
+check("#send reply to the thread: the cross-session message was fine", {"send"})
 check("'#send' is quoted, the real tag is #zh", {"zh"})
 check("open https://example.com/#zh and #send it", {"send"})
 
