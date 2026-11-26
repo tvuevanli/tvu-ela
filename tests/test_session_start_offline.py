@@ -126,6 +126,20 @@ check(len(head) <= 2000, f"the head is {len(head):,} characters, over 2,000")
 check("## Roots" in head and all(f"- R{i} " in head for i in range(7)), "the head lacks one of the roots R0..R6")
 check("## Who Evan is" not in ev, "the head sits beside the section it replaces")
 
+# 6c. The ratchet: a text every session loads does not grow past its recorded size. The ceiling is the size on the day
+# it was last set, in characters; a text that shrinks has its ceiling lowered in the same commit, and a raise records
+# its date and reason here, as tests/test_description_budget.py does for the skill descriptions. Not a cap: a hard cap
+# is met by cutting reasons first, and the phrases a rule rests on are held by the required-phrase checks instead
+# (vault plan ela/2026-11-26-plan-context-budget, decision after round 2).
+CEILINGS = {
+    "CLAUDE.md": 11579,          # 2026-11-26: the size after the Gate's sentence on ela's own design
+    "context/evan.md": 6712,     # 2026-11-26: the size that day (check 5 keeps the hook's own room under the warning line)
+}
+for rel, ceiling in CEILINGS.items():
+    size = len(open(os.path.join(ROOT, rel), encoding="utf-8").read())
+    check(size <= ceiling, f"{rel} is {size:,} characters, over its ceiling of {ceiling:,}: cut it back, or raise the "
+                           f"ceiling in this test with the date and the reason")
+
 # 7. The required phrases: the injected preferences still carry what each decision rests on.
 # A rewrite of the preferences (a compression, a reorder, a merge of two rules) is gated by this list: one scenario per
 # rule or dated refinement, each naming the boundary clauses a session decides by, plus every rule name that code or a
