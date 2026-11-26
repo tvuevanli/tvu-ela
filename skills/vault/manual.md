@@ -2,7 +2,7 @@
 aliases: ["manual"]
 type: "manual"
 updated: "2026-11-26"
-covers: ["2026-11-24-plan-today-opens-with-what-the-day-is-about", "2026-11-25-plan-read-once-at-fixed-times", "2026-11-26-plan-every-notice-goes-through-one-tier-gate", "2026-11-26-plan-fixes-followed-to-prod-one-home-per-fact", "2026-11-26-plan-ela-runs-on-its-own-asks-teach-it"]
+covers: ["2026-11-24-plan-today-opens-with-what-the-day-is-about", "2026-11-25-plan-read-once-at-fixed-times", "2026-11-26-plan-every-notice-goes-through-one-tier-gate", "2026-11-26-plan-fixes-followed-to-prod-one-home-per-fact", "2026-11-26-plan-ela-runs-on-its-own-asks-teach-it", "2026-11-26-plan-ela-described-in-the-vault-from-its-sources"]
 ---
 
 # How you use this vault
@@ -39,7 +39,8 @@ On any live row or ask, as a tick or an `ela:` line under it:
 
 The vault is read every three minutes, 08:30–19:00 on working days: a line taken shows `✓ 10:42`, a refused one `✗` with the reason folded under it. A line written outside those hours is taken the next working morning.
 
-For the board watch: `ela watch answer watch:<KEY> <letter>` in a terminal. Each decision the watch makes carries a confidence: high and medium are written to Jira and listed on `ela/dry/did.md` (everything below high under **Review first**, at the top, with what the evidence leaves open); low, or a case ela cannot decide, is not written: it waits at the top of [[ela/watch|ela/watch]] under **Confirm first**, where A carries out what ela proposed. Tickets the watch judged nothing due close that page, least sure first. To correct something ela wrote on its own: `wrong: <why>` beside its line on `ela/dry/did.md`; the reason is kept, so the same mistake is not repeated.
+> [!note]- The board watch: answering it, and correcting what it wrote
+> To answer a topic: `ela watch answer watch:<KEY> <letter>` in a terminal. Each decision the watch makes carries a confidence: high and medium are written to Jira and listed on `ela/dry/did.md` (everything below high under **Review first**, at the top, with what the evidence leaves open); low, or a case ela cannot decide, is not written: it waits at the top of [[ela/watch|ela/watch]] under **Confirm first**, where A carries out what ela proposed. Tickets the watch judged nothing due close that page, least sure first. To correct something ela wrote on its own: `wrong: <why>` beside its line on `ela/dry/did.md`; the reason is kept, so the same mistake is not repeated.
 
 ## What ela does on its own, and what stays yours
 
@@ -48,14 +49,23 @@ For the board watch: `ela watch answer watch:<KEY> <letter>` in a terminal. Each
 - **ela's only with proof**: anything that would take a risk out of your sight (a fail judged not to block a deploy, a mention judged to need nothing). Without first-hand proof it becomes an ask.
 - **Always yours**: anything posted in Slack, any close, product and team decisions.
 
-## Slack
+## In a session
+
+Two tags, each written alone in your message (not quoted, not in code):
+- `#zh`: ela answers in Chinese from that message on, until you ask for English.
+- `#send`: the Slack post answering that one message goes out as ela without a preview; you get its link afterwards. It still stops for a preview when the post would go under your name, reach a person or thread you did not name, commit to a date, an owner or a release scope, or rest on a fact ela is not sure of.
+
+## In Slack
+
+Every word and button you can use with ela in Slack, and who else reaches it: [[ela/controls|your controls in Slack]].
 
 Slack only reminds; the question itself is always here. A direct message from ela means one of: a prod incident addressed to you (at any hour), a question put to you that is still unanswered after its wait (inside your DM hours; outside them it becomes an ask on [[today]]), or one of ela's passes failing. Board-watch topics get at most one reminder a day, when a topic is new. The daily and weekly team reports are the only posts that go out on their own.
 
 ## Coming
 
-- Each ask will say whether it needs a **fact** or a **ruling**, and a ruling ask will carry ela's reason for you to confirm or correct ([[ela/2026-11-26-plan-ela-runs-on-its-own-asks-teach-it|plan]]).
-- The release line page will gain **Fixes on their way**: each fix from build to prod with what changed, what QA tested, the verdict, ela's judgment of its impact on the deploy, and what is next; today.md's Facts will become **Since you last looked** ([[ela/2026-11-26-plan-fixes-followed-to-prod-one-home-per-fact|plan]]).
+> [!note]- Two changes on their way
+> - Each ask will say whether it needs a **fact** or a **ruling**, and a ruling ask will carry ela's reason for you to confirm or correct ([[ela/2026-11-26-plan-ela-runs-on-its-own-asks-teach-it|plan]]).
+> - The release line page will gain **Fixes on their way**: each fix from build to prod with what changed, what QA tested, the verdict, ela's judgment of its impact on the deploy, and what is next; today.md's Facts will become **Since you last looked** ([[ela/2026-11-26-plan-fixes-followed-to-prod-one-home-per-fact|plan]]).
 
 ---
 
