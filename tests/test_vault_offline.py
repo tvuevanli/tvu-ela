@@ -1535,4 +1535,66 @@ with tempfile.TemporaryDirectory() as t:
           and [json.loads(l)["fate"] for l in open(os.path.join(r, "ela", "vault-removed.jsonl"))] == ["renamed", "renamed"]
           and "superseded by b-open" in got[1][2])
 
+# the team report as it went out: a day page per published narrative, For you on top, Helm's sections named as in Slack;
+# today.md names yesterday's under Today (Monday: last week's too) and leads In short only with what Jira contradicts
+with tempfile.TemporaryDirectory() as t:
+    pub, facts = os.path.join(t, "pub"), os.path.join(t, "facts")
+    os.makedirs(os.path.join(pub, "reports", "daily")); os.makedirs(os.path.join(pub, "reports", "weekly"))
+    os.makedirs(os.path.join(facts, "jira", "issues"))
+    def issue(key, who, pri, status="In Progress", cat="indeterminate", created="2026-11-01T10:00:00.000-0800",
+              catd="2026-11-01T10:00:00.000-0800", updated="2026-11-25T01:00:00+00:00"):
+        json.dump({"key": key, "updated": updated, "fields": {"assignee": {"displayName": who}, "priority": {"name": pri},
+                   "status": {"name": status, "statusCategory": {"key": cat}}, "created": created, "statuscategorychangedate": catd}},
+                  open(os.path.join(facts, "jira", "issues", f"{key}.json"), "w"))
+    issue("MH-1", "Evan Li", "High")
+    issue("MH-2", "Gabriel Liu", "Medium", created="2026-11-25T02:00:00.000-0800")              # new inside the window
+    issue("MH-3", "Andy Zhao", "High", status="Done", cat="done", catd="2026-11-25T03:00:00.000-0800")
+    issue("MH-4", "Robin Wu", "Low", updated="2026-11-26T01:00:00+00:00")                       # changed after the report: not judged
+    json.dump({"issues": [{"fields": {"assignee": {"displayName": "Evan Li"}}}]}, open(os.path.join(facts, "jira", "owner.json"), "w"))
+    narr = ("**Summary**\n- Evan Li posted a plan (MH-1).\n\n**Pushed forward**\n"
+            "- **EIP pool page reviewed (MH-1, High)**: Evan Li owns it. [#prj](https://slack.example/p1)\n"
+            "- **Domain defect**: MH-2 (Robin Wu, Medium) and MH-3 (Andy Zhao, Low). MH-4 (Gabriel Liu, High).\n"
+            "- **SRT latency** (June Wang, Evan Li): a customer saw more delay.\n\n**Blockers & escalations**\n- Evan Li proposed a fix.\n\n— ela out 🦀")
+    doc = {"schema": 1, "kind": "daily", "id": "2026-11-25", "date": "2026-11-25", "state": "ok", "generated_at": "2026-11-25T22:08:00+08:00",
+           "narrative": narr, "keys": ["MH-1", "MH-2", "MH-3", "MH-4", "SCTE-104"], "window": ["2026-11-25T00:00:00+08:00", "2026-11-25T22:07:00+08:00"]}
+    json.dump(doc, open(os.path.join(pub, "reports", "daily", "2026-11-25.json"), "w"))
+    json.dump({"schema": 1, "kind": "weekly", "id": "2026-W47", "week": "2026-W47", "range": ["2026-11-16", "2026-11-22"], "state": "ok",
+               "generated_at": "2026-11-24T08:30:00+08:00", "narrative": "**Week in one paragraph**\nA week.\n\n**Themes**\n- Static IPs.",
+               "keys": []}, open(os.path.join(pub, "reports", "weekly", "2026-W47.json"), "w"))
+    open(os.path.join(pub, "reports", "daily", "broken.json"), "w").write("{")
+    ns = {n.team["kind"]: n for n in V.team_report_notes(pub, facts)}
+    d, w = ns["daily"], ns["weekly"]
+    check("a published daily and weekly become day pages under reference/days/, by date and by ISO week",
+          d.path == "reference/days/2026/2026-11-25-team-daily.md" and w.path == "reference/days/2026/2026-W47-team-weekly.md"
+          and d.title == "Team report · Wed 2026-11-25" and w.title == "Team week · 2026-W47" and len(ns) == 2)
+    check("each page meets the day spec: name, title, date and kind, the weekly dated by its Monday",
+          all(V.spec_lint(n.path, V.front([], dict(n.props, title=n.title, aliases=[n.title])) + n.body, generated=True) == [] for n in (d, w))
+          and w.props["date"] == "2026-11-16" and d.props["kind"] == "team-daily")
+    check("the counts come from the narrative's keys and the fact store: stored keys moved, closed and created in the window",
+          (d.team["cited"], d.team["done"], d.team["new"]) == (4, 1, 1))
+    check("an owner and a priority the report states beside a ticket are checked against Jira; a ticket changed since is not",
+          d.team["wrong"] == ["MH-2 went out as Robin Wu's; Jira has it with Gabriel Liu", "MH-3 went out as Low priority; Jira has High"])
+    check("For you: contradictions first, then his ticket once and a line naming him as other than its subject, three at most",
+          V.for_you(d.team)[:2] == d.team["wrong"] and d.team["mine"][0] == "MH-1 (In Progress, yours): EIP pool page reviewed"
+          and any("June Wang, Evan Li" in m for m in d.team["mine"]) and not any("proposed a fix" in m for m in d.team["mine"])
+          and len(V.for_you(d.team)) == 3 and V.for_you({"wrong": [], "mine": []}) == ["Nothing for you."])
+    check("the page opens with For you, keeps the narrative as posted, names Helm's Release & QA after the Summary, drops a sign-off",
+          d.body.index("## For you") < d.body.index("## As posted") < d.body.index("### Summary") < d.body.index("### Release & QA")
+          < d.body.index("### Pushed forward") and "In Slack: Helm adds Release & QA" in d.body and "ela out" not in d.body
+          and "In Slack: Helm adds Shipped this week" in w.body and "Nothing for you." in w.body)
+    page = V.today_page(datetime.date(2026, 11, 26), [d, w], {})
+    today_sec = page.split("## Today")[1].split("---")[0]
+    check("today.md: yesterday's report is one line under Today with its counts and first For you item; no footer link to it",
+          "[[reference/days/2026/2026-11-25-team-daily|Team yesterday]]: 4 tickets moved · 1 done · 1 new, plus MH-2 went out" in today_sec
+          and "Team last week" not in page and "team report]]" not in page.split("---")[-1])
+    check("today.md: what went out wrongly leads In short, the head still five lines at most",
+          page.split("## In short")[1].split("## Facts")[0].strip().splitlines()[0].startswith("- The team report told the team what Jira contradicts: MH-2")
+          and len(page.split("## In short")[1].split("## Facts")[0].strip().splitlines()) <= 5)
+    mon = V.today_page(datetime.date(2026, 11, 23), [d, w], {})
+    check("on Monday last week's report is a second line; a day with no published report names none",
+          "Team last week]]: 0 tickets moved · 0 done · 0 new, plus nothing for you" in mon and "Team yesterday" not in mon
+          and "Team" not in V.today_page(datetime.date(2026, 11, 28), [d, w], {}).split("## Today")[1].split("---")[0]
+          and "contradicts" not in mon)
+    check("nothing published, no team pages", V.team_report_notes(os.path.join(t, "none"), facts) == [] and V.team_report_notes("", facts) == [])
+
 sys.exit(1 if failures else 0)

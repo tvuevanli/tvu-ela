@@ -41,7 +41,8 @@ move sets it, never the folder. A vault in another layout is not synced: `vault.
                                                 test-list-<lane>.md; history/ what is done (tidy_releases)
     cases/<date>-<customer>-<what>.md           one note per customer case (open, answered, closed)
     reference/                                  what serves no single thing: a product review, engineering management,
-                                                the day pages (reference/days/<year>/<date>-brief|changes.md, kept),
+                                                the day pages (reference/days/<year>/<date>-brief|changes|team-daily.md and
+                                                <year>-W<ww>-team-weekly.md, kept),
                                                 one-thing.md (his rows to paste), dropped.md (asks that left today)
     ela/                                        ela's own: about this vault, the ela page, how ela runs, the service map,
                                                 the Jira vocabulary, the table view, history/, moves/, attachments/
@@ -1189,6 +1190,195 @@ def onething_note(reports, today):
     return n
 
 
+# the team's daily and weekly report as it went out (`ela teamreport write` → <published>/reports/<kind>/<id>.json): one day
+# page each, kept like the morning pages, so the owner reads what the team was told without opening Helm or Slack
+TEAM_KINDS = {"daily": "team-daily", "weekly": "team-weekly"}
+TEAM_TITLE = {"team-daily": "Team report", "team-weekly": "Team week"}
+TEAM_BUDGET = 2000                                         # a week's narrative: two themes sections over five days
+# the sections Helm adds when it posts (teamreport report.md): named here as in Slack, never rendered from Helm's data
+TEAM_HELM = {"daily": "Release & QA", "weekly": "Shipped this week, Numbers, Blocked & at risk, Carry-over into next week"}
+SIGN_OFF = re.compile(r"^\s*— ela (?:out|pending)\b.*$")
+
+
+def team_path(kind, ident):
+    """reference/days/<year>/<date>-team-daily.md · reference/days/<year>/<YYYY>-W<ww>-team-weekly.md"""
+    return f"{DAYS}/{ident[:4]}/{ident}-{TEAM_KINDS[kind]}.md"
+
+
+def team_body(doc, title, reading=None):
+    """The published narrative as a day page: For you (at most three lines: what the fact store contradicts, then
+    what names him or his tickets), then the narrative as posted, its `**Heading**` lines as `##` sections, a line where
+    Helm adds its own sections in Slack, a session's sign-off dropped. Keys stay bare: the sync's linker links them."""
+    kind, out = doc.get("kind"), []
+    at = (doc.get("generated_at") or "")[:16].replace("T", " ")
+    out += [f"# {title}", "", f"*What went to the team: the narrative ela published at {at}, as Helm posts it to Slack.*", ""]
+    out += ["## For you", ""] + [f"- {l}" for l in for_you(reading)] + ["", "## As posted"]
+    lines = (doc.get("narrative") or "").replace("\r\n", "\n").strip().split("\n")
+    while lines and (SIGN_OFF.match(lines[-1]) or not lines[-1].strip()):
+        lines.pop()
+    helm = f"*In Slack: Helm adds {TEAM_HELM.get(kind, 'its own sections')} when it posts; not rendered here.*"
+    summary = placed = False
+    for ln in lines:
+        m = re.match(r"^\s{0,3}\*\*([^*]{1,80})\*\*\s*:?\s*$", ln)
+        if m:
+            head = m.group(1).strip().rstrip(":").strip()
+            if kind == "daily" and summary and not placed:   # Helm inserts its Release & QA after the Summary
+                out += ["", "### Release & QA", "", helm]
+                placed = True
+            summary = summary or head.lower() == "summary"
+            out += ["", f"### {head}", ""]
+            continue
+        out.append(ln)
+    if not placed:
+        out += ([""] + (["### Release & QA", ""] if kind == "daily" else []) + [helm])
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(out)).strip() + "\n"
+
+
+FOR_YOU_MAX = 3
+PRIORITIES = {"highest", "high", "medium", "low", "lowest"}
+SLACK_CITE = re.compile(r"\[#[^\]]*\]\([^)]*\)")   # a report's `[#channel](permalink)` citation
+
+
+def jira_when(s):
+    """A Jira or fact-store time (`2026-11-18T21:38:44.840-0800`, `…+00:00`) as an aware datetime; None when unreadable."""
+    try:
+        t = datetime.datetime.fromisoformat((s or "").strip())
+    except ValueError:
+        return None
+    return t if t.tzinfo else None
+
+
+def fact_issue(facts, key, cache):
+    """One ticket from the fact store (<facts>/jira/issues/<KEY>.json), read once per sync; None when not stored."""
+    if key not in cache:
+        try:
+            d = json.load(open(os.path.join(facts or "", "jira", "issues", f"{key}.json"), encoding="utf-8"))
+            cache[key] = (d[0] if isinstance(d, list) and d else d) if isinstance(d, (dict, list)) else None
+        except (OSError, ValueError):
+            cache[key] = None
+    return cache[key]
+
+
+def squash(name):
+    return re.sub(r"\s+", "", name or "").lower()
+
+
+def report_claims(narrative):
+    """[(keys, tokens)]: each parenthetical that names tickets and what it says beside them, the form the report uses for
+    a ticket's owner and priority: `(MH-4109, Gabriel Liu, Medium)`, `MH-2745 and MH-2744 (Charles Gui, 197d)`. A
+    parenthesis holding a link's address is not a claim."""
+    out = []
+    for m in re.finditer(r"((?:[A-Z][A-Z0-9]{1,9}-\d{1,6}(?:\s*(?:,|and)\s*)?)*)\s*\(([^()]{1,160})\)", narrative or ""):
+        if m.group(2).lstrip().startswith("http"):
+            continue
+        parts = [x.strip() for x in m.group(2).split(",") if x.strip()]
+        keys = [x for x in parts if re.fullmatch(r"[A-Z][A-Z0-9]{1,9}-\d{1,6}", x)]
+        rest = [x for x in parts if x not in keys]
+        keys = keys or re.findall(r"[A-Z][A-Z0-9]{1,9}-\d{1,6}", m.group(1) or "")
+        if keys and rest:
+            out.append((keys, rest))
+    return out
+
+
+def team_reading(doc, facts, owner, cache):
+    """What the day page and today.md say about one published report, from the narrative and the fact store only:
+    cited (its keys the store holds), done (closed inside its window), new (created inside it), wrong (an owner or a
+    priority the report states beside a ticket that Jira contradicts; a ticket changed after the report was written is
+    not judged, since the store keeps no history) and mine (lines that name the owner or cite his tickets)."""
+    issues = {k: fact_issue(facts, k, cache) for k in doc.get("keys") or []}
+    issues = {k: v for k, v in issues.items() if isinstance(v, dict)}
+    win = [jira_when(x) for x in (doc.get("window") or [])[:2]]
+    written = jira_when(doc.get("generated_at"))
+    def inside(s):
+        t = jira_when(s)
+        return bool(t and len(win) == 2 and win[0] and win[1] and win[0] <= t < win[1])
+    def fields(k):
+        return issues[k].get("fields") or {}
+    done = sorted(k for k in issues if ((fields(k).get("status") or {}).get("statusCategory") or {}).get("key") == "done"
+                  and inside(fields(k).get("statuscategorychangedate")))
+    new = sorted(k for k in issues if inside(fields(k).get("created")))
+    names = {squash((fields(k).get("assignee") or {}).get("displayName")) for k in issues} | {squash(owner), "unassigned"}
+    names.discard("")
+    wrong, seen = [], set()
+    for keys, rest in report_claims(doc.get("narrative")):
+        for k in keys:
+            if k not in issues:
+                continue
+            changed = jira_when(issues[k].get("updated") or fields(k).get("updated"))
+            if not written or not changed or changed > written:
+                continue
+            who = (fields(k).get("assignee") or {}).get("displayName") or "Unassigned"
+            pri = (fields(k).get("priority") or {}).get("name") or ""
+            for t in rest:
+                if t.lower() in PRIORITIES and pri and t.lower() != pri.lower() and (k, "p") not in seen:
+                    seen.add((k, "p"))
+                    wrong.append(f"{k} went out as {t} priority; Jira has {pri}")
+                elif squash(t) in names and squash(t) != squash(who) and (k, "o") not in seen:
+                    seen.add((k, "o"))
+                    wrong.append(f"{k} went out as {t}'s; Jira has it with {who}")
+    mine_keys = {k for k in issues if owner and squash((fields(k).get("assignee") or {}).get("displayName")) == squash(owner)}
+    mine, told, section = [], set(), ""
+    subject = re.compile(r"(?:^|[.:;]\s+)" + re.escape(owner) + r"\b") if owner else None
+    for ln in (doc.get("narrative") or "").split("\n"):
+        hm = re.match(r"^\s{0,3}\*\*([^*]{1,80})\*\*\s*:?\s*$", ln)
+        if hm:
+            section = hm.group(1).strip().lower()
+            continue
+        if section == "summary" or not re.match(r"^\s*[-*]\s+", ln):   # the Summary retells the sections below
+            continue
+        text = SLACK_CITE.sub("", re.sub(r"^\s*[-*]\s+", "", ln)).strip()
+        lead = re.match(r"^\*\*(.+?)\*\*:?\s*", text)
+        label = re.sub(r"\s*\([^()]*\)", "", lead.group(1)).strip() if lead else short(text.replace("**", ""), 100)
+        for k in [k for k in KEY_RX.findall(text) if k in mine_keys and k not in told]:   # his ticket: once, where first told
+            told.add(k)
+            mine.append(f"{k} ({(fields(k).get('status') or {}).get('name') or '?'}, yours): {label}")
+        # a line that names him as other than its subject: an ask, a pairing, a ticket of his the store does not hold
+        if owner and owner.lower() in text.lower() and not subject.search(text.replace("**", "")) and not (mine_keys & set(KEY_RX.findall(text))):
+            mine.append(short(text.replace("**", ""), 160))
+    return {"cited": len(issues), "done": len(done), "new": len(new), "wrong": wrong, "mine": mine}
+
+
+def for_you(reading):
+    """The For you block: at most FOR_YOU_MAX lines, what Jira contradicts first; "nothing for you" when nothing does."""
+    items = list((reading or {}).get("wrong") or []) + list((reading or {}).get("mine") or [])
+    if not items:
+        return ["Nothing for you."]
+    if len(items) > FOR_YOU_MAX:
+        items = items[:FOR_YOU_MAX - 1] + [f"And {len(items) - FOR_YOU_MAX + 1} more lines below name you or your tickets."]
+    return items
+
+
+def team_report_notes(published, facts=None):
+    """One day page per published team report, daily and weekly, every one kept (no data is lost); [] when nothing is
+    published. A file that does not parse is skipped and said once. Each note carries its reading (`team`) for today.md."""
+    notes, cache, owner = [], {}, owner_name(facts) if facts else ""
+    for kind in TEAM_KINDS:
+        d = os.path.join(published or "", "reports", kind)
+        for f in sorted(os.listdir(d)) if published and os.path.isdir(d) else []:
+            ident = f[:-5]
+            if not f.endswith(".json") or not re.match(r"^\d{4}-(?:\d{2}-\d{2}|W\d{2})$", ident):
+                continue
+            try:
+                doc = json.load(open(os.path.join(d, f), encoding="utf-8"))
+            except (OSError, ValueError) as e:
+                print(f"team report: {kind}/{f} not read — {str(e)[:80]}", file=sys.stderr)
+                continue
+            if kind == "daily":
+                try:
+                    day = datetime.date.fromisoformat(ident)
+                except ValueError:
+                    continue
+                date, title = ident, f"{TEAM_TITLE['team-daily']} · {day:%a} {ident}"
+            else:
+                date, title = ((doc.get("range") or [None])[0] or None), f"{TEAM_TITLE['team-weekly']} · {ident}"
+            reading = team_reading(doc, facts, owner, cache)
+            n = Note(team_path(kind, ident), title, team_body(doc, title, reading),
+                     {"type": "day", "date": date, "kind": TEAM_KINDS[kind]}, [], src_rel=f"published:reports/{kind}/{f}")
+            n.team = dict(reading, id=ident, kind=kind)
+            notes.append(n)
+    return notes
+
+
 def with_recent_pointer(body, have_recent):
     """The morning page's New tickets line points at the recent page when the vault has one and the page does not yet."""
     if not have_recent or "[[recent" in body:
@@ -1785,9 +1975,11 @@ SPECS = {
         sections=("To raise?", "Ruled?"),                 # Ruled comes after the meeting; a dated note has its own sections (ADR 0016)
         closing="the `- [ ] send` box at the top; each item under 140 characters: ticket link · question · who decides · since when"),
     "day": dict(
-        kind="a morning page, what changed the day before, or the week",
-        name=(r"^reference/days/\d{4}/\d{4}-\d{2}-\d{2}-(?:brief|changes|week|learn)\.md$", "`reference/days/<year>/<date>-<kind>.md`, kind brief or changes"),
-        title=(r"^(?:Morning brief|What changed|The week|What the day taught) · ", "`Morning brief · <Dow> <date>`, `What changed · …`, `The week · …`"),
+        kind="a morning page, what changed the day before, the week, or the team report as it went out",
+        name=(r"^reference/days/\d{4}/(?:\d{4}-\d{2}-\d{2}-(?:brief|changes|week|learn|team-daily)|\d{4}-W\d{2}-team-weekly)\.md$",
+              "`reference/days/<year>/<date>-<kind>.md`, kind brief, changes or team-daily; the team's week `<year>-W<ww>-team-weekly.md`"),
+        title=(r"^(?:Morning brief|What changed|The week|What the day taught|Team report|Team week) · ",
+               "`Morning brief · <Dow> <date>`, `What changed · …`, `The week · …`, `Team report · <Dow> <date>`, `Team week · <year>-W<ww>`"),
         required=("date", "kind"), optional=(),
         sections=(), closing="each item ends in a **Do:** line: an `apply N`, a `don't N`, or *your call: <recommended> over <alternative>*"),
     "reader": dict(
@@ -1821,6 +2013,8 @@ def budget_of(kind, rel=""):
     """A type's reading budget; a promote or deploy review has its own, tighter than a review's."""
     if kind == "review" and re.match(r"^\d{4}-\d{2}-\d{2}-(?:promote|deploy)-", os.path.basename(rel or "")):
         return HOP_BUDGET
+    if kind == "day" and (rel or "").endswith("-team-weekly.md"):
+        return TEAM_BUDGET
     return BUDGET.get(kind)
 PAGES_SPEC = ("home", "today", "dropped", "board", "lanes", "docker", "recent", "one-thing", "test-list", "dev-list", "train", "program", "guide",
               "vocabulary", "system", "constraints", "readme", "services", "questions", "dry", "mention", "watch")   # living pages: each one's generator is its spec
@@ -1947,7 +2141,8 @@ def undated(kind, rel, text):
     record, the verb's meetings/<key>.md, and a report ruled in place, named by its slug (ADR 0020: the report spec's
     `<slug>.md`, a report that is not of a day). Every other note with a `date` is named from it."""
     return (kind == "project" or bool(RELEASE_RECORD.match(rel)) or (kind == "meeting" and legacy_form(text))
-            or (kind == "report" and not re.match(r"\d{4}-\d{2}-\d{2}-", os.path.basename(rel))))
+            or (kind == "report" and not re.match(r"\d{4}-\d{2}-\d{2}-", os.path.basename(rel)))
+            or (kind == "day" and rel.endswith("-team-weekly.md")))   # named by its ISO week, dated by its Monday
 
 
 def spec_lint(rel, text, generated=False, projects=None):
@@ -3971,6 +4166,13 @@ def today_page(today, notes, desk=None, shown=(), more=0, dropped=0, questions_l
                                          "brief": today_brief.path if today_brief else None})
     desk["head_inputs"] = inp
     head, judged, folded = H.render(inp, desk.get("head"))
+    teams = team_today(today, notes)
+    wrong = [(n, l) for n in teams for l in n.team["wrong"]]
+    if wrong:                                              # what went out to the team wrongly leads the head, judged or not
+        n0 = wrong[0][0]
+        line = (f"- The team report told the team what Jira contradicts: {wrong[0][1]}"
+                + (f" (and {len(wrong) - 1} more)" if len(wrong) > 1 else "") + f" → [[{n0.path[:-3]}|its For you]]")
+        head = [line] + head[:-1][:H.HEAD_MAX - 1] + head[-1:]
     asks = []
     for k, c in enumerate(shown, 1):
         gone = drop_day(datetime.date.fromisoformat(c["first"]), today)
@@ -3986,6 +4188,12 @@ def today_page(today, notes, desk=None, shown=(), more=0, dropped=0, questions_l
     notes_today = sorted((n for n in notes if n.props.get("type") == "meeting" and (n.props.get("date") or "")[:10] == iso
                           and n.path.startswith(MEETINGS + "/")),   # an archived page is history, not today's meeting
                          key=lambda n: n.path)
+    for n in teams:                                        # what the team was told yesterday (Monday: last week too)
+        r = n.team
+        label = "Team yesterday" if r["kind"] == "daily" else "Team last week"
+        first = for_you(r)[0]
+        day.append(f"- [[{n.path[:-3]}|{label}]]: {r['cited']} ticket{'s' if r['cited'] != 1 else ''} moved · {r['done']} done · "
+                   f"{r['new']} new, plus " + ("nothing for you" if first == "Nothing for you." else short(first, 110)))
     for n in notes_today:                                  # the meeting's own note, dated today, by its title
         day.append(f"- [[{n.path[:-3]}|{n.title}]]")
     have = {os.path.basename(n.path)[:-3] for n in notes_today}
@@ -4032,6 +4240,16 @@ def today_page(today, notes, desk=None, shown=(), more=0, dropped=0, questions_l
              f"[[{DROPPED[:-3]}|dropped asks]]" + (f" ({dropped})" if dropped else ""),
              f"[[{OVERVIEW[:-3]}|ela]]"]
     return "\n".join(L + ["---", "", " · ".join(x for x in links if x), ""])
+
+
+def team_today(today, notes):
+    """The team report notes today.md names: yesterday's daily, and on Monday last week's weekly; only those published."""
+    want = {("daily", (today - datetime.timedelta(days=1)).isoformat())}
+    if today.weekday() == 0:
+        y, w, _ = (today - datetime.timedelta(days=7)).isocalendar()
+        want.add(("weekly", f"{y}-W{w:02d}"))
+    found = [n for n in notes if getattr(n, "team", None) and (n.team["kind"], n.team["id"]) in want]
+    return sorted(found, key=lambda n: n.team["kind"])     # the day before the week
 
 
 def project_label(f):
@@ -5142,7 +5360,7 @@ def services_note(s, vault, today):
 def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since=None, dry_run=False, questions=None):
     reports = s.get("reports")
     enotes, titles = elak_notes(s.get("elak"))
-    notes = report_notes(reports, today, s.get("runtime"), s.get("helm_local_url")) + enotes      # the constraints page is retired (ADR 0015); `ela promote` reads the pins
+    notes = report_notes(reports, today, s.get("runtime"), s.get("helm_local_url")) + enotes + team_report_notes(s.get("published"), os.path.join(s.get("runtime") or "", "facts"))      # the constraints page is retired (ADR 0015); `ela promote` reads the pins
     vnotes, files = verify_notes(reports, today)
     notes += vnotes + verify_plan_notes(reports, vnotes)
     # what the owner deleted is not written, linked or listed; matched by source too, so a new layout keeps it deleted
