@@ -1595,6 +1595,8 @@ with tempfile.TemporaryDirectory() as t:
           "Team last week]]: 0 tickets moved · 0 done · 0 new, plus nothing for you" in mon and "Team yesterday" not in mon
           and "Team" not in V.today_page(datetime.date(2026, 11, 28), [d, w], {}).split("## Today")[1].split("---")[0]
           and "contradicts" not in mon)
+    one = V.Note(V.ONE_THING, "One Thing", "# One Thing", {"type": "one-thing"})
+    check("the footer links his One Thing rows when the page exists", "[[reference/one-thing|one thing]]" in V.today_page(datetime.date(2026, 11, 26), [one], {}))
     check("nothing published, no team pages", V.team_report_notes(os.path.join(t, "none"), facts) == [] and V.team_report_notes("", facts) == [])
 
 sys.exit(1 if failures else 0)

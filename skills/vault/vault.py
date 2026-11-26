@@ -4235,6 +4235,7 @@ def today_page(today, notes, desk=None, shown=(), more=0, dropped=0, questions_l
     L = render(judged, folded)
     links = [f"[[{changes.path[:-3]}|what changed]]" if changes else None,
              f"[[{brief.path[:-3]}|morning page]]" if brief else None,
+             f"[[{ONE_THING[:-3]}|one thing]]" if any(n.path == ONE_THING for n in notes) else None,
              f"[[{LANES_PAGE[:-3]}|lanes]]" if any(n.props.get("type") == "lanes" for n in notes) else None,
              ("projects: " + " · ".join(f"[[{f['path'][:-3]}|{project_label(f)}]]" for f in projects)) if projects else None,
              f"[[{DROPPED[:-3]}|dropped asks]]" + (f" ({dropped})" if dropped else ""),
