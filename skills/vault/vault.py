@@ -2481,9 +2481,11 @@ SPECS = {
         name=(r"^releases/([\d.]+)/\1\.md$", "`releases/<line>/<line>.md`, one per line, rewritten on every sync"),
         title=(r"^MediaHub [\d.]+ · ", "`MediaHub <line> · where the line stands`"),
         required=("date",), optional=("source",),
-        sections=("Now", "Next promotion", "Docker", "Builds", "History"),
+        sections=("Now", "Next promotion", "Docker", "Fixes on their way?", "Builds", "History"),
         closing="Now: one row per lane (its MediaHub name, the UR environment in brackets; two lanes on the same versions one row), "
-                "a lane ahead of its upstream said why, then one **Can't read:** line naming each gap. Builds: one line per build, "
+                "a lane ahead of its upstream said why, then one **Can't read:** line naming each gap. Fixes on their way: one line a fix "
+                "by its impact on its next move (blocks, your call, not yet verified, does not block; blocks and your call never folded), "
+                "Ready a count. Builds: one line per build, "
                 "its detail in a folded callout; older builds and notes folded. Nothing to rule: the decision is named under Next promotion"),
     "draft": dict(
         kind="a message you send under your own name: a Slack post or reply, a Jira comment, a mail",

@@ -108,6 +108,14 @@ with tempfile.TemporaryDirectory() as tmp:
     R._MAP["lines"]["2.1"]["label"] = "release:mh-2.1"
     notes = [{"rel": "releases/2.1/history/2026-11-17-promote-daily-wed-to-prod-3.md", "title": "MH 2.1 · Wednesday → Prod 3", "date": "2026-11-17", "status": "done"},
              {"rel": "releases/2.1/2026-11-12-sync-prod-3-to-cn-prod-2.md", "title": "MediaHub 2.1 · prod-3 → CN Prod2", "date": "2026-11-12", "status": "live"}]
+    lanes = [{"role": "qa", "lane": "qa-cn3", "shown": "QA-AWS3"}, {"role": "daily", "lane": "daily-wed", "shown": "daily-wed (UR test2)"},
+             {"role": "prod", "lane": "prod-3", "shown": "prod-3 (UR/J2N Prod 3)"}]
+    def trow(key, group, verdict, reason):
+        return {"id": key, "key": key, "title": f"summary of {key}", "priority": "P1", "also": [], "position": "qa", "change": None,
+                "cells": {"qa-cn3": {"arrived": "99", "verdict": verdict, "version": "build 99", "at": "2026-11-19", "history": []}},
+                "qa_word": None, "qa_report": None, "impact": {"group": group, "reason": reason, "move": ["qa-cn3", "daily-wed"], "next": "a fix, then QA again"}}
+    write(os.path.join(reports, "train", "2.1.json"), {"line": "2.1", "at": "2026-11-20T09:00+08:00", "lanes": lanes,
+          "rows": [trow("MH-4065", "blocks", "fail", "QA: not fixed"), trow("MH-4052", "ready", "pass", "QA passed")]})
     d = LP.gather("2.1", reports, runtime, TODAY, notes)
     page = LP.render(d)
     now = page.split("## Now")[1].split("## Next promotion")[0]
@@ -137,7 +145,12 @@ with tempfile.TemporaryDirectory() as tmp:
           and "**Ready:** MH-4052" in nxt and "**Blocks:** MH-4065" in nxt and "QA fail 11-19" in nxt and "**Decision:** move QA-AWS3 build 99 to daily-wed" in nxt)
     check("a promotion record its target already passed is said to be past under History, not in the head",
           "“Wednesday (build 78) → prod-3” is past" in page.split("## History")[1] and "is past" not in nxt)
-    dock = page.split("## Docker")[1].split("## Builds")[0]
+    fixes = page.split("## Fixes on their way")[1].split("## Builds")[0] if "## Fixes on their way" in page else ""
+    check("Fixes on their way sits between Docker and Builds, read from the written train: a blocking row visible with its block id, Ready a count",
+          page.index("## Docker") < page.index("## Fixes on their way") < page.index("## Builds")
+          and "**Blocks · 1**" in fixes and "MH-4065 summary of MH-4065" in fixes and "**blocks**: QA: not fixed" in fixes
+          and fixes.count("^fix-mh-4065") == 1 and "**Ready:** 1 for QA-AWS3 → daily-wed (UR test2)" in fixes)
+    dock = page.split("## Docker")[1].split("## Fixes on their way")[0]
     check("Docker: only the image that differs between lanes, each version with its QA report or none and what it changed",
           "- **mixer** · daily-wed 1.0.35 vs prod-3 1.0.36 · QA report on 1.0.36: no" in dock and "copier" not in dock
           and "> - **mixer** (Docker Switcher): 1.0.36: no QA report; MH-3984" in dock and "1.0.35: no QA report; released 11-01, no ticket named" in dock)

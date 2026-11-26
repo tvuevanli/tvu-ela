@@ -11,7 +11,8 @@ sync; the build notes it replaces are history. Plan: vault ela/2026-11-20-plan-o
 
 Sources: the build records (<reports>/releases/<line>/*-build-*.json), the lane reads (<runtime>/runner/versions-*.json),
 QA's reports per version (<runtime>/runner/qa-tested.json), the stored promote reports (<reports>/promote/<line>-*.json)
-and pending promotions, the docker candidates and ledger, the fact store's tickets for titles.
+and pending promotions, the docker candidates and ledger, the fact store's tickets for titles, and the line's written
+train (<reports>/train/<line>.json, `ela train --write`) for Fixes on their way: each fix by what it does to its next move.
 Exit codes: 0 ok · 2 usage or site.
 """
 import argparse, datetime, json, os, re, sys
@@ -19,6 +20,8 @@ import argparse, datetime, json, os, re, sys
 HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, HERE)
 import release as R  # noqa: E402
+sys.path.insert(0, os.path.join(os.path.dirname(HERE), "train"))
+import fixes as FX  # noqa: E402  — the train's rows as the deploy sees them: Fixes on their way
 
 SERVICES = ("mediahub-backend", "mediahub-frontend", "unified-streaming", "unified-media-frontend", "unified-media-backend")
 SERVICE_NAMES = {"mediahub-backend": "MediaHub Backend", "mediahub-frontend": "MediaHub Frontend", "unified-streaming": "UR Caller",
@@ -29,6 +32,7 @@ VERDICT_WORDS = {"none": "no QA verdict", "dev-declared": "Fixed In by its devel
 VERDICT_RANK = {"fail": 0, "partial": 1, "n-a": 2, "pass": 3}
 SHOWN_BUILDS_DAYS, SHOWN_HISTORY = 14, 6         # above the fold: builds of the last two weeks, the six newest notes
 REPORT_FRESH_DAYS = 2                             # a stored promote report older than this is named as stale
+TRAIN_FRESH_DAYS = 1                              # a written train older than this is named under Can't read
 LIST_MAX = 4                                      # tickets named in words per bucket above the fold; the rest folded
 REPORT_BUILD = re.compile(r"For (\d+\.\d+) Release build (\d+)", re.I)
 
@@ -562,12 +566,17 @@ def gather(line, reports, runtime, today=None, notes=(), builds_ledger=None):
         lost = [b for b in lost if int(re.sub(r"\D", "", b) or 0) > first]
         if lost:
             gaps.append((f"build{'s' if len(lost) != 1 else ''} {', '.join(lost)}", "sent to QA, no build record written"))
+    train = load(os.path.join(reports, "train", f"{line}.json"))
+    if train is None:
+        gaps.append(("the train", f"none written; `ela train --line {line} --write` writes it"))
+    elif str(train.get("at") or "")[:10] < (today - datetime.timedelta(days=TRAIN_FRESH_DAYS)).isoformat():
+        gaps.append(("a fresh train", f"the written train is of {str(train.get('at'))[:10]}"))
     table = ticket_table(line, runtime, rows, builds_ledger, cfg)
     if table is None:
         gaps.append(("tickets", f"the fact store holds none labelled release:mh-{line}"))
     elif builds_ledger and not os.path.isfile(builds_ledger):
         gaps.append(("builds ledger", "the builds ledger the site names is not on disk"))
-    return {"line": line, "today": today.isoformat(), "rowsets": rowsets, "tickets": table, "ahead": ahead, "gaps": gaps, "next": nxt,
+    return {"line": line, "today": today.isoformat(), "rowsets": rowsets, "train": train, "tickets": table, "ahead": ahead, "gaps": gaps, "next": nxt,
             "pending": pending, "docker": docker, "builds": builds, "facts": facts, "notes": list(notes),
             "read": snaps[-1][0] if snaps else None}
 
@@ -593,7 +602,7 @@ def build_lines(rec, facts):
 
 
 def render(d):
-    """The line page's body: heading, meta, Now, Next promotion, Docker, Builds, History."""
+    """The line page's body: heading, meta, Now, Next promotion, Docker, Fixes on their way, Builds, History."""
     line, facts, today = d["line"], d["facts"], d["today"]
     L = [f"# MediaHub {line} · where the line stands", "",
          f"*{today} · from the lane read of {d['read'] or '—'}, the build records, QA's reports and the stored promote reports*", "",
@@ -674,6 +683,7 @@ def render(d):
         folded.append(f"> - **{x['image']}** ({', '.join(x['gm'][:2])}{', …' if len(x['gm']) > 2 else ''}): " + " · ".join(parts))
     if d["docker"]:
         L += ["", "> [!note]- What each version changed, and its QA report"] + folded + [""]
+    L += FX.block(d.get("train") or {}) if d.get("train") else []
     L += ["## Builds", ""]
     if not d["builds"]:
         L += ["No build record for this line.", ""]
