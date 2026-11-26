@@ -175,4 +175,8 @@ check("a project page's Notes link a note in ela/ by name", "[[2026-11-20-plan-x
     [{"inside": False, "path": "ela/history/2026-11-20-plan-x.md", "title": "X", "type": "plan", "date": "2026-11-20", "status": "done"}],
     datetime.date(2026, 11, 27)))
 
+moved = '---\ntitle: "X"\ntype: "review"\ndate: "2026-11-05"\nstatus: "done"\n---\n# X\n'
+check("a note moved to reference/history/ keeps a valid name there",
+      not [l for l in V.spec_lint("reference/history/2026-11-05-review-jira-four-week.md", moved) if "file name" in l])
+
 sys.exit(1 if failures else 0)

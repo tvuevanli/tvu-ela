@@ -2259,8 +2259,8 @@ LIFE_PROPS = ("archived", "built", "claimed", "waits-on", "wake", "parked", "clo
 # optional properties beyond title, aliases and type; sections: the headings in order (a trailing ? is optional);
 # closing: how it ends with what he should do; budget from BUDGET, or the rule that stands in for one
 # a work note's home: a project's folder, a release line's, a case's, reference, ela's history, the archive (ADR 0015)
-THING = rf"(?:projects/{SLUG}|releases(?:/[\d.]+)?|cases(?:/{SLUG})?|reference|ela(?:/history)?|archive)"
-THING_NOT_RELEASES = rf"(?:projects/{SLUG}|cases(?:/{SLUG})?|reference|ela(?:/history)?|archive)"   # a review there follows its own rule
+THING = rf"(?:projects/{SLUG}|releases(?:/[\d.]+)?|cases(?:/{SLUG})?|reference(?:/history)?|ela(?:/history)?|archive)"
+THING_NOT_RELEASES = rf"(?:projects/{SLUG}|cases(?:/{SLUG})?|reference(?:/history)?|ela(?:/history)?|archive)"   # a review there follows its own rule
 THING_NAME = "`<date>-<kind>-<what>.md` in its thing's folder"
 SPECS = {
     "decision": dict(
