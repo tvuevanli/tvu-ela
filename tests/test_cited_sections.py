@@ -1,8 +1,75 @@
 #!/usr/bin/env python3
 """Every quoted section of an ela skill that elak cites (ela's `jira` skill § "A requirement is a project") is a
-heading in that skill's SKILL.md: a citation into ela must not point at nothing. Skipped where elak is not on disk."""
+heading in that skill's SKILL.md: a citation into ela must not point at nothing. Skipped where elak is not on disk.
+Before that, the skills that dispatch by mode are checked (below); that part needs no elak."""
 import json, os, re, sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+"""
+A skill that dispatches by mode has a core SKILL.md and parts beside it, read only by the mode that needs them (vault
+plan ela/2026-11-26-plan-context-budget). Three checks, none needing elak: every part exists, is named in the core, and
+no unlisted .md sits beside it; the core stays under its character ceiling (a ratchet: lowered when it shrinks, raised
+only with a date and a reason here); and the phrases the skill's rules rest on are still somewhere in the skill, with
+the ones a session needs before any part is read in the core itself. A phrase list is written before its skill is cut.
+"""
+squash = lambda t: " ".join(t.split())
+SKILLS = {
+    "brief": {
+        "parts": ["unattended.md", "page.md", "files.md", "meetings.md", "reader.md"],
+        "ceiling": 37242,   # 2026-11-26: 83,958 before the split by mode
+        "headings": ["3b — when the runner asked (unattended): the page and the numbered actions, written to files",
+                     "§reader — the evening read of the morning page"],   # cited by review.py, brief.py and the runner
+        "core": ["Read-only: this skill never posts, transitions, comments or creates", "A held subject asks nothing",
+                 "a silent lane is a lie", "never an interpreter one-liner", "fills at most one per page",
+                 "Never batch", "the pile is the item", "Being tagged does not make a thread his",
+                 "A key that comes from several sources is **one item**", "At most eight items",
+                 "His own work is a sprint row, never an item", "Review is never read as verified",
+                 "A ticket is called silent only when Slack and mail are silent too",
+                 "\"Deployed\" is a fact, never a status", "A field is Jira's value",
+                 "a write that would change nothing is not drafted", "leaves only on his word",
+                 "then commits and pushes it under elak's commit rules (ADR 0026)",
+                 "With `--page`, Read `unattended.md` first", "Read `reader.md` first"],
+        "anywhere": ["never \"untested\", \"no QA report yet\"", "keep their number and text",
+                     "Counts come from one file", "The session itself applies nothing", "`ELA_NO_APPLY`",
+                     "A number is minted only when its drafted write is in `<date>-actions.json`",
+                     "never a terminal status, a close, a transition or a customer-facing field",
+                     "Tier 2 is retired", "leaves only on his approve", "At most three `apply` boxes stand open",
+                     "An item never ends in a question to him", "No Do line without a box",
+                     "A verification outranks a close", "A key never stands in a run", "Under 900 words in all",
+                     "Services by their slug", "People by their roster display name", "A ticket appears once",
+                     "is one line, never an item", "The morning count", "it only raises, never lowers what a person set",
+                     "never moves a date", "Nothing is posted in the release thread", "It carries no actions",
+                     "The page drafts no actions", "It ticks nothing, posts nothing and edits no page",
+                     "the order wrong, handed back, question, noise, tickable", "the check fails an unjudged one",
+                     "the check fails an unaudited one", "the verb refuses a longer one", "No dated meeting note is written"],
+    },
+}
+bad = []
+for skill, spec in sorted(SKILLS.items()):
+    d = os.path.join(ROOT, "skills", skill)
+    core = open(os.path.join(d, "SKILL.md"), encoding="utf-8").read()
+    for part in spec["parts"]:
+        if not os.path.isfile(os.path.join(d, part)):
+            bad.append(f"{skill}: SKILL.md dispatches to {part}, which is not in the skill's folder")
+        if f"`{part}`" not in core:
+            bad.append(f"{skill}: {part} is a part no line of SKILL.md names, so no mode reads it")
+    for f in sorted(os.listdir(d)):
+        if f.endswith(".md") and f != "SKILL.md" and f not in spec["parts"] and f not in spec.get("other", ()):
+            bad.append(f"{skill}: {f} sits beside SKILL.md and is not a listed part")
+    if len(core) > spec["ceiling"]:
+        bad.append(f"{skill}: SKILL.md is {len(core):,} characters, over its ceiling of {spec['ceiling']:,}: move the "
+                   f"text to the part whose mode needs it, or raise the ceiling here with the date and the reason")
+    heads = re.findall(r"^#{2,3}\s+(.+?)\s*$", core, re.M)
+    bad += [f"{skill}: the cited heading is gone from SKILL.md: {h!r}" for h in spec.get("headings", ()) if h not in heads]
+    whole = squash(core + "".join(open(os.path.join(d, p_), encoding="utf-8").read() for p_ in spec["parts"]
+                                  if os.path.isfile(os.path.join(d, p_))))
+    bad += [f"{skill}: required phrase gone from SKILL.md (the core): {ph!r}" for ph in spec["core"] if squash(ph) not in squash(core)]
+    bad += [f"{skill}: required phrase gone from the skill: {ph!r}" for ph in spec["anywhere"] if squash(ph) not in whole]
+for b in bad:
+    print("FAIL " + b)
+print(f"skill parts: {len(SKILLS)} dispatching skills checked, {len(bad)} failed")
+if bad:
+    sys.exit(1)
+
 try:
     site = json.load(open(os.path.expanduser("~/.claude/ela/site.json")))
     elak = site.get("elak") or os.path.join(site.get("projects") or "", "elak")

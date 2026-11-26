@@ -11,6 +11,18 @@ Self-contained. Argument: optional focus — `jira`, `slack`, `cadence`, `triage
 skill never posts, transitions, comments or creates. Every item ends in a drafted action Evan
 approves, edits or skips; execution goes through the skill named on the item.
 
+## Modes: what to read before starting
+
+This file is the core: the lanes, the judgment and the ranking, which every mode needs. The rest is in files beside
+it (`${CLAUDE_PLUGIN_ROOT}/skills/brief/<name>`), and a mode reads its files **first**, whole, before §0. A file not
+read is a rule not applied.
+
+| how the skill was started | Read first |
+|---|---|
+| in a session, on his ask (`/ela:brief`, a focus lane) | this file; `page.md` before printing the full page |
+| with `--page <facts page>`: the runner's morning judge, unattended | `unattended.md`, `page.md` and `files.md`; `meetings.md` when `ela day --json` names an enabled meeting with a time that day |
+| by a prompt that names §reader: the evening read of the morning page | `reader.md`, and nothing else of this skill |
+
 ## Invariants
 - **First-hand.** Jira through the jira capability, Slack through the slack capability. Never a
   dashboard's summary, never memory of yesterday's brief.
@@ -248,7 +260,7 @@ that name no ticket; then ela's own jobs and applied writes, and Helm's auto-wri
 the owner's account. A message or commit naming more than four keys is a list (release notes) and only
 reinforces cases another source opened.
 
-The day's changes in full are a page of their own, the Changes page (§3b), read from `ela changes --json` (the
+The day's changes in full are a page of their own, the Changes page (`unattended.md`), read from `ela changes --json` (the
 runner leaves it at `<runtime>/runner/<date>-changes.json`): the lane moves, the builds and the commits each
 carries, the release and QA mail, the release thread, the commits per repository and ticket for the MediaHub app
 and Orchestration, what the owner did, what ela and Helm did, and the team report. The brief keeps only what
@@ -284,33 +296,6 @@ sprint row at once), and merging them is ela's work, not the reader's.
 | F | he waits on someone, past the threshold | the nudge drafted as `apply N` (§F) |
 
 His own work is a sprint row, never an item.
-
-**A change on a tracked ticket** (one with a probe `fix` page, in the sprint, routed by him, or with an `apply N`
-pending) is read on two axes, by the closed list in `skills/probe/SKILL.md` §fix — a change on a tracked ticket:
-understood means it matches one rule (Review on a branch whose commits name the key; QA's version and verdict;
-Fixed In equal to the ledger's carrying build; an answer to a question the timeline holds; Done after a QA pass on
-the lane's version; progress from the assignee or a developer on an In Progress ticket, asking nothing and naming no
-new version; an assignment consistent with the status; a developer naming a version the ledger confirms), and anything
-else is unsure, as is a developer reporting it still fails; a sure row whose furthest fix lane disagrees with the status
-(on QA while Backlog, on prod while In Progress or before QA's verdict) becomes unsure with that reason. Understood and no word needed: a timeline row and a count on the
-Changes page, never an item. Understood and word needed: one item, A or D. Unsure: one item, C or D, whose first
-line says what ela could not place; on a prod ticket or a customer ask the runner also DMs him at the pass. Addressed
-to him (his name, an assignment, a question): always a C item, whatever the reading. *Why: an item he cannot act on
-costs his attention, and a change ela cannot place must never pass as a quiet timeline row.*
-
-`lanes.tracked` holds these already grouped, one row per ticket over the brief's window (24 hours, 72 on a Monday):
-`class` C when a change is addressed to him, its `first_line` who said what; D otherwise, its `first_line` "ela could
-not place: <reason>". Each is one item with the moves a ticket page offers (seen, go-deep, nudge), merged by key with
-any item the brief already has for that ticket. Sure rows are not on the page; the runner's *Tracked tickets* section
-stays as their evidence.
-
-**Two build rules** come through the same log (`rule` on the finding), read from the lanes' test lists once a day:
-`qa-on-secondary`, a ticket assigned to QA that rides under another owner ticket in a build (its `linked`), drafted as
-the tier-3 write the finding's `draft` names (reassign to its developer, the comment naming the owner ticket); and
-`no-ticket-in-build`, a build's change-log line with no key, keyed by the build ("QA-AWS3 build 78"), drafted as a
-tier-3 ask in that build's release thread for the ticket. This replaces the ad-hoc nudge for a build change with no
-ticket. *Why: one fix, one owner ticket, assigned to QA when the whole fix is on the lane; a fix with no ticket gets
-one before its build is announced (the 2026-10-29 test-list plan, Resolution C).*
 
 **Order.**
 1. Findings by their `rank`, 1 to 9: a hold asked from outside the company on a prod change; a standing pin over;
@@ -357,81 +342,6 @@ top. *Why: on 2026-10-27 the HTML input pin was spread over three notes. One nam
 q26/d44 while the lanes page showed q28/d45, and two said "older" and "newer" about QA's media, each against a
 different baseline.*
 
-**The morning count.** Each item above the fold (below it, the vault titles the fold *Also noticed*, takes the boxes
-off the writes today.md does not show, and nothing is counted or aged) ends its facts line with the number of mornings it has been carried ("3rd morning"),
-read from `lanes.carried` (`ela brief --lane carried`): the earlier brief pages, by key, or by heading for an item with
-no key. A sentence elsewhere on the page that counts carried items ("three drafts are on their fifth morning") reads
-the same count, and page-check flags one the facts lines do not bear out (2026-10-29: the summary said four on the
-fifth morning; the items had three, and one on its fourth). An item on its third morning means the brief failed to make it tickable: that evening's run rewrites it as an
-`apply N`, or drops it with one line on the next page saying why. The evening writes its verdicts to
-`<reports>/runner/<next workday>-carried.json` (`[{item, verdict: rewrite|drop, command, why}]`), and the facts page
-shows them under *Carried three mornings, rewritten last evening*. The morning mints each `rewrite` as an `apply N`:
-its `command` goes into `<date>-actions.json` and its box onto the page under its item, so `ela page-check` passes.
-Each `drop` is one line under the facts line, its `why`, with no box and no number, never an item. When page-check
-fails and the runner asks for a rejudge, the judge reads the lines page-check printed (each orphan or unboxed number)
-and either mints the missing action and box or removes the number, then writes the page again. *Why: items carried for days with nothing
-he could tick became the page he stopped reading (from 2026-10-28).*
-
-- **One `## <Name> at HH:MM` section per meeting the owner has that day,** right after *Needs you*, in time order.
-  The meetings are data, not page logic: `<elak>/blueprint/meetings.yaml`, read by `ela day --json` (and in `ela brief --json` as `day.meetings`, each with its `section` heading), gives each meeting's `name`,
-  `weekdays`, `time`, `audience` and `enabled`. A meeting that is not enabled, or has no time yet, renders
-  nothing. The list itself lives in one note per meeting, `meetings/<key>.md` in the vault, written only by
-  `ela meeting --key K`; the section is its pointer: the `pointer` line of `ela meeting --key K --json`
-  ("Scrum with the PM at 10:00 · 4 items on [[meetings/scrum-pm]] · 2 new today") and its `new` items, one line
-  each, nothing else. No dated meeting note is written.
-
-  **What ela proposes.** Before writing the section the judge reads the page's own items, lanes table and sprint
-  table against the rubric below for that audience and adds each question the owner would bring, as
-  `ela meeting --key K --propose "<key> — <question>" --decides "<who>"` (one line, at most 140 characters as read;
-  the verb refuses a longer one, exit 4: shorten it and fold the evidence with `--detail`). It adds no new facts:
-  each restates an item with the key that holds the evidence. Only the rubric's asks become items (the PM's 3 and 4,
-  the sync's 2 to 5 where they ask); its status parts (sprint, releases, commitments) are said from the page. The verb skips a question already on the list. His own
-  `ela: raise <key> — <question>` line, anywhere in the vault or in the DM thread, is
-  `ela meeting --key K --raise "<key> — <question>"` for the meeting he names, else the next one whose audience
-  decides it.
-
-  **The PM scrum** (audience: product manager):
-  1. **Sprint**, one line: `day N of M · x on track · y at risk`, then the at-risk item and what it needs, by key.
-  2. **Releases this week**, one or two lines from the lanes table: what prod 3 runs (its bundle), what rides
-     this week's train and when, and what is held and why, with the constraint or decision note linked (e.g.
-     "mediahub-frontend held at 2.2.118: HTML input over MQTT is not finished").
-  3. **What the PM will ask about**, at most two lines: customer tickets and Highest tickets that moved or are
-     due, each with its key and its real status in one clause, never the Jira status alone.
-  4. **What he needs from the PM today**, at most two lines: the D items whose decider is product, each written
-     as the question he will ask (e.g. "Should the box-pool shortage code 0x81004009 show the friendly notice
-     too? MH-2406").
-  5. **What he commits to**, one line: the sprint items he carries himself and the date each lands.
-
-  **The engineering, QA and UX sync** (audience: developers, QA, design):
-  1. **The lanes**: what reached QA-AWS3 since the last sync and what of it no QA report names, as slug and
-     version.
-  2. **QA**: this week's fails by ticket, with the real status; Review tickets waiting on QA, by the version
-     that carries them; the ones QA has held longest, with their age.
-  3. **Engineering**: changes on a lane with no ticket, nightly-fix batches with no ticket, and Fixed In gaps,
-     each as a count and the worst one by name.
-  4. **UX**: tickets in Review with design or product, and open design questions on in-progress tickets.
-  5. **What he needs from each group today**, one line per group with an ask, written as the question he will ask.
-  6. **What he commits to**, one line.
-
-  **Sending the list.** The note is shown to the team on screen, so it carries no send line and no ela command:
-  sending is the verb's. With a `channel` set, the list is a tier-3 action under rule `meeting` (`apply N`, his word
-  is the confirm) that posts `ela meeting --key K --slack` in that day's thread; with none, he copies it from that
-  verb. The note reads Where things stand first, then To raise, then Ruled.
-  **After a meeting** ela closes the note itself: the first vault sync after the meeting's end (meetings.yaml `time`
-  plus `minutes`, default 60; a meeting without a time ends at 18:00) reads each item's ticket in the fact store, and
-  the thread an item links, for what changed since the meeting began, and writes the outcome under `## Ruled` /
-  `### <date>` ("split into MH-3997 and MH-3998", "assigned to …", "no change"). An item with no change rolls to the
-  next meeting once and then leaves for `reference/dropped.md`. His ticks and `ela:` lines still rule an item when
-  he writes them (`ela meeting --key K --rule --json` applies them, and the close applies them first); nothing
-  requires them. A ruling on a key shows on its project page under *At meetings*.
-  Each of its `follow_ups` (a ruling that names a key) becomes a drafted action that day, rewritten in the ticket's
-  genre (a Jira comment, a priority change), tier 3 unless a closed rule admits it. Ruled keeps 30 days; the vault
-  sync moves older dates to `archive/meetings-<key>-<yyyy-mm>.md` and lints an item over 140 characters.
-  **On Friday** the day's meeting sections also open the Friday page (`<date>-week.md`), above `## The sprint`.
-  *Why: meetings are where rulings are given and asks are answered. A page that carries the questions in his
-  speaking order turns them into recorded rulings the same day, and a meeting he adds or moves is one line of
-  data, not a change to the brief.*
-
 **QA today and Dev today are on demand** (the desk's from-zero brief, 2026-11-10: drafted every morning, they were
 not sent). The morning page has no QA today or Dev today section, and no send box for them. When the owner asks, in a
 session or a Slack DM to ela, the plan is built then: `ela testlist --lane <lane> --today --json` (QA's ranked day, cut
@@ -440,120 +350,14 @@ His `ela:` lines (`drop KEY`, `KEY first`, `add KEY`, `KEY P1`) go back as `--gu
 `ela slack post … --team-day-post` for the day post or in the build's release thread (the json's `post`), and it
 leaves only on his word. A developer never reads QA rows, and QA never reads a developer's (Resolution B3).
 
-**Priority and due dates by rule** (the Jira plan of 2026-10-29, rules 1 and 2). Highest: a prod incident or a customer
-blocked, due today. High: needed on the next train, due the train's departure. Medium: this sprint or month. Low and
-Lowest: backlog, no date. An In Progress ticket with no due date is due at the sprint's end (a sprint ticket) or the
-next train's departure (a train fix); a Review ticket the next evening (QA's report). The intake rates priority and
-component from the evidence it already reads (a customer's bracket, an incident, a prod lane, the next train). A
-change is drafted as `ela jira priority KEY --to P --why "<rule>"` (rule `priority-by-rule`; it only raises, never
-lowers what a person set) or `ela jira due KEY --date D --why "<rule>"` (rule `due-by-rule`; never moves a date),
-tier 3 until he promotes the rule. The Ticket lanes open with two rows, each a count and its oldest ticket with
-the title, never items and never a run of keys:
-"overdue: N · oldest MH-a <its title> · +M release tickets" (`lanes.overdue`, `first`, `release_tickets`: the
-project lead's release-tracking tickets, a `release:` label or an Epic or Project, which are bookkeeping, not a
-commitment) and "due this week: N · …" (`lanes.due_week`), then
-"Highest/High untouched 14+ days: N · oldest MH-x <its title>" (`lanes.tracked.high_untouched`). One becomes an item only
-when the ticket is addressed to him or is a customer incident; the eight-item cap and Home's three stand. The
-findings file keeps every one for the ticket pages and the replay.
+**The unattended run's own rules** are in `unattended.md`: a change on a tracked ticket (`lanes.tracked`) and the two
+build rules, the morning count, priority and due dates by rule, and what a train item or a customer incident owes
+before it reaches the page. **The meeting sections** are `meetings.md`.
 
 **Every section written for him ends with what he does.** An item and the
-program's Next each end with a Do line (a meeting section's is its note's send box and rulings): an `apply N`, a `don't N`, or "your call: <recommended> over <alternative>
+program's Next each end with a Do line (a meeting section's is its note's send box and rulings): an `apply N` or "your call: <recommended> over <alternative>
 because …". `ela review lint` names a section or an item without one. *Why: a description is not a deliverable; every
 answer ends with what he should do, what he can do, and how (working-with-evan.md, 2026-10-29).*
-
-**One place per day.** An item appears once. A key inside a lanes-table cell or a Changes page callout is evidence,
-not an appearance.
-
-**A due release of `<published>` is one line, never an item.** `release_due.line` in `<date>-brief.json` (`ela pick
-release_due.line --file …`), when it is not null, is the first bullet under `## FYI`, copied as it is: no box, no
-number, no Slack post, nothing committed. It comes back every morning until he releases (`ela publish release
---apply` on his word), because brief.py reads the verdict once a day and the release changes it. A `release_due.error`
-is named in the gaps line. *Why: the team's knowledge is released only on his signal, and nothing else reminds him
-that one is due (elak decisions/2026-11-25-published-knowledge-is-a-versioned-release.md).*
-
-Then:
-
-```
-# Morning brief · Fri 2026-10-23
-
-*7 items · read Jira and Slack; direct messages are not visible*
-
-One to three sentences: what the day is about. Friday, so the brief is short. The one live customer problem
-is Reuters.
-
-## Needs you
-
-### 1. Reuters feeds froze twice in two days
-MH-3811 · Reuters confidence streams frozen · incident, new · Robin Wu holds it
-- Both feeds froze for 23 seconds on 10-22; the same happened on 10-21 (MH-3805).
-- Open lead: the shared decoder input ran at twice real time just before the stall.
-- **Do:** `apply 1` records the findings on MH-3811, then probe MH-3805.
-
-### 2. MH-3745: Jira is behind the release mails
-MH-3745 · Search's recording blocks MediaHub's SRT receiver · Gabriel Liu (orchestration) · In Progress
-- Fixed in orchestration 4.0.205; QA verified it on 10-22 and the daily release was requested (release mails).
-- **Do:** `apply 2` posts that status and sets Fixed In.
-
-> [!note]- 2 more
-> ### 3. MH-3752: Jira is behind the CN2 release mails
-> MH-3752 · China Environment B on 2.1 · Alice Wang · In Progress, Jira silent since 10-28 · 1st morning
-> - Mail holds four config changes and the partial report of 10-30.
-> - **Do:**
-> - [ ] apply 3 — post the 11-02 status, bilingual, citing the mail thread and the report
->
-> ### 4. …
-
-## FYI
-
-- Customer YouTube output loses audio · support holds it · the capture card reads audio at 0, so the
-  customer's SDI source is the lead; nothing in MediaHub so far
-
-## The lanes this morning
-
-| | prod-3 | daily-wed | QA-AWS3 |
-|---|---|---|---|
-| media bundle | MediaHub 2.1.15 (2026-10-26) | mh2.1@daily-wed-s1-d44 (2026-10-26) | mh2.1@qa-q26 (2026-10-22) (list stale) |
-| mediahub-frontend | 2.2.116+171 ○ | 2.2.116+171 ○ | ▲ 2.2.121+176 (was 2.2.119+174) ○ |
-
-*3 more the same on every lane: …*
-
-## Sprint
-
-Sprint · day 5 of 10 · 8 on track · 1 at risk · 0 off
-
-| item | where it stands today | on track for 6 Nov |
-|---|---|---|
-| MH-3768 generic MXL | merge request open for the app layer; J2N option name still unanswered | at risk: J2N's owner has not replied since 10-28 |
-| MH-2406 Insufficient Resources UX | the mediahub-frontend change is in QA; no verdict yet | yes |
-
-## Yesterday
-
-At most three lines (§2b), then [[2026-10-28-changes|What changed]].
-
-## New tickets
-
-| ticket | what | holder | owes |
-|---|---|---|---|
-| MH-3809 | two Packs could not push; China cloud capacity, resolved | Robin Wu | nothing; close on customer word |
-
-## Ticket lanes
-
-| lane | today |
-|---|---|
-| In Progress, gone quiet | 3 silent over 48 hours (longest MH-3745 Search's recording blocks MediaHub's SRT receiver) · 7 blocked · 102 untouched for 14 days |
-| new and unassigned | none overdue · 8 recent tickets without a layer prefix |
-| customer incidents | 54 open; Reuters freeze ×13 is the big cluster |
-| needs a breakdown | 7 without sub-tasks; MH-3794 and MH-3795 first |
-| standing constraints | 1 active, every pin held |
-
-## Backlog, today's three
-
-| ticket | verdict | why |
-|---|---|---|
-| MH-1555 | close | release checklists now live in the promotion threads |
-
-*Not read: Slack direct messages; channels the bot has not joined (Reuters, FloSports).*
-```
 
 **Jira is kept true to the conversations: that is ela's job, not the owner's.** Before an item calls a ticket
 silent, stalled or waiting, read what happened since its last Jira update: `ela slack search` for the key and for
@@ -572,7 +376,7 @@ work"), and **Do:** is the next move with who it waits on. "Deployed" is a fact,
 open question after the fix is the item. What the owner already did is stated ("waiting on the J2N owner since 10-26") and
 never drafted again. A ticket whose QA observation contradicts what another layer's code expects (a code, a field,
 a status), on a Highest or High ticket or one assigned to the owner, is a **deep pick**: at most two a day, most
-urgent first, written to the deep file (§3b) and run after the page as `/ela:probe fix`, whose page (real status,
+urgent first, written to the deep file (`unattended.md`) and run after the page as `/ela:probe fix`, whose page (real status,
 dated timeline, next) reaches readings; the item links it (2026-10-26: MH-2406 sat assigned to the owner for eight days with QA's Fail naming the mismatched codes in its
 comments; he traced the J2N–mediahub-frontend gap by hand).
 
@@ -582,359 +386,22 @@ field. A drafted write to a field reads the field's current value first, and a w
 not drafted. *Why: on 2026-10-28 item 7 said MH-3829 and MH-3830 carried MH-3800's Fixed In; Jira held the field
 empty on both, only a copied comment said so, and applies 14 and 15 would have cleared empty fields.*
 
-**What an item owes before it reaches the page.** A train item (a build riding the next promotion) carries the
-`/ela:promote` assessment's verdict for that build (the day's stored report, `<reports>/promote/<line>-daily-prod.json`,
-written by `ela promote report` and read by the lanes table; the verb is not run again) and the train's
-departure time from the release cadence recorded in elak, or "departure not recorded" when none states it; the
-apply is the hold or the promote post that verdict supports. Its QA facts cite the lane's test list
-(`<reports>/lanes/test-list-<lane>.json`, or the train `<reports>/train/<line>.json`, whichever is newer): the P1
-rows without a verdict, each by key and the reason it ranks P1, or "no P1 row open";
-never "no QA report yet", which names a mail instead of what is untested. A customer incident addressed to him takes the first
-deep pick, before any other pick and any Backlog item, and its item carries what the logs and the graph showed
-(`/ela:logs`, `/ela:graph`), not an uninvestigated lead. *Why: on 2026-10-28 item 1 offered hold or promote with no
-assessment and no departure time, and item 8 answered support with a lead nobody had read.*
-
-The page is read in Obsidian, so its form is fixed:
-
-- **An item is a `###` heading in plain words** (what is happening, never a lane tag such as `[cadence RED]`), one
-  facts line (key, its Jira title in a few plain words, kind, who holds it, age), at most three bullets, then
-  then **Do:** as one to three task lines, each finished work by ela, written by the action's tier (below):
-  `- done N — what ela wrote · evidence: …` for a tier-1 action (a line, no box), `- [ ] apply N — what it writes` for a tier-3 one (every Slack post among them; no box sends on a timer), or `- [ ] <option>`
-  for a decision (class D), where the tick is the ruling. Ticking a box without `apply N` runs nothing, so its line ends with where the decision is
-  taken: `· decide at the 10:00 scrum`, or `· your call, no write`; page-check flags a box with neither. *Why: on
-  2026-10-28 items 1 and 7 offered four such boxes, and the page did not say that ticking them wrote nothing.*
-  An item never ends in a question to him. An open point is written as ela's recommendation and the alternative,
-  each with its reason, and the first box is the recommended write as `apply N`; `your call` is used only when the
-  two are equal on the evidence, and the item says why. *Why: on 2026-10-28 item 5 asked whether MH-2406 stays with
-  its assignee or goes to the frontend owner, and which frontend carries the notice, and drafted neither.*
-  A Do line is never a command for him to run or a draft for him to write. A breakdown, a
-  draft, a lookup or a probe is done before the morning page, and the item carries its result: an `apply N`, or a link to the
-  note it produced. When ela cannot do it unattended (it needs a login, a person to ask, or a judgment only he
-  holds), the item says why in one line and offers no box. No Do line without a box. A deep pick runs in the same
-  morning pass (§3b) and the item links its page, so an item never offers "go deep on MH-…". The recommended choice comes first; no "skip" choice
-  (leaving it unticked is skipping). A sentence that does not change what the owner does is cut. *Why: on
-  2026-10-27 the eight items carried 13 Do lines. He ticked the three apply lines and none of the ten commands or
-  drafts left for him.*
-- **An `apply N` is a drafted action on this page.** Number the actions in the order they appear, every one
-  written beside its item; within an item the numbers ascend (a rerun that keeps applied numbers may leave gaps,
-  never a descent: list a kept number before the new ones), and page-check flags a descent; never name an action that is not on the page ("apply 1 is done" from yesterday is
-  noise). An action already applied is said in words, without its old number.
-  A number is minted only when its drafted write is in `<date>-actions.json` and its box is on the page, beside
-  its item. A table row, the backlog and an answer to a vault line never name a number without that box, and a
-  number from another day is never cited. Before the page is written, `ela page-check <page> --actions
-  <date>-actions.json` checks every `apply N` in it; a number with no action, or named without its box, fails the
-  page. *Why: the 10-27 Backlog named apply 4, 5 and 6 with no boxes, and the 10-26 answers cited apply 9 and
-  11–16, which never existed.*
-- **Every drafted action has a tier.** Tier 1, ela acts at the pass that drafted it and says so: Jira only, under one
-  of the closed rules `fact-comment` (a comment stating a fact, carrying its evidence), `label`, `fixed-in-ledger` (a
-  Fixed In the builds ledger confirms; never a clear) and `assign-by-rule` (an assignment a closed routing rule
-  gives); never a terminal status, a close, a transition or a customer-facing field. Tier 2 is retired
-  (2026-11-12, the owner's rule: nothing posts to Slack on its own except the daily and weekly reports; elak
-  working-with-evan.md): a thread reply, a train hold or a train promote is drafted at tier 3 as `apply N`, still an
-  `ela slack post <thread permalink> … --team-thread`, and leaves only on his approve; page-check fails a tier-2
-  action and the runner refuses one. Tier 3 is everything else, on his word only
-  (`apply N`): customers, prod approvals, people, anything addressed to him, anything no closed rule admits. One tier-3
-  rule is a meeting's list, `meeting`: an `apply N` that posts it in that day's thread (above); the meeting's note
-  carries no box for it. `qa-today` and `dev-today` (QA today and Dev today, above)
-  are on demand, drafted only when he asks and sent on his word; either may make the day post, `ela slack post #<team channel> … --team-day-post` (Dev today only that), which slack.py refuses when
-  ela already posted top level in that channel that day. `test-list` (the 19:00 post) is retired; page-check fails an
-  action drafted under it (decisions/2026-10-29-writes-run-in-three-tiers.md, amendment 2026-10-30). A tier-1 action carries `evidence`, one
-  line he can check; a train action's evidence names the verdict build and its QA report (`ela day --json`
-  `verdict_build`). Read `<reports>/review/tiers.json` first: a rule marked `demoted` (three corrections in seven
-  days) drafts tier 3 until it clears. `ela page-check` checks each tier against its rule and its form on the page.
-  *Why: 62 drafts in the week of 2026-10-26 and one applied; most were writes a closed rule could have taken
-  (vault in-progress/2026-10-29-ela-three-loops-review.md, proposal 2).*
-- **Instructions written in the vault.** Run `ela vault guidance --json` first: each line in a note starting
-  `ela:` (in any note, unhandled) is something he asked; the Slack service normally acts on it within minutes, so
-  one still listed here means it was not, and it becomes an item, or its drafted write an `apply N`. Append each id
-  you handled to the log the command names.
-- **One close path, named as such.** A close ela proposes goes through the board's batch (one confirm posts the
-  proposals); a close the owner names is `close MH-…` in a session. `ela stage` reads a ticket's lanes; it closes
-  nothing, so it is never written as the way to close.
-- **A verification outranks a close.** Before an item or a table row says a ticket can close or be dropped, read
-  its latest result under `<reports>/verify/`; a FAIL or BLOCKED after the fix is the item, not the close
-  (2026-10-23: the page said drop MH-3416 while two of its verifications had failed).
-- **At most eight items** under *Needs you*, merged and ordered as above; the rest of the facts are in the tables
-  below, one row each. An item is a facts line with its real status and one action line of its class.
-- **At most three `apply` boxes stand open.** The items are written in rank order until their `apply` boxes
-  total three; every item after that goes, with the same heading, facts line, bullets and Do lines, under one
-  folded callout `> [!note]- N more` (N: the items folded), each of its lines prefixed `> `. A tick inside the
-  fold counts as on any line, and page-check fails a page with a fourth open `apply` box. *Why: Home promises at
-  most three `apply` boxes and the 2026-11-02 page carried 22 in 718 words; the budget counts what stands open
-  (vault to-read/2026-11-02-ela-and-vault-workflow-review.md, fix 4).*
-- **The lanes this morning** is the table `ela matrix` printed, pasted as it is from the runner's facts page (the
-  runner runs it after `ela changes`), under its own heading after *FYI*. It is not retyped or summarised: the same
-  table is embedded in Home and must read the same in both places. It shows the morning's line only (its budget);
-  the pointer line under it (`2.0 on [[lanes]]`) names the other lines the lanes page renders, one section each.
-- **At most five lines** under *FYI*, each a thread §2a rated FYI: what to know and who holds it, no **Do:**.
-  Beyond five, a count in the lanes table; the section is omitted when empty.
-- **The sprint is a table after the lanes,** under `## Sprint`, from §0's sprint read. Its first line is exactly
-  `Sprint · day N of M · x on track · y at risk · z off`; Home embeds that line. Then one row per goal and
-  per committed item, at most nine rows (goals first, in the note's order). Columns: the item (its key and a few
-  plain words, or the item's own words when it has no key) · where it stands today, its real status in one clause
-  · on track for the end date: **yes**, **at risk** or **off**, the last two with one reason. A row is judged
-  against its "done when" and the working days left, not against Jira's status. A sprint item that is also a
-  *Needs you* item keeps its row, whose status cell points to the item ("see 2"). The section is omitted when no
-  sprint is active.
-- **Every ticket key carries its Jira title** where it first appears on the page, in a few plain words, so the
-  reader knows the ticket without opening it.
-- **A key never stands in a run.** Three or more keys with only punctuation between them are written nowhere on a
-  page, an Evidence block included. A list of tickets is one line or one table row per ticket (key, its Jira title,
-  status), or, where that would take the page past its budget, their count and a link to where the list lives: the
-  service's section of the build's release note (`[[releases/<line>/<build note>#<service>|N tickets]]`), the lane's
-  test list, the train. A row of *New tickets* is one ticket. `ela page-check` names each run as a `lint:` line.
-  *Why: a run of keys cannot be matched to the words beside it without opening Jira (the vault's note standards,
-  the key and title rule of 2026-11-12).*
-- **A ticket appears once.** A new ticket that is already an item gets no row under *New tickets*.
-- **Tables, not code blocks,** for anything with columns; no nested lists; no bold paragraph labels.
-- **Ticket keys bare** (MH-3811): the vault and the runner turn them into links. Slack threads and other pages
-  are links with a short label.
-- **Services by their slug:** mediahub-frontend, mediahub-backend, unified-media-frontend, unified-media-backend,
-  orchestration; a team name carries the slug once (UR Caller (unified-streaming)). Never "the frontend" or "the
-  backend": unified-media-frontend is a frontend too, and the reader cannot tell which is meant. The same holds on the
-  Changes page.
-- **People by their roster display name** (`$TEAM who`), in prose, apply lines, FYI and tables alike: Andy Zhao,
-  never the Jira or Slack name a read returned (Andyzhao). page-check flags a roster person written by their Jira
-  name. *Why: the 2026-10-28 page wrote Andy Zhao in prose and Andyzhao in three apply lines, FYI and New tickets.*
-- **Ticket lanes in plain words,** as in the table above: never ela's internal names (cadence, zombies, triage, stage,
-  runner page) on the page.
-- **Under 900 words in all.** The decisions lane, when it runs, adds one table row per candidate with its
-  permalink; the owner chooses which to keep. Over the vault's day budget, page-check prints a `budget:` line
-  counted the way Home counts; the runner's repair shortens the page, dropping nothing he must decide: FYI and
-  Yesterday first, then sprint rows that only say "see N", then any meeting-section line that restates an item,
-  which becomes "item N". *Why: the 2026-10-28 reader listed exactly these as what he would skip.*
-
 ## 3b — when the runner asked (unattended): the page and the numbered actions, written to files
 
-**The runner's day** (ela-runner): 07:45 the morning page, landed by 08:30 · 12:30 · 17:30, after the QA deploy · 19:00 the evening
-(replay, the reader, the carried verdicts) · 01:00. The hours of the owner's day, his DM window and holidays are
-`ela day --json`, never constants.
-
-**QA's cycle.** QA-AWS3 receives a build around 17:00 and QA tests it until the same hour the next working day; the
-report comes that evening, after 17:00 and often later, so the 17:30 pass may not see it, the 19:00 run usually does,
-and the next morning reads it otherwise. On the morning of D, `ela day --json --date D` names `verdict_build`, the
-newest build QA reported on (sent D-2, reported D-1 evening), and `under_test_build`, sent D-1, with the day its
-report is `due` (an evening, never an hour). The lanes page lists the last three days' builds under its table. A
-train item and every lane judgment use the verdict build; a Wednesday promotion is on Monday's 17:00 build. The build
-under test is named as "under test · report due this evening", and is never "untested", "no QA report yet" or a
-reason to hold a train: a hold is drafted only when the verdict build has a fail or a ticket gap. A report that
-says the build's own focus went untested (`report.untested`, verdict partial) is such a gap, and the item names the
-untested tickets. A build whose due
-evening passed with no report (`report_missing_build`, "report not received" on the lanes page) is a gap to ask QA
-about, not a fail. page-check flags a sentence that calls the build under test untested or unreported. *Why:
-the 2026-10-29 page held the train because build 78 had no report, while QA was testing it that day.*
-
-**A second morning run on the same date** rewrites the page, never the record of what was done. The actions already
-in `<date>-actions.json` with `applied` or `by_owner` keep their number and text, and their item is not offered
-again; new drafts take numbers after the highest one in the file, so an `apply N` he has seen never names a
-different write. The carried count reads one page per date, so a rerun does not add a morning.
-
-**The last reader's findings are input.** When the runner names the previous working day's
-`<reports>/review/<D>-reader.json`, a `wrong` claim is not restated: the page states the fact from its source, or
-leaves it out. A `handed-back` item's work is done first, within the run's deep budget, and the item carries the
-result. *Why: without the findings reaching the morning, the evening reader only describes the page and the next
-page repeats its faults.* A rerun writes
-`<date>-changes.md` again from the same facts counts as the brief, so the two pages never come from different
-runs. A "rewritten HH:MM" stamp is the clock when the file is written, never a planned time. A "since HH:MM" in the
-opening anchors on the facts page's last line ("last morning page he could have read: <date>, in the vault since
-HH:MM"), or is left out. ela-runner checks all three after the run (537d52e, c1d7113); the check is the backstop,
-not the rule. *Why: the 2026-10-28 rerun left the Changes page at 06:41 and stamped a file written at 08:31 as
-"rewritten 08:40".*
-
-**Counts come from one file.** Every count on any page comes from the facts pass's counts (`counts` in
-`<runtime>/runner/<date>-changes.json`, from `ela changes --json`), each with the window it covers: commits, commits
-without a ticket, tickets moved, builds, lane moves, jobs, ela's writes, close-ready and verified-not-fixed (the
-board's stage rows, the tickets open now, the verifications, each ticket's own page); the sprint's on track / at
-risk / off from the sprint line. That means the brief, Changes,
-the board, the sprint line and Home. A page never counts for itself. A count over another window is labelled with
-that window ("commits, 7 days"). *Why: on 2026-10-27 close-ready read 32 on the board, 31 elsewhere and 35 on the
-sprint; jobs read 16 on the brief and 19 on Changes; commits read 111/173 on one page and 79 on another.*
-
-ela-runner starts this skill headless every weekday morning after it wrote the facts page
-(`/ela:brief --page <reports>/runner/<date>.md`). Then the output of §3 is written, not only printed:
-
-- `<reports>/runner/<date>-brief.md` — the page of §3 as Markdown, the judgment included (what each new
-  ticket is about, who should hold it, the drafted reply or nudge), then §2b's `Yesterday`, every key a Jira
-  link.
-  The page follows §3's form exactly and fits **900 words** (the vault marks a day page over 1,200 with a
-  warning).
-- `<reports>/runner/<date>-actions.json` — the drafted actions as a list, in the page's order:
-  `[{"n": 1, "text": "<the one line the page shows>", "command": "<the exact ela command, dry run as written>", "kind": "comment|assign|label|transition|close|slack|fixed-in",
-  "tier": 1|3, "rule": "<a closed rule, or null at tier 3>", "evidence": "<one line; tier 1>"}]`.
-  `text` is the decision as today.md shows it: one whole sentence of at most 20 words, never cut, naming the ticket and
-  what the write does. Two writes on one ticket that serve one decision (a hand-over comment and the assignment)
-  share that sentence: today.md shows them as one ask whose box applies both.
-  The runner adds what it did: `applied` (a time), `failed` (`{at, error}`).
-  A command is one of ela's own write verbs — `ela jira comment|assign|label|fixed-in|close …`, `ela slack
-  post …` — complete with its key and text (a `--from-file` under `<reports>/runner/actions/<date>/`), and
-  runnable as it stands; the runner appends `--apply` to it when the owner answers `apply <n>` in Slack or on
-  the page. A file under `actions/<date>/` exists only for an action in the list: a draft the session abandons is
-  not written, or is deleted before the run ends, and page-check names a file no action points to. Nothing else
-  goes in the list: a reading, a question for the owner, a hand-off to another skill is
-  text on the page, not an action. The session itself applies nothing (the write scripts refuse `--apply` under
-  `ELA_NO_APPLY`).
-- `<reports>/runner/<date>-deep.json` — the day's deep picks, at most two:
-  `[{"key": "MH-2406", "lane": "prod-3", "why": "<one line: what was claimed and what doubts it>"}]`; `[]` when none.
-- `<reports>/releases/<line>/<date>-build-<n>-to-<lane>.json` — **once per build a lane took in the window**, when no
-  record for that build exists yet (`ela release changes <lane> --json`): what the build changed, by service and
-  purpose. `{"line", "lane", "lane_name" (as the team says it: QA-AWS3), "build", "date", "at", "source", "services":
-  [{"service", "from", "to", "for", "keys"}], "notes"}`. `for` is what the change is for, at most 15 words, whole,
-  composed from the tickets and commits the build carries and grouped ("FloSports public API: six endpoints", not
-  six titles); the ticket keys go in `keys`, never in the words. Services in the order that matters to him; today.md
-  shows four lines. `ela release changes --check <file>` must say ok before the run ends. today.md's Releases fact and
-  the line's release note in the vault are rendered from it; the Changes page keeps its own evidence table.
-  *Why: the owner asked which services changed and what for, one line per service (2026-11-11 record).*
-- **The builds' Jira, reconciled once the thread is quiet.** For each lane that took a build in the window, after its
-  record exists: `ela release reconcile <lane> --build N …` (every build of the window in one call). It reads, keeps
-  its reading beside the record (the release note's Jira gaps table) and raises the open questions itself (a revert
-  folded into another ticket; one agent's same miss on three builds). When it prints an `ask:` line, draft **one**
-  action for all of them: tier 3, rule `release-reconcile`, `text` the ask line as printed, `command` the call it
-  names (`ela release reconcile <lane> --build N … --batch`, no `--apply`), `kind` `fixed-in`, `evidence` the builds
-  and the reading's time, and `options` the three letters `--json` prints with N the action's number (A apply the
-  batch: `apply N` · B show me each: the batch's dry run · C skip this build: `drop`). Its apply is that batch: Fixed In appends and the release label, append-only; status,
-  assignee and folds are never in it. Never on the release-finished message: this pass runs at night or in the
-  morning, when the thread has been quiet. Nothing is posted in the release thread.
-  *Why: the engineers' release agents leave Fixed In and labels behind on about one ticket in four (builds 90 and 91,
-  brief <runtime>/drafts/2026-11-12-release-reconcile-brief.md); ela is the reconciler after the release, not another
-  release bot.*
-- `<reports>/runner/<date>-changes.md` — the Changes page, from §2b's changes facts: a review of the day for the
-  owner, not a list of what moved. The vault shows it as a day page beside the brief. Under **900 words**, in §3's
-  form (a `#` title with the date, tables rather than code blocks, ticket keys bare, lanes in plain words):
-  - It opens with the day in one line and what needs his word, if anything.
-  - Then the sections, in this order: `## Releases and versions` · `## Docker services` · `## QA` · `## Code` · `## Tickets` ·
-    `## What you did` · `## What ela did` · `## Team report`. Each opens with a one-sentence verdict; the facts
-    under it are its evidence, folded in a `> [!note]- Evidence` callout, each with its source (a mail subject, a
-    permalink, a build number, a sha). The page is evidence for the brief's items, so it reads in a minute folded
-    and in full when opened.
-    A list of tickets in an Evidence block is one row or line per ticket (key, title, status), or their count and
-    a link to where the list lives; never a run of keys (§3).
-  - **Releases and versions**: per lane, each move as `service old → new (#build, date)`, a patch build named as
-    one, a build that reached no lane as "built, not deployed", and which of the window's commits each build
-    carried. The release thread's per-build lines (the tickets each carries) outrank Jenkins for what reached a
-    lane. A lane whose versions are not a host read now — the QA lane since the QA environment stopped admitting
-    ela's account (2026-11-04): QA's report mail or the release thread — is said so with the source and its time, from
-    `lane_sources` ("QA-AWS3 as QA reported 11-03 19:07; lane not read"); a move by mail says `(reported by mail)`.
-  - **Tickets**: the moves by where they went ("to Review with QA: 14, build 91's fixes"), each group a count
-    with the link to its list (the build's release note, the lane's test list), then at most three tickets named
-    with title and status where one needs a word: a reopen, a fail, one of his own.
-  - **Docker services**, from `docker[]`: each version that moved or was announced in the window, by slug (the
-    name as announced when the map has no slug), with where it landed (a lane's bundle, a QA box, a default tag) and
-    its source (bundle name, mail subject, the ticket comment). The tickets it claims follow it; a version announced
-    with no ticket is said so in those words. A version whose ticket has no Fixed In is an item on the brief (the
-    drafted Fixed In as `apply N`), not here. *Why: docker services are announced, not built from tracked commits,
-    so the commit join that fills Fixed In for the app services does not reach them.*
-  - **Code** is the largest section: per repository, one row per ticket (key, title, its commits, the thread that
-    discusses it; tickets one commit carries together are still a row each), then the commits without a ticket sorted into what is harmless, by category and named once
-    (docs, review fixes, refactors), and the few that matter, each with why: a fix that reached a lane or prod
-    without a ticket, a behaviour change riding under another ticket, correctness of billing or auth.
-  - Where two sources disagree, the page says so (Helm's report calling a ticket verified while QA's mail
-    tested the build before its fix).
-  - **What you did** reports his own moves as done and never drafts them again; a Fixed In that Helm wrote
-    under his account is Helm's (`ela.helm_fixed_in`), under *What ela did*.
-  - **Team report** is one line and its Slack link; the report itself stays Helm's.
-  - It carries no actions: what needs his word is an item on the brief, which links here for its evidence.
-  A source the facts name in `errors` is named on the page as not read.
-- `<reports>/runner/<date>-week.md` — **on a Friday, while a sprint is active**, the weekly page; the vault picks
-  it up as a day page of kind week. It reports the week against the sprint, so that what the owner carried beside
-  the list is visible next to what moved on it. Under **700 words**, in §3's form (a `#` title with the date,
-  tables rather than code blocks, ticket keys bare, lanes in plain words), in three sections:
-  - `## The sprint` — one row per goal and committed item: what moved this week, where it stands now (real
-    status, read as in §0), and its "done when". The line above the table gives the day of the sprint and the
-    count on track, at risk and off.
-  - `## Outside the sprint` — from the week's yesterday files (§0's `week_yesterday_files`; a weekday with no
-    file is named as not read): the cases outside the sprint's keys that took the owner's own time — his
-    comments, his commits, the threads he answered, the tickets he broke down or routed — at most eight rows,
-    each the key or thread and what it took. A last line counts the rest. This section is what makes the
-    carrying-along visible; it judges nothing.
-  - `## Next week` — what must happen next week for the sprint to land by its end date: per item at risk or
-    off, the one move and who it waits on. On the sprint's last Friday it also gives the facts for the question
-    the sprint's review answers: keep, change or drop the sprint.
-  The page drafts no actions; anything to write is an item on the morning page.
+With `--page`, Read `unattended.md` first, then `page.md` and `files.md` (Modes, above). `unattended.md` holds the
+runner's day, QA's cycle, a second run on one date, the reader's findings as input, the counts, the `apply N`
+numbers, the tiers and the files `<date>-brief.md`, `<date>-actions.json` and `<date>-deep.json`. `files.md` holds
+the other files of the run: the build records, the Jira reconcile, the Changes page and the Friday page.
 
 ## §reader — the evening read of the morning page
 
-ela changes every week, so the owner's own use of a page is too little evidence to judge the workflow, and too
-late. Every working evening a session reads that morning's page `<reports>/runner/<date>-brief.md` exactly as he
-would. It reads under his rules (`working-with-evan.md`, the vault guide, the decision notes the page links) and
-against the same sources the page cites. It writes `<reports>/review/<date>-reader.md`. It ticks nothing, posts
-nothing and edits no page: its output is evidence for the next morning's judge and for ela's own review.
+Read `reader.md` first: it is the whole of this mode (the verdicts, the questions he asks back, the reader file and
+its check, corrections, the audit of signed writes). The evening session ticks nothing, posts nothing and edits no
+page.
 
-**Per item, one verdict and one line:**
+## The page
 
-| verdict | when | the line |
-|---|---|---|
-| tickable | he could tick a box within 30 seconds, without opening anything else | which box he would tick |
-| question | he would have asked something back before acting | the question, written as he would ask it |
-| handed back | the item leaves him work ela could have finished unattended: a lookup, a draft, a breakdown, a probe | the work, and the tool that does it |
-| wrong | a fact the sources contradict | the fact, and the source that contradicts it |
-| noise | state with no action for him: a row restated as an item, a parked note that has not woken, his own move reported back | why it carries nothing |
-
-One verdict per item: the first that applies, in the order wrong, handed back, question, noise, tickable. A
-wrong fact outranks everything, because he would act on it.
-
-**The questions he asks back.** These are the shapes seen in the week of 2026-10-26. Each is a "question"
-verdict when the page invites it:
-- *Is this mine at all, or someone else's to answer?* An external hold or a customer mail addressed to a
-  colleague was put to him as a reply to draft. The addressee test exists for this (§3 order, 2026-10-27).
-- *Did you evaluate it, or only list it?* A finding reached him with no verdict on whether it needs him, when
-  "FYI, held by X" was the answer (2026-10-26).
-- *Which service?* "The frontend" or "the backend" when the product has several of each, or "a frontend
-  version" for a change that also lives in UR Caller and a docker (2026-10-27, the HTML input change). Services
-  are named by slug.
-- *Did I say that?* A ruling read wider than he gave it. On 2026-10-26, "measure the sprint from 2.1.15" was
-  read as "2.1.15 is the authority on every version".
-- *What does this term mean?* A term from a code base or a vendor used without a clause of meaning (a field
-  name, a placeholder in a config value).
-- *Who has it now, and has anyone answered?* On a parked or waiting note (the RVF options for v3 Packs, parked
-  on a customer thread, 2026-10-27), the item gave the draft again instead of the thread's state since.
-
-**Then three lines for the page:**
-- **Read first:** the item his eye would land on, and whether it deserved to be first.
-- **Skipped:** what he would not read, and why (it was a table restated, a row he cannot act on).
-- **Missing:** what he would have wanted that the sources held: a ticket moved, a thread answered, a lane
-  changed, a number that did not add up.
-
-**The next morning's judge reads it.** Before ranking, the morning session reads the newest
-`<reports>/review/*-reader.md`:
-- An item judged *handed back* is never offered in the same shape again. Either ela does the work before the
-  page and carries the result as an `apply N` or a note link, or the item says in one line why it cannot be
-  done unattended.
-- An item judged *question* comes back with that question answered in its facts line. It does not come back
-  as the same item with the same gap.
-- An item judged *wrong* is corrected on the page, and says what was wrong yesterday.
-- An item judged *noise* becomes a table row or leaves the page.
-
-The page fails this rule when the same key carries the same verdict two mornings running. `ela brief --lane
-carried` reports that next to the morning count.
-
-*Why: on 2026-10-27 ten of thirteen Do lines handed work back, and every correction that week came from the
-owner noticing it himself. A reader that runs every evening catches the shape before he has to.*
-
-**The file and its check.** `ela review reader --date D` prints what the session reads: the page, its numbered
-items, the day's actions, `<reports>/review/<D>-replay.json` and the page's lint failures. It also prints the keys
-that already carry a repeated verdict. The session writes the heading `# The reader · <D>` (the vault's spec for a
-reader page), then one table, `| item | verdict | line |`, with one row per
-item: the item as `N. title`, a verdict from the five above, and its line. Under the table go the three page lines
-as `- **Read first:** …`, `- **Skipped:** …` and `- **Missing:** …`. `ela review reader --date D --check` verifies the
-file before the session ends: one verdict per item, each from the set and with its line, and the three page lines.
-A failed check is fixed before the reader file is final. A passing check writes `<reports>/review/<D>-reader.json`,
-the findings the next morning's judge takes as input: a list of `{kind, item, key, what}`, one per item read
-`wrong`, `handed-back` or `question`, and one `skippable` for the Skipped line.
-
-**Corrections.** `ela review replay` reads what happened after each tier-1 and tier-2 action the runner applied. A
-field ela set and a colleague set otherwise (a label taken off, a Fixed In changed, an assignment moved within a
-working day) is a correction, counted. A reply after a tier-1 comment or a tier-2 post is printed by `ela review
-reader` as `judge action N`, and the reader judges it under a `## Corrections` heading, one row per action, `|
-action N | contradicts / agrees / unrelated | line |`; the check fails an unjudged one. A reply that contradicts
-is a correction on that action's rule. Replay and the passing check write `<reports>/review/tiers.json`: each rule's
-corrections in the last seven days, and `demoted` once there are three, which the morning reads (§3).
-
-**Signed writes, sampled.** Replay also puts up to five of the day's signed writes (ela's own tier-1 acts in the dry
-record) before the reader, fixed by the day and the act; `ela review reader` prints each as `audit act <id>`. The reader
-reads the ticket first-hand and judges whether the reason the signed comment gave holds, under an `## Audit` heading, one
-row per act, `| act <id> | holds / fails / unclear | line |`; the check fails an unaudited one. `fails` is a correction on
-the act's class, its line the cause (it returns the class to confirm and reaches the improve digest); `unclear` is a
-question for the morning (decision 2026-11-24, amendment on learning from ela's own writes).
+The page's fixed form and its example are `page.md`: read it before writing or printing the full page.
 
 ## 4 — what this skill does not do
 - Post, comment, transition, assign, create, or write a file. The drafted actions name the skill
