@@ -139,6 +139,10 @@ with tempfile.TemporaryDirectory() as tmp:
           and "> - prod-3 is ahead of daily-wed on MediaHub Backend 2.1.47 (theirs 2.1.46)" in now)
     check("the lane ahead of its upstream is one short sentence in the head", "\nprod-3 is ahead of daily-wed: build 98 went straight to it (a hotfix).\n" in now)
     check("the head passes the presentation lint", V.present_lint("releases/2.1/2.1.md", page, generated=True) == [])
+    rows7 = "\n".join(f"- MH-40{n:02d} a judged fix · QA: not fixed ^fix-mh-40{n:02d}" for n in range(7))
+    check("seven blocking fix rows are no ticket list to fold: the hiding bar keeps them open",
+          V.present_lint("releases/2.1/2.1.md", "# x\n\n**Blocks · 7**\n\n" + rows7 + "\n", generated=True) == []
+          and V.present_lint("x.md", "# x\n\n" + rows7.replace(" ^fix-", " fix-") + "\n", generated=True) != [])
     nxt = page.split("## Next promotion")[1].split("## Docker")[0]
     check("Next promotion: the candidate build, what is ready, what blocks it, the decision",
           "**QA-AWS3 build 99 → daily-wed (UR test2):** 3 tickets daily-wed does not run; 1 QA passed, 1 failed, 1 without a QA pass" in nxt

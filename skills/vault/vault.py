@@ -2783,6 +2783,7 @@ PRESENT_RULE_FROM = "2026-11-20"
 HEAD_BUDGET = 800        # a page type without a budget of its own
 OPEN_TABLE_ROWS = 8      # a table of more data rows than this is detail; one row a lane of the followed lines stays open
 OPEN_LIST_KEYS = 5       # a run of more list lines naming a ticket than this is a ticket list
+FIX_ROW_END = re.compile(r"\^fix-[a-z0-9-]+\s*$")   # a line page's fix row, by its block id (train fixes.anchor)
 
 
 def present_lint(rel, text, generated=False):
@@ -2806,6 +2807,8 @@ def present_lint(rel, text, generated=False):
             if rows - 1 > OPEN_TABLE_ROWS:
                 out.append(f"a table of {rows - 1} rows outside a fold: fold it (`> [!note]-`) under one plain line")
             rows = 0
+        if FIX_ROW_END.search(line):                       # a judged fix row (Fixes on their way): blocks and your call
+            continue                                       # stay open by the hiding bar, so they are no ticket list to fold
         if re.match(r"^\s*(?:[-*+]|\d+[.)])\s", line) and KEY_RX.search(line):
             keys += 1
         elif line.strip():
