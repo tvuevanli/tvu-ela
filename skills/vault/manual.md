@@ -26,8 +26,8 @@ ela runs on its own and writes this vault. You do two things here: give a **fact
 | [[meetings/focus\|meetings/focus]] | the team's focus board; [[meetings/open-questions\|open questions]] beside it |
 | [[ela/watch\|ela/watch]] | board-watch topics waiting for your letter |
 | `ela/dry/` | Jira writes held for your A; `did.md` lists what ela wrote on its own |
-| `ela/` | how ela itself works and its plans; you do not need it day to day |
-| `history/` | done work, after a day |
+| `ela/` | how ela itself works and its plans ([[ela/all-notes.base#Plans\|Plans]] lists every plan by folder, newest first); you do not need it day to day |
+| `history/` | done work: a closed note in `ela/`, `reference/` or a release line moves to that folder's `history/` the day after it closes, unless you edited it since or have it open; links to it keep working |
 
 ## The words you can write
 
