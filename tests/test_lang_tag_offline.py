@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""lang-tag: a standalone `#zh` tag adds Chinese-for-the-session context; anything else passes silently, never blocks."""
+"""lang-tag: a standalone `#zh` tag adds Chinese-for-the-session context, a standalone `#send` adds the send-approved
+context, both join in one output; anything else passes silently, never blocks."""
 import json, os, subprocess
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HOOK = os.path.join(ROOT, "hooks", "lang-tag.sh")
@@ -11,18 +12,33 @@ def run(raw):
     return p.returncode, p.stdout
 
 
+def tags(prompt):
+    """The tags the hook reported for this prompt, as a set, or None on a bad exit or a malformed output."""
+    rc, out = run(json.dumps({"hook_event_name": "UserPromptSubmit", "prompt": prompt}))
+    if rc != 0:
+        return None
+    if not out.strip():
+        return set()
+    try:
+        assert len(out.strip().splitlines()) == 1                  # one hookSpecificOutput, never two
+        ctx = json.loads(out)["hookSpecificOutput"]
+        assert ctx["hookEventName"] == "UserPromptSubmit"
+        text = ctx["additionalContext"]
+    except Exception:
+        return None
+    got = set()
+    if "answer in Chinese" in text and "end of the conversation" in text:
+        got.add("zh")
+    if "tagged this message `#send`" in text and "without a preview" in text and "this message only" in text:
+        got.add("send")
+    return got if got else None
+
+
 def check(prompt, want):
     global fail
-    rc, out = run(json.dumps({"hook_event_name": "UserPromptSubmit", "prompt": prompt}))
-    got = bool(out.strip())
-    ok = rc == 0 and got == want
-    if got:
-        try:
-            ctx = json.loads(out)["hookSpecificOutput"]
-            ok = ok and ctx["hookEventName"] == "UserPromptSubmit" and "Chinese" in ctx["additionalContext"] and "end of the conversation" in ctx["additionalContext"]
-        except Exception:
-            ok = False
-    print(("ok   " if ok else "FAIL ") + f"{'tag' if want else 'none'}: {prompt!r}")
+    want = {"zh"} if want is True else set() if want is False else set(want)
+    ok = tags(prompt) == want
+    print(("ok   " if ok else "FAIL ") + f"{','.join(sorted(want)) or 'none'}: {prompt!r}")
     fail |= not ok
 
 
@@ -43,6 +59,22 @@ for p in ["explain MH-3555", "zhn what is on prod-3", "zh: explain MH-3555", "ch
           "fix the hook on #zh. You work in the worktree W on branch B, never in the shared checkout C; commit here, "
           "and the desk lands it with `ela session land N`."]:
     check(p, False)
+
+# `#send`: same detection rules as `#zh`, alone or beside it, one output carrying both
+for p in ["#send reply to the thread that it is fixed", "tell the QA lead it is on daily #send", "#SEND post it",
+          "reply in the thread (#send)", "post the summary #send."]:
+    check(p, {"send"})
+for p in ["#zh #send reply to the thread", "#send 回复这个 thread #zh", "#ZH tell the QA lead #Send"]:
+    check(p, {"zh", "send"})
+for p in ["the hook fired on '#send' in a sentence", 'the hook fired on "#send"', "the hook fired on `#send`",
+          "open https://example.com/page#send", "see https://tvunetworks.slack.com/archives/C1/p2#send now",
+          "the #sender field", "##send is not a tag", "issue#send is not a tag", "see docs/#send/manual.md",
+          "desk brief (2026-11-26): add #send to the hook", "Desk brief: #send handling",
+          "add #send. You work in the worktree W on branch B, never in the shared checkout C; commit here, "
+          "and the desk lands it with `ela session land N`."]:
+    check(p, set())
+check("'#send' is quoted, the real tag is #zh", {"zh"})
+check("open https://example.com/#zh and #send it", {"send"})
 
 for raw in ["not json", "{}", json.dumps({"prompt": None})]:
     rc, out = run(raw)
