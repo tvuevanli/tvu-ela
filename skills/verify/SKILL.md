@@ -209,3 +209,5 @@ its row and named as not covered, but does not decide the verdict: the ticket is
   view of the output unless the case is about another output.
 - Keep selectors or expectations as knowledge: they belong to the file at the build, read each time.
 - Leave a verified ticket open: a pass with its proof on the ticket closes it (the owner's word, 2026-11-26); a fail reopens or reassigns it with the proof.
+- Hand a case to QA bare: what ela cannot test goes to QA as a short comment built from the code: the cases to run
+  (each expected result from the requirement), the lane, and the build that carries the fix. A few lines, no code detail.
