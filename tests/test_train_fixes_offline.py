@@ -4,7 +4,7 @@ page's block, today.md's lines and asks, and the owner's rulings. Shapes from th
 passed QA on build 99 and fails on build 100 (MH-4054), QA's "not fixed" (MH-4048), QA's main-fix-works with a
 regression (MH-4097), a fail on build 100 with build 101 waiting for QA (MH-4065), and a failed case whose follow-up
 fix passed (vault ela/2026-11-26-plan-fixes-followed-to-prod-one-home-per-fact.md, phases 2 and 3)."""
-import datetime, json, os, sys, tempfile
+import datetime, json, os, re, sys, tempfile
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "skills", "train"))
 import fixes as FX  # noqa: E402
@@ -173,6 +173,8 @@ check("groups in order: blocks, not yet verified, does not block, then Ready as 
 lines = FX.since_lines([train], "2026-11-25T12:00", lambda l: f"releases/{l}/{l}")
 check("since you last looked: at most five lines, blocks first, each linking its row on the line page",
       len(lines) == 5 and "— blocks:" in lines[0] and lines[0].endswith("|its row]]") and "[[releases/2.1/2.1#^fix-" in lines[0])
+check("a since line names its ticket: key, summary, status, so he need not open it",
+      all(re.match(r"- MH-\d+ \S.* · \S.* — ", l) for l in lines[:-1]))
 check("the rest is one count line linking the line's section", lines[-1].startswith("- ") and "more" in lines[-1]
       and "[[releases/2.1/2.1#Fixes on their way|the 2.1 line]]" in lines[-1])
 check("nothing changed since he looked: no line", FX.since_lines([train], "2026-11-27T00:00", lambda l: l) == [])

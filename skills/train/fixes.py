@@ -463,9 +463,12 @@ def changed_since(row, since):
     return max(words_, key=lambda h: h.get("at") or "", default=None)
 
 
+SINCE_TITLE = 70                                  # a since line names its ticket, so he need not open it
+
+
 def since_lines(trains, since, page_of, n=5):
     """today.md's "Since you last looked": at most n lines, each a fix whose verdict changed since he last looked,
-    linking its row on its line page — blocks, then your call, does not block, not yet verified; a passes-only rest as
+    naming its ticket (`KEY <summary> · <status>`, the vault's key rule) and linking its row on its line page — blocks, then your call, does not block, not yet verified; a passes-only rest as
     one count line. `trains` [train]; `page_of(line)` the line page's path without .md."""
     rank = {g: i for i, g in enumerate(GROUPS)}
     got = []
@@ -485,7 +488,9 @@ def since_lines(trains, since, page_of, n=5):
         label = {"blocks": "blocks", "your-call": "your call", "no-block": "does not block", "unverified": "not yet verified"}[imp["group"]]
         what = f"{h['verdict']} on {h.get('version') or 'its build'}"
         told = f"your call, ela leans {imp.get('leaning')}" if imp["group"] == "your-call" else f"{label}: {words(imp.get('reason'), 14)}"
-        out.append(f"- {r.get('key') or 'a no-ticket fix'} {what} — {told} → "
+        who = (f"{r['key']} {short(r.get('title'), SINCE_TITLE)} · {r.get('status') or '?'}" if r.get("key")
+               else f"a no-ticket fix: {short(r.get('title'), SINCE_TITLE)}")
+        out.append(f"- {who} — {what} — {told} → "
                    f"[[{page_of(t['line'])}#^{anchor(r.get('key') or r['id'])}|its row]]")
     rest = shown[n - (1 if passed else 0):]
     if passed or rest:
