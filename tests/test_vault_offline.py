@@ -1377,6 +1377,21 @@ with tempfile.TemporaryDirectory() as rt:
           and 'aliases: ["Media docker services · 2.1", "mds", "docker", "Docker candidates"]'
           in V.front([], dict(got["releases/media-docker-services.md"].props, title=got["releases/media-docker-services.md"].title)))
 
+with tempfile.TemporaryDirectory() as rt:
+    check("no system pages in the reports, none copied",
+          not any(n.path.startswith(V.ELA + "/") for n in V.report_notes(rt, datetime.date(2026, 11, 26))))
+    os.makedirs(os.path.join(rt, "system"))
+    open(os.path.join(rt, "system", "how-ela-runs.md"), "w").write("# How ela runs\n\nTimers.\n")
+    got = {n.path: n for n in V.report_notes(rt, datetime.date(2026, 11, 26))}
+    check("how-ela-runs is copied; controls.md, absent, is not",
+          V.ELA + "/how-ela-runs.md" in got and V.ELA + "/controls.md" not in got)
+    open(os.path.join(rt, "system", "controls.md"), "w").write("# Your controls in Slack, and who reaches ela\n\nWords.\n")
+    got = {n.path: n for n in V.report_notes(rt, datetime.date(2026, 11, 26))}
+    c = got.get(V.ELA + "/controls.md")
+    check("controls.md, once the runner writes it, is copied beside how-ela-runs under its own title",
+          c is not None and c.title == "Your controls in Slack, and who reaches ela" and c.props["type"] == "system"
+          and c.src_rel == "system/controls.md")
+
 # a note of the vault's own gone without a verb keeps a trace: a row in the deletion log, with its backup copy
 with tempfile.TemporaryDirectory() as t:
     vault, backup = os.path.join(t, "vault"), os.path.join(t, "backup", "vault")

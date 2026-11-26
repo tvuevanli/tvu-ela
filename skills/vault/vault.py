@@ -802,10 +802,15 @@ def report_notes(reports, today, runtime=None, helm=None):
             title = {"test-list": "Test list · ", "dev-list": "Dev list · ", "train": "Train · "}[m.group(1)] + m.group(2)
             notes.append(Note(list_home(f, lanes), title, body, {"type": m.group(1), "date": dm.group(1) if dm else None}, fl, src_rel=f"lanes/{f}"))
     # the evening reader's pages are not written into the vault any more (ADR 0015): nothing read the vault copy
-    sp = os.path.join(reports, "system", "how-ela-runs.md")
-    if os.path.isfile(sp):                                 # what is scheduled where, read from the machines
-        fl, body = split_front(open(sp, encoding="utf-8").read())
-        notes.append(Note(f"{ELA}/how-ela-runs.md", "How ela runs", body, {"type": "system"}, fl, src_rel="system/how-ela-runs.md"))
+    # ela-runner's system pages, copied when present: what is scheduled where, read from the machines; and the
+    # owner's controls in Slack with who reaches ela, rendered from the runner's own constants (plan
+    # ela/2026-11-26-plan-ela-described-in-the-vault-from-its-sources)
+    for f, title in (("how-ela-runs.md", "How ela runs"), ("controls.md", "Your controls in Slack")):
+        sp = os.path.join(reports, "system", f)
+        if os.path.isfile(sp):
+            fl, body = split_front(open(sp, encoding="utf-8").read())
+            notes.append(Note(f"{ELA}/{f}", (h1(body) or title) if f == "controls.md" else title, body, {"type": "system"}, fl,
+                              src_rel=f"system/{f}"))
     for sub in ("ela", ""):
         d = os.path.join(reports, sub) if sub else reports
         for f in sorted(os.listdir(d)) if os.path.isdir(d) else []:
