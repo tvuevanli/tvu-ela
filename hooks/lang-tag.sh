@@ -17,7 +17,7 @@
 # No tag: no output. Always exit 0: this hook never blocks a prompt.
 # One tag only, by the owner's word (2026-11-24): bare `zh`, `chn`, `cn` and `中文` misfired on ordinary text;
 # `zhn` replaced them, then `#zh` replaced `zhn` (his word, the same day), the `#` keeping it off ordinary text.
-# The standing rule — English by default, Chinese on request — is the working preferences' first line.
+# The standing rule — English by default, Chinese on request — is the working preferences' language rule.
 INPUT="$(cat)"
 python3 - "$INPUT" <<'PY' 2>/dev/null
 import json, re, sys

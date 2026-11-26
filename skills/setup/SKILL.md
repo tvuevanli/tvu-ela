@@ -17,7 +17,7 @@ A token that has already appeared in a conversation is rotated first, then enter
 - Host addresses (`hosts`) live **only** here. No tracked file names a git host by address; documents
   say "the media GitLab" / "the web GitLab" and point at `site.json`.
 - `.env` is mode `600`. Show which keys exist, never their values.
-- `working-with-evan.md` (optional) — working preferences the SessionStart hook injects after `context/evan.md`: language, gating, what to verify, what never to record. Per-machine configuration, never plugin content; copy it to each machine ela runs on.
+- `working-with-evan.md` (optional) — the site copy of the working preferences the SessionStart hook injects beside `context/evan.md`: language, gating, what to verify, what never to record. The source is `<elak>/blueprint/working-with-evan.md`, edited only there; the hook reads it wherever site.json names an elak that holds it and the site is not the remote one, and reads this copy otherwise. Copy the file here only on a machine without elak; never plugin content.
 - Probes are read-only calls. No probe writes anywhere.
 
 ## 1. site.json — machine paths

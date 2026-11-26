@@ -2,9 +2,12 @@
 # ela SessionStart hook, run as several commands (hooks.json), each printing one part of the session's context:
 #   session-start.sh            context/evan.md · pointers to the rest of the site file · the knowledge root · which
 #                               mapped repo/area the cwd is in · the desk's pending line
-#   session-start.sh prefs I/K  part I of K of the working preferences, the first section of
-#                               ~/.claude/ela/working-with-evan.md, split at top-level bullets; K parts together are
-#                               the section whole
+#   session-start.sh prefs I/K  part I of K of the working preferences, the first section of working-with-evan.md,
+#                               split at top-level bullets; K parts together are the section whole
+# The preferences have one source: <elak>/blueprint/working-with-evan.md, where they are edited and versioned. The hook
+# reads that file when site.json names an elak that holds it and the site is not the remote one (there <elak> is the
+# published subset); otherwise it reads the site copy, ~/.claude/ela/working-with-evan.md, which a machine without
+# elak keeps. Every part names the file it read, so a session can tell which text it was given.
 # Claude Code injects a hook command's output only up to CAP characters (measured on 2.1.332, 2026-11-25: 10,000
 # injected, 10,001 saved to a file with a 2KB preview; characters, not bytes; each command has its own cap). Past it
 # the session sees the first 2KB, which is how the preferences stopped reaching every session once the single output
@@ -20,7 +23,18 @@
 set -u
 ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 SITE="$HOME/.claude/ela/site.json"
-PREFS="$HOME/.claude/ela/working-with-evan.md"
+PREFS="$(python3 - "$SITE" "$HOME/.claude/ela/working-with-evan.md" <<'PY' 2>/dev/null
+import json, os, sys
+site, fallback = sys.argv[1], sys.argv[2]
+try:
+    s = json.load(open(site))
+    p = os.path.join(s.get("elak") or s.get("records") or "", "blueprint", "working-with-evan.md")
+    print(p if s.get("site") != "remote" and os.path.isabs(p) and os.path.isfile(p) else fallback)
+except Exception:
+    print(fallback)
+PY
+)"
+[ -n "$PREFS" ] || PREFS="$HOME/.claude/ela/working-with-evan.md"
 CWD="${CLAUDE_PROJECT_DIR:-$PWD}"
 CAP=10000
 WARN=9000
@@ -78,7 +92,8 @@ for u in units:
     cur.extend(u); size += s
 if cur:
     parts.append(cur)
-home = "~/.claude/ela/working-with-evan.md"
+import os
+home = path.replace(os.path.expanduser("~"), "~", 1) if path.startswith(os.path.expanduser("~") + "/") else path
 if len(parts) > k and i == k:
     total = sum(len(l) for l in section)
     print(f"ela: WARNING the working preferences ({total:,} characters) need {len(parts)} parts and hooks/hooks.json "
@@ -107,13 +122,14 @@ cat "$ROOT/context/evan.md" 2>/dev/null
 
 # The site file's later sections (his day, …) are pointed at, not injected: a session reads them when they matter.
 [ -f "$PREFS" ] && python3 - "$PREFS" <<'PY' 2>/dev/null
-import sys
+import os, sys
 lines = open(sys.argv[1], encoding="utf-8").read().splitlines()
+home = sys.argv[1].replace(os.path.expanduser("~"), "~", 1) if sys.argv[1].startswith(os.path.expanduser("~") + "/") else sys.argv[1]
 heads = [(n + 1, l[3:].strip()) for n, l in enumerate(lines) if l.startswith("## ")]
 if heads[1:]:
     print("\n## Read when it matters (not injected)")
 for n, title in heads[1:]:
-    print(f"- \"{title}\": `~/.claude/ela/working-with-evan.md` from line {n}.")
+    print(f"- \"{title}\": `{home}` from line {n}.")
 PY
 
 [ -f "$SITE" ] || { echo; echo "ela: site file missing — run /ela:setup"; exit 0; }

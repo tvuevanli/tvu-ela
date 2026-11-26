@@ -69,6 +69,16 @@ def site():
         return {}
 
 
+def prefs_path():
+    """The working preferences as the SessionStart hook reads them: elak's copy, or the site copy where the machine
+    has no elak or is the remote site (hooks/session-start.sh)."""
+    s = site()
+    p = os.path.join(s.get("elak") or s.get("records") or "", "blueprint", "working-with-evan.md")
+    if s.get("site") != "remote" and os.path.isabs(p) and os.path.isfile(p):
+        return p
+    return os.path.expanduser("~/.claude/ela/working-with-evan.md")
+
+
 def roots(s):
     p = s.get("projects", "")
     return s.get("reports") or os.path.join(p, "reports"), s.get("runtime") or os.path.join(p, ".ela"), s.get("vault")
@@ -1028,7 +1038,7 @@ def cmd_reader(args):
            "actions": os.path.join(reports, "runner", f"{args.date}-actions.json"),
            "replay": os.path.join(reports, "review", f"{args.date}-replay.json"),
            "lint": lint(page, *context(page_path, page)[:4]),
-           "rules": [os.path.expanduser("~/.claude/ela/working-with-evan.md"), "skills/brief/SKILL.md §reader"],
+           "rules": [prefs_path(), "skills/brief/SKILL.md §reader"],
            "repeated": repeated_verdicts(reports, args.date),
            "judge": {str(n): [r["now"] for r in rows] for n, rows in judge.items()}, "judgments": list(JUDGMENTS),
            "audit": {a: r["said"] for a, r in audit.items()}, "audits": list(AUDITS)}

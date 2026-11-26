@@ -69,6 +69,28 @@ h = home_with(section)
 check(run(h, "prefs", "1/2", env={"ELA_GUEST": "1"}) == "", "a guest session got the owner's preferences")
 shutil.rmtree(h)
 
+# 3b. One source: elak's copy is read where site.json names an elak that holds it, the site copy on a remote site or
+# where elak has none; every part and the pointer name the file that was read.
+h = home_with("## Working preferences (site copy)\n- the site rule\n\n## Later (site)\n- x\n")
+elak = os.path.join(h, "elak")
+os.makedirs(os.path.join(elak, "blueprint"))
+open(os.path.join(elak, "blueprint", "working-with-evan.md"), "w").write(
+    "## Working preferences (elak)\n- the elak rule\n\n## Later (elak)\n- y\n")
+sj = os.path.join(h, ".claude", "ela", "site.json")
+json.dump({"elak": elak}, open(sj, "w"))
+out, ctx = run(h, "prefs", "1/6"), run(h)
+check("the elak rule" in out and "the site rule" not in out, f"elak's copy was not the one read: {out[:200]!r}")
+check("~/elak/blueprint/working-with-evan.md" in out.split("\n", 1)[0], f"the part does not name elak's file: {out[:200]!r}")
+check('"Later (elak)": `~/elak/blueprint/working-with-evan.md`' in ctx, "the pointer does not name elak's file")
+json.dump({"elak": elak, "site": "remote"}, open(sj, "w"))
+out = run(h, "prefs", "1/6")
+check("the site rule" in out and "the elak rule" not in out, f"a remote site read <elak>, the published subset: {out[:200]!r}")
+check("~/.claude/ela/working-with-evan.md" in out.split("\n", 1)[0], f"the part does not name the site copy: {out[:200]!r}")
+json.dump({"elak": elak}, open(sj, "w"))
+os.remove(os.path.join(elak, "blueprint", "working-with-evan.md"))
+check("the site rule" in run(h, "prefs", "1/6"), "no fallback to the site copy when elak has no preferences file")
+shutil.rmtree(h)
+
 # 4. The default part warns on its first line near the cap and over it (an oversized context/evan.md).
 for size, word in ((WARN + 200, "near the cap"), (CAP + 2000, "OVER the cap")):
     root = tempfile.mkdtemp(prefix="ela-ss-root-")
@@ -109,9 +131,9 @@ check("## Who Evan is" not in ev, "the head sits beside the section it replaces"
 # rule or dated refinement, each naming the boundary clauses a session decides by, plus every rule name that code or a
 # hook cites and the closing marks that pane-mark and `ela session reap` read. The phrases are matched on the parts the
 # hook injects for the owner's own text, whitespace collapsed, so a clause that fell out of the injected section fails
-# here as surely as one that was reworded away. The text is the machine's (the site file, or elak's copy once the hook
-# reads it), so the check runs where that text exists and is skipped elsewhere; ELA_PREFS_CHECK=FILE checks a candidate
-# text before it replaces the live one.
+# here as surely as one that was reworded away. The text is the machine's (elak's copy, or the site file), so the
+# check runs where that text exists and is skipped elsewhere; ELA_PREFS_CHECK=FILE checks a candidate text before it
+# replaces the live one.
 REQUIRED = {
     "slack: nothing posts on its own (2026-11-12)": [
         "Nothing posts to Slack on its own except the daily and weekly reports", "dry run first",
@@ -212,13 +234,12 @@ def squash(s):
 
 
 cand = os.environ.get("ELA_PREFS_CHECK", "")
-real = os.path.join(os.path.expanduser("~"), ".claude", "ela", "working-with-evan.md")
-if cand or os.path.isfile(real):
-    k = max(len([x for x in e["hooks"] if " prefs " in x["command"]]) for e in hj["hooks"]["SessionStart"])
-    h = home_with(open(cand, encoding="utf-8").read()) if cand else os.path.expanduser("~")
-    outs = [run(h, "prefs", f"{i}/{k}") for i in range(1, k + 1)]
-    if cand:
-        shutil.rmtree(h)
+k = max(len([x for x in e["hooks"] if " prefs " in x["command"]]) for e in hj["hooks"]["SessionStart"])
+h = home_with(open(cand, encoding="utf-8").read()) if cand else os.path.expanduser("~")
+outs = [run(h, "prefs", f"{i}/{k}") for i in range(1, k + 1)]      # the file the hook itself resolves
+if cand:
+    shutil.rmtree(h)
+if any(outs):
     for i, o in enumerate(outs, 1):
         check(not o.startswith("ela: WARNING"), f"the owner's preferences, part {i}/{k}: {o[:160]!r}")
     text = squash("".join(outs))

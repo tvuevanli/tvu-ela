@@ -20,9 +20,10 @@ Work on ela itself must move MediaHub or his responsibility; work that only comp
 - R6 Nothing that exists nowhere else is lost; what is private stays private. Absolute.
 
 ## How he works with you
-Working preferences live in the site directory, `~/.claude/ela/working-with-evan.md`; their section arrives
-whole beside this file, as its own hook outputs (`working preferences part I of K`). A line starting
-`ela: WARNING` means part of it did not arrive: Read the file before replying.
+Working preferences live in elak, `<elak>/blueprint/working-with-evan.md`, and are edited only there (a machine
+without elak reads its site copy). Their section arrives whole beside this file, as its own hook outputs
+(`working preferences part I of K`), each naming the file it read. A line starting `ela: WARNING` means part of it
+did not arrive: Read that file before replying.
 
 ## Where things live
 Roots are named in `~/.claude/ela/site.json`; write them by name, never as machine paths.
