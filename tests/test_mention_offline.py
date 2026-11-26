@@ -140,8 +140,13 @@ with tempfile.TemporaryDirectory() as tmp:
     tl = recs[a2]["facts"]["thread_lines"]
     check("facts: each ticket with its state, owner and Fixed In, as a link; what was not read; the related thread kept apart",
           lines[0] == "<https://jira.example/browse/MH-3735|MH-3735> Backlog · Owner · Fixed In ur-caller@2.1.90 · MH-3735 summary"
-          and "no Fixed In" in lines[1] and lines[2] == "not read (not in the Jira fact store): MH-7001" and len(lines) <= M.FACT_LINES
+          and "no Fixed In" in lines[1] and lines[2] == "not read yet: <https://jira.example/browse/MH-7001|MH-7001>" and len(lines) <= M.FACT_LINES
           and tl and tl[0].startswith("<https://slack.example/archives/C0QA/p1|#qa 11-10> names MH-3735"))
+    tlong = M.ticket_line({"url": "https://jira.example/browse/MH-1997", "key": "MH-1997", "status": "Open", "assignee": "Owner",
+                           "fixed_in": None, "summary": "[Prod9 1.1.1] Unable to create X source when the account <switches> but source drops out"})
+    check("a ticket's title in a card: escaped, whole or cut at a word with …, never mid-word",
+          tlong.startswith("<https://jira.example/browse/MH-1997|MH-1997> Open") and tlong.endswith("…")
+          and tlong[:-1].rsplit(" ", 1)[-1] in ("but", "source", "&lt;switches&gt;", "account", "when") and "&lt;switches&gt;" in tlong)
     M.save(R, dict(recs, **{"Q-1": dict(recs[a2], id="Q-1")}))
     import argparse as _ap, contextlib as _cl, io as _io
     with _cl.redirect_stdout(_io.StringIO()):
@@ -156,7 +161,9 @@ with tempfile.TemporaryDirectory() as tmp:
     path, text = M.make_draft(recs[a2], R, "Asker asks which build carries the MH-3735 fix.", "It is in build 90. I'll link MH-3842 to MH-3735.", at(11, 32))
     check("the message: the ask, the facts, the reply to paste, the dry runs it implies, the three letters",
           "Asker asks which build" in text and "*Facts*" in text and "```\nIt is in build 90." in text
-          and "links · MH-3842, MH-3735 (link-named)" in text
+          and "links · <https://jira.example/browse/MH-3842|MH-3842>, <https://jira.example/browse/MH-3735|MH-3735>" in text
+          and "link-named" not in text and "dry run" not in text.lower() and "fact store" not in text
+          and M.slack_mod().mrkdwn_check(text) == []
           and "*A* use this draft · *B* I will write it · *C* nothing needed" in text and "ela posts nothing" in text and open(path).read() == text)
     d = todo(at(11, 33))[a2]
     check("drafted: one message to send him", d["do"] == "dm" and d["kind"] == "ask" and d["text"] == path)

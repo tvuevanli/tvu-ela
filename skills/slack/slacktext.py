@@ -31,15 +31,31 @@ def key_link(key, base):
 
 def cut(text, n):
     """The text on one line, whole when it fits in n characters, otherwise cut at the last space that leaves room for
-    "…" and closed with it. A run with no space in reach (CJK text, a long token) is cut at a character, which is a
-    word boundary for CJK."""
+    "…" and closed with it. A Slack link or mention (<…>) is never split: a cut inside one moves before it. A run with
+    no space in reach (CJK text, a long token) is cut at a character, which is a word boundary for CJK."""
     t = " ".join((text or "").split())
     if len(t) <= n:
         return t
     head = t[:n - 1]
-    if t[n - 1] != " " and " " in head and len(head.rsplit(" ", 1)[0]) >= n // 2:
+    if head.rfind("<") > head.rfind(">"):
+        head = head[:head.rfind("<")]
+    elif t[len(head)] != " " and " " in head and len(head.rsplit(" ", 1)[0]) >= n // 2:
         head = head.rsplit(" ", 1)[0]
     return head.rstrip(" ,;:-·") + "…"
+
+
+def link_keys(text, base):
+    """The text with each bare Jira key written as its link; a key already inside a link is left as it is."""
+    if not base:
+        return text
+    parts = re.split(r"(<[^>]*>)", text or "")
+    return "".join(x if x.startswith("<") else KEY.sub(lambda m: key_link(m.group(1), base), x) for x in parts)
+
+
+def base_of(url):
+    """The Jira base of a browse URL, '' for anything else."""
+    m = re.match(r"(https?://[^\s<>|]+)/browse/", url or "")
+    return m.group(1) if m else ""
 
 
 def _bare(line):

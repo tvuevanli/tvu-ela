@@ -65,6 +65,7 @@ import argparse, contextlib, datetime, glob, hashlib, html, io, json, os, re, su
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "slack"))
 import tiers as TI  # noqa: E402 — the information tier of each kind of notice: one table
+import slacktext as ST  # noqa: E402 — a Jira key as its link, a title cut at a word
 SITE = os.path.expanduser("~/.claude/ela/site.json")
 TZ = datetime.timezone(datetime.timedelta(hours=8))
 EX_USAGE, EX_NOTFOUND, EX_REFUSED, EX_REMOTE = 2, 3, 4, 5
@@ -337,8 +338,7 @@ def parse_permalink(link):
 
 
 def first_line(text, n=140):
-    t = " ".join((text or "").split())
-    return t if len(t) <= n else t[:n - 1].rstrip() + "…"
+    return ST.cut(text, n)
 
 
 # ── threads, from the fact store or from Slack now ────────────────────────────────────────────────────────────
@@ -614,7 +614,8 @@ def gather(r, thread, names, issue, related=related_threads):
                 seen.add(t["link"])
                 out["threads"].append({"key": k, "link": t["link"], "channel": t.get("channel"), "date": str(t.get("date") or "")[:10],
                                        "first": first_line(t.get("first") or "", 80)})
-    gap = ["not read (not in the Jira fact store): " + ", ".join(out["gaps"][:6])] if out["gaps"] else []
+    out["base"] = next((ST.base_of(x.get("url")) for x in out["keys"] if ST.base_of(x.get("url"))), "")
+    gap = [gap_line(out["gaps"][:6], out["base"])] if out["gaps"] else []
     shown = out["keys"][:FACT_LINES - len(gap)]
     out["lines"] = [ticket_line(x) for x in shown] + gap or ["The thread names no ticket."]
     out["more"] = [x["key"] for x in out["keys"][len(shown):]]
@@ -622,9 +623,13 @@ def gather(r, thread, names, issue, related=related_threads):
     return out
 
 
+def gap_line(keys, base=""):
+    return "not read yet: " + ", ".join(ST.key_link(k, base) for k in keys)
+
+
 def ticket_line(x):
-    return (f"<{x['url']}|{x['key']}> {x['status']} · {x['assignee']}"
-            + (f" · Fixed In {x['fixed_in']}" if x["fixed_in"] else " · no Fixed In") + f" · {first_line(x['summary'], 60)}")
+    return (f"{ST.link(x['url'], x['key'])} {x['status']} · {x['assignee']}"
+            + (f" · Fixed In {x['fixed_in']}" if x["fixed_in"] else " · no Fixed In") + f" · {ST.esc(first_line(x['summary'], 70))}")
 
 
 def thread_line(t):
@@ -648,7 +653,7 @@ def card_facts(facts, picks=None):
     out = []
     for p in picks:
         if p in facts.get("gaps") or []:
-            out.append(f"not read (not in the Jira fact store): {p}")
+            out.append(gap_line([p], facts.get("base") or ""))
         elif p in by:
             out.append(by[p])
         else:
@@ -697,12 +702,15 @@ def ask_text(r, lines, ask, reply, implied, now, offer="off", reading="", more=(
     asked of him, in one sentence, so it never reads as a digest; the second is ela's reading of whether the ask still
     needs him; then the facts that bear on the answer (`lines`, FACT_LINES at most), the reply in a bare fence, byte
     for byte what would be pasted or posted, and the letters."""
+    base = (r.get("facts") or {}).get("base") or ""
     L = [f"*One mention is waiting on you:* {ask.strip()} · {source(r, now)}"] + ([reading.strip()] if reading.strip() else [])
     if lines:
-        L += ["", "*Facts*" + (f" ({len(more)} more named in the thread: {', '.join(more[:5])})" if more else "")] + [f"• {l}" for l in lines]
+        L += ["", "*Facts*" + (f" ({len(more)} more named in the thread: {', '.join(ST.key_link(k, base) for k in more[:5])})" if more else "")]
+        L += [f"• {l}" for l in lines]
     L += ["", f"*Draft reply* ({DRAFT_NOTE[offer]})", "```", reply.strip(), "```"]
     if implied:
-        L += ["", "*Jira it implies* (dry runs by class, prepared on A or when you reply)"] + [f"• {x}" for x in implied]
+        L += ["", "*Jira updates it implies* (prepared on A or when you reply)"]
+        L += [f"• {ST.link_keys(x, base)}" for x in implied]
     L += ["", f"*A* {A_TEXT[offer]} · *B* I will write it · *C* nothing needed",
           "Reply with the letter. No answer: nothing happens; a reply of yours in the thread withdraws this."]
     return "\n".join(L) + "\n"
@@ -777,7 +785,7 @@ def implied(text, thread_keys):
         ks = c["keys"] or thread_keys[:1]
         out.append({"link-named": "links", "parent-status": "a status comment", "assign-by-rule": "an assignment",
                     "ticket-draft": "a ticket draft from this thread"}[c["class"]]
-                   + (" · " + ", ".join(ks) if ks and c["class"] != "ticket-draft" else "") + f" ({c['class']})")
+                   + (" · " + ", ".join(ks) if ks and c["class"] != "ticket-draft" else ""))
     return list(dict.fromkeys(out))
 
 
