@@ -133,9 +133,10 @@ def lane_rows(lane, state, mails, reports, issues):
                 withdrawn.append(rid)
                 continue
         since, build = r.get("last_at") or r.get("first_at"), r.get("last_build") or r.get("first_build")
-        found = []                                          # the lane-bound words: its QA report mails, and a summary report on a no-ticket row
+        found, heard = [], []                               # the lane-bound words: its QA report mails, and a summary report on a no-ticket row
         for k in [t, *(r.get("also") or [])] if t else []:
             found += TL.report_verdicts(reports, k, since, build)
+            heard += TL.report_verdicts(reports, k, None, None)   # every report in the window, any build: the cell's history
         if not t:
             summ = [x for x in reports if x["summary"] and x["build"] and int(x["build"]) >= int(build)]
             if summ:
@@ -145,7 +146,7 @@ def lane_rows(lane, state, mails, reports, issues):
         label = (builds.get(r.get("first_build")) or {}).get("label") or r.get("first_build")
         out[rid] = {"id": rid, "ticket": t, "also": r.get("also") or [], "focus": r.get("focus"), "log": r.get("log") or [],
                     "layers": r.get("layers") or [], "first_build": r.get("first_build"), "label": label, "first_at": r.get("first_at"),
-                    "last_build": build, "last_at": since, "found": found, "state_verdict": verdict,
+                    "last_build": build, "last_at": since, "found": found, "heard": heard, "state_verdict": verdict,
                     "builds_after": len([x for x in ordered if int(x) > int(r.get("first_build") or 0)])}
     return out, ordered, withdrawn
 
@@ -194,8 +195,10 @@ def verdict_lane(lanes, recs, named=None):
 
 
 def history_of(found, since):
-    """A cell's verdict history: every word placed on the lane since the fix first arrived there, oldest first, one
-    entry per word — {verdict, version, at, source}; so "passed before, fails now" can be computed from the cell."""
+    """A cell's verdict history: every word placed on the lane since the fix first arrived on the line's path, oldest
+    first, one entry per word — {verdict, version, at, source}; so "passed before, fails now" can be computed from
+    the cell. A word before the lane's own release mail named the fix counts: MH-4065 rode daily 2.1.99 on 2026-11-20
+    and QA failed it on build 100 on 11-25, before build 101's mail named it on the QA lane."""
     out = []
     for at_, v, ver, src in sorted(set(x for x in found if x[0] >= (since or "")[:16])):
         out.append({"verdict": VERDICT_WORD.get(v, v), "version": ver, "at": at_[:16], "source": src})
@@ -223,7 +226,7 @@ def lane_verdicts(t, also, lanes, recs, said, issues, qa):
                 found[qa_lane].append((at_, v, ver, f"release thread by {who}"))
     out = {}
     for lane, r in recs.items():
-        history = history_of(found[lane], r.get("first_at"))
+        history = history_of(found[lane] + list(r.get("heard") or []), since)
         mine = sorted(x for x in found[lane] if x[0] >= (r.get("last_at") or "")[:16])
         if mine:
             out[lane] = (VERDICT_WORD.get(mine[-1][1], mine[-1][1]), mine[-1][2], mine[-1][0][:10], mine[-1][3], history)

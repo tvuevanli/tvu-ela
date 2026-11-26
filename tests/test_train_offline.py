@@ -163,6 +163,13 @@ check("a state verdict the train cannot re-read joins the history; an incident j
       [h["verdict"] for h in by["MH-1"]["cells"]["qa-cn3"]["history"]] == ["fail"]
       and by["MH-5"]["cells"]["prod-3"]["history"][-1] == {"verdict": "incident", "version": None, "at": "2026-10-28T08:00", "source": "incident MH-500"}
       and by["MH-5"]["cells"]["qa-cn3"]["history"] == [])
+late_reports = dict(REPORTS, **{"qa-cn3": REPORTS["qa-cn3"] + [{"at": "2026-10-31T18:43", "build": "79", "summary": True, "subject": "Summary Test Report build 79",
+                                                                "text": "*MH-10* FAIL [10-31] the pool page\n"}]})
+r10 = {r["id"]: r for r in TR.collect("2.1", CFG, late, {}, late_reports, [], issues10, INCIDENTS, NOW, regions=REGIONS, qa=QA)["rows"]}["MH-10"]
+check("MH-4065's shape: QA's comment and report on a build before the QA mail named the fix sit in the QA cell's history, never on daily",
+      [(h["verdict"], h["version"], h["source"]) for h in r10["cells"]["qa-cn3"]["history"]]
+      == [("fail", "2.2.148 build 212", "comment by QA Person"), ("fail", "build 79", "QA report")]
+      and r10["cells"]["qa-cn3"]["verdict"] == "untested" and r10["cells"]["daily-wed"]["history"] == [])
 check("a comment with no panel proves no lane by panel", TR.panel_lane("fail on build 99") is None and TR.panel_lane("ENV: nowhere-env\nfoo 1.0") is None)
 check("a pass on QA then untested on daily is no regression", by["MH-4"]["cells"]["daily-wed"]["verdict"] == "untested" and not by["MH-4"]["regression"])
 check("the customer label is P1, the dialog row is auto, the owner is named", by["MH-6"]["priority"] == "P1" and by["MH-1"]["auto"] and by["MH-1"]["owner"] == "Dev Person")
