@@ -44,8 +44,8 @@ REGRESSED_W = re.compile(r"(?i)" + "|".join([r"引入回归", r"出现回归", r
 MAIN_OK_W = re.compile(r"(?i)" + "|".join([r"主功能通过", r"主场景修复生效", r"main (?:function|fix|scenario)\w* (?:works|passe?s?)"]))
 OUT_OF_SCOPE_W = re.compile(r"(?i)" + "|".join([r"不在本单范围", r"非本单范围", r"不属于本单", r"本单不覆盖", r"out of (?:this ticket's )?scope"]))
 RULINGS = ("train", "rulings.jsonl")
-ROW_CASE_CHARS, ROW_WORDS, CHANGE_WORDS = 30, 6, 5
-OPEN_MAX = 3                    # a long group (not yet verified, does not block) shows this many, the rest folded
+ROW_CASE_CHARS, ROW_WORDS, CHANGE_WORDS = 24, 5, 5
+OPEN_MAX = 2                    # a long group (not yet verified, does not block) shows this many, the rest folded
 GROUP_NEXT = {"blocks": "each needs a fix, then QA again", "your-call": "each is a ruling ask on today.md; "
               "`ela train answer impact:<KEY> A|B` answers it here", "unverified": "each waits for QA's word on the build it rides"}
 
@@ -260,7 +260,7 @@ def firm_or_ask(row, lanes, by_key, incidents, rulings, out, word, qa_cell, move
     prec = [r for r in same if r.get("ruled")]
     if prec:
         why += f"; like your ruling on {prec[-1]['key']} ({prec[-1]['at'][5:10]}): {prec[-1]['ruled']}"
-    return dict(base, group="your-call", reason="not proven: " + "; ".join(tests[:2]), leaning=leaning, lean_reason=why,
+    return dict(base, group="your-call", reason="not proven: " + tests[0], leaning=leaning, lean_reason=why,
                 next=f"your ruling on today.md, or `ela train answer impact:{key} A|B`")
 
 
@@ -351,8 +351,7 @@ def block(train, open_max=OPEN_MAX):
         return []
     at = str(train.get("at") or "")
     L = ["## Fixes on their way", "",
-         f"*From the train of {at[5:10]} {at[11:16]}: each fix by what it does to its next move. A row is never hidden; "
-         f"`ela train --line {train.get('line')}` has every lane's cell.*", ""]
+         f"*Each fix by what it does to its next move; train of {at[5:10]} {at[11:16]}, every cell in `ela train --line {train.get('line')}`.*", ""]
     if not rows:
         return L + ["Nothing is on its way: every fix in the window is on prod or has not reached QA.", ""]
     order = {"P1": 0, "P2": 1, "P3": 2}
