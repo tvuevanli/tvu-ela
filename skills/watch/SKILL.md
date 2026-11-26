@@ -79,6 +79,7 @@ How to read the triggers:
 | unanswered | answer it when the evidence answers it; otherwise route the question to who can answer, or ask |
 | answered | carry the answer: the next step it implies (assign, status, a reply) |
 | changed | respond to the change: a reopen to its assignee, a question to the owner answered or asked |
+| tracked | the owner follows this ticket (its reason is on the ticket's line): judge its whole state after the change, as he would read it against that reason. Act only where another trigger would; otherwise a none whose `why` says in one line where it now stands (who holds it, what changed, what is left against his reason), or an ask when the change touches his reason |
 
 ## Replies to ela's comments
 

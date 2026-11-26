@@ -14,6 +14,8 @@ issues), not only the owner's, and compares it with the last pass. A ticket is d
   behind      its assignee wrote that it is fixed or merged while it is still in progress
   owner-held  assigned to the owner: ela settles it or hands it to whoever should hold it
   stalled     no activity past its status's threshold (STALL_DAYS)
+  tracked     a ticket the owner asked ela to track (`track`) had a change by a person since its last decision: a
+              field, a comment or a link, not by ela, the owner or an app (the fact store's changelog and comments)
 
 A state trigger (all but changed and answered) fires only when no decision was recorded since the ticket last moved,
 so nothing is written on a schedule; a change trigger waits as pending until a decision takes it. Left alone: legacy
@@ -63,6 +65,11 @@ is kept once in watch/corrections.jsonl with its case kind (the trigger kind, th
                                                 correction, kept in watch/corrections.jsonl with its cause (or as
                                                 waiting for one); a fact topic's words are the fact, kept by `ela asks`
   cause   TOPIC WORDS… [--json]                 the cause for an earlier correction that came without one
+  track   KEY… [--why TEXT] [--until DATE] [--json]
+                                                track tickets (<reports>/ela/watch/tracked.json): each is due a
+                                                decision on any human change, so its state comes back judged; never
+                                                legacy while tracked. --until ends it on that day
+  untrack KEY… [--json]                         end tracking; the row is kept, marked ended
   asks    [--json]                              the open topics; the vault's sync puts them on ela/watch.md (and a
                                                 line on today.md), where they live
   dm      [--apply] [--json]                    the owner's ela DM, a reminder only: at most one message a day, when a
@@ -340,6 +347,100 @@ def answered_trigger(iss, rec, owner):
     return []
 
 
+# ── tracked tickets: the owner's word to follow a ticket's state ─────────────────────────────────────────────────────
+def tracked_path(reports):
+    return os.path.join(reports, "ela", "watch", "tracked.json")
+
+
+def load_tracked(reports):
+    d = read_json(tracked_path(reports), {})
+    d.setdefault("tickets", {})
+    return d
+
+
+def tracking(reports, today):
+    """The tickets tracked on `today`: {key: row}; an ended row or one past its until is not tracked."""
+    return {k: r for k, r in (load_tracked(reports).get("tickets") or {}).items()
+            if not r.get("ended") and (not r.get("until") or r["until"] >= today)}
+
+
+def track(reports, keys, now, why=None, until=None):
+    """Track tickets: each is due a decision on any human change. A ticket tracked again takes the new why and until and
+    keeps its first day. → [row]."""
+    d, out = load_tracked(reports), []
+    for k in keys:
+        k = k.strip().upper()
+        if not re.fullmatch(r"[A-Z][A-Z0-9]+-\d+", k):
+            raise ValueError(f"{k!r} is not a ticket key")
+        if until and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", until):
+            raise ValueError(f"--until {until!r}: a date YYYY-MM-DD")
+        old = d["tickets"].get(k) or {}
+        row = {"key": k, "since": old.get("since") if old and not old.get("ended") else now.isoformat(timespec="seconds"),
+               "why": " ".join(str(why).split()) if why else old.get("why"), "until": until or None, "ended": None}
+        d["tickets"][k] = row
+        out.append(row)
+    write_json(tracked_path(reports), d)
+    return out
+
+
+def untrack(reports, keys, now):
+    """End tracking; the row is kept with the day it ended (nothing ela keeps is deleted). → [key ended]."""
+    d = load_tracked(reports)
+    done = []
+    for k in keys:
+        r = (d.get("tickets") or {}).get(k.strip().upper())
+        if r and not r.get("ended"):
+            r["ended"] = now.isoformat(timespec="seconds")
+            done.append(r["key"])
+    write_json(tracked_path(reports), d)
+    return done
+
+
+def changelog_of(facts):
+    """The fact store's changelog histories by ticket (changes.json, the issues updated inside the horizon). → {key: [h]}."""
+    out = {}
+    for i in read_json(os.path.join(facts or "", "jira", "changes.json"), []) or []:
+        if i.get("key"):
+            out[i["key"]] = ((i.get("changelog") or {}).get("histories") or [])
+    return out
+
+
+def is_app(person):
+    p = person or {}
+    return p.get("accountType") == "app" or name(p) in ("Automation for Jira",)
+
+
+def human_changes(iss, histories, since, owner):
+    """What people changed on a ticket after `since`: field changes (status, assignee, priority, due, links …) and
+    comments, not ela's (a signed comment, or a change on the owner's account), the owner's or an app's. → [says]."""
+    t0, out = parse_ts(since), []
+    for h in histories or []:
+        at = parse_ts(h.get("created"))
+        if not at or (t0 and at <= t0) or is_app(h.get("author")) or is_owner(h.get("author"), owner):
+            continue
+        for it in h.get("items") or []:
+            f = it.get("field") or "?"
+            out.append((str(h.get("created")), f"{name(h.get('author'))} changed {f}: {it.get('fromString') or '—'} → "
+                                               f"{it.get('toString') or '—'}"))
+    for c in comments(iss):
+        at = parse_ts(c.get("created"))
+        if not at or (t0 and at <= t0) or is_ela(c) or is_bot(c) or is_owner(c.get("author"), owner):
+            continue
+        out.append((str(c.get("created")), f"{name(c.get('author'))} commented: {clip(text_of(c.get('body')), 160)}"))
+    return [x for _, x in sorted(out)]
+
+
+def tracked_trigger(iss, rec, row, histories, owner):
+    """A tracked ticket with a human change since its last decision (or since tracking began). → [(kind, says)]."""
+    marks = [parse_ts(x) for x in (rec.get("decided"), row.get("since")) if x]
+    since = max([m for m in marks if m], default=None)
+    got = human_changes(iss, histories, since.isoformat() if since else None, owner)
+    if not got:
+        return []
+    why = f" (tracked: {row['why']})" if row.get("why") else ""
+    return [("tracked", "; ".join(got[-4:]) + (f"; and {len(got) - 4} more" if len(got) > 4 else "") + why)]
+
+
 def state_triggers(iss, now, owner):
     """What the ticket's state calls for, whatever changed. → [(kind, says)]."""
     f, s, out = fields(iss), snap(iss), []
@@ -471,6 +572,8 @@ def scan(facts, reports, now, holds=None, lines=None, owner=None, write=False, b
     today = now.date().isoformat()
     rows, skipped, tracked, replies, judge = [], {"legacy": 0, "held": [], "done_today": []}, 0, [], []
     quiet = quiets(reports, today)
+    followed = tracking(reports, today)
+    histories = changelog_of(facts) if followed else {}
     for iss in open_tickets(facts):
         key = iss["key"]
         rec = st["tickets"].setdefault(key, {"first": today})
@@ -485,7 +588,7 @@ def scan(facts, reports, now, holds=None, lines=None, owner=None, write=False, b
             rec["handed"] = now.isoformat(timespec="seconds")   # the judging's own clock: kept past the quick pass's decision
         pend += [list(x) for x in new if list(x) not in pend]
         rec["pending"], rec["snap"] = pend, snap(iss)
-        if legacy(iss, now, lines):
+        if legacy(iss, now, lines) and key not in followed:
             skipped["legacy"] += 1
             continue
         tracked += 1
@@ -504,6 +607,8 @@ def scan(facts, reports, now, holds=None, lines=None, owner=None, write=False, b
         trig = [tuple(p) for p in pend] + answered_trigger(iss, rec, owner)
         if moved_since(iss, rec.get("decided")):
             trig += state_triggers(iss, now, owner)
+        if key in followed:
+            trig += tracked_trigger(iss, rec, followed[key], histories.get(key), owner)
         if not trig:
             continue
         f = fields(iss)
@@ -513,8 +618,9 @@ def scan(facts, reports, now, holds=None, lines=None, owner=None, write=False, b
                      "owner_held": is_owner(f.get("assignee"), owner), "chinese": J.chinese(ticket_text(iss)),
                      "quiet_until": quiet_until(rec) if (quiet_until(rec) or "") > today else None,
                      "quiet_fields": quiet.get(key) or None,
+                     "tracked": {k: followed[key].get(k) for k in ("why", "until")} if key in followed else None,
                      "triggers": [{"kind": k, "says": s} for k, s in trig]})
-    rows.sort(key=lambda r: (not r["owner_held"], ("Highest", "High", "Medium", "Low", "Lowest").index(r["priority"])
+    rows.sort(key=lambda r: (not (r["owner_held"] or r.get("tracked")), ("Highest", "High", "Medium", "Low", "Lowest").index(r["priority"])
                              if r["priority"] in ("Highest", "High", "Medium", "Low", "Lowest") else 5, r["key"]))
     out = {"date": today, "at": now.isoformat(timespec="seconds"), "tracked": tracked, "skipped": skipped,
            "triggered": rows[:MAX_PER_PASS], "waiting": [r["key"] for r in rows[MAX_PER_PASS:]], "owner": owner.get("name"),
@@ -561,7 +667,8 @@ def prompt_text(scanned, rows, decisions_path, precedents=()):
     for r in rows:
         L += [f"## {r['key']} · {r['summary']}",
               f"{r['status']} · {r['assignee'] or 'nobody'} · {r['priority']}" + (f" · due {r['due']}" if r.get("due") else "")
-              + (" · the owner's ticket" if r["owner_held"] else "") + (" · the ticket's text is Chinese" if r["chinese"] else "")
+              + (" · the owner's ticket" if r["owner_held"] else "")
+              + (f" · tracked on the owner's word: {r['tracked'].get('why') or 'no reason given'}" if r.get("tracked") else "") + (" · the ticket's text is Chinese" if r["chinese"] else "")
               + (f" · links {r['links']}: a comment is copied to each" if r.get("links") else "")
               + (f" · a reply disputed ela: no comment until {r['quiet_until']} (ask or none)" if r.get("quiet_until") else "")
               + (" · corrected, ela stays off: " + ", ".join(f"{'the ticket' if f == '*' else f} until {u}"
@@ -700,7 +807,7 @@ def topic_id(key):
 
 # The kinds of topic the watch raises, a closed list: the trigger that made the ticket due (scan's triggers). A
 # correction is kept under its kind, so a precedent is cited only for the same kind of case.
-KINDS = ("changed", "answered", "unassigned", "behind", "unanswered", "owner-held", "stalled")
+KINDS = ("changed", "answered", "unassigned", "behind", "unanswered", "owner-held", "stalled", "tracked")
 ASK_KINDS = ("fact", "ruling")         # what a topic needs from him: a fact ela cannot read, or a ruling
 
 
@@ -1676,6 +1783,20 @@ def cmd_cause(a):
     emit(a, t, [f"{t['id']}: cause kept with the {t['closed']['letter']}"])
 
 
+def cmd_track(a):
+    try:
+        got = track(site().get("reports") or "", a.keys, now_tz(), why=a.why, until=a.until)
+    except ValueError as e:
+        print(str(e), file=sys.stderr); sys.exit(EX_USAGE)
+    emit(a, got, [f"{r['key']}: tracked" + (f" until {r['until']}" if r["until"] else "") + (f" — {r['why']}" if r["why"] else "")
+                  for r in got])
+
+
+def cmd_untrack(a):
+    got = untrack(site().get("reports") or "", a.keys, now_tz())
+    emit(a, got, [f"{k}: no longer tracked" for k in got] or ["none of them was tracked"])
+
+
 def cmd_asks(a):
     got = asks(site().get("reports") or "", now_tz().date())
     emit(a, got, [f"- {x['question']} " + " · ".join(f"{o['letter']} {o['text']}" for o in x["options"]) for x in got]
@@ -1721,6 +1842,12 @@ def main():
     p.add_argument("--json", action="store_true"); p.set_defaults(func=cmd_answer)
     p = sub.add_parser("cause", help="the cause for an earlier letter against ela that came without one; kept in the watch's corrections")
     p.add_argument("topic"); p.add_argument("why", nargs="+"); p.add_argument("--json", action="store_true"); p.set_defaults(func=cmd_cause)
+    p = sub.add_parser("track", help="track tickets: each is due a decision on any human change (field, comment, link)")
+    p.add_argument("keys", nargs="+"); p.add_argument("--why", help="why he follows it; shown with the ticket in the prompt")
+    p.add_argument("--until", help="the last day it is tracked (YYYY-MM-DD)")
+    p.add_argument("--json", action="store_true"); p.set_defaults(func=cmd_track)
+    p = sub.add_parser("untrack", help="end tracking; the row is kept, marked ended")
+    p.add_argument("keys", nargs="+"); p.add_argument("--json", action="store_true"); p.set_defaults(func=cmd_untrack)
     p = sub.add_parser("asks", help="the open topics, as today.md shows them")
     p.add_argument("--json", action="store_true"); p.set_defaults(func=cmd_asks)
     p = sub.add_parser("dm", help="the owner's ela DM: a reminder, at most one a day when a topic is new, pointing at ela/watch.md; a dry run unless --apply")
