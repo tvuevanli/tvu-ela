@@ -148,7 +148,7 @@ with tempfile.TemporaryDirectory() as tmp:
     fixes = page.split("## Fixes on their way")[1].split("## Builds")[0] if "## Fixes on their way" in page else ""
     check("Fixes on their way sits between Docker and Builds, read from the written train: a blocking row visible with its block id, Ready a count",
           page.index("## Docker") < page.index("## Fixes on their way") < page.index("## Builds")
-          and "**Blocks · 1**" in fixes and "MH-4065 summary of MH-4065" in fixes and "**blocks**: QA: not fixed" in fixes
+          and "**Blocks · 1**" in fixes and "MH-4065 summary of MH-4065" in fixes and " · QA: not fixed ^fix-mh-4065" in fixes
           and fixes.count("^fix-mh-4065") == 1 and "**Ready:** 1 for QA-AWS3 → daily-wed (UR test2)" in fixes)
     dock = page.split("## Docker")[1].split("## Fixes on their way")[0]
     check("Docker: only the image that differs between lanes, each version with its QA report or none and what it changed",

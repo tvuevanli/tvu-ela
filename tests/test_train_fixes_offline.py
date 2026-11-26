@@ -137,7 +137,8 @@ train = {"line": "2.1", "at": "2026-11-26T09:00+08:00", "lanes": LANES, "rows": 
 blk = "\n".join(FX.block(train))
 visible = "\n".join(l for l in blk.splitlines() if not l.startswith(">"))
 check("blocks are never folded, however many", all(f"MH-6{n:03d}" in visible for n in range(9)) and "**Blocks · 12**" in blk)
-check("a long not-yet-verified group shows six and folds the rest", "**Not yet verified · 11**" in blk and "> [!note]- 5 more not yet verified" in blk)
+check("a long not-yet-verified group shows three and folds the rest", "**Not yet verified · 11**" in blk and "> [!note]- 8 more not yet verified" in blk)
+check("a group's shared next step is said once, in its header", "**Blocks · 12** — each needs a fix, then QA again" in blk and "next: a fix" not in blk)
 check("a does-not-block row is one visible line with its reason, never a count",
       any(l.startswith("- MH-4100 ") and "**does not block**:" in l and l.endswith("^fix-mh-4100") for l in visible.splitlines()))
 check("groups in order: blocks, not yet verified, does not block, then Ready as a count",

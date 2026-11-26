@@ -44,8 +44,10 @@ REGRESSED_W = re.compile(r"(?i)" + "|".join([r"引入回归", r"出现回归", r
 MAIN_OK_W = re.compile(r"(?i)" + "|".join([r"主功能通过", r"主场景修复生效", r"main (?:function|fix|scenario)\w* (?:works|passe?s?)"]))
 OUT_OF_SCOPE_W = re.compile(r"(?i)" + "|".join([r"不在本单范围", r"非本单范围", r"不属于本单", r"本单不覆盖", r"out of (?:this ticket's )?scope"]))
 RULINGS = ("train", "rulings.jsonl")
-ROW_CASE_CHARS, ROW_WORDS = 48, 9
-OPEN_MAX = 6                    # a long group (not yet verified, does not block) shows this many, the rest folded
+ROW_CASE_CHARS, ROW_WORDS, CHANGE_WORDS = 30, 6, 5
+OPEN_MAX = 3                    # a long group (not yet verified, does not block) shows this many, the rest folded
+GROUP_NEXT = {"blocks": "each needs a fix, then QA again", "your-call": "each is a ruling ask on today.md; "
+              "`ela train answer impact:<KEY> A|B` answers it here", "unverified": "each waits for QA's word on the build it rides"}
 
 
 def anchor(key_or_id):
@@ -193,9 +195,10 @@ def judge(row, lanes, by_key, incidents, rulings=()):
     if v in ("pass", "n/a"):
         return done("ready", "QA passed" if v == "pass" else "QA: not testable on QA", f"moves with {shown_of(lanes, move[0])} → {shown_of(lanes, move[1])}")
     earlier = [h for h in hist if h["verdict"] == "fail"]
-    reason = (f"failed {earlier[-1]['version']}" + case_list(word) + f"; build {qa_cell.get('arrived')} waits for QA") if earlier \
-        else f"build {qa_cell.get('arrived')} waits for QA"
-    return done("unverified", reason, f"QA's word on build {qa_cell.get('arrived')}")
+    a = str(qa_cell.get("arrived"))
+    on = f"build {a}" if a.isdigit() else f"the {a} build"         # a row named by QA only arrives on a report's date
+    reason = (f"failed {earlier[-1]['version']}" + case_list(word) + f"; {on} waits for QA") if earlier else f"{on} waits for QA"
+    return dict(done("unverified", reason, f"QA's word on {on}"), failed_before=bool(earlier))
 
 
 def case_list(word, n=3):
@@ -305,30 +308,36 @@ def test_text(row):
         more = f" +{len(failed) - 1}" if len(failed) > 1 else ""
         return f"{c.get('case') + ' ' if c.get('case') else ''}{short(c.get('text'), ROW_CASE_CHARS)}{more}"
     if rep.get("verdict") == "fail" and rep.get("line"):
-        return short(rep["line"], ROW_CASE_CHARS)
+        line = re.sub(r"^listed under \w+ issues:\s*", "", rep["line"])
+        line = re.sub(r"^[\s>*\-\d.()]+", "", line)
+        line = re.sub(r"^\(?" + re.escape(row.get("key") or "~") + r"\)?\*?[\s:：*-]*", "", line).strip()
+        return short(line, ROW_CASE_CHARS) if len(line) > 3 else None
     return None
 
 
 def row_line(row, qa_lane):
     """One row as one visible line, with its block id so today.md and the morning page can link it."""
     imp = row.get("impact") or {}
+    g = imp.get("group")
     head = f"{'◇ ' if row.get('qa_only') else ''}{row.get('key') or 'no ticket'} {words(row.get('title'), ROW_WORDS)}"
+    end = f" ^{anchor(row.get('key') or row.get('id'))}"
+    if g == "unverified":                                  # the group says what it waits for: the row names the build
+        return f"- {head} · {imp.get('reason')}{end}"
     bits = [head]
-    change = (row.get("change") or "").split(":", 1)[-1].strip()
+    change = re.sub(r"\s+—\s+[A-Z][A-Z0-9]+-\d+\s*$", "", (row.get("change") or "").split(":", 1)[-1].strip())
     if change and short(change, 40).lower() not in (row.get("title") or "").lower():
-        bits.append(f"change: {words(change, 7)}")
+        bits.append(f"change: {words(change, CHANGE_WORDS)}")
     t = test_text(row)
     if t:
         bits.append(f"test: {t}")
     bits.append(verdict_text(row, qa_lane))
-    label = {"blocks": "blocks", "your-call": "your call", "no-block": "does not block", "unverified": "not yet verified"}.get(imp.get("group"), imp.get("group"))
-    if imp.get("group") == "your-call":
-        bits.append(f"**{label}**, ela leans *{imp.get('leaning')}*: {imp.get('reason')}")
+    if g == "your-call":
+        bits.append(f"ela leans **{imp.get('leaning')}**: {imp.get('reason')}")
     else:
-        bits.append(f"**{label}**: {imp.get('reason')}")
-    if imp.get("next"):
+        bits.append(f"{'**does not block**: ' if g == 'no-block' else ''}{imp.get('reason')}")
+    if imp.get("next") and g not in GROUP_NEXT:
         bits.append(f"next: {imp['next']}")
-    return "- " + " · ".join(bits) + f" ^{anchor(row.get('key') or row.get('id'))}"
+    return "- " + " · ".join(bits) + end
 
 
 def block(train, open_max=OPEN_MAX):
@@ -351,14 +360,14 @@ def block(train, open_max=OPEN_MAX):
         mine = sorted((r for r in rows if r["impact"]["group"] == g), key=lambda r: (order.get(r.get("priority"), 3), r.get("key") or r["id"]))
         if not mine:
             continue
+        mine.sort(key=lambda r: (not r["impact"].get("failed_before"), not r.get("key")))   # a fix that failed before leads; no ticket last
         lines = [row_line(r, qa_lane) for r in mine]
-        L.append(f"**{GROUP_TITLE[g]} · {len(mine)}**")
+        L.append(f"**{GROUP_TITLE[g]} · {len(mine)}**" + (f" — {GROUP_NEXT[g]}" if g in GROUP_NEXT else ""))
         L.append("")
         if g in ("blocks", "your-call") or len(lines) <= open_max:
             L += lines
         else:
-            L += lines[:open_max] + ["", f"> [!note]- {len(lines) - open_max} more not yet verified" if g == "unverified"
-                                     else f"> [!note]- {len(lines) - open_max} more"] + ["> " + l for l in lines[open_max:]]
+            L += lines[:open_max] + ["", f"> [!note]- {len(lines) - open_max} more {GROUP_TITLE[g].lower()}"] + ["> " + l for l in lines[open_max:]]
         L.append("")
     ready = [r for r in rows if r["impact"]["group"] == "ready"]
     if ready:
@@ -367,7 +376,9 @@ def block(train, open_max=OPEN_MAX):
             m = r["impact"].get("move") or ["", ""]
             by_move.setdefault(f"{shown_of(lanes, m[0])} → {shown_of(lanes, m[1])}", []).append(r)
         L.append("**Ready:** " + " · ".join(f"{len(v)} for {k}" for k, v in by_move.items()))
-        L += ["", "> [!note]- Ready, by key"] + [f"> - {k}: " + ", ".join(r.get("key") or "no ticket" for r in v) for k, v in by_move.items()] + [""]
+        L += ["", "> [!note]- Ready, by key"] + [f"> - {k}: " + ", ".join(r["key"] for r in v if r.get("key"))
+                                                 + (f"; {sum(1 for r in v if not r.get('key'))} without a ticket" if any(not r.get("key") for r in v) else "")
+                                                 for k, v in by_move.items()] + [""]
     return L
 
 
