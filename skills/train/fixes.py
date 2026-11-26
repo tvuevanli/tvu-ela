@@ -254,8 +254,8 @@ def firm_or_ask(row, lanes, by_key, incidents, rulings, out, word, qa_cell, move
     prec = [r for r in same if r.get("ruled")]
     if prec:
         why += f"; like your ruling on {prec[-1]['key']} ({prec[-1]['at'][5:10]}): {prec[-1]['ruled']}"
-    return dict(base, group="your-call", reason="unproven: " + "; ".join(tests[:2]), leaning=leaning, lean_reason=why,
-                next="your ruling on today.md")
+    return dict(base, group="your-call", reason="not proven: " + "; ".join(tests[:2]), leaning=leaning, lean_reason=why,
+                next=f"your ruling on today.md, or `ela train answer impact:{key} A|B`")
 
 
 # ── the train's rows, enriched ─────────────────────────────────────────────────────────────────────────
@@ -397,7 +397,8 @@ def since_lines(trains, since, page_of, n=5):
         imp = r["impact"]
         label = {"blocks": "blocks", "your-call": "your call", "no-block": "does not block", "unverified": "not yet verified"}[imp["group"]]
         what = f"{h['verdict']} on {h.get('version') or 'its build'}"
-        out.append(f"- {r.get('key') or 'a no-ticket fix'} {what} — {label}: {words(imp.get('reason'), 14)} → "
+        told = f"your call, ela leans {imp.get('leaning')}" if imp["group"] == "your-call" else f"{label}: {words(imp.get('reason'), 14)}"
+        out.append(f"- {r.get('key') or 'a no-ticket fix'} {what} — {told} → "
                    f"[[{page_of(t['line'])}#^{anchor(r.get('key') or r['id'])}|its row]]")
     rest = shown[n - (1 if passed else 0):]
     if passed or rest:

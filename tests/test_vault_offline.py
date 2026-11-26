@@ -213,8 +213,8 @@ with tempfile.TemporaryDirectory() as tmp:
           and "moves:" in r0 and V.MOVES_HEAD in r0)
     home = open(f"{vault}/{V.TODAY}").read()
     above = home.split("---\n", 2)[2].split("\n---\n")[0]
-    check("today.md is the one page: facts, needs you, today, then one line of links; Home points to it",
-          all(f"## {x}" in above for x in ("Facts", "Needs you", "Today")) and f"[[reference/days/{today[:4]}/{today}-brief|morning page]]" in home
+    check("today.md is the one page: since you last looked, needs you, today, then one line of links; Home points to it",
+          all(f"## {x}" in above for x in ("Since you last looked", "Needs you", "Today")) and f"[[reference/days/{today[:4]}/{today}-brief|morning page]]" in home
           and "[[reference/dropped|dropped asks]]" in home and not V.GUIDE.search(home) and len(V.plain(above).split()) <= V.TODAY_WORDS
           and (("[[today]]" in open(f"{vault}/home.md").read()) if datetime.date.fromisoformat(today) <= V.HOME_POINTER_UNTIL else not os.path.exists(f"{vault}/home.md")) and os.path.exists(f"{vault}/{V.DROPPED}"))
     check("the changes page is a day page in reference/days/, linked from today.md", os.path.exists(f"{vault}/reference/days/{today[:4]}/{today}-changes.md")
@@ -1633,8 +1633,8 @@ with tempfile.TemporaryDirectory() as t:
           "[[reference/days/2026/2026-11-25-team-daily|Team yesterday]]: 4 tickets moved · 1 done · 1 new, plus MH-2 went out" in today_sec
           and "Team last week" not in page and "team report]]" not in page.split("---")[-1])
     check("today.md: what went out wrongly leads In short, the head still five lines at most",
-          page.split("## In short")[1].split("## Facts")[0].strip().splitlines()[0].startswith("- The team report told the team what Jira contradicts: MH-2")
-          and len(page.split("## In short")[1].split("## Facts")[0].strip().splitlines()) <= 5)
+          page.split("## In short")[1].split("## Since you last looked")[0].strip().splitlines()[0].startswith("- The team report told the team what Jira contradicts: MH-2")
+          and len(page.split("## In short")[1].split("## Since you last looked")[0].strip().splitlines()) <= 5)
     mon = V.today_page(datetime.date(2026, 11, 23), [d, w], {})
     check("on Monday last week's report is a second line; a day with no published report names none",
           "Team last week]]: 0 tickets moved · 0 done · 0 new, plus nothing for you" in mon and "Team yesterday" not in mon

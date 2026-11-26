@@ -48,7 +48,7 @@ with tempfile.TemporaryDirectory() as tmp:
                                          props={"type": "day", "kind": "changes", "date": d})
     WED = datetime.date(2026, 11, 11)
     page = V.today_page(WED, [day("2026-11-10"), day("2026-11-11")], {"builds": recs})
-    facts = page.split("## Facts")[1].split("## Needs you")[0]
+    facts = page.split("## Since you last looked")[1].split("## Needs you")[0]
     rows = [l for l in facts.splitlines() if l.startswith(">   - ")]      # not judged yet: folded, whole (head.py)
     check("today.md: the Releases fact is build 90, four service lines, linking its line on the line page",
           "QA-AWS3 took build 90 ([[releases/2.1/2.1#^build-90|on the line page]])" in facts and len(rows) == 4
@@ -60,7 +60,7 @@ with tempfile.TemporaryDirectory() as tmp:
     crowded = V.today_page(WED, [day("2026-11-10"), full], {"builds": recs}, asks).split("## Needs you")[0]
     check("with the build block and three asks, the unjudged facts fold, each one line, the build first",
           crowded.count("\n> - **") == 4 and "> [!note]- 4 facts not judged yet\n> - **Releases:** QA-AWS3 took build 90" in crowded
-          and "\n- **" not in crowded.split("## In short")[1].split("## Facts")[1])
+          and "\n- **" not in crowded.split("## In short")[1].split("## Since you last looked")[1])
     later = V.today_page(datetime.date(2026, 11, 13), [day("2026-11-12"), day("2026-11-13")], {"builds": recs})
     check("a build before the last page is not shown again", "took build" not in later)
     env = dict(os.environ)

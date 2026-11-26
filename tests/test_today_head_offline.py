@@ -50,8 +50,8 @@ check("a Start line must begin `Start with `", H.check_start("Begin with X.") an
 # with no judgment: ela's own head from the candidates that carry their Do, every fact folded
 desk = {"kpi": [{"kind": "route", "key": "MH-4090", "title": "a new ticket", "hours": 6}]}
 page = V.today_page(TUE, notes, desk)
-head = page.split("## In short", 1)[1].split("## Facts", 1)[0].strip().splitlines()
-check("the head sits above Facts", page.index("## In short") < page.index("## Facts"))
+head = page.split("## In short", 1)[1].split("## Since you last looked", 1)[0].strip().splitlines()
+check("the head sits above Since you last looked", page.index("## In short") < page.index("## Since you last looked"))
 check("the head is at most five lines and ends in `Start with …`", 1 < len(head) <= 5 and head[-1].startswith("Start with "))
 check("ordered by urgency: the 4-hour routing breach first, then the morning page's items in rank",
       "MH-4090" in head[0] and "Fixed In" in head[1] and "daily-wed" in head[2])
@@ -78,10 +78,10 @@ check("the verb refuses an unknown id and a fact line without a Do, keeps the re
 check("the judgment is not stale against its inputs; new inputs make it stale",
       not H.stale(inp, state) and H.stale(dict(inp, sig="other"), state))
 page2 = V.today_page(TUE, notes, {"kpi": desk["kpi"], "head": state})
-head2 = page2.split("## In short", 1)[1].split("## Facts", 1)[0].strip().splitlines()
+head2 = page2.split("## In short", 1)[1].split("## Since you last looked", 1)[0].strip().splitlines()
 check("the stored head replaces ela's own, its Start line last",
       head2 == ["- " + answer["head"][0]["line"], "- " + answer["head"][1]["line"], "Start with routing MH-4090."])
-facts2 = page2.split("## Facts", 1)[1].split("## Needs you", 1)[0]
+facts2 = page2.split("## Since you last looked", 1)[1].split("## Needs you", 1)[0]
 check("the worked example renders as the QA fact's line", f"- **QA:** {JUDGED}" in facts2)
 check("the bare fact is not shown outside the fold", FACT not in facts2.split("> [!note]-")[0])
 check("the facts without a judgment are folded under one line", "> [!note]- 2 more facts" in facts2)
@@ -99,7 +99,7 @@ long = {f["id"]: "This changes what you can ship this week because " + " ".join(
         for f in inp["facts"]}
 many = dict(state, judged=long)
 crowded = V.today_page(TUE, notes4, {"kpi": desk["kpi"], "head": many}, [{"id": f"keys:MH-{i}", "text": f"MH-{i}: " + " ".join(["word"] * 17) + ".", "first": "2026-11-24"} for i in (1, 2, 3)])
-cf = crowded.split("## Facts", 1)[1].split("## Needs you", 1)[0]
+cf = crowded.split("## Since you last looked", 1)[1].split("## Needs you", 1)[0]
 check("over the budget, judged facts fold from the end, three stay", cf.split("> [!note]-")[0].count("\n- **") == 3 and "> [!note]- 1 more fact" in cf)
 
 # the KPI rows from the fact store, read from disk only

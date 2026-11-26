@@ -4412,6 +4412,7 @@ def sync_handles(does):
             or (does.startswith("ela mention answer ") and "--shown" not in does)   # a letter on a held mention: a record, and
                                                            # dry-run batches at most; an A that posts (ADR 0022) is the runner's
             or does.startswith("ela improve answer ")      # a letter on an improvement item: a record only (ADR 0023)
+            or does.startswith("ela train answer ")        # a letter on a deploy ruling: a record with its kind
             or does.startswith("ela watch answer "))       # a letter on a board-watch topic: a record; its writes go out
                                                            # at the watch's next pass (decision 2026-11-24)
 
@@ -4493,6 +4494,19 @@ def settle_one(reports, state, aid, letter, does, today, dry_run=False, note=Non
             WA = watch_mod()
             WA.answer(reports, parts[3], parts[4], WA.now_tz(), note=note)
         except (KeyError, ValueError):
+            return False
+    if does and does.startswith("ela train answer ") and not dry_run:
+        parts = does.split()
+        held = None
+        for t in written_trains(reports):
+            try:
+                held = fixes_mod().answer(reports, parts[3], parts[4], t)
+                break
+            except KeyError:
+                continue
+            except ValueError:
+                return False
+        if held is None:
             return False
     v["answered"] = {"letter": letter, "at": today.isoformat(), **({"note": note} if note else {}),
                      **({"cause": "waiting"} if wrong_answer(v, letter) and not note else {})}
@@ -4701,6 +4715,85 @@ def watch_mod():
     return WA
 
 
+def fixes_mod():
+    sys.path.insert(0, os.path.join(HERE, "..", "train"))
+    import fixes as FX                                     # noqa: E402 — the train's rows as the deploy sees them
+    return FX
+
+
+def written_trains(reports):
+    """Every train `ela train --write` kept under <reports>/train/, [train]; a broken file is left out."""
+    d = os.path.join(reports or "", "train")
+    out = []
+    for f in sorted(os.listdir(d)) if os.path.isdir(d) else []:
+        try:
+            t = json.load(open(os.path.join(d, f), encoding="utf-8")) if f.endswith(".json") else None
+        except (OSError, ValueError):
+            t = None
+        if isinstance(t, dict) and t.get("rows") is not None:
+            out.append(t)
+    return out
+
+
+def line_page_of(line):
+    return line_page_path(line)[:-3]
+
+
+def fix_asks(trains, today):
+    """Each your-call fix as a ruling ask (train fixes.asks): ela's leaning as A, the other way as B, linking its row
+    on the line page. A broken train costs these asks only."""
+    try:
+        return [dict(c, first=today.isoformat(), link_label="its row") for c in fixes_mod().asks(trains, line_page_of)]
+    except Exception:                                      # noqa: BLE001
+        return []
+
+
+SINCE_MAX = 5                                           # today.md's "Since you last looked": lines outside the fold
+
+
+def since_fixes(trains, since):
+    """The fixes whose verdict changed since he last looked (Home opened, `home_open`), at most SINCE_MAX lines, each
+    linking its row on its line page; [] before the first opening is recorded."""
+    if not since:
+        return []
+    try:
+        return fixes_mod().since_lines(trains, since, line_page_of, SINCE_MAX)
+    except Exception:                                      # noqa: BLE001
+        return []
+
+
+def fixes_waiting(fcands, shown, state):
+    """The ruling asks below the cap: (how many, the lines they are on), so today.md says how many wait on which line page."""
+    on = {c["id"] for c in shown}
+    rest = [c for c in fcands if c["id"] not in on and not ((state.get(c["id"]) or {}).get("sig") == c["sig"]
+                                                             and ((state.get(c["id"]) or {}).get("answered") or (state.get(c["id"]) or {}).get("dropped")))]
+    return len(rest), sorted({c["link"].split("#")[0] for c in rest})
+
+
+FIX_ROW = re.compile(r"\[\[([^\]|#]+)#\^(fix-[a-z0-9-]+)\|")
+
+
+def link_fix_rows(text, lines):
+    """The morning page and the changes page link a fix today.md tells, instead of being its only telling: a bullet line
+    naming the key gets `→ its row` on the line page, once."""
+    rows = {}
+    for l in lines:
+        m = FIX_ROW.search(l)
+        k = KEY_RX.search(l)
+        if m and k:
+            rows.setdefault(k.group(0), f"[[{m.group(1)}#^{m.group(2)}|its row]]")
+    if not rows:
+        return text
+    out = []
+    for line in text.split("\n"):
+        if re.match(r"^[ \t]*(?:>[ \t]*)*[-*][ \t]", line) and "#^fix-" not in line:
+            k = next((k for k in rows if re.search(r"(?<![\w-])" + re.escape(k) + r"(?!\d)", line)), None)
+            if k:
+                line = line.rstrip() + f" → {rows[k]}"
+        out.append(line)
+    return "\n".join(out)
+
+
 def improve_mod():
     sys.path.insert(0, os.path.join(HERE, "..", "improve"))
     import improve as IM                                   # noqa: E402 — the improvement store's one reader and writer
@@ -4802,6 +4895,9 @@ def today_page(today, notes, desk=None, shown=(), more=0, dropped=0, questions_l
     H = head_mod()
     iso = today.isoformat()
     changes, facts = fact_lines(notes)
+    fixes = [("Fixes", l[2:] if l.startswith("- ") else l) for l in desk.get("fixes") or []]
+    if fixes:                                              # a QA verdict's home is its fix's row: not told again as a fact
+        facts = [f for f in facts if f[0] != "QA"]
     block = build_block(notes, desk.get("builds") or [], today, desk.get("tickets"), desk.get("owner") or "")
     if block:                                              # a lane took a build: the Releases fact is the build, by service
         facts = [("Releases and versions", block)] + [f for f in facts if f[0] != "Releases and versions"]
@@ -4831,7 +4927,7 @@ def today_page(today, notes, desk=None, shown=(), more=0, dropped=0, questions_l
         gone = drop_day(datetime.date.fromisoformat(c["first"]), today)
         # the words stay outside the wikilink: a ticket key inside a link's label would be linked again and break it
         what = (c["text"] if c.get("whole") else ask_words(c["text"])) + \
-            (f" → [[{c['link']}|{'its section' if '#' in c['link'] else 'the note'}]]" if c.get("link") else "")
+            (f" → [[{c['link']}|{c.get('link_label') or ('its section' if '#' in c['link'] else 'the note')}]]" if c.get("link") else "")
         asks.append(f"{k}. *{ask_kind(c)}* · {what} · *no answer: nothing happens; gone {gone:%a}*")
         asks += [f"    - [ ] {o['letter']}{' (recommended)' if o['recommended'] else ''}: {option_text(o, c)}" for o in ask_options(c)]
         wid, a = waiting_cause(asks_state, ask_domain(c["id"]))
@@ -4868,6 +4964,11 @@ def today_page(today, notes, desk=None, shown=(), more=0, dropped=0, questions_l
         day.append(desk["watch_line"])
     if questions_line:                                     # the team's open questions: one line, the page behind it
         day.append(questions_line)
+    n_wait, wait_pages = desk.get("fixes_waiting") or (0, [])
+    if n_wait:                                             # rulings over the ask cap stay on their line page (ADR 0014)
+        day.append(f"- {n_wait} more deploy ruling{'s wait' if n_wait != 1 else ' waits'} on "
+                   + " · ".join(f"[[{p}#Fixes on their way|the {p.rsplit('/', 1)[-1]} line page]]" for p in wait_pages)
+                   + " (`ela train answer impact:<KEY> A|B`)")
     if soon:
         day.append(f"- At 10:00 ela does {len(soon)} drafted action{'s' if len(soon) != 1 else ''}"
                    + (f", held until {hold['until']} (dry run)" if hold else "; tick `don't N` to stop one"))
@@ -4877,21 +4978,26 @@ def today_page(today, notes, desk=None, shown=(), more=0, dropped=0, questions_l
         return f"{q}- **{FACT_LABEL.get(h, h)}:** " + l.replace("\n", "\n" + q)
 
     def render(shown, folded):
-        L = [f"# Today · {today:%a %Y-%m-%d}", "", "## In short", ""] + head + ["", "## Facts", ""]
+        L = [f"# Today · {today:%a %Y-%m-%d}", "", "## In short", ""] + head + ["", "## Since you last looked", ""]
         L += [fact(h, l) for h, l in shown]
         if folded:
             L += ([""] if shown else []) + [f"> [!note]- {len(folded)} " + ("more " if shown else "") + "fact" + ("s" if len(folded) != 1 else "") + ("" if shown else " not judged yet")]
             L += [fact(h, l, "> ") for h, l in folded]
         if not shown and not folded:
-            L += ["- Nothing new was read since the last page."]
+            L += ["- Nothing changed since you last looked."]
         L += ["", "## Needs you", ""] + (asks or ["Nothing only you can do."])
         L += ["", "## Today", ""] + (day or ["No meeting and no deadline today."]) + [""]
         return L
 
     def words(shown):                                      # below the head, outside the fold
         return len(plain("\n".join([fact(h, l) for h, l in shown] + asks + day)).split())
-    while len(judged) > FACTS_MIN and words(judged) > TODAY_WORDS:   # judged facts fold from the end, never below three
-        folded, judged = [judged[-1]] + folded, judged[:-1]
+    done = [f for f in judged if f[0] == "Done by ela"]    # ela's own acts lead and are never cut
+    rest = [f for f in judged if f[0] != "Done by ela"]
+    room = max(SINCE_MAX - len(done) - len(fixes), 0)      # the fixes first, then the judged facts, five lines at most
+    folded, rest = rest[room:] + folded, rest[:room]
+    while rest and len(done + fixes + rest) > FACTS_MIN and words(done + fixes + rest) > TODAY_WORDS:   # facts fold from the end
+        folded, rest = [rest[-1]] + folded, rest[:-1]
+    judged = done + fixes + rest
     L = render(judged, folded)
     links = [f"[[{MANUAL[:-3]}|manual]]",
              f"[[{changes.path[:-3]}|what changed]]" if changes else None,
@@ -6267,7 +6373,9 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since
     qcands, cands = unheld(qcands, focus.get("holds"), today), unheld(cands, focus.get("holds"), today)   # a held subject asks nothing
     # a batch of drafted writes (the focus board's moves among them) comes before a question's carry nudge: the board
     # turns a question carried through two meetings into a Jira move, which the nudge only asks about
-    shown, more, _, asks_state = settle_asks(asks_state, mcands + dcands + icands + qcands + cands, today)
+    trains = written_trains(reports)
+    fcands = fix_asks(trains, today)                       # a deploy ruling: after a person waiting, before the drafted writes
+    shown, more, _, asks_state = settle_asks(asks_state, mcands + fcands + dcands + icands + qcands + cands, today)
     for v in asks_state.values():                          # the slots are today's page's: yesterday's numbers mean nothing
         for k in ("slot", "options"):
             v.pop(k, None)
@@ -6311,9 +6419,13 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since
         "meetings": meetings, "builds": builds, "tickets": release_mod().facts_tickets(s.get("runtime"), [k for b in builds for v in b["services"] for k in v.get("keys") or []]),
         "owner": owner_name(os.path.join(s.get("runtime") or "", "facts")), "dry_facts": dry_facts, "views": focus.get("views"),
         "dev_ahead": dev_ahead_line(s.get("runtime")), "watch_line": watch_line(reports),
-        "board": focus.get("text") or "", "kpi": H.kpi_rows(s.get("runtime")), "head": H.load(reports)}
+        "board": focus.get("text") or "", "kpi": H.kpi_rows(s.get("runtime")), "head": H.load(reports),
+        "fixes": since_fixes(trains, since), "fixes_waiting": fixes_waiting(fcands, shown, asks_state)}
     planned[TODAY] = redact(front([], {"type": "today", "date": today.isoformat()}) + linker(today_page(today, notes + native, desk,
         shown, more, dropped, questions_line=qline, asks_state=asks_state)))
+    for day in (day_brief, f"{DAYS}/{today:%Y}/{today.isoformat()}-changes.md"):   # the fix's home is its row: linked from there
+        if day in planned and desk.get("fixes"):
+            planned[day] = link_fix_rows(planned[day], desk["fixes"])
     if not dry_run and desk.get("head_inputs"):            # what the head was judged against: the runner's judge reads it
         H.save(reports, desk["head_inputs"], H.INPUTS)
     planned.update(dry_pages(s["vault"], reports, today, record=not dry_run, jira_base=jira_base))

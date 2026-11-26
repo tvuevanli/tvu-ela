@@ -6,7 +6,8 @@ L1, a module of the vault verb (`ela vault head`, and every `ela vault sync`). T
 with one link to the evidence (vault ela/2026-11-24-plan-today-opens-with-what-the-day-is-about.md, steps 1 and 2).
 
     ## In short     at most HEAD_MAX judged lines ordered by urgency, then one line "Start with …"
-    ## Facts        each line a judgment of what changed, or folded under "N facts not judged"
+    ## Since you last looked  each line a judgment of what changed, or folded under "N facts not judged"; the
+                    fixes whose verdict changed lead it, each linking its row on the line page (train fixes.py)
 
 The head's candidates are the morning page's ranked items, the focus board's Now rows, the project deadlines and the
 KPI breaches (a new ticket nobody owns after 4 hours, an In Progress ticket on him not updated for 24 hours). Every
