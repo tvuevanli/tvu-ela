@@ -17,7 +17,8 @@ class tier 3 names by rule (NEVER) is recorded but never proposed.
                                          state; dry run prints the counts, --apply writes record-seed.jsonl (idempotent)
   draft   <class> <KEY> [--issue-file F] [--child-file F …] [--apply] [--json]
                                          read the parent (or the given files), select the targets by the class's rule.
-                                         link-named and parent-status are tier 1 by decision (2026-11-24): the set is
+                                         link-named no longer drafts (NOT_DRAFTED): the verb answers `not drafted`.
+                                         parent-status is tier 1 by decision (2026-11-24): the set is
                                          ela's own write, a link with no comment on the ticket, a dry run unless --apply, and
                                          listed in ela/dry/did.md with its undo; after a correction returns the class
                                          to confirm, one batch is stored and asked on today.md instead
@@ -207,6 +208,21 @@ SCOPED = ("board-watch",)
 # correction's fall to confirm stands (vault plan 2026-11-24-plan-today-opens-with-what-the-day-is-about, step 3).
 DECIDED = {"link-named": ("2026-11-24T00:00:00+08:00", "decision 2026-11-24-ela-watches-the-mh-board-and-acts-on-jira-signing-each-write"),
            "parent-status": ("2026-11-24T00:00:00+08:00", "decision 2026-11-24-ela-watches-the-mh-board-and-acts-on-jira-signing-each-write")}
+# Classes that stop drafting (vault plan ela/2026-11-26-plan-rebuild-from-the-roots, Decision step 2, item E4). The
+# class stays in the vocabulary with its ladder, tier and record, dormant: no new batch is stored and no set is written
+# (make_batch, act, place), so nothing of it is asked on today.md. What it already did stays readable and reversible:
+# its record rows, its acts, `did` and `undo`, and an open batch stays answerable until it is answered or expires.
+NOT_DRAFTED = {
+    "link-named": "not drafted since 2026-11-26 (plan rebuild-from-the-roots, step 2, E4)",
+    "focus-moves": "not drafted since 2026-11-26 (plan rebuild-from-the-roots, step 2, E4)",
+}
+
+
+def drafted(cls):
+    """False for a class that stopped drafting (NOT_DRAFTED): its callers select nothing and store nothing."""
+    return cls not in NOT_DRAFTED
+
+
 # tier 3 by rule (decision 2026-10-29): recorded, never proposed for a grant
 NEVER = {
     "message-to-person": "a message to a person",
@@ -768,7 +784,10 @@ def make_batch(reports, cls, scope, writes, left, today):
     same writes return it under its own id (its note keeps his strikes); different writes supersede it, and the new
     batch is the one asked. Either way one batch per class and scope stays open. A selection with nothing left to write
     (the links were made by hand, say) closes the open batch for that class and scope as `settled`, with a record line,
-    so its ask leaves today.md: every reader compares the state to `open`, as for a superseded one."""
+    so its ask leaves today.md: every reader compares the state to `open`, as for a superseded one. A class that
+    stopped drafting (NOT_DRAFTED) stores nothing → None; an open batch of it is left as it is, answerable."""
+    if writes and not drafted(cls):
+        return None
     if not writes:
         for p in batches(reports):
             if p.get("state") == "open" and p.get("class") == cls and p.get("scope") == scope:
@@ -810,6 +829,8 @@ def act(reports, cls, scope, writes, today, apply=False, runner=None, now=None):
     class does not admit."""
     if cls not in TIER1_BY_DECISION:
         raise ValueError(f"{cls} is not a tier-1 class by decision")
+    if not drafted(cls):
+        return {"batch": None, "state": "not drafted", "ok": True, "did": [f"{cls}: {NOT_DRAFTED[cls]}"]}
     rx = re.compile(CLASSES[cls]["command"])
     for w in writes:
         if not rx.match(" ".join(w["command"].split())):
@@ -854,7 +875,10 @@ def place(reports, cls, scope, writes, left, today, apply=False, out_dir=None, r
     """Where a selection goes (link-named, parent-status; vault plan 2026-11-24 step 3). At tier 1 by decision it is
     ela's own set: an open batch of the class and scope settles, and `act` writes it (a dry run unless `apply`), each
     link its own act with its own undo and no comment on the ticket (jira.py NOTE_VERBS); listed in ela/dry/did.md. Back at confirm after a correction (tier 3),
-    it is an ordinary batch, asked on today.md. → {"batch": id or None, "state", "did": [...], "left_out"}."""
+    it is an ordinary batch, asked on today.md. A class that stopped drafting (NOT_DRAFTED) writes and stores nothing.
+    → {"batch": id or None, "state", "did": [...], "left_out"}."""
+    if not drafted(cls):
+        return {"batch": None, "state": "not drafted", "did": [f"{cls}: {NOT_DRAFTED[cls]}"], "left_out": left}
     if cls in TIER1_BY_DECISION and load_state(reports)[cls]["tier"] == 1:
         if apply:
             make_batch(reports, cls, scope, [], left, today)          # yesterday's open ask for this scope leaves today.md
@@ -1396,6 +1420,7 @@ def emit(a, obj, lines):
 
 def cmd_classes(a):
     emit(a, CLASSES, [f"{c:20} tier {CLASSES[c]['base']}  {CLASSES[c]['says']}" + ("  · never proposed" if CLASSES[c].get("never") else "")
+                      + (f"  · {NOT_DRAFTED[c]}" if c in NOT_DRAFTED else "")
                       for c in CLASSES])
 
 
@@ -1411,7 +1436,8 @@ def cmd_status(a):
         out.append(j)
         t = j["totals"]
         rec = " · ".join(f"{t[v]} {v}" for v in VERDICTS if t[v])
-        state = ("never proposed (tier 3 by rule)" if j["never"] else
+        j["drafted"] = drafted(c)
+        state = (NOT_DRAFTED[c] if not j["drafted"] else "never proposed (tier 3 by rule)" if j["never"] else
                  "never proposed until it can be undone: " + ", ".join(reversible(c)[1]) if not j["reversible"] else "at the top of its ladder" if not can_rise(c, st[c]) and not j["never_ask"]
                  else "never asked again (his word)" if j["never_ask"] else "mature: one grant ask" if j["mature"] else "needs " + "; ".join(j["needs"]))
         lines.append(f"{c:20} tier {j['tier']}  {rec or 'no record'}"

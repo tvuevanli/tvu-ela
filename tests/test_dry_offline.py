@@ -6,6 +6,9 @@ writes go to a fake runner."""
 import datetime, json, os, sys, tempfile
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "skills", "dry"))
 import dry as D  # noqa: E402
+# The ladder's machinery is replayed here on the classes that stopped drafting (dry.NOT_DRAFTED): the ladder stays in
+# place, dormant, so its tests stay; tests/test_dry_not_drafted_offline.py holds that neither class drafts.
+D.NOT_DRAFTED.clear()
 
 # the site points at a temp runtime: no note in this test reads the real fact store
 RT = tempfile.TemporaryDirectory()

@@ -9,6 +9,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "skills", "vault"))
 import mention as M  # noqa: E402
 import vault as V  # noqa: E402
+# The ladder's machinery is replayed here on the classes that stopped drafting (dry.NOT_DRAFTED): the ladder stays in
+# place, dormant, so its tests stay; tests/test_dry_not_drafted_offline.py holds that neither class drafts.
+M.dry_mod().NOT_DRAFTED.clear()
 
 failures = []
 def check(name, cond):

@@ -780,8 +780,10 @@ def commitments(text):
 
 def implied(text, thread_keys):
     """The dry runs a drafted reply implies, in words, for the message to him (nothing is prepared yet)."""
-    out = []
+    out, off = [], dry_mod().NOT_DRAFTED
     for c in commitments(text)[0]:
+        if c["class"] in off:                              # a class that stopped drafting implies no dry run
+            continue
         ks = c["keys"] or thread_keys[:1]
         out.append({"link-named": "links", "parent-status": "a status comment", "assign-by-rule": "an assignment",
                     "ticket-draft": "a ticket draft from this thread"}[c["class"]]
@@ -819,7 +821,9 @@ def follow(r, text, thread_keys, ctx, source="reply"):
         return first_line(ctx["names"].render(s), 100)
     for c in found:
         cls, cand = c["class"], (c["keys"] or thread_keys)
-        if cls in ("link-named", "parent-status"):
+        if cls in D.NOT_DRAFTED:
+            out["unmapped"].append(f"{cls}: {D.NOT_DRAFTED[cls]} ({words(c['sentence'])})")
+        elif cls in ("link-named", "parent-status"):
             mine = [(k, i) for k, i in ((k, ctx["read"](k)) for k in cand) if i and D.owns(i, ctx["owner"])]
             if not mine:
                 out["unmapped"].append(f"{cls}: names no parent of yours ({words(c['sentence'])})"); continue

@@ -84,9 +84,9 @@ after the mention closes it with nothing posted; an unattended session (`ELA_NO_
 - **His reply withdraws a pending draft.** `$MENTION note <permalink>` (the watcher calls it on any message of his in
   a thread) marks it withdrawn; say nothing further about it. A letter that arrives afterwards is refused.
 - **Follow-through goes through `ela dry`'s classes.** His reply's commitments become batches under assign-by-rule,
-  confirmed there by class; link-named and parent-status are ela's own writes (decision 2026-11-24), made signed by
-  the morning `ela dry draft … --apply` and listed in ela/dry/did.md, and asked as batches only after a correction
-  returns them to confirm. "File a ticket" becomes a local draft under the store;
+  confirmed there by class; link-named no longer drafts (`dry.py` NOT_DRAFTED) and is listed as not acted on;
+  parent-status is ela's own write (decision 2026-11-24), made signed by the morning `ela dry draft … --apply` and listed in ela/dry/did.md, and asked as a batch only after a correction
+  returns it to confirm. "File a ticket" becomes a local draft under the store;
   it is created only on his word. A promise no class covers is listed, not acted on.
 - **His three options keep their letters and order**: A (use, or post, this draft) · B I will write it · C nothing needed. C counts
   against the triage reason of that message; `$MENTION tally` shows each reason's record, and a reason with repeated

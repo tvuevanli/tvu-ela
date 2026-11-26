@@ -15,7 +15,8 @@ questions the same after the meeting); a row on the view the meeting never reach
 (decision 2026-11-24, ela watches the MH board). Carried through CARRY_MAX meetings it gets a proposed Jira move in
 the next batch. The after-scrum import (scrum.py) reads the meeting's Read AI report from mail and drafts the
 moves its action items imply. Every move goes out as one dry-run batch (class focus-moves, `ela dry`), asked A/B on
-today.md; nothing reaches Jira before his A.
+today.md; nothing reaches Jira before his A. Since 2026-11-26 the class does not draft (dry.py NOT_DRAFTED): the moves
+are still selected and shown by `moves`, his up/down words are still read and kept, and no batch is stored.
 
   board   [--json] [--write]          the board and its views; --write writes meetings/focus.md and the store
   hold    SUBJECT [--until X] [--apply]   park a subject everywhere (the session form of `ela: hold`)
@@ -468,8 +469,8 @@ def render(rows, views, holds_on, today, jira, held_rows=()):
     if holds_on:
         L += [f"> [!note]- Held ({len(holds_on)}): " + " · ".join(linked(H.label(h), jira) for h in holds_on)
               + (f" — {len(held_rows)} row{'s' if len(held_rows) != 1 else ''} left out" if held_rows else ""), ""]
-    L += ["---", "", f"Every team question, with its draft: [[{QUESTIONS_PAGE[:-3]}|open questions]] · moves wait as one batch "
-          "on [[today]] · how this board is made: [[ela/about-this-vault|about this vault]]", ""]
+    L += ["---", "", f"Every team question, with its draft: [[{QUESTIONS_PAGE[:-3]}|open questions]] · "
+          "how this board is made: [[ela/about-this-vault|about this vault]]", ""]
     return "\n".join(L)
 
 
@@ -718,6 +719,8 @@ def moves(s, b, today, scrum=None):
 def store_batch(s, writes, left, today, st=None):
     """The writes as one dry-run batch (the comment files written first); his up/down words marked batched."""
     reports = s.get("reports") or ""
+    if not dry_mod().drafted(CLASS):                          # the class stopped drafting: no comment file, no batch
+        return None
     if not writes:
         return dry_mod().make_batch(reports, CLASS, SCOPE, [], left, today)   # nothing left: an open batch settles
     for w in writes:
@@ -809,12 +812,14 @@ def cmd_word(a):
     if not w:
         return said(a, {"ok": False, "already": False, "verb": a.cmd, "why": f"no ticket key in {rest!r}"}, [f"{a.cmd}: no ticket key in {rest!r}"])
     st["words"][key or hashlib.sha1(f"session|{a.cmd}|{rest}|{today}".encode()).hexdigest()[:12]] = w
-    batch = None
+    batch, off = None, dry_mod().NOT_DRAFTED
     if a.apply:
         save(s.get("reports"), st)
         batch = run_moves(s, True)["batch"]
     return said(a, {"ok": True, "already": False, "verb": a.cmd, "key": w["key"], "batch": batch, "applied": a.apply},
-                [f"{a.cmd} {w['key']}: " + (f"in batch {batch}, asked on today.md" if batch else "dry run; --apply stores it and drafts the batch")])
+                [f"{a.cmd} {w['key']}: " + (f"in batch {batch}, asked on today.md" if batch else
+                                      f"read; no move is drafted — {CLASS}: {off[CLASS]}" if CLASS in off else
+                                      "dry run; --apply stores it and drafts the batch")])
 
 
 def run_moves(s, apply, scrum=None, now=None, ruled=None):
@@ -830,9 +835,10 @@ def run_moves(s, apply, scrum=None, now=None, ruled=None):
 
 
 def cmd_moves(a):
-    r = run_moves(site(), a.apply)
+    r, off = run_moves(site(), a.apply), dry_mod().NOT_DRAFTED
     emit(a, r, [f"{w['n']}. {w['command']} — {w['why']}" for w in r["writes"]] + [f"- {x}" for x in r["left_out"]]
-         + [f"batch: {r['batch']}" if r["batch"] else ("nothing to move" if not r["writes"] else "dry run; --apply stores the batch")])
+         + [f"batch: {r['batch']}" if r["batch"] else "nothing to move" if not r["writes"] else
+            f"not stored — {CLASS}: {off[CLASS]}" if CLASS in off else "dry run; --apply stores the batch"])
 
 
 def cmd_scrum(a):

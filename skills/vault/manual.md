@@ -40,7 +40,8 @@ ela runs on its own and writes this vault. You do two things here: give a **fact
 On any live row or ask, as a tick or an `ela:` line under it:
 - `A` / `B` answers it.
 - `hold <subject or key> [until <date or event>]` parks a subject on every page; `ela: resume <subject>` brings it back.
-- `up <key> [why]` / `down <key>` drafts a priority change, asked back to you before Jira moves.
+- `up <key> [why]` / `down <key>` is read and kept. Since 2026-11-26 it drafts no priority change: board moves are
+  dormant, revisited on 2026-12-31.
 - `done` or `drop` closes a note where it is; nothing is deleted.
 - Any other `ela: …` line is read as an instruction; one that needs a session shows `queued`, its answer later under it.
 

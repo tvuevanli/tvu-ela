@@ -10,6 +10,9 @@ import hold as H  # noqa: E402
 import scrum as S  # noqa: E402
 sys.path.insert(0, os.path.join(ROOT, "skills", "dry"))
 import dry as D  # noqa: E402
+# The ladder's machinery is replayed here on the classes that stopped drafting (dry.NOT_DRAFTED): the ladder stays in
+# place, dormant, so its tests stay; tests/test_dry_not_drafted_offline.py holds that neither class drafts.
+D.NOT_DRAFTED.clear()
 
 fails = []
 
