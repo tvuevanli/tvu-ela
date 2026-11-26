@@ -4269,7 +4269,8 @@ def today_page(today, notes, desk=None, shown=(), more=0, dropped=0, questions_l
     while len(judged) > FACTS_MIN and words(judged) > TODAY_WORDS:   # judged facts fold from the end, never below three
         folded, judged = [judged[-1]] + folded, judged[:-1]
     L = render(judged, folded)
-    links = [f"[[{changes.path[:-3]}|what changed]]" if changes else None,
+    links = [f"[[{MANUAL[:-3]}|manual]]",
+             f"[[{changes.path[:-3]}|what changed]]" if changes else None,
              f"[[{brief.path[:-3]}|morning page]]" if brief else None,
              f"[[{ONE_THING[:-3]}|one thing]]" if any(n.path == ONE_THING for n in notes) else None,
              f"[[{LANES_PAGE[:-3]}|lanes]]" if any(n.props.get("type") == "lanes" for n in notes) else None,

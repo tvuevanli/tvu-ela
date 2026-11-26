@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The owner's manual, offline: its source lints clean, the lint names an ela plan of MANUAL_FROM or later that
-its `covers` leaves out (never a baseline plan); test_vault_offline checks the sync writes it."""
-import os, sys, tempfile
+its `covers` leaves out (never a baseline plan), and today.md's foot links it; test_vault_offline checks the sync writes it."""
+import datetime, os, sys, tempfile
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "skills", "vault"))
 import vault as V  # noqa: E402
@@ -45,6 +45,10 @@ with tempfile.TemporaryDirectory() as vault:
           not any(x in " ".join(lines) for x in ("baseline", "plan-covered", "proposed", "plan-helm")))
     found = {r: l for r, _, l in V.lint_notes(vault)}
     check("lint_notes carries the line on manual.md", any("plan-new" in x for x in found.get(V.MANUAL, [])))
+
+page = V.today_page(datetime.date(2026, 11, 26), [], {}, [])
+foot = page.rstrip().splitlines()[-1]
+check("today.md's foot links the manual first", foot.startswith("[[manual|manual]] · "))
 
 if failures:
     print(f"{len(failures)} failed"); sys.exit(1)

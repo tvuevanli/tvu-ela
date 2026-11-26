@@ -86,7 +86,7 @@ check("the worked example renders as the QA fact's line", f"- **QA:** {JUDGED}" 
 check("the bare fact is not shown outside the fold", FACT not in facts2.split("> [!note]-")[0])
 check("the facts without a judgment are folded under one line", "> [!note]- 2 more facts" in facts2)
 check("yesterday's judgment is not today's", "Start with route MH-4090" in V.today_page(TUE + datetime.timedelta(days=1), notes, {"kpi": desk["kpi"], "head": state}))
-check("the links row stays at the foot", page2.rstrip().splitlines()[-1].startswith("[[reference/days/2026/2026-11-24-changes|what changed]]")
+check("the links row stays at the foot", page2.rstrip().splitlines()[-1].startswith("[[manual|manual]] · [[reference/days/2026/2026-11-24-changes|what changed]]")
       and page2.rstrip().splitlines()[-3] == "---")
 
 # the word budget below the head: judged facts fold from the end, never below three
