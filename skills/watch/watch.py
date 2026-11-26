@@ -558,8 +558,9 @@ def quiet_problem(writes, text, quiet):
     if "*" in quiet:
         return f"a correction quieted this ticket: no write from ela until {quiet['*']}; an ask or none"
     for w in writes:
-        if w.get("verb") in quiet:
-            return f"a correction quieted {w['verb']} on this ticket: not written by ela until {quiet[w['verb']]}; an ask or none"
+        v = "transition" if w.get("verb") == VERIFIED else w.get("verb")      # a close is a status change
+        if v in quiet:
+            return f"a correction quieted {v} on this ticket: not written by ela until {quiet[v]}; an ask or none"
     if text and "comment" in quiet:
         return f"a correction quieted ela's comments on this ticket until {quiet['comment']}; an ask or none"
     return None
@@ -746,10 +747,26 @@ def command_of(key, w, note):
     raise ValueError(v)
 
 
-def check_act(key, d, iss, rec, today, quiet=None):
-    """Why a decision to act may not go out, or None. `quiet` the fields a correction quieted here (quiets()[key])."""
+def check_act(key, d, iss, rec, today, quiet=None, runtime=None):
+    """Why a decision to act may not go out, or None. `quiet` the fields a correction quieted here (quiets()[key]);
+    `runtime` where a verified close's run is kept."""
     if rec.get("acted") == today:
         return "one set of writes a day: this ticket had its set today"
+    vc = [w for w in d.get("writes") or [] if w.get("verb") == VERIFIED]
+    if vc:
+        if len(d.get("writes") or []) != 1:
+            return "a verified close is its set's only write"
+        if d.get("confidence") != "high":
+            return "a verified close rests on a mechanical proof: confidence high, or a QA comment instead"
+        problem = verified_gate(key, vc[0], runtime)
+        if problem:
+            return problem
+        text = (d.get("comment") or "").strip()
+        if not text or str(vc[0].get("lane")) not in text:
+            return "a verified close carries the proof as its comment: the lane, the build and what passed"
+        if ABOUT_PEOPLE.search(text):
+            return "the comment speaks about a person; anything about people is the owner's: an ask"
+        return J.language_problem(J.signed(text, "x"), ticket_text(iss)) or None
     if (quiet_until(rec) or "") > today:
         return (f"a reply disputed ela's comment here on {rec['disputed']}: no comment from ela until {quiet_until(rec)}; "
                 "an ask or none")
@@ -791,10 +808,16 @@ def check_act(key, d, iss, rec, today, quiet=None):
     return None
 
 
-def act_writes(key, d, reports):
+def act_writes(key, d, reports, signer=None):
     """The decision's set as `ela dry` writes: the comment's file, then the field changes (each naming the note jira.py
-    posts after it; the same note again is one comment, jira.py skips an identical one), or the comment alone."""
+    posts after it; the same note again is one comment, jira.py skips an identical one), or the comment alone. A
+    verified close is `ela jira close --terminal`, its note the proof, signed here (the close posts it as written)."""
     writes = d.get("writes") or []
+    if any(w.get("verb") == VERIFIED for w in writes):
+        text = J.signed((d.get("comment") or "").strip(), signer or "the owner")
+        p = os.path.join(drafts_dir(reports), f"{key}-{hashlib.sha1(text.encode()).hexdigest()[:8]}.txt")
+        return p, text, [{"target": key, "command": f"ela jira close {key} --terminal --to Done --from-file {p} --no-mention",
+                          "why": clip(d.get("why") or "", 200) or "verified by ela", "confidence": "high"}]
     links_only = bool(writes) and all(w.get("verb") == "link" for w in writes)
     text = "" if links_only else (d.get("comment") or "").strip()     # a set of links alone posts nothing on the ticket:
     #                                    MH's Automation copies a comment to the linked tickets (MH-3998, 2026-11-25)
@@ -817,6 +840,40 @@ def dry_mod():
     sys.path.insert(0, os.path.join(SKILLS, "dry"))
     import dry as D                                            # noqa: E402 — the class, its record and its undo
     return D
+
+
+# ── a verified close (plan ela/2026-11-26-plan-sweep-judges-every-field, first slice 5) ──────────────────────────────
+VERIFIED = "verified-close"             # its own class in `ela dry`, tier 1 by the owner's word of 2026-11-26
+
+
+def verify_mod():
+    sys.path.insert(0, os.path.join(SKILLS, "verify"))
+    import verify as V                                         # noqa: E402 — the verdict of a run: one place
+    return V
+
+
+def verified_gate(key, w, runtime):
+    """Why a verified close may not go out, or None. The proof is mechanical: a stored run of the ticket under
+    <runtime>/browser/runs/<KEY>-…, its env.json proven on the lane the decision names, and its cases.json passing by
+    /ela:verify's own verdict (verify.overall), not by the session's reading."""
+    runs = os.path.realpath(os.path.join(runtime or "", "browser", "runs"))
+    run = os.path.realpath(str(w.get("run") or ""))
+    if not w.get("run") or os.path.dirname(run) != runs or not os.path.basename(run).startswith(key + "-"):
+        return f"a verified close names its run, <runtime>/browser/runs/{key}-<date>"
+    env = read_json(os.path.join(run, "env.json"), None)
+    if not env or not str(env.get("verdict") or "").startswith("proven"):
+        return "the run's lane is not proven (env.json from `ela browser env`): no verified close, a QA comment instead"
+    lane = str(w.get("lane") or "")
+    if not lane or str(env.get("lane") or "") != lane:
+        return f"the run proved lane {env.get('lane')!r}, not {lane!r}"
+    cases = read_json(os.path.join(run, "cases.json"), None)
+    if cases is None:
+        return "the run keeps no cases.json: nothing shows the cases passed"
+    rows = cases.get("result") if isinstance(cases, dict) else cases
+    verdict = verify_mod().overall(rows or [], env, read_json(os.path.join(run, "plan.json"), None))
+    if verdict != "pass":
+        return f"the run's verdict is {verdict}, not pass: a fail reopens with its evidence, anything else goes to QA"
+    return None
 
 
 # ── the second reading (plan ela/2026-11-26-plan-sweep-judges-every-field, first slice 3) ─────────────────────────────
@@ -958,7 +1015,8 @@ def unsure(d):
 
 
 FIELDS = ("assignee", "status", "priority", "due", "links", "comment")   # what a none may judge unneeded: a closed list
-VERB_FIELD = {"assign": "assignee", "transition": "status", "priority": "priority", "due": "due", "link": "links"}
+VERB_FIELD = {"assign": "assignee", "transition": "status", "priority": "priority", "due": "due", "link": "links",
+              "verified-close": "status"}
 
 
 def decided_path(reports):
@@ -1014,7 +1072,7 @@ def decide(decisions, scanned, facts, reports, now, apply=False, runner=None, ju
         if verdict in ("act", "none") and unsure(d):
             out["refused"].append({"key": key, "why": unsure(d)}); continue
         if verdict == "act":
-            problem = check_act(key, d, iss, rec, today.isoformat(), quiet.get(key))
+            problem = check_act(key, d, iss, rec, today.isoformat(), quiet.get(key), os.path.dirname(facts or ""))
             if problem:
                 out["refused"].append({"key": key, "why": problem}); continue
             if d["confidence"] == "low":                       # nothing to Jira: the owner confirms it first
@@ -1028,12 +1086,13 @@ def decide(decisions, scanned, facts, reports, now, apply=False, runner=None, ju
                     rec.update(decided=now.isoformat(timespec="seconds"), verdict="ask", pending=[])
                     keep(key, "held", d, fields=[VERB_FIELD.get(w.get("verb")) for w in d.get("writes") or []])
                 continue
-            path, text, writes = act_writes(key, d, reports)
+            closing = any(w.get("verb") == VERIFIED for w in d.get("writes") or [])
+            path, text, writes = act_writes(key, d, reports, (owner_of(facts) or {}).get("name") if closing else None)
             os.makedirs(os.path.dirname(path), exist_ok=True)
             with open(path, "w", encoding="utf-8") as f:
                 f.write(text + "\n")
             try:
-                got = D.act(reports, CLASS, key, writes, today, apply=apply, runner=runner, now=now)
+                got = D.act(reports, VERIFIED if closing else CLASS, key, writes, today, apply=apply, runner=runner, now=now)
             except ValueError as e:
                 out["refused"].append({"key": key, "why": str(e)}); continue
             out["acts"].append({"key": key, "writes": [w["command"] for w in writes], "comment": text, **got})

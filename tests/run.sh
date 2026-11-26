@@ -97,6 +97,7 @@ python3 tests/test_watch_disputes_offline.py || fail=1
 python3 tests/test_watch_tracked_offline.py || fail=1
 python3 tests/test_watch_measure_offline.py || fail=1
 python3 tests/test_watch_review_offline.py || fail=1
+python3 tests/test_watch_verified_offline.py || fail=1
 python3 tests/test_dry_undo_offline.py || fail=1
 python3 tests/test_mention_offline.py || fail=1
 python3 tests/test_mention_post_offline.py || fail=1

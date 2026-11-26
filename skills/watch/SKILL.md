@@ -81,6 +81,36 @@ How to read the triggers:
 | changed | respond to the change: a reopen to its assignee, a question to the owner answered or asked |
 | tracked | the owner follows this ticket (its reason is on the ticket's line): judge its whole state after the change, as he would read it against that reason. Act only where another trigger would; otherwise a none whose `why` says in one line where it now stands (who holds it, what changed, what is left against his reason), or an ask when the change touches his reason |
 
+## A fix that waits only on a check: verify it first
+
+A ticket whose fix is live on a lane and that now waits only on someone checking it is not handed to QA by default
+(the owner's word, 2026-11-26). First judge whether ela can test it itself, read-only over the product, as the test
+account `li` (`TVU_TEST_ACCOUNT`; `el` is used only to switch li's bundle to the lane under test):
+
+1. Where the fix is: `ela fixed-in <KEY> --json` (the lanes whose build carries it) or `ela release`.
+2. Whether it can be driven: a behaviour in the product (`/ela:verify <KEY> --lane <lane>`, the version panel as
+   proof), the stream itself (`ela stream probe`), the product's own data (`ela graph`, `ela logs`, Sentry). Set up
+   what the case needs as li: a graph, a source the case allows (YouTube, HTML, HLS are at hand; a passthrough case
+   cannot use YouTube; SRT is pushed by ela or by MediaHub from another source), a destination.
+3. Write the plan, run it, keep the evidence in `<runtime>/browser/runs/<KEY>-<date>/`. The run must start with
+   `ela browser env --key <KEY> --lane <lane> --shots <run>/shots --json > <run>/env.json` (the proven lane) and keep
+   the cases' results in `<run>/cases.json` (`ela browser run --json`).
+
+Then decide:
+
+- **Pass**: an act with the single write `{"verb": "verified-close", "run": "<the run dir>", "lane": "<lane>"}`,
+  confidence high, and the proof as the comment: the lane, the build, what passed, in a few lines. decide checks the
+  run itself (env.json proven on that lane, cases.json passing by /ela:verify's verdict) and refuses anything less;
+  the close goes out as `ela jira close --terminal`, signed, under its own class.
+- **Fail**: an act that reopens it (`transition` to Reopened, or `assign` back to its developer) with the evidence in
+  the comment: what was run, on which lane and build, what was observed.
+- **Cannot be driven** (hardware, a customer's setup, a case li cannot reach): a short comment to QA built from the
+  code: the cases to run, the lane, the build that carries the fix. A few lines, never a file-and-line explanation.
+
+The worked case is MH-3823 on 2026-11-26 (run `<runtime>/browser/runs/MH-3823-2026-11-26/`): an SRT listener set up as
+li on prod-3, two clients connected and dropped, the state read off the page. That run kept no env.json, so under this
+gate it would have gone to the owner, not closed: start every run with the panel read.
+
 ## Replies to ela's comments
 
 The prompt's last section lists each reply after a comment ela signed that no pass has judged. Mark each: does it

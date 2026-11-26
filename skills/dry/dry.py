@@ -183,8 +183,21 @@ CLASSES = {
                 "reviewed afterwards in ela/dry/did.md, a disputing reply on the ticket a correction",
         "reverse": (("assign", "--assignee"), ("comment-delete", "--id"), ("unlink", "--id")),
     },
+    "verified-close": {
+        "says": "close an MH ticket ela verified itself: the fix proven live on a lane by its own run as the test account, "
+                "the proof as the closing comment",
+        "atom": ("jira", "close"), "noun": ("verified close", "verified closes"), "ladder": (1,), "base": 1,
+        "rule": "the board watch's (ela watch): a ticket whose fix is live and waits only on a check; ela's /ela:verify run "
+                "as li on the lane passed, with a stored run (env.json proven on that lane, cases.json passing); one close "
+                "per ticket, never on a fail or an unproven lane",
+        "command": r"^ela jira close " + KEY + r" --terminal --to Done --from-file \S+ --no-mention\s*$",
+        "case": "the owner's word of 2026-11-26 (a verified pass closes the ticket, a recorded exception to a close being his "
+                "word; vault plan ela/2026-11-26-plan-sweep-judges-every-field, first slice 5); a reopen is a correction "
+                "and returns the class to his confirm",
+        "reverse": (),
+    },
 }
-TIER1_BY_DECISION = ("board-watch", "link-named", "parent-status")   # written at the pass that decides them, each act on record with its undo
+TIER1_BY_DECISION = ("board-watch", "link-named", "parent-status", "verified-close")   # written at the pass that decides them, each act on record with its undo
 # A correction of these classes quiets the corrected field on its ticket instead of returning the class to confirm: the
 # board watch's verbs reach hundreds of tickets, so one disputed comment says nothing about the others, and a ladder of
 # (1,) could never climb back (vault plan ela/2026-11-26-plan-sweep-judges-every-field, first slice 1). The row keeps
