@@ -63,6 +63,8 @@ The identity is `mention_post_as` in site.json (off · ela · owner). Exit codes
 import argparse, contextlib, datetime, glob, hashlib, html, io, json, os, re, subprocess, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(HERE, "..", "slack"))
+import tiers as TI  # noqa: E402 — the information tier of each kind of notice: one table
 SITE = os.path.expanduser("~/.claude/ela/site.json")
 TZ = datetime.timezone(datetime.timedelta(hours=8))
 EX_USAGE, EX_NOTFOUND, EX_REFUSED, EX_REMOTE = 2, 3, 4, 5
@@ -528,15 +530,16 @@ def todo(recs, day, now):
         if r.get("revise"):                                # his A came with words: the next draft follows them
             base["revise"] = r["revise"]["words"]
         if r["triage"] == "incident":
-            out.append(dict(base, do="dm", kind="incident", text=r.get("draft")))
+            out.append(dict(base, do="dm", kind="incident", text=r.get("draft"), tier=TI.tier("mention", "incident")))
         elif r.get("hold") or (now >= parse(r["due_at"]) and not in_hours(day, now)):
-            out.append(dict(base, do="today" if r.get("draft") else "draft", route="today"))
+            out.append(dict(base, do="today" if r.get("draft") else "draft", route="today", tier=TI.tier("mention", "ask-held")))
         elif now < parse(r["due_at"]):
             out.append(dict(base, do="timer", at=r["due_at"]))
         elif not r.get("draft"):
-            out.append(dict(base, do="draft", route="dm"))
+            out.append(dict(base, do="draft", route="dm", tier=TI.tier("mention", "ask")))
         else:
-            out.append(dict(base, do="dm", kind="ask", text=r["draft"]))
+            out.append(dict(base, do="dm" if TI.messages_now("mention", "ask") else "today", kind="ask", text=r["draft"],
+                            tier=TI.tier("mention", "ask")))
     return out
 
 

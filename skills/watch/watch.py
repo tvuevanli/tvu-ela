@@ -64,6 +64,8 @@ sys.path.insert(0, os.path.join(SKILLS, "jira"))
 sys.path.insert(0, os.path.join(SKILLS, "focus"))
 import jira as J  # noqa: E402 — the signing rule and the comment's text: one place
 import hold as H  # noqa: E402 — the holds, `ela: hold <key>`
+sys.path.insert(0, os.path.join(SKILLS, "slack"))
+import tiers as TI  # noqa: E402 — the information tier of each kind of notice: one table
 
 SITE = os.path.expanduser("~/.claude/ela/site.json")
 TZ = datetime.timezone(datetime.timedelta(hours=8))
@@ -937,11 +939,13 @@ def dm_plan(topics, today, base=""):
     fresh = sorted((t for t in open_ if not t.get("thread")), key=lambda t: t["key"])
     if not fresh:
         return []
+    if TI.tier("watch", "topic") != TI.I2:                    # a topic is his decision, not an interruption: the
+        return []                                               # one reminder below is I2's Slack line, nothing more
     lines = [f"ela · the board watch · {today:%a %m-%d}: {len(fresh)} new topic{'s' if len(fresh) != 1 else ''}, "
              f"{len(open_)} waiting in all. They are on the vault page {WATCH_PAGE[:-3]}; answer in the CLI with "
              "`ela watch answer watch:<KEY> <letter>`."]
     lines += [f"• {t['key']} {(t.get('summary') or '')[:70]}".rstrip() + (f" {base}/browse/{t['key']}" if base else "") for t in fresh]
-    return [{"kind": "reminder", "topics": [t["id"] for t in fresh], "text": "\n".join(lines)}]
+    return [{"kind": "reminder", "tier": TI.I2, "topics": [t["id"] for t in fresh], "text": "\n".join(lines)}]
 
 
 def slack_post(argv, apply):

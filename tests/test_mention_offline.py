@@ -133,7 +133,7 @@ with tempfile.TemporaryDirectory() as tmp:
     a2 = f"{CH}-{ts(11, 0)}"
     check("before the wait ends: a timer", todo(at(11, 20))[a2]["do"] == "timer")
     check("the wait over, in his hours: a draft is owed, for a message", todo(at(11, 31))[a2] == {"id": a2, "permalink": recs[a2]["permalink"], "triage": "ask",
-                                                                                                   "do": "draft", "route": "dm"})
+                                                                                                   "do": "draft", "route": "dm", "tier": "I1"})
     related = lambda k, skip: [{"link": "https://slack.example/archives/C0QA/p1", "channel": "qa", "date": "2026-11-10", "first": "build 90 carries it", "id": "x"}] if k == "MH-3735" else []
     recs[a2]["facts"] = M.gather(recs[a2], t2, names, ISSUES.get, related)
     lines = recs[a2]["facts"]["lines"]
@@ -200,7 +200,7 @@ with tempfile.TemporaryDirectory() as tmp:
     a5 = f"{CH}-{ts(21, 0)}"
     M.save(R, recs)
     check("held: a draft owed for today.md, never a message", recs[a5]["hold"] and todo(at(21, 5))[a5] == {"id": a5, "permalink": recs[a5]["permalink"],
-                                                                                                         "triage": "ask", "do": "draft", "route": "today"}
+                                                                                                         "triage": "ask", "do": "draft", "route": "today", "tier": "I2"}
           and todo(at(9, 30, 13))[a5]["route"] == "today")
     ask = [x for x in M.asks(R) if x["id"] == f"mention:{a5}"]
     check("before a draft the slot offers B and C under his letters", len(ask) == 1 and [o["letter"] for o in ask[0]["options"]] == ["B", "C"])

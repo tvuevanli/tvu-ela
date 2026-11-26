@@ -185,7 +185,7 @@ with tempfile.TemporaryDirectory() as tmp:
     r = M.answer(R, a6, "A but thank the QA lead too", None, at(14, 40), post("ela"))
     d = [x for x in M.todo(M.load(R), DAY, at(14, 41)) if x["id"] == a6]
     check("A with words posts nothing: a new draft is owed, with his words", len(fake.posts) == 1 and not r.get("answer") and "not an approve" in r["said"]
-          and d == [{"id": a6, "permalink": r["permalink"], "triage": "ask", "revise": "but thank the QA lead too", "do": "draft", "route": "dm"}])
+          and d == [{"id": a6, "permalink": r["permalink"], "triage": "ask", "revise": "but thank the QA lead too", "do": "draft", "route": "dm", "tier": "I1"}])
     try:
         M.answer(R, a6, "AB", None, at(14, 41), post("ela")); bad = False
     except ValueError:
