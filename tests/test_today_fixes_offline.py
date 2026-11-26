@@ -36,7 +36,7 @@ train = {"line": "2.1", "at": "2026-11-26T09:00+08:00", "lanes": LANES,
 
 lines = V.since_fixes([train], "2026-11-25T12:00:00+08:00")
 check("only the fixes whose verdict changed since he looked, blocks first, each linking its row",
-      len(lines) == 5 and lines[0].startswith("- MH-4097 fail on build 100 — blocks:") and "[[releases/2.1/2.1#^fix-mh-4097|its row]]" in lines[0]
+      len(lines) == 5 and lines[0].startswith("- MH-4097 title of MH-4097 · ") and "fail on build 100 — blocks:" in lines[0] and "[[releases/2.1/2.1#^fix-mh-4097|its row]]" in lines[0]
       and not any("MH-3000" in l for l in lines))
 check("before the first opening is recorded, no line", V.since_fixes([train], None) == [])
 
@@ -53,7 +53,8 @@ shown, more, _, state = V.settle_asks({}, fcands, THU)
 desk = {"fixes": lines[:3], "fixes_waiting": V.fixes_waiting(fcands, shown, state)}
 page = V.today_page(THU, [changes], desk, shown)
 since = page.split("## Since you last looked", 1)[1].split("## Needs you", 1)[0]
-check("Facts is now Since you last looked, the fixes leading it", "## Facts" not in page and since.strip().startswith("- **Fixes:** MH-4097 fail on build 100"))
+check("Facts is now Since you last looked, the fixes leading it", "## Facts" not in page and since.strip().startswith("- **Fixes:** MH-4097 title of MH-4097 · ")
+      and "fail on build 100" in since.strip().splitlines()[0])
 check("a QA verdict is not told again as a fact once the fixes are there", "**QA:**" not in since and "partial: MH-4097" not in since)
 check("at most five lines outside the fold", len([l for l in since.splitlines() if l.startswith("- ")]) <= V.SINCE_MAX)
 needs = page.split("## Needs you", 1)[1].split("## Today", 1)[0]
