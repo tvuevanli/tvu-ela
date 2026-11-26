@@ -1166,10 +1166,24 @@ with tempfile.TemporaryDirectory() as t:
     open(os.path.join(v, "releases", "s.md"), "w").write('---\ntype: "review"\nstatus: "done"\n---\n# S\n\nSee MH-7 and https://x.slack.com/archives/C1/p1793000000000009\n')
     check("a done note is stamped like an archived one", "releases/s.md" in V.stamp_archive(v, td, dry_run=True))
 with tempfile.TemporaryDirectory() as t:
+    tv, tr = os.path.join(t, "vault"), os.path.join(t, "reports")
+    os.makedirs(os.path.join(tv, "ela"))
+    open(os.path.join(tv, "ela", "2026-11-01-plan-x.md"), "w").write('---\ntype: "plan"\nstatus: "done"\narchived: "2026-11-02"\n---\n# X\n')
+    site_was = V.SITE
+    V.SITE = os.path.join(t, "site.json")
+    json.dump({"vault": tv, "reports": tr}, open(V.SITE, "w"))
     buf = io.StringIO()
-    with contextlib.redirect_stdout(buf):
-        V.cmd_tidy(types.SimpleNamespace(apply=True, json=False))
-    check("tidy is retired with layout 5 and points to migrate", "migrate" in buf.getvalue())
+    try:
+        with contextlib.redirect_stdout(buf):
+            V.cmd_tidy(types.SimpleNamespace(apply=False, json=False, undo=None, links=False))
+        dry = buf.getvalue()
+        with contextlib.redirect_stdout(io.StringIO()):
+            V.cmd_tidy(types.SimpleNamespace(apply=True, json=False, undo=None, links=False))
+    finally:
+        V.SITE = site_was
+    check("tidy's dry run lists a done plan's move and arms nothing; --apply moves it and arms the sync (ADR 0025)",
+          "DRY RUN — ela/2026-11-01-plan-x.md → ela/history/2026-11-01-plan-x.md" in dry and "arms the sync" in dry
+          and os.path.isfile(os.path.join(tv, "ela", "history", "2026-11-01-plan-x.md")) and V.tidy_state(tr).get("armed"))
 # release lines (mh/releases/<line>/): the line from the title, else the first key's release label, else the root
 L = {"MH-1": "2.1", "MH-2": None, "MH-5": "2.0"}.get
 check("a release note is filed by the line its title names first, else its first key's label, else its lane, else reference/ (never the releases/ root)",

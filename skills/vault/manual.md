@@ -2,7 +2,7 @@
 aliases: ["manual"]
 type: "manual"
 updated: "2026-11-26"
-covers: ["2026-11-24-plan-today-opens-with-what-the-day-is-about", "2026-11-25-plan-read-once-at-fixed-times", "2026-11-26-plan-every-notice-goes-through-one-tier-gate", "2026-11-26-plan-fixes-followed-to-prod-one-home-per-fact", "2026-11-26-plan-ela-runs-on-its-own-asks-teach-it", "2026-11-26-plan-ela-described-in-the-vault-from-its-sources"]
+covers: ["2026-11-24-plan-today-opens-with-what-the-day-is-about", "2026-11-25-plan-read-once-at-fixed-times", "2026-11-26-plan-every-notice-goes-through-one-tier-gate", "2026-11-26-plan-fixes-followed-to-prod-one-home-per-fact", "2026-11-26-plan-ela-runs-on-its-own-asks-teach-it", "2026-11-26-plan-ela-described-in-the-vault-from-its-sources", "2026-11-26-plan-permanent-pages-apart-from-working-notes"]
 ---
 
 # How you use this vault
@@ -27,6 +27,7 @@ ela runs on its own and writes this vault. You do two things here: give a **fact
 | [[ela/watch\|ela/watch]] | board-watch topics waiting for your letter |
 | `ela/dry/` | Jira writes held for your A; `did.md` lists what ela wrote on its own |
 | `ela/` | how ela itself works and its plans; you do not need it day to day |
+| `history/` | done work, after a day |
 
 ## The words you can write
 

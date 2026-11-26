@@ -22,7 +22,8 @@ Layout 5, things and angles (ela ADR 0015). The vault holds things (what the own
 about a thing in that home) and angles (the same things told for one reader at one moment, storing nothing of their
 own). Eight roots, full lowercase nouns; a dated note is <date>-<kind>-<what>.md and its folder carries the subject.
 A work note (decision, plan, sprint, review, ticket, verify, verify-plan, draft) is `live` or `done`, a property: a
-move sets it, never the folder. A vault in another layout is not synced: `vault.py migrate` lists the one pass, and
+move sets it, never the folder; in ela/ and reference/ a done one moves to history/ once quiet (ADR 0025, tidy_pass).
+A vault in another layout is not synced: `vault.py migrate` lists the one pass, and
 `--apply` makes it; for 14 days an old path given to a verb is read as its new one.
     today.md                                    the one page: in short, facts, at most three asks, today (ADR 0014;
                                                 the head and judged facts: head.py); home.md
@@ -210,7 +211,9 @@ ela writes this vault from first-hand sources, and it holds things and angles (e
 - An **angle** is the same things told for one reader at one moment: [[today]] for you, a meeting's rows on
   [[meetings/focus|the focus board]] for a team. It stores nothing of its own.
 - A work note (a plan, a review, a verification, a draft) is `live` or `done`, a property. Choosing its `next`
-  changes that, never its folder; a done note is the record and is never written again.
+  changes that, never its folder; a done note is the record and is never written again. In `ela/` and `reference/`
+  a done one moves to the folder's `history/` a day after it closed, its name kept and its links following
+  (ela ADR 0025); `ela vault tidy --undo <date>` puts a day's moves back.
 - today.md opens with **In short**: at most five lines, most urgent first, each what it means for you and what to
   do, with one link; the last says where to start. A fact below it says what it means too, or it is folded.
 - An ask lives once, on its thing. today.md links at most three; one unanswered on three working mornings leaves
@@ -522,8 +525,8 @@ def home_for(rel, props, line_of_key=None):
     """The thing's home of a work note that names no project: a case → cases/; a verification, a verification plan,
     or a review of a release (a promotion, deploy, docker check or release review, by its file name or title) → its
     line's folder releases/<line>/ (release_line), else releases/; a plan, decision or review whose target (else its
-    title) names ela, its runner, elak or the vault → ela/ (live; ela/history/ keeps what was closed before layout 5);
-    anything else → reference/."""
+    title) names ela, its runner, elak or the vault → ela/ (once done and quiet, the tidy moves it to ela/history/, ADR 0025);
+    anything else → reference/ (its done ones to reference/history/ the same way)."""
     kind = (props.get("type") or "").strip()
     name = os.path.basename(rel)[:-3] if rel.endswith(".md") else os.path.basename(rel)
     if kind == "case":
@@ -1135,6 +1138,353 @@ def relocate_vault_links(vault, dry_run=False):
             if not dry_run:
                 atomic_write(os.path.join(vault, rel), new)
     return changed
+
+
+# ── a home's top level: its permanent pages and the work still in play; done work notes in its history/ ──────────
+# ADR 0025, amending ADR 0015 for done work notes in ela/ and reference/. A work note (a work type: decision, plan,
+# review, ticket, verify, draft …) whose status is done moves to its home's history/, its name kept; nothing else moves:
+# a live note, a permanent page, a report, a case, a project's notes (a project leaves as a whole folder when it ends),
+# and release lines keep tidy_releases. Each move is a rename row tagged with the pass and its batch, logged before the
+# file moves, so a crash between the two never reads as the owner's deletion; a batch that fails is put back whole.
+# Path links to it are rewritten in the notes the vault owns (a generated page is written again by the next sync, so
+# its generator links by name). A note moves only once it is quiet: closed (`archived:`) before today, its file what
+# the sync last wrote or of the vault's own, and not open in Obsidian. The sync runs it after the status fixes, once
+# `ela vault tidy --apply` has armed it, at most TIDY_CAP moves a run; `--undo` replays a batch backwards and logs that
+# too (vault plan ela/2026-11-26-plan-permanent-pages-apart-from-working-notes.md, round 3).
+TIDY_HOMES = (ELA, REF)
+TIDY_CAP = 10                       # moves a run: a wrong rule moves ten notes, not the vault
+TIDY_PASS, TIDY_UNDO = "tidy", "tidy-undo"
+TIDY_STATE = "tidy.json"            # <reports>/ela/: {"armed": when}, set by the first `ela vault tidy --apply`
+
+
+def tidy_state(reports):
+    try:
+        return json.load(open(os.path.join(reports or "", "ela", TIDY_STATE), encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def arm_tidy(reports, now):
+    st = tidy_state(reports)
+    if not st.get("armed"):
+        os.makedirs(os.path.join(reports, "ela"), exist_ok=True)
+        atomic_write(os.path.join(reports, "ela", TIDY_STATE), json.dumps({**st, "armed": now.isoformat(timespec="seconds")}) + "\n")
+
+
+def open_in_obsidian(vault):
+    """The vault paths open in a tab of Obsidian's workspace; empty when it cannot be read."""
+    def files(node):
+        if node.get("type") == "leaf":
+            yield ((node.get("state") or {}).get("state") or {}).get("file")
+        for c in node.get("children") or []:
+            yield from files(c)
+    try:
+        ws = json.load(open(os.path.join(vault, ".obsidian", "workspace.json"), encoding="utf-8"))
+    except (OSError, ValueError):
+        return set()
+    out = set()
+    for side in ("main", "left", "right"):
+        try:
+            out |= {f for f in files(ws.get(side) or {}) if f}
+        except AttributeError:
+            continue
+    return out
+
+
+def manifest_of(vault):
+    try:
+        return json.load(open(os.path.join(vault, MANIFEST), encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def tidy_plan(vault, now=None, cap=None):
+    """(moves, held): each done work note at the top of ela/ and reference/ that is quiet, with where it goes,
+    [{note, to}], at most `cap`; and each done one that stays this run with why, [{note, why}]: closed today or not
+    stamped, edited since the sync wrote it, open in Obsidian, a namesake already in history/ (his word), over the cap."""
+    now = now or datetime.datetime.now()
+    m = manifest_of(vault)
+    wrote, opened = m.get("wrote") or {}, open_in_obsidian(vault)
+    moves, held = [], []
+    for home in TIDY_HOMES:
+        d = os.path.join(vault, home)
+        for f in sorted(os.listdir(d)) if os.path.isdir(d) else []:
+            p, rel = os.path.join(d, f), f"{home}/{f}"
+            if not f.endswith(".md") or not os.path.isfile(p) or conflict_copy(f):
+                continue
+            try:
+                text = open(p, encoding="utf-8").read()
+            except (OSError, UnicodeDecodeError):
+                continue
+            props = props_of(split_front(text)[0])
+            if family_of(props.get("type")) != "work" or (props.get("status") or "").strip().lower() != DONE:
+                continue
+            new = f"{home}/{HISTORY_SUB}/{f}"
+            closed = str(props.get("archived") or "")[:10]
+            why = (f"{new} exists: keep both under one name, or retire one — your word" if os.path.exists(os.path.join(vault, new))
+                   else "no archived stamp yet" if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", closed)
+                   else "closed today" if closed >= now.date().isoformat()
+                   else "edited since the sync wrote it" if rel in wrote and wrote[rel] != digest(text)
+                   else "open in Obsidian" if rel in opened
+                   else "over this run's cap" if cap is not None and len(moves) >= cap
+                   else None)
+            if why:
+                held.append({"note": rel, "why": why})
+            else:
+                moves.append({"note": rel, "to": new})
+    return moves, held
+
+
+def stamp_archived(vault, held, now):
+    """A done note with no archived stamp gets today's, so its quiet day counts from now. → [paths stamped]."""
+    out = []
+    for h in held:
+        if h["why"] == "no archived stamp yet":
+            p = os.path.join(vault, h["note"])
+            atomic_write(p, set_front(open(p, encoding="utf-8").read(), archived=now.date().isoformat()))
+            out.append(h["note"])
+    return out
+
+
+def vault_texts(vault, owned_only=False):
+    """(path, text) of every note, base and canvas outside hidden folders: what a link can stand in. owned_only leaves
+    out what the sync writes (the manifest's files), which the next sync would write again."""
+    gen = set(manifest_of(vault).get("files") or []) if owned_only else set()
+    for top_, dirs, fs in os.walk(vault):
+        dirs[:] = sorted(x for x in dirs if not x.startswith("."))
+        for f in sorted(fs):
+            if f.endswith((".md", ".base", ".canvas")) and not conflict_copy(f):   # a sync conflict's copy is evidence, as it was
+                p = os.path.join(top_, f)
+                rel = os.path.relpath(p, vault).replace(os.sep, "/")
+                if rel in gen:
+                    continue
+                try:
+                    yield rel, open(p, encoding="utf-8").read()
+                except (OSError, UnicodeDecodeError):
+                    continue
+
+
+def path_links(vault, pairs):
+    """Every link in a note the vault owns that spells a moved note's old path, pointed at the new one (rewrite_links:
+    a wikilink's #heading, #^block, alias and a table's escaped pipe kept, a markdown link's anchor kept). pairs
+    [(old, new)] are vault paths with .md. → [files changed]."""
+    by_path = {o[:-3].lower(): n[:-3] for o, n in pairs}
+    changed = []
+    for rel, text in vault_texts(vault, owned_only=True) if by_path else ():
+        new, n = rewrite_links(text, by_path, {})
+        if n:
+            atomic_write(os.path.join(vault, rel), new)
+            changed.append(rel)
+    return changed
+
+
+def log_rows(reports, rows):
+    log = os.path.join(reports or "", "ela", "vault-removed.jsonl")
+    os.makedirs(os.path.dirname(log), exist_ok=True)
+    with open(log, "a", encoding="utf-8") as fh:
+        for r in rows:
+            fh.write(json.dumps(r, ensure_ascii=False) + "\n")
+
+
+def move_batch(vault, reports, pairs, now, pass_, extra=None):
+    """[(old, new)] moved as one batch: the rename rows first (by ela, tagged with the pass and a batch id, plus
+    `extra`), then the files; a move that fails puts back the ones made and logs their reverse with `rolled_back`, so
+    the record stays append-only and the batch is all or nothing. Then the path links. → (batch id, [files whose links
+    changed]); raises OSError after a rollback."""
+    batch = f"{pass_}-{now.strftime('%Y%m%dT%H%M%S')}"
+    at = now.isoformat(timespec="seconds")
+    log_rows(reports, [{"at": at, "path": o, "fate": "renamed", "by": "ela", "renamed_to": n, "pass": pass_, "batch": batch,
+                        **(extra or {})} for o, n in pairs])
+    made = []
+    try:
+        for o, n in pairs:
+            dst = os.path.join(vault, n)
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            os.replace(os.path.join(vault, o), dst)
+            made.append((o, n))
+    except OSError:
+        for o, n in made:
+            os.replace(os.path.join(vault, n), os.path.join(vault, o))
+        log_rows(reports, [{"at": at, "path": n, "fate": "renamed", "by": "ela", "renamed_to": o, "pass": pass_,
+                            "rolled_back": batch} for o, n in pairs])
+        raise
+    return batch, path_links(vault, made)
+
+
+def tidy_apply(vault, reports, moves, now=None):
+    """The tidy's moves as one batch (move_batch). → (batch id, [files whose links changed]); (None, []) for none."""
+    now = now or datetime.datetime.now()
+    pairs = [(m["note"], m["to"]) for m in moves
+             if os.path.isfile(os.path.join(vault, m["note"])) and not os.path.exists(os.path.join(vault, m["to"]))]
+    return move_batch(vault, reports, pairs, now, TIDY_PASS) if pairs else (None, [])
+
+
+def tidy_batches(reports):
+    """{batch id: [(old, new)]} of the tidy's batches not rolled back and not undone, oldest first."""
+    rows = close_log(reports)
+    gone = {r.get("rolled_back") for r in rows} | {r.get("undo_of") for r in rows}
+    out = {}
+    for r in rows:
+        if r.get("pass") == TIDY_PASS and r.get("batch") and r["batch"] not in gone:
+            out.setdefault(r["batch"], []).append((r["path"], r["renamed_to"]))
+    return out
+
+
+def tidy_undo(vault, reports, which, apply=False, now=None):
+    """The tidy batches of a day (YYYY-MM-DD) or one batch id replayed backwards: each note moved from history/ back
+    where it was through the same logged move and link rewrite, rows tagged `undo_of` the batch; nothing is taken out
+    of the log. A note no longer in history/, or whose old place is taken, stays and is named.
+    → {back: [(from, to)], stays: [(path, why)], batches: [ids]}."""
+    now = now or datetime.datetime.now()
+    picked = {b: pairs for b, pairs in tidy_batches(reports).items()
+              if b == which or b.startswith(f"{TIDY_PASS}-{which.replace('-', '')}T")}
+    back, stays = [], []
+    for b, pairs in picked.items():
+        mine = []
+        for o, n in pairs:
+            if not os.path.isfile(os.path.join(vault, n)):
+                stays.append((n, "not in history/ any more"))
+            elif os.path.exists(os.path.join(vault, o)):
+                stays.append((n, f"{o} exists"))
+            else:
+                mine.append((n, o))
+        back += mine
+        if apply and mine:
+            move_batch(vault, reports, mine, now, TIDY_UNDO, {"undo_of": b})
+    return {"back": back, "stays": stays, "batches": sorted(picked)}
+
+
+def close_log(reports):
+    """The close log's rows (<reports>/ela/vault-removed.jsonl), oldest first."""
+    rows = []
+    try:
+        for line in open(os.path.join(reports or "", "ela", "vault-removed.jsonl"), encoding="utf-8"):
+            try:
+                rows.append(json.loads(line))
+            except ValueError:
+                continue
+    except OSError:
+        pass
+    return rows
+
+
+def tidy_pass(vault, reports, now, dry_run=False):
+    """The sync's tidy: nothing until armed; then the stamps, and one batch of at most TIDY_CAP moves. → (moves, held)."""
+    if not tidy_state(reports).get("armed"):
+        return [], []
+    moves, held = tidy_plan(vault, now, TIDY_CAP)
+    if not dry_run:
+        stamp_archived(vault, held, now)
+        tidy_apply(vault, reports, moves, now)
+    return moves, held
+
+
+def vault_files(vault):
+    """(paths lowercased, {file name lowercased: [paths]}) of every file outside hidden folders."""
+    low, names = set(), {}
+    for top_, dirs, fs in os.walk(vault):
+        dirs[:] = [x for x in dirs if not x.startswith(".")]
+        for f in fs:
+            r = os.path.relpath(os.path.join(top_, f), vault).replace(os.sep, "/")
+            low.add(r.lower())
+            names.setdefault(f.lower(), []).append(r)
+    return low, names
+
+
+def link_resolves(target, src, low, names):
+    """Whether a link target finds a file the way Obsidian resolves it: the vault path (with or without .md), a path
+    ending in it, the path relative to the linking note, or for a bare name any file of that name."""
+    t = target.strip()
+    if not t or re.match(r"^[a-z]+:", t):
+        return True
+    for c in (t, t + ".md"):
+        c = c.lower()
+        if c in low or ("/" in c and any(x.endswith("/" + c) for x in low)):
+            return True
+        if os.path.normpath(os.path.join(os.path.dirname(src), c)).replace(os.sep, "/") in low:
+            return True
+    return "/" not in t and ((t.lower() + ".md") in names or t.lower() in names)
+
+
+def link_repairs(vault, reports):
+    """Every link that finds no file, with where its note is now when the record says: the rename history (the close
+    log, the aliases an old name is kept as) first, else, for a link with a folder path, the one note of that file
+    name in the same thing's home. → (fixes {path: [(old target, new target)]} in notes the vault owns, unresolved
+    [(path, target)], generated {path: [...]}: a page the sync writes, fixed in its generator, never in place)."""
+    low, names = vault_files(vault)
+
+    def home_key(path):                                    # the thing a path lies in: projects/<key>, else its top folder
+        parts = path.lower().split("/")
+        if parts[0] == PROJECTS and len(parts) > 2:
+            return tuple(parts[:2])
+        if len(parts) > 1 and os.path.isdir(os.path.join(vault, PROJECTS, parts[0])):
+            return (PROJECTS, parts[0])                    # a partial path, the way Obsidian resolves one
+        return tuple(parts[:1])
+    moved = {o[:-3].lower(): n[:-3] for o, n in renames(vault, reports).items()
+             if o.endswith(".md") and n.endswith(".md") and n.lower() in low}
+    by_stem = {}
+    for o, n in moved.items():
+        by_stem.setdefault(os.path.basename(o), set()).add(n)
+
+    def where(t):
+        if "/" in t:
+            got = moved.get(t.lower())
+            if got:
+                return got
+            same = [p for p in names.get(os.path.basename(t).lower() + ".md", []) if home_key(p) == home_key(t)]
+            return same[0][:-3] if len(same) == 1 else None
+        got = by_stem.get(t.lower())
+        if got and len(got) == 1:
+            n = next(iter(got))
+            return os.path.basename(n) if len(names.get(os.path.basename(n).lower() + ".md", [])) == 1 else n
+        return None
+    fixes, unresolved = {}, set()
+    for rel, text in vault_texts(vault):
+        if not rel.endswith(".md"):
+            continue
+        targets = [m.group(2).strip().rstrip("\\") for m in WIKI.finditer(text)]
+        targets += [m.group(2)[:-3] for m in MDLINK.finditer(text) if not re.match(r"^[a-z]+:", m.group(2))]
+        for t in targets:
+            if link_resolves(t, rel, low, names):
+                continue
+            new = where(t)
+            if new:
+                if (t, new) not in fixes.get(rel, []):
+                    fixes.setdefault(rel, []).append((t, new))
+            else:
+                unresolved.add((rel, t))
+    gen = set(manifest_of(vault).get("files") or [])
+    return {r: v for r, v in fixes.items() if r not in gen}, sorted(unresolved), {r: v for r, v in fixes.items() if r in gen}
+
+
+def repair_text(text, pairs):
+    """The text with each broken link target in pairs [(old, new)] pointed at new; heading, block, alias and a table's
+    escaped pipe kept."""
+    want = {o.lower(): n for o, n in pairs}
+
+    def wiki(m):
+        t = m.group(2).strip()
+        core = t.rstrip("\\")
+        new = want.get(core.lower())
+        return m.group(1) + new + t[len(core):] + m.group(4) if new else m.group(0)
+
+    def md(m):
+        new = want.get(m.group(2)[:-3].lower())
+        return m.group(1) + new + ".md" + m.group(3) if new else m.group(0)
+    return MDLINK.sub(md, WIKI.sub(wiki, text))
+
+
+def repair_links(vault, fixes):
+    """The fixes written (link_repairs). → [paths changed]."""
+    out = []
+    for rel, pairs in sorted(fixes.items()):
+        p = os.path.join(vault, rel)
+        text = open(p, encoding="utf-8").read()
+        new = repair_text(text, pairs)
+        if new != text:
+            atomic_write(p, new)
+            out.append(rel)
+    return out
 
 
 def reader_heading(body, date):
@@ -2969,7 +3319,7 @@ def project_tail(facts, rows, today, jira_base="", met=(), asked=(), titles=None
             L.append(f"**{g}**" + ("" if g == "in this folder" else "/"))
             for r in groups[g]:
                 bits = [r["type"], r["date"], r["status"]]
-                target = os.path.basename(r["path"])[:-3] if top(r["path"]) in (ELA, REF) else r["path"][:-3]   # a note the tidy may move: by name
+                target = os.path.basename(r["path"])[:-3] if top(r["path"]) in TIDY_HOMES else r["path"][:-3]   # a note the tidy may move: by name
                 L.append(f"- [[{target}|{label(r['title'])}]] · " + " · ".join(b for b in bits if b))
             L.append("")
     if met or asked:                                       # what its meetings still ask (ADR 0016), then what they ruled
@@ -6688,61 +7038,60 @@ def cmd_finish(a):
     print(f"{rel}: done in {folder}/ as {'dropped' if a.to in ('drop', 'delete') else 'done'}, kept; logged as the owner's")
 
 
-def tidy_plan(vault, line_of_key=None):
-    """Each kept note not yet in its home, with what would keep it from moving: [{note, to, blocked}]. A note directly
-    in archive/ that has a subject home, and a note at the mh/releases/ root whose release line can be read
-    (release_line), go there. A wikilink resolves by name, so a move breaks only a link that names the note's old
-    folder in its path, or a name that another note in the vault shares; a note he put elsewhere by hand is never read
-    here."""
-    plan = []
-    for folder in (ARCHIVE, RELEASES):
-        d = os.path.join(vault, folder)
-        for f in sorted(os.listdir(d)) if os.path.isdir(d) else []:
-            p = os.path.join(d, f)
-            if not f.endswith(".md") or not os.path.isfile(p):
-                continue
-            try:
-                props = props_of(split_front(open(p, encoding="utf-8").read())[0])
-            except OSError:
-                continue
-            if folder == ARCHIVE:
-                to = home_for(f"{ARCHIVE}/{f}", props, line_of_key)
-            else:                                          # filed as a release note already: only its line is read
-                line = release_line(props, line_of_key, f[:-3])
-                to = f"{RELEASES}/{line}" if line else RELEASES
-            if to != folder:
-                plan.append({"note": f"{folder}/{f}", "to": f"{to}/{f}", "blocked": []})
-    if not plan:
-        return plan
-    stems = {os.path.basename(x["note"])[:-3].lower(): x for x in plan}
-    rx = re.compile(r"(?:\[\[|\]\()(" + "|".join(re.escape(f) for f in (ARCHIVE, RELEASES)) + r")/([^\]|#)]+?)(?:\.md)?[\]|#)]", re.I)
-    for top_, dirs, fs in os.walk(vault):
-        dirs[:] = [x for x in dirs if not x.startswith(".")]
-        for f in fs:
-            r = os.path.relpath(os.path.join(top_, f), vault).replace(os.sep, "/")
-            if f[:-3].lower() in stems and r != stems[f[:-3].lower()]["note"] and f.endswith(".md"):
-                stems[f[:-3].lower()]["blocked"].append(f"{r} has the same name")
-            if not f.endswith((".md", ".base", ".canvas")):
-                continue
-            try:
-                text = open(os.path.join(top_, f), encoding="utf-8").read()
-            except (OSError, UnicodeDecodeError):
-                continue
-            for m in rx.finditer(text):
-                x = stems.get(m.group(2).lower())
-                if x and x["note"].lower() == f"{m.group(1)}/{m.group(2)}.md".lower():
-                    x["blocked"].append(f"{r} links it by its {m.group(1)}/ path")
-    for x in plan:
-        if os.path.exists(os.path.join(vault, x["to"])):
-            x["blocked"].append(f"{x['to']} exists")
-    return plan
-
-
 def cmd_tidy(a):
-    """Layout 5 moves nothing on closing (ADR 0015): a done note stays in its thing's home. What tidy did once is the
-    migration's: `ela vault migrate` lists every note out of place."""
-    print("tidy: nothing to do in layout 5, a done note stays where its thing lives; `ela vault migrate` lists any note "
-          "out of place")
+    """`ela vault tidy [--apply] [--json]`: each quiet done work note at the top of ela/ and reference/ moved to its
+    home's history/ (ADR 0025); the first --apply arms the sync, which then does the same on every run. --links
+    repairs, in the notes the vault owns, every link that finds no file where the rename history or a unique file name
+    says where the note is now; --undo DATE|BATCH puts a day's or one batch's moves back. A dry run unless --apply;
+    under the vault lock."""
+    s = json.load(open(SITE))
+    vault, reports = s.get("vault"), s.get("reports") or ""
+    if not vault or not os.path.isdir(vault):
+        print(f"site.json `vault` is not a folder: {vault}", file=sys.stderr); sys.exit(2)
+    pre, now = ("" if a.apply else "DRY RUN — "), datetime.datetime.now()
+    if a.undo:
+        got = tidy_undo(vault, reports, a.undo, a.apply, now)
+        if a.json:
+            print(json.dumps({**got, "dry_run": not a.apply}, ensure_ascii=False, indent=1)); return
+        for frm, to in got["back"]:
+            print(f"{pre}{frm} → {to}")
+        for p, why in got["stays"]:
+            print(f"stays: {p} ({why})")
+        print(f"{len(got['batches'])} batches · {len(got['back'])} back from history · {len(got['stays'])} stay"
+              + ("" if a.apply else " · nothing written; --apply puts them back"))
+        return
+    moves, held = tidy_plan(vault, now)
+    batch, links, stamped = None, [], []
+    if a.apply:
+        arm_tidy(reports, now)
+        stamped = stamp_archived(vault, held, now)
+        try:
+            batch, links = tidy_apply(vault, reports, moves, now)
+        except OSError as e:
+            print(f"tidy: the batch failed and was put back: {e}", file=sys.stderr); sys.exit(5)
+    fixes, unresolved, generated = link_repairs(vault, reports) if a.links else ({}, [], {})
+    repaired = repair_links(vault, fixes) if a.apply and a.links else sorted(fixes)
+    out = {"moves": moves, "held": held, "stamped": stamped, "batch": batch, "links_rewritten": links,
+           "repaired": {r: fixes[r] for r in repaired if r in fixes}, "generated": generated,
+           "unresolved": [{"note": r, "target": t} for r, t in unresolved], "dry_run": not a.apply}
+    if a.json:
+        print(json.dumps(out, ensure_ascii=False, indent=1)); return
+    for m in moves:
+        print(f"{pre}{m['note']} → {m['to']}")
+    for h in held:
+        print(f"held: {h['note']} ({h['why']}{', stamped today' if h['note'] in stamped else ''})")
+    if a.links:
+        for r in repaired:
+            for o, n in fixes.get(r, []):
+                print(f"{pre}{r}: [[{o}]] → [[{n}]]")
+        for r, pairs in sorted(generated.items()):
+            print(f"generated, left to its generator: {r}: " + ", ".join(f"[[{o}]] → [[{n}]]" for o, n in pairs))
+        for r, t in unresolved:
+            print(f"unresolved: {r} → {t}")
+    print(f"{len(moves)} to history" + (f" (batch {batch})" if batch else "") + f" · {len(held)} held · {len(links)} notes' links rewritten"
+          + (f" · {sum(len(fixes[r]) for r in repaired if r in fixes)} broken links repaired in {len(repaired)} notes · "
+             f"{len(generated)} generated pages left · {len(unresolved)} unresolved" if a.links else "")
+          + ("" if a.apply else " · nothing written; --apply makes it" + ("" if tidy_state(reports).get("armed") else " and arms the sync")))
 
 
 def cmd_restore(a):
@@ -7097,6 +7446,11 @@ def cmd_sync(a):
         print(f"dry: {old_} → {new_} ({why})", file=sys.stderr)
     for fix in settle_statuses(vault, a.dry_run):
         print(f"status: {fix}", file=sys.stderr)
+    try:                                                   # after the status fixes: done work notes to history/ (ADR 0025)
+        for m in tidy_pass(vault, s.get("reports") or "", now, a.dry_run)[0]:
+            print(f"tidy: {m['note']} → {m['to']}", file=sys.stderr)
+    except OSError as e:
+        print(f"tidy: the batch failed and was put back: {e}", file=sys.stderr)
     if not a.dry_run:
         write_move_sets(vault)                             # the choosers follow MOVE_PROPS without a setup run
     removed, removed_src = load_removed(removed_path)
@@ -8370,8 +8724,11 @@ def main():
     p.add_argument("--apply", action="store_true", help="with --fix, write; without it, a dry run")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_lint)
-    p = sub.add_parser("tidy", help="retired with layout 5 (a done note stays where its thing lives); see migrate")
-    p.add_argument("--apply", action="store_true", help="move them; without it, list the moves and what holds any back")
+    p = sub.add_parser("tidy", help="done work notes in ela/ and reference/ to their history/ (logged renames, path links "
+                                    "rewritten; the sync does it once armed); --links repairs broken links; --undo puts a batch back")
+    p.add_argument("--links", action="store_true", help="also repair the links that find no file, from the rename history")
+    p.add_argument("--undo", metavar="DATE|BATCH", help="put back the notes the tidy moved that day, or in that batch")
+    p.add_argument("--apply", action="store_true", help="make the moves (the first arms the sync), the undo or the repairs; without it, list them")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_tidy)
     p = sub.add_parser("migrate", help="the one pass to layout 5, things and angles (ADR 0015): every move, rename, link "

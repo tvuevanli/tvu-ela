@@ -69,6 +69,7 @@ python3 tests/test_brief_day_offline.py || fail=1
 python3 tests/test_meeting_offline.py || fail=1
 python3 tests/test_questions_offline.py || fail=1
 python3 tests/test_vault_rename_offline.py || fail=1
+python3 tests/test_vault_tidy_offline.py || fail=1
 python3 tests/test_vault_stem_offline.py || fail=1
 python3 tests/test_vault_front_closed_offline.py || fail=1
 python3 tests/test_brief_sprint_offline.py || fail=1
