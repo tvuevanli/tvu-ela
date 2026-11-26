@@ -197,4 +197,23 @@ pair = dict(grp, also=["MH-3887"], how_to_verify="steps unknown")
 check("a pair stays in the cell and adds nothing to the fold",
       TL.link(pair) == f"[MH-3881](u) / [MH-3887]({TL.JIRA_URL}MH-3887)" and TL.same_behaviour(pair, {}) == ("steps unknown", []))
 
+# A build is its mail: QA re-sent build 100 on 2026-11-24 with a new Test Focus item; the number check skipped it.
+m100 = {"build": "100", "id": "a", "at": "2026-11-20T17:33", "subject": "build 100", "label": "100"}
+m100b = dict(m100, id="b", at="2026-11-24T18:00")
+known = {"100": {"at": m100["at"], "mail": "a", "label": "100"}}
+check("a re-sent build is read again; the mail already read is not", TL.take_mail(known, m100b, 74) and not TL.take_mail(known, m100, 74))
+TL.record_mail(known, m100b)
+check("the re-send is kept under its build, and not read twice", known["100"]["resent"][0]["mail"] == "b" and not TL.take_mail(known, m100b, 74))
+check("an entry recorded before mail ids is the mail of its time; a later mail of it is a re-send",
+      not TL.take_mail({"100": {"at": "2026-11-20T17:33"}}, m100, 74) and TL.take_mail({"100": {"at": "2026-11-20T17:33"}}, m100b, 74))
+check("under the floor nothing is read; at the floor only a re-send of the floor build",
+      not TL.take_mail({}, dict(m100, build="73"), 74) and not TL.take_mail({}, dict(m100, build="74"), 74, [dict(m100, build="74")])
+      and TL.take_mail({}, dict(m100b, build="74"), 74, [dict(m100, build="74"), dict(m100b, build="74")]) and TL.take_mail({}, m100, 74))
+row = {"builds": ["101"], "first_build": "101", "first_at": "2026-11-25T18:00", "last_build": "101", "last_at": "2026-11-25T18:00"}
+TL.merge_build(row, m100b)
+check("a re-send of an older build naming a row moves its first arrival back, its last stays",
+      row == {"builds": ["100", "101"], "first_build": "100", "first_at": "2026-11-24T18:00", "last_build": "101", "last_at": "2026-11-25T18:00"})
+TL.merge_build(row, dict(m100, build="102", at="2026-11-27T10:00"))
+check("a later build moves its last forward", row["last_build"] == "102" and row["first_build"] == "100")
+
 sys.exit(1 if failures else 0)

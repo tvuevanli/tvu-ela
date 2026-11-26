@@ -248,8 +248,55 @@ def release_mails(env, days):
         if b["build"]:
             out.setdefault(lane, {"shown": shown, "mails": []})["mails"].append(b)
     for v in out.values():
-        v["mails"].sort(key=lambda b: int(b["build"]))
+        v["mails"].sort(key=lambda b: (int(b["build"]), b["at"] or ""))   # a re-sent build after its first mail
     return out
+
+
+# ── a build is its mail ──────────────────────────────────────────────────────────────────────────────
+
+def mail_seen(entry, b):
+    """Whether the mail b was already read into the build entry: its id is the entry's mail or one of its re-sends.
+    An entry recorded before mail ids were kept is the mail of its own time, and any older one."""
+    ids = {entry.get("mail"), *(r.get("mail") for r in entry.get("resent") or [])} - {None}
+    if b.get("id") in ids:
+        return True
+    return not entry.get("mail") and (b.get("at") or "") <= (entry.get("at") or "")
+
+
+def take_mail(builds, b, floor, mails=()):
+    """Whether the release mail b is read: a build is identified by its mail, not its number. A build number already
+    known is read again when this mail is a new one (QA re-sent build 100 on 2026-11-24 with a new Test Focus; the
+    number check left MH-4097 with no row). Below the floor (seed_after, the newest build QA had summarised when the
+    list began) nothing is read; at the floor only a re-send, a mail later than the build's first in the window."""
+    entry = builds.get(b["build"])
+    if entry:
+        return not mail_seen(entry, b)
+    n = int(b["build"])
+    if n < floor:
+        return False
+    if n == floor:
+        return any(m["build"] == b["build"] and (m.get("at") or "") < (b.get("at") or "") for m in mails or ())
+    return True
+
+
+def record_mail(builds, b):
+    """The mail b recorded on its build: the first mail is the build; a later one is kept under `resent`."""
+    entry = builds.get(b["build"])
+    if entry is None:
+        builds[b["build"]] = {"at": b["at"], "mail": b["id"], "subject": b["subject"], "label": b["label"]}
+    else:
+        entry.setdefault("resent", []).append({"at": b["at"], "mail": b["id"], "subject": b["subject"]})
+
+
+def merge_build(row, b):
+    """A row named again by the build b: the build joins its builds; an earlier build (a re-send of an older build
+    naming the row for the first time) moves its first arrival back; a later one moves its last forward."""
+    n = int(b["build"])
+    row["builds"] = sorted(set(row.get("builds") or []) | {b["build"]}, key=int)
+    if row.get("first_build") is None or n < int(row["first_build"]):
+        row.update(first_build=b["build"], first_at=b["at"])
+    if n > int(row.get("last_build") or row["first_build"]):
+        row.update(last_build=b["build"], last_at=b["at"])
 
 
 def report_mails(env, days):
@@ -500,9 +547,9 @@ def collect_lane(lane, shown, mails, reports, s, env, cache, gaps, said=()):
     floor = int(st.get("seed_after") or 0)
     first_seen = min((int(b) for b in st["builds"]), default=None)
     for b in mails:
-        if b["build"] in st["builds"] or int(b["build"]) <= floor or (first_seen and int(b["build"]) < first_seen):
+        if not take_mail(st["builds"], b, floor, mails) or (first_seen and int(b["build"]) < first_seen):
             continue
-        st["builds"][b["build"]] = {"at": b["at"], "mail": b["id"], "subject": b["subject"], "label": b["label"]}
+        record_mail(st["builds"], b)
         for beh in behaviours(b):
             for k in beh["keys"]:
                 jira_read(env, k, cache, gaps)
@@ -511,9 +558,8 @@ def collect_lane(lane, shown, mails, reports, s, env, cache, gaps, said=()):
             rid = owner or nt_id(beh["log"][0]["text"] if beh["log"] else text)
             left = st["left"].get(rid)
             if rid in st["rows"] or (left and int(left["first_build"]) >= int(b["build"])):
-                if rid in st["rows"]:                       # named again: what QA said before this build no longer settles it
-                    st["rows"][rid].update(builds=sorted(set(st["rows"][rid].get("builds", [])) | {b["build"]}, key=int),
-                                           last_build=b["build"], last_at=b["at"])
+                if rid in st["rows"]:                       # named again: what QA said before a later build no longer settles it
+                    merge_build(st["rows"][rid], b)
                 continue
             st["left"].pop(rid, None)
             layers = sorted({l["layer"] for l in beh["log"] if l["layer"]})

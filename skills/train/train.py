@@ -105,17 +105,17 @@ def lane_rows(lane, state, mails, reports, issues):
         rows.setdefault(rid, dict(r, _state_verdict=left_verdict(r.get("why"))))
     builds = dict(state.get("builds") or {})
     floor = int(state.get("seed_after") or 0)
+    builds = {k: dict(v) for k, v in builds.items()}
     for b in mails or []:
-        if b["build"] in builds or int(b["build"]) <= floor:
+        if not TL.take_mail(builds, b, floor, mails):     # a build is its mail: a re-sent build is read again
             continue
-        builds[b["build"]] = {"at": b["at"], "mail": b["id"], "subject": b["subject"], "label": b["label"]}
+        TL.record_mail(builds, b)
         for beh in TL.behaviours(b):
             owner = TL.owner_of(beh["keys"], issues)
             text = " · ".join(beh["focus"]) or " · ".join(l["text"] for l in beh["log"])
             rid = owner or TL.nt_id(beh["log"][0]["text"] if beh["log"] else text)
             if rid in rows:
-                if int(rows[rid].get("first_build") or 0) < int(b["build"]):
-                    rows[rid].update(builds=sorted(set(rows[rid].get("builds") or []) | {b["build"]}, key=int), last_build=b["build"], last_at=b["at"])
+                TL.merge_build(rows[rid], b)                # a re-send's rows merge with the first mail's
                 continue
             rows[rid] = {"id": rid, "ticket": owner, "also": [k for k in beh["keys"] if k != owner],
                          "focus": " · ".join(beh["focus"]) or None, "log": [l["text"] for l in beh["log"]],

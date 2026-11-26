@@ -32,8 +32,10 @@ arrived on a prod lane. `n/a` on a lane below the position means the lane's list
 it is never a demand on QA.
 
 **Migration.** The per-lane test-list state files (`<reports>/lanes/test-list-<lane>.json`) are read as the source
-of each row's first arrival and recorded verdict; the release mails of the window add the builds the state has not
-seen. They retire after a week of parity (the design's condition); until then both are written.
+of each row's first arrival and recorded verdict; the release mails of the window add the mails the state has not
+seen. A build is identified by its mail, not its number: a re-sent build is read again and its rows merge with the
+first mail's (an older build naming a row first moves the row's arrival back). Below `seed_after` nothing is read;
+at it, only a re-send of that build. They retire after a week of parity (the design's condition); until then both are written.
 
 ## The verb
 

@@ -71,6 +71,7 @@ ISSUES = {"MH-1": {"fields": {"summary": "The dialog shows the wrong field", "as
           "MH-4": {"fields": {"summary": "Upload fails on large files", "status": {"name": "Done"}}, "comments": []},
           "MH-5": {"fields": {"summary": "YouTube source volume", "status": {"name": "Done"}}, "comments": []},
           "MH-6": {"fields": {"summary": "Encoding Profile bitrate upper limit", "status": {"name": "Review"}, "labels": ["customer-issue"]}, "comments": []},
+          "MH-8": {"fields": {"summary": "Schedule list order", "status": {"name": "Review"}}, "comments": []},
           "MH-7": {"fields": {"summary": "withdrawn thing", "status": {"name": "Done"}, "resolution": {"name": "Won't Do"}}, "comments": []}}
 INCIDENTS = [{"key": "MH-500", "summary": "[Customer] playback stops, caused by MH-5 on prod-3", "created": "2026-10-28T08:00:00.000+0800"},
              {"key": "MH-501", "summary": "old incident MH-3", "created": "2026-10-01T08:00:00.000+0800"}]
@@ -91,6 +92,16 @@ res = TR.collect("2.1", CFG, STATES, MAILS, REPORTS, [], ISSUES, INCIDENTS, NOW,
 by = {r["id"]: r for r in res["rows"]}
 check("one row per fix across the lanes; a withdrawn ticket rides nowhere", set(by) == {"MH-1", "MH-2", "MH-3", "MH-4", "MH-5", "MH-6", NT} and res["withdrawn"] == ["MH-7"])
 check("a new QA build from the mails adds its rows; a build at or under seed_after does not", "MH-6" in by and "MH-99" not in by and res["builds"]["qa-cn3"] == ["75", "76", "79", "80"])
+RESENT = dict(MAILS, **{"qa-cn3": MAILS["qa-cn3"] + [
+                    # build 79 re-sent with a new Test Focus item: a build is its mail, so the re-send is read and merges
+                    {"build": "79", "label": "79", "at": "2026-10-30T09:00:00+08:00", "id": "m79b", "subject": "[Release Mediahub QA-AWS3] For 2.1 Release build 79",
+                     "focus": [{"text": "MH-8 The schedule list sorts by start time", "keys": ["MH-8"]}, {"text": "MH-6 the bitrate limit", "keys": ["MH-6"]}],
+                     "log": [{"text": "MediaHub Frontend: schedule sort — MH-8", "keys": ["MH-8"], "layer": "UI"}]}]})
+by2 = {r["id"]: r for r in TR.collect("2.1", CFG, STATES, RESENT, REPORTS, [], ISSUES, INCIDENTS, NOW, regions=REGIONS, qa=QA)["rows"]}
+check("a re-sent build's new item has a row arrived on that build; the build is listed once",
+      "MH-8" in by2 and by2["MH-8"]["cells"]["qa-cn3"]["arrived"] == "79" and by2["MH-8"]["cells"]["qa-cn3"]["since"] == "2026-10-30"
+      and "MH-8" not in by)
+check("a row a re-sent older build names moves its first arrival back to that build", by["MH-6"]["cells"]["qa-cn3"]["arrived"] == "80" and by2["MH-6"]["cells"]["qa-cn3"]["arrived"] == "79")
 check("a no-ticket row named again by a later build keeps its first build", by[NT]["cells"]["qa-cn3"]["arrived"] == "79")
 c1 = by["MH-1"]["cells"]
 check("the QA cell carries the state's fail with its build; no other lane has it", c1["qa-cn3"]["verdict"] == "fail" and c1["qa-cn3"]["arrived"] == "75"
