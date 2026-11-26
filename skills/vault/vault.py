@@ -4755,14 +4755,15 @@ def watch_asks(reports, today):
              "first": x.get("first") or today.isoformat(), "reason": x.get("reason") or "", "kind": x.get("kind")} for x in got]
 
 
-def watch_page(reports, today, base=""):
-    """ela/watch.md: every open board-watch topic with its letters and the CLI line for each (watch.page). The vault is
-    where the topics live; the DM only reminds (the owner's word, 2026-11-25). A broken store costs the page only."""
+def watch_page(reports, today, base="", vault=None):
+    """ela/watch.md: every open board-watch topic with its letters and the CLI line for each (watch.page), then the
+    owner's tickets judged this week, each with its verdict and home. The vault is where the topics live; the DM only
+    reminds (the owner's word, 2026-11-25). A broken store costs the page only."""
     try:
         WA = watch_mod()
-        if not WA.open_topics(reports) and not WA.nones(reports, today):   # nothing waits and nothing judged: no page
-            return {}
-        return {WA.WATCH_PAGE: front([], {"type": "watch", "date": today.isoformat()}) + WA.page(reports, today, base)}
+        if not WA.open_topics(reports) and not WA.nones(reports, today) and not WA.judged_section(reports, vault, today):
+            return {}                                      # nothing waits and nothing judged: no page
+        return {WA.WATCH_PAGE: front([], {"type": "watch", "date": today.isoformat()}) + WA.page(reports, today, base, vault)}
     except Exception:                                      # noqa: BLE001
         return {}
 
@@ -4792,15 +4793,45 @@ def settle_line_pages(vault, reports, dry_run=False):
     return done
 
 
-def watch_line(reports):
-    """today.md's one line for the board watch, whatever the ask cap shows: how many topics wait, the page behind it."""
+def watch_line(reports, today=None):
+    """today.md's one line for the board watch, whatever the ask cap shows: how many topics wait, the page behind it, and
+    how many of his tickets ela judged since yesterday, the list behind that (plan 2026-11-26-plan-tickets-reach-you-
+    judged: a verdict is shown where the ticket is named, the rest are one count)."""
     try:
         WA = watch_mod()
         n = len(WA.open_topics(reports))
+        j = len(WA.judgments(reports, (today - datetime.timedelta(days=1)).isoformat())) if today else 0
     except Exception:                                      # noqa: BLE001
         return None
-    return (f"- [[{WA.WATCH_PAGE[:-3]}|The board watch]]: {n} topic{'s' if n != 1 else ''} wait for your letter "
-            "(tick one on the page)") if n else None
+    parts = ([f"{n} topic{'s' if n != 1 else ''} wait for your letter (tick one on the page)"] if n else []) + \
+        ([f"[[{WA.WATCH_PAGE[:-3]}#{WA.JUDGED_HEAD}|{j} of your tickets judged]] since yesterday, each with its verdict"] if j else [])
+    return f"- [[{WA.WATCH_PAGE[:-3]}|The board watch]]: " + " · ".join(parts) if parts else None
+
+
+TEAM_KEY = re.compile(r"^\[?([A-Z][A-Z0-9]+-\d+)\]?(?:\([^)]*\))?\s*(\([^)]*\)):\s")
+
+
+def judged_for_you(first, reports, vault, owner_line=True):
+    """The team report's first For-you line with ela's verdict in place of its listing, when it names one of his tickets
+    that ela judged: "[KEY](…) (Review, yours): <verdict> → [[home|label]]". Before the judging, the open watch topic's
+    leaning instead. Unchanged otherwise. → (line, whole: whether it must not be cut)."""
+    m = TEAM_KEY.match(first or "")
+    if not m or "yours" not in m.group(2):
+        return first, False
+    try:
+        WA = watch_mod()
+        j = WA.judgments(reports).get(m.group(1))
+        lead = first[:m.end()]
+        if j:
+            h = WA.home_link(vault, m.group(1))
+            return lead + j["verdict"] + (f" → [[{h[0]}|{h[1]}]]" if h else ""), True
+        t = (WA.load_topics(reports)["topics"].get(WA.topic_id(m.group(1))) or {})
+        if t and not t.get("closed") and t.get("options"):
+            lean = re.sub(r"\s+—\s+ela's reason:.*$", "", t["options"][0]["text"])
+            return lead + f"ela leans: {short(lean, 70)} → [[{WA.WATCH_PAGE[:-3]}|its topic]]", True
+    except Exception:                                      # noqa: BLE001 — a broken store leaves the line as it was
+        pass
+    return first, False
 
 
 def watch_mod():
@@ -5041,9 +5072,9 @@ def today_page(today, notes, desk=None, shown=(), more=0, dropped=0, questions_l
     for n in teams:                                        # what the team was told yesterday (Monday: last week too)
         r = n.team
         label = "Team yesterday" if r["kind"] == "daily" else "Team last week"
-        first = for_you(r)[0]
+        first, whole = judged_for_you(for_you(r)[0], desk.get("reports"), desk.get("vault"))
         day.append(f"- [[{n.path[:-3]}|{label}]]: {r['cited']} ticket{'s' if r['cited'] != 1 else ''} moved · {r['done']} done · "
-                   f"{r['new']} new, plus " + ("nothing for you" if first == "Nothing for you." else short(first, 110)))
+                   f"{r['new']} new, plus " + ("nothing for you" if first == "Nothing for you." else first if whole else short(first, 110)))
     for n in notes_today:                                  # the meeting's own note, dated today, by its title
         day.append(f"- [[{n.path[:-3]}|{n.title}]]")
     have = {os.path.basename(n.path)[:-3] for n in notes_today}
@@ -6515,7 +6546,7 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since
         "actions": week_actions(reports, today), "hold": tier2_hold(reports, today.isoformat()), "lists": list_links(reports),
         "meetings": meetings, "builds": builds, "tickets": release_mod().facts_tickets(s.get("runtime"), [k for b in builds for v in b["services"] for k in v.get("keys") or []]),
         "owner": owner_name(os.path.join(s.get("runtime") or "", "facts")), "dry_facts": dry_facts, "views": focus.get("views"),
-        "dev_ahead": dev_ahead_line(s.get("runtime")), "watch_line": watch_line(reports),
+        "dev_ahead": dev_ahead_line(s.get("runtime")), "watch_line": watch_line(reports, today), "reports": reports, "vault": s["vault"],
         "radar_line": radar_line(reports, today),
         "board": focus.get("text") or "", "kpi": H.kpi_rows(s.get("runtime")), "head": H.load(reports),
         "fixes": since_fixes(trains, since), "fixes_waiting": fixes_waiting(fcands, shown, asks_state)}
@@ -6528,7 +6559,7 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since
         H.save(reports, desk["head_inputs"], H.INPUTS)
     planned.update(dry_pages(s["vault"], reports, today, record=not dry_run, jira_base=jira_base))
     planned.update(mention_pages(reports, today))
-    planned.update(watch_page(reports, today, jira_base))
+    planned.update(watch_page(reports, today, jira_base, s["vault"]))
     if questions:
         Q = questions_mod()
         drafts = {r["id"]: r["draft"] for r in Q.open_records(questions) if r.get("draft") and (len(r["meetings"]) >= Q.NUDGE_EVERY or r.get("message"))}

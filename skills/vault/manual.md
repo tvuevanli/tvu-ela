@@ -2,7 +2,7 @@
 aliases: ["manual"]
 type: "manual"
 updated: "2026-11-26"
-covers: ["2026-11-24-plan-today-opens-with-what-the-day-is-about", "2026-11-25-plan-read-once-at-fixed-times", "2026-11-26-plan-every-notice-goes-through-one-tier-gate", "2026-11-26-plan-fixes-followed-to-prod-one-home-per-fact", "2026-11-26-plan-ela-runs-on-its-own-asks-teach-it", "2026-11-26-plan-ela-described-in-the-vault-from-its-sources", "2026-11-26-plan-permanent-pages-apart-from-working-notes", "2026-11-26-plan-weekly-ai-radar"]
+covers: ["2026-11-24-plan-today-opens-with-what-the-day-is-about", "2026-11-25-plan-read-once-at-fixed-times", "2026-11-26-plan-every-notice-goes-through-one-tier-gate", "2026-11-26-plan-fixes-followed-to-prod-one-home-per-fact", "2026-11-26-plan-ela-runs-on-its-own-asks-teach-it", "2026-11-26-plan-ela-described-in-the-vault-from-its-sources", "2026-11-26-plan-permanent-pages-apart-from-working-notes", "2026-11-26-plan-weekly-ai-radar", "2026-11-26-plan-tickets-reach-you-judged"]
 ---
 
 # How you use this vault
@@ -14,6 +14,7 @@ ela runs on its own and writes this vault. You do two things here: give a **fact
 1. **Open [[today]].** Read **In short**: at most five lines, most urgent first, each with what it means and what to do; the last line says where to start.
    **Since you last looked** follows, at most five lines; a fix whose QA verdict changed leads it and links its row on the release line page.
    Under **Today**, the line **Team yesterday** opens the team daily report as it went out to Slack, with a **For you** block on top (at most three lines: your tickets, mentions of you, and any line that contradicts Jira). On Mondays a second line opens the weekly.
+   A ticket of yours named there shows ela's verdict and links its page; [[ela/watch|ela/watch]] lists every ticket ela judged.
 2. **Answer what is under Needs you.** Each ask needs a *fact* or a *ruling*; A is ela's recommendation, with its reason. Tick a box or write `ela: A` under it; words after the letter are kept as your reason. An unanswered ask expires after three working mornings.
    A deploy ruling (does this fix's QA fail block the next move?) is an ask like any other: ela's leaning is A with its reason; if it is wrong, tick B or write `ela: B because …`, and the reason decides the next fail of that kind. Rulings beyond three wait on the line page under **Fixes on their way**, answered there the same way: tick under the row, or write `ela: B because …` under it.
    On a week when the radar finds something to adopt or try, one line under **Today** (Friday to Monday) opens [[ela/radar|the radar]]; ela takes the adopt items into its own work. To correct a verdict, write an `ela:` line under its item.
@@ -28,7 +29,7 @@ ela runs on its own and writes this vault. You do two things here: give a **fact
 > | `releases/<line>/` | a release line and its deploys: lanes, the next promotion, **Fixes on their way** (blocks, your call, not yet verified, does not block), builds |
 > | `projects/` | bounded work with a deadline, one page each |
 > | [[meetings/focus\|meetings/focus]] | the team's focus board; [[meetings/open-questions\|open questions]] beside it |
-> | [[ela/watch\|ela/watch]] | board-watch topics waiting for your letter |
+> | [[ela/watch\|ela/watch]] | board-watch topics waiting for your letter; your tickets ela judged this week, each with its verdict |
 > | [[ela/radar\|ela/radar]] | what is new in Claude and AI tooling, each item judged for ela and mh-bot (adopt · try · watch · none); rewritten each Friday, earlier weeks folded |
 > | `ela/dry/` | Jira writes held for your A; `did.md` lists what ela wrote on its own |
 > | `ela/` | how ela itself works and its plans ([[ela/all-notes.base#Plans\|Plans]] lists every plan by folder, newest first); you do not need it day to day |
