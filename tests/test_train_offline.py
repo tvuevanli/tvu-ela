@@ -109,8 +109,9 @@ res3 = TR.collect("2.1", CFG, STATES, SEEN, REP10, [], ISSUES, INCIDENTS, NOW, r
 by3 = {r["id"]: r for r in res3["rows"]}
 check("a key a mail names on a row it already read joins the row's also; the row's arrival stands",
       "MH-10" in by3["MH-2"]["also"] and by3["MH-2"]["cells"]["qa-cn3"]["arrived"] == "79" and "MH-10" not in by3)
-check("a report key carried as an also is no parity gap", "MH-10" not in res3["report_keys_missing"]
-      and "MH-10" in TR.collect("2.1", CFG, STATES, MAILS, REP10, [], ISSUES, INCIDENTS, NOW, regions=REGIONS, qa=QA)["report_keys_missing"])
+only10 = {r["id"]: r for r in TR.collect("2.1", CFG, STATES, MAILS, REP10, [], ISSUES, INCIDENTS, NOW, regions=REGIONS, qa=QA)["rows"]}
+check("a report key carried as an also is no parity gap, and no row of its own", "MH-10" not in res3["report_keys_missing"] and not by3["MH-2"]["qa_only"]
+      and only10["MH-10"]["qa_only"])
 check("a no-ticket row named again by a later build keeps its first build", by[NT]["cells"]["qa-cn3"]["arrived"] == "79")
 c1 = by["MH-1"]["cells"]
 check("the QA cell carries the state's fail with its build; no other lane has it", c1["qa-cn3"]["verdict"] == "fail" and c1["qa-cn3"]["arrived"] == "75"
@@ -193,12 +194,28 @@ check("the versions row comes from the lane read, cell by cell", [v["lane"] for 
       and res["versions"][0]["cells"]["mediahub-backend"].startswith("2.1.37+269"))
 
 check("every key in the line's QA report mails has a row: nothing to name", res["report_keys_missing"] == [] and not any("report mails" in g for g in res["gaps"]))
+# keys QA's reports judge that no release mail named (2026-11-26: ten in the 2.1 window, MH-4054 among them)
 named = dict(REPORTS, **{"qa-cn3": REPORTS["qa-cn3"] + [{"at": "2026-11-01T10:00", "build": "80", "summary": False, "subject": "Test Report build 80",
-                                                         "text": "MH-6 pass\nMH-4097 fail\nMH-7 pass\nMH-9 pass\nCON-14 login case\nCON-16 pass\n"}]})
-gapped = TR.collect("2.1", CFG, STATES, MAILS, named, [], ISSUES, INCIDENTS, NOW, regions=REGIONS, qa=QA)
-check("a key a QA report names with no row is listed under the gaps; an also-key, a withdrawn row, a key with no verdict line and a QA case id (no project of the train's) do not",
-      gapped["report_keys_missing"] == ["MH-4097"]
-      and gapped["gaps"][-1] == "1 key with a verdict in the window's QA report mails and no row in the train: MH-4097")
+                                                         "text": "MH-6 pass\nMH-4097 fail\nMH-7 pass\nMH-9 pass\nMH-11 pass\nMH-12 pass\nCON-14 login case\nCON-16 pass\n"}],
+                         "prod-2-china": [{"at": "2026-11-01T12:00", "build": None, "summary": False, "subject": "Test Report CN Prod2", "text": "MH-4032 pass\n"}]})
+ISSUES_QA = dict(ISSUES, **{"MH-4097": {"fields": {"summary": "Stage bar hides before the first frame", "status": {"name": "Reopened"}}, "comments": []},
+                            "MH-11": {"fields": {"summary": "a sub-task", "parent": {"key": "MH-2"}, "status": {"name": "Done"}}, "comments": []},
+                            "MH-12": {"fields": {"summary": "withdrawn bug", "status": {"name": "Done"}, "resolution": {"name": "Won't Do"}}, "comments": []}})
+gapped = TR.collect("2.1", CFG, STATES, MAILS, named, [], ISSUES_QA, INCIDENTS, NOW, regions=REGIONS, qa=QA)
+gby = {r["id"]: r for r in gapped["rows"]}
+q = gby.get("MH-4097") or {}
+check("a key QA's report judges and no release mail named gets a row named by QA only, arrived on the report's build",
+      q.get("qa_only") and q["cells"]["qa-cn3"]["arrived"] == "80" and q["cells"]["qa-cn3"]["verdict"] == "fail"
+      and q["cells"]["qa-cn3"]["source"] == "QA report" and q["position"] == "qa" and q["title"] == "Stage bar hides before the first frame")
+check("its fail counts as open on QA; the test-list parity view leaves it out", gapped["counts"]["qa-cn3"]["open"] == 1 and gapped["counts"]["qa-cn3"]["p1"] == 1
+      and "MH-4097" not in TR.qa_view(gapped))
+check("a sub-task of a row joins the row's also; a withdrawn ticket gets no row and is no gap",
+      "MH-11" in gby["MH-2"]["also"] and "MH-11" not in gby and "MH-12" not in gby and "MH-12" in gapped["withdrawn"])
+check("a QA case id gets no row (no project of the train's)", not any(k.startswith("CON-") for k in gby))
+check("a key only a non-QA lane's report judges is still a parity gap",
+      gapped["report_keys_missing"] == ["MH-4032"] and gapped["gaps"][-1] == "1 key with a verdict in the window's QA report mails and no row in the train: MH-4032")
+check("the page marks a row named by QA only", "| ◇ [MH-4097](https://tvunetworks.atlassian.net/browse/MH-4097) |" in TR.render_page(gapped)
+      and "◇ named by QA only" in TR.render_page(gapped))
 
 view = TR.qa_view(res)
 check("the QA view is the rows with no pass on QA", view == {"MH-1": "fail", "MH-6": "untested"})

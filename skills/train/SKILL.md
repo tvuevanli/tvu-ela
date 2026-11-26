@@ -20,6 +20,7 @@ to-read/2026-11-02-the-train-one-object-behind-the-test-list-and-the-lane-status
 | priority, reason | the test list's rules, called: P1 a customer incident, a re-test after a fail, a hotfix; P2 the sprint, Highest/High; P3 the rest; two builds old lifts one | `testlist.priority` |
 | how to verify, auto | the Test Focus sentence, else the ticket's acceptance line, else "steps unknown"; auto when visible in the browser UI | testlist |
 | cells | `{lane: {arrived, since, verdict, version, source, at, history}}` — the build (QA: its number; daily, prod: the release's version) that carried the fix there and the date; the verdict `pass` · `fail` · `untested` · `incident` · `n/a`, the latest word; `history` every word placed on the lane since the fix first reached the line's path (a report on any build, a word before the lane's own mail named the fix), oldest first, `[{verdict, version, at, source}]` | below |
+| qa_only | the row is named by QA only: a key the QA lane's report mails give a verdict (pass, fail, N/A) that no release mail named — a bug QA filed and closed or reopened mid-cycle, a customer task tested on the build it rode. It arrives on the build of the first report that judged it; a sub-task of a row joins that row's `also` instead; a withdrawn ticket gets none; keys only of the train's projects (QA's case ids share the key's shape). Marked `◇` on the page | the QA lane's report mails |
 | position | the furthest of qa → daily → prod with an arrival; `dev` when none. The aligned China prod lane is a fourth cell, never a position | the cells |
 | regression | a fail or an incident on daily or prod after a pass on QA; the row is P1 with the reason "regression on <lane> <build>, passed <qa lane> on <build>" | the cells |
 
@@ -32,6 +33,13 @@ daily or prod test-list state recorded from a comment is not taken. `incident` i
 open customer incident (the brief's incidents lane: sub-tasks of the umbrella) naming the key, raised after the fix
 arrived on a prod lane. `n/a` on a lane below the position means the lane's list began after the fix passed through;
 it is never a demand on QA.
+
+**A row named by QA only, in a promotion.** It carries no build of its own: no release mail names it, so a promotion's
+build delta cannot place it and it is never a candidate that moves. It counts where it is evidence about the build QA
+tested: its fail is open on QA (in the counts, at P1 as a re-test) and blocks the promotion like any row's fail; its
+pass is listed beside that build as QA's word, never as a fix the promotion carries. Daily and prod cells stay empty
+until a release mail on that lane names the key. The `--parity` view leaves it out: the test list reads release
+mails and never held it.
 
 **Migration.** The per-lane test-list state files (`<reports>/lanes/test-list-<lane>.json`) are read as the source
 of each row's first arrival and recorded verdict; the release mails of the window add the mails the state has not
@@ -47,7 +55,8 @@ at it, only a re-send of that build. They retire after a week of parity (the des
 - `--parity` compares the train's QA view (rows whose QA cell has no pass) with the lane's test-list state: missing
   rows, extra rows, verdicts that differ; exit 0 when equal, 1 otherwise. Run it before anything retires.
 - Every build carries a second parity: each key the window's QA report mails (the line's lanes) name has a row, as a
-  key or an `also`, or the train names it — `report_keys_missing`, and a line under the gaps.
+  key or an `also`, or the train names it — `report_keys_missing`, and a line under the gaps. A key the QA lane's
+  reports judge gets a row named by QA only, so what remains there is a key only another lane's report judges.
 - Reads only: mail (release and report mails), Jira (the keys, their comments; the incidents lane), Slack (the QA
   release channel's threads), the saved lane reads and the state files. Writes only under `<reports>`. Exit 5 when
   the release mails cannot be read; a source that fails otherwise is a line under "Not read" on the page.
@@ -57,7 +66,7 @@ at it, only a re-send of that build. They retire after a week of parity (the des
 `Train · <line>`: the counts line (`QA 15 open · 4 P1 · daily 12 arrived, 2 fail · prod 9 arrived, 0 incident`), the
 versions row (the brief's matrix cell, ▲ ✓ ◐ ○ as on the lanes page), the rows table — `P · ticket · title · owner ·
 <qa> · <daily> · <prod> · <cn> · position`, cells `✓ 78` / `❌ 79` / `· 80` / `—` / `⚠ incident` / `n/a`, regression
-rows marked `↩` — folded after eight rows, a folded "No ticket" list, and a footer linking the QA lane's test list and
+rows marked `↩`, rows named by QA only `◇` — folded after eight rows, a folded "No ticket" list, and a footer linking the QA lane's test list and
 the lanes page. `render_block` returns the block alone; phase 2 places it in `lanes.md` per line.
 
 ## Phase 2 (not built)

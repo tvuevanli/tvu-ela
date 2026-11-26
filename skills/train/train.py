@@ -154,6 +154,47 @@ def lane_rows(lane, state, mails, reports, issues):
     return out, ordered, withdrawn
 
 
+def qa_only_rows(qa_lane, per_lane, reports, issues):
+    """Rows for the keys the QA lane's report mails give a verdict (pass, fail, N/A) that no release mail named: a bug
+    QA filed and closed or reopened mid-cycle, a customer task tested on the build it rode without a line in the build's
+    mail. Each joins the QA lane's records marked `qa_only`, arrived on the build of the first report that judged it,
+    its verdicts the reports'; a key whose parent has a row joins that row's `also` instead, and a withdrawn ticket is
+    left out (returned). Only keys of a project the train's rows come from: QA's case ids share the key's shape. On
+    2026-11-26 ten such keys in the 2.1 window (MH-4054 among them) had QA verdicts and no row."""
+    recs, builds, withdrawn = per_lane[qa_lane]
+    have = {k: (lane, rid) for lane, (rs, _, _) in per_lane.items() for rid, r in rs.items() for k in [r.get("ticket"), *(r.get("also") or [])] if k}
+    projects = {k.split("-")[0] for k in have}
+    gone = {w for _, _, ws in per_lane.values() for w in ws}
+    out = []
+    for rep in sorted(reports or [], key=lambda x: x.get("at") or ""):
+        for k in B.keys_in(rep.get("text") or ""):
+            if k in have or k in gone or k in out or k.split("-")[0] not in projects:
+                continue
+            if not any(v in ("pass", "fail", "n-a") for v, _ in TL.P.key_verdicts(rep.get("text") or "", k)):
+                continue
+            f = (issues.get(k) or {}).get("fields") or {}
+            if TL.WITHDRAWN_RX.search(((f.get("resolution") or {}).get("name") or "")) or (f.get("status") or {}).get("name") == "Cancelled":
+                out.append(k)
+                continue
+            parent = (f.get("parent") or {}).get("key")
+            if parent in have:                              # a sub-task of a row: it rides as the row's also
+                lane, rid = have[parent]
+                TL.merge_keys(per_lane[lane][0][rid], [k])
+                if lane == qa_lane:
+                    r = recs[rid]
+                    r["found"] = r["found"] + TL.report_verdicts(reports, k, r.get("last_at"), r.get("last_build"))
+                    r["heard"] = r["heard"] + TL.report_verdicts(reports, k, None, None)
+                have[k] = (lane, rid)
+                continue
+            build = rep.get("build")
+            recs[k] = {"id": k, "ticket": k, "also": [], "focus": None, "log": [], "layers": [], "first_build": build,
+                       "label": build or (rep.get("at") or "")[5:10], "first_at": rep.get("at"), "last_build": build, "last_at": rep.get("at"),
+                       "found": TL.report_verdicts(reports, k, rep.get("at"), build), "heard": TL.report_verdicts(reports, k, None, None),
+                       "state_verdict": None, "builds_after": len([x for x in builds if build and int(x) > int(build)]), "qa_only": True}
+            have[k] = (qa_lane, k)
+    return [k for k in out if k not in have]
+
+
 def panel_lane(text):
     """The lane a pasted version panel (验证环境, ENV: …) in a comment proves, by the environment proof's parser; None
     when the comment pastes no panel or the panel names no lane."""
@@ -305,7 +346,8 @@ def row_of(rid, lanes, per_lane, said, issues, incidents, sprint, soon, qa, name
             "layer": "+".join(layers) or (pre.group(1) if pre else "—"), "owner": (names or {}).get(assignee, assignee) if assignee else None,
             "status": (f.get("status") or {}).get("name") if t else None, "priority": priority, "priority_reason": why,
             "how_to_verify": how, "auto": TL.auto_of(f"{title} {how}", bool(t)), "cells": cells, "position": position,
-            "regression": bool(regression), "regression_on": regression, "flag": None if t else "no ticket"}
+            "regression": bool(regression), "regression_on": regression, "flag": None if t else "no ticket",
+            "qa_only": bool(first.get("qa_only"))}
 
 
 def collect(line, cfg, states, mails, reports, said, issues, incidents, at, sprint=frozenset(), soon=False, regions=None,
@@ -317,10 +359,12 @@ def collect(line, cfg, states, mails, reports, said, issues, incidents, at, spri
     qa = qa if qa is not None else TL.qa_people()[0]
     per_lane = {lane: lane_rows(lane, (states or {}).get(lane), (mails or {}).get(lane), (reports or {}).get(lane) or [], issues)
                 for role, lane in lanes}
+    qa_lane = dict(lanes).get("qa")
+    gone = qa_only_rows(qa_lane, per_lane, (reports or {}).get(qa_lane) or [], issues) if qa_lane in per_lane else []
     ids = []
     for _, lane in lanes:
         ids += [rid for rid in per_lane[lane][0] if rid not in ids]
-    withdrawn = sorted({w for _, lane in lanes for w in per_lane[lane][2]})
+    withdrawn = sorted({w for _, lane in lanes for w in per_lane[lane][2]} | set(gone))
     rows = [row_of(rid, lanes, per_lane, said, issues, incidents, sprint, soon, qa, names) for rid in ids if rid not in withdrawn]
     rows.sort(key=lambda r: (not r["regression"], r["priority"], ROLE_RANK[r["position"]], r["id"]))
     missing = report_parity({lane: (reports or {}).get(lane) for _, lane in lanes}, rows, withdrawn)
@@ -384,10 +428,11 @@ def versions_row(lanes, rows, before, tested):
 # ── views ────────────────────────────────────────────────────────────────────────────────────────────
 
 def qa_view(res):
-    """The QA lane's test list as the train sees it: {row id: verdict} for the rows whose QA cell has no pass yet."""
+    """The QA lane's test list as the train sees it: {row id: verdict} for the rows whose QA cell has no pass yet. A
+    row named by QA only is left out: the test list reads release mails, so it never held one."""
     qa_lane = next((l["lane"] for l in res["lanes"] if l["role"] == "qa"), None)
-    return {r["id"]: r["cells"][qa_lane]["verdict"] for r in res["rows"]
-            if qa_lane and r["cells"].get(qa_lane, {}).get("arrived") and r["cells"][qa_lane]["verdict"] not in ("pass", "n/a")}
+    return {r["id"]: r["cells"][qa_lane]["verdict"] for r in res["rows"] if qa_lane and not r.get("qa_only")
+            and r["cells"].get(qa_lane, {}).get("arrived") and r["cells"][qa_lane]["verdict"] not in ("pass", "n/a")}
 
 
 def parity(res, state):
@@ -438,7 +483,7 @@ def counts_line(res):
 
 def row_line(r, lanes):
     p = ("↩ " if r["regression"] else "") + r["priority"]
-    ticket = TL.link({"ticket": r["key"], "url": r["url"], "also": r["also"]}) if r["key"] else "no ticket"
+    ticket = ("◇ " if r.get("qa_only") else "") + (TL.link({"ticket": r["key"], "url": r["url"], "also": r["also"]}) if r["key"] else "no ticket")
     cells = " | ".join(cell_text(r["cells"].get(l)) for l in lanes)
     return f"| {p} | {ticket} | {TL.short(r['title'])} | {TL.page_name(r['owner']) or '—'} | {cells} | {r['position']} |"
 
@@ -468,7 +513,8 @@ def render_page(res, rows_open=ROWS_OPEN, budget=BUDGET):
          f"*{B.F.read_at_line(res.get('read_at'))}*", ""]
     L += render_block(res, rows_open)
     legend = ["", "*✓ pass · ❌ fail · `·` arrived, untested · — not arrived · ⚠ incident · n/a no record (the lane's list began later) · "
-              "↩ regression: failed after a pass on QA, P1 · position: the furthest lane the fix reached.*"]
+              "↩ regression: failed after a pass on QA, P1 · ◇ named by QA only: a QA report judged it, no release mail named it · "
+              "position: the furthest lane the fix reached.*"]
     links = [f"[[lanes/test-list-{qa_lane['lane']}|Test list · {qa_lane['shown']}]]"] if qa_lane else []
     links.append("[[lanes|The lanes]]")
     legend.append("*" + " · ".join(links) + f". Generated by `ela train --line {res['line']} --page`.*")
@@ -543,6 +589,8 @@ def main():
     keys = {k for lane in mails for b in mails[lane] for l in b["log"] + b["focus"] for k in l["keys"]}
     for st in states.values():
         keys |= {k for part in ("rows", "left") for r in (st.get(part) or {}).values() for k in [r.get("ticket"), *(r.get("also") or [])] if k}
+    projects = {k.split("-")[0] for k in keys}                # QA's case ids (CON-14) share the key's shape, not a project
+    keys |= {k for r in reports.get(dict(lanes)["qa"]) or [] for k in B.keys_in(r.get("text") or "") if k.split("-")[0] in projects}
     cache, errs = {}, []
     TL.prefetch(env, sorted(keys), cache, errs)
     gaps += plain_gaps(errs)
