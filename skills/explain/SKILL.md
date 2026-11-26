@@ -58,6 +58,12 @@ Take from them: the symptom as the reporter saw it, every id (graph, object, pro
 environment), who was asked, who answered, and what changed between the description and the last
 message.
 
+**Read the matching elak knowledge first.** Before code or logs, `grep -rli <term> <published>/knowledge
+<elak>/knowledge` (the second where it exists) for the symptom's terms and each identifier the ticket
+carries (an error code, an image, a service, a field), read what matches, start from an entry that
+explains the case and name it; say when none matched. An entry is a cited reading: re-check it at its
+source when the answer turns on it.
+
 ## 1 — the runtime instance
 A MediaHub ticket is about a pipeline that either exists or does not, and that fact decides how much
 of the ticket is evidence and how much is intention.

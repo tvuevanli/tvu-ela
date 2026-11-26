@@ -70,6 +70,12 @@ The owner §3 names is read at that moment, never recalled: the area from
 areas` for who to ask first; both read `<published>`, falling back to elak's private source on the
 office machine. `<map>/services.yaml` still gives image → owners → repos.
 
+**Read the matching elak knowledge first.** Before code or logs, `grep -rli <term> <published>/knowledge
+<elak>/knowledge` (the second where it exists) for the symptom's terms and each identifier the ticket
+carries (an error code, an image, a service, a field), read what matches, start from an entry that
+explains the case and name it; say when none matched. An entry is a cited reading: re-check it at its
+source when the answer turns on it.
+
 ## 1 — facts, in this order
 1. **The report.** `$JIRA read <key> --deep`: reporter's evidence verbatim — ids, versions, env,
    what was ruled out. If the ticket names a graph, process or object id, or the reporter pasted a

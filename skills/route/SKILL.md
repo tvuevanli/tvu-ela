@@ -51,6 +51,12 @@ codes, timestamps, environment, what the reporter excluded, linked tickets (prio
 ela jira read <KEY> --deep
 ```
 
+**Read the matching elak knowledge first.** Before code or logs, `grep -rli <term> <published>/knowledge
+<elak>/knowledge` (the second where it exists) for the symptom's terms and each identifier the ticket
+carries (an error code, an image, a service, a field), read what matches, start from an entry that
+explains the case and name it; say when none matched. An entry is a cited reading: re-check it at its
+source when the answer turns on it.
+
 ## 0b — read the failure in the logs (a trace id, an email and a moment, a process id)
 
 The logs are first-hand; a ticket's paste of them is a report. All reads go through `ela logs`

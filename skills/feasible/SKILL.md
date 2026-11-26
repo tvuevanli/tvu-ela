@@ -54,6 +54,12 @@ STREAM="python3 ${CLAUDE_PLUGIN_ROOT}/skills/stream/stream.py"
 MAP="python3 ${CLAUDE_PLUGIN_ROOT}/skills/map/map.py"
 ```
 
+**Read the matching elak knowledge first.** Before code or logs, `grep -rli <term> <published>/knowledge
+<elak>/knowledge` (the second where it exists) for the symptom's terms and each identifier the ticket
+carries (an error code, an image, a service, a field), read what matches, start from an entry that
+explains the case and name it; say when none matched. An entry is a cited reading: re-check it at its
+source when the answer turns on it.
+
 ## 1 — the ask, as checkable items
 Read the source first-hand: `$SLACK read <permalink>` (on `not_in_channel` the script says whether
 the bot may join — joining is visible, so it is Evan's call, not the skill's), `$JIRA read <key> --deep`.
