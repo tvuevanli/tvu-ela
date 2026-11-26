@@ -153,6 +153,16 @@ late = dict(placed, **{"qa-cn3": dict(placed["qa-cn3"], rows={"MH-10": srow("MH-
 r10 = {r["id"]: r for r in TR.collect("2.1", CFG, late, {}, REPORTS, [], issues10, INCIDENTS, NOW, regions=REGIONS, qa=QA)["rows"]}["MH-10"]
 check("written before the fix reached QA, it still never falls to the lane the fix had reached (daily)",
       r10["cells"]["daily-wed"]["verdict"] == "untested" and r10["cells"]["qa-cn3"]["verdict"] == "untested")
+twice = dict(issues10, **{"MH-10": dict(issues10["MH-10"], comments=[comment("QA Person", "pass on build 79", "2026-10-30T12:00:00.000+0800"),
+                                                                     *issues10["MH-10"]["comments"]])})
+c10 = {r["id"]: r for r in TR.collect("2.1", CFG, placed, {}, REPORTS, [], twice, INCIDENTS, NOW, regions=REGIONS, qa=QA)["rows"]}["MH-10"]["cells"]
+check("a cell keeps its verdict history, oldest first; its fields stay the latest word",
+      [(h["verdict"], h["version"], h["at"]) for h in c10["qa-cn3"]["history"]] == [("pass", "build 79", "2026-10-30T12:00"), ("fail", "2.2.148 build 212", "2026-10-31T09:00")]
+      and c10["qa-cn3"]["verdict"] == "fail" and c10["qa-cn3"]["at"] == "2026-10-31" and c10["daily-wed"]["history"] == [])
+check("a state verdict the train cannot re-read joins the history; an incident joins it too",
+      [h["verdict"] for h in by["MH-1"]["cells"]["qa-cn3"]["history"]] == ["fail"]
+      and by["MH-5"]["cells"]["prod-3"]["history"][-1] == {"verdict": "incident", "version": None, "at": "2026-10-28T08:00", "source": "incident MH-500"}
+      and by["MH-5"]["cells"]["qa-cn3"]["history"] == [])
 check("a comment with no panel proves no lane by panel", TR.panel_lane("fail on build 99") is None and TR.panel_lane("ENV: nowhere-env\nfoo 1.0") is None)
 check("a pass on QA then untested on daily is no regression", by["MH-4"]["cells"]["daily-wed"]["verdict"] == "untested" and not by["MH-4"]["regression"])
 check("the customer label is P1, the dialog row is auto, the owner is named", by["MH-6"]["priority"] == "P1" and by["MH-1"]["auto"] and by["MH-1"]["owner"] == "Dev Person")

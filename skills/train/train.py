@@ -193,8 +193,17 @@ def verdict_lane(lanes, recs, named=None):
     return qa_lane if qa_lane in recs else None
 
 
+def history_of(found, since):
+    """A cell's verdict history: every word placed on the lane since the fix first arrived there, oldest first, one
+    entry per word — {verdict, version, at, source}; so "passed before, fails now" can be computed from the cell."""
+    out = []
+    for at_, v, ver, src in sorted(set(x for x in found if x[0] >= (since or "")[:16])):
+        out.append({"verdict": VERDICT_WORD.get(v, v), "version": ver, "at": at_[:16], "source": src})
+    return out
+
+
 def lane_verdicts(t, also, lanes, recs, said, issues, qa):
-    """{lane: (verdict, version, date, source)}: each lane's latest word after the fix arrived there — its report mails
+    """{lane: (verdict, version, date, source, history)}: each lane's latest word after the fix arrived there — its report mails
     (lane-bound), the release thread's replies (the QA lane), QA's ticket comments placed by `verdict_lane` — else the
     verdict the lane's state recorded, else untested. On daily and prod a recorded verdict counts only from a report
     mail: the per-lane lists took every QA comment after their own arrival, and a comment proves its lane only by its
@@ -214,14 +223,17 @@ def lane_verdicts(t, also, lanes, recs, said, issues, qa):
                 found[qa_lane].append((at_, v, ver, f"release thread by {who}"))
     out = {}
     for lane, r in recs.items():
+        history = history_of(found[lane], r.get("first_at"))
         mine = sorted(x for x in found[lane] if x[0] >= (r.get("last_at") or "")[:16])
         if mine:
-            out[lane] = (VERDICT_WORD.get(mine[-1][1], mine[-1][1]), mine[-1][2], mine[-1][0][:10], mine[-1][3])
+            out[lane] = (VERDICT_WORD.get(mine[-1][1], mine[-1][1]), mine[-1][2], mine[-1][0][:10], mine[-1][3], history)
             continue
         sv = r.get("state_verdict")
         if sv and lane != qa_lane and not re.match(r"QA (summary )?report", str(sv[3] or "")):
             sv = None                                   # a QA comment the lane's list took after its own arrival: not proof of the lane
-        out[lane] = sv or ("untested", None, None, None)
+        if sv and not any(h["verdict"] == sv[0] and h["at"][:10] == (sv[2] or "") for h in history):
+            history = sorted(history + [{"verdict": sv[0], "version": sv[1], "at": sv[2], "source": sv[3]}], key=lambda h: h["at"] or "")
+        out[lane] = (*sv, history) if sv else ("untested", None, None, None, history)
     return out
 
 
@@ -253,19 +265,21 @@ def row_of(rid, lanes, per_lane, said, issues, incidents, sprint, soon, qa, name
         r = recs.get(lane)
         if not r:
             continue
-        v, ver, date, src = verdicts[lane]
-        cells[lane] = {"arrived": r["label"], "since": (r["first_at"] or "")[:10] or None, "verdict": v, "version": ver, "source": src, "at": date}
+        v, ver, date, src, history = verdicts[lane]
+        cells[lane] = {"arrived": r["label"], "since": (r["first_at"] or "")[:10] or None, "verdict": v, "version": ver, "source": src, "at": date,
+                       "history": history}                   # the fields above are the latest word, as every reader takes them
         if role in ("prod", "cn") and v != "fail":
             inc = incident_on(t, cells[lane], incidents)
             if inc:
                 raised = next((i.get("created") or i.get("updated") for i in incidents if i.get("key") == inc), "") or ""
-                cells[lane].update(verdict="incident", source=f"incident {inc}", at=raised[:10] or None)
+                cells[lane].update(verdict="incident", source=f"incident {inc}", at=raised[:10] or None,
+                                   history=history + [{"verdict": "incident", "version": None, "at": raised[:16] or None, "source": f"incident {inc}"}])
         if role in ROLE_RANK:
             arrived.append(role)
     position = max(arrived, key=ROLE_RANK.get, default="dev")
     for role, lane in lanes:                                  # a lane with no record below the position: its list began later
         if lane not in cells and 0 < ROLE_RANK.get(role, 0) < ROLE_RANK[position]:
-            cells[lane] = {"arrived": None, "since": None, "verdict": "n/a", "version": None, "source": "no record: the lane's list began later", "at": None}
+            cells[lane] = {"arrived": None, "since": None, "verdict": "n/a", "version": None, "source": "no record: the lane's list began later", "at": None, "history": []}
     qa_cell = cells.get(qa_lane) if qa_lane else None
     judged = qa_cell if qa_cell and qa_cell.get("arrived") else cells.get(dict(lanes).get(position))
     pr = {"ticket": t, "verdict": (judged or {}).get("verdict") or "untested", "verdict_version": (judged or {}).get("version")}
