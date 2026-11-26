@@ -171,7 +171,9 @@ REQUIRED = {
     "his messages are input": ["His messages are input, never artefacts", "record this verbatim"],
     "shared trees": ["Shared trees get finished writing", "in a later pass"],
     "evidence": ["A report is input; evidence is fact"],
-    "gate": ["the strongest alternative including doing nothing", "dissent is recorded, never swallowed"],
+    "gate (elak principle 7 points here by name)": [
+        "Gate every non-trivial ask", "the strongest alternative including doing nothing",
+        "dissent is recorded, never swallowed"],
     "ela's own design (2026-11-09)": [
         "ela's own design is ela's to decide", "first judge whether it is a real pain point",
         "no box asks his word", "Black-box development",
