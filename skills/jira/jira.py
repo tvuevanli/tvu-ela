@@ -1701,7 +1701,8 @@ def cmd_comment(creds, args):
 # Decision 2026-11-24 (elak blueprint/decisions/2026-11-24-ela-watches-the-mh-board-and-acts-on-jira-signing-each-write.md):
 # a write ela makes without being asked (the board watch) goes out with a comment that says what changed and why and
 # ends with one signature line naming the account it is written on; a field change without that comment is refused.
-# The comment follows the Jira language rule: English, bilingual with English first when the ticket's text is Chinese.
+# The comment follows the Jira language rule: one language, English, also on a ticket written in Chinese (owner's
+# ruling 2026-11-26: a second language doubles what is read and nobody reads both). A Chinese word quoted inline is fine.
 # This is the one place the line is appended and the rule is held; a caller marks its write as ela's own by its class
 # (ELA_CLASS, set by `ela dry` when it runs a write).
 SIGNATURE = "— ela, {name}'s assistant, writing on his account. If this is wrong, reply here or message {first}."
@@ -1754,16 +1755,16 @@ def chinese(text):
 
 
 def language_problem(comment, ticket_text):
-    """Why a signed comment breaks the Jira language rule, or None: it opens in English; on a ticket whose text is
-    Chinese it carries the Chinese too, after the English."""
+    """Why a signed comment breaks the Jira language rule, or None: it is written in English, one language, whatever
+    the ticket's own language; a CJK word or title quoted inline is allowed, a Chinese paragraph is not."""
     body = unsigned(comment).strip()
     if not body:
         return "the comment says nothing besides the signature: say what changed and why"
-    first = re.split(r"\n\s*\n", body, 1)[0]
-    if CJK.search(first) or not re.search(r"[A-Za-z]{3,}", first):
-        return "the comment opens in English (its first paragraph has no Chinese); the Chinese follows it"
-    if chinese(ticket_text) and not CJK.search(body):
-        return "the ticket's text is Chinese: the comment is bilingual, the English first, then the Chinese"
+    if not re.search(r"[A-Za-z]{3,}", body):
+        return "a Jira comment is in English, one language, also on a Chinese ticket"
+    for para in re.split(r"\n\s*\n", body):
+        if chinese(para):
+            return "a Jira comment is in English, one language, also on a Chinese ticket: drop the Chinese paragraph"
     return None
 
 

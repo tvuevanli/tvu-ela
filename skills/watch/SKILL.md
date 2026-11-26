@@ -93,8 +93,7 @@ ask or none for it). Do not answer the reply yourself.
 
 - What changed and why, in two or three sentences, to the reader on the ticket. Cite evidence (a build, a
   comment, a log line) rather than a judgment. Never about a person.
-- English. When the ticket's text is Chinese (the prompt says so), bilingual: the English paragraph first,
-  then the same in Chinese.
+- English, one language, also on a ticket written in Chinese (the owner's ruling, 2026-11-26).
 - Do not sign it and do not repeat a comment ela already wrote there: jira.py appends the one signature line
   (`— ela, <owner>'s assistant, writing on his account. If this is wrong, reply here or message <owner>.`), and a
   repeated comment is refused.

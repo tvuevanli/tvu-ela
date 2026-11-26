@@ -105,7 +105,7 @@ with tempfile.TemporaryDirectory() as t:
         {"key": "MH-2", "verdict": "act", "confidence": "high", "writes": [{"verb": "transition", "to": "Done"}], "comment": "Closing: merged."},
         {"key": "MH-3", "verdict": "act", "confidence": "high", "writes": [{"verb": "label", "to": "x"}], "comment": "x"},
         {"key": "MH-7", "verdict": "act", "confidence": "high", "writes": [{"verb": "due", "date": "2026-12-01"}], "comment": ""},
-        {"key": "MH-12", "verdict": "act", "confidence": "high", "writes": [], "comment": "The fix is on daily; QA can test it there."},
+        {"key": "MH-12", "verdict": "act", "confidence": "high", "writes": [], "comment": "The fix is on daily; QA can test it there.\n\n\u4fee\u590d\u5df2\u5728 daily \u4e0a\uff0cQA \u53ef\u4ee5\u5728\u90a3\u91cc\u6d4b\u8bd5\u3002"},
         {"key": "MH-6", "verdict": "act", "confidence": "high", "writes": [], "comment": "Dev One's performance on this is poor."},
         {"key": "MH-11", "verdict": "ask", "question": "Reopened by QA: send it back to Dev One, or hold for the 2.2 line?",
          "options": [{"letter": "A", "text": "back to Dev One", "writes": [{"verb": "assign", "assignee": "acc-dev"}],
@@ -118,7 +118,7 @@ with tempfile.TemporaryDirectory() as t:
     check("a terminal status is refused: the owner's word", "terminal" in why.get("MH-2", ""))
     check("a verb outside the watch's own is refused", "not a write ela makes" in why.get("MH-3", ""))
     check("a set without its comment is refused", "comment" in why.get("MH-7", ""))
-    check("English only on a Chinese ticket is refused", "bilingual" in why.get("MH-12", ""))
+    check("a Chinese paragraph in the comment is refused: English, one language", "one language" in why.get("MH-12", ""))
     check("a comment about a person is refused: an ask", "about a person" in why.get("MH-6", ""))
     check("a ticket the scan did not find due is refused", "not due" in why.get("MH-77", ""))
     a1 = next(x for x in r["acts"] if x["key"] == "MH-1")

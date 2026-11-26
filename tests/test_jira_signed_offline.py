@@ -26,11 +26,12 @@ ZH = "\u64ad\u653e\u5668\u5728\u5207\u6362\u540e\u9ed1\u5c4f\uff0c\u91cd\u542f\u
 check("a ticket whose text is mostly CJK is Chinese; an English one with a CJK word is not",
       J.chinese(ZH + " MH") and not J.chinese("The player goes black after a switch (\u9ed1\u5c4f)"))
 check("English on an English ticket passes", J.language_problem(s, "Player black screen") is None)
-check("English only on a Chinese ticket: refused, bilingual is the rule",
-      "bilingual" in (J.language_problem(s, ZH) or ""))
+check("English only on a Chinese ticket passes: one language, English", J.language_problem(s, ZH) is None)
 both = J.signed("Assigned to the UI owner: the bug is in the player.\n\n" + ZH, "Dana Owner")
-check("bilingual, English first, on a Chinese ticket passes", J.language_problem(both, ZH) is None)
-check("Chinese first: refused", "opens in English" in (J.language_problem(J.signed(ZH + "\n\nEnglish after.", "D O"), ZH) or ""))
+check("a Chinese paragraph after the English: refused", "one language" in (J.language_problem(both, ZH) or ""))
+check("Chinese only: refused", "one language" in (J.language_problem(J.signed(ZH, "D O"), ZH) or ""))
+check("a Chinese word quoted inline passes",
+      J.language_problem(J.signed("The player goes black after a switch (\u9ed1\u5c4f).", "D O"), ZH) is None)
 check("a signature alone says nothing: refused", "says nothing" in (J.language_problem(LINE, "x") or ""))
 
 check("a field change of ela's own without its comment is refused", "--note-file" in (J.note_problem("assign", None, True) or ""))
@@ -107,9 +108,11 @@ with tempfile.TemporaryDirectory() as t:
     check("a comment on the owner's word is not signed", code == 0 and LINE not in out)
     ISSUE["summary"], ISSUE["description"] = ZH, None
     code, out, err = run(["comment", "MH-1", "--text", "The fix is on daily."], WATCH)
-    check("the watch's English-only comment on a Chinese ticket: refused", code == 2 and "bilingual" in out)
+    check("the watch's English-only comment on a Chinese ticket passes", code == 0 and LINE in out)
+    with open(note, "w", encoding="utf-8") as f:
+        f.write(ZH + "\n")
     code, out, err = run(["priority", "MH-1", "--to", "High", "--note-file", note], WATCH)
-    check("a change whose comment breaks the language rule is refused before the change", code == 2 and "bilingual" in err
+    check("a change whose comment breaks the language rule is refused before the change", code == 2 and "one language" in err
           and not [c for c in calls if c[0] in ("PUT", "POST")])
 
 _saved = J._issue

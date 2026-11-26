@@ -144,8 +144,8 @@ One `jira.py close` per ticket, dry run first — a proposal the owner finishes 
   2026-11-25). A label already on the ticket stays; none is removed. **The 1.5 line is not tracked**: no
   `release:mh-1.5`, and no sentence about 1.5 in the comment, whatever fixed-in reports for it
   (owner, 2026-10-20, MH-2449 and MH-3156).
-- **The comment** — English by default; bilingual (English first) only when the ticket's own text is
-  Chinese; never Chinese-only. **No `@mention` unless the owner names someone** (a close is a record,
+- **The comment** — English, one language, also on a ticket written in Chinese (the owner's ruling,
+  2026-11-26). **No `@mention` unless the owner names someone** (a close is a record,
   not a request; he removed every unasked mention on 2026-10-20 and 2026-10-21); when he does, the
   sentence to that person comes first as a real mention. Then the fact
   that closed it and where it came from, the plan item not done and why it is not a debt, the carrier
