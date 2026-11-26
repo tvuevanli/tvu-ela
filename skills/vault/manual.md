@@ -55,9 +55,9 @@ The vault is read every three minutes, 08:30–19:00 on working days: a line tak
 ## What ela does on its own, and what stays yours
 
 - **ela's alone**: what the pages say and in what order, summaries, folding.
-- **ela's, step by step**: Jira fields, labels, links and status comments; each kind starts by asking you. Once enough of them have gone through as drafted, ela asks you once whether it may do that kind unasked; on your yes it does, and lists each one on `ela/dry/did.md`. One correction sends it back to asking (the board watch's writes excepted: there a correction quiets that field on that ticket).
+- **ela's, step by step**: Jira fields, labels, links and status comments; each kind starts by asking you. Once enough of them have gone through as drafted, ela asks you once whether it may do that kind unasked; on your yes it does, and lists each one on `ela/dry/did.md`. One correction sends it back to asking.
 - **ela's only with proof**: anything that would take a risk out of your sight (a fail judged not to block a deploy, a mention judged to need nothing). Without first-hand proof it becomes an ask.
-- **Always yours**: anything posted in Slack, any close (except one ela verified itself: its own run as the test account passed on a proven lane, the proof as the closing comment, listed on `ela/dry/did.md`), product and team decisions.
+- **Always yours**: anything posted in Slack, any close but a fix ela verified itself, product and team decisions.
 
 ## In a session
 
