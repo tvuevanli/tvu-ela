@@ -60,7 +60,9 @@ with tempfile.TemporaryDirectory() as tmp:
     rows = [r for r in D.record(R) if r.get("review")]
     check("one row per mark: ok confirmed, two wrongs corrected",
           sorted(r["verdict"] for r in rows) == ["confirmed", "corrected", "corrected"])
-    check("wrong returns the class to confirm", D.load_state(R)["board-watch"]["tier"] == 3)
+    check("wrong quiets the act's field on its ticket; board-watch keeps its tier",
+          D.load_state(R)["board-watch"]["tier"] == 1
+          and {(r.get("key"), r.get("field")) for r in rows if r["verdict"] == "corrected"} == {("MH-2", "comment"), ("MH-3", "comment")})
     check("the rewritten page shows each mark beside its line",
           f"- {D_}-board-watch-MH-1#1. **Low**: no doubt was recorded. MH-1: commented — why: MH-1: signed comment · `no reverse atom: undo it on the ticket` — ok" in out
           and "— wrong: SCTE-35 is the standard, not a ticket" in out and "— wrong: (no cause given)" in out)
@@ -123,8 +125,9 @@ with tempfile.TemporaryDirectory() as R:
     json.dump(found, open(os.path.join(R, "review", f"{D_}-reader.json"), "w"))
     D.fold_corrections(R)
     row = [r for r in D.record(R) if r.get("how") == "audit"]
-    check("folded, the audit returns the class to confirm with its cause on record",
-          D.load_state(R)["board-watch"]["tier"] == 3 and row and row[0]["note"] == "the ticket was moved yesterday, not stalled")
+    check("folded, the audit quiets the audited act's field with its cause on record; the class keeps its tier",
+          D.load_state(R)["board-watch"]["tier"] == 1 and row and row[0]["note"] == "the ticket was moved yesterday, not stalled"
+          and row[0]["field"] == "comment" and row[0]["act"] == acts[0])
 
 if failures:
     print(f"\n{len(failures)} failed"); sys.exit(1)

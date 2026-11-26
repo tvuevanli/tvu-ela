@@ -7,8 +7,9 @@ An action class is one atom in one scope with a written rule that selects its ta
 the owner and its verdict is the class's track record: applied as drafted, applied after his edit, cancelled, expired
 unanswered, and afterwards corrected or reverted by anyone. A class with at least MATURE_RUNS runs applied as drafted
 over MATURE_DAYS days, none edited or cancelled in the last MATURE_RUNS and none corrected, earns one grant ask. Yes
-moves it one step up its ladder; one correction, revert or `ela:` line against it returns it to confirm. A class tier 3
-names by rule (NEVER) is recorded but never proposed.
+moves it one step up its ladder; one correction, revert or `ela:` line against it returns it to confirm, except for a
+SCOPED class (board-watch), whose correction quiets the corrected field on that ticket and leaves the class's tier. A
+class tier 3 names by rule (NEVER) is recorded but never proposed.
 
   classes [--json]                       the closed vocabulary: each class, its rule, its ladder
   status  [--json]                       each class: its record, its tier, what is one step from maturity
@@ -29,7 +30,8 @@ names by rule (NEVER) is recorded but never proposed.
                                          applied as edited and recorded as an edit), B drops it. A grant: A grants, B
                                          keeps confirming, C never asks again
   correct <class> --how revert|correction|word [--ref R] [--note T] [--date D]
-                                         a correction after the fact; a granted class returns to confirm
+                                         a correction after the fact; a granted class returns to confirm (a
+                                         scoped class: the ticket's field is quiet, the tier stays)
   did     [--date D] [--json]            what granted classes did without confirm: the Facts line and its list
   undo    <act|batch> [--apply] [--json] the reverse of an act, from the before-state it kept (<reports>/ela/acts.jsonl):
                                          each undo a dry run unless --apply; applied, it records the class's correction
@@ -183,6 +185,11 @@ CLASSES = {
     },
 }
 TIER1_BY_DECISION = ("board-watch", "link-named", "parent-status")   # written at the pass that decides them, each act on record with its undo
+# A correction of these classes quiets the corrected field on its ticket instead of returning the class to confirm: the
+# board watch's verbs reach hundreds of tickets, so one disputed comment says nothing about the others, and a ladder of
+# (1,) could never climb back (vault plan ela/2026-11-26-plan-sweep-judges-every-field, first slice 1). The row keeps
+# the ticket and the field; ela watch reads it and stays off that field there for its quiet days.
+SCOPED = ("board-watch",)
 # The decision that moved a class to tier 1 after it had a stored tier: applied once (a `decided` event), so a later
 # correction's fall to confirm stands (vault plan 2026-11-24-plan-today-opens-with-what-the-day-is-about, step 3).
 DECIDED = {"link-named": ("2026-11-24T00:00:00+08:00", "decision 2026-11-24-ela-watches-the-mh-board-and-acts-on-jira-signing-each-write"),
@@ -1090,21 +1097,46 @@ def undo(reports, ref, apply=False, runner=None, now=None):
         with open(acts_path(reports), "a", encoding="utf-8") as f:
             for a, _ in sorted(done):
                 f.write(json.dumps({"at": now_iso(now), "undone": a}, ensure_ascii=False) + "\n")
-        for cls in sorted({c for _, c in done if c in CLASSES}):
+        for a, cls in sorted(done):                         # a scoped class quiets each undone field on its ticket
+            if cls in SCOPED:
+                correct(reports, cls, "revert", ref=a, note="undone by ela dry undo", now=now)
+        for cls in sorted({c for _, c in done if c in CLASSES and c not in SCOPED}):
             notice = correct(reports, cls, "revert", ref=ref, note="undone by ela dry undo", now=now) or notice
     return {"ref": ref, "applied": apply, "ok": ok, "did": did, "notice": notice}
 
 
+def scope_of(reports, ref):
+    """The ticket and field a correction of `ref` concerns: an act id gives its ticket and its verb (assign, transition,
+    priority, due, link, comment); a ticket key gives the ticket alone (field None, the whole ticket). → (key, field)."""
+    ref = str(ref or "")
+    for r in reversed(record(reports)):
+        if r.get("act") and (r["act"] == ref or ref.startswith(r["act"] + "#")) and r.get("command"):
+            m = re.match(r"^ela jira ([a-z-]+) ", " ".join(str(r["command"]).split()))
+            return r.get("target"), m.group(1) if m else None
+    m = re.match(r"^[A-Z][A-Z0-9]+-\d+$", ref)
+    if m:
+        return ref, None
+    b = re.match(r"^\d{4}-\d{2}-\d{2}-[a-z-]+?-([A-Z][A-Z0-9]+-\d+)(?:#\d+)?$", ref)
+    return (b.group(1), None) if b else (None, None)
+
+
 def correct(reports, cls, how, ref=None, note=None, now=None, extra=None):
     """A correction after the fact (a revert, a reply against it, his `ela:` line, his `wrong:` in did.md). A class
-    above its base tier returns to confirm (tier 3) and the fall is noted for today.md. `extra` is merged into the
-    record row (the act, the review source). → the notice, or None when the class was at confirm."""
+    above its base tier returns to confirm (tier 3) and the fall is noted for today.md; a SCOPED class keeps its tier and
+    the row names the ticket and field it quiets (`key`, `field`; extra may set them). `extra` is merged into the record
+    row (the act, the review source). → the notice, or None when the class was at confirm or is scoped."""
     if cls not in CLASSES:
         raise KeyError(cls)
     st = load_state(reports)
     x = st[cls]
-    append(reports, dict({"at": now_iso(now), "class": cls, "verdict": "reverted" if how == "revert" else "corrected", "how": how,
-                          "target": ref, "note": note, "source": "correction"}, **(extra or {})))
+    row = {"at": now_iso(now), "class": cls, "verdict": "reverted" if how == "revert" else "corrected", "how": how,
+           "target": ref, "note": note, "source": "correction"}
+    if cls in SCOPED:
+        key, field = scope_of(reports, ref)
+        row.update(key=key, field=field)
+    append(reports, dict(row, **(extra or {})))
+    if cls in SCOPED:
+        return None
     if x["tier"] == 3:
         save_state(reports, st)
         return None
@@ -1130,8 +1162,12 @@ def fold_corrections(reports):
         for r in rows or []:
             if isinstance(r, dict) and r.get("kind") == "correction" and r.get("rule") in CLASSES and (day, r.get("key"), r["rule"]) not in seen:
                 seen.add((day, r.get("key"), r["rule"]))
+                scoped = {}
+                if r["rule"] in SCOPED and r.get("act"):          # an audited act quiets its own field, not the ticket
+                    k, f = scope_of(reports, r["act"])
+                    scoped = {"key": k or r.get("key"), "field": f, "act": r["act"]}
                 correct(reports, r["rule"], r.get("how") or "correction", r.get("key"), (r.get("now") or r.get("what") or "")[:120],
-                        now=datetime.datetime.fromisoformat(day + "T21:00:00+08:00"))
+                        now=datetime.datetime.fromisoformat(day + "T21:00:00+08:00"), extra=scoped or None)
 
 
 def did(reports, day):
@@ -1226,9 +1262,12 @@ def review(reports, text, day, now=None):
                              "review": True, "source": "review"})
             done.append(f"{ident}: confirmed")
         else:
+            k, f = scope_of(reports, key) if cls in SCOPED else (None, None)   # the marked act's own field
             correct(reports, cls, "correction", ref=target, note=why, now=now,
-                    extra={"act": key, "review": True, "corpus": "admitted" if why else "waiting for a cause"})
-            done.append(f"{ident}: wrong — {cls} back to confirm" + ("" if why else "; no cause given, the corpus waits for one"))
+                    extra={"act": key, "review": True, "corpus": "admitted" if why else "waiting for a cause",
+                           **({"key": k, "field": f} if k else {})})
+            done.append(f"{ident}: wrong — " + ("that field on the ticket is quiet" if cls in SCOPED else f"{cls} back to confirm")
+                        + ("" if why else "; no cause given, the corpus waits for one"))
         seen[key] = (mark, why)
     return done
 

@@ -30,9 +30,11 @@ Never by ela, always an ask: a terminal status, a Slack post under his name, a c
 
 A reply after ela's signed comment is judged too: the session marks each one the scan lists as disputing the comment or
 not, and only a plain `"disputes": false` is agreement (unsure, or no mark, counts as a dispute). A dispute is a
-correction under the demotion rule: `ela dry`'s record takes verdict corrected with the act id and the reply's link,
-board-watch returns to confirm, the reply becomes an ask on today.md naming the ticket and the reply, and ela posts no
-comment on that ticket for DISPUTE_QUIET_DAYS.
+correction that quiets the ticket, never the class: `ela dry`'s record takes verdict corrected with the act id, the
+reply's link, the ticket and the field (comment), board-watch keeps its tier, the reply becomes an ask on today.md
+naming the ticket and the reply, and ela posts no comment on that ticket for DISPUTE_QUIET_DAYS. A revert (`ela dry
+undo`), his `wrong:` in did.md or `ela dry correct board-watch` quiets the field it names the same way. Each correction
+is kept once in watch/corrections.jsonl with its case kind (the trigger kind, the field, how it was corrected).
 
   scan    [--date D] [--write] [--json]         every tracked ticket against the last pass; the triggered ones,
                                                 the owner's first; --write stores the pass (<reports>/ela/watch.json,
@@ -410,6 +412,40 @@ def quiet_until(rec):
     return (datetime.date.fromisoformat(d) + datetime.timedelta(days=DISPUTE_QUIET_DAYS)).isoformat() if d else None
 
 
+def quiets(reports, today):
+    """The fields ela stays off, per ticket: a board-watch correction (a disputing reply, a revert, his `wrong:` or
+    `ela dry correct`) quiets its field on its ticket for DISPUTE_QUIET_DAYS; the class keeps its tier (`ela dry`
+    SCOPED; plan ela/2026-11-26-plan-sweep-judges-every-field, first slice 1). A correction naming no field quiets the
+    ticket ("*"). → {key: {field: the day ela may write it again}}, only quiets still running on `today`."""
+    D, out = dry_mod(), {}
+    for r in D.record(reports):
+        if r.get("source") != "correction" or r.get("class") not in D.SCOPED or not r.get("key"):
+            continue
+        try:
+            until = (datetime.date.fromisoformat(str(r.get("at"))[:10]) + datetime.timedelta(days=DISPUTE_QUIET_DAYS)).isoformat()
+        except ValueError:
+            continue
+        if until > today:
+            f = out.setdefault(r["key"], {})
+            fld = r.get("field") or "*"
+            f[fld] = max(f.get(fld, ""), until)
+    return out
+
+
+def quiet_problem(writes, text, quiet):
+    """Why a set touches a field a correction quieted on this ticket, or None. `quiet` is quiets()[key]."""
+    if not quiet:
+        return None
+    if "*" in quiet:
+        return f"a correction quieted this ticket: no write from ela until {quiet['*']}; an ask or none"
+    for w in writes:
+        if w.get("verb") in quiet:
+            return f"a correction quieted {w['verb']} on this ticket: not written by ela until {quiet[w['verb']]}; an ask or none"
+    if text and "comment" in quiet:
+        return f"a correction quieted ela's comments on this ticket until {quiet['comment']}; an ask or none"
+    return None
+
+
 def ela_replies(iss, rec, reports, base):
     """The replies to ela's signed comments on a ticket that no pass has judged yet, each with the act it answers."""
     key, judged, out = iss["key"], set(rec.get("judged") or []), []
@@ -434,6 +470,7 @@ def scan(facts, reports, now, holds=None, lines=None, owner=None, write=False, b
     lines = current_lines() if lines is None else lines
     today = now.date().isoformat()
     rows, skipped, tracked, replies, judge = [], {"legacy": 0, "held": [], "done_today": []}, 0, [], []
+    quiet = quiets(reports, today)
     for iss in open_tickets(facts):
         key = iss["key"]
         rec = st["tickets"].setdefault(key, {"first": today})
@@ -475,6 +512,7 @@ def scan(facts, reports, now, holds=None, lines=None, owner=None, write=False, b
                      "labels": f.get("labels") or [], "updated": str(f.get("updated") or "")[:16],
                      "owner_held": is_owner(f.get("assignee"), owner), "chinese": J.chinese(ticket_text(iss)),
                      "quiet_until": quiet_until(rec) if (quiet_until(rec) or "") > today else None,
+                     "quiet_fields": quiet.get(key) or None,
                      "triggers": [{"kind": k, "says": s} for k, s in trig]})
     rows.sort(key=lambda r: (not r["owner_held"], ("Highest", "High", "Medium", "Low", "Lowest").index(r["priority"])
                              if r["priority"] in ("Highest", "High", "Medium", "Low", "Lowest") else 5, r["key"]))
@@ -525,7 +563,10 @@ def prompt_text(scanned, rows, decisions_path, precedents=()):
               f"{r['status']} · {r['assignee'] or 'nobody'} · {r['priority']}" + (f" · due {r['due']}" if r.get("due") else "")
               + (" · the owner's ticket" if r["owner_held"] else "") + (" · the ticket's text is Chinese" if r["chinese"] else "")
               + (f" · links {r['links']}: a comment is copied to each" if r.get("links") else "")
-              + (f" · a reply disputed ela: no comment until {r['quiet_until']} (ask or none)" if r.get("quiet_until") else ""),
+              + (f" · a reply disputed ela: no comment until {r['quiet_until']} (ask or none)" if r.get("quiet_until") else "")
+              + (" · corrected, ela stays off: " + ", ".join(f"{'the ticket' if f == '*' else f} until {u}"
+                                                            for f, u in sorted(r["quiet_fields"].items())) + " (ask or none)"
+                 if r.get("quiet_fields") else ""),
               ""] + [f"- trigger {t['kind']}: {t['says']}" for t in r["triggers"]]
         cited = precedent_lines(r, precedents)
         if cited:
@@ -580,14 +621,17 @@ def command_of(key, w, note):
     raise ValueError(v)
 
 
-def check_act(key, d, iss, rec, today):
-    """Why a decision to act may not go out, or None."""
+def check_act(key, d, iss, rec, today, quiet=None):
+    """Why a decision to act may not go out, or None. `quiet` the fields a correction quieted here (quiets()[key])."""
     if rec.get("acted") == today:
         return "one set of writes a day: this ticket had its set today"
     if (quiet_until(rec) or "") > today:
         return (f"a reply disputed ela's comment here on {rec['disputed']}: no comment from ela until {quiet_until(rec)}; "
                 "an ask or none")
     writes = d.get("writes") or []
+    q = quiet_problem(writes, (d.get("comment") or "").strip(), quiet)
+    if q:
+        return q
     for w in writes:
         if w.get("verb") not in VERBS:
             return f"{w.get('verb')!r} is not a write ela makes itself ({', '.join(VERBS)}, and a comment); it is an ask"
@@ -749,6 +793,7 @@ def decide(decisions, scanned, facts, reports, now, apply=False, runner=None, ju
            else {r["key"]: r for r in scanned.get("triggered") or []})
     out = {"date": today.isoformat(), "acts": [], "held": [], "asks": [], "none": [], "refused": [], "answered": []}
     out.update(judge_replies(decisions, scanned, st, topics, reports, now, apply))
+    quiet = quiets(reports, today.isoformat())
     for d in decisions.get("decisions") or []:
         key, verdict = d.get("key"), d.get("verdict")
         if key not in due:
@@ -759,7 +804,7 @@ def decide(decisions, scanned, facts, reports, now, apply=False, runner=None, ju
         if verdict in ("act", "none") and unsure(d):
             out["refused"].append({"key": key, "why": unsure(d)}); continue
         if verdict == "act":
-            problem = check_act(key, d, iss, rec, today.isoformat())
+            problem = check_act(key, d, iss, rec, today.isoformat(), quiet.get(key))
             if problem:
                 out["refused"].append({"key": key, "why": problem}); continue
             if d["confidence"] == "low":                       # nothing to Jira: the owner confirms it first
@@ -780,7 +825,8 @@ def decide(decisions, scanned, facts, reports, now, apply=False, runner=None, ju
                 out["refused"].append({"key": key, "why": str(e)}); continue
             out["acts"].append({"key": key, "writes": [w["command"] for w in writes], "comment": text, **got})
             if apply and got["state"] in ("applied", "open"):
-                rec.update(acted=today.isoformat(), decided=now.isoformat(timespec="seconds"), verdict="act", pending=[])
+                rec.update(acted=today.isoformat(), decided=now.isoformat(timespec="seconds"), verdict="act", pending=[],
+                           kinds=[t["kind"] for t in due[key].get("triggers") or [] if t.get("kind") in KINDS])
                 if judge:
                     supersede(topics, key, judge_path(reports, today.isoformat(), key), now)
                 if text:
@@ -815,6 +861,7 @@ def decide(decisions, scanned, facts, reports, now, apply=False, runner=None, ju
             out["refused"].append({"key": key, "why": f"verdict {verdict!r}: act, ask or none"})
     out["answered"] = [] if judge else carry_answers(topics, st, facts, reports, now, apply, runner)
     if apply:
+        out["corrections"] = fold_corrections(reports, st)
         write_json(state_path(reports), st)
         write_json(topics_path(reports), topics)
     return out
@@ -827,8 +874,8 @@ def disputes(mark):
 
 def judge_replies(decisions, scanned, st, topics, reports, now, apply):
     """The session's marks on the replies the scan listed. Agreement is recorded as judged. A dispute is a correction:
-    `ela dry`'s record takes verdict corrected (the act id, the reply's link) and the class returns to confirm; the
-    reply becomes the owner's ask; the ticket is quiet for DISPUTE_QUIET_DAYS. A reply the session did not mark waits
+    `ela dry`'s record takes verdict corrected (the act id, the reply's link, the ticket, field comment) and the class
+    keeps its tier; the reply becomes the owner's ask; the ticket is quiet for DISPUTE_QUIET_DAYS. A reply the session did not mark waits
     for the next pass. → {disputes, agreed, refused_replies}."""
     D, today = dry_mod(), now.date().isoformat()
     listed = {(r["key"], str(r["reply"])): r for r in scanned.get("replies") or []}
@@ -852,14 +899,15 @@ def judge_replies(decisions, scanned, st, topics, reports, now, apply):
         topics["topics"].setdefault(tid, {
             "id": tid, "key": r["key"], "summary": r.get("summary") or "",
             "question": (f"{r['by']} disputed ela's comment ({r['link']}): \u201c{clip(r['text'], 160)}\u201d. "
-                         f"{r['class']} is back at your confirm and ela stays off the ticket until {until}. What now?"),
+                         f"ela stays off the ticket until {until}. What now?"),
             "options": [{"letter": "A", "text": "leave it to the thread on the ticket", "writes": [], "comment": ""},
                         {"letter": "B", "text": f"undo ela's act {undo}", "writes": [], "comment": ""}],
             "first": today, "asked": today, "thread": None, "posted": {}, "closed": None})
         notice = None
         if apply:
             notice = D.correct(reports, r["class"], "correction", ref=r.get("act") or r["key"],
-                               note=f"{r['by']} disputed ela's comment on {r['key']}: {r['link']}", now=now)
+                               note=f"{r['by']} disputed ela's comment on {r['key']}: {r['link']}", now=now,
+                               extra={"key": r["key"], "field": "comment"})
         out["disputes"].append({"key": r["key"], "reply": r["reply"], "by": r["by"], "link": r["link"], "act": r.get("act"),
                                 "class": r["class"], "topic": tid, "quiet_until": until, "notice": notice})
     return out
@@ -882,7 +930,7 @@ def carry_answers(topics, st, facts, reports, now, apply, runner):
         rec = st["tickets"].setdefault(key, {"first": today.isoformat()})
         d = {"writes": opt.get("writes") or [], "comment": opt.get("comment") or "", "why": f"the owner's {c['letter']} on {t['id']}",
              "confidence": "high"}                             # his word settles it: not a row to review first
-        problem = check_act(key, d, iss, rec, today.isoformat())
+        problem = check_act(key, d, iss, rec, today.isoformat(), quiets(reports, today.isoformat()).get(key))
         if problem:
             done.append({"topic": t["id"], "key": key, "refused": problem})
             continue
@@ -939,6 +987,53 @@ def correct(reports, t, letter, note, now):
         f.write(json.dumps({"at": now.isoformat(timespec="seconds"), "class": t.get("class"), "target": t["key"], "act": t["id"],
                             "verdict": letter, "cause": note or None, "corpus": "admitted" if note else "waiting for a cause",
                             "kind": t.get("kind", "ruling"), "source": "watch"}, ensure_ascii=False) + "\n")
+
+
+def case_kind(reports, st, key, at):
+    """The trigger kind of the decision a correction answers: the kinds decide kept on the ticket, else the triggers in
+    the scan of the correction's day or the day before. → a KINDS entry, or None."""
+    for k in (st["tickets"].get(key) or {}).get("kinds") or []:
+        if k in KINDS:
+            return k
+    try:
+        day = datetime.date.fromisoformat(str(at)[:10])
+    except ValueError:
+        return None
+    for d in (day, day - datetime.timedelta(days=1)):
+        for r in read_json(scan_path(reports, d.isoformat()), {}).get("triggered") or []:
+            if r.get("key") == key:
+                k = trigger_kind(r)
+                if k:
+                    return k
+    return None
+
+
+def fold_corrections(reports, st):
+    """Each board-watch correction in `ela dry`'s record (a disputing reply, a revert, his `wrong:`, `ela dry correct`),
+    kept once in the watch's corrections with its case kind: the trigger kind as its class (what a precedent is matched
+    by), and `case` = trigger:field:how. A dispute's note (the reply's link) or his `wrong:` cause is its cause; a bare
+    undo waits for one. → [rows added]."""
+    D = dry_mod()
+    have = {r.get("act") for r in corrections(reports)}
+    added = []
+    for r in D.record(reports):
+        if r.get("source") != "correction" or r.get("class") not in D.SCOPED or not r.get("key"):
+            continue
+        ref = f"dry:{r.get('target') or r['key']}@{r.get('at')}"
+        if ref in have:
+            continue
+        kind = case_kind(reports, st, r["key"], r.get("at"))
+        why = None if r.get("note") == "undone by ela dry undo" or (r.get("review") and r.get("corpus") != "admitted") else r.get("note")
+        row = {"at": r.get("at"), "class": kind, "target": r["key"], "act": ref, "verdict": r.get("how") or "correction",
+               "field": r.get("field"), "case": f"{kind or '?'}:{r.get('field') or 'ticket'}:{r.get('how') or 'correction'}",
+               "cause": why or None, "corpus": "admitted" if why else "waiting for a cause", "kind": "correction", "source": "watch"}
+        p = corrections_path(reports)
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, "a", encoding="utf-8") as f:
+            f.write(json.dumps(row, ensure_ascii=False) + "\n")
+        have.add(ref)
+        added.append(row)
+    return added
 
 
 def cause(reports, tid, note, now):

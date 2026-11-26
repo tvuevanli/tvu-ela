@@ -87,7 +87,13 @@ with tempfile.TemporaryDirectory() as t:
           any(x["target"] == "2026-11-23-board-watch-MH-22#1" and "https://j/browse/MH-22?focusedCommentId=201" in x["note"]
               and x["class"] == "board-watch" for x in corr))
     check("the ambiguous reply counts as a dispute", any(x["target"] == "2026-11-23-board-watch-MH-23#1" for x in corr))
-    check("a dispute returns board-watch to confirm (the demotion path)", D.load_state(reports)["board-watch"]["tier"] == 3)
+    check("a dispute never demotes board-watch: the class keeps its tier", D.load_state(reports)["board-watch"]["tier"] == st0 == 1)
+    check("the dispute's record row names the ticket and the comment field it quiets",
+          any(x.get("key") == "MH-22" and x.get("field") == "comment" for x in corr))
+    kept = {x["target"]: x for x in W.corrections(reports) if x.get("kind") == "correction"}
+    check("each dispute is kept once in watch/corrections.jsonl with its case kind",
+          sorted(kept) == ["MH-22", "MH-23"] and kept["MH-22"]["field"] == "comment"
+          and kept["MH-22"]["case"].endswith(":comment:correction") and "focusedCommentId=201" in kept["MH-22"]["cause"])
     a = W.asks(reports, NOW.date())
     qs = {x["id"]: x["question"] for x in a}
     check("each dispute is an ask on today.md naming the ticket and the reply",
@@ -120,6 +126,40 @@ with tempfile.TemporaryDirectory() as t:
     check("a mark for a reply the scan did not list is refused",
           W.decide({"replies": [{"key": "MH-24", "reply": "400", "disputes": True}]}, {"triggered": [], "replies": []}, facts, reports,
                    NOW, apply=False)["refused_replies"][0]["key"] == "MH-24")
+
+# a revert quiets the reverted field on that ticket only; the class keeps its tier and other tickets are written
+with tempfile.TemporaryDirectory() as t:
+    facts, reports = os.path.join(t, "facts"), os.path.join(t, "reports")
+    os.makedirs(os.path.join(facts, "jira", "issues")); os.makedirs(os.path.join(reports, "ela"))
+    for k in ("MH-31", "MH-32"):
+        issue(facts, k, [])
+    D.append(reports, {"at": NOW.isoformat(timespec="seconds"), "class": "board-watch", "verdict": "applied", "as_drafted": True,
+                       "target": "MH-31", "command": "ela jira priority MH-31 --to High --note-file x",
+                       "batch": "2026-11-24-board-watch-MH-31", "act": "2026-11-24-board-watch-MH-31#1", "source": "tier1"})
+    st0 = D.load_state(reports)["board-watch"]["tier"]
+    D.correct(reports, "board-watch", "revert", ref="2026-11-24-board-watch-MH-31#1", note="the reporter set it back", now=NOW)
+    check("a revert keeps board-watch's tier", D.load_state(reports)["board-watch"]["tier"] == st0 == 1)
+    q = W.quiets(reports, NOW.date().isoformat())
+    check("a revert quiets that field on that ticket only", q == {"MH-31": {"priority": "2026-12-01"}})
+    due = {"triggered": [{"key": "MH-31", "triggers": [{"kind": "stalled", "says": "x"}]}, {"key": "MH-32"}], "replies": []}
+    pr = lambda k: {"key": k, "verdict": "act", "confidence": "high", "comment": f"Raised {k}: it blocks the release.",  # noqa: E731
+                    "writes": [{"verb": "priority", "to": "High"}]}
+    asg = {"key": "MH-31", "verdict": "act", "confidence": "high", "comment": "Assigned to the UR owner: the fix is in UR.",
+           "writes": [{"verb": "assign", "assignee": "acc-dev"}]}
+    r = W.decide({"decisions": [pr("MH-31"), pr("MH-32")]}, due, facts, reports, NOW + datetime.timedelta(days=1), apply=False, runner=runner)
+    check("the quieted field is refused on that ticket, written on another",
+          [x["key"] for x in r["refused"]] == ["MH-31"] and "priority" in r["refused"][0]["why"] and [x["key"] for x in r["acts"]] == ["MH-32"])
+    r = W.decide({"decisions": [asg]}, due, facts, reports, NOW + datetime.timedelta(days=1), apply=False, runner=runner)
+    check("another field on the quiet ticket is still ela's", r["refused"] == [] and [x["key"] for x in r["acts"]] == ["MH-31"])
+    r = W.decide({"decisions": [pr("MH-31")]}, due, facts, reports, NOW + datetime.timedelta(days=7), apply=False, runner=runner)
+    check("after the quiet days the field is ela's again", r["refused"] == [])
+    W.decide({"decisions": []}, due, facts, reports, NOW, apply=True, runner=runner)
+    kept = [x for x in W.corrections(reports) if x.get("kind") == "correction"]
+    check("the revert is kept with its case kind (trigger:field:how) from the day's scan or the ticket's kinds",
+          len(kept) == 1 and kept[0]["field"] == "priority" and kept[0]["case"].endswith(":priority:revert")
+          and kept[0]["cause"] == "the reporter set it back")
+    W.decide({"decisions": []}, due, facts, reports, NOW, apply=True, runner=runner)
+    check("a correction is kept once", len([x for x in W.corrections(reports) if x.get("kind") == "correction"]) == 1)
 
 print(f"\n{len(fails)} failed" if fails else "\nall ok")
 sys.exit(1 if fails else 0)

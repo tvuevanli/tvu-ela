@@ -85,9 +85,10 @@ How to read the triggers:
 The prompt's last section lists each reply after a comment ela signed that no pass has judged. Mark each: does it
 dispute what ela's comment said or did (the change was wrong, the evidence is wrong, it is not theirs, undo it)?
 Conservatively: `false` only when the reply plainly agrees, thanks, or carries on without contesting; when unsure, it
-is a dispute (`"unsure"` or `true`). A dispute is recorded as a correction: board-watch returns to the owner's confirm,
-the reply becomes his ask, and ela posts no comment on that ticket for 7 days (the prompt marks such a ticket; decide
-ask or none for it). Do not answer the reply yourself.
+is a dispute (`"unsure"` or `true`). A dispute is recorded as a correction of that ticket, not of the class: board-watch
+keeps its tier, the reply becomes his ask, and ela posts no comment on that ticket for 7 days. A revert or his `wrong:`
+quiets the field it names on its ticket the same way. The prompt marks a quiet ticket or field; decide ask or none for
+it, or act on the other fields. Do not answer the reply yourself.
 
 ## The comment
 
