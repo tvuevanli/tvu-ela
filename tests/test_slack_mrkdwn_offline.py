@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Slack's mrkdwn against Markdown, offline: `slack.py check` names every construct Slack prints literally (a heading,
 double asterisks, a Markdown link, a pipe table, a rule, a nested list item, a language tag on a fence, a marker
-touching CJK text), leaves code alone, and --fix makes each mechanical repair. No token is read and nothing is called."""
+touching CJK text, a bare Jira URL beside its own key), leaves code alone, and --fix makes each mechanical repair. No token is read and nothing is called."""
 import json, os, subprocess, sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "skills", "slack"))
@@ -27,6 +27,13 @@ check("a rule", rules("above\n---\nbelow") == ["rule"])
 check("a nested list item", rules("• one\n  • under one\n    - deeper") == ["nested-list", "nested-list"])
 check("a language tag on a fence", rules("```python\nprint(1)\n```") == ["fence-language"])
 check("text on the fence line that is not a tag alone is the block's content", rules("```claude plugin install x\nmore```") == [])
+U = "https://t.example/browse/MH-1997"
+check("a bare Jira URL beside its own key, plain or in <…> without a label", rules(f"• MH-1997 Unable to create {U}") == ["bare-jira-url"]
+      and rules(f"• MH-1997 Unable <{U}>") == ["bare-jira-url"] and rules(f"<{U}|MH-1997> fixed <{U}>") == ["bare-jira-url"])
+check("not a slip: the key as its link, a URL alone (meant to be pasted), another key's URL, a URL in code",
+      rules(f"<{U}|MH-1997> Unable") == [] and rules(f"open {U}") == [] and rules(f"MH-2 see {U}") == [] and rules(f"MH-1997 `{U}`") == [])
+check("--fix folds the URL into the key", S.mrkdwn_fix(f"• MH-1997 [Prod9] Unable <{U}>") == f"• <{U}|MH-1997> [Prod9] Unable"
+      and S.mrkdwn_fix(f"<{U}|MH-1997> fixed {U}") == f"<{U}|MH-1997> fixed")
 check("a marker touching CJK text", rules("这是*重点*内容") == ["cjk-boundary"] and rules("结论_未验证_。") == ["cjk-boundary"] and rules("旧的~作废~了") == ["cjk-boundary"])
 check("full-width punctuation is no boundary; a space is", rules("结论：*通过*。") == ["cjk-boundary"] and rules("*标题*（说明）") == ["cjk-boundary"] and rules("这是 *重点* 内容") == [] and rules("结论： *通过* 。") == [])
 check("the repair puts the space beside full-width punctuation", S.mrkdwn_fix("*标题*（说明）") == "*标题* （说明）" and S.mrkdwn_fix("• *版本*：1.0") == "• *版本* ：1.0", S.mrkdwn_fix("*标题*（说明）"))

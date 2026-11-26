@@ -40,6 +40,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "setup"))
 import siteguard  # noqa: E402  a file in the site directory is never read for a caller
+import slacktext  # noqa: E402  a Jira key as its link, a title cut at a word: the one place
 
 API = "https://slack.com/api/"
 EX_USAGE, EX_AUTH, EX_REMOTE = 2, 4, 5
@@ -1055,6 +1056,7 @@ MRKDWN_RULES = {
     "nested-list": ("an indented list item: Slack has no nesting and prints the indentation; one level, the • bullet", True),
     "fence-language": ("a language tag on a ``` fence: Slack prints it as the block's first line; open with bare ```", True),
     "cjk-boundary": ("a *bold*, _italic_ or ~strike~ marker touching CJK text: it needs a space on both sides to render", True),
+    "bare-jira-url": ("a bare Jira URL beside its own key: make the key the link, <url|KEY>, and drop the URL", True),
 }
 # CJK punctuation and the full-width forms are word characters to Slack as well: a heading written as a bold span and
 # followed by a full-width bracket, colon or comma showed its asterisks (two replies of 2026-11-13, seen by the owner)
@@ -1116,6 +1118,8 @@ def mrkdwn_check(text):
         hits += [name for name, rx in _INLINE_RULES if rx.search(line)]
         if "rule" not in hits and "heading" not in hits and _cjk_touch(line):
             hits.append("cjk-boundary")
+        if slacktext.bare_browse(line):
+            hits.append("bare-jira-url")
         out += [{"rule": h, "line": n, "why": MRKDWN_RULES[h][0], "fixable": MRKDWN_RULES[h][1]} for h in hits]
         n += 1 + sum(x.count("\n") for x in re.findall(r"\x00\d+\x00", line) for x in [_unmask(x, _)])
     return out
@@ -1135,6 +1139,7 @@ def mrkdwn_fix(text):
             continue
         line = _INLINE_RULES[0][1].sub(r"*\1*", line)
         line = _INLINE_RULES[1][1].sub(r"<\2|\1>", line)
+        line = slacktext.fold_browse(line)
         m = _LINE_RULES[0][1].match(line)
         if m:
             line = "*" + m.group(1).strip().strip("*").strip() + "*"
