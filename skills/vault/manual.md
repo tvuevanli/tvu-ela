@@ -12,8 +12,10 @@ ela runs on its own and writes this vault. You do two things here: give a **fact
 ## Your day
 
 1. **Open [[today]].** Read **In short**: at most five lines, most urgent first, each with what it means and what to do; the last line says where to start.
+   **Since you last looked** follows, at most five lines; a fix whose QA verdict changed leads it and links its row on the release line page.
    Under **Today**, the line **Team yesterday** opens the team daily report as it went out to Slack, with a **For you** block on top (at most three lines: your tickets, mentions of you, and any line that contradicts Jira). On Mondays a second line opens the weekly.
 2. **Answer what is under Needs you.** Each ask needs a *fact* or a *ruling*; A is ela's recommendation, with its reason. Tick a box or write `ela: A` under it; words after the letter are kept as your reason. An unanswered ask expires after three working mornings.
+   A deploy **Ruling** carries ela's leaning as A; if it is wrong, answer B and write why. Rulings beyond three wait on the line page.
 3. **Follow a link only when a line is not enough.** The morning page and the changes page under `reference/days/` hold the evidence behind today.md; you do not need to read them every day. On Fridays the changes page ends with **Quiet for two weeks**: live notes whose text has not changed in 14 days, with what each waits for; write `done` on one that is finished, or leave it.
 
 ## Where things live
@@ -22,7 +24,7 @@ ela runs on its own and writes this vault. You do two things here: give a **fact
 > | place | what it is for |
 > |---|---|
 > | [[today]] | the day: what matters, what needs you |
-> | `releases/<line>/` | a release line and its deploys: lanes, the next promotion, builds, QA's verdicts per fix |
+> | `releases/<line>/` | a release line and its deploys: lanes, the next promotion, **Fixes on their way** (blocks, your call, not yet verified, does not block), builds |
 > | `projects/` | bounded work with a deadline, one page each |
 > | [[meetings/focus\|meetings/focus]] | the team's focus board; [[meetings/open-questions\|open questions]] beside it |
 > | [[ela/watch\|ela/watch]] | board-watch topics waiting for your letter |
@@ -56,9 +58,10 @@ The vault is read every three minutes, 08:30–19:00 on working days: a line tak
 
 ## In a session
 
-Two tags, each written alone in your message (not quoted, not in code):
-- `#zh`: ela answers in Chinese from that message on, until you ask for English.
-- `#send`: the Slack post answering that one message goes out as ela without a preview; you get its link afterwards. It still stops for a preview when the post would go under your name, reach a person or thread you did not name, commit to a date, an owner or a release scope, or rest on a fact ela is not sure of.
+> [!note]- Two tags you can write in a message: `#zh` and `#send`
+> Two tags, each written alone in your message (not quoted, not in code):
+> - `#zh`: ela answers in Chinese from that message on, until you ask for English.
+> - `#send`: the Slack post answering that one message goes out as ela without a preview; you get its link afterwards. It still stops for a preview when the post would go under your name, reach a person or thread you did not name, commit to a date, an owner or a release scope, or rest on a fact ela is not sure of.
 
 ## In Slack
 
@@ -67,11 +70,6 @@ Every word and button you can use with ela in Slack, and who else reaches it: [[
 What the MediaHub PM asked for in the design channel and ela already carried out, each request with its undo: [[releases/pm-requests|the PM's release requests]].
 
 Slack only reminds; the question itself is always here. A direct message from ela means one of: a prod incident addressed to you (at any hour), a question put to you that is still unanswered after its wait (inside your DM hours; outside them it becomes an ask on [[today]]), or one of ela's passes failing. Board-watch topics get at most one reminder a day, when a topic is new. The daily and weekly team reports are the only posts that go out on their own.
-
-## Coming
-
-> [!note]- A change on its way
-> - The release line page will gain **Fixes on their way**: each fix from build to prod with what changed, what QA tested, the verdict, ela's judgment of its impact on the deploy, and what is next; today.md's Facts will become **Since you last looked** ([[2026-11-26-plan-fixes-followed-to-prod-one-home-per-fact|plan]]).
 
 ---
 
