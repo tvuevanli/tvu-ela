@@ -1426,13 +1426,58 @@ def link_resolves(target, src, low, names):
     return "/" not in t and ((t.lower() + ".md") in names or t.lower() in names)
 
 
-def link_repairs(vault, reports):
-    """Every link that finds no file, with where its note is now when the record says: the rename history (the close
-    log, the aliases an old name is kept as) first, else, for a link with a folder path, the one note of that file
-    name in the same thing's home. → (fixes {path: [(old target, new target)]} in notes the vault owns, unresolved
-    [(path, target)], generated {path: [...]}: a page the sync writes, fixed in its generator, never in place)."""
-    low, names = vault_files(vault)
+CODE = re.compile(r"```.*?```|~~~.*?~~~|`[^`\n]*`", re.S)
+MDFULL = re.compile(r"(\[)([^\]\n]*)(\]\()([^)\s#]+?\.md)((?:#[^)\s]*)?\))")
+BUILD_LINK = re.compile(r"^releases/(\d+\.\d+)/\d{4}-\d{2}-\d{2}-build-\d+-to-[\w.-]+$", re.I)
 
+
+def code_masked(text):
+    """The text with code spans and fences blanked, its length kept: a link written inside code is an example of the
+    syntax (`[[x]]`), not a link, so it is neither reported nor rewritten."""
+    return CODE.sub(lambda m: re.sub(r"[^\n]", " ", m.group(0)), text)
+
+
+def link_targets(text):
+    """The targets of the links in text outside code: a wiki link's path, a Markdown link's path without .md."""
+    masked = code_masked(text)
+    out = [m.group(2).strip().rstrip("\\") for m in WIKI.finditer(masked)]
+    return out + [m.group(4)[:-3] for m in MDFULL.finditer(masked) if not re.match(r"^[a-z]+:", m.group(4))]
+
+
+def decide_links(text, decide):
+    """The text with each link outside code rewritten by decide(target): None keeps it, a path points it there (heading,
+    block, alias and a table's escaped pipe kept), "" turns it into plain text: its label, else its target as written."""
+    masked, cuts = code_masked(text), []
+    for m in WIKI.finditer(masked):
+        t = m.group(2).strip()
+        core = t.rstrip("\\")
+        new = decide(core)
+        if new is None:
+            continue
+        if new:
+            cuts.append((m.start(), m.end(), m.group(1) + new + t[len(core):] + m.group(4)))
+        else:
+            rest = text[m.end(2):m.end(4) - 2]           # what follows the target: `.md`, `#heading`, `|label`
+            bar = re.search(r"\\?\|", rest)
+            cuts.append((m.start(), m.end(), (rest[bar.end():].strip() if bar else "") or core))
+    for m in MDFULL.finditer(masked):
+        if re.match(r"^[a-z]+:", m.group(4)) or any(a <= m.start() < b for a, b, _ in cuts):
+            continue
+        new = decide(m.group(4)[:-3])
+        if new is None:
+            continue
+        cuts.append((m.start(), m.end(), m.group(1) + text[m.start(2):m.end(2)] + m.group(3) + new + ".md" + m.group(5) if new
+                     else text[m.start(2):m.end(2)] or m.group(4)[:-3]))
+    for a, b, rep in sorted(cuts, reverse=True):
+        text = text[:a] + rep + text[b:]
+    return text
+
+
+def successor_finder(vault, reports, low, names):
+    """where(target): the note a link that finds no file stands for now, or None. The rename history first (the close
+    log, the aliases an old name is kept as); a project's folder, its folder note; a build's note, which since the one-page-per-line plan is a line on its
+    line's page, that page; else, for a link with a folder path, the one note of that file name in the same thing's
+    home; for a bare name, the one note an old name of that stem became."""
     def home_key(path):                                    # the thing a path lies in: projects/<key>, else its top folder
         parts = path.lower().split("/")
         if parts[0] == PROJECTS and len(parts) > 2:
@@ -1451,6 +1496,11 @@ def link_repairs(vault, reports):
             got = moved.get(t.lower())
             if got:
                 return got
+            if f"{t}/{os.path.basename(t)}.md".lower() in low:   # a project's folder: its page is the folder note
+                return f"{t}/{os.path.basename(t)}"
+            b = BUILD_LINK.match(t)
+            if b and f"{RELEASES}/{b.group(1)}/{b.group(1)}.md".lower() in low:
+                return f"{RELEASES}/{b.group(1)}/{b.group(1)}"
             same = [p for p in names.get(os.path.basename(t).lower() + ".md", []) if home_key(p) == home_key(t)]
             return same[0][:-3] if len(same) == 1 else None
         got = by_stem.get(t.lower())
@@ -1458,13 +1508,20 @@ def link_repairs(vault, reports):
             n = next(iter(got))
             return os.path.basename(n) if len(names.get(os.path.basename(n).lower() + ".md", [])) == 1 else n
         return None
+    return where
+
+
+def link_repairs(vault, reports):
+    """Every link that finds no file, with where its note is now when the record says (successor_finder). → (fixes
+    {path: [(old target, new target)]} in notes the vault owns, unresolved [(path, target)], generated {path: [...]}:
+    a page the sync writes, fixed in its generator, never in place)."""
+    low, names = vault_files(vault)
+    where = successor_finder(vault, reports, low, names)
     fixes, unresolved = {}, set()
     for rel, text in vault_texts(vault):
         if not rel.endswith(".md"):
             continue
-        targets = [m.group(2).strip().rstrip("\\") for m in WIKI.finditer(text)]
-        targets += [m.group(2)[:-3] for m in MDLINK.finditer(text) if not re.match(r"^[a-z]+:", m.group(2))]
-        for t in targets:
+        for t in link_targets(text):
             if link_resolves(t, rel, low, names):
                 continue
             new = where(t)
@@ -1481,17 +1538,62 @@ def repair_text(text, pairs):
     """The text with each broken link target in pairs [(old, new)] pointed at new; heading, block, alias and a table's
     escaped pipe kept."""
     want = {o.lower(): n for o, n in pairs}
+    return decide_links(text, lambda t: want.get(t.lower()))
 
-    def wiki(m):
-        t = m.group(2).strip()
-        core = t.rstrip("\\")
-        new = want.get(core.lower())
-        return m.group(1) + new + t[len(core):] + m.group(4) if new else m.group(0)
 
-    def md(m):
-        new = want.get(m.group(2)[:-3].lower())
-        return m.group(1) + new + ".md" + m.group(3) if new else m.group(0)
-    return MDLINK.sub(md, WIKI.sub(wiki, text))
+def unlink_text(text, targets):
+    """The text with each link to one of targets turned into plain text that keeps its label (or the target's name)."""
+    dead = {t.lower() for t in targets}
+    return decide_links(text, lambda t: "" if t.lower() in dead else None)
+
+
+def settle_links(planned, vault, reports):
+    """The generated pages with no dead link: each link that finds no file on disk or among this sync's pages points to
+    its successor (successor_finder), else becomes plain text keeping its label. The generator is where a generated
+    page is fixed, so every sync keeps the fix; a target that comes back is linked again by the next sync, which writes
+    the page from its source. → (planned, [(path, target, successor or "")])."""
+    low, names = vault_files(vault)
+    for rel in planned:
+        low.add(rel.lower())
+        names.setdefault(os.path.basename(rel).lower(), []).append(rel)
+    where, done = successor_finder(vault, reports, low, names), []
+    for rel, text in list(planned.items()):
+        if not rel.endswith(".md") or not isinstance(text, str) or rel == MANUAL:   # the manual is its source, linted there
+            continue
+        acts = {}
+        for t in link_targets(text):
+            if t.lower() not in acts and not link_resolves(t, rel, low, names):
+                acts[t.lower()] = where(t) or ""
+                done.append((rel, t, acts[t.lower()]))
+        if acts:
+            planned[rel] = decide_links(text, lambda t, acts=acts: acts.get(t.lower()))
+    return planned, done
+
+
+def unlink_dead(vault, reports, dead, now):
+    """Each (note, target) in dead turned into plain text in the note (unlink_text), each logged first to
+    <reports>/ela/vault-unlinked.jsonl with the note, the target and the line it stood in, so nothing is lost:
+    the link can be put back from the log. → [paths changed]."""
+    by = {}
+    for r, t in dead:
+        by.setdefault(r, []).append(t)
+    log = os.path.join(reports or "", "ela", "vault-unlinked.jsonl")
+    os.makedirs(os.path.dirname(log), exist_ok=True)
+    out = []
+    for rel, targets in sorted(by.items()):
+        p = os.path.join(vault, rel)
+        text = open(p, encoding="utf-8").read()
+        new = unlink_text(text, targets)
+        if new == text:
+            continue
+        with open(log, "a", encoding="utf-8") as fh:
+            for t in targets:
+                lines = [l for l in text.splitlines() if t in l][:3]
+                fh.write(json.dumps({"at": now.isoformat(timespec="seconds"), "note": rel, "target": t, "lines": lines},
+                                    ensure_ascii=False) + "\n")
+        atomic_write(p, new)
+        out.append(rel)
+    return out
 
 
 def repair_links(vault, fixes):
@@ -5947,6 +6049,7 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since
     planned[f"{ELA}/about-this-vault.md"] = README.replace(SPEC_MARK, "\n".join(("> " + l).rstrip() for l in spec_text().splitlines()))
     for name, text in VIEWS.items():
         planned[f"{ELA}/{name}.base"] = text
+    planned, _ = settle_links(planned, s["vault"], reports)   # a generated page carries no dead link: fixed here, so every sync keeps it
     return planned, files, notes, warnings, {n.path for n in native}, inferred
 
 
@@ -7095,9 +7198,13 @@ def cmd_tidy(a):
             print(f"tidy: the batch failed and was put back: {e}", file=sys.stderr); sys.exit(5)
     fixes, unresolved, generated = link_repairs(vault, reports) if a.links else ({}, [], {})
     repaired = repair_links(vault, fixes) if a.apply and a.links else sorted(fixes)
+    gen = set(manifest_of(vault).get("files") or [])
+    dead = [(r, t) for r, t in unresolved if r not in gen] if a.links and a.unlink else []
+    unlinked = unlink_dead(vault, reports, dead, now) if a.apply and dead else []
     out = {"moves": moves, "held": held, "stamped": stamped, "batch": batch, "links_rewritten": links,
            "repaired": {r: fixes[r] for r in repaired if r in fixes}, "generated": generated,
-           "unresolved": [{"note": r, "target": t} for r, t in unresolved], "dry_run": not a.apply}
+           "unresolved": [{"note": r, "target": t} for r, t in unresolved],
+           "unlinked": [{"note": r, "target": t} for r, t in dead], "dry_run": not a.apply}
     if a.json:
         print(json.dumps(out, ensure_ascii=False, indent=1)); return
     for m in moves:
@@ -7111,10 +7218,12 @@ def cmd_tidy(a):
         for r, pairs in sorted(generated.items()):
             print(f"generated, left to its generator: {r}: " + ", ".join(f"[[{o}]] → [[{n}]]" for o, n in pairs))
         for r, t in unresolved:
-            print(f"unresolved: {r} → {t}")
+            print(f"{pre}plain text: {r} → {t}" if (r, t) in dead else
+                  f"unresolved, its generator settles it at the next sync: {r} → {t}" if r in gen else f"unresolved: {r} → {t}")
     print(f"{len(moves)} to history" + (f" (batch {batch})" if batch else "") + f" · {len(held)} held · {len(links)} notes' links rewritten"
           + (f" · {sum(len(fixes[r]) for r in repaired if r in fixes)} broken links repaired in {len(repaired)} notes · "
-             f"{len(generated)} generated pages left · {len(unresolved)} unresolved" if a.links else "")
+             f"{len(generated)} generated pages left · {len(unresolved)} unresolved"
+             + (f" · {len(dead)} made plain text" if a.unlink else "") if a.links else "")
           + ("" if a.apply else " · nothing written; --apply makes it" + ("" if tidy_state(reports).get("armed") else " and arms the sync")))
 
 
@@ -8751,6 +8860,8 @@ def main():
     p = sub.add_parser("tidy", help="done work notes in ela/ and reference/ to their history/ (logged renames, path links "
                                     "rewritten; the sync does it once armed); --links repairs broken links; --undo puts a batch back")
     p.add_argument("--links", action="store_true", help="also repair the links that find no file, from the rename history")
+    p.add_argument("--unlink", action="store_true", help="with --links, a link in a note the vault owns that finds no file "
+                   "and no successor becomes plain text keeping its label; each is logged to vault-unlinked.jsonl")
     p.add_argument("--undo", metavar="DATE|BATCH", help="put back the notes the tidy moved that day, or in that batch")
     p.add_argument("--apply", action="store_true", help="make the moves (the first arms the sync), the undo or the repairs; without it, list them")
     p.add_argument("--json", action="store_true")
