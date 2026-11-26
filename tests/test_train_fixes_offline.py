@@ -125,7 +125,7 @@ with tempfile.TemporaryDirectory() as reports:
         check("a row that is not your call takes no ruling", True)
     a = FX.asks([train], lambda l: f"releases/{l}/{l}")
     check("each your-call row is a ruling ask: ela's leaning as A, the other way as B, linking its row",
-          [x["id"] for x in a] == ["impact:MH-4100"] and a[0]["text"].startswith("Ruling: does MH-4100's QA fail block QA-AWS3 → daily-wed (UR test2)? ela leans does not block")
+          [x["id"] for x in a] == ["impact:MH-4100"] and a[0]["text"].startswith("Does MH-4100's QA fail block QA-AWS3 → daily-wed (UR test2)? ela leans does not block")
           and a[0]["options"][0]["text"] == "right: does not block" and a[0]["options"][0]["recommended"]
           and a[0]["options"][1]["does"] == "ela train answer impact:MH-4100 B" and a[0]["link"] == "releases/2.1/2.1#^fix-mh-4100")
 

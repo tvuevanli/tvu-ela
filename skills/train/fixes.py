@@ -435,7 +435,7 @@ def asks(trains, page_of):
             other = "blocks" if imp["leaning"] == "does not block" else "does not block"
             aid = f"impact:{r['key']}"
             out.append({"id": aid, "whole": True, "sig": imp["sig"], "kind": imp.get("kind"),
-                        "text": f"Ruling: does {r['key']}'s QA fail block {shown_of(lanes, mv[0])} → {shown_of(lanes, mv[1])}? "
+                        "text": f"Does {r['key']}'s QA fail block {shown_of(lanes, mv[0])} → {shown_of(lanes, mv[1])}? "
                                 f"ela leans {imp['leaning']}: {short(imp.get('lean_reason'), 220)}",
                         "link": f"{page_of(t['line'])}#^{anchor(r['key'])}",
                         "options": [{"letter": "A", "text": f"right: {imp['leaning']}", "does": f"ela train answer {aid} A", "recommended": True},

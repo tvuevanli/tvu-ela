@@ -58,7 +58,7 @@ check("a QA verdict is not told again as a fact once the fixes are there", "**QA
 check("at most five lines outside the fold", len([l for l in since.splitlines() if l.startswith("- ")]) <= V.SINCE_MAX)
 needs = page.split("## Needs you", 1)[1].split("## Today", 1)[0]
 check("a your-call fix is a ruling ask: ela's leaning as A with its reason, the other way as B, linking its row",
-      "1. Ruling: does MH-4100's QA fail block QA-AWS3 → daily-wed (UR test2)? ela leans does not block" in needs
+      "1. *ruling* · Does MH-4100's QA fail block QA-AWS3 → daily-wed (UR test2)? ela leans does not block" in needs
       and "- [ ] A (recommended): right: does not block" in needs and "- [ ] B: wrong: it blocks; say why under the ask" in needs
       and "→ [[releases/2.1/2.1#^fix-mh-4100|its row]]" in needs)
 today = page.split("## Today", 1)[1]
