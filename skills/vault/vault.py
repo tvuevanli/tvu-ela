@@ -2969,7 +2969,8 @@ def project_tail(facts, rows, today, jira_base="", met=(), asked=(), titles=None
             L.append(f"**{g}**" + ("" if g == "in this folder" else "/"))
             for r in groups[g]:
                 bits = [r["type"], r["date"], r["status"]]
-                L.append(f"- [[{r['path'][:-3]}|{label(r['title'])}]] · " + " · ".join(b for b in bits if b))
+                target = os.path.basename(r["path"])[:-3] if top(r["path"]) in (ELA, REF) else r["path"][:-3]   # a note the tidy may move: by name
+                L.append(f"- [[{target}|{label(r['title'])}]] · " + " · ".join(b for b in bits if b))
             L.append("")
     if met or asked:                                       # what its meetings still ask (ADR 0016), then what they ruled
         L += [f"## {MEETINGS_HEAD}", ""] + [f"- open: {a}" for a in asked] + \

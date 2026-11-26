@@ -64,8 +64,8 @@ Slack only reminds; the question itself is always here. A direct message from el
 ## Coming
 
 > [!note]- Two changes on their way
-> - Each ask will say whether it needs a **fact** or a **ruling**, and a ruling ask will carry ela's reason for you to confirm or correct ([[ela/2026-11-26-plan-ela-runs-on-its-own-asks-teach-it|plan]]).
-> - The release line page will gain **Fixes on their way**: each fix from build to prod with what changed, what QA tested, the verdict, ela's judgment of its impact on the deploy, and what is next; today.md's Facts will become **Since you last looked** ([[ela/2026-11-26-plan-fixes-followed-to-prod-one-home-per-fact|plan]]).
+> - Each ask will say whether it needs a **fact** or a **ruling**, and a ruling ask will carry ela's reason for you to confirm or correct ([[2026-11-26-plan-ela-runs-on-its-own-asks-teach-it|plan]]).
+> - The release line page will gain **Fixes on their way**: each fix from build to prod with what changed, what QA tested, the verdict, ela's judgment of its impact on the deploy, and what is next; today.md's Facts will become **Since you last looked** ([[2026-11-26-plan-fixes-followed-to-prod-one-home-per-fact|plan]]).
 
 ---
 
