@@ -53,6 +53,8 @@ JIRA = os.path.join(HERE, "..", "jira", "jira.py")
 EX_USAGE, EX_REMOTE = 2, 5
 sys.path.insert(0, os.path.join(HERE, "..", "facts"))
 import facts as F  # noqa: E402 — the fact store's read times; the sources it serves are read through their scripts
+sys.path.insert(0, os.path.join(HERE, "..", "slack"))
+import slacktext as ST  # noqa: E402 — a Jira key as its link in a text for Slack
 
 
 def facts_read_at(**extra):
@@ -3768,14 +3770,16 @@ def apply_meeting_guidance(body, lines):
     return "\n".join(head + bullets).strip(), unread
 
 
-def slack_form(md):
-    """Markdown as Slack writes it: bold, links, wiki links, headings."""
+def slack_form(md, base=""):
+    """Markdown as Slack writes it: bold, links, wiki links, headings; with the site's Jira `base`, a bare key becomes
+    its link and a bare browse URL beside its key folds into it."""
     t = re.sub(r"\[\[([^\]|]+)\|([^\]]+)\]\]", r"\2", md)
     t = re.sub(r"\[\[([^\]]+)\]\]", r"\1", t)
     t = re.sub(r"\[([^\]]+)\]\((https?://[^)]+)\)", r"<\2|\1>", t)
     t = re.sub(r"\*\*([^*]+)\*\*", r"*\1*", t)
     t = re.sub(r"^#{1,6}[ \t]+(.+)$", r"*\1*", t, flags=re.M)
-    return t
+    t = "\n".join(ST.fold_browse(l) for l in t.split("\n"))
+    return ST.link_keys(t, base.strip().strip("'\"").rstrip("/")) if base else t
 
 
 def meeting_slots(m, doc, start, step, days=21):
@@ -3900,7 +3904,7 @@ def cmd_meeting(args):
     lines = open(args.guidance, encoding="utf-8").read().splitlines() if args.guidance else []
     body, unread = apply_meeting_guidance(body, lines)
     when = nxt or d
-    slack = f"*{name} · {when:%a %m-%d} {time_}*\n" + "\n".join(("• " + l[2:]) if l.startswith("- ") else l for l in slack_form(body).splitlines())
+    slack = f"*{name} · {when:%a %m-%d} {time_}*\n" + "\n".join(("• " + l[2:]) if l.startswith("- ") else l for l in slack_form(body, jira).splitlines())
     today_mmdd = f"{d:%m-%d}"
     # new: raised today, or raised for this meeting (an item shows no `since` on the day it is for)
     new = [] if view else [it["text"] for it in n["items"] if V.meeting_fields(it["text"])["since"] in (today_mmdd, None)]

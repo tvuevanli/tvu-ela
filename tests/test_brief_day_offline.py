@@ -104,6 +104,10 @@ check("his ela: lines drop and reorder a meeting's bullets and never go out them
       out == "- Ask: MH-3829 the URL?\n- Releases: prod-3 runs 2.1.15" and unread == ["celebrate"])
 check("the Slack form: bold, links and wiki links as Slack writes them",
       B.slack_form("**Ask** [thread](https://x.y/p1) [[lanes|the lanes]]") == "*Ask* <https://x.y/p1|thread> the lanes")
+check("a meeting item for Slack: a bare key becomes its link, a bare browse URL beside its key folds in, a linked key is kept",
+      B.slack_form("- MH-1 stuck https://j/browse/MH-1", "https://j") == "- <https://j/browse/MH-1|MH-1> stuck"
+      and B.slack_form("- [MH-2](https://j/browse/MH-2) and MH-3", "'https://j/'") == "- <https://j/browse/MH-2|MH-2> and <https://j/browse/MH-3|MH-3>"
+      and B.slack_form("- MH-4 alone") == "- MH-4 alone")
 check("the lead's release-labelled or Epic ticket is release bookkeeping; another's, or an unlabelled task, is not",
       B.is_release_bookkeeping({"reporter": "Lead", "labels": ["release:mh-2.1"], "type": "Task"}, "Lead")
       and B.is_release_bookkeeping({"reporter": "Lead", "labels": [], "type": "Epic"}, "Lead")
