@@ -253,7 +253,7 @@ with tempfile.TemporaryDirectory() as tmp:
               open(f"{reports}/runner/{today}-actions.json", "w"))
     hm = (sync(), open(f"{vault}/{V.TODAY}").read())[1]
     check("today.md lists his own drafted action with its box and the 10:00 ones with don't; nothing applied",
-          "- [ ] don't 2 — reply in the release thread" in hm and "1. close MH-3." in hm and "- [ ] A (recommended): apply as drafted" in hm
+          "- [ ] don't 2 — reply in the release thread" in hm and "1. *ruling* · close MH-3." in hm and "- [ ] A (recommended): apply as drafted" in hm
           and "MH-4" not in hm.split("## Needs you")[1].split("## Today")[0] and "*no answer: nothing happens; gone " in hm)
     check("the ask is remembered with the day it was first asked", json.load(open(f"{reports}/ela/asks.json"))["keys:MH-3"]["first"] == today)
     tab(V.TODAY)

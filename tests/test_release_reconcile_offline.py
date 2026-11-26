@@ -253,7 +253,7 @@ shown, more, _, _ = V.settle_asks({}, cands, datetime.date(2026, 11, 12))
 page = V.today_page(datetime.date(2026, 11, 12), [], {}, shown)
 needs = page.split("## Needs you")[1].split("##")[0] if "## Needs you" in page else ""
 check("today.md: one ask, its A the batch", needs.count("- [ ] A (recommended): apply as drafted") == 1
-      and "1. QA-AWS3 builds 90, 91: 9 tickets lack Fixed In or the label." in needs)
+      and "1. *ruling* · QA-AWS3 builds 90, 91: 9 tickets lack Fixed In or the label." in needs)
 
 # the action carries its own letters: A apply the batch · B show me each · C skip this build
 act3 = dict(act, options=RC.ask_options(1, act["command"]))

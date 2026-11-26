@@ -98,8 +98,8 @@ c2 = V.ask_candidates(WED, two, [])
 check("two writes on one ticket are one ask, its box naming both", len(c2) == 1 and c2[0]["box"] == "apply 2, 3" and c2[0]["ns"] == [2, 3])
 p2 = V.today_page(WED, [], {}, c2)
 check("the ask is the whole sentence, never cut",
-      "1. MH-3993: hand the 4K WebRenderer crash to Fujian Fang with Summer Chen's findings and three checks on box .46." in p2
-      and "- [ ] A (recommended): apply both as drafted" in p2
+      "1. *ruling* · MH-3993: hand the 4K WebRenderer crash to Fujian Fang with Summer Chen's findings and three checks on box .46." in p2
+      and "- [ ] A (recommended): apply both as drafted — ela's reason: e" in p2
       and "…" not in p2.split("## Today")[0])
 mp = "\n".join(["### 2. x", "- [ ] apply 2 — a", "- [ ] I handled it myself — not apply 2", "> [!note]- 6 more", "> ### 3. y",
                   "> - [ ] apply 4 — b", "> - [ ] I handled it myself — not apply 4", "> - [x] apply 5 — c · applied 09:12"])

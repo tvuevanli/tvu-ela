@@ -4056,7 +4056,7 @@ def ask_candidates(today, actions, notes):
             c["sig"] = evidence_sig(c["sig"] + (a.get("evidence") or ""))
             continue
         c = {"id": i, "box": f"apply {a['n']}", "ns": [int(a["n"])], "text": a.get("text") or "",
-             "sig": evidence_sig(a.get("evidence")), "first": seen.get(i, iso)}
+             "sig": evidence_sig(a.get("evidence")), "first": seen.get(i, iso), "reason": a.get("why") or a.get("evidence") or ""}
         if a.get("options"):                               # the action's own letters (a reconcile batch: apply · each · skip)
             c["options"] = a["options"]
         by_id[i] = c
@@ -4115,7 +4115,7 @@ def settle_asks(state, cands, today):
             continue
         else:
             first = iso                                    # first shown today: its mornings start now
-        st = {"first": first, "text": c["text"], "sig": c["sig"], "dropped": None}
+        st = {"first": first, "text": c["text"], "sig": c["sig"], "dropped": None, **({"link": c["link"]} if c.get("link") else {})}
         if working_mornings(datetime.date.fromisoformat(first), today) > ASK_MORNINGS:
             st["dropped"] = iso
             dropped_now.append(dict(c, first=first))
@@ -4277,6 +4277,21 @@ def opt(letter, text, does, recommended=False):
     return {"letter": letter, "text": text, "does": does, "recommended": recommended}
 
 
+def ask_kind(c):
+    """What an ask needs from him (plan 2026-11-26, ela runs on its own): a *fact* ela cannot read anywhere, or a
+    *ruling* on what ela is not sure of. A candidate names its own; every other ask is a ruling."""
+    return "fact" if c.get("kind") == "fact" else "ruling"
+
+
+def option_text(o, c):
+    """One option's words on the page: ela's drafted reason sits in its recommended option of a ruling ask, so a letter
+    answers right or wrong and he writes a reason only to correct it."""
+    why = " ".join(str(c.get("reason") or "").split())
+    if o.get("recommended") and o.get("does") and ask_kind(c) == "ruling" and why and "ela's reason:" not in o["text"]:
+        return f"{o['text']} — ela's reason: {short(why, 140)}"
+    return o["text"]
+
+
 def ask_options(c):
     """A candidate's options: its own when it carries them, else by its kind."""
     if c.get("options"):
@@ -4290,7 +4305,14 @@ def ask_options(c):
 
 ASK_HEAD = re.compile(r"^(\d+)\.[ \t]+\S", re.M)
 OPTION_TICK = re.compile(r"^([ABC])(?:[ \t]+\(recommended\))?:")
-LETTER_LINE = re.compile(r"^(?:(\d+)[ \t]*)?([ABCabc])\.?$")
+# `ela: A`, `ela: 2 B`, and either with his words after it: `ela: 2 B because the owner is away`, `ela: B — wrong lane`.
+# The words follow a separator (punctuation, or because / since / 因为), so an ordinary line that starts with a capital A
+# (`ela: Apply …`, `ela: A better way is …`) is never read as a letter. The words are the answer's note: a "wrong"
+# (any letter but ela's recommendation) is taught by them (plan ela/2026-11-26-plan-ela-runs-on-its-own-asks-teach-it).
+LETTER_LINE = re.compile(r"^(?:(\d+)[ \t]*)?([ABCabc])(?:\.?|[ \t]*[.,:;\u2014\u2013-][ \t]*(\S.*)|[ \t]+((?:because|since|as)\b.*|因为.*))$")
+# `ela: because …` (or `ela: 2 because …`) with no letter: the cause for an earlier "wrong" answer that is still waiting
+# for one, read under the ask that says so
+CAUSE_LINE = re.compile(r"^(?:(\d+)[ \t]*)?((?:because|why)\b[ \t]*[:：]?[ \t]*\S.*|因为.+)$", re.I)
 
 
 def slot_at(text, pos):
@@ -4300,10 +4322,22 @@ def slot_at(text, pos):
     return found
 
 
+def tick_note(text, end):
+    """His words on the line right under a ticked option: the note of that answer, or None. A line that is another option,
+    an ask, a heading, an `ela:` line or a blank is not a note."""
+    nxt = (text or "")[end:].lstrip("\r").split("\n", 2)
+    line = nxt[1] if len(nxt) > 1 else ""
+    if (not line.strip() or re.match(r"^[ \t]*(?:[-*+][ \t]+\[.\]|\d+\.[ \t]|#|---)", line) or GUIDE.match(line)
+            or re.match(r"^[ \t]*[-*+][ \t]+(?:Your|Expired)\b", line)):   # ela's own lines under an ask
+        return None
+    return re.sub(r"^[ \t]*(?:[-*+>][ \t]*)*", "", line).strip() or None
+
+
 def today_letters(text, state):
-    """His letters on today.md: [{slot, letter, id, does, raw, kind, pos}], each resolved against the ask state's slots
-    (the asks the page was written with). A tick on an option line, or `ela: A` under an ask, answers that ask; `ela: 2 B`
-    answers ask 2 wherever it is written. A letter no ask offers is left out."""
+    """His letters on today.md: [{slot, letter, id, does, raw, kind, pos, note}], each resolved against the ask state's
+    slots (the asks the page was written with). A tick on an option line, or `ela: A` under an ask, answers that ask;
+    `ela: 2 B` answers ask 2 wherever it is written. His words after the letter (`ela: 2 B because …`), or on the line
+    under a ticked option, are the answer's note. A letter no ask offers is left out."""
     slots = {v["slot"]: (k, v) for k, v in (state or {}).items() if isinstance(v, dict) and v.get("slot")}
     out = []
     found = [(m, "tick", OPTION_TICK.match(m.group(1))) for m in TICKED.finditer(text or "")]
@@ -4312,17 +4346,61 @@ def today_letters(text, state):
         if not x:
             continue
         if kind == "tick":
-            slot, letter = slot_at(text, m.start()), x.group(1)
+            slot, letter, note = slot_at(text, m.start()), x.group(1), tick_note(text, m.end())
         else:
             slot = int(x.group(1)) if x.group(1) else (slot_at(text, m.start()) or (next(iter(slots)) if len(slots) == 1 else None))
-            letter = x.group(2).upper()
+            if x.group(3) and x.group(2).islower() and not x.group(1):
+                continue                                   # `ela: a, b and c …` is a sentence, not a letter
+            letter, note = x.group(2).upper(), (x.group(3) or x.group(4) or "").strip() or None
         if slot not in slots:
             continue
         aid, v = slots[slot]
         if letter not in (v.get("options") or {}):
             continue
-        out.append({"slot": slot, "letter": letter, "id": aid, "does": v["options"][letter], "raw": m.group(1), "kind": kind, "pos": m.start()})
+        out.append({"slot": slot, "letter": letter, "id": aid, "does": v["options"][letter], "raw": m.group(1), "kind": kind,
+                    "pos": m.start(), "note": note})
     return out
+
+
+def today_causes(text, state):
+    """His `ela: because …` lines on today.md: [{slot, id, note}], the ask each sits under (or names). The cause belongs to
+    the earlier wrong answer that ask says is waiting for one (`waiting_cause`)."""
+    slots = {v["slot"]: k for k, v in (state or {}).items() if isinstance(v, dict) and v.get("slot")}
+    out = []
+    for m in his_lines(text or ""):
+        x = CAUSE_LINE.match(m.group(1).strip())
+        if not x:
+            continue
+        slot = int(x.group(1)) if x.group(1) else slot_at(text, m.start())
+        if slot in slots:
+            note = re.sub(r"^(?:because|why)\b[ \t]*[:：]?[ \t]*|^因为", "", x.group(2), flags=re.I).strip()
+            out.append({"slot": slot, "id": slots[slot], "note": note})
+    return out
+
+
+def ask_domain(aid):
+    """The kind of an ask by where it comes from, for its precedents and its waiting cause: a drafted write (`action`),
+    or the domain prefix of its id (dry, grant, mention, improve, watch, note, project, …)."""
+    head = (aid or "").split(":", 1)[0]
+    return "action" if head in ("keys", "cmd") else head
+
+
+def wrong_answer(v, letter):
+    """Whether a letter goes against ela's recommendation on a ruling ask: the ask recorded its recommended letter."""
+    rec = (v or {}).get("rec")
+    return bool(rec) and letter != rec
+
+
+def waiting_cause(state, domain):
+    """The newest answer of this domain still waiting for a cause: (id, answer) or (None, None)."""
+    got = [(k, answer_of(v)) for k, v in (state or {}).items() if isinstance(v, dict) and answer_of(v).get("cause") == "waiting"
+           and (v.get("domain") or ask_domain(k)) == domain]
+    return max(got, key=lambda kv: kv[1].get("at") or "", default=(None, None))
+
+
+def answer_of(v):
+    """His answer on an ask: settled by the sync (`answered`) or carried by the runner (`noted`); {} when none."""
+    return (v or {}).get("answered") or (v or {}).get("noted") or {}
 
 
 def sync_handles(does):
@@ -4344,12 +4422,47 @@ def settle_letters(vault, reports, state, today, dry_run=False):
         text = open(os.path.join(vault, TODAY), encoding="utf-8").read()
     except OSError:
         return []
-    return [(x["id"], x["letter"]) for x in today_letters(text, state)
-            if settle_one(reports, state, x["id"], x["letter"], x["does"], today, dry_run)]
+    done = [(x["id"], x["letter"]) for x in today_letters(text, state)
+            if settle_one(reports, state, x["id"], x["letter"], x["does"], today, dry_run, note=x["note"])]
+    for x in today_letters(text, state):                   # a letter the runner carries (apply N) still keeps its note
+        v = state.get(x["id"]) or {}
+        if not sync_handles(x["does"]) and not v.get("noted"):
+            v["noted"] = {"letter": x["letter"], "at": today.isoformat(), "note": x["note"],
+                          **({"cause": "waiting"} if wrong_answer(v, x["letter"]) and not x["note"] else {})}
+            state[x["id"]] = v
+    for c in today_causes(text, state):
+        settle_cause(reports, state, c["id"], c["note"], today, dry_run)
+    return done
 
 
-def settle_one(reports, state, aid, letter, does, today, dry_run=False):
-    """One letter the sync acts on itself, once: True when it acted (a dry run acts on the state, not the dry store)."""
+def settle_cause(reports, state, aid, note, today, dry_run=False):
+    """His cause, written under an ask that says an earlier answer of its kind waits for one: kept on that answer, and
+    in the answer's own domain store (the board watch's corrections, mention's triage log). True when one was waiting."""
+    domain = (state.get(aid) or {}).get("domain") or ask_domain(aid)
+    wid, a = waiting_cause(state, domain)
+    if not wid or not note:
+        return False
+    a.update(note=note, cause="given", caused=today.isoformat())
+    if not dry_run:
+        teach(reports, wid, a["letter"], note)
+    return True
+
+
+def teach(reports, aid, letter, note):
+    """A cause given after the letter, carried to the domain store that keeps that answer's correction."""
+    try:
+        if aid.startswith("watch:"):
+            WA = watch_mod()
+            WA.cause(reports, aid, note, WA.now_tz())
+        elif aid.startswith("mention:"):
+            mention_mod().cause(reports, aid.split(":", 1)[1], note)
+    except (KeyError, ValueError, AttributeError):
+        pass
+
+
+def settle_one(reports, state, aid, letter, does, today, dry_run=False, note=None):
+    """One letter the sync acts on itself, once: True when it acted (a dry run acts on the state, not the dry store).
+    `note` is his words with the letter; a wrong letter without one is recorded as waiting for a cause."""
     v = state.get(aid) or {}
     if v.get("answered") or not sync_handles(does):
         return False
@@ -4363,7 +4476,7 @@ def settle_one(reports, state, aid, letter, does, today, dry_run=False):
         parts = does.split()
         try:
             MN = mention_mod()
-            MN.answer(reports, parts[3], parts[4], lambda: MN.site_context(reports))
+            MN.answer(reports, parts[3], parts[4], lambda: MN.site_context(reports), note=note)
         except (KeyError, ValueError):
             return False
     if does and does.startswith("ela improve answer ") and not dry_run:
@@ -4376,17 +4489,18 @@ def settle_one(reports, state, aid, letter, does, today, dry_run=False):
         parts = does.split()
         try:
             WA = watch_mod()
-            WA.answer(reports, parts[3], parts[4], WA.now_tz())
+            WA.answer(reports, parts[3], parts[4], WA.now_tz(), note=note)
         except (KeyError, ValueError):
             return False
-    v["answered"] = {"letter": letter, "at": today.isoformat()}
+    v["answered"] = {"letter": letter, "at": today.isoformat(), **({"note": note} if note else {}),
+                     **({"cause": "waiting"} if wrong_answer(v, letter) and not note else {})}
     if does == "drop":
         v["dropped"], v["by"] = today.isoformat(), "owner"
     state[aid] = v
     return True
 
 
-def answer_by_letter(reports, slot, letter, today, apply=False):
+def answer_by_letter(reports, slot, letter, today, apply=False, note=None):
     """His letter given outside the page (`2 B` in Slack, the letter in a session), resolved exactly as a tick on
     today.md is: → {ask, letter, does, done, run}. `done` when this verb settled it (a drop, a dry answer that writes
     nothing live), with --apply; `run` the command the runner runs otherwise (`apply N`, a batch's --apply). Raises
@@ -4404,11 +4518,17 @@ def answer_by_letter(reports, slot, letter, today, apply=False):
     if state[aid].get("answered"):
         out["done"] = "already answered " + state[aid]["answered"]["letter"]
     elif sync_handles(does):
-        if apply and settle_one(reports, state, aid, letter, does, today):
+        if apply and settle_one(reports, state, aid, letter, does, today, note=note):
             atomic_write(os.path.join(reports, "ela", "asks.json"), json.dumps(state, indent=1, ensure_ascii=False))
         out["done"] = apply
     else:
         out["run"] = does
+        if apply and not state[aid].get("noted"):          # the runner carries it; the note stays with the ask
+            state[aid]["noted"] = {"letter": letter, "at": today.isoformat(), "note": note,
+                                   **({"cause": "waiting"} if wrong_answer(state[aid], letter) and not note else {})}
+            atomic_write(os.path.join(reports, "ela", "asks.json"), json.dumps(state, indent=1, ensure_ascii=False))
+    out["note"] = note
+    out["waiting_cause"] = bool(wrong_answer(state[aid], letter) and not note)
     return out
 
 
@@ -4419,7 +4539,7 @@ def cmd_answer(a):
         sys.exit(2)
     s = json.load(open(SITE))
     try:
-        r = answer_by_letter(s.get("reports") or "", a.slot, a.letter, datetime.date.today(), a.apply)
+        r = answer_by_letter(s.get("reports") or "", a.slot, a.letter, datetime.date.today(), a.apply, note=" ".join(a.note or []) or None)
     except KeyError:
         print(f"no ask {a.slot} on today.md", file=sys.stderr); sys.exit(3)
     except ValueError as x:
@@ -4430,6 +4550,8 @@ def cmd_answer(a):
         print(f"ask {r['slot']} {r['letter']}: the runner runs `{r['run']}`")
     elif r["done"] is True:
         print(f"ask {r['slot']} {r['letter']}: done ({r['does'] or 'nothing to run'})")
+    if r.get("waiting_cause"):
+        print(f"ask {r['slot']} {r['letter']}: against ela's recommendation and no cause given; the next ask of its kind asks for one")
     elif r["done"]:
         print(f"ask {r['slot']}: {r['done']}")
     else:
@@ -4451,7 +4573,7 @@ def dry_asks(reports, today, asks_state, dry_run=False):
     for x in got:
         text = x["question"] + (f" {x['record']}." if x.get("record") else "")
         out.append({"id": x["id"], "text": text, "whole": True, "options": x["options"], "link": x.get("link"),
-                    "sig": x["sig"], "first": today.isoformat()})
+                    "sig": x["sig"], "first": today.isoformat(), "reason": x.get("reason") or x.get("record") or ""})
     return out, facts
 
 
@@ -4510,7 +4632,7 @@ def mention_asks(reports, today):
     except Exception:                                      # noqa: BLE001 — the page is written without them
         return []
     return [{"id": x["id"], "text": x["question"], "whole": True, "options": x["options"], "link": x["link"], "sig": x["sig"],
-             "first": today.isoformat()} for x in got]
+             "first": today.isoformat(), "reason": x.get("reason") or ""} for x in got]
 
 
 def improve_asks(reports, today):
@@ -4521,7 +4643,7 @@ def improve_asks(reports, today):
     except Exception:                                      # noqa: BLE001 — the page is written without them
         return []
     return [{"id": x["id"], "text": x["question"], "whole": True, "options": x["options"], "sig": x["sig"],
-             "first": today.isoformat()} for x in got]
+             "first": today.isoformat(), "reason": x.get("reason") or ""} for x in got]
 
 
 def watch_asks(reports, today):
@@ -4534,7 +4656,7 @@ def watch_asks(reports, today):
     except Exception:                                      # noqa: BLE001 — the page is written without them
         return []
     return [{"id": x["id"], "text": x["question"], "whole": True, "options": x["options"], "sig": x["sig"],
-             "first": x.get("first") or today.isoformat()} for x in got]
+             "first": x.get("first") or today.isoformat(), "reason": x.get("reason") or "", "kind": x.get("kind")} for x in got]
 
 
 def watch_page(reports, today, base=""):
@@ -4656,7 +4778,7 @@ def short(text, n):
     return text if len(text) <= n else text[:n].rsplit(" ", 1)[0] + " …"
 
 
-def today_page(today, notes, desk=None, shown=(), more=0, dropped=0, questions_line=None):
+def today_page(today, notes, desk=None, shown=(), more=0, dropped=0, questions_line=None, asks_state=None):
     """today.md: In short (at most five lines: judged lines by urgency, then "Start with …"; head.py), Facts (each a
     judgment of what changed, the rest folded), Needs you (at most three asks, each with what happens if he does
     nothing and when), Today (meetings, a near deadline, what leaves at 10:00), then one line of links. Below the head
@@ -4691,14 +4813,21 @@ def today_page(today, notes, desk=None, shown=(), more=0, dropped=0, questions_l
         line = (f"- The team report told the team what Jira contradicts: {wrong[0][1]}"
                 + (f" (and {len(wrong) - 1} more)" if len(wrong) > 1 else "") + f" → [[{n0.path[:-3]}|its For you]]")
         head = [line] + head[:-1][:H.HEAD_MAX - 1] + head[-1:]
-    asks = []
+    asks, said_cause = [], set()
     for k, c in enumerate(shown, 1):
         gone = drop_day(datetime.date.fromisoformat(c["first"]), today)
         # the words stay outside the wikilink: a ticket key inside a link's label would be linked again and break it
         what = (c["text"] if c.get("whole") else ask_words(c["text"])) + \
             (f" → [[{c['link']}|{'its section' if '#' in c['link'] else 'the note'}]]" if c.get("link") else "")
-        asks.append(f"{k}. {what} · *no answer: nothing happens; gone {gone:%a}*")
-        asks += [f"    - [ ] {o['letter']}{' (recommended)' if o['recommended'] else ''}: {o['text']}" for o in ask_options(c)]
+        asks.append(f"{k}. *{ask_kind(c)}* · {what} · *no answer: nothing happens; gone {gone:%a}*")
+        asks += [f"    - [ ] {o['letter']}{' (recommended)' if o['recommended'] else ''}: {option_text(o, c)}" for o in ask_options(c)]
+        wid, a = waiting_cause(asks_state, ask_domain(c["id"]))
+        if wid and wid != c["id"] and ask_domain(c["id"]) not in said_cause:   # one line, on the first ask of that kind
+            said_cause.add(ask_domain(c["id"]))
+            was = short((asks_state.get(wid) or {}).get("text") or wid, 70)
+            asks.append(f"    - Your {a['letter']} on “{was}” ({(a.get('at') or '')[5:10]}) went against ela and waits for a "
+                        f"cause: write `ela: because …` under this ask.")
+    asks += expired_lines(asks_state, today)
     acts = [a for a in desk.get("actions") or [] if a.get("day") == iso]
     soon = [a for a in acts if a.get("tier") == 2 and not (a.get("applied") or a.get("vetoed") or a.get("failed"))]
     hold = desk.get("hold")
@@ -4760,6 +4889,42 @@ def today_page(today, notes, desk=None, shown=(), more=0, dropped=0, questions_l
              f"[[{DROPPED[:-3]}|dropped asks]]" + (f" ({dropped})" if dropped else ""),
              f"[[{OVERVIEW[:-3]}|ela]]"]
     return "\n".join(L + ["---", "", " · ".join(x for x in links if x), ""])
+
+
+def expired_lines(state, today):
+    """One line for each ask that left today.md this morning unanswered under the three-morning rule: that it expired,
+    and where it still lives (its note, or the dropped-asks page). An ask he dropped by his word is not expired."""
+    iso, out = today.isoformat(), []
+    for k, v in sorted((state or {}).items()):
+        if not isinstance(v, dict) or v.get("dropped") != iso or v.get("by") == "owner":
+            continue
+        where = (f"[[{v['link']}|{'its section' if '#' in v['link'] else 'its note'}]] and " if v.get("link") else "") + \
+            f"[[{DROPPED[:-3]}|dropped asks]]"
+        out.append(f"- Expired today, unanswered for three mornings: “{short(v.get('text') or k, 80)}”; it still lives in {where}.")
+    return out
+
+
+def ask_outcomes(state):
+    """How the asks on today.md ended, for ela's own measure (asks to him against misses found later): answered by his
+    letter (and how many against ela's recommendation, with or without a cause), dropped by his word, expired
+    unanswered, still open. An expired ask is its own outcome: it was neither agreed nor corrected."""
+    out = {"answered": 0, "wrong": 0, "waiting_cause": 0, "dropped_by_word": 0, "expired": 0, "open": 0}
+    for k, v in (state or {}).items():
+        if not isinstance(v, dict):
+            continue
+        a = answer_of(v)
+        if v.get("dropped") and v.get("by") == "owner":
+            out["dropped_by_word"] += 1
+        elif a:
+            out["answered"] += 1
+        elif v.get("dropped"):
+            out["expired"] += 1
+        else:
+            out["open"] += 1
+        if a and v.get("rec") and a.get("letter") != v["rec"]:
+            out["wrong"] += 1
+            out["waiting_cause"] += a.get("cause") == "waiting"
+    return out
 
 
 def team_today(today, notes):
@@ -6093,7 +6258,10 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since
         for k in ("slot", "options"):
             v.pop(k, None)
     for k, c in enumerate(shown, 1):
-        asks_state[c["id"]].update(slot=k, options={o["letter"]: o["does"] for o in ask_options(c)})
+        opts = ask_options(c)
+        rec = next((o["letter"] for o in opts if o.get("recommended") and o.get("does")), None)
+        asks_state[c["id"]].update(slot=k, options={o["letter"]: o["does"] for o in opts}, domain=ask_domain(c["id"]),
+                                   kind=ask_kind(c), **({"rec": rec} if ask_kind(c) == "ruling" and rec else {}))
     if not dry_run:
         os.makedirs(os.path.join(reports, "ela"), exist_ok=True)
         atomic_write(os.path.join(reports, "ela", "asks.json"), json.dumps(asks_state, indent=1, ensure_ascii=False))
@@ -6131,7 +6299,7 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since
         "dev_ahead": dev_ahead_line(s.get("runtime")), "watch_line": watch_line(reports),
         "board": focus.get("text") or "", "kpi": H.kpi_rows(s.get("runtime")), "head": H.load(reports)}
     planned[TODAY] = redact(front([], {"type": "today", "date": today.isoformat()}) + linker(today_page(today, notes + native, desk,
-        shown, more, dropped, questions_line=qline)))
+        shown, more, dropped, questions_line=qline, asks_state=asks_state)))
     if not dry_run and desk.get("head_inputs"):            # what the head was judged against: the runner's judge reads it
         H.save(reports, desk["head_inputs"], H.INPUTS)
     planned.update(dry_pages(s["vault"], reports, today, record=not dry_run, jira_base=jira_base))
@@ -8930,8 +9098,11 @@ def main():
     p = sub.add_parser("conflicts", help="Syncthing's conflict copies: his ticks and `ela:` lines carried into the live page, the copy kept in archive/sync-conflicts/")
     p.add_argument("--apply", action="store_true"); p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_conflicts)
+    p = sub.add_parser("outcomes", help="how today.md's asks ended (answered, against ela, waiting for a cause, dropped, expired, open): ela's own measure")
+    p.set_defaults(func=lambda a: print(json.dumps(ask_outcomes(load_asks(json.load(open(SITE)).get("reports") or "")))))
     p = sub.add_parser("answer", help="one letter on today's ask N (`2 B` from Slack or a session), resolved as a tick on today.md is; dry run unless --apply")
     p.add_argument("slot", type=int); p.add_argument("letter", choices=list("ABCabc"))
+    p.add_argument("note", nargs="*", help="his words after the letter (`2 B because …`): the answer's note, the cause of a wrong")
     p.add_argument("--apply", action="store_true"); p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_answer)
     p = sub.add_parser("marks", help="finish the to-read notes whose done or drop box is ticked (no session)")
