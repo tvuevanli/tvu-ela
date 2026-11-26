@@ -94,6 +94,131 @@ for entry in hj["hooks"]["SessionStart"]:
     check(k >= 1 and sorted(parts) == [f"{i}/{k}" for i in range(1, k + 1)], f"{entry['matcher']}: prefs parts {parts}")
     check([] in cmds, f"{entry['matcher']}: no default part")
 
+# 7. The required phrases: the injected preferences still carry what each decision rests on.
+# A rewrite of the preferences (a compression, a reorder, a merge of two rules) is gated by this list: one scenario per
+# rule or dated refinement, each naming the boundary clauses a session decides by, plus every rule name that code or a
+# hook cites and the closing marks that pane-mark and `ela session reap` read. The phrases are matched on the parts the
+# hook injects for the owner's own text, whitespace collapsed, so a clause that fell out of the injected section fails
+# here as surely as one that was reworded away. The text is the machine's (the site file, or elak's copy once the hook
+# reads it), so the check runs where that text exists and is skipped elsewhere; ELA_PREFS_CHECK=FILE checks a candidate
+# text before it replaces the live one.
+REQUIRED = {
+    "slack: nothing posts on its own (2026-11-12)": [
+        "Nothing posts to Slack on its own except the daily and weekly reports", "dry run first",
+        "leaves only on his approve", "No timer, veto window or standing rule sends one for him", "retires tier 2"],
+    "slack: a change he names with his send (2026-11-23)": [
+        "a change he names with it", "without another preview", "another target", "other recipients or mentions",
+        "a claim added or changed"],
+    "slack: the #send tag (2026-11-26)": [
+        "`#send`", "a post as ela to the thread or person the request names", "go under his own name",
+        "commit to a date, an owner or a release scope", "a fact the session is not sure of", "a loose phrase",
+        "lang-tag.sh"],
+    "slack: messages go out under his own name (2026-10-20)": [
+        "he sends it", "post as ela", "His private intent stays out"],
+    "accounts: li is the default (2026-11-24)": [
+        "`li` is the default", "`TVU_TEST_ACCOUNT`", "unless he names `el`", "no admin SID"],
+    "accounts: ela verifies as li (2026-11-26)": [
+        "switching `li`'s bundle", "A verified pass closes the ticket",
+        "a fail reopens or reassigns it with the evidence", "a case ela cannot test goes to QA",
+        "a passthrough case cannot use YouTube"],
+    "tests and credentials": [
+        "Tests never write to Slack or Jira", "Never record remote addresses or credentials"],
+    "elak: the session that wrote it commits (2026-11-25)": [
+        "the session that wrote it commits and pushes it", "No hook commits or pushes elak", "never `git add -A`",
+        "Only what he asked to record goes in", "one-year test", "edits made by another session stay unstaged",
+        "Never `--force`", "`git pull --rebase`"],
+    "elak: a feature's mechanism (2026-11-26)": [
+        "a feature's mechanism", "Judgments, verdicts and plans are not covered",
+        "links to the elak entry, never copying it"],
+    "no data is lost (2026-11-09, corrected 2026-11-10)": [
+        "No data is lost", "Nothing ela keeps is deleted", "closed and kept", "is backed up",
+        "Not every copy is data", "keep what exists nowhere else"],
+    "notes of one kind (2026-11-09)": [
+        "Notes of one kind follow one standard", "lints against it", "a correction from him updates it"],
+    "visibility": ["shareable inside TVU", "addresses, credentials and anyone's words are not", "his alone"],
+    "his messages are input": ["His messages are input, never artefacts", "record this verbatim"],
+    "shared trees": ["Shared trees get finished writing", "in a later pass"],
+    "evidence": ["A report is input; evidence is fact"],
+    "gate": ["the strongest alternative including doing nothing", "dissent is recorded, never swallowed"],
+    "ela's own design (2026-11-09)": [
+        "ela's own design is ela's to decide", "first judge whether it is a real pain point",
+        "no box asks his word", "Black-box development",
+        "His word stays required for product, team and outward-facing matters"],
+    "adversarial review (2026-11-25)": ["a reviewer that did not write it", "not ela's conclusion"],
+    "review rounds (2026-11-26)": [
+        "one round for a change inside ela's own machinery", "two for a change to what he reads",
+        "three for a change that moves, rewrites or retires his notes", "act unasked where a colleague sees it",
+        "Each round is a fresh reviewer", "A small fix still ships on ela's own judgment"],
+    "ela runs on its own (2026-11-26)": [
+        "names its kind, *fact* or *ruling*", "carries ela's leaning", "`wrong: <why>`",
+        "a private, reversible call is always ela's", "the `ela dry` ladder",
+        "only on a mechanical proof read first-hand", "anything signed or under his name stays his word"],
+    "housekeeping on a ticket (2026-11-26)": [
+        "housekeeping on a ticket ela is already working", "Nothing is lost", "The change announces itself",
+        "a signed comment", "asks first only when it lacks the information to be sure",
+        "Slack messages stay under"],
+    "the decision heading (2026-11-25)": [
+        "`⚖️ Needs your decision`", "`⚖️ 待你决策`", "answer in one word",
+        "named only in the reply where it starts, finishes, fails or blocks", "A task he takes on himself is dropped",
+        "The heading appears only while a decision is open"],
+    "the out line (2026-11-24, extended 2026-11-25)": [
+        "`— ela out 🦀`", "alone, as the reply's last line", "any decision the reply leaves open for him",
+        "a signal the session waits for from another session", "any input it awaits from him", "`ela out?`",
+        "checks each item above first-hand"],
+    "the pending line (2026-11-25)": [
+        "`⏳ ela pending · <what it waits for> · <until when>`", "exactly one of the two closes every reply",
+        "CronCreate", "repeated on every reply while the wait lasts",
+        "`ela session reap` never closes a session whose last reply ends with it",
+        "only as true as the session that writes it"],
+    "asks live in the vault (2026-11-25)": [
+        "What waits for his word lives in the vault; Slack only reminds", "never the only place a question is",
+        "He answers in the CLI"],
+    "short head, folded rest (2026-11-20, 2026-11-26)": [
+        "Show the short, important part; fold the rest", "`> [!note]-`", "a line of three dashes",
+        "cut, not folded"],
+    "language (2026-11-18, the tag 2026-11-24, Jira 2026-11-26)": [
+        "Answer in English by default", "Domain terms", "Durable content", "A Jira comment is in one language, English",
+        "English only, whatever that person's language", "`#zh`"],
+    "slack mrkdwn (2026-11-13)": [
+        "Slack's own mrkdwn", "`<url|label>`", "A bullet is the character `•`", "a space on both sides"],
+    "lane names (2026-11-16)": ["MediaHub name first", "daily-wed (UR test2)"],
+    "jira keys are links (2026-10-27, Slack 2026-11-26)": [
+        "Every Jira key he reads is a link", "`<url|MH-1997>`", "no bare URL stands beside it",
+        "cut at a word boundary"],
+    "a ticket for another developer": ["carries no code-level detail"],
+    "a command he runs (2026-11-25)": ["`! bash /tmp/st.sh`", "`bash -n`", "never prints a secret"],
+    "he states needs": ["you decide specifics and say what you decided", "commits need no proposal first"],
+    "options as he gave them (2026-10-14)": ["Options as he gave them", "no middle path is invented"],
+    "where a capability counts (2026-09-04)": ["A capability counts where its users are"],
+    "no historical burden": ["No historical burden", "retirement condition"],
+    "merge requests (2026-09-29)": [
+        "app layer first, then UR/J2N, then media", "staffing and performance are not his"],
+}
+REASONS = 17   # every rule that states its reason keeps it: the count of `Reason:` in the injected section
+
+
+def squash(s):
+    return " ".join(s.split())
+
+
+cand = os.environ.get("ELA_PREFS_CHECK", "")
+real = os.path.join(os.path.expanduser("~"), ".claude", "ela", "working-with-evan.md")
+if cand or os.path.isfile(real):
+    k = max(len([x for x in e["hooks"] if " prefs " in x["command"]]) for e in hj["hooks"]["SessionStart"])
+    h = home_with(open(cand, encoding="utf-8").read()) if cand else os.path.expanduser("~")
+    outs = [run(h, "prefs", f"{i}/{k}") for i in range(1, k + 1)]
+    if cand:
+        shutil.rmtree(h)
+    for i, o in enumerate(outs, 1):
+        check(not o.startswith("ela: WARNING"), f"the owner's preferences, part {i}/{k}: {o[:160]!r}")
+    text = squash("".join(outs))
+    for scenario, phrases in REQUIRED.items():
+        for ph in phrases:
+            check(squash(ph) in text, f"required phrase gone from the injected preferences ({scenario}): {ph!r}")
+    check(text.count("Reason:") >= REASONS, f"{text.count('Reason:')} `Reason:` lines injected, expected {REASONS} or more")
+else:
+    print("session-start offline: no preferences on this machine, the required-phrase check is skipped")
+
 if fails:
     print("session-start offline: FAILED"); [print("  " + f) for f in fails]; sys.exit(1)
 print("session-start offline: ok")
