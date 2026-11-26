@@ -419,5 +419,23 @@ with tempfile.TemporaryDirectory() as t:
           ran and ran[0][0].startswith("ela jira assign MH-80 --assignee acc-ui --note-file ")
           and [x.get("confidence") for x in D.record(reports) if x.get("target") == "MH-80"] == ["high"])
 
+# a letter against ela on a topic is kept with the kind of case it answers (the trigger kind the watch state keeps on
+# the ticket); an A is a measure, never a correction row (plan 2026-11-26-review-autonomy-adversarial, item 9)
+with tempfile.TemporaryDirectory() as reports:
+    st = W.load_state(reports); st["tickets"]["MH-90"] = {"kinds": ["stalled"]}; st["tickets"]["MH-91"] = {"kinds": ["behind"]}
+    W.write_json(W.state_path(reports), st)
+    tp = W.load_topics(reports)
+    W.put_topic(tp, "MH-90", {"question": "MH-90: nudge the owner?"}, "2026-11-24", "")
+    W.put_topic(tp, "MH-91", {"question": "MH-91: nudge the owner?"}, "2026-11-24", "")
+    W.write_json(W.topics_path(reports), tp)
+    W.answer(reports, "watch:MH-90", "B", NOW)
+    W.answer(reports, "watch:MH-91", "A", NOW)
+    rows = {r["target"]: r for r in W.corrections(reports)}
+    check("a B on a topic is kept with its case kind from the watch state; an A writes no correction",
+          rows.get("MH-90", {}).get("case_kind") == "stalled" and rows["MH-90"]["class"] == "stalled" and "MH-91" not in rows)
+    W.cause(reports, "watch:MH-90", "the owner is on leave", NOW)
+    check("a later cause keeps the case kind", W.corrections(reports)[-1].get("case_kind") == "stalled"
+          and W.corrections(reports)[-1]["cause"] == "the owner is on leave")
+
 print("watch: all offline checks passed" if not fails else f"watch: {len(fails)} failed")
 sys.exit(1 if fails else 0)

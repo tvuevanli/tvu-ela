@@ -1248,7 +1248,7 @@ def answer(reports, tid, letter, now, note=None):
         t["closed"] = {"letter": letter, "at": now.isoformat(timespec="seconds"), **({"note": note} if note else {})}
         write_json(topics_path(reports), topics)
         if t.get("kind", "ruling") == "ruling" and letter != t["options"][0]["letter"]:
-            correct(reports, t, letter, note, now)
+            correct(reports, t, letter, note, now, load_state(reports))
         f = t.get("fact") or {}
         if t.get("kind") == "fact" and note and f.get("kind") and f.get("key"):   # the fact he gave: kept, never asked again
             try:
@@ -1262,13 +1262,18 @@ def corrections_path(reports):
     return os.path.join(reports, "ela", "watch", "corrections.jsonl")
 
 
-def correct(reports, t, letter, note, now):
-    """One correction row: {at, class, target, act, verdict, cause, corpus, source}; corpus "admitted" with a cause,
-    "waiting for a cause" without."""
+def correct(reports, t, letter, note, now, st=None):
+    """One correction row: {at, class, case_kind, target, act, verdict, cause, corpus, source}; corpus "admitted" with a
+    cause, "waiting for a cause" without. `case_kind` is the trigger kind of the decision corrected (case_kind(), from
+    the watch state `st`), so a later precedent is matched by the kind of case, as the folded dry corrections are;
+    `class` falls back to it when the topic carried none. Only a letter against ela is written: an A is a measure
+    (outcomes()), never a precedent."""
+    kind = case_kind(reports, st, t["key"], now.isoformat()) if st else None
     p = corrections_path(reports)
     os.makedirs(os.path.dirname(p), exist_ok=True)
     with open(p, "a", encoding="utf-8") as f:
-        f.write(json.dumps({"at": now.isoformat(timespec="seconds"), "class": t.get("class"), "target": t["key"], "act": t["id"],
+        f.write(json.dumps({"at": now.isoformat(timespec="seconds"), "class": t.get("class") or kind, "case_kind": kind,
+                            "target": t["key"], "act": t["id"],
                             "verdict": letter, "cause": note or None, "corpus": "admitted" if note else "waiting for a cause",
                             "kind": t.get("kind", "ruling"), "source": "watch"}, ensure_ascii=False) + "\n")
 
@@ -1328,7 +1333,7 @@ def cause(reports, tid, note, now):
         raise KeyError(tid)
     t["closed"]["note"] = " ".join(str(note).split())
     write_json(topics_path(reports), topics)
-    correct(reports, t, t["closed"]["letter"], t["closed"]["note"], now)
+    correct(reports, t, t["closed"]["letter"], t["closed"]["note"], now, load_state(reports))
     return t
 
 
