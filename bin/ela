@@ -424,11 +424,35 @@ def abbreviated(args, script=None):
     return None
 
 
+# An unattended session (ELA_NO_APPLY: the runner's passes, its headless and guest jobs) reads and dry-runs only.
+# The flags that write, join or skip a confirm, and the session verbs that land a branch or end another session,
+# are refused here once for every verb, so a capability that forgot its own guard is covered too. The runner's
+# own reap runs outside ELA_NO_APPLY and is unaffected (plan 2026-11-26-review-autonomy-adversarial, item 4).
+UNATTENDED_FLAGS = ("--apply", "--yes", "--join")
+UNATTENDED_SESSION_VERBS = ("land", "close")
+
+
+def unattended(cap, args):
+    if not os.environ.get("ELA_NO_APPLY"):
+        return None
+    for x in args:
+        if x == "--":
+            break
+        if x.split("=", 1)[0] in UNATTENDED_FLAGS:
+            return f"{x.split('=', 1)[0]} inside an unattended session (ELA_NO_APPLY); the owner's word applies it"
+    if cap == "sessions" and args and args[0] in UNATTENDED_SESSION_VERBS:
+        return f"session {args[0]} inside an unattended session (ELA_NO_APPLY); the desk or the runner's reap does it"
+    return None
+
+
 def run(cap, args, env_file):
     script = os.path.join(ROOT, "skills", cap, f"{cap}.py")
     bad = abbreviated(args, script)
     if bad:
         sys.exit(f"refused: an abbreviated flag inside an unattended session: {bad}")
+    bad = unattended(cap, args)
+    if bad:
+        sys.exit(f"refused: {bad}")
     if not os.path.isfile(script):
         sys.exit(f"capability {cap} has no script yet ({script})")
     argv = ["python3", script, "--env-file", env_file, *args] if cap not in ("map", "reports", "publish", "stream", "runtime", "sessions", "pick") else ["python3", script, *args]
