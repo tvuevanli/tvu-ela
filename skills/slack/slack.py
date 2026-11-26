@@ -1008,7 +1008,7 @@ def preview_thread(tok, dm, topic):
     cur = threads.get(topic)
     if cur and cur.get("dm") == dm:
         return cur["ts"]
-    d = post_json("chat.postMessage", tok, {"channel": dm, "text": f"*Previews* · {topic}\n_each draft for this is a reply in this thread_",
+    d = post_json("chat.postMessage", tok, {"channel": dm, "text": f"*Previews:* {topic}\nEach draft for it comes as a reply in this thread.",
                                              "unfurl_links": False, "unfurl_media": False})
     threads[topic] = {"dm": dm, "ts": d["ts"], "at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -1220,6 +1220,7 @@ def cmd_post(tok, a):
             refuse_outward()
         ch = call("conversations.open", tok, users=uid)["channel"]["id"]
         where = f"DM to {Names(tok).user(uid)} ({uid})"
+        label = (lambda: "a direct message to you") if a.dm == "me" else (lambda: f"a direct message to {Names(tok).user(uid)}")
     elif not a.target:
         print("post needs a target: #channel, a channel id, a thread permalink, or --dm", file=sys.stderr); sys.exit(EX_USAGE)
     elif "/archives/" in a.target:
@@ -1232,9 +1233,14 @@ def cmd_post(tok, a):
         root = call("conversations.replies", tok, channel=ch, ts=ts, limit=1)["messages"][0]
         thread_ts = root.get("thread_ts") or root["ts"]
         where = f"reply in thread {permalink_of(ch, thread_ts)}  (root: {Names(tok).render(root.get('text', ''))[:80]!r})"
+        def label():                                   # the preview's words for the target, read only for a preview
+            nm = name if a.team_thread else next((c["name"] for c in list_channels(tok) if c["id"] == ch), None)
+            first = slacktext.esc(slacktext.cut(html.unescape(Names(tok).render(root.get("text", ""))), 60))
+            return f"a reply in {slacktext.link(permalink_of(ch, thread_ts), 'the thread')}" + (f" in #{nm}" if nm else "") + (f": “{first}”" if first else "")
     else:
         ch = resolve_channel(tok, a.target)
         where = f"top level in #{next((c['name'] for c in list_channels(tok) if c['id'] == ch), ch)}"
+        label = lambda: where.replace("top level in ", "a new message in ")  # noqa: E731
     me = call("auth.test", tok)
     send_tok, handle, owner = tok, me.get("user"), None
     if as_owner:
@@ -1265,8 +1271,9 @@ def cmd_post(tok, a):
     if a.preview:
         uid = whoami(tok, a.env_file)
         dm = call("conversations.open", tok, users=uid)["channel"]["id"]
-        head = f"_Preview, not sent — would post as @{handle} {where}_"
-        parent = preview_thread(tok, dm, a.topic or where)
+        said = label()
+        head = f"*Preview, not sent yet:* {said}, as {'you' if as_owner else '@' + str(handle)}"
+        parent = preview_thread(tok, dm, a.topic or said)
         d = send(tok, {"channel": dm, "text": f"{head}\n\n{text}", "thread_ts": parent,
                        "unfurl_links": False, "unfurl_media": False})
         link = permalink_of(d["channel"], d["ts"]) + f"?thread_ts={parent}&cid={dm}"

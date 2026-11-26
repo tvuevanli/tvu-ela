@@ -48,6 +48,7 @@ python3 tests/test_testlist_offline.py || fail=1
 python3 tests/test_report_verdicts_offline.py >/dev/null 2>&1 || { echo "report verdicts offline failed"; fail=1; }
 python3 tests/test_testlist_slack_offline.py || fail=1
 python3 tests/test_slack_mrkdwn_offline.py || fail=1
+python3 tests/test_slack_preview_offline.py || fail=1
 python3 tests/test_slack_table_offline.py || fail=1
 python3 tests/test_slack_mentions_offline.py || fail=1
 python3 tests/test_lists_sheet_offline.py || fail=1
