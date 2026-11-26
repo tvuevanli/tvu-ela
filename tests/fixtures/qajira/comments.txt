@@ -38,3 +38,19 @@ MH-3932 验证结果：⚠️ 21 Pass + 2 Fail
 | TC13 | 源配置的 EIP 不存在时 toast 撞码 | ❌ Fail (MH-4111) |
 | TC18 | 区域名多对一映射各取第一条 | ❌ Fail |
 | TC13 | 源配置的 EIP 不存在时 toast 撞码 | ❌ Fail (MH-4111) |
+=== regressed
+验证结果：主功能通过但引入回归 ⚠️ 9 Pass + 1 Fail + 4 N/A（含 regression 检查）
+验证环境：QA-AWS3
+| TC | 场景 | 结果 |
+| TC9 | SRT Listener 开预览但不推流，提示停在 95% | ❌ Fail |
+=== follow-up
+验证结果：主功能通过但有遗漏点 ⚠️ 14 Pass + 1 Fail（含 regression 检查）
+验证环境：QA-AWS3
+| TC | 场景 | 结果 |
+| TC13 | 源配置的 EIP 不存在时 toast 撞码 | ❌ Fail (MH-4111) |
+=== not-fixed
+验证结果：未修复 ❌ 10 Pass + 2 Fail（含 regression 检查）
+验证环境：QA-AWS3
+| TC | 场景 | 结果 |
+| TC7 | admin Off 时已存的 CSC 预设不生效 | ❌ Fail |
+| TC9 | admin Off 时换源后 CSC 节点缺失 | ❌ Fail |

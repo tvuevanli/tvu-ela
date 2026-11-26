@@ -8,6 +8,7 @@ the status between lanes and the promotion.
     train.py … --page                                      also write <reports>/lanes/train-<line>.md (the vault places it)
     train.py … --parity                                    the train's QA view against today's test-list-<qa lane>.json;
                                                            exit 0 when equal, 1 with the differences printed
+    train.py answer impact:<KEY> A|B [--why TEXT]          his ruling on a your-call row, kept with its kind
 
 A row is an owner ticket (or a no-ticket change-log item, flagged) with its title, layer, owner, priority and the
 reason (the test list's rules, called, not copied), how to verify, the auto flag, and one cell per lane of the line:
@@ -37,6 +38,7 @@ import brief as B  # noqa: E402  — lane reads, the matrix cell, Slack rows, th
 import release as R  # noqa: E402  — the published map: lines and regions
 import recent as RC  # noqa: E402  — the versions row renderer and the vault's reading units
 import jira as J  # noqa: E402  — a name from a Jira user object
+import fixes as FX  # noqa: E402  — each row as the deploy sees it: QA's word, the failed case, the impact on its next move
 
 EX_PARITY, EX_USAGE, EX_REMOTE = 1, 2, 5
 ROLES = ("qa", "daily", "prod")
@@ -341,20 +343,22 @@ def row_of(rid, lanes, per_lane, said, issues, incidents, sprint, soon, qa, name
                 priority, why = "P1", f"regression on {shown(lane)} {c['arrived']}, passed {shown(qa_lane)} on {qa_cell['arrived']}"
                 break
     how = next((r["focus"] for r in recs.values() if r["focus"]), None) or (TL.acceptance(issues.get(t)) if t else None) or "steps unknown"
+    change = next((r["log"][0] for r in recs.values() if r.get("log")), None)
     assignee = J.name_of(f.get("assignee")) if f.get("assignee") else None
     return {"id": rid, "key": t, "also": first["also"], "url": TL.JIRA_URL + t if t else None, "title": title,
             "layer": "+".join(layers) or (pre.group(1) if pre else "—"), "owner": (names or {}).get(assignee, assignee) if assignee else None,
             "status": (f.get("status") or {}).get("name") if t else None, "priority": priority, "priority_reason": why,
-            "how_to_verify": how, "auto": TL.auto_of(f"{title} {how}", bool(t)), "cells": cells, "position": position,
+            "how_to_verify": how, "change": change, "auto": TL.auto_of(f"{title} {how}", bool(t)), "cells": cells, "position": position,
             "regression": bool(regression), "regression_on": regression, "flag": None if t else "no ticket",
             "qa_only": bool(first.get("qa_only"))}
 
 
 def collect(line, cfg, states, mails, reports, said, issues, incidents, at, sprint=frozenset(), soon=False, regions=None,
-            qa=None, lane_read=None, before=None, tested=None, names=None, gaps=()):
+            qa=None, lane_read=None, before=None, tested=None, names=None, gaps=(), rulings=()):
     """The train of one line. Pure: every source is given. states/mails/reports: {lane: …}; said: the release threads'
     verdicts; issues: {key: the ticket as `ela jira read --json` gives it}; incidents: the open incident rows, None
-    when not read; lane_read/before: the newest saved lane reads for the versions row."""
+    when not read; lane_read/before: the newest saved lane reads for the versions row; rulings: the owner's rulings on
+    your-call rows (fixes.read_rulings). Each row carries QA's word, its report line and its impact (fixes.enrich)."""
     lanes = line_lanes(line, cfg, regions)
     qa = qa if qa is not None else TL.qa_people()[0]
     per_lane = {lane: lane_rows(lane, (states or {}).get(lane), (mails or {}).get(lane), (reports or {}).get(lane) or [], issues)
@@ -367,9 +371,11 @@ def collect(line, cfg, states, mails, reports, said, issues, incidents, at, spri
     withdrawn = sorted({w for _, lane in lanes for w in per_lane[lane][2]} | set(gone))
     rows = [row_of(rid, lanes, per_lane, said, issues, incidents, sprint, soon, qa, names) for rid in ids if rid not in withdrawn]
     rows.sort(key=lambda r: (not r["regression"], r["priority"], ROLE_RANK[r["position"]], r["id"]))
+    shown_lanes = [{"role": r, "lane": l, "shown": shown(l)} for r, l in lanes]
+    FX.enrich(rows, shown_lanes, issues, (reports or {}).get(qa_lane) or [], qa, incidents, rulings, TL.P.key_verdicts)
     missing = report_parity({lane: (reports or {}).get(lane) for _, lane in lanes}, rows, withdrawn)
     gaps = list(gaps) + ([parity_gap(missing)] if missing else [])
-    return {"line": str(line), "at": at.isoformat(timespec="minutes"), "lanes": [{"role": r, "lane": l, "shown": shown(l)} for r, l in lanes],
+    return {"line": str(line), "at": at.isoformat(timespec="minutes"), "lanes": shown_lanes,
             "builds": {lane: per_lane[lane][1] for _, lane in lanes}, "rows": rows, "withdrawn": withdrawn,
             "versions": versions_row(lanes, lane_read or [], before, tested or {}), "counts": counts(rows, lanes), "gaps": gaps, "report_keys_missing": missing,
             "sources": {"states": sorted(l for l in (states or {}) if (states[l] or {}).get("rows")), "mails": sorted(l for l in (mails or {}) if mails[l]),
@@ -554,7 +560,45 @@ def read_train(s, line):
         return None
 
 
+def answer_main(argv):
+    """`train.py answer impact:<KEY> A|B [--why TEXT]`: his letter on a your-call row, kept with its kind (fixes.answer).
+    The row is looked up in the written trains. Exit 2 for a letter or an ask no written train holds."""
+    ap = argparse.ArgumentParser(prog="ela train answer", description="rule on a your-call row: A agrees with ela's leaning, B rules the other way")
+    ap.add_argument("id", help="the ask's id, impact:<KEY>")
+    ap.add_argument("letter", help="A or B")
+    ap.add_argument("--why", help="the cause, kept with the ruling as the precedent's reason")
+    a = ap.parse_args(argv)
+    s = TL.site()
+    reports = TL.reports_root(s)
+    for train in trains_on_disk(s):
+        try:
+            rec = FX.answer(reports, a.id, a.letter, train, a.why)
+        except KeyError:
+            continue
+        except ValueError:
+            print(f"letter {a.letter!r}: A or B", file=sys.stderr)
+            sys.exit(EX_USAGE)
+        print(f"{a.id}: ruled {rec['ruled']} ({rec['kind']})" + ("" if rec["cause"] else "; no cause given, kept as waiting for one"))
+        return
+    print(f"{a.id}: no written train holds this your-call row", file=sys.stderr)
+    sys.exit(EX_USAGE)
+
+
+def trains_on_disk(s):
+    """Every written train, [train]."""
+    d = os.path.join(TL.reports_root(s), "train")
+    out = []
+    for f in sorted(os.listdir(d)) if os.path.isdir(d) else []:
+        if f.endswith(".json"):
+            t = read_train(s, f[:-5])
+            if t:
+                out.append(t)
+    return out
+
+
 def main():
+    if sys.argv[1:2] == ["answer"]:
+        return answer_main(sys.argv[2:])
     ap = argparse.ArgumentParser(description="the train: one object per release line, one row per fix with a cell per lane")
     ap.add_argument("--env-file", help="ela's env file")
     ap.add_argument("--line", required=True, help="the release line (2.1)")
@@ -612,7 +656,8 @@ def main():
     except (OSError, ValueError):
         tested = {}
     res = collect(line, cfg, states, mails, {l: reports.get(l) or [] for _, l in lanes}, said, cache, incidents, at,
-                  TL.sprint_keys(s), TL.departs_soon(s, at), regions, lane_read=rows, before=before, tested=tested, gaps=gaps)
+                  TL.sprint_keys(s), TL.departs_soon(s, at), regions, lane_read=rows, before=before, tested=tested, gaps=gaps,
+                  rulings=FX.read_rulings(TL.reports_root(s)))
     res["read_at"] = B.facts_read_at()
     if a.parity:
         qa_lane = dict(lanes)["qa"]

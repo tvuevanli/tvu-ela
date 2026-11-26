@@ -105,6 +105,7 @@ python3 tests/test_page_fold_offline.py || fail=1
 python3 tests/test_recent_offline.py || fail=1
 python3 tests/test_teamreport_offline.py >/dev/null 2>&1 || { echo "teamreport offline failed"; fail=1; }
 python3 tests/test_train_offline.py || fail=1
+python3 tests/test_train_fixes_offline.py || fail=1
 python3 tests/test_onething_offline.py || fail=1
 python3 tests/test_promote_constraints_offline.py || fail=1
 python3 tests/test_promote_pending_offline.py || fail=1
