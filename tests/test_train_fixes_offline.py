@@ -129,6 +129,30 @@ with tempfile.TemporaryDirectory() as reports:
           and a[0]["options"][0]["text"] == "right: does not block" and a[0]["options"][0]["recommended"]
           and a[0]["options"][1]["does"] == "ela train answer impact:MH-4100 B" and a[0]["link"] == "releases/2.1/2.1#^fix-mh-4100")
 
+# a your-call ruling answered on the line page itself: boxes under the row, a tick or `ela: B because …`, words kept
+yc = "\n".join(FX.block(dict(train, at="2026-11-26T09:00+08:00")))
+check("a your-call row carries its two answers under it on the line page",
+      "- [ ] A (recommended): right: does not block" in yc and "- [ ] B: wrong: it blocks; say why on the line below" in yc
+      and yc.index("^fix-mh-4100") < yc.index("- [ ] A (recommended)"))
+linked = yc.replace("- MH-4100 ", "- [MH-4100](https://x/browse/MH-4100) ")
+ticked = linked.replace("    - [ ] B: wrong:", "    - [x] B: wrong:").replace(
+    "say why on the line below", "say why on the line below\n    the stage bar is customer-facing", 1)
+check("a tick under a row is read with the plain line below it as his words",
+      FX.page_answers(ticked) == [("MH-4100", "B", "the stage bar is customer-facing")])
+lined = linked.replace("    - [ ] B: wrong:", "    ela: B because TC13 is the main path\n    - [ ] B: wrong:")
+check("`ela: B because …` under a row is read with its words", FX.page_answers(lined) == [("MH-4100", "B", "because TC13 is the main path")])
+check("a line page with nothing ticked answers nothing", FX.page_answers(linked) == [])
+with tempfile.TemporaryDirectory() as reports:
+    first = FX.settle_page(reports, ticked, train)
+    again = FX.settle_page(reports, ticked, train)
+    kept = FX.read_rulings(reports)
+    check("the sync records a line-page ruling once a case, with his words as the cause",
+          first == [("impact:MH-4100", "B", "the stage bar is customer-facing")] and again == [] and len(kept) == 1
+          and kept[0]["ruled"] == "blocks" and kept[0]["cause"] == "the stage bar is customer-facing" and kept[0]["corpus"] == "admitted")
+    sys.path.insert(0, os.path.join(ROOT, "skills", "asks"))
+    import asks as A  # noqa: E402
+    check("a line-page ruling is a deploy-impact precedent", [p["target"] for p in A.precedents(reports, "deploy-impact")] == ["MH-4100"])
+
 # the line page's block
 many = [row(f"MH-5{n:03d}", "untested", arrived="101") for n in range(10)] + \
        [row(f"MH-6{n:03d}", "fail", history=[h("pass", "build 99", "2026-11-20T18:48"), h("fail", "build 100", "2026-11-25T18:43")]) for n in range(9)]

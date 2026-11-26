@@ -4703,6 +4703,20 @@ def settle_watch_page(vault, reports, dry_run=False):
         return []
 
 
+def settle_line_pages(vault, reports, dry_run=False):
+    """His ticks and `ela: B because …` lines under the your-call rows of each line page's Fixes on their way, recorded
+    as `ela train answer` records them, before the page is written again: a ruling past today.md's ask cap is answered
+    where it waits. A broken train or page costs these answers only. → [(id, letter, note)]."""
+    done = []
+    for t in written_trains(reports):
+        try:
+            text = open(os.path.join(vault, line_page_path(t.get("line"))), encoding="utf-8").read()
+            done += fixes_mod().settle_page(reports, text, t, dry_run=dry_run)
+        except Exception:                                  # noqa: BLE001
+            continue
+    return done
+
+
 def watch_line(reports):
     """today.md's one line for the board watch, whatever the ask cap shows: how many topics wait, the page behind it."""
     try:
@@ -4973,7 +4987,7 @@ def today_page(today, notes, desk=None, shown=(), more=0, dropped=0, questions_l
     if n_wait:                                             # rulings over the ask cap stay on their line page (ADR 0014)
         day.append(f"- {n_wait} more deploy ruling{'s wait' if n_wait != 1 else ' waits'} on "
                    + " · ".join(f"[[{p}#Fixes on their way|the {p.rsplit('/', 1)[-1]} line page]]" for p in wait_pages)
-                   + " (`ela train answer impact:<KEY> A|B`)")
+                   + ", answered there under each row")
     if soon:
         day.append(f"- At 10:00 ela does {len(soon)} drafted action{'s' if len(soon) != 1 else ''}"
                    + (f", held until {hold['until']} (dry run)" if hold else "; tick `don't N` to stop one"))
@@ -6369,6 +6383,7 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since
     asks_state = load_asks(reports)
     settle_letters(s["vault"], reports, asks_state, today, dry_run)   # his letters the sync acts on itself, before the asks are counted
     settle_watch_page(s["vault"], reports, dry_run)        # his ticks and letters on ela/watch.md, before the page is rewritten
+    settle_line_pages(s["vault"], reports, dry_run)        # his rulings under a line page's your-call rows, likewise
     cands = ask_candidates(today, week_actions(reports, today), notes + native)
     qcands = question_asks(questions, today, week_actions(reports, today)) if questions else []
     dcands, dry_facts = dry_asks(reports, today, asks_state, dry_run)

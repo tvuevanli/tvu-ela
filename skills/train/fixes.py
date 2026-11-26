@@ -46,8 +46,8 @@ OUT_OF_SCOPE_W = re.compile(r"(?i)" + "|".join([r"不在本单范围", r"非本�
 RULINGS = ("train", "rulings.jsonl")
 ROW_CASE_CHARS, ROW_WORDS, CHANGE_WORDS = 24, 5, 5
 OPEN_MAX = 2                    # a long group (not yet verified, does not block) shows this many, the rest folded
-GROUP_NEXT = {"blocks": "each needs a fix, then QA again", "your-call": "each is a ruling ask on today.md; "
-              "`ela train answer impact:<KEY> A|B` answers it here", "unverified": "each waits for QA's word on the build it rides"}
+GROUP_NEXT = {"blocks": "each needs a fix, then QA again", "your-call": "tick A or B under a row, here or on today.md, or "
+              "write `ela: B because …` under it", "unverified": "each waits for QA's word on the build it rides"}
 
 
 def anchor(key_or_id):
@@ -340,6 +340,77 @@ def row_line(row, qa_lane):
     return "- " + " · ".join(bits) + end
 
 
+def other_way(leaning):
+    return "blocks" if leaning == "does not block" else "does not block"
+
+
+def ruling_boxes(row):
+    """A your-call row's two answers on the line page: ela's leaning as A, the other way as B."""
+    lean = (row.get("impact") or {}).get("leaning")
+    return [f"    - [ ] A (recommended): right: {lean}", f"    - [ ] B: wrong: it {other_way(lean)}; say why on the line below"]
+
+
+# His answers on the line page's your-call rows: a ticked box under a row, its note the plain line below it, or an
+# `ela: B because …` line under the row; the same grammar ela/watch.md and today.md read.
+ROW_HEAD = re.compile(r"^[-*+][ \t]+(?:◇[ \t]+)?\[?([A-Z][A-Z0-9]+-\d+)\b.*\^fix-[a-z0-9-]+[ \t]*$")
+ROW_TICK = re.compile(r"^[ \t]*(?:>[ \t]*)*[-*+][ \t]+\[[xX]\][ \t]+([AB])(?:[ \t]+\(recommended\))?:")
+ROW_LINE = re.compile(r"^[ \t]*(?:[-*+][ \t]+|>[ \t]*)*ela[ \t]*[:：][ \t]*([ABab])(?:\.?|[ \t]*[.,:;\u2014\u2013-][ \t]*(\S.*?)"
+                      r"|[ \t]+((?:because|since|as)\b.*?|因为.*?))[ \t]*$", re.I)
+
+
+def page_answers(text):
+    """His answers under the your-call rows of a line page's Fixes on their way: [(key, letter, note)], the first
+    written under each row."""
+    lines = (text or "").split("\n")
+    out, seen, key, inside = [], set(), None, False
+    for i, l in enumerate(lines):
+        if l.startswith("## "):
+            inside, key = l.strip() == "## Fixes on their way", None
+            continue
+        if not inside:
+            continue
+        if l.startswith("**"):
+            key = None
+            continue
+        m = ROW_HEAD.match(l)
+        if m:
+            key = m.group(1)
+            continue
+        if not key or key in seen:
+            continue
+        t = ROW_TICK.match(l)
+        if t:
+            rest = lines[i + 1] if i + 1 < len(lines) else ""
+            note = None if (not rest.strip() or ROW_HEAD.match(rest) or rest.startswith(("**", "#"))
+                            or re.match(r"^[ \t]*(?:[-*+][ \t]+\[.\]|ela[ \t]*[:：])", rest, re.I)) \
+                else re.sub(r"^[ \t]*(?:[-*+>][ \t]*)*", "", rest).strip() or None
+            seen.add(key)
+            out.append((key, t.group(1), note))
+            continue
+        e = ROW_LINE.match(l)
+        if e and not ((e.group(2) or e.group(3)) and e.group(1).islower()):
+            seen.add(key)
+            out.append((key, e.group(1).upper(), (e.group(2) or e.group(3) or "").strip() or None))
+    return out
+
+
+def settle_page(reports, text, train, now=None, dry_run=False):
+    """His answers on a line page's your-call rows, recorded as `ela train answer` records them, once a case: a row
+    whose case (its sig) already holds a ruling is passed over until the train shows a new one. → [(id, letter, note)]."""
+    ruled = {(r.get("id"), r.get("sig")) for r in read_rulings(reports)}
+    done = []
+    for key, letter, note in page_answers(text):
+        row = next((r for r in (train or {}).get("rows") or [] if r.get("key") == key
+                    and (r.get("impact") or {}).get("group") == "your-call"), None)
+        aid = f"impact:{key}"
+        if not row or (aid, row["impact"].get("sig")) in ruled:
+            continue
+        if not dry_run:
+            answer(reports, aid, letter, train, why=note, now=now)
+        done.append((aid, letter, note))
+    return done
+
+
 def block(train, open_max=OPEN_MAX):
     """`## Fixes on their way` for the line page: blocks · your call · not yet verified · does not block, one line a
     row (blocks and your call never folded; a long group shows `open_max`, the rest folded), then Ready as a count.
@@ -363,7 +434,10 @@ def block(train, open_max=OPEN_MAX):
         lines = [row_line(r, qa_lane) for r in mine]
         L.append(f"**{GROUP_TITLE[g]} · {len(mine)}**" + (f" — {GROUP_NEXT[g]}" if g in GROUP_NEXT else ""))
         L.append("")
-        if g in ("blocks", "your-call") or len(lines) <= open_max:
+        if g == "your-call":                               # a ruling is answered on the row itself, as on today.md
+            for r, l in zip(mine, lines):
+                L += [l] + (ruling_boxes(r) if r.get("key") else [])
+        elif g == "blocks" or len(lines) <= open_max:
             L += lines
         else:
             L += lines[:open_max] + ["", f"> [!note]- {len(lines) - open_max} more {GROUP_TITLE[g].lower()}"] + ["> " + l for l in lines[open_max:]]
@@ -434,7 +508,7 @@ def asks(trains, page_of):
                 continue
             mv = imp.get("move") or ["", ""]
             lanes = t.get("lanes") or []
-            other = "blocks" if imp["leaning"] == "does not block" else "does not block"
+            other = other_way(imp["leaning"])
             aid = f"impact:{r['key']}"
             out.append({"id": aid, "whole": True, "sig": imp["sig"], "impact_kind": imp.get("kind"),
                         "reason": imp.get("lean_reason") or "",
