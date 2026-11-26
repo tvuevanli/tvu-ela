@@ -72,11 +72,17 @@ JIRA = os.path.join(HERE, "..", "jira", "jira.py")
 PROMOTE = os.path.join(HERE, "..", "promote", "promote.py")
 SITE = os.path.expanduser("~/.claude/ela/site.json")
 MANIFEST = ".ela-sync.json"
+# the owner's manual: how he uses the vault, kept in ela beside this script and written to the vault root by every sync.
+# Its `covers` names the ela plans it reflects; a later plan it does not name is a lint line on it (MANUAL_FROM on)
+MANUAL_SRC = os.path.join(HERE, "manual.md")
+MANUAL = "manual.md"
+MANUAL_FROM = "2026-11-26"          # plans of an earlier day are the baseline the first manual was written from
+MANUAL_STATUSES = ("live", "done", "building")   # a plan that changed, or is changing, how he uses the vault
 DAYS_KEPT, HELD_LISTED_DAYS, NEW_DAYS, MASS_DELETE = 14, 30, 7, 8
 READER_DAYS = 30                                    # a reader page is evidence for the review of ela itself, then expires
 CONSTRAINTS_FRESH = 1800    # seconds a read of the pins stands; each read asks the lane hosts, and the sync runs every minute
 LAYOUT = 5                  # the manifest records it; a vault in another layout is migrated first (`ela vault migrate`)
-# layout 5, things and angles (ADR 0015): eight roots; a work note lives in its thing's folder, live or done
+# layout 5, things and angles (ADR 0015): eight roots and the manual; a work note lives in its thing's folder, live or done
 DAYS, ELA, ARCHIVE, REF = "reference/days", "ela", "archive", "reference"
 # the lifecycle folders of layout 4, read as input only (an old path given to a verb, a leftover note): never written
 TO_READ, READINGS, IN_PROGRESS, PARKED = "to-read", "readings", "in-progress", "parked"
@@ -137,7 +143,7 @@ BUDGET = {"ticket": 700, "topic": 800, "guide": 1200, "board": 1000, "day": 1200
 # A type outside it, or a family outside its folders, is a lint line on the sync, never a failure.
 TYPE_FAMILY = {"decision": "decision", "plan": "plan", "sprint": "plan",
                "ticket": "reading", "review": "reading", "verify": "reading", "verify-plan": "reading",
-               "home": "page", "today": "page", "dropped": "page", "board": "page", "lanes": "page", "docker": "page", "recent": "page", "one-thing": "page", "test-list": "page", "dev-list": "page", "train": "page", "program": "page", "line": "page",
+               "home": "page", "today": "page", "manual": "page", "dropped": "page", "board": "page", "lanes": "page", "docker": "page", "recent": "page", "one-thing": "page", "test-list": "page", "dev-list": "page", "train": "page", "program": "page", "line": "page",
                "guide": "page", "vocabulary": "page", "system": "page", "constraints": "page", "readme": "page", "meeting": "page",
                "report": "page", "project": "page", "services": "page", "questions": "page",
                "day": "day", "reader": "day", "case": "case", "draft": "draft"}
@@ -232,6 +238,7 @@ ela writes this vault from first-hand sources, and it holds things and angles (e
 | entry | holds |
 |---|---|
 | `today.md` | the one page: in short (at most five lines, the first step last), facts, at most three asks, today |
+| `manual.md` | how you use the vault: your day, the words you write, what reaches you; reviewed against each new ela plan |
 | `meetings/` | `focus.md`, the focus board: one row per item MediaHub is pushing, Jira priority then due date, each meeting a view of it (at most seven rows), held subjects in one folded line; `open-questions.md`, every team question, linked from the board; a dated meeting page is history in `archive/meetings/` |
 | `projects/` | one page per project, `<key>-<slug>.md`; a folder `<key>-<slug>/` once notes sit beside the page |
 | `releases/` | a folder per line: its line page `<line>.md`, the way in (where the line stands, what can move next, what could not be read, its builds), and each live promote and deploy; `lists/` its train, dev and test lists; `history/` its builds' old notes, the old record and every closed note (a promote closes itself once its target lane runs the build); `lanes.md` across lines |
@@ -2016,7 +2023,7 @@ def budget_of(kind, rel=""):
     if kind == "day" and (rel or "").endswith("-team-weekly.md"):
         return TEAM_BUDGET
     return BUDGET.get(kind)
-PAGES_SPEC = ("home", "today", "dropped", "board", "lanes", "docker", "recent", "one-thing", "test-list", "dev-list", "train", "program", "guide",
+PAGES_SPEC = ("home", "today", "manual", "dropped", "board", "lanes", "docker", "recent", "one-thing", "test-list", "dev-list", "train", "program", "guide",
               "vocabulary", "system", "constraints", "readme", "services", "questions", "dry", "mention", "watch")   # living pages: each one's generator is its spec
 CJK = re.compile(r"[一-鿿　-〿＀-￯]")
 SPEC_MARK = "<!-- note standards -->"
@@ -2253,6 +2260,35 @@ def lint_notes(vault, projects=None):
             found += key_cluster_lint(text)
         if found:
             out.append((rel, rel in gen, found))
+    stale = manual_lint(vault)
+    if stale:
+        have = next((i for i, (r, _, _) in enumerate(out) if r == MANUAL), None)
+        if have is None:
+            out.append((MANUAL, MANUAL in gen, stale))
+        else:
+            out[have] = (MANUAL, out[have][1], out[have][2] + stale)
+    return out
+
+
+def manual_lint(vault):
+    """One line per ela plan the vault's manual.md does not cover: a plan whose target is ela, live, building or done,
+    dated MANUAL_FROM or later, and absent from the manual's `covers`. A plan may change how the owner uses the vault,
+    so the manual is reviewed against each one; an earlier plan is the baseline. No manual in the vault, no lines."""
+    try:
+        fl = split_front(open(os.path.join(vault, MANUAL), encoding="utf-8").read())[0]
+    except OSError:
+        return []
+    covers = set(list_prop(fl, "covers"))
+    out = []
+    for rel, text in vault_notes(vault):
+        props = props_of(split_front(text)[0])
+        if props.get("type") != "plan" or (props.get("status") or "") not in MANUAL_STATUSES:
+            continue
+        if (props.get("date") or "")[:10] < MANUAL_FROM or not ELA_TARGET.search(props.get("target") or ""):
+            continue
+        plan = os.path.basename(rel)[:-3]
+        if plan not in covers:
+            out.append(f"manual.md does not cover plan {plan}: update skills/vault/manual.md (its text, updated, covers)")
     return out
 
 
@@ -5525,6 +5561,8 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since
         planned["home.md"] = front([], {"type": "home", "date": today.isoformat()}) + home_pointer()
     else:
         planned.pop("home.md", None)
+    if os.path.isfile(MANUAL_SRC):                         # the owner's manual, at the root beside today.md
+        planned[MANUAL] = open(MANUAL_SRC, encoding="utf-8").read()
     planned[f"{ELA}/about-this-vault.md"] = README.replace(SPEC_MARK, "\n".join(("> " + l).rstrip() for l in spec_text().splitlines()))
     for name, text in VIEWS.items():
         planned[f"{ELA}/{name}.base"] = text
@@ -7297,7 +7335,7 @@ def cmd_sync(a):
 # vault still in layout 4. The moves are kept in the manifest, so for OLD_PATHS_DAYS an old path given to a verb is
 # read as its new one, and logged one row each in <reports>/ela/vault-migrated.jsonl (not the removal log, whose
 # every row is a deletion the sync honours).
-ROOTS5 = ("today.md", "meetings", "projects", "releases", "cases", "reference", "ela", "archive")
+ROOTS5 = ("today.md", "manual.md", "meetings", "projects", "releases", "cases", "reference", "ela", "archive")
 OLD_PATHS_DAYS = 14
 LAYOUT4_FOLDERS = ("to-read", "in-progress", "parked", "readings", "days", "lanes", "mh", "sprints", "mediahub-bot", "library", "to-learn")
 RETIRED_ANGLES = ("board.md", "recent.md", "constraints.md")   # generated daily, consumed by nobody (ADR 0015)

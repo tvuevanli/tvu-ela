@@ -153,6 +153,9 @@ with tempfile.TemporaryDirectory() as tmp:
         except OSError:
             return []
     check("a first sync succeeds", sync() == 0)
+    check("the sync writes the owner's manual at the root, beside today.md, as skills/vault/manual.md has it",
+          open(f"{vault}/manual.md", encoding="utf-8").read() == open(V.MANUAL_SRC, encoding="utf-8").read()
+          and os.path.isfile(f"{vault}/today.md"))
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
         V.cmd_sync(types.SimpleNamespace(env_file=os.path.join(tmp, "none.env"), dry_run=True, force=False, json=False))
@@ -971,7 +974,7 @@ with tempfile.TemporaryDirectory() as t:
     for d in ("to-read", "mh", "ela", "library", ".obsidian"):
         os.makedirs(os.path.join(t, d))
     open(os.path.join(t, "home.md"), "w").write("# H\n")
-    check("the readme's layout names the eight entries", V.layout_folders() == set(V.ROOTS5))
+    check("the readme's layout names every root entry", V.layout_folders() == set(V.ROOTS5))
     check("a top folder the readme does not name is a lint line, hidden ones and files are not",
           V.folder_lint(t) == [f"{d}/: a top folder the readme's layout does not name" for d in ("library", "mh", "to-read")])
 with tempfile.TemporaryDirectory() as t:
