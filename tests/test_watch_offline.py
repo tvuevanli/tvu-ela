@@ -215,6 +215,24 @@ with tempfile.TemporaryDirectory() as t:
     check("a correction returned the class to confirm: the set is asked as an open batch, not written",
           got["state"] == "open" and D.load_batch(reports, got["batch"])["state"] == "open")
 
+# ── the reminder reads as written for a person (the owner's ruling, 2026-11-26): the key is the link, no bare URL,
+#    a long title cut at a word with "…", Slack's control characters escaped, mrkdwn clean ────────────────────────────
+sys.path.insert(0, os.path.join(ROOT, "skills", "slack"))
+import slack as S  # noqa: E402
+tp = {"roots": {}, "topics": {}}
+W.put_topic(tp, "MH-1997", {"question": "MH-1997: who takes it?"}, "2026-11-26",
+            "[Prod9 1.1.1] Unable to create X source after the user switches the account <and> the source drops out again")
+plan = W.dm_plan(tp, datetime.date(2026, 11, 26), "https://j")
+txt = plan[0]["text"] if plan else ""
+first, bullet = (txt.split("\n") + ["", ""])[:2]
+check("watch reminder: a short first line saying what it is; the key is its link; no bare URL; cut at a word",
+      first.startswith("*Board watch:* 1 new topic") and bullet.startswith("• <https://j/browse/MH-1997|MH-1997> [Prod9")
+      and "https://j/browse/MH-1997>" not in txt.replace("|MH-1997>", "") and bullet.endswith("…")
+      and bullet[:-1].split()[-1] in ("the", "drops", "source", "&lt;and&gt;", "account", "switches", "user")
+      and "&lt;and&gt;" in bullet and S.mrkdwn_check(txt) == [])
+check("watch reminder without a Jira base: the key alone, never a broken link",
+      W.dm_plan(tp, datetime.date(2026, 11, 26), "")[0]["text"].split("\n")[1].startswith("• MH-1997 [Prod9"))
+
 # ── the owner's DM and today.md: one root a day, each topic a reply, an open topic continued in its own thread ───
 with tempfile.TemporaryDirectory() as t:
     reports = os.path.join(t, "reports")
@@ -254,7 +272,7 @@ with tempfile.TemporaryDirectory() as t:
     W.write_json(W.topics_path(reports), tp)
     r = W.dm(reports, day2, apply=True, post=post, base="")
     check("a new topic: one reminder naming only it, counting every open one",
-          len(r["sent"]) == 1 and r["sent"][0]["topics"] == ["watch:MH-33"] and "1 new topic, 2 waiting in all" in r["sent"][0]["text"])
+          len(r["sent"]) == 1 and r["sent"][0]["topics"] == ["watch:MH-33"] and "1 new topic for your answer · 2 waiting in all" in r["sent"][0]["text"])
     posts.clear()
     check("and once a day only", W.dm(reports, day2, apply=True, post=post)["sent"] == [])
     fail = lambda argv, apply: (1, None, "slack down")   # noqa: E731

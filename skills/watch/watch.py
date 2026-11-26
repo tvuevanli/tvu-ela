@@ -66,6 +66,7 @@ import jira as J  # noqa: E402 — the signing rule and the comment's text: one 
 import hold as H  # noqa: E402 — the holds, `ela: hold <key>`
 sys.path.insert(0, os.path.join(SKILLS, "slack"))
 import tiers as TI  # noqa: E402 — the information tier of each kind of notice: one table
+import slacktext as ST  # noqa: E402 — a Jira key as its link, a title cut at a word
 
 SITE = os.path.expanduser("~/.claude/ela/site.json")
 TZ = datetime.timezone(datetime.timedelta(hours=8))
@@ -864,6 +865,7 @@ def jira_base(s=None):
 
 
 WATCH_PAGE = "ela/watch.md"        # the vault page every open topic lives on; the DM only points at it
+SUMMARY_CUT = 90                   # a ticket's title in the reminder: whole up to here, then cut at a word
 
 
 def page(reports, today, base=""):
@@ -941,10 +943,10 @@ def dm_plan(topics, today, base=""):
         return []
     if TI.tier("watch", "topic") != TI.I2:                    # a topic is his decision, not an interruption: the
         return []                                               # one reminder below is I2's Slack line, nothing more
-    lines = [f"ela · the board watch · {today:%a %m-%d}: {len(fresh)} new topic{'s' if len(fresh) != 1 else ''}, "
-             f"{len(open_)} waiting in all. They are on the vault page {WATCH_PAGE[:-3]}; answer in the CLI with "
-             "`ela watch answer watch:<KEY> <letter>`."]
-    lines += [f"• {t['key']} {(t.get('summary') or '')[:70]}".rstrip() + (f" {base}/browse/{t['key']}" if base else "") for t in fresh]
+    n = len(fresh)
+    lines = [f"*Board watch:* {n} new topic{'s' if n != 1 else ''} for your answer · {len(open_)} waiting in all · {today:%a %m-%d}"]
+    lines += [f"• {ST.key_link(t['key'], base)} {ST.esc(ST.cut(t.get('summary') or '', SUMMARY_CUT))}".rstrip() for t in fresh]
+    lines += ["", f"They are on the vault page _{WATCH_PAGE[:-3]}_. Answer in the CLI: `ela watch answer watch:<KEY> <letter>`"]
     return [{"kind": "reminder", "tier": TI.I2, "topics": [t["id"] for t in fresh], "text": "\n".join(lines)}]
 
 
