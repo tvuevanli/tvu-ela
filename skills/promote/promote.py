@@ -746,6 +746,23 @@ def iso_when(v):
 
 SECTION = re.compile(r"(?i)^\W*(?:\d+\.\s*)?(close[d]? issues?|reopen(?:ed)? issues?|new issues?|closed|reopened|已关闭|重新打开|新增)\b")
 KEY_VERDICT = re.compile(r"(?i)\b(PASS(?:ED)?|FAIL(?:ED)?|N/?A|未修复|已修复|未排期|不在\s*MH\s*端验证|无需\s*QA\s*介入)\b")
+# A key cited on a line about something else: a bug QA filed or recalls on a test case's line (MH-3938, MH-4053,
+# MH-4069, MH-4028), or a key in brackets beside another result (MH-3970). The line's verdict is that other thing's.
+CITED_BEFORE = re.compile(r"(?i)(\u5df2?\u63d0\u5355?|\u5df2?\u5f00\u5355?|\u5df2\u77e5\u95ee\u9898|\u540c|\u89c1|\u963b\u585e|filed|see|known issue)[\s*:\uff1a]*$")   # filed · opened · known issue · same as · see · blocked by
+OPEN, CLOSE = "(（[【", ")）]】"
+LEAD_KEYS = re.compile(r"^[\s>*•\-–·#]*(?:\d+[.)、]\s*)?(?:\*?[A-Z][A-Z0-9]{1,5}-\d+\*?[\s/、,，*]*)+")
+
+
+def cited_at(ln, idx):
+    """Whether the key at ln[idx] is cited rather than reported: inside a bracket opened before it on the line, inside
+    one a wrapped line closes after it (`MH-4005）；…`), or right after a filing or recalling word."""
+    before, after = ln[:idx], ln[idx:]
+    if sum(c in OPEN for c in before) > sum(c in CLOSE for c in before):
+        return True
+    close = next((i for i, c in enumerate(after) if c in CLOSE), None)
+    if close is not None and not any(c in OPEN for c in after[:close]):
+        return True
+    return bool(CITED_BEFORE.search(before))
 
 
 def key_verdicts(text, key):
@@ -762,17 +779,21 @@ def key_verdicts(text, key):
         if key not in ln:
             continue
         others = set(KEY_RE.findall(ln)) - {key}
-        seg = ln
-        if others:                                        # keep only the part of the line that belongs to this key
-            idx = ln.find(key); seg = ln[idx:]
-            cut = min((seg.find(o) for o in others if seg.find(o) > 0), default=len(seg)); seg = seg[:cut]
-        v = KEY_VERDICT.search(seg)
-        if not v and others:                              # "A / B  N/A" — one verdict for every key on the line
-            line_v = {x.lower() for x in KEY_VERDICT.findall(ln)}
-            if len(line_v) == 1:
-                v = KEY_VERDICT.search(ln)
-        if not v and i + 1 < len(lines) and not KEY_RE.search(lines[i + 1]):
-            v = KEY_VERDICT.match(lines[i + 1].strip())
+        at = [m.start() for m in re.finditer(r"(?<![A-Za-z0-9-])" + re.escape(key) + r"(?!\d)", ln)]
+        idx = next((j for j in at if not cited_at(ln, j)), None)
+        v = None
+        if idx is not None:                               # a cited key takes no verdict from the line; a section may still list it
+            seg = ln
+            if others:                                    # keep only the part of the line that belongs to this key
+                seg = ln[idx:]
+                cut = min((seg.find(o) for o in others if seg.find(o) > 0), default=len(seg)); seg = seg[:cut]
+            v = KEY_VERDICT.search(seg)
+            if not v and others and LEAD_KEYS.match(ln) and key in LEAD_KEYS.match(ln).group(0):
+                line_v = {x.lower() for x in KEY_VERDICT.findall(ln)}    # "A / B  N/A" — one verdict for the keys the line leads with
+                if len(line_v) == 1:
+                    v = KEY_VERDICT.search(ln)
+            if not v and i + 1 < len(lines) and not KEY_RE.search(lines[i + 1]):
+                v = KEY_VERDICT.match(re.sub(r"^[\s>*\-=→:：]+", "", lines[i + 1]))   # "2. MH-3841 ⏎ -->PASS，…"
         if v:
             w = v.group(1).lower()
             verdict = "pass" if w.startswith("pass") or w == "已修复" else "fail" if w.startswith("fail") or w == "未修复" else "not-scheduled" if w == "未排期" else "n-a"
