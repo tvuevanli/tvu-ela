@@ -6943,9 +6943,14 @@ def renames(vault, reports):
             except ValueError:
                 continue
             if row.get("renamed_to") and row.get("path"):
-                out[row["path"]] = row["renamed_to"]
+                old, new = row["path"], row["renamed_to"]
             elif row.get("renamed_from") and row.get("path"):
-                out[row["renamed_from"]] = row["path"]
+                old, new = row["renamed_from"], row["path"]
+            else:
+                continue
+            if out.get(new) == old:                        # a move back (an undo, a rollback): the earlier one is void
+                del out[new]
+            out[old] = new
     except OSError:
         pass
     for rel, text in vault_notes(vault) if vault and os.path.isdir(vault) else ():
@@ -6954,9 +6959,15 @@ def renames(vault, reports):
             old = f"{d}/{al}.md" if d else f"{al}.md"
             if STEM.match(al) and old != rel and old not in out and not os.path.exists(os.path.join(vault, old)):
                 out[old] = rel
-    def last(p, seen=()):
-        n = out.get(p)
-        return p if n is None or n in seen else last(n, seen + (p,))
+    def last(p):
+        cur, seen = p, {p}
+        while out.get(cur) is not None:
+            n = out[cur]
+            if n in seen:                                  # a cycle a → b → a: back where it started, or stop
+                return p if n == p else cur
+            seen.add(n)
+            cur = n
+        return cur
     return {o: last(o) for o in out if last(o) != o}
 
 
@@ -7636,12 +7647,13 @@ def rewrite_links(text, by_path, by_name):
 
     def wiki(m):
         target = m.group(2).strip()
-        low = target.lower()
-        new = by_path.get(low) if "/" in target else by_name.get(low)
+        core = target.rstrip("\\")                        # a table's escaped pipe, [[x\\|y]]: the backslash is not the name
+        low = core.lower()
+        new = by_path.get(low) if "/" in core else by_name.get(low)
         if not new:
             return m.group(0)
         n[0] += 1
-        return m.group(1) + new + m.group(4)
+        return m.group(1) + new + target[len(core):] + m.group(4)
 
     def md(m):
         t = m.group(2)
