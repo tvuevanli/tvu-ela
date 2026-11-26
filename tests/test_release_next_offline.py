@@ -94,7 +94,7 @@ check(doc["must"][0]["priority"] == "Highest" and when(doc["must"][0]["updated"]
 dk = doc["docker"]
 check(dk["bundle_diff"][0]["slug"] == "mds-switcher" and dk["lanes"][0]["from"] == {"lane": "daily-wed", "version": "v2.1.48 build280"}, "docker diff and lane versions")
 check([b["kind"] for b in dk["branches"]] == ["release", "feature", None] and dk["branches"][0]["commits"][0]["sha"] == "62ea93de", "branches: release or feature, commits not built")
-check(doc["counts"] == {"must": 2, "must_missing": 1, "must_shipped": 0, "must_cleared": 0, "on_candidate": 2, "in_dev": 1, "docker_changed": 1, "unbuilt_commits": 1}, "counts")
+check(doc["counts"] == {"must": 2, "must_missing": 1, "must_shipped": 0, "must_cleared": 0, "on_candidate": 2, "in_dev": 1, "docker_changed": 1, "unbuilt_commits": 1, "not_on_candidate": 0}, "counts")
 check(doc["lanes"] == TRAIN["lanes"] and any(g["kind"] == "saas_rows_are_the_tag_now" for g in doc["gaps"]), "lane headings from the train; promote's gaps carried")
 check(any(g["kind"] == "branch_unread" and "(no branch)" in g["detail"] for g in doc["gaps"]), "a branch the report could not read is a gap")
 check("quote" not in json.dumps(doc), "no QA quotation is carried")
@@ -153,6 +153,51 @@ with tempfile.TemporaryDirectory() as pub, tempfile.TemporaryDirectory() as remo
     check(json.load(open(os.path.join(remote, "releases", "next.json"), encoding="utf-8"))["schema"] == 3, "sync: the remote copy is the published, redacted file")
     bad = N.sync(pub, os.path.join(remote, "no", "such", "parent", "x"))
     check(bad.startswith("not synced: rsync"), "sync: a failure is one line, never an exit")
+
+# A candidate build off the release branch (2026-11-26: mediahub-frontend 2.2.160 from feature/MH-4013 lacked MH-4093 and MH-4081)
+import subprocess  # noqa: E402
+with tempfile.TemporaryDirectory() as repo:
+    g = lambda *a: subprocess.run(["git", "-C", repo, *a], capture_output=True, text=True, check=True).stdout.strip()  # noqa: E731
+    g("init", "-q", "-b", "release2.1"); g("config", "user.email", "t@example.invalid"); g("config", "user.name", "T")
+    def commit(name, msg):
+        open(os.path.join(repo, name), "w").write(msg); g("add", name); g("commit", "-q", "-m", msg)
+    commit("a", "base")
+    g("checkout", "-q", "-b", "feature/MH-4013"); commit("f", "feat(MH-4013): the feature")
+    g("checkout", "-q", "release2.1"); commit("b", "fix(MH-4093): stream page"); commit("c", "fix(MH-4081): NOC card"); commit("d", "fix(MH-4100): picked too")
+    picked = g("rev-parse", "HEAD")
+    g("update-ref", "refs/remotes/origin/release2.1", "release2.1")
+    g("checkout", "-q", "feature/MH-4013"); g("cherry-pick", picked)
+    sha = g("rev-parse", "HEAD")
+    rep = {"delta": {"services": [
+        {"service": "mediahub-frontend", "repo": "web/media-hub-front", "from_build": {"number": 226, "version": "2.2.160", "branch": "feature/MH-4013", "sha": sha}},
+        {"service": "mediahub-backend", "repo": "web/tvu-media-hub", "from_build": {"number": 280, "version": "2.1.48", "branch": "release2.1", "sha": sha}},
+        {"service": "unified-media-frontend", "repo": "web/mx-service-front", "from_build": {"number": 206, "version": "3.0.49", "branch": "feature/MH3.0-develop-no-s3", "sha": sha}},
+        {"service": "unified-streaming", "repo": "web/mx-service", "from_build": {"number": 1, "version": "2.1.1", "branch": "feature/x", "sha": sha}}]}}
+    trains = [{"slug": "unified-media-frontend", "kind": "built-from-feature-branch", "branches": {"feature/MH3.0-develop-no-s3": "3.0.22 and up"}}]
+    off = N.off_release_of("2.1", CFG, rep, trains, lambda r: repo if r == "web/media-hub-front" else None)
+check([o["service"] for o in off] == ["mediahub-frontend", "unified-streaming"],
+      "off the release branch: a feature-branch build; the release branch and a branch the map declares the service's line are not")
+fe = off[0]
+check(fe["keys"] == ["MH-4081", "MH-4093"] and len(fe["commits"]) == 2 and fe["branch"] == "feature/MH-4013" and fe["release_branch"] == "release2.1" and fe["error"] is None,
+      "the release-branch commits the build lacks, a fix cherry-picked onto the feature branch not counted")
+check(off[1]["error"] == "repo not on disk" and off[1]["commits"] == [], "a service whose checkout is missing is said, never judged")
+must_lack = [{"key": "MH-4093", "summary": "Stream page", "status": "Review", "type": "Bug"}]
+tk_lack = dict(TICKETS, tickets=TICKETS["tickets"] + [{"key": "MH-4093", "exists": True, "summary": "Stream page", "status": "Review", "services_in_delta": ["mediahub-backend"]}])
+od = N.build(inp(off_release=off, must_rows=must_lack, tickets=tk_lack, indev_rows=[{"key": "MH-4081", "summary": "NOC card", "status": "Review"}]), NOW)
+m = od["must"][0]
+where = [{"service": "mediahub-frontend", "build": "2.2.160", "branch": "feature/MH-4013"}]
+check(m["on_candidate"] is False and m["decision"] == "hold or defer" and m["not_on_candidate"] == where,
+      "a must ticket the candidate's build lacks is not on the candidate, whatever the range carries")
+check(next(t for t in od["on_candidate"] if t["key"] == "MH-4093")["not_on_candidate"] == where and od["in_dev"][0]["not_on_candidate"] == where
+      and doc["on_candidate"][0]["not_on_candidate"] is None, "each listed ticket names the build that lacks it; null otherwise")
+gap = next(g for g in od["gaps"] if g["kind"] == "candidate_off_release_branch")
+check(gap["detail"] == "mediahub-frontend 2.2.160 (#226) is built from feature/MH-4013, not release2.1; it lacks 2 commits of release2.1: MH-4081, MH-4093 not on the candidate",
+      "the gap names the build, its branch and the keys it lacks")
+check(any(g["kind"] == "release_branch_unread" for g in od["gaps"]) and od["counts"]["not_on_candidate"] == 2 and od["docker"]["off_release"] == off,
+      "an unread service is a gap; the count and docker.off_release carried")
+check("mediahub-frontend 2.2.160 is built from feature/MH-4013, without MH-4081, MH-4093;" in od["head"]["lede"], "head.lede names the build and the keys it lacks")
+rel = N.build(inp(off_release=off, released=True, released_bundle={"name": "MediaHub 2.2.0", "id": "9", "created": "2026-11-30 10:00"}), NOW)
+check(rel["docker"]["off_release"] == [] and rel["counts"]["not_on_candidate"] == 0, "released: no candidate left to judge")
 
 try:
     N.main(["--sync"]); code = 0

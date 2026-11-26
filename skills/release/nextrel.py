@@ -10,7 +10,9 @@
       on_candidate `ela promote tickets <line> <base> <candidate> --scope all`, each joined to QA's latest verdict as
                    promote's evidence reads it in the latest saved promotion report (<reports>/promote/<line>-daily-prod.json)
       in_dev       MH tickets In Progress or Review, updated within 14 days, not on the candidate
-      docker       the bundles' docker diff, the daily and prod lanes' versions, commits on branches not yet built
+      docker       the bundles' docker diff, the daily and prod lanes' versions, commits on branches not yet built, and each
+                   candidate SaaS build off the line's release branch with the release-branch commits and keys it lacks
+                   (those tickets marked not_on_candidate; a must ticket among them is not on the candidate)
     When a plain official bundle was cut after the candidate, the state is `released` and the range is recomputed on
     that bundle (from the official before it). Without --write the document is printed (--json) or summarised; --write
     publishes it atomically through the publish redaction and copies next.md as releases/README.md.
@@ -127,7 +129,7 @@ def n_of(n, one, many):
     return f"{n} {one if n == 1 else many}"
 
 
-def head(state, name, lane, planned_for, counts, verdicts, provisional, facts_at, now):
+def head(state, name, lane, planned_for, counts, verdicts, provisional, facts_at, now, off=()):
     """The page's head as words, so a reader renders it without judgment: the title (the lane by its MediaHub name, the
     UR environment in brackets), one sentence of counts, and the facts' time."""
     where = lane_label(lane)
@@ -143,6 +145,9 @@ def head(state, name, lane, planned_for, counts, verdicts, provisional, facts_at
     lede = (f"{n_of(must, 'ticket must', 'tickets must')} ship" + (f" ({shipped} shipped, the label's clear waiting on your A)" if shipped else "")
             + f", {on} {'is' if on == 1 else 'are'} on the candidate "
             f"({c['pass']} QA pass, {c['fail'] + c['none']} fail or no verdict) and {dev} {'is' if dev == 1 else 'are'} in development"
+            + "".join(f"; {o['service']} {o.get('build')} is built from {str(o.get('branch')).replace('origin/', '')}, without "
+                      + (", ".join(o["keys"]) if o.get("keys") else n_of(len(o["commits"]), f"{o['release_branch']} commit", f"{o['release_branch']} commits"))
+                      for o in off if o.get("commits"))
             + ("; the candidate is provisional until pinned." if provisional else "."))
     t = None
     try:
@@ -227,6 +232,39 @@ def branch_kind(branch):
     return "release" if re.search(r"(?:^|/)release", str(branch)) else "feature"
 
 
+KEY_RE = re.compile(r"\b[A-Z][A-Z0-9]{1,5}-(?!0)\d{2,6}\b")   # a leading zero is an item id (MH-030), not a Jira key
+
+
+def release_branch(line, cfg):
+    """The line's release branch (`release2.1`): map release.yaml `lines.<line>.release_branch`, else release<line>."""
+    return str(cfg.get("release_branch") or f"release{line}")
+
+
+def line_branches(trains, slug):
+    """The branches map release.yaml `trains` declares a service is built from for good (kind built-from-feature-branch):
+    such a build is on its line, not off it."""
+    return {str(b) for t in trains or [] if isinstance(t, dict) and t.get("slug") == slug and t.get("kind") == "built-from-feature-branch"
+            for b in (t.get("branches") or {})}
+
+
+def off_release_entry(service, repo, fb, rel, commits, error=None):
+    """One SaaS service whose candidate build is not from the release branch: the release-branch commits it lacks and the
+    keys they name (sorted, unique)."""
+    keys = sorted({k for c in commits for k in KEY_RE.findall(c.get("subject") or "")})
+    return {"service": service, "repo": repo, "build": fb.get("version"), "number": fb.get("number"), "branch": fb.get("branch"),
+            "release_branch": rel, "commits": [{k: c.get(k) for k in ("sha", "date", "author", "subject")} for c in commits],
+            "keys": keys, "error": error}
+
+
+def lacking(off):
+    """{key: [{service, build, branch}]}: the candidate builds that lack each key's release-branch commits."""
+    out = {}
+    for o in off or []:
+        for k in o.get("keys") or []:
+            out.setdefault(k, []).append({"service": o["service"], "build": o.get("build"), "branch": o.get("branch")})
+    return out
+
+
 def build(inp, now):
     """The document from its inputs (gather's dict, or a test's fixture). No reads here."""
     line, cfg = inp["line"], inp.get("cfg") or {}
@@ -242,12 +280,15 @@ def build(inp, now):
     since = cfg.get("ships_as_since")
     planned_for = since if state == "planned" and since and since >= now.date().isoformat() else None
 
+    off = list(inp.get("off_release") or []) if state == "planned" else []
+    lacks = lacking(off)
     on = []
     for r in tk.get("tickets") or []:
         if r.get("exists") is False:
             continue
         on.append(ticket(r, qa_of(ev.get(r.get("key"))), services=list(r.get("services_in_delta") or []),
-                         docker=sorted({d.get("slug") for d in r.get("docker") or [] if isinstance(d, dict) and d.get("slug")})))
+                         docker=sorted({d.get("slug") for d in r.get("docker") or [] if isinstance(d, dict) and d.get("slug")}),
+                         not_on_candidate=lacks.get(r.get("key"))))
     on_keys = {t["key"] for t in on}
 
     trows = train_rows(inp.get("train"))
@@ -258,8 +299,8 @@ def build(inp, now):
     for r in inp.get("must_rows") or []:
         k = r.get("key")
         tr = trows.get(k) or {}
-        carried = k in on_keys
-        m = ticket(r, qa_of(ev.get(k)), tracked_since=(inp.get("must_since") or {}).get(k), on_candidate=carried,
+        carried = k in on_keys and k not in lacks       # a fix the candidate's build lacks on one service is not carried
+        m = ticket(r, qa_of(ev.get(k)), tracked_since=(inp.get("must_since") or {}).get(k), on_candidate=carried, not_on_candidate=lacks.get(k),
                    position=tr.get("position"), cells=tr.get("cells") or {},
                    decision="hold or defer" if state == "planned" and not carried else None)
         m["shipped"] = shipped_of(m, state, prod_lane, ship_name)
@@ -282,7 +323,7 @@ def build(inp, now):
     for r in inp.get("indev_rows") or []:
         if r.get("key") in on_keys:
             continue
-        in_dev.append(ticket(r, qa_of(ev.get(r.get("key")))))
+        in_dev.append(ticket(r, qa_of(ev.get(r.get("key"))), not_on_candidate=lacks.get(r.get("key"))))
 
     lanes = []
     for s in (report.get("lanes") or {}).get("services") or []:
@@ -300,6 +341,14 @@ def build(inp, now):
     epics = [{"key": e.get("key"), "url": BROWSE + str(e.get("key")), "summary": e.get("summary"), "status": e.get("status"),
               "children": list(e.get("children") or [])} for e in tk.get("epics") or []]
     gaps += [g for g in tk.get("gaps") or [] if isinstance(g, dict)]
+    for o in off:
+        if o.get("error"):
+            gaps.append({"kind": "release_branch_unread", "detail": f"{o['service']} {o.get('build')} from {o.get('branch')}: {o['error']}"})
+        elif o.get("commits"):
+            gaps.append({"kind": "candidate_off_release_branch",
+                         "detail": f"{o['service']} {o.get('build')}" + (f" (#{o['number']})" if o.get("number") else "")
+                                   + f" is built from {o.get('branch')}, not {o['release_branch']}; it lacks {n_of(len(o['commits']), 'commit', 'commits')} "
+                                   f"of {o['release_branch']}" + (f": {', '.join(o['keys'])} not on the candidate" if o.get("keys") else "")})
 
     source = inp.get("candidate_source") or "newest"
     candidate = bundle(inp.get("candidate"), source=source)
@@ -309,7 +358,8 @@ def build(inp, now):
     verdicts = candidate_verdicts(on)
     counts = {"must": len(must), "must_missing": sum(1 for m in must if not m["on_candidate"]),
               "must_shipped": sum(1 for m in must if m.get("shipped")), "must_cleared": len(must_cleared), "on_candidate": len(on),
-              "in_dev": len(in_dev), "docker_changed": len(diff), "unbuilt_commits": sum(len(b["commits"]) for b in branches)}
+              "in_dev": len(in_dev), "docker_changed": len(diff), "unbuilt_commits": sum(len(b["commits"]) for b in branches),
+              "not_on_candidate": len(lacks)}
     sources = inp.get("sources") or {}
 
     return {
@@ -319,7 +369,7 @@ def build(inp, now):
         "line": line,
         "state": state,
         "headline": headline(state, name, prod_lane, planned_for),
-        "head": head(state, name, prod_lane, planned_for, counts, verdicts, provisional, (sources.get("facts") or {}).get("at"), now),
+        "head": head(state, name, prod_lane, planned_for, counts, verdicts, provisional, (sources.get("facts") or {}).get("at"), now, off),
         "release": {"name": name, "lane": prod_lane, "planned_for": planned_for, "released_bundle": rel_bundle},
         "base": bundle(inp.get("base")),
         "candidate": candidate,
@@ -330,7 +380,7 @@ def build(inp, now):
         "on_candidate": on,
         "epics": epics,
         "in_dev": in_dev,
-        "docker": {"bundle_diff": diff, "lanes": lanes, "branches": branches},
+        "docker": {"bundle_diff": diff, "lanes": lanes, "branches": branches, "off_release": off},
         "counts": counts,
         "sources": sources,
         "gaps": gaps,
@@ -559,6 +609,40 @@ def qa_report(s, line):
         return None, None
 
 
+def git_out(path, *args, timeout=60):
+    try:
+        p = subprocess.run(["git", "-C", path, *args], capture_output=True, text=True, timeout=timeout)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return 1, "", str(e)
+    return p.returncode, p.stdout, p.stderr
+
+
+def off_release_of(line, cfg, report, trains, repo_path):
+    """Each SaaS service whose candidate build (the daily lane's, as the latest promotion report placed it on Jenkins) is
+    built from a branch other than the line's release branch: the release-branch commits that build lacks, read from the
+    checkout as the facts pass fetched it (`git log --cherry-pick --right-only <build>...origin/<release>`, merges left
+    out, so a fix also cherry-picked onto the feature branch is not counted). A service built from a branch map
+    release.yaml `trains` declares its line's (unified-media-frontend's feature/MH3.0-develop-no-s3) is on its line."""
+    rel = release_branch(line, cfg)
+    out = []
+    for d in ((report or {}).get("delta") or {}).get("services") or []:
+        fb = d.get("from_build") or {}
+        br = str(fb.get("branch") or "").replace("origin/", "")
+        if not br or not fb.get("sha") or br == rel or br in line_branches(trains, d.get("service")):
+            continue
+        path = repo_path(d.get("repo") or "")
+        if not path:
+            out.append(off_release_entry(d["service"], d.get("repo"), fb, rel, [], "repo not on disk")); continue
+        ref = f"origin/{rel}"
+        if git_out(path, "rev-parse", "--verify", "--quiet", ref)[0] != 0:
+            out.append(off_release_entry(d["service"], d.get("repo"), fb, rel, [], f"the checkout has no {ref}")); continue
+        rc, log, err = git_out(path, "log", "--no-merges", "--cherry-pick", "--right-only", "--date=short",
+                               "--format=%h%x09%ad%x09%an%x09%s", f"{fb['sha']}...{ref}")
+        commits = [dict(zip(("sha", "date", "author", "subject"), l.split("\t", 3))) for l in log.splitlines() if l.strip()]
+        out.append(off_release_entry(d["service"], d.get("repo"), fb, rel, commits, (err.strip()[:200] or f"git exit {rc}") if rc else None))
+    return out
+
+
 def row_of(us, Rm, bid, name):
     return next((b for b in Rm.bundle_list(us, name, 50) if str(b.get("bundleId")) == str(bid)), {"bundleId": bid, "bundleName": name})
 
@@ -635,6 +719,12 @@ def gather(line, candidate_ref, env_file, quiet=False):
     else:
         gaps.append({"kind": "qa_report_missing", "detail": "no saved daily → prod promotion report under <reports>/promote/; no QA verdicts, lane versions or unbuilt commits"})
 
+    off = []
+    if report and not released:
+        sys.path.insert(0, os.path.join(SKILLS, "promote"))
+        import prereqs as PR                           # noqa: E402 — the checkouts by repo, as promote finds them
+        off = off_release_of(line, cfg, report, Rm.rmap("trains"), PR.repo_path)
+
     sys.path.insert(0, os.path.join(SKILLS, "train"))
     import train as T                                  # noqa: E402 — the written train, the lane cells
     train = T.read_train(s, str(line))
@@ -661,7 +751,7 @@ def gather(line, candidate_ref, env_file, quiet=False):
     return {"line": str(line), "cfg": cfg, "base": base, "candidate": cand, "candidate_source": source, "released": released,
             "released_bundle": b_of(Rm, newest, "") if released else None, "tickets": tickets, "report": report, "train": train,
             "must_rows": must_rows, "must_since": must_since, "indev_rows": indev_rows, "sources": sources, "gaps": gaps,
-            "previous": previous, "clear_batches": clear_batches, "clear_records": clear_records}
+            "previous": previous, "clear_batches": clear_batches, "clear_records": clear_records, "off_release": off}
 
 
 # ── write ─────────────────────────────────────────────────────────────────────

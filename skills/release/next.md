@@ -20,6 +20,10 @@ Version 3 also added `must[].shipped`, `must[].history`, `must_cleared` and `cou
 `counts.must_cleared`: `release:must` is cleared at the deploy that ships the ticket (vault
 `releases/release-naming.md` rule 6), and `head.lede` names the shipped must tickets in its one sentence.
 
+Version 3 also added (2026-11-26) `docker.off_release`, `not_on_candidate` on every ticket in `must`, `on_candidate` and
+`in_dev`, and `counts.not_on_candidate`: a candidate whose SaaS build comes from a branch other than the line's release
+branch lacks that branch's later fixes, and the file says which (ela improve ela-210fa865).
+
 A rename or a removal raises `schema`, and readers are told before it ships.
 
 The file is written atomically and passes through the publish redaction, so it holds no addresses.
@@ -48,7 +52,7 @@ carried: only its verdict, its source and its time.
 | `epics` | `[{key, url, summary, status, children}]` | the epics of tickets in `on_candidate` |
 | `in_dev` | `[ticket]` | MH tickets In Progress or Review, updated within 14 days, that are not in `on_candidate` |
 | `docker` | object | see below |
-| `counts` | object | `{must, must_missing, must_shipped, must_cleared, on_candidate, in_dev, docker_changed, unbuilt_commits}` |
+| `counts` | object | `{must, must_missing, must_shipped, must_cleared, on_candidate, in_dev, docker_changed, unbuilt_commits, not_on_candidate}`; `not_on_candidate` counts the keys of `docker.off_release` |
 | `sources` | object | each input with its time: `facts` (the store's sources, `at` the oldest), `tickets`, `qa_report`, `train`, `jira` (`{what, at}`) |
 | `gaps` | `[{kind, detail}]` | what could not be read or judged, in words. An empty list means nothing is missing. |
 
@@ -65,7 +69,8 @@ environment in brackets, because readers on the MediaHub side know the lanes, no
 - `title`: `MediaHub 2.2.0 → prod-3 (UR/J2N Prod 3), Monday 30 Nov`. Without a planned date the day is left out. In
   the `released` state it ends `, released` instead of the day.
 - `lede`: one sentence of counts: the tickets that must ship, those on the candidate with how many have QA pass and
-  how many fail or have no verdict (from `candidate_verdicts`), and those in development. When
+  how many fail or have no verdict (from `candidate_verdicts`), and those in development; then, for each entry of
+  `docker.off_release` with commits, `; <service> <build> is built from <branch>, without <keys>`. When
   `candidate.provisional` is `true` it ends `; the candidate is provisional until pinned.`
 - `read`: `Facts as of Wednesday 25 Nov 16:02, computed Wednesday 25 Nov 17:40`. The facts time is the oldest source the
   file stands on (`sources.facts.at`); when the store names none, the line says so instead.
@@ -75,12 +80,12 @@ QA's readings fold into the five verdicts: `accepted` (accepted as-is, the descr
 
 ## `must[]`
 
-`{key, url, summary, type, status, assignee, priority, updated, tracked_since, on_candidate, position, cells, decision, shipped, history}`
+`{key, url, summary, type, status, assignee, priority, updated, tracked_since, on_candidate, not_on_candidate, position, cells, decision, shipped, history}`
 
 - `tracked_since`: when the label was added, as an ISO time from the changelog the Jira sweep holds (14
   days), else the time the previous file carried for the ticket; `null` when neither shows it (a label
   added before the sweep's window, on a ticket new to the file).
-- `on_candidate`: whether the range carries it.
+- `on_candidate`: whether the range carries it and no candidate build lacks it (`not_on_candidate` is `null`).
 - `position`: the furthest lane it has reached according to the train (`qa`, `daily`, `prod`, `cn`), or
   `null`.
 - `cells`: `{<lane>: {arrived, since, verdict, version, source, at}}`. These are the train's cells
@@ -99,7 +104,11 @@ QA's readings fold into the five verdicts: `accepted` (accepted as-is, the descr
 
 ## `on_candidate[]` and `in_dev[]`
 
-`{key, url, summary, type, status, assignee, priority, updated, parent, services, qa}`
+`{key, url, summary, type, status, assignee, priority, updated, parent, services, qa, not_on_candidate}`
+
+- `not_on_candidate`: `null`, or `[{service, build, branch}]`: the candidate's builds that lack the ticket's commits on
+  the release branch (`docker.off_release`). Present on every ticket in `must`, `on_candidate` and `in_dev`. A ticket
+  in `on_candidate` with it set is carried by one service and missing from another.
 
 - `services`: the services whose commits or Fixed In name the ticket (`on_candidate` only). A ticket a
   commit names but the Jira store holds no row of is listed with an empty `summary` and a
@@ -125,3 +134,12 @@ QA's readings fold into the five verdicts: `accepted` (accepted as-is, the descr
   feature branch that the newest build does not contain. `kind` is `release`, `feature`, or `null` when
   the report names no branch (a `branch_unread` gap then says why). `commits`
   is `[{sha, date, author, subject}]`.
+- `off_release`: `[{service, repo, build, number, branch, release_branch, commits, keys, error}]`, in the `planned`
+  state only (`[]` once released). One entry per SaaS service whose candidate build (the daily lane's, placed on
+  Jenkins by the latest promotion report) was built from a branch other than the line's release branch (`release<line>`,
+  or map `lines.<line>.release_branch`). A branch map `trains` declares the service's line (kind
+  `built-from-feature-branch`) is not off it. `commits` are the release branch's commits the build lacks
+  (`git log --cherry-pick --right-only <build>...origin/<release branch>`, merges left out, so a fix also
+  cherry-picked onto the feature branch is not counted), `keys` the Jira keys their subjects name. With commits,
+  the entry is a `candidate_off_release_branch` gap naming the branch and the keys; `error` set (no checkout, no
+  release branch in it) is a `release_branch_unread` gap.
