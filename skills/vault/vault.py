@@ -2818,6 +2818,12 @@ def lint_notes(vault, projects=None):
             found += key_cluster_lint(text)
         if found:
             out.append((rel, rel in gen, found))
+    for rel, line in plan_done_lint(vault):
+        have = next((i for i, (r, _, _) in enumerate(out) if r == rel), None)
+        if have is None:
+            out.append((rel, rel in gen, [line]))
+        else:
+            out[have] = (rel, out[have][1], out[have][2] + [line])
     stale = manual_lint(vault)
     if stale:
         have = next((i for i, (r, _, _) in enumerate(out) if r == MANUAL), None)
@@ -2825,6 +2831,83 @@ def lint_notes(vault, projects=None):
             out.append((MANUAL, MANUAL in gen, stale))
         else:
             out[have] = (MANUAL, out[have][1], out[have][2] + stale)
+    return out
+
+
+# A plan whose every step a commit names is likely built, but only he and the plan's own record can say it is done:
+# the lint names it as a candidate and never moves it (plan 2026-11-26-review-autonomy-adversarial, item 10).
+STEP_RX = re.compile(r"^(\d{1,2})\.\s+\S", re.M)
+STEP_REF_RX = re.compile(r"\b(?:steps?|items?)\s+(\d{1,2}(?:\s*(?:,|and|&|-|–|to)\s*\d{1,2})*)", re.I)
+
+
+def plan_steps(body):
+    """The numbers of a plan's steps: its first run of numbered lines outside folded callouts and code. → [int]."""
+    text = re.sub(r"^```.*?^```", "", outside_folds(body), flags=re.M | re.S)
+    nums = []
+    for m in STEP_RX.finditer(text):
+        n = int(m.group(1))
+        if nums and n != nums[-1] + 1:
+            break
+        if not nums and n != 1:
+            continue
+        nums.append(n)
+    return nums
+
+
+def step_refs(stem, bodies):
+    """The step numbers commit messages name for the plan `stem`: a message counts when it names the plan, and each
+    `step N`, `items 4, 5`, `steps 1-3` in it is a step built. → {int}."""
+    out = set()
+    for b in bodies:
+        if stem not in b:
+            continue
+        for m in STEP_REF_RX.finditer(b):
+            parts = [int(x) for x in re.findall(r"\d{1,2}", m.group(1))]
+            if re.search(r"-|–|to", m.group(1)) and len(parts) == 2 and parts[0] < parts[1]:
+                parts = list(range(parts[0], parts[1] + 1))
+            out.update(parts)
+    return out
+
+
+def commit_bodies(since):
+    """Every commit message on the checked-out branch of ela and ela-runner since a day (landed work, not a worker's
+    branch), read once from git; [] where a repository is absent."""
+    roots = [os.path.dirname(os.path.dirname(HERE))]
+    try:
+        roots.append(os.path.join(json.load(open(SITE)).get("projects") or "", "ela-runner"))
+    except (OSError, ValueError):
+        pass
+    out = []
+    for r in roots:
+        if not os.path.isdir(os.path.join(r, ".git")) and not os.path.isfile(os.path.join(r, ".git")):
+            continue
+        p = subprocess.run(["git", "-C", r, "log", f"--since={since}", "--format=%B%x00"], capture_output=True, text=True)
+        out += [b for b in p.stdout.split("\0") if b.strip()] if p.returncode == 0 else []
+    return out
+
+
+def plan_done_lint(vault, bodies=None):
+    """[(path, line)] for each plan not done whose every step a commit message names: a candidate for done, never set."""
+    plans = []
+    for rel, text in vault_notes(vault):
+        fl, body = split_front(text)
+        props = props_of(fl)
+        if props.get("type") != "plan" or is_done(props) or (props.get("status") or "") in ("superseded", "rejected"):
+            continue
+        steps = plan_steps(body)
+        if steps:
+            plans.append((rel, props, steps))
+    if not plans:
+        return []
+    if bodies is None:
+        since = min((p.get("date") or "2026-01-01")[:10] for _, p, _ in plans)
+        bodies = commit_bodies(since)
+    out = []
+    for rel, props, steps in plans:
+        stem = os.path.basename(rel)[:-3]
+        if set(steps) <= step_refs(stem, bodies):
+            out.append((rel, f"every step (1-{steps[-1]}) is named by a commit: a candidate for done; "
+                             f"check it against the plan and `ela vault note move <path> --to done` if so"))
     return out
 
 
