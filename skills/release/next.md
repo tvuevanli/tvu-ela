@@ -24,6 +24,9 @@ Version 3 also added (2026-11-26) `docker.off_release`, `not_on_candidate` on ev
 `in_dev`, and `counts.not_on_candidate`: a candidate whose SaaS build comes from a branch other than the line's release
 branch lacks that branch's later fixes, and the file says which (ela improve ela-210fa865).
 
+Version 3 also added (2026-11-26) `asked`, always `[]` in the published file: `ela release next --keys K1,K2 --json`
+fills it for a question about named tickets, and is never published (ela improve ela-e3383de0).
+
 A rename or a removal raises `schema`, and readers are told before it ships.
 
 The file is written atomically and passes through the publish redaction, so it holds no addresses.
@@ -51,6 +54,7 @@ carried: only its verdict, its source and its time.
 | `on_candidate` | `[ticket]` | every ticket the range carries (`ela promote tickets <line> <base> <candidate>`) |
 | `epics` | `[{key, url, summary, status, children}]` | the epics of tickets in `on_candidate` |
 | `in_dev` | `[ticket]` | MH tickets In Progress or Review, updated within 14 days, that are not in `on_candidate` |
+| `asked` | `[asked]` | the tickets `--keys` named, each placed; `[]` without `--keys`, so always `[]` in the published file. See below. |
 | `docker` | object | see below |
 | `counts` | object | `{must, must_missing, must_shipped, must_cleared, on_candidate, in_dev, docker_changed, unbuilt_commits, not_on_candidate}`; `not_on_candidate` counts the keys of `docker.off_release` |
 | `sources` | object | each input with its time: `facts` (the store's sources, `at` the oldest), `tickets`, `qa_report`, `train`, `jira` (`{what, at}`) |
@@ -122,6 +126,22 @@ QA's readings fold into the five verdicts: `accepted` (accepted as-is, the descr
 - `qa`: `null`, or `{verdict, source, when}` as promote's evidence reads it from the latest saved
   promotion report. `verdict` is one of `pass`, `partial`, `fail`, `n-a`, `accepted`, `dev-declared`,
   `none`. `source` is `mail`, `jira`, `slack` or `report`.
+
+## `asked[]`
+
+`{key, url, summary, status, place, why, parts}`, in the order the keys were named. A ticket is placed by its Fixed In,
+read from the Jira store, never by whether a list above holds it: a fix shipped before the base is in none of them.
+
+- `place`: `already live` (every part at or below the prod lane's version: the base is deployed there), `on candidate`
+  (a part at or below the daily lane's version, the candidate's SaaS builds, or the range carries the ticket),
+  `not built` (a part above the daily lane's version, or a candidate build in `docker.off_release` lacks its
+  release-branch commits), `unplaced` (no Fixed In and no commit in the range, or no part placeable). `why` says which.
+- `parts`: `[{service, fixed_in, state, why, live, candidate}]`, one per Fixed In entry plus one per service of
+  `not_on_candidate` that Fixed In does not name (`fixed_in` `null`). `state` is one of the first three places, or
+  `null` for a part not placeable (a docker image, a service neither lane reports). `live` and `candidate` are
+  `{lane, version}` of the prod and daily lanes from the latest promotion report, or `null`.
+
+A key the Jira store does not hold is left out of `asked` and named in a `key_not_in_facts` gap.
 
 ## `docker`
 

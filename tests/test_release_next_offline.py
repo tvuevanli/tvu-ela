@@ -199,6 +199,42 @@ check("mediahub-frontend 2.2.160 is built from feature/MH-4013, without MH-4081,
 rel = N.build(inp(off_release=off, released=True, released_bundle={"name": "MediaHub 2.2.0", "id": "9", "created": "2026-11-30 10:00"}), NOW)
 check(rel["docker"]["off_release"] == [] and rel["counts"]["not_on_candidate"] == 0, "released: no candidate left to judge")
 
+# --keys: each named ticket placed by Fixed In (2026-11-26: MH-3905, Fixed In mediahub-backend@2.1.40, live on prod-3 at 2.1.47,
+# was answered "not in the release")
+LV_REPORT = dict(REPORT, lanes={"services": [
+    {"service": "mediahub-backend", "from_lane": "daily-wed", "to_lane": "prod-3", "from": {"version": "v2.1.48 build280"}, "to": {"version": "v2.1.47 build279"}},
+    {"service": "mediahub-frontend", "from_lane": "daily-wed", "to_lane": "prod-3", "from": {"version": "v2.2.160 build226"}, "to": {"version": "v2.2.132.1 build198"}}]})
+fi = lambda *e: [{"slug": x.split("@")[0], "version": x.split("@")[1], "docker": x.startswith("mds-"),  # noqa: E731
+                  "parsed": None if x.startswith("mds-") else R.parse_version(x.split("@")[1])} for x in e]
+ASK = [{"key": "MH-3905", "summary": "frame rate", "status": "Review", "fixed_in": fi("mediahub-backend@2.1.40")},
+       {"key": "MH-4200", "summary": "on daily", "status": "Done", "fixed_in": fi("mediahub-backend@2.1.48", "mediahub-frontend@2.2.100")},
+       {"key": "MH-4201", "summary": "too new", "status": "Done", "fixed_in": fi("mediahub-backend@2.1.49")},
+       {"key": "MH-4093", "summary": "stream page", "status": "Review", "fixed_in": []},
+       {"key": "MH-4202", "summary": "nothing", "status": "Open", "fixed_in": []},
+       {"key": "MH-3925", "summary": "in the range", "status": "Done", "fixed_in": fi("mediahub-backend@2.1.40")},
+       {"key": "MH-4203", "summary": "docker only", "status": "Done", "fixed_in": fi("mds-switcher@switcher:1.0.36")}]
+ad = N.build(inp(report=LV_REPORT, asked_rows=ASK, off_release=off), NOW)
+pl = {x["key"]: x for x in ad["asked"]}
+check(pl["MH-3905"]["place"] == "already live" and pl["MH-3905"]["parts"][0]["live"] == {"lane": "prod-3", "version": "v2.1.47 build279"}
+      and pl["MH-3905"]["url"].endswith("/browse/MH-3905"), "a fix at or below the prod lane is already live, the lane and version named")
+check(pl["MH-4200"]["place"] == "on candidate" and [p["state"] for p in pl["MH-4200"]["parts"]] == ["on candidate", "already live"],
+      "a part on the candidate's builds and a part live: on candidate")
+check(pl["MH-4201"]["place"] == "not built" and "above daily-wed" in pl["MH-4201"]["parts"][0]["why"], "above the candidate's build: not built")
+check(pl["MH-4093"]["place"] == "not built" and pl["MH-4093"]["parts"][0]["service"] == "mediahub-frontend" and pl["MH-4093"]["parts"][0]["fixed_in"] is None,
+      "no Fixed In, but the candidate's build lacks its release-branch commits: not built")
+check(pl["MH-4202"]["place"] == "unplaced" and pl["MH-4202"]["why"] == "no Fixed In and no commit in the range", "nothing to place it by: unplaced, with the reason")
+check(pl["MH-3925"]["place"] == "on candidate", "a key the range carries is at least on the candidate, an older Fixed In notwithstanding")
+check(pl["MH-4203"]["place"] == "unplaced" and pl["MH-4203"]["parts"][0]["state"] is None, "a docker Fixed In is not placed by a lane version")
+check(doc["asked"] == [], "no --keys: asked is empty")
+check([x["key"] for x in ad["asked"]] == [r["key"] for r in ASK], "asked keeps the order the keys were named in")
+check("MH-3905 already live: mediahub-backend@2.1.40 already live" in N.summary(ad), "the summary places each named key")
+for argv, why in ((["--keys", ""], "an empty --keys"), (["--keys", "MH-3905,nope"], "a word that is not a key"), (["--keys", "MH-3905", "--write"], "--keys with --write")):
+    try:
+        N.main(argv); code = 0
+    except SystemExit as e:
+        code = e.code
+    check(code == 2, f"{why} is a usage error, before any read")
+
 try:
     N.main(["--sync"]); code = 0
 except SystemExit as e:

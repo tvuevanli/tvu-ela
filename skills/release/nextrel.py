@@ -18,6 +18,10 @@
     publishes it atomically through the publish redaction and copies next.md as releases/README.md.
     --sync then carries releases/ alone to site.json `published_remote`, where Helm Akamai reads it (as `publish
     lanes --sync` carries lanes/; typing it is the confirm); the outcome is one line, `synced` in --json, never a failure.
+  ela release next --keys K1,K2… [--json]   also place each named ticket by its Fixed In, in `asked`: already live (at
+                                            or below the prod lane), on candidate (the daily lane's builds, or the range
+                                            carries it), not built (above it, or its candidate build is off the release
+                                            branch without it), unplaced; for a question, never published (no --write)
   ela release next --pin REF --why "…" [--apply]   hold the candidate on one bundle; dry run unless --apply
   ela release next --unpin [--apply]                 the newest daily bundle again
 
@@ -265,6 +269,74 @@ def lacking(off):
     return out
 
 
+ASK_STATES = ("not built", "on candidate", "already live")      # a named key's place, from the furthest behind
+
+
+def vcmp(a, b):
+    """-1/0/1 on (major, minor, patch, hotfix) of two parsed versions; None when either is unparsed."""
+    if not a or not b:
+        return None
+    x, y = list(a[:4]), list(b[:4])
+    return (x > y) - (x < y)
+
+
+def place_key(row, lane_versions, on_keys, lacks):
+    """One named key placed by its Fixed In against the prod lane (where the base runs: already live) and the daily lane
+    (the candidate's SaaS builds: on candidate); above both, not built. A part whose candidate build lacks the key's
+    release-branch commits (docker.off_release) is not built whatever its number says; a key the range carries is at
+    least on the candidate. No placeable part and not in the range: unplaced, with the reason."""
+    parts = []
+    for e in row.get("fixed_in") or []:
+        lv = lane_versions.get(e["slug"]) or {}
+        live, cand = lv.get("live") or {}, lv.get("candidate") or {}
+        part = {"service": e["slug"], "fixed_in": e["version"], "live": live or None, "candidate": cand or None}
+        if e.get("docker"):
+            part.update(state=None, why="a docker image: placed by the bundles, not by a lane version")
+        elif any(x["service"] == e["slug"] for x in lacks.get(row["key"]) or []):
+            part.update(state="not built", why=f"the candidate's build is from {next(x['branch'] for x in lacks[row['key']] if x['service'] == e['slug'])}, without the key's release-branch commits")
+        elif vcmp(e.get("parsed"), live.get("parsed")) is not None and vcmp(e["parsed"], live["parsed"]) <= 0:
+            part.update(state="already live", why=f"{e['version']} is at or below {live.get('lane')}'s {live.get('version')}")
+        elif vcmp(e.get("parsed"), cand.get("parsed")) is not None and vcmp(e["parsed"], cand["parsed"]) <= 0:
+            part.update(state="on candidate", why=f"{e['version']} is at or below {cand.get('lane')}'s {cand.get('version')}")
+        elif vcmp(e.get("parsed"), cand.get("parsed")) is not None:
+            part.update(state="not built", why=f"{e['version']} is above {cand.get('lane')}'s {cand.get('version')}")
+        else:
+            part.update(state=None, why="neither lane reports this service" if not (live or cand) else "the version is not comparable")
+        parts.append(part)
+    for x in lacks.get(row["key"]) or []:                # release-branch commits the candidate's build lacks: not built
+        if not any(p["service"] == x["service"] for p in parts):
+            lv = lane_versions.get(x["service"]) or {}
+            parts.append({"service": x["service"], "fixed_in": None, "live": lv.get("live") or None, "candidate": lv.get("candidate") or None,
+                          "state": "not built", "why": f"its commits are on the release branch, not in the candidate's build from {x['branch']}"})
+    states = [p["state"] for p in parts if p["state"]]
+    if "not built" in states:
+        place, why = "not built", "a part is not in the candidate's builds"
+    elif row["key"] in on_keys or "on candidate" in states:
+        place, why = "on candidate", ("the range carries its commits or Fixed In" if row["key"] in on_keys else "Fixed In is on the candidate's builds")
+    elif states and all(x == "already live" for x in states):
+        place, why = "already live", "every part of Fixed In is at or below the prod lane"
+    else:
+        place, why = "unplaced", ("no Fixed In and no commit in the range" if not parts else "no part of Fixed In could be placed")
+    for p in parts:
+        p["live"] = p["live"] and {k: p["live"].get(k) for k in ("lane", "version")}
+        p["candidate"] = p["candidate"] and {k: p["candidate"].get(k) for k in ("lane", "version")}
+    return {"key": row["key"], "url": BROWSE + str(row["key"]), "summary": row.get("summary") or "", "status": row.get("status"),
+            "place": place, "why": why, "parts": parts}
+
+
+def lane_versions_of(report):
+    """{service: {live: {lane, version, parsed}, candidate: {…}}} from the promotion report's daily → prod lanes."""
+    R()
+    import release as Rm                           # noqa: E402
+    out = {}
+    for s in ((report or {}).get("lanes") or {}).get("services") or []:
+        f, t = s.get("from") or {}, s.get("to") or {}
+        out[s.get("service")] = {
+            "candidate": {"lane": s.get("from_lane"), "version": f.get("version"), "parsed": f.get("parsed") or Rm.parse_version(str(f.get("version") or ""))} if f.get("version") else {},
+            "live": {"lane": s.get("to_lane"), "version": t.get("version"), "parsed": t.get("parsed") or Rm.parse_version(str(t.get("version") or ""))} if t.get("version") else {}}
+    return out
+
+
 def build(inp, now):
     """The document from its inputs (gather's dict, or a test's fixture). No reads here."""
     line, cfg = inp["line"], inp.get("cfg") or {}
@@ -350,6 +422,8 @@ def build(inp, now):
                                    + f" is built from {o.get('branch')}, not {o['release_branch']}; it lacks {n_of(len(o['commits']), 'commit', 'commits')} "
                                    f"of {o['release_branch']}" + (f": {', '.join(o['keys'])} not on the candidate" if o.get("keys") else "")})
 
+    asked = [place_key(r, lane_versions_of(report), on_keys, lacks) for r in inp.get("asked_rows") or []]
+
     source = inp.get("candidate_source") or "newest"
     candidate = bundle(inp.get("candidate"), source=source)
     provisional = state == "planned" and source != "pin"
@@ -380,6 +454,7 @@ def build(inp, now):
         "on_candidate": on,
         "epics": epics,
         "in_dev": in_dev,
+        "asked": asked,
         "docker": {"bundle_diff": diff, "lanes": lanes, "branches": branches, "off_release": off},
         "counts": counts,
         "sources": sources,
@@ -519,6 +594,49 @@ def must_from_store(gaps):
     return [row_of_raw(i) for i in doc.get("issues") or []], doc.get("at")
 
 
+def fixed_in_of(fields, Rm):
+    """[{slug, version, parsed, docker}] of a stored issue's Fixed In (a string or ADF), legacy slugs resolved."""
+    fi = Rm.rmap("fixed_in") or {}
+    raw = (fields or {}).get(fi.get("field") or "customfield_11252")
+    if isinstance(raw, dict):
+        J = jira_module()
+        raw = J.adf_to_text(raw)
+    aliases = fi.get("slug_aliases") or {}
+    out = []
+    for part in re.split(r"[;\n]+", str(raw or "")):
+        part = part.strip().rstrip(".")
+        if "@" not in part:
+            continue
+        slug, ver = (x.strip() for x in part.split("@", 1))
+        slug = aliases.get(slug, slug)
+        docker = slug.startswith("mds-")
+        out.append({"slug": slug, "version": ver, "docker": docker, "parsed": None if docker else Rm.parse_version(ver.replace("build", "+"))})
+    return out
+
+
+def asked_from_store(keys, env_file, gaps):
+    """The named keys' rows from the Jira store (the key cache, else the sweep or a standing query), each with its Fixed
+    In; a key the store lacks is a `key_not_in_facts` gap, never a live read."""
+    J, Rm = jira_module(), R()
+    try:
+        creds = J.load_env(env_file)
+    except SystemExit:
+        creds = {"JIRA_BASE_URL": BROWSE.rsplit("/browse/", 1)[0]}
+    rows = []
+    for k in keys:
+        try:
+            d = J.issue_doc(creds, k, comments=False)
+        except SystemExit:
+            d = None
+        if not d or not d.get("fields"):
+            gaps.append({"kind": "key_not_in_facts", "detail": f"{k}: not in the Jira store (ela facts refresh, or ela jira read {k} once)"})
+            continue
+        r = row_of_raw({"key": k, "fields": d["fields"]})
+        r["fixed_in"] = fixed_in_of(d["fields"], Rm)
+        rows.append(r)
+    return rows
+
+
 def must_since_of(keys, sweep, previous):
     """{key: when release:must was added}: the sweep's changelog (a label added inside its horizon moved the issue, so the
     sweep holds it), else the time the previous next.json carried for the key, else None."""
@@ -651,7 +769,7 @@ def b_of(Rm, row, rule):
     return {"name": row.get("bundleName"), "id": str(row.get("bundleId")), "created": Rm.when(row.get("createTime")) if row.get("createTime") else None, "rule": rule}
 
 
-def gather(line, candidate_ref, env_file, quiet=False):
+def gather(line, candidate_ref, env_file, quiet=False, keys=()):
     """Every input `build` needs, from the fact store and ela's own files; no source is read live (ELA_FACTS_ONLY).
     Exits 3 when the store cannot name the bundles."""
     os.environ["ELA_FACTS_ONLY"] = "1"
@@ -746,12 +864,14 @@ def gather(line, candidate_ref, env_file, quiet=False):
         clear_batches, clear_records = [], []
         gaps.append({"kind": "dry_store_unread", "detail": f"ela dry's store: {str(e)[:160]}; release:must clears not shown"})
     indev_rows = in_dev_from_sweep(sweep, now)
+    asked_rows = asked_from_store(keys, env_file, gaps) if keys else []
     sources["jira"] = {"what": f"the standing release:must query · the sweep's {' / '.join(IN_DEV_STATUSES)} tickets updated within 14 days",
                        "at": must_at or read.get("jira")}
     return {"line": str(line), "cfg": cfg, "base": base, "candidate": cand, "candidate_source": source, "released": released,
             "released_bundle": b_of(Rm, newest, "") if released else None, "tickets": tickets, "report": report, "train": train,
             "must_rows": must_rows, "must_since": must_since, "indev_rows": indev_rows, "sources": sources, "gaps": gaps,
-            "previous": previous, "clear_batches": clear_batches, "clear_records": clear_records, "off_release": off}
+            "previous": previous, "clear_batches": clear_batches, "clear_records": clear_records, "off_release": off,
+            "asked_rows": asked_rows}
 
 
 # ── write ─────────────────────────────────────────────────────────────────────
@@ -801,6 +921,9 @@ def summary(doc):
           for m in doc["must"] if m.get("shipped")]
     L += [f"  cleared {m['key']} {next((h['at'][:10] for h in m.get('history') or [] if h.get('event') == 'cleared' and h.get('at')), '')}"
           for m in doc.get("must_cleared") or []]
+    L += [f"  {x['key']} {x['place']}: " + ("; ".join(f"{p['service']}" + (f"@{p['fixed_in']}" if p["fixed_in"] else "")
+                                                        + f" {p['state'] or 'unplaced'} ({p['why']})" for p in x["parts"]) or x["why"])
+          for x in doc.get("asked") or []]
     L += [f"  gap: {g['detail']}" for g in doc["gaps"]]
     return "\n".join(L)
 
@@ -915,6 +1038,8 @@ def main(argv=None):
     ap.add_argument("--env-file")
     ap.add_argument("--line", default="2.1", help="the release train, a key of map release.yaml lines (default 2.1)")
     ap.add_argument("--candidate", help="a bundle name, id or prefix instead of the newest daily bundle, for this run")
+    ap.add_argument("--keys", help="K1,K2…: place each named ticket by its Fixed In against the prod lane (already live), the "
+                    "candidate's builds (on candidate) or neither (not built), in `asked`; for a question about named tickets")
     ap.add_argument("--write", action="store_true", help="publish <published>/releases/next.json (atomic, redacted) and its README.md")
     ap.add_argument("--sync", action="store_true", help="with --write: carry releases/ to published_remote for Helm Akamai")
     ap.add_argument("--json", action="store_true", help="print the document")
@@ -932,10 +1057,15 @@ def main(argv=None):
         return cmd_pin(a)
     if a.apply:
         print("--apply goes with --pin or --unpin; --write publishes the document", file=sys.stderr); sys.exit(EX_USAGE)
+    keys = [k.strip().upper() for k in (a.keys or "").split(",") if k.strip()]
+    if a.keys is not None and (not keys or not all(KEY_RE.fullmatch(k) for k in keys)):
+        print(f"--keys takes Jira keys separated by commas (MH-3905,MH-4093), not {a.keys!r}", file=sys.stderr); sys.exit(EX_USAGE)
+    if keys and a.write:
+        print("--keys answers a question; it is not published (drop --write)", file=sys.stderr); sys.exit(EX_USAGE)
     if a.sync and not a.write:
         print("--sync goes with --write: it carries the file just written", file=sys.stderr); sys.exit(EX_USAGE)
     now = datetime.datetime.now().astimezone()
-    doc = build(gather(a.line, a.candidate, a.env_file, quiet=a.quiet), now)
+    doc = build(gather(a.line, a.candidate, a.env_file, quiet=a.quiet, keys=keys), now)
     if a.write:
         published = R().site().get("published")
         if not published:
