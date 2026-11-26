@@ -44,8 +44,12 @@ comment on that ticket for DISPUTE_QUIET_DAYS.
                                                 `ela dry` (each a dry run unless --apply), asks stored as topics,
                                                 and the owner's answered asks carried out; nothing is applied
                                                 without --apply
-  answer  TOPIC A|B|C [--json]                  his letter on a topic (today.md's tick, or said): recorded; an option
-                                                with writes is carried out at the next decide --apply
+  answer  TOPIC A|B|C [WORDS…] [--json]         his letter on a topic (a tick or an `ela:` line on ela/watch.md, or
+                                                said): recorded with his words; an option with writes is carried out at
+                                                the next decide --apply. A letter other than A on a ruling is a
+                                                correction, kept in watch/corrections.jsonl with its cause (or as
+                                                waiting for one); a fact topic's words are the fact, kept by `ela asks`
+  cause   TOPIC WORDS… [--json]                 the cause for an earlier correction that came without one
   asks    [--json]                              the open topics; the vault's sync puts them on ela/watch.md (and a
                                                 line on today.md), where they live
   dm      [--apply] [--json]                    the owner's ela DM, a reminder only: at most one message a day, when a
@@ -53,7 +57,8 @@ comment on that ticket for DISPUTE_QUIET_DAYS.
                                                 the CLI verb; no thread per topic; a dry run unless --apply
 Store: <reports>/ela/watch.json (per ticket: the last pass's snapshot, pending triggers, the last decision, the day of
 its last set of writes, the comments ela said, the replies judged, the day a reply disputed ela), <reports>/ela/watch/<date>-scan.json, <reports>/ela/watch-topics.json,
-<reports>/ela/drafts/watch/ (each comment's text, the file a write names).
+<reports>/ela/drafts/watch/ (each comment's text, the file a write names), <reports>/ela/watch/corrections.jsonl
+(his letters against ela, by class: the trigger kind, KINDS).
 Exit codes: 0 ok · 2 usage · 3 not found.
 """
 import argparse, datetime, hashlib, json, os, re, shlex, subprocess, sys
@@ -478,7 +483,12 @@ def prompt_rows(scanned, facts, keep=5):
     return out
 
 
-def prompt_text(scanned, rows, decisions_path):
+def precedent_lines(row, precedents, n=3):
+    kinds = {t.get("kind") for t in row.get("triggers") or []}
+    return [f"- {asks_mod().cite(p)}" for p in [p for p in precedents or [] if p.get("kind") in kinds][:n]]
+
+
+def prompt_text(scanned, rows, decisions_path, precedents=()):
     L = [f"# The MH board watch · {scanned['date']}", "",
          f"Follow /ela:watch. {len(rows)} ticket{'s' if len(rows) != 1 else ''} due a decision; write one decision per "
          f"ticket to {decisions_path} as the skill describes, then check it with `ela watch decide --from {decisions_path}` "
@@ -486,7 +496,11 @@ def prompt_text(scanned, rows, decisions_path):
          "Every act and none carries \"confidence\": high | medium | low, and below high a \"doubt\": one line on what "
          "the evidence leaves open; decide refuses one without them. A low act writes nothing to Jira: it waits on "
          "ela/watch.md for the owner's confirm, its writes and comment as option A. An act you would not defend to the "
-         "assignee is an ask.", ""]
+         "assignee is an ask.",
+         "Every ask carries \"kind\": fact (ela cannot read it anywhere; add \"fact\": {\"kind\": one of "
+         + ", ".join(asks_mod().FACT_KINDS) + ", \"key\": what it is about}; a fact already given is not asked again) or "
+         "ruling (add \"why\": your leaning's reason, written into option A, so the owner answers right or wrong), and "
+         "\"confidence\".", ""]
     for r in rows:
         L += [f"## {r['key']} · {r['summary']}",
               f"{r['status']} · {r['assignee'] or 'nobody'} · {r['priority']}" + (f" · due {r['due']}" if r.get("due") else "")
@@ -494,6 +508,10 @@ def prompt_text(scanned, rows, decisions_path):
               + (f" · links {r['links']}: a comment is copied to each" if r.get("links") else "")
               + (f" · a reply disputed ela: no comment until {r['quiet_until']} (ask or none)" if r.get("quiet_until") else ""),
               ""] + [f"- trigger {t['kind']}: {t['says']}" for t in r["triggers"]]
+        cited = precedent_lines(r, precedents)
+        if cited:
+            L += ["", "Precedents (the owner's corrections of this kind; cite one if it decides the case; on a fail or a "
+                  "\"nothing needed\" a precedent strengthens your leaning, it never replaces an ask):"] + cited
         if r.get("description"):
             L += ["", f"Description: {r['description']}"]
         L += [""] + [f"> {c['at']} {c['by']}{' (ela)' if c['ela'] else ''}: {c['text']}" for c in r["comments"]] + [""]
@@ -601,6 +619,12 @@ def act_writes(key, d, reports):
     return p, text, [{"target": key, "command": f"ela jira comment {key} --from-file {p}", "why": why, **sure}]
 
 
+def asks_mod():
+    sys.path.insert(0, os.path.join(SKILLS, "asks"))
+    import asks as A                                           # noqa: E402 — the facts he gave, the precedents
+    return A
+
+
 def dry_mod():
     sys.path.insert(0, os.path.join(SKILLS, "dry"))
     import dry as D                                            # noqa: E402 — the class, its record and its undo
@@ -611,20 +635,33 @@ def topic_id(key):
     return f"watch:{key}"
 
 
-def put_topic(topics, key, d, today, summary=""):
+# The kinds of topic the watch raises, a closed list: the trigger that made the ticket due (scan's triggers). A
+# correction is kept under its kind, so a precedent is cited only for the same kind of case.
+KINDS = ("changed", "answered", "unassigned", "behind", "unanswered", "owner-held", "stalled")
+ASK_KINDS = ("fact", "ruling")         # what a topic needs from him: a fact ela cannot read, or a ruling
+
+
+def put_topic(topics, key, d, today, summary="", cls=None):
     """The owner's topic for a ticket: one open topic per ticket; an ask on an open one updates it in place, so its
-    thread and its first day stay."""
+    thread and its first day stay. A topic carries its class (the trigger kind), whether it needs a fact or a ruling, the
+    session's confidence, and, for a ruling, ela's reason written into option A (plan 2026-11-26, asks teach ela)."""
     tid = topic_id(key)
     t = topics["topics"].get(tid)
+    kind = d.get("kind") if d.get("kind") in ASK_KINDS else "ruling"
+    why = " ".join(str(d.get("why") or (d.get("unsure") or {}).get("why") or "").split()).rstrip(".")
     opts = d.get("options") or [{"letter": "A", "text": "do what is proposed"}, {"letter": "B", "text": "leave it"}]
     opts = [{"letter": o.get("letter") or "ABC"[i], "text": o.get("text") or "", "writes": o.get("writes") or [],
              "comment": o.get("comment") or ""} for i, o in enumerate(opts[:3])]
+    if kind == "ruling" and why and opts and "ela's reason:" not in opts[0]["text"]:
+        opts[0]["text"] = f"{opts[0]['text']} — ela's reason: {clip(why, 200)}"
+    meta = {"kind": kind, "confidence": d.get("confidence") if d.get("confidence") in LEVELS else None,
+            "class": cls if cls in KINDS else None, "reason": why or None, **({"fact": d["fact"]} if d.get("fact") else {})}
     if t and not t.get("closed"):
-        t.update(question=d["question"], options=opts, asked=today, unsure=d.get("unsure"))
+        t.update(question=d["question"], options=opts, asked=today, unsure=d.get("unsure"), **meta)
         return tid, False
     topics["topics"][tid] = {"id": tid, "key": key, "summary": summary, "question": d["question"], "options": opts,
                              "first": today, "asked": today, "thread": None, "posted": {}, "closed": None,
-                             "unsure": d.get("unsure")}
+                             "unsure": d.get("unsure"), **meta}
     return tid, True
 
 
@@ -654,7 +691,8 @@ def held_ask(d):
     if text and not (d.get("writes") and all(w.get("verb") == "link" for w in d["writes"])):
         said.append(f"comment \"{clip(text, 200)}\"")
     why = (d.get("why") or "").strip().rstrip(".") or "no reason was recorded"
-    return {"question": f"ela would act here but is not sure. Why: {why}. Carry it out?",
+    return {"question": f"ela would act here but is not sure. Why: {why}. Carry it out?", "kind": "ruling",
+            "confidence": d.get("confidence") or "low", "why": why,
             "unsure": {"why": why, "doubt": (d.get("doubt") or "").strip()},
             "options": [{"letter": "A", "text": "carry it out: " + "; ".join(said), "writes": d.get("writes") or [],
                          "comment": d.get("comment") or ""},
@@ -662,6 +700,11 @@ def held_ask(d):
 
 
 LEVELS = ("low", "medium", "high")
+
+
+def trigger_kind(row):
+    """A due ticket's class for its topic: its first trigger's kind."""
+    return next((t.get("kind") for t in row.get("triggers") or [] if t.get("kind") in KINDS), None)
 
 
 def unsure(d):
@@ -697,7 +740,7 @@ def decide(decisions, scanned, facts, reports, now, apply=False, runner=None):
                 out["refused"].append({"key": key, "why": problem}); continue
             if d["confidence"] == "low":                       # nothing to Jira: the owner confirms it first
                 ask = held_ask(d)
-                tid, new = put_topic(topics, key, ask, today.isoformat(), due[key].get("summary") or "")
+                tid, new = put_topic(topics, key, ask, today.isoformat(), due[key].get("summary") or "", trigger_kind(due[key]))
                 out["held"].append({"key": key, "topic": tid, "new": new, "question": ask["question"],
                                     "doubt": ask["unsure"]["doubt"], "proposed": ask["options"][0]["text"]})
                 if apply:
@@ -719,7 +762,16 @@ def decide(decisions, scanned, facts, reports, now, apply=False, runner=None):
         elif verdict == "ask":
             if not (d.get("question") or "").strip():
                 out["refused"].append({"key": key, "why": "an ask carries its question"}); continue
-            tid, new = put_topic(topics, key, d, today.isoformat(), due[key].get("summary") or "")
+            if d.get("kind") == "fact":                        # a fact he gave once is not asked again (plan 2026-11-26)
+                f = d.get("fact") or {}
+                try:
+                    have = asks_mod().known(f.get("kind"), f.get("key"))
+                except ValueError as e:
+                    out["refused"].append({"key": key, "why": f"a fact ask names its fact {{kind, key}}: {e}"}); continue
+                if have:
+                    out.setdefault("known", []).append({"key": key, "fact": f, "value": have["value"], "source": have.get("source")})
+                    continue
+            tid, new = put_topic(topics, key, d, today.isoformat(), due[key].get("summary") or "", trigger_kind(due[key]))
             out["asks"].append({"key": key, "topic": tid, "new": new, "question": d["question"]})
             if apply:
                 rec.update(decided=now.isoformat(timespec="seconds"), verdict="ask", pending=[])
@@ -817,20 +869,89 @@ def carry_answers(topics, st, facts, reports, now, apply, runner):
     return done
 
 
-def answer(reports, tid, letter, now):
-    """His letter on a topic: recorded, the topic closed. → the topic; KeyError when unknown, ValueError for a letter it
-    does not offer."""
+def answer(reports, tid, letter, now, note=None):
+    """His letter on a topic: recorded, the topic closed. `note` is his words with it. A letter other than A on a ruling
+    goes against ela's proposal: it is kept in the watch's corrections with its cause, or as waiting for a cause when he
+    gave none (the same row shape as dry's corpus; dry's record is not written). A fact topic's note is the fact.
+    → the topic; KeyError when unknown, ValueError for a letter it does not offer."""
     topics = load_topics(reports)
     t = topics["topics"].get(tid)
     if not t:
         raise KeyError(tid)
-    letter = letter.upper()
+    letter, note = letter.upper(), (" ".join(str(note).split()) if note else None)
     if letter not in [o["letter"] for o in t["options"]]:
         raise ValueError(f"{tid} offers {', '.join(o['letter'] for o in t['options'])}, not {letter}")
     if not t.get("closed"):
-        t["closed"] = {"letter": letter, "at": now.isoformat(timespec="seconds")}
+        t["closed"] = {"letter": letter, "at": now.isoformat(timespec="seconds"), **({"note": note} if note else {})}
         write_json(topics_path(reports), topics)
+        if t.get("kind", "ruling") == "ruling" and letter != t["options"][0]["letter"]:
+            correct(reports, t, letter, note, now)
+        f = t.get("fact") or {}
+        if t.get("kind") == "fact" and note and f.get("kind") and f.get("key"):   # the fact he gave: kept, never asked again
+            try:
+                asks_mod().give(f["kind"], f["key"], note, tid, apply=True, now=now)
+            except ValueError:
+                pass
     return t
+
+
+def corrections_path(reports):
+    return os.path.join(reports, "ela", "watch", "corrections.jsonl")
+
+
+def correct(reports, t, letter, note, now):
+    """One correction row: {at, class, target, act, verdict, cause, corpus, source}; corpus "admitted" with a cause,
+    "waiting for a cause" without."""
+    p = corrections_path(reports)
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    with open(p, "a", encoding="utf-8") as f:
+        f.write(json.dumps({"at": now.isoformat(timespec="seconds"), "class": t.get("class"), "target": t["key"], "act": t["id"],
+                            "verdict": letter, "cause": note or None, "corpus": "admitted" if note else "waiting for a cause",
+                            "kind": t.get("kind", "ruling"), "source": "watch"}, ensure_ascii=False) + "\n")
+
+
+def cause(reports, tid, note, now):
+    """His cause for an earlier letter that went against ela and came without one: appended as the act's newer row."""
+    topics = load_topics(reports)
+    t = topics["topics"].get(tid)
+    if not t or not (t.get("closed") or {}).get("letter"):
+        raise KeyError(tid)
+    t["closed"]["note"] = " ".join(str(note).split())
+    write_json(topics_path(reports), topics)
+    correct(reports, t, t["closed"]["letter"], t["closed"]["note"], now)
+    return t
+
+
+def corrections(reports):
+    """The watch's corrections, the newest row per act (a later cause completes an earlier wrong). → [row]."""
+    rows = {}
+    try:
+        for line in open(corrections_path(reports), encoding="utf-8"):
+            try:
+                r = json.loads(line)
+            except ValueError:
+                continue
+            rows[r.get("act")] = r
+    except OSError:
+        pass
+    return list(rows.values())
+
+
+def outcomes(reports):
+    """How the watch's topics ended, for ela's own measure: answered with A, against ela (with or without a cause),
+    still open. A topic does not expire from ela/watch.md; one that ends unanswered is open, not agreed."""
+    out = {"agreed": 0, "wrong": 0, "waiting_cause": 0, "open": 0}
+    waiting = {r["act"] for r in corrections(reports) if r.get("corpus") == "waiting for a cause"}
+    for t in load_topics(reports)["topics"].values():
+        c = t.get("closed") or {}
+        if not c.get("letter"):
+            out["open"] += 1
+        elif c["letter"] == t["options"][0]["letter"] or t.get("kind") == "fact":
+            out["agreed"] += 1
+        else:
+            out["wrong"] += 1
+            out["waiting_cause"] += t["id"] in waiting
+    return out
 
 
 def open_topics(reports):
@@ -844,7 +965,7 @@ def asks(reports, today):
     for t in sorted(open_topics(reports), key=lambda t: (not t.get("unsure"), t["first"], t["key"])):
         doubt = (t.get("unsure") or {}).get("doubt")
         text = f"{t['key']} {t.get('summary') or ''}: {t['question']}".strip() + (f" Doubt: {doubt}" if doubt else "")
-        out.append({"id": t["id"], "question": text, "first": t["first"],
+        out.append({"id": t["id"], "question": text, "first": t["first"], "kind": t.get("kind"), "reason": t.get("reason"),
                     "options": [{"letter": o["letter"], "text": o["text"], "does": f"ela watch answer {t['id']} {o['letter']}",
                                  "recommended": i == 0} for i, o in enumerate(t["options"])],
                     "sig": hashlib.sha256(json.dumps([t["question"], t["options"]], sort_keys=True).encode()).hexdigest()[:12]})
@@ -1041,7 +1162,11 @@ def cmd_prompt(a):
                           "replies": got.get("replies") or []},
                          ensure_ascii=False, indent=1))
     else:
-        print(prompt_text(got, rows, path))
+        try:
+            cited = asks_mod().precedents(reports, "watch")
+        except (ValueError, OSError):
+            cited = []
+        print(prompt_text(got, rows, path, cited))
 
 
 def cmd_decide(a):
@@ -1073,12 +1198,24 @@ def cmd_decide(a):
 def cmd_answer(a):
     s = site()
     try:
-        t = answer(s.get("reports") or "", a.topic, a.letter, now_tz())
+        t = answer(s.get("reports") or "", a.topic, a.letter, now_tz(), note=" ".join(a.note or []) or None)
     except KeyError:
         print(f"no topic {a.topic}", file=sys.stderr); sys.exit(EX_NOTFOUND)
     except ValueError as e:
         print(str(e), file=sys.stderr); sys.exit(EX_USAGE)
-    emit(a, t, [f"{t['id']}: {t['closed']['letter']} recorded"])
+    c = t["closed"]
+    wrong = t.get("kind", "ruling") == "ruling" and c["letter"] != t["options"][0]["letter"]
+    emit(a, t, [f"{t['id']}: {c['letter']} recorded" + (f", with the cause: {c['note']}" if wrong and c.get("note") else
+                "; against ela's proposal and no cause given: add one with `ela watch cause " + t["id"] + " <why>`" if wrong else "")])
+
+
+def cmd_cause(a):
+    s = site()
+    try:
+        t = cause(s.get("reports") or "", a.topic, " ".join(a.why), now_tz())
+    except KeyError:
+        print(f"no answered topic {a.topic}", file=sys.stderr); sys.exit(EX_NOTFOUND)
+    emit(a, t, [f"{t['id']}: cause kept with the {t['closed']['letter']}"])
 
 
 def cmd_asks(a):
@@ -1110,7 +1247,11 @@ def main():
     p.add_argument("--date"); p.add_argument("--apply", action="store_true"); p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_decide)
     p = sub.add_parser("answer", help="his letter on a topic: recorded; a chosen option's writes go out at the next pass")
-    p.add_argument("topic"); p.add_argument("letter"); p.add_argument("--json", action="store_true"); p.set_defaults(func=cmd_answer)
+    p.add_argument("topic"); p.add_argument("letter")
+    p.add_argument("note", nargs="*", help="his words after the letter: the cause of a letter against ela, or the fact asked for")
+    p.add_argument("--json", action="store_true"); p.set_defaults(func=cmd_answer)
+    p = sub.add_parser("cause", help="the cause for an earlier letter against ela that came without one; kept in the watch's corrections")
+    p.add_argument("topic"); p.add_argument("why", nargs="+"); p.add_argument("--json", action="store_true"); p.set_defaults(func=cmd_cause)
     p = sub.add_parser("asks", help="the open topics, as today.md shows them")
     p.add_argument("--json", action="store_true"); p.set_defaults(func=cmd_asks)
     p = sub.add_parser("dm", help="the owner's ela DM: a reminder, at most one a day when a topic is new, pointing at ela/watch.md; a dry run unless --apply")

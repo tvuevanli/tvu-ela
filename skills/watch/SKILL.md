@@ -36,6 +36,18 @@ One of three, never more than one set per ticket:
 
 An act you would not defend to the assignee is an ask.
 
+**What an ask needs from him.** Every ask carries `kind` and `confidence`. `kind` is `fact` when ela cannot read the
+answer anywhere (who owns an area, whose account a name is, a date no source carries): add `"fact": {"kind": …,
+"key": …}` with a kind from `ela asks fact list`'s closed list (owner, account, lane, date, scope). A fact he gave
+once is kept and the same fact is never asked again: `decide` returns the kept answer under `known` instead of a
+topic, so decide with it. Otherwise `kind` is `ruling`: add `why`, your leaning's reason, which is written into
+option A so he answers right or wrong and writes a reason only to correct you.
+
+**Precedents.** The prompt lists, under a ticket, the owner's earlier corrections of the same trigger kind with their
+cause (`ela asks precedents --domain watch --kind <trigger>`). Cite one when it decides the case. On a case that
+would take a risk out of his sight (a fail judged not blocking, a "nothing needed"), a precedent strengthens your
+leaning; it never replaces an ask.
+
 **Confidence.** Every act and every none carries `confidence`: `high` (the evidence settles it), `medium` (it
 points one way but leaves something open) or `low` (a judgment the evidence does not settle). Below high, add
 `doubt`: one line on what the evidence leaves open. A decision without them is refused. The level decides what
@@ -99,9 +111,13 @@ Write `<reports>/ela/watch/<date>-decisions.json` (the prompt names the path):
               {"verb": "priority", "to": "High"}, {"verb": "due", "date": "2026-12-01"},
               {"verb": "link", "other": "MH-2", "type": "relates to"}],
    "comment": "Assigned to the player owner: the trace in the last comment ends in the player service."},
-  {"key": "MH-3", "verdict": "ask", "question": "Close MH-3 as fixed on prod-3, or keep it for the QA pass?",
+  {"key": "MH-3", "verdict": "ask", "kind": "ruling", "confidence": "medium",
+   "why": "QA has not run the case on prod-3 yet",
+   "question": "Close MH-3 as fixed on prod-3, or keep it for the QA pass?",
    "options": [{"letter": "A", "text": "keep it in Review for QA"},
                {"letter": "B", "text": "you close it yourself"}]},
+  {"key": "MH-7", "verdict": "ask", "kind": "fact", "confidence": "low", "fact": {"kind": "owner", "key": "WebRenderer"},
+   "question": "Who owns the WebRenderer now?", "options": [{"letter": "A", "text": "write the owner after the letter"}]},
   {"key": "MH-4", "verdict": "none", "why": "the reviewer answered in Slack; nothing is waiting", "confidence": "high"}
  ],
  "replies": [{"key": "MH-5", "reply": "10234", "disputes": false},

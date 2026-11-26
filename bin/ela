@@ -242,6 +242,10 @@
                                    mention_post_as is ela or owner (ADR 0022; off: you paste it); it is the one
                                    verb that writes to Slack; supersede marks the Slack actions drafted for a
                                    closed mention's thread
+  ela asks precedents|fact         what you taught ela by answering its asks: precedents [--domain dry|watch|mention]
+                                   [--kind K] your corrections kept with their cause, read from each domain's own store;
+                                   fact get|list|give the facts you gave, by kind and key (give: dry run unless --apply;
+                                   --durable writes elak, on your word), looked up before a fact is asked again
   ela improve digest|add|list|answer|done|section|pending|corpus
                                    what the assistant as a whole should do better (ADR 0023): digest --date D the
                                    day's signals (mediahub-bot's runs, ela's jobs and follow-ups, failed units, his
@@ -355,7 +359,7 @@ VERBS = {
     "mr": ("mr", "create"), "mr-preflight": ("mr", "preflight"),
     "sessions": ("sessions", "find"), "session": ("sessions", None),
     "route": ("route", "facts"),
-    "dry": ("dry", None), "mention": ("mention", None), "improve": ("improve", None),
+    "dry": ("dry", None), "mention": ("mention", None), "improve": ("improve", None), "asks": ("asks", None),
     "fixed-in": ("fixedin", "draft"),
     "links": ("links", None),
     "stage": ("stage", "queue"),
