@@ -96,6 +96,11 @@ two = [dict(act(2, "MH-3993", WED), text="MH-3993: hand the 4K WebRenderer crash
        dict(act(3, "MH-3993", WED), command="ela jira assign MH-3993 --assignee x", text="MH-3993: assign to Fujian Fang")]
 c2 = V.ask_candidates(WED, two, [])
 check("two writes on one ticket are one ask, its box naming both", len(c2) == 1 and c2[0]["box"] == "apply 2, 3" and c2[0]["ns"] == [2, 3])
+sup = [dict(act(2, "MH-3993", WED), superseded={"by": 4, "at": "2026-11-11T10:00:00+08:00"}), act(3, "MH-3993", WED),
+       dict(act(4, "MH-3993", WED), command="ela jira comment MH-3993 --text changed")]
+c3 = V.ask_candidates(WED, sup, [])
+check("a superseded action is not merged into its ticket's ask: the box names only what apply would run",
+      len(c3) == 1 and c3[0]["ns"] == [3, 4] and c3[0]["box"] == "apply 3, 4")
 p2 = V.today_page(WED, [], {}, c2)
 check("the ask is the whole sentence, never cut",
       "1. *ruling* · MH-3993: hand the 4K WebRenderer crash to Fujian Fang with Summer Chen's findings and three checks on box .46." in p2

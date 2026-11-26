@@ -4126,6 +4126,8 @@ def ask_candidates(today, actions, notes):
     for a in sorted((a for a in actions if a.get("day") == iso), key=lambda a: int(a["n"])):
         if a.get("tier", 3) != 3 or a.get("send_box") or a.get("applied") or a.get("by_owner") or a.get("vetoed"):
             continue
+        if a.get("superseded"):                            # renumbered by the runner (a changed command under its n) or
+            continue                                       # replaced by a close: `apply` refuses it, so no box offers it
         if a.get("rule") == "question":                    # a question's drafted message: its ask is the question's own
             continue
         i = action_id(a)
