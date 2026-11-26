@@ -591,6 +591,11 @@ VERSION_RX = re.compile(r"\bmh\d{1,4}(?:\.\d{1,4}){0,4}@[A-Za-z0-9][\w.@\-]{0,40
                         r"|(?<![\w.])v?\d{1,6}(?:\.\d{1,6}){1,5}%?(?!\d)", re.I)
 
 
+# a session's closing marks (ela's working preferences): `— ela out 🦀`, `⏳ ela pending · …`, a `⚖️` decision heading.
+# They belong to a conversation, never to what the team reads; a model that writes the report in a session appends them.
+SESSION_MARK = re.compile(r"^\s*(?:(?:[-*]\s+)?(?:— ela (?:out|pending)\b|⏳\s*ela pending\b)|(?:#{1,6}\s+|\*\*)⚖️)")
+
+
 def heading_key(line):
     m = HEADING_RX.match(line or "")
     return re.sub(r"\s+", " ", m.group("text")).strip().rstrip(":").strip().lower() if m else ""
@@ -629,6 +634,11 @@ def check_narrative(text, kind, allowed):
         lines.append(f"**{m.group(1).strip('*').strip()}**" if m else ln)
     while lines and re.search(r"(?i)\breport\b", lines[0]) and HEADING_RX.match(lines[0]) and heading_key(lines[0]) not in ("summary",):
         removed["lines"].append(lines.pop(0).strip())                     # a document title the model added
+    cut = next((i for i, ln in enumerate(lines) if SESSION_MARK.match(ln)), None)
+    if cut is not None and all(SESSION_MARK.match(l) or not l.strip() or re.match(r"^\s*(?:[-*]|\d+\.)\s", l)
+                               for l in lines[cut:]):          # a mark and what hangs under it, at the end: cut
+        removed["lines"] += [l.strip() for l in lines[cut:] if l.strip()]
+        lines = lines[:cut]
     kept, i = [], 0
     while i < len(lines):
         if owned(heading_key(lines[i]), kind):

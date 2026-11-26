@@ -137,6 +137,13 @@ check("a # heading becomes a bold header", "**Extra heading**" in clean)
 check("unknown keys are removed and the parenthesis tidied", "MH-999" not in clean and "MH-404" not in clean and "(MH-10)" in clean
       and "(MH-11)" in clean and removed["keys"] == ["MH-404", "MH-999"])
 check("the Sources line is removed", "_Sources" not in clean)
+for tail in ("\n\n— ela out 🦀", "\n\n⏳ ela pending · the build's result · 22:30",
+             "\n\n## ⚖️ Needs your decision\n- apply next: send the fix\n\n— ela out 🦀"):
+    c, r = TR.check_narrative("**Summary**\n- MH-1 moved.\n- Mid-line — ela out is quoted here." + tail, "daily", ["MH-1"])
+    check(f"a session mark at the end is cut and recorded: {tail.split()[0]}",
+          c == "**Summary**\n- MH-1 moved.\n- Mid-line — ela out is quoted here." and r.get("lines") and "ela" not in c.split("\n")[-1][:6])
+c, r = TR.check_narrative("**Summary**\n- ⚖️ the ruling was posted.\n- MH-1 moved.", "daily", ["MH-1"])
+check("a mark followed by report text is not the session's ending: nothing is cut", "MH-1 moved." in c and not r.get("lines"))
 check("versions stay in the daily (image releases are the narrative's)", "1.0.80" in TR.check_narrative("**Summary**\n- copier:1.0.80 shipped", "daily", [])[0])
 w, wr = TR.check_narrative("**Week in one paragraph**\nA week on build 2.1.22 and mh2.1@qa-q8.\n\n**Themes**\n- **SRT** — moved (MH-10)\n\n"
                            "**Monday**\n- per day\n\n**Numbers**\n- 7 closed\n", "weekly", ["MH-10"])
