@@ -990,23 +990,30 @@ SUMMARY_CUT = 90                   # a ticket's title in the reminder: whole up 
 
 
 def page(reports, today, base=""):
-    """ela/watch.md: every open topic, oldest first: the ticket, the question, each letter with the CLI line that
-    answers it; a low-confidence act held for his confirm first, under its own heading, with its doubt. The vault is where the topics live; Slack only reminds (the owner's word, 2026-11-25: he answers in
-    the CLI, not in a thread)."""
+    """ela/watch.md: every open topic, oldest first: the ticket, whether it needs a fact or a ruling, the session's
+    confidence, the question, each letter as a box he ticks (or an `ela:` line he writes under it, read by
+    settle_page) and the CLI line; a low-confidence act held for his confirm first, under its own heading, with its
+    doubt. The vault is where the topics live; Slack only reminds (the owner's word, 2026-11-25)."""
     ts = sorted(open_topics(reports), key=lambda t: (t["first"], t["key"]))
     L = ["# Board watch · waiting for your letter", ""]
     if not ts:
         return "\n".join(L + ["Nothing waits: every topic has its letter.", ""] + nothing_due(reports, today, base))
-    L += [f"{len(ts)} topic{'s' if len(ts) != 1 else ''} wait. Answer each in the CLI: `ela watch answer watch:<KEY> <letter>`; "
-          "a chosen option's writes go out at the watch's next pass. `ela watch asks` lists the same.", ""]
+    L += [f"{len(ts)} topic{'s' if len(ts) != 1 else ''} wait. Answer each here: tick a letter, or write `ela: B because …` "
+          "under the topic (the words after the letter are kept as your reason; a fact topic's words are the fact). Or in "
+          "the CLI: `ela watch answer watch:<KEY> <letter> [words]`. A chosen option's writes go out at the watch's next "
+          "pass.", ""]
     unsure, rest = [t for t in ts if t.get("unsure")], [t for t in ts if not t.get("unsure")]
 
     def topic(t):
         link = f"[{t['key']}]({base}/browse/{t['key']})" if base else t["key"]
         doubt = (t.get("unsure") or {}).get("doubt")
-        return ([f"### {link} {t.get('summary') or ''}".rstrip(), "", f"Open since {t['first']}. {t['question']}", ""]
+        sure = f"confidence {t['confidence']}" if t.get("confidence") else "confidence not stated"
+        return ([f"### {link} {t.get('summary') or ''}".rstrip(), "",
+                 f"*{t.get('kind') or 'ruling'}* · {sure} · open since {t['first']}. {t['question']}", ""]
                 + ([f"**Doubt**: {doubt}", ""] if doubt else [])
-                + [f"- **{o['letter']}**: {o['text']} · `ela watch answer {t['id']} {o['letter']}`" for o in t["options"]] + [""])
+                + [f"- [ ] {o['letter']}{' (recommended)' if i == 0 and t.get('kind', 'ruling') == 'ruling' else ''}: {o['text']}"
+                   for i, o in enumerate(t["options"])]
+                + ["", f"CLI: `ela watch answer {t['id']} <letter> [words]`", ""])
     if unsure:                                             # the owner's ruling, 2026-11-26: a low act waits for him, first
         L += ["## Confirm first: ela was not sure", "", "ela would have written these itself, but the evidence does not "
               "settle them. Nothing goes to Jira until you choose A.", ""]
@@ -1017,6 +1024,53 @@ def page(reports, today, base=""):
     for t in rest:
         L += topic(t)
     return "\n".join(L + nothing_due(reports, today, base))
+
+
+# His answers written on ela/watch.md itself: a ticked option, or an `ela:` line under a topic, both with his words kept
+TOPIC_HEAD = re.compile(r"^###[ \t]+\[?([A-Z][A-Z0-9]+-\d+)\b", re.M)
+PAGE_TICK = re.compile(r"^[ \t]*(?:>[ \t]*)*[-*][ \t]+\[[xX]\][ \t]+([ABC])(?:[ \t]+\(recommended\))?:.*$", re.M)
+PAGE_LINE = re.compile(r"^[ \t]*(?:[-*+][ \t]+|>[ \t]*)*ela[ \t]*[:：][ \t]*([ABCabc])(?:\.?|[ \t]*[.,:;\u2014\u2013-][ \t]*(\S.*?)"
+                       r"|[ \t]+((?:because|since|as)\b.*?|因为.*?))[ \t]*$", re.M | re.I)
+
+
+def page_answers(text):
+    """His answers on ela/watch.md: [(topic id, letter, note)], one per topic, the first written under it. A tick's note
+    is the plain line right under it; an `ela:` letter's is the words after it."""
+    heads = [(m.start(), m.group(1)) for m in TOPIC_HEAD.finditer(text or "")]
+    out, seen = [], set()
+
+    def topic_at(pos):
+        return next((k for at, k in reversed(heads) if at < pos), None)
+    found = []
+    for m in PAGE_TICK.finditer(text or ""):
+        rest = (text[m.end():].split("\n", 2) + ["", ""])[1]
+        note = None if (not rest.strip() or re.match(r"^[ \t]*(?:[-*+][ \t]+\[.\]|#|CLI:|ela[ \t]*[:：])", rest, re.I)) \
+            else re.sub(r"^[ \t]*(?:[-*+>][ \t]*)*", "", rest).strip() or None
+        found.append((m.start(), m.group(1), note))
+    for m in PAGE_LINE.finditer(text or ""):
+        if (m.group(2) or m.group(3)) and m.group(1).islower():
+            continue                                       # `ela: a, b and c …` is a sentence, not a letter
+        found.append((m.start(), m.group(1).upper(), ((m.group(2) or m.group(3) or "").strip() or None)))
+    for pos, letter, note in sorted(found):
+        key = topic_at(pos)
+        if key and key not in seen:
+            seen.add(key)
+            out.append((topic_id(key), letter, note))
+    return out
+
+
+def settle_page(reports, text, now, dry_run=False):
+    """The answers on ela/watch.md, recorded as `ela watch answer` records them, once each (an answered topic leaves the
+    page). → [(topic, letter, note)] recorded; a letter the topic does not offer, or a topic closed already, is skipped."""
+    done = []
+    for tid, letter, note in page_answers(text):
+        t = load_topics(reports)["topics"].get(tid)
+        if not t or t.get("closed") or letter not in [o["letter"] for o in t["options"]]:
+            continue
+        if not dry_run:
+            answer(reports, tid, letter, now, note=note)
+        done.append((tid, letter, note))
+    return done
 
 
 def nones(reports, today):
@@ -1067,7 +1121,7 @@ def dm_plan(topics, today, base=""):
     n = len(fresh)
     lines = [f"*Board watch:* {n} new topic{'s' if n != 1 else ''} for your answer · {len(open_)} waiting in all · {today:%a %m-%d}"]
     lines += [f"• {ST.key_link(t['key'], base)} {ST.esc(ST.cut(t.get('summary') or '', SUMMARY_CUT))}".rstrip() for t in fresh]
-    lines += ["", f"They are on the vault page _{WATCH_PAGE[:-3]}_. Answer in the CLI: `ela watch answer watch:<KEY> <letter>`"]
+    lines += ["", f"They are on the vault page _{WATCH_PAGE[:-3]}_: tick a letter there, or answer in the CLI: `ela watch answer watch:<KEY> <letter>`"]
     return [{"kind": "reminder", "tier": TI.I2, "topics": [t["id"] for t in fresh], "text": "\n".join(lines)}]
 
 
