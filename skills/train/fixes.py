@@ -240,7 +240,7 @@ def firm_or_ask(row, lanes, by_key, incidents, rulings, out, word, qa_cell, move
            for h in ((row.get("cells") or {}).get(l["lane"]) or {}).get("history") or []):
         tests.append("an earlier pass is on record")
     kind = kind_of(row, criterion)
-    same = [r for r in rulings or () if r.get("kind") == kind]
+    same = [r for r in newest_rulings(rulings) if r.get("kind") == kind]
     if any(r.get("ruled") == "blocks" for r in same):
         tests.append(f"your ruling on {next(r['key'] for r in same if r.get('ruled') == 'blocks')} of the same kind says blocks")
     mine = next((r for r in reversed(list(rulings or ())) if r.get("key") == key and r.get("sig") == out["sig"]), None)
@@ -569,6 +569,27 @@ def answer(reports, aid, letter, train, why=None, now=None):
     return rec
 
 
+def mark_asked(reports, rec, today=None):
+    """today.md's ask for this ruling marked answered in the vault's ask state, as a tick on the page marks it, so the
+    next render leaves it off: True when an ask of that id and case was on record. A broken state file is left as it is."""
+    p = os.path.join(reports or "", "ela", "asks.json")
+    try:
+        state = json.load(open(p, encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    v = state.get(rec["id"]) if isinstance(state, dict) else None
+    if not isinstance(v, dict) or v.get("answered") or v.get("sig") != rec.get("sig"):
+        return False
+    v["answered"] = {"letter": rec["letter"], "at": (today or datetime.date.today()).isoformat(),
+                     **({"note": rec["cause"]} if rec.get("cause") else {}),
+                     **({"cause": "waiting"} if rec["letter"] == "B" and not rec.get("cause") else {})}
+    tmp = p + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(state, fh, indent=1, ensure_ascii=False)
+    os.replace(tmp, p)
+    return True
+
+
 def cause(reports, aid, note, now=None):
     """His cause, given after a letter that waited for one (`ela: because …` under the next ask of its kind on
     today.md): a copy of that ruling with the cause, appended, so the store keeps both and the newest row per ask
@@ -582,16 +603,21 @@ def cause(reports, aid, note, now=None):
     return rec
 
 
+def newest_rulings(rulings):
+    """The newest row per (ask id, case sig), in the order they were written: a later answer to the same ask replaces
+    the earlier one, so a superseded ruling never acts as a precedent."""
+    rows = list(rulings or ())
+    last = {(r.get("id"), r.get("sig")): i for i, r in enumerate(rows)}
+    return [r for i, r in enumerate(rows) if last[(r.get("id"), r.get("sig"))] == i]
+
+
 def corrections(reports):
     """His rulings in the precedent shape `ela asks precedents --domain deploy-impact` reads, the newest row per ask
     and case: {at, class, target, act, verdict, cause, corpus}; class is the kind (`<layer>:<criterion>`), verdict
     `right` when he agreed with ela's leaning and `wrong` when he ruled the other way."""
-    newest = {}
-    for r in read_rulings(reports):
-        newest[(r.get("id"), r.get("sig"))] = r
     return [{"at": r.get("caused") or r.get("at"), "class": r.get("kind"), "target": r.get("key"), "act": r.get("id"),
              "verdict": "right" if r.get("letter") == "A" else "wrong", "ruled": r.get("ruled"), "cause": r.get("cause"),
-             "corpus": r.get("corpus")} for r in newest.values()]
+             "corpus": r.get("corpus")} for r in newest_rulings(read_rulings(reports))]
 
 if __name__ == "__main__":
     print(__doc__)

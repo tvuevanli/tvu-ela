@@ -41,7 +41,9 @@ takes a risk out of the owner's sight, so it is ela's only on a mechanical proof
 - **your call**, anything else: a ruling ask on today.md (ADR 0014's cap; the rest wait on the line page), ela's leaning
   as A with its reason, the other way as B. `ela train answer impact:<KEY> A|B [--why]` (or his letter on today.md)
   appends the ruling to `<reports>/train/rulings.jsonl` with its kind; it decides that case while its `sig` (verdict,
-  build, failed cases) holds, and is cited for the next case of the kind, never standing in for a proof.
+  build, failed cases) holds, and is cited for the next case of the kind, never standing in for a proof. Only the
+  newest ruling per ask and case counts: a later answer supersedes an earlier one. Answering marks today.md's ask
+  answered and re-syncs the vault in the same step, so the answered ask leaves the page.
 - **not yet verified**: the build the fix rides has no QA word yet (an earlier build's fail is named); **ready**: QA
   passed, or the fix passed before the lane's list began. A row on prod is not on its way.
 

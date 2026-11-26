@@ -118,6 +118,22 @@ with tempfile.TemporaryDirectory() as reports:
     firm = judged(other, iss, incidents=[], rulings=FX.read_rulings(reports))
     check("a blocks ruling of the same kind keeps another key from a firm does-not-block (a precedent never replaces a proof)",
           firm["MH-4101"]["impact"]["group"] == "your-call" and "your ruling on MH-4100 of the same kind says blocks" in firm["MH-4101"]["impact"]["reason"])
+    FX.answer(reports, "impact:MH-4100", "A", train, None, now + datetime.timedelta(minutes=9))
+    newer = judged(other, iss, incidents=[], rulings=FX.read_rulings(reports))
+    check("a superseded blocks ruling is no precedent: only the newest row per ask and case is read",
+          "of the same kind says blocks" not in " ".join(newer["MH-4101"]["impact"].get("failed_tests") or [])
+          and newer["MH-4100"]["impact"]["group"] == "no-block")
+    check("corrections read the newest row per ask and case", [c["verdict"] for c in FX.corrections(reports)] == ["right"])
+    os.makedirs(os.path.join(reports, "ela"), exist_ok=True)
+    sig = got["MH-4100"]["impact"]["sig"]
+    with open(os.path.join(reports, "ela", "asks.json"), "w") as fh:
+        json.dump({"impact:MH-4100": {"first": "2026-11-26", "text": "t", "sig": sig, "dropped": None}}, fh)
+    rec = FX.answer(reports, "impact:MH-4100", "B", train, None, now)
+    marked = FX.mark_asked(reports, rec, datetime.date(2026, 11, 26))
+    st = json.load(open(os.path.join(reports, "ela", "asks.json")))["impact:MH-4100"]
+    check("a train answer marks today.md's ask answered, as a tick does (B without a cause waits for one)",
+          marked and st["answered"] == {"letter": "B", "at": "2026-11-26", "cause": "waiting"})
+    check("an ask already answered is not marked again", FX.mark_asked(reports, rec) is False)
     try:
         FX.answer(reports, "impact:MH-4048", "A", train)
         check("a row that is not your call takes no ruling", False)

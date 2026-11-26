@@ -579,9 +579,23 @@ def answer_main(argv):
             print(f"letter {a.letter!r}: A or B", file=sys.stderr)
             sys.exit(EX_USAGE)
         print(f"{a.id}: ruled {rec['ruled']} ({rec['kind']})" + ("" if rec["cause"] else "; no cause given, kept as waiting for one"))
+        if FX.mark_asked(reports, rec):                     # an answered ask leaves today.md in the same step
+            rerender_today()
         return
     print(f"{a.id}: no written train holds this your-call row", file=sys.stderr)
     sys.exit(EX_USAGE)
+
+
+def rerender_today():
+    """The vault synced once, so today.md no longer shows the ask just answered; a failed sync is said, not fatal
+    (the runner's next sync renders it)."""
+    import subprocess
+    vault = os.path.join(os.path.dirname(HERE), "vault", "vault.py")
+    p = subprocess.run([sys.executable, vault, "sync"], capture_output=True, text=True)
+    if p.returncode:
+        print("today.md not re-rendered: " + ((p.stderr or p.stdout).strip().splitlines() or ["vault sync failed"])[-1], file=sys.stderr)
+    else:
+        print("today.md re-rendered")
 
 
 def trains_on_disk(s):
