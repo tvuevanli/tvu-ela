@@ -148,7 +148,7 @@ TYPE_FAMILY = {"decision": "decision", "plan": "plan", "sprint": "plan",
                "ticket": "reading", "review": "reading", "verify": "reading", "verify-plan": "reading",
                "home": "page", "today": "page", "manual": "page", "dropped": "page", "board": "page", "lanes": "page", "pm-requests": "page", "docker": "page", "recent": "page", "one-thing": "page", "test-list": "page", "dev-list": "page", "train": "page", "program": "page", "line": "page",
                "guide": "page", "vocabulary": "page", "system": "page", "constraints": "page", "readme": "page", "meeting": "page",
-               "report": "page", "project": "page", "services": "page", "questions": "page",
+               "report": "page", "project": "page", "services": "page", "questions": "page", "radar": "page",
                "day": "day", "reader": "day", "case": "case", "draft": "draft"}
 THING_FOLDERS = ("projects", RELEASES, CASES, REF, ELA, ARCHIVE)   # ela/ includes ela/history/   # where a work note lives: its thing's home
 FAMILY_FOLDERS = {"decision": THING_FOLDERS, "plan": THING_FOLDERS, "reading": THING_FOLDERS,
@@ -804,6 +804,9 @@ def report_notes(reports, today, runtime=None, helm=None):
         dm = re.search(r"^- (\d{4}-\d{2}-\d{2})", body, re.M)
         notes.append(Note(PM_REQUESTS_PAGE, h1(body) or "The PM's release requests", body,
                           {"type": "pm-requests", "date": dm.group(1) if dm else None}, fl, src_rel="runner/pm-requests.md"))
+    rn = radar_note(reports)
+    if rn:                                                 # the weekly radar: one standing page from the dated ones
+        notes.append(rn)
     on = onething_note(reports, today)
     if on:                                                 # his One Thing rows not yet pasted, rendered from the store each sync
         notes.append(on)
@@ -862,6 +865,72 @@ def report_notes(reports, today, runtime=None, helm=None):
                 props["keys"] = [deep.group(1).upper()]
             notes.append(Note(path, title, body, props, fl, src_rel=f"{sub + '/' if sub else ''}{f}"))
     return notes
+
+
+def radar_weeks(reports):
+    """The radar's dated pages, newest first: [(date, path)]; a preview is not a week."""
+    d = os.path.join(reports or "", "radar")
+    try:
+        fs = sorted((f for f in os.listdir(d) if re.match(r"^\d{4}-\d{2}-\d{2}\.md$", f)), reverse=True)
+    except OSError:
+        return []
+    return [(f[:10], os.path.join(d, f)) for f in fs]
+
+
+def radar_counts(text):
+    """A radar page's verdict counts: its front matter's, or counted from its bold verdicts (the hand-written first)."""
+    out = {}
+    for v in ("adopt", "try", "watch", "none"):
+        m = re.search(rf"^{v}:\s*(\d+)\s*$", "\n".join(split_front(text)[0]), re.M)
+        out[v] = int(m.group(1)) if m else len(re.findall(rf"\*\*{v}(?:,[^*]*)?\*\*", text, re.I))
+    return out
+
+
+def radar_note(reports):
+    """ela/radar.md: the newest week's page as `ela radar write` rendered it (each item a `##` section with a stable id,
+    so an `ela:` correction stays with its item), its heading the standing title, the earlier weeks folded one line
+    each above What you should do. None before the first week."""
+    weeks = radar_weeks(reports)
+    if not weeks:
+        return None
+    date, path = weeks[0]
+    fl, body = split_front(open(path, encoding="utf-8").read())
+    body = re.sub(r"\A\s*# .*\n", "", body).lstrip("\n")
+    older = []
+    for d, p in weeks[1:]:
+        try:
+            c = radar_counts(open(p, encoding="utf-8").read())
+        except OSError:
+            continue
+        heads = [re.sub(r"\s*·\s*r[0-9a-f]{6}$", "", h) for h in headings(split_front(open(p, encoding="utf-8").read())[1])
+                 if h != "What you should do"][:3]
+        older.append(f"> - {d}: " + " · ".join(f"{c[v]} {v}" for v in ("adopt", "try", "watch", "none") if c[v])
+                     + (" · " + "; ".join(heads) if heads else ""))
+    if older:
+        fold = f"> [!note]- Earlier weeks ({len(older)})\n>\n" + "\n".join(older) + "\n\n"
+        m = re.search(r"^## What you should do", body, re.M)
+        body = body[:m.start()] + fold + body[m.start():] if m else body.rstrip("\n") + "\n\n" + fold
+    body = f"# {RADAR_TITLE}\n\n" + body
+    return Note(RADAR_PAGE, RADAR_TITLE, body, {"type": "radar", "date": date}, [],
+                src_rel=os.path.relpath(path, reports))
+
+
+def radar_line(reports, today):
+    """today.md's one line for the radar, on a week with an adopt or try item, from the run's day through
+    RADAR_TODAY_DAYS days; None otherwise (ADR 0015: a page nobody reads earns no line on a quiet week)."""
+    weeks = radar_weeks(reports)
+    if not weeks:
+        return None
+    date, path = weeks[0]
+    try:
+        age = (today - datetime.date.fromisoformat(date)).days
+        c = radar_counts(open(path, encoding="utf-8").read())
+    except (OSError, ValueError):
+        return None
+    if not 0 <= age < RADAR_TODAY_DAYS or not (c["adopt"] or c["try"]):
+        return None
+    return (f"- [[{RADAR_PAGE[:-3]}|The radar]]: " + " · ".join(f"{c[v]} {v}" for v in ("adopt", "try") if c[v])
+            + " this week; ela takes the adopt items into its own work, a wrong verdict is corrected under its item")
 
 
 def lanes_live(body, helm):
@@ -1628,6 +1697,11 @@ LANES_PAGE, ONE_THING, DOCKER_PAGE = f"{RELEASES}/lanes.md", f"{REF}/one-thing.m
 # owner overrules after (elak decision 2026-11-26-the-pms-release-requests-run-first-the-owner-overrules-after.md);
 # the runner rewrites <reports>/runner/pm-requests.md on each request, the sync copies it here
 PM_REQUESTS_PAGE = f"{RELEASES}/pm-requests.md"
+# the weekly radar (plan ela/2026-11-26-plan-weekly-ai-radar): `ela radar write` keeps one page a week under
+# <reports>/radar/<date>.md; the vault shows one standing page, this week's items each a `##` section, earlier weeks
+# folded one line each
+RADAR_PAGE, RADAR_TITLE = f"{ELA}/radar.md", "Radar: what is new in Claude and AI tooling"
+RADAR_TODAY_DAYS = 4                                       # a Friday run shows on today.md through Monday
 DOCKER_ALIASES = ["mds", "docker", "Docker candidates"]   # the page's older names: links and the switcher keep working
 OLD_LANE_LINK = re.compile(r"\[\[lanes/([^\]|#]+)")
 
@@ -2507,7 +2581,8 @@ def budget_of(kind, rel=""):
         return TEAM_BUDGET
     return BUDGET.get(kind)
 PAGES_SPEC = ("home", "today", "manual", "dropped", "board", "lanes", "docker", "recent", "one-thing", "test-list", "dev-list", "train", "program", "guide",
-              "vocabulary", "system", "constraints", "readme", "services", "questions", "dry", "mention", "watch")   # living pages: each one's generator is its spec
+              "vocabulary", "system", "constraints", "readme", "services", "questions", "dry", "mention", "watch",
+              "radar")   # living pages: each one's generator is its spec
 CJK = re.compile(r"[一-鿿　-〿＀-￯]")
 SPEC_MARK = "<!-- note standards -->"
 
@@ -4981,6 +5056,8 @@ def today_page(today, notes, desk=None, shown=(), more=0, dropped=0, questions_l
             day.append(f"- [[{f['path'][:-3]}|{f['key']}]]: {days_words(f['days'])} to {f['deadline'].isoformat()}")
     if desk.get("watch_line"):                             # the board watch's topics: one line, the page behind it
         day.append(desk["watch_line"])
+    if desk.get("radar_line"):                             # the weekly radar, on an adopt or try week only
+        day.append(desk["radar_line"])
     if questions_line:                                     # the team's open questions: one line, the page behind it
         day.append(questions_line)
     n_wait, wait_pages = desk.get("fixes_waiting") or (0, [])
@@ -5966,7 +6043,7 @@ def native_notes(vault):
                 if m:
                     props[m.group(1)] = m.group(2)
             rel = os.path.relpath(p, vault).replace(os.sep, "/")
-            if rel in (OVERVIEW, SERVICES_PAGE) or PROJECT_PAGE.match(rel):   # generated: the ela page's hand sections, the service map's Review and a project page's head kept
+            if rel in (OVERVIEW, SERVICES_PAGE, RADAR_PAGE) or PROJECT_PAGE.match(rel):   # generated: the ela page's hand sections, the service map's Review and a project page's head kept
                 continue
             out.append(Note(rel, props.pop("title", None) or h1(body) or f[:-3], body, props, fl))
     return out
@@ -6439,6 +6516,7 @@ def plan(s, env, today, now, removed=frozenset(), removed_src=frozenset(), since
         "meetings": meetings, "builds": builds, "tickets": release_mod().facts_tickets(s.get("runtime"), [k for b in builds for v in b["services"] for k in v.get("keys") or []]),
         "owner": owner_name(os.path.join(s.get("runtime") or "", "facts")), "dry_facts": dry_facts, "views": focus.get("views"),
         "dev_ahead": dev_ahead_line(s.get("runtime")), "watch_line": watch_line(reports),
+        "radar_line": radar_line(reports, today),
         "board": focus.get("text") or "", "kpi": H.kpi_rows(s.get("runtime")), "head": H.load(reports),
         "fixes": since_fixes(trains, since), "fixes_waiting": fixes_waiting(fcands, shown, asks_state)}
     planned[TODAY] = redact(front([], {"type": "today", "date": today.isoformat()}) + linker(today_page(today, notes + native, desk,
