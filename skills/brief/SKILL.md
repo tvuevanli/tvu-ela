@@ -199,7 +199,7 @@ a standing gap, not a lane: `$SLACK channels --all <word>` finds them and joinin
 | **reports** | top-level messages in the last 24h whose author is a bot or whose text carries a report marker (`report`, `日报`, `测试报告`, `release note`, `(1/`) | which are Evan's to digest (MediaHub QA daily, release/service test reports) vs noise | "digest" → `/ela:digest <permalink>` |
 | **waiting** | `mentions` rows with `answered: false`, oldest first | the thread's role from the assessment below (act · reply · FYI · none), with its reason. Product, QA and integration partners waiting > 1 working day rank at the top of act and reply | act or reply: the drafted action or a one-line reply (Evan posts it; the slack capability's `post` is dry-run and confirm-gated); FYI: one line under *FYI*; none: counted only |
 | **monologues** | `unanswered` rows older than 24h | a spec or a question nobody picked up is a routing gap, not a Slack curiosity | name who should have answered → route, or "convert to ticket" → `$JIRA create --summary … --description …` dry-run |
-| **proposals** | `lanes.proposals` (`ela brief --lane proposals`): mediahub-bot's knowledge proposals ela first saw in the brief's window (24h, 72h on a Monday), from the fact store — claim, evidence, source (a person in the thread, or a read the bot made), the thread link, the routes; `older` counts those seen before; `state` or `gap` says a route was not configured or not read | does the claim hold against elak's knowledge, the map or the code, and is it knowledge (what others act on) or one thread's circumstance? A claim from a read the bot made is checked against that read where ela can; one from a person is that person's word, said so | one class-D item per proposal worth his word: `- [ ] 记下来 — <the claim in elak's words> → <elak>/knowledge/<path>` and `- [ ] drop — <why>`, the recommended first; on his 记下来 the session writes the file in elak and he commits it (ADR 0001, 0011); a proposal that contradicts elak names the line it contradicts; the rest one line in the lanes table. A gap is in the page's gaps line, never "no proposals" |
+| **proposals** | `lanes.proposals` (`ela brief --lane proposals`): mediahub-bot's knowledge proposals ela first saw in the brief's window (24h, 72h on a Monday), from the fact store — claim, evidence, source (a person in the thread, or a read the bot made), the thread link, the routes; `older` counts those seen before; `state` or `gap` says a route was not configured or not read | does the claim hold against elak's knowledge, the map or the code, and is it knowledge (what others act on) or one thread's circumstance? A claim from a read the bot made is checked against that read where ela can; one from a person is that person's word, said so | one class-D item per proposal worth his word: `- [ ] 记下来 — <the claim in elak's words> → <elak>/knowledge/<path>` and `- [ ] drop — <why>`, the recommended first; on his 记下来 the session writes the file in elak, then commits and pushes it under elak's commit rules (ADR 0026); a proposal that contradicts elak names the line it contradicts; the rest one line in the lanes table. A gap is in the page's gaps line, never "no proposals" |
 | **decisions** | Evan's own replies in the 7-day window that rule something (Chinese cues: 先…再…, 不做, 不改, 我来, 就这样, 既然…; English: `Let's …`, `we will not`, `decided`) in threads whose text carries **no** Jira key | is it a durable decision others act on? | "record" → the ruling as a fact in `<elak>/knowledge/products/mediahub/` via Evan's word (a decision others act on is knowledge about the product, not a log of a conversation — (elak `blueprint/principles.md` P1), or `$JIRA comment <key> --text '<the ruling, verbatim, with the permalink>'` dry-run |
 
 ### 2a — what a thread needs from Evan
@@ -599,8 +599,7 @@ The page is read in Obsidian, so its form is fixed:
 - **An item is a `###` heading in plain words** (what is happening, never a lane tag such as `[cadence RED]`), one
   facts line (key, its Jira title in a few plain words, kind, who holds it, age), at most three bullets, then
   then **Do:** as one to three task lines, each finished work by ela, written by the action's tier (below):
-  `- done N — what ela wrote · evidence: …` for a tier-1 action (a line, no box), `- [ ] don't N — at HH:MM unless
-  you tick: what it posts` for a tier-2 one (its `send_at`, 10:00 when it has none), `- [ ] apply N — what it writes` for a tier-3 one, or `- [ ] <option>`
+  `- done N — what ela wrote · evidence: …` for a tier-1 action (a line, no box), `- [ ] apply N — what it writes` for a tier-3 one (every Slack post among them; no box sends on a timer), or `- [ ] <option>`
   for a decision (class D), where the tick is the ruling. Ticking a box without `apply N` runs nothing, so its line ends with where the decision is
   taken: `· decide at the 10:00 scrum`, or `· your call, no write`; page-check flags a box with neither. *Why: on
   2026-10-28 items 1 and 7 offered four such boxes, and the page did not say that ticking them wrote nothing.*
@@ -639,7 +638,7 @@ The page is read in Obsidian, so its form is fixed:
   carries no box for it. `qa-today` and `dev-today` (QA today and Dev today, above)
   are on demand, drafted only when he asks and sent on his word; either may make the day post, `ela slack post #<team channel> … --team-day-post` (Dev today only that), which slack.py refuses when
   ela already posted top level in that channel that day. `test-list` (the 19:00 post) is retired; page-check fails an
-  action drafted under it (decisions/2026-10-29-writes-run-in-three-tiers.md, amendment 2026-10-30). A tier-1 or tier-2 action carries `evidence`, one
+  action drafted under it (decisions/2026-10-29-writes-run-in-three-tiers.md, amendment 2026-10-30). A tier-1 action carries `evidence`, one
   line he can check; a train action's evidence names the verdict build and its QA report (`ela day --json`
   `verdict_build`). Read `<reports>/review/tiers.json` first: a rule marked `demoted` (three corrections in seven
   days) drafts tier 3 until it clears. `ela page-check` checks each tier against its rule and its form on the page.
@@ -761,11 +760,11 @@ ela-runner starts this skill headless every weekday morning after it wrote the f
   warning).
 - `<reports>/runner/<date>-actions.json` — the drafted actions as a list, in the page's order:
   `[{"n": 1, "text": "<the one line the page shows>", "command": "<the exact ela command, dry run as written>", "kind": "comment|assign|label|transition|close|slack|fixed-in",
-  "tier": 1|2|3, "rule": "<a closed rule, or null at tier 3>", "evidence": "<one line; tier 1 and 2>", "channel": "<tier 2: the team channel's name>"}]`.
+  "tier": 1|3, "rule": "<a closed rule, or null at tier 3>", "evidence": "<one line; tier 1>"}]`.
   `text` is the decision as today.md shows it: one whole sentence of at most 20 words, never cut, naming the ticket and
   what the write does. Two writes on one ticket that serve one decision (a hand-over comment and the assignment)
   share that sentence: today.md shows them as one ask whose box applies both.
-  The runner adds what it did: `applied` (a time), `vetoed` (the time he ticked "don't"), `failed` (`{at, error}`).
+  The runner adds what it did: `applied` (a time), `failed` (`{at, error}`).
   A command is one of ela's own write verbs — `ela jira comment|assign|label|fixed-in|close …`, `ela slack
   post …` — complete with its key and text (a `--from-file` under `<reports>/runner/actions/<date>/`), and
   runnable as it stands; the runner appends `--apply` to it when the owner answers `apply <n>` in Slack or on

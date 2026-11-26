@@ -145,7 +145,8 @@ changing this charter, adding or merging repositories, renaming, adding a capabi
 one-line checks first: the problem and its evidence; the strongest alternative, including doing
 nothing and rebuilding the part from the root; the recorded decision it conflicts with; the verdict, always showing the option ela would
 reject. The owner decides; if they reaffirm after an objection, proceed and record the dissent in the
-ADR. Reopening a recorded decision needs new evidence. Each phase opens with a one-paragraph
+ADR. For ela's own design ela decides: the four checks are
+written as the reasoning in the plan note and nothing waits on the owner. Reopening a recorded decision needs new evidence. Each phase opens with a one-paragraph
 premortem. Adding, changing or removing an ability answers those checks against ela's own files —
 the scenario register, the layers, the manual and the roadmap — under the five-question admission
 test in ADR 0006.
