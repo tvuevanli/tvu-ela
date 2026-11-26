@@ -259,6 +259,11 @@
                                    <id> A|B, ADR 0024); any other, a bot's answers included, starts as go; done <id> --what TEXT once it lands; section --date D the
                                    reader page's Improve lines; pending one line for the desk session. Nothing is
                                    deleted, nothing written live
+  ela radar fetch|prompt|write|summary|sources   what is new in Claude and AI tooling, weekly (plan
+                                   ela/2026-11-26-plan-weekly-ai-radar): fetch reads the source table by code within
+                                   its caps; prompt the judge's input; write --input F renders <reports>/radar/<date>.md
+                                   from the judge's JSON and only then moves the marks; --since/--topic make a preview
+                                   that moves none; `ela-runner radar` runs the pass
   ela vault sync [--dry-run]       regenerate the owner's Obsidian vault: day pages, readings, verifications,
                                    decisions and plans; a note over its reading budget carries a warning;
                                    a note you delete is done and stays deleted (ela vault restore PATH)
@@ -365,6 +370,7 @@ VERBS = {
     "sessions": ("sessions", "find"), "session": ("sessions", None),
     "route": ("route", "facts"),
     "dry": ("dry", None), "mention": ("mention", None), "improve": ("improve", None), "asks": ("asks", None),
+    "radar": ("radar", None),
     "fixed-in": ("fixedin", "draft"),
     "links": ("links", None),
     "stage": ("stage", "queue"),
