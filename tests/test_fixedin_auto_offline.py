@@ -56,6 +56,8 @@ check([d["value"] for d in two] == ["mediahub-frontend@2.2.72.18+90", "mediahub-
 
 check(F.is_line("release2.1") and F.is_line("release2.0-2.2.72.17") and F.is_line("patch/2.2.132-MH-4072") and F.is_line("prod9_patch"),
       "release, patch and prod-patch branches are lines")
+check(not F.is_line("release_tvugo") and F.is_line("release1.0") and F.is_line("release2.1-v2.2.116.1"),
+      "release_tvugo, another product's line, is not an MH line")
 check(F.is_line("feature/MH3.0-develop-no-s3"), "a branch the map names for a line is a line")
 check(not F.is_line("feature/summer-MH5.1") and not F.is_line("master") and not F.is_line("feature/ui-2.0") and not F.is_line(""),
       "any other branch is not a line, whatever its name")

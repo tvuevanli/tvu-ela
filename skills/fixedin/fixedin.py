@@ -493,7 +493,7 @@ def chain(a, key, repos_cache, builds_cache):
 # in their subject, each carried by a successful build of one line, and the version a developer declared on the
 # ticket. One source alone is a draft for a person. Every condition that fails is named in `why`.
 AUTO_STATUSES = ("Review", "Done")
-LINE_RX = re.compile(r"^(?:release[\w.\-]*|patch/[\w.\-]+|prod\d*[_-]?patch[\w.\-]*|hotfix[\w./\-]*)$", re.I)
+LINE_RX = re.compile(r"^(?:release\d[\w.\-]*|patch/[\w.\-]+|prod\d*[_-]?patch[\w.\-]*|hotfix[\w./\-]*)$", re.I)
 
 
 def is_line(branch):
