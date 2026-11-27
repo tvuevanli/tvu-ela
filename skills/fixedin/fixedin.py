@@ -109,7 +109,7 @@ def commit_role(key, subject, body, merge):
 def commits_for(key, path):
     """Commits whose message names the key and that count for it (commit_role), and the tips of remote branches named
     for it. Each row carries `role`; the ones not counted come back apart. → (rows, error, dropped)."""
-    rc, out, err = P.git(path, "log", "--all", f"--grep={key}", "--format=%H%x09%ad%x09%an%x09%s", "--date=short")
+    rc, out, err = P.git(path, "log", "--all", "-i", f"--grep={key}", "--format=%H%x09%ad%x09%an%x09%s", "--date=short")
     if rc != 0:
         return None, "git log failed: " + err.strip()[:120], []
     rows, dropped = parse_log(out), []
@@ -134,7 +134,7 @@ def commits_for(key, path):
             rows = kept
     for r in rows:
         r["via"] = "message"
-    rc, out, _ = P.git(path, "branch", "-r", "--list", f"*{key.lower()}*")
+    rc, out, _ = P.git(path, "branch", "-r", "-i", "--list", f"*{key}*")
     for br in (b.strip() for b in out.splitlines() if b.strip() and "->" not in b):
         if not key_rx(key).search(br):
             continue
@@ -383,7 +383,7 @@ def chain(a, key, repos_cache, builds_cache):
     fid = (R.rmap("fixed_in") or {}).get("field") or "customfield_11252"
     rec = {"key": key, "summary": None, "status": None, "labels": [], "current": "", "compare": None,
            "draft": [], "commits": [], "builds": [], "lanes": [], "evidence": None, "gaps": [], "comments": [],
-           "dropped": [], "unbuilt": [], "predated": 0}
+           "dropped": [], "unbuilt": [], "predated": 0, "untestable": 0, "behind": []}
     d, code = read_ticket(a.env_file, key)
     if not d:
         rec["gaps"].append("not in Jira" if code == EX_NOTFOUND else "Jira unreadable"); rec["exit"] = code
@@ -457,10 +457,18 @@ def chain(a, key, repos_cache, builds_cache):
                                   "branch": b.get("branch") or "", "ledger": bool(b.get("ledger"))})
             missing = untestable_before(path, builds, b["number"])
             if missing:
+                rec["untestable"] += 1
                 rec["gaps"].append(f"{slug}: #{b['number']} is the earliest verifiable carrier of {c['sha'][:8]}; "
                                    f"#{missing[0]}–#{missing[-1]} ({len(missing)} builds) untestable — sha not in the checkout")
             carriers.setdefault(slug, []).append(b)
         found[slug] = ([c["sha"] for c in rows], builds, is_anc)
+        # the checkout must hold the newest build of each carrier's branch, or later commits naming the key are unseen
+        for br in sorted({b.get("branch") for b in carriers.get(slug, []) if b.get("branch")}):
+            newest = max((b for b in builds if b.get("branch") == br and b.get("sha_full") and b.get("number") is not None),
+                         key=lambda b: b["number"], default=None)
+            if newest and not commit_exists(path, newest["sha_full"]):
+                rec["behind"].append(f"{slug} {br} #{newest['number']}")
+                rec["gaps"].append(f"{slug}: the checkout lacks {br} #{newest['number']} ({newest['sha_full'][:8]}): fetch it, later commits may be unseen")
     for slug, bs in carriers.items():
         rec["draft"] += draft_values(slug, bs)
         shas, builds, is_anc = found[slug]
@@ -485,6 +493,21 @@ def chain(a, key, repos_cache, builds_cache):
 # in their subject, each carried by a successful build of one line, and the version a developer declared on the
 # ticket. One source alone is a draft for a person. Every condition that fails is named in `why`.
 AUTO_STATUSES = ("Review", "Done")
+LINE_RX = re.compile(r"^(?:release[\w.\-]*|patch/[\w.\-]+|prod\d*[_-]?patch[\w.\-]*|hotfix[\w./\-]*)$", re.I)
+
+
+def is_line(branch):
+    """A branch a lane takes builds from: release*, the patch and prod-patch forms, or a branch the release map's
+    version rules name for a line (unified-media-frontend's feature/MH3.0-develop-no-s3). Any other branch is work in
+    progress, whatever its name."""
+    if not branch:
+        return False
+    if LINE_RX.match(branch):
+        return True
+    for rule in (R.rmap("version_rules") or {}).get("trains") or (R.rmap("trains") or []) or []:
+        if isinstance(rule, dict) and branch in (rule.get("branches") or {}):
+            return True
+    return False
 SUPPRESSOR_LABELS = ("flag:no-version", "flag:non-carrier")
 
 
@@ -521,8 +544,13 @@ def auto_verdict(rec):
         why.append("a carrying build did not succeed")
     if any(not b.get("branch") for b in builds):
         why.append("a carrying build has no recorded branch")
-    if any(key_rx(rec["key"]).search(b.get("branch") or "") for b in builds):
-        why.append("carried by a build of the ticket's own branch, not a line")
+    off = sorted({b.get("branch") for b in builds if b.get("branch") and not is_line(b["branch"])})
+    if off:
+        why.append("carried by " + ", ".join(off) + ", not a release line")
+    if rec.get("untestable"):
+        why.append("an earlier build could not be checked (its commit is not in the checkout)")
+    if rec.get("behind"):
+        why.append("the checkout is behind the builds: " + ", ".join(rec["behind"]))
     if any(g for g in rec.get("gaps") or [] if "unmapped" in g or "no checkout" in g or "unreadable" in g or "no survey cache" in g):
         why.append("a service's checkout, job or builds could not be read")
     draft = rec.get("draft") or []
@@ -531,17 +559,27 @@ def auto_verdict(rec):
         why.append("a service with a counted commit has no carrying build")
     if len(draft) != len({d["service"] for d in draft}):
         why.append("the fix is on more than one line of a service")
-    declared = (rec.get("declared") or {}).get("declared") or []
+    dec_all = rec.get("declared") or {}
+    declared = dec_all.get("declared") or []
     by = {d["service"]: d for d in declared}
+    last_commit = max((c.get("date") or "" for c in commits), default="")
     for d in draft:
         dec = by.get(d["service"])
         if not dec:
-            why.append(f"no developer declared a version for {d['service']}")
-        elif base_version(dec["value"]) is None or base_version(dec["value"]) != base_version(d["value"]):
-            why.append(f"declared {dec['value']} differs from the derived {d['value']}")
-    outside = sorted(set(by) - {d["service"] for d in draft})
+            why.append(f"no developer declared a version for {d['service']}"); continue
+        if base_version(dec["value"]) is None or base_version(dec["value"]) != base_version(d["value"]):
+            why.append(f"declared {dec['value']} differs from the derived {d['value']}"); continue
+        if dec.get("versions_in_comment", 1) != 1:
+            why.append(f"the comment declaring {dec['value']} names more than one version")
+        if dec.get("date") and last_commit and dec["date"] < last_commit:
+            why.append(f"the declaration ({dec['date']}) predates the last counted commit ({last_commit})")
+        m = re.search(r"\+(\d+)$", dec["value"])
+        if m and not d["value"].endswith("+" + m.group(1)):
+            why.append(f"declared build {dec['value']} differs from the derived {d['value']}")
+    named = set(by) | set(dec_all.get("named_services") or []) | {v.split("@", 1)[0] for v in dec_all.get("bare_release_lines") or []}
+    outside = sorted(named - {d["service"] for d in draft})
     if outside and draft:
-        why.append("declared for a service the commits do not cover: " + ", ".join(outside))
+        why.append("a developer names a service the commits do not cover: " + ", ".join(outside))
     ok = not why and bool(draft)
     return {"ok": ok, "value": "; ".join(d["value"] for d in draft) if ok else "", "why": why}
 
@@ -896,7 +934,7 @@ def declared_from_comments(comments, summary, roster):
         elif who:
             unknown.append({"author": who, "when": when, "area": area or "not in roster"})
     suppressed = {i for i, _ in cits if any(r > i for r in qa_refute)}
-    order, ver, meta, bare, docker = [], {}, {}, [], []
+    order, ver, meta, bare, docker, nver, named = [], {}, {}, [], [], {}, set()
     context = (summary or "") + " " + " ".join(c["body"] for _, c in cits)
     for idx, cit in cits:
         if idx in suppressed:
@@ -906,6 +944,10 @@ def declared_from_comments(comments, summary, roster):
         for slug, image_tag in resolve_docker(cit["body"], context):
             if (slug, image_tag) not in docker:
                 docker.append((slug, image_tag)); meta[slug] = (cit["author"], cit["when"], "docker image")
+        try:                                              # every service a developer names, with or without a version
+            named |= {sl for sl, _ in resolve_named_multi(mask_commit_subjects(cit["body"])) if sl}
+        except Exception:                                 # noqa: BLE001 — a resolver failure only narrows what is named
+            pass
         pairs, via = resolve_pairs(cit["body"], cit["versions"], summary or "")
         for slug, version in pairs:
             if is_bare_line(version):
@@ -913,10 +955,12 @@ def declared_from_comments(comments, summary, roster):
             if slug not in ver:
                 order.append(slug)
             ver[slug] = version; meta[slug] = (cit["author"], cit["when"], via)
+            nver[slug] = len({normalize_token(v) for v in cit["versions"]}) or 1
     bare = [(s, v) for s, v in bare if s not in ver]
-    rows = [{"service": s, "version": ver[s], "value": f"{s}@{ver[s]}", "author": meta[s][0], "date": meta[s][1], "via": meta[s][2], "verified": False} for s in order]
+    rows = [{"service": s, "version": ver[s], "value": f"{s}@{ver[s]}", "author": meta[s][0], "date": meta[s][1], "via": meta[s][2],
+             "versions_in_comment": nver.get(s, 1), "verified": False} for s in order]
     rows += [{"service": s, "version": t, "value": f"{s}@{t}", "author": meta[s][0], "date": meta[s][1], "via": "docker image", "verified": False} for s, t in docker]
-    return {"declared": rows, "bare_release_lines": [f"{s}@{v}" for s, v in bare], "suppressed_by_qa_refutation": len(suppressed),
+    return {"declared": rows, "bare_release_lines": [f"{s}@{v}" for s, v in bare], "named_services": sorted(named), "suppressed_by_qa_refutation": len(suppressed),
             "versions_from_unknown_authors": unknown, "developer_comments_read": len(cits)}
 
 
@@ -1109,7 +1153,12 @@ def cmd_draft(a):
     recs, builds_cache = [], {}
     for k in keys:
         P.say(f"{k}: ticket, commits, builds, lanes")
-        r = chain(a, k, repos_cache, builds_cache)
+        try:
+            r = chain(a, k, repos_cache, builds_cache)
+        except Exception as e:                           # noqa: BLE001 — one ticket's failure is its record's, not the batch's
+            r = {"key": k, "summary": None, "status": None, "labels": [], "current": "", "compare": None, "draft": [], "commits": [],
+                 "builds": [], "lanes": [], "evidence": None, "gaps": [f"failed: {type(e).__name__}: {str(e)[:160]}"], "comments": [],
+                 "exit": EX_REMOTE, "auto": {"ok": False, "value": "", "why": [f"the derivation failed: {type(e).__name__}"]}}
         if repos_cache is None:
             r["gaps"].append(f"no survey cache at {CACHE} — run: ela survey")
         recs.append(r)

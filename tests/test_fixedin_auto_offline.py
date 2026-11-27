@@ -18,7 +18,8 @@ def check(ok, label):
         failures.append(label)
 
 
-F.R._MAP = {"fixed_in": {"field": "customfield_11252"}, "version_rules": {"semver_build": {"patch_only": []}}}
+F.R._MAP = {"fixed_in": {"field": "customfield_11252"}, "version_rules": {"semver_build": {"patch_only": []}},
+           "trains": [{"slug": "unified-media-frontend", "kind": "built-from-feature-branch", "branches": {"feature/MH3.0-develop-no-s3": "3.0.22 and up"}}]}
 K = "MH-4114"
 role = lambda subject, body="", merge=False: F.commit_role(K, subject, subject + "\n\n" + body, merge)[0]
 
@@ -53,12 +54,20 @@ check([d["value"] for d in two] == ["mediahub-frontend@2.2.72.18+90", "mediahub-
       "one entry per branch in a series, the highest build on each")
 
 
+check(F.is_line("release2.1") and F.is_line("release2.0-2.2.72.17") and F.is_line("patch/2.2.132-MH-4072") and F.is_line("prod9_patch"),
+      "release, patch and prod-patch branches are lines")
+check(F.is_line("feature/MH3.0-develop-no-s3"), "a branch the map names for a line is a line")
+check(not F.is_line("feature/summer-MH5.1") and not F.is_line("master") and not F.is_line("feature/ui-2.0") and not F.is_line(""),
+      "any other branch is not a line, whatever its name")
+
+
 def rec(**over):
     r = {"key": K, "status": "Review", "current": "", "subtasks": 0, "labels": [], "predated": 0, "unbuilt": [], "dropped": [], "gaps": [],
+         "untestable": 0, "behind": [],
          "commits": [{"sha": A, "via": "message", "role": "fix", "service": "mediahub-frontend"}],
          "builds": [{"service": "mediahub-frontend", "sha": A, "number": 239, "result": "SUCCESS", "branch": "release2.1"}],
          "draft": [{"service": "mediahub-frontend", "value": "mediahub-frontend@2.2.173+239"}],
-         "declared": {"declared": [{"service": "mediahub-frontend", "value": "mediahub-frontend@2.2.173"}]}}
+         "declared": {"declared": [{"service": "mediahub-frontend", "value": "mediahub-frontend@2.2.173", "date": "2026-11-26", "versions_in_comment": 1}]}}
     r.update(over)
     return r
 
@@ -77,7 +86,18 @@ no("a revert names the key → no", dropped=[{"sha": A, "why": "revert"}])
 no("an unbuilt commit → no", unbuilt=[{"service": "mediahub-frontend", "sha": A}])
 no("a failed carrier → no", builds=[{"service": "mediahub-frontend", "sha": A, "number": 239, "result": "FAILURE", "branch": "release2.1"}])
 no("a carrier with no branch → no", builds=[{"service": "mediahub-frontend", "sha": A, "number": 239, "result": "SUCCESS", "branch": ""}])
-no("the ticket's own branch as carrier → no", builds=[{"service": "mediahub-frontend", "sha": A, "number": 9, "result": "SUCCESS", "branch": "patch/MH-4114"}])
+no("a feature branch without a key as carrier → no", builds=[{"service": "mediahub-frontend", "sha": A, "number": 9, "result": "SUCCESS", "branch": "feature/summer-MH5.1"}])
+no("an earlier build not checkable → no", untestable=1)
+no("the checkout behind the builds → no", behind=["mediahub-frontend release2.1 #250"])
+no("a comment naming two versions → no", declared={"declared": [{"service": "mediahub-frontend", "value": "mediahub-frontend@2.2.173", "date": "2026-11-26", "versions_in_comment": 2}]})
+no("a declaration older than the last commit → no", declared={"declared": [{"service": "mediahub-frontend", "value": "mediahub-frontend@2.2.173", "date": "2026-11-20", "versions_in_comment": 1}]},
+   commits=[{"sha": A, "via": "message", "role": "fix", "service": "mediahub-frontend", "date": "2026-11-26"}])
+no("a declared build that differs → no", declared={"declared": [{"service": "mediahub-frontend", "value": "mediahub-frontend@2.2.173+240", "date": "2026-11-26", "versions_in_comment": 1}]})
+no("a developer naming another service without a version → no",
+   declared={"declared": [{"service": "mediahub-frontend", "value": "mediahub-frontend@2.2.173", "date": "2026-11-26", "versions_in_comment": 1}], "named_services": ["mediahub-backend"]})
+no("a bare release line for another service → no",
+   declared={"declared": [{"service": "mediahub-frontend", "value": "mediahub-frontend@2.2.173", "date": "2026-11-26", "versions_in_comment": 1}], "bare_release_lines": ["mediahub-backend@2.1"]})
+no("the ticket's own feature branch as carrier → no", builds=[{"service": "mediahub-frontend", "sha": A, "number": 9, "result": "SUCCESS", "branch": "feature/MH-4114"}])
 no("no declaration → no", declared={"declared": []})
 no("a declaration that differs → no", declared={"declared": [{"service": "mediahub-frontend", "value": "mediahub-frontend@2.2.176"}]})
 no("a declaration for a service the commits miss → no",
