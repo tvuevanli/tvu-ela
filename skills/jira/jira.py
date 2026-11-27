@@ -2341,14 +2341,19 @@ def fixed_in_merge(current, add):
 def _fixed_in_one(creds, key, add, apply, remove=None, clear=False, if_empty=False):
     """Append entries; `remove` takes named entries out and `clear` empties the field — both only for a value that
     should never have been written (an automated write on a `flag:no-version` ticket), behind the same --apply."""
-    f = _issue(creds, key, f"summary,{FIXED_IN_FIELD}")
+    f = _issue(creds, key, f"summary,{FIXED_IN_FIELD}" + (",status,labels" if if_empty else ""))
     raw = f.get(FIXED_IN_FIELD)
     current = body_text(raw) if raw else ""
     cur, new, value = fixed_in_merge(current, add or [])
-    if if_empty and current.strip():                      # an unattended fill writes only an empty field, read at write time
-        r = {"key": key, "current": "; ".join(cur), "add": [], "remove": [], "value": "; ".join(cur), "dry_run": not apply,
-             "changed": False, "refused": "not empty"}
-        return r, [f"{key}: Fixed In is not empty ({r['current']}); --if-empty writes nothing"]
+    if if_empty:                                          # an unattended fill: the ticket as it is at write time
+        status = ((f.get("status") or {}).get("name") or "")
+        held = [l for l in f.get("labels") or [] if l in ("flag:no-version", "flag:non-carrier")]
+        why = ("not empty" if current.strip() else f"status {status}" if status not in ("Review", "Done")
+               else "labelled " + ", ".join(held) if held else "")
+        if why:
+            r = {"key": key, "current": "; ".join(cur), "add": [], "remove": [], "value": "; ".join(cur), "dry_run": not apply,
+                 "changed": False, "refused": why}
+            return r, [f"{key}: {why}; --if-empty writes nothing"]
     gone = []
     if clear:
         gone, cur_after = list(cur), []

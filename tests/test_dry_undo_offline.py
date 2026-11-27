@@ -136,6 +136,13 @@ with tempfile.TemporaryDirectory() as R:
     r = run(J.cmd_fixed_in, fake, targets=["MH-1"], add="mh-app@2.1", remove=None, clear=False, if_empty=True, apply=True)
     check("fixed-in --if-empty: a field that is not empty is left as it is, and nothing is written",
           r.get("refused") == "not empty" and not r.get("changed") and not r.get("add"))
+    fake.issues["MH-2"]["status"] = {"name": "In Progress"}
+    r = run(J.cmd_fixed_in, fake, targets=["MH-2"], add="mh-app@2.1", remove=None, clear=False, if_empty=True, apply=True)
+    check("fixed-in --if-empty: a ticket no longer in Review or Done is not written", r.get("refused") == "status In Progress" and not r.get("changed"))
+    fake.issues["MH-2"].update(status={"name": "Review"}, labels=["flag:no-version"])
+    r = run(J.cmd_fixed_in, fake, targets=["MH-2"], add="mh-app@2.1", remove=None, clear=False, if_empty=True, apply=True)
+    check("fixed-in --if-empty: a suppressor label is honoured at write time", r.get("refused") == "labelled flag:no-version" and not r.get("changed"))
+    fake.issues["MH-2"].update(labels=[])
     os.environ.update(ELA_ACT="2026-11-12-release-reconcile-qa-aws3-b90#2")
     r = run(J.cmd_label, fake, targets=["MH-1"], add="release-2.1", remove=None, nonstandard=None, apply=True)
     check("label: the act keeps the labels before and takes out exactly what it added",
