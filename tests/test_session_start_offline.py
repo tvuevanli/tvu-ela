@@ -220,9 +220,13 @@ REQUIRED = {
         "His word stays required for product, team and outward-facing matters"],
     "adversarial review (2026-11-25)": ["a reviewer that did not write it", "not ela's conclusion"],
     "review rounds (2026-11-26)": [
-        "one round for a change inside ela's own machinery", "two for a change to what he reads",
+        "none for a reversible change inside ela's own machinery", "one for such a change that is hard to undo",
+        "two for a change to what he reads",
         "three for a change that moves, rewrites or retires his notes", "act unasked where a colleague sees it",
         "Each round is a fresh reviewer", "A small fix still ships on ela's own judgment"],
+    "review is evidence (2026-11-27)": [
+        "A review is evidence, never a veto", "never the session that wrote the plan",
+        "Knowledge learned from incidents stays where it was learned"],
     "ela runs on its own (2026-11-26)": [
         "names its kind, *fact* or *ruling*", "carries ela's leaning", "`wrong: <why>`",
         "a private, reversible call is always ela's", "the `ela dry` ladder",
