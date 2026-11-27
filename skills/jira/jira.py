@@ -2338,13 +2338,17 @@ def fixed_in_merge(current, add):
     return cur, new, "; ".join(cur + new)
 
 
-def _fixed_in_one(creds, key, add, apply, remove=None, clear=False):
+def _fixed_in_one(creds, key, add, apply, remove=None, clear=False, if_empty=False):
     """Append entries; `remove` takes named entries out and `clear` empties the field — both only for a value that
     should never have been written (an automated write on a `flag:no-version` ticket), behind the same --apply."""
     f = _issue(creds, key, f"summary,{FIXED_IN_FIELD}")
     raw = f.get(FIXED_IN_FIELD)
     current = body_text(raw) if raw else ""
     cur, new, value = fixed_in_merge(current, add or [])
+    if if_empty and current.strip():                      # an unattended fill writes only an empty field, read at write time
+        r = {"key": key, "current": "; ".join(cur), "add": [], "remove": [], "value": "; ".join(cur), "dry_run": not apply,
+             "changed": False, "refused": "not empty"}
+        return r, [f"{key}: Fixed In is not empty ({r['current']}); --if-empty writes nothing"]
     gone = []
     if clear:
         gone, cur_after = list(cur), []
@@ -2424,7 +2428,7 @@ def cmd_fixed_in(creds, args):
         sys.exit("fixed-in: pass --add, --remove or --clear")
     results, lines = [], []
     for key in _keys(args.targets):
-        r, ls = _fixed_in_one(creds, key, add, args.apply, remove=remove, clear=args.clear)
+        r, ls = _fixed_in_one(creds, key, add, args.apply, remove=remove, clear=args.clear, if_empty=getattr(args, "if_empty", False))
         results.append(r); lines += ls
     if not args.apply and any(r["add"] or r["remove"] for r in results):
         lines.append("pass --apply to write")
@@ -2785,6 +2789,7 @@ def main():
     p.add_argument("--add", help="'<slug>@<version>[; <slug>@<version> …]' in the release map's grammar")
     p.add_argument("--remove", help="entries to take out — only for a value that should never have been written")
     p.add_argument("--clear", action="store_true", help="empty the field — same rule as --remove")
+    p.add_argument("--if-empty", action="store_true", help="write only when the field is empty when read at write time (an unattended fill)")
     p.add_argument("--apply", action="store_true"); p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_fixed_in)
 

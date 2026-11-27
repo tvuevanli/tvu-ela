@@ -133,6 +133,9 @@ with tempfile.TemporaryDirectory() as R:
     r = run(J.cmd_fixed_in, fake, targets=["MH-1"], add="mh-app@2.0", remove=None, clear=False, apply=True)
     check("fixed-in: the act keeps the value before and takes out exactly what it added",
           r.get("undo") == ["ela", "jira", "fixed-in", "MH-1", "--remove", "mh-app@2.0"] and r.get("current") == "mh-app@1.0")
+    r = run(J.cmd_fixed_in, fake, targets=["MH-1"], add="mh-app@2.1", remove=None, clear=False, if_empty=True, apply=True)
+    check("fixed-in --if-empty: a field that is not empty is left as it is, and nothing is written",
+          r.get("refused") == "not empty" and not r.get("changed") and not r.get("add"))
     os.environ.update(ELA_ACT="2026-11-12-release-reconcile-qa-aws3-b90#2")
     r = run(J.cmd_label, fake, targets=["MH-1"], add="release-2.1", remove=None, nonstandard=None, apply=True)
     check("label: the act keeps the labels before and takes out exactly what it added",
