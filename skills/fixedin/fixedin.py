@@ -80,16 +80,58 @@ def survey_repos():
         return None
 
 
+ANY_KEY_RX = re.compile(r"(?<![A-Za-z0-9])[A-Za-z][A-Za-z0-9]+-\d+(?!\d)")
+MERGE_SOURCE_RX = re.compile(r"^Merge (?:remote-tracking )?branch '([^']+)'")
+NOT_A_FIX_RX = re.compile(r"^(?:docs?|tests?|chore|ci|style)(?:\([^)]*\))?!?\s*[:：]", re.I)
+
+
+def commit_role(key, subject, body, merge):
+    """What a commit that names the key is to it → (role, reason). `fix`: the subject names the key, or a merge brings
+    the branch named for it. `weak`: a non-merge commit that names the key only in its body (a trailer, a cross
+    reference); it stays in the draft and bars an unattended write. `no`: not counted, with the reason. A sync merge
+    lists the keys it carries and fixes none (media-hub-front d293cc92 moved four drafts from #239 to a feature
+    build, 2026-11-27); a docs, test, chore or ci commit and a revert change no shipped behaviour for the key."""
+    rx = key_rx(key)
+    if re.match(r"^Revert\b", subject):
+        return "no", "revert"
+    if merge:
+        src = MERGE_SOURCE_RX.match(subject)
+        if src and rx.search(src.group(1)):
+            return "fix", ""
+        return "no", "a merge that does not bring the key's own branch"
+    if NOT_A_FIX_RX.match(subject) or "[skip ci]" in subject:
+        return "no", "a docs, test, chore or ci commit"
+    if rx.search(subject):
+        return "fix", ""
+    return ("weak", "names the key only in its body") if rx.search(body) else ("no", "does not name the key")
+
+
 def commits_for(key, path):
-    """Commits whose message names the key, and the tips of remote branches named for it."""
+    """Commits whose message names the key and that count for it (commit_role), and the tips of remote branches named
+    for it. Each row carries `role`; the ones not counted come back apart. → (rows, error, dropped)."""
     rc, out, err = P.git(path, "log", "--all", f"--grep={key}", "--format=%H%x09%ad%x09%an%x09%s", "--date=short")
     if rc != 0:
-        return None, "git log failed: " + err.strip()[:120]
-    rows = parse_log(out)
+        return None, "git log failed: " + err.strip()[:120], []
+    rows, dropped = parse_log(out), []
     if rows:                       # --grep is a substring match; keep the commits that name this key as a token
-        rc, bodies, _ = P.git(path, "log", "--no-walk", "--format=%H%x1f%B%x1e", *[r["sha"] for r in rows])
-        named = {b.split("\x1f", 1)[0].strip() for b in bodies.split("\x1e") if "\x1f" in b and key_rx(key).search(b.split("\x1f", 1)[1])}
-        rows = [r for r in rows if r["sha"] in named] if rc == 0 else rows
+        rc, bodies, _ = P.git(path, "log", "--no-walk", "--format=%H%x1f%P%x1f%B%x1e", *[r["sha"] for r in rows])
+        if rc == 0:
+            meta = {}
+            for b in bodies.split("\x1e"):
+                parts = b.strip("\n").split("\x1f", 2)
+                if len(parts) == 3:
+                    meta[parts[0].strip()] = (len(parts[1].split()) > 1, parts[2])
+            kept = []
+            for r in rows:
+                merge, body = meta.get(r["sha"], (False, ""))
+                if not key_rx(key).search(body):
+                    continue
+                role, why = commit_role(key, r["subject"], body, merge)
+                if role == "no":
+                    dropped.append(dict(r, why=why))
+                else:
+                    kept.append(dict(r, role=role))
+            rows = kept
     for r in rows:
         r["via"] = "message"
     rc, out, _ = P.git(path, "branch", "-r", "--list", f"*{key.lower()}*")
@@ -103,7 +145,7 @@ def commits_for(key, path):
                 hit.setdefault("branches", []).append(br)
             else:
                 rows.append(dict(t, via="branch", branches=[br]))
-    return rows, None
+    return rows, None, dropped
 
 
 # ── hints: commits that never named their key ────────────────────────────────
@@ -156,7 +198,7 @@ def neighbour_commits(path, n):
                 if r["sha"] not in seen:
                     seen.add(r["sha"]); rows.append(dict(r, via=f"commit {h[:10]} cited in a comment"))
     for k in n.get("links") or []:
-        got, err = commits_for(k, path)
+        got, err, _ = commits_for(k, path)
         for r in got or []:
             if r["sha"] not in seen:
                 seen.add(r["sha"]); rows.append(dict(r, via=f"linked ticket {k}"))
@@ -228,9 +270,19 @@ def build_parsed(b):
     return R.parse_version(f"{b['version']}+{b['build']}") if b.get("version") and b.get("build") is not None else None
 
 
-def carrying_build(sha, builds, is_ancestor):
-    """The earliest build whose sha is the commit or descends from it; a successful build is preferred."""
-    ordered = sorted((b for b in builds if b.get("sha_full") and b.get("number") is not None), key=lambda b: b["number"])
+def foreign_branch(b, key):
+    """Whether a build was made from a branch named for another ticket (feature/MH-4013 for MH-4114). Such a build
+    carries the commit without putting it on a line a lane takes: the Jenkins branch, not the number, says which line
+    a build is on (map/release.yaml version_rules, branch-split-in-series)."""
+    br = b.get("branch") or ""
+    return bool(key and ANY_KEY_RX.search(br) and not key_rx(key).search(br))
+
+
+def carrying_build(sha, builds, is_ancestor, key=None):
+    """The earliest build whose sha is the commit or descends from it; a successful build is preferred. With `key`,
+    a build of another ticket's branch is passed over (foreign_branch)."""
+    ordered = sorted((b for b in builds if b.get("sha_full") and b.get("number") is not None and not foreign_branch(b, key)),
+                     key=lambda b: b["number"])
     for want_success in (True, False):
         for b in ordered:
             if want_success and b.get("result") != "SUCCESS":
@@ -241,17 +293,23 @@ def carrying_build(sha, builds, is_ancestor):
 
 
 def draft_values(slug, carriers):
-    """Carrying builds of one service → Fixed In entries: the highest build per M.m series (release.yaml
-    fixed_in.same_slug_twice), written in the canonical M.m.p+BUILD form."""
+    """Carrying builds of one service → Fixed In entries: the highest build per M.m series and Jenkins branch, written
+    in the canonical M.m.p+BUILD form. On one branch the highest carrier is the first build that holds every counted
+    commit; two branches in one series are two lines (release2.0 and release2.1 share 2.2), one entry each."""
     best = {}
     for b in carriers:
         pv = build_parsed(b)
         if not pv:
             continue
-        series = pv[:2]
+        series = (pv[:2], b.get("branch") or "")
         if series not in best or pv > best[series]:
             best[series] = pv
-    return [{"service": slug, "value": f"{slug}@{R.vlabel(pv)}"} for _, pv in sorted(best.items())]
+    out = []
+    for _, pv in sorted(best.items()):
+        row = {"service": slug, "value": f"{slug}@{R.vlabel(pv)}"}
+        if row not in out:
+            out.append(row)
+    return out
 
 
 def compare(current_text, drafts):
@@ -324,7 +382,8 @@ def read_ticket(env_file, key):
 def chain(a, key, repos_cache, builds_cache):
     fid = (R.rmap("fixed_in") or {}).get("field") or "customfield_11252"
     rec = {"key": key, "summary": None, "status": None, "labels": [], "current": "", "compare": None,
-           "draft": [], "commits": [], "builds": [], "lanes": [], "evidence": None, "gaps": [], "comments": []}
+           "draft": [], "commits": [], "builds": [], "lanes": [], "evidence": None, "gaps": [], "comments": [],
+           "dropped": [], "unbuilt": [], "predated": 0}
     d, code = read_ticket(a.env_file, key)
     if not d:
         rec["gaps"].append("not in Jira" if code == EX_NOTFOUND else "Jira unreadable"); rec["exit"] = code
@@ -348,15 +407,21 @@ def chain(a, key, repos_cache, builds_cache):
         path = checkout_of(rel, repos_cache or [])
         if not path:
             rec["gaps"].append(f"{slug}: no checkout of {rel} in the survey cache (ela clone {rel})"); continue
-        rows, err = commits_for(key, path)
+        rows, err, dropped = commits_for(key, path)
         if err:
             rec["gaps"].append(f"{slug}: {err}"); continue
+        for d in dropped:
+            rec["dropped"].append(dict(d, service=slug))
+        if dropped:
+            rec["gaps"].append(f"{slug}: {len(dropped)} commit(s) naming {key} not counted: "
+                               + "; ".join(f"{d['sha'][:8]} {d['why']}" for d in dropped[:4]) + (" …" if len(dropped) > 4 else ""))
         # a commit dated before the ticket existed cannot be its fix: the key was reused (a ticket copied in from
         # another project takes a free number), so the commit belongs to an earlier ticket of the same number
         # (MH-1860, created 2025-12-05, was credited with a 2025-03-28 commit and proposed for close)
         early = [r for r in rows if rec.get("created") and r.get("date") and r["date"] < rec["created"]]
         if early:
             rows = [r for r in rows if r not in early]
+            rec["predated"] += len(early)
             rec["gaps"].append(f"{slug}: {len(early)} commit(s) naming {key} predate the ticket ({rec['created']}): "
                                + ", ".join(f"{r['sha'][:8]} {r['date']}" for r in early[:3]) + "; an earlier ticket's, not counted")
         for h in hinted_commits(path, a) if (a.author or a.path or a.thread) else []:
@@ -380,12 +445,16 @@ def chain(a, key, repos_cache, builds_cache):
             rec["gaps"].append(note)
         is_anc = lambda s, b, p=path: P.git(p, "merge-base", "--is-ancestor", s, b)[0] == 0
         for c in rows:
-            b = carrying_build(c["sha"], builds, is_anc)
+            b = carrying_build(c["sha"], builds, is_anc, key)
             if not b:
-                rec["gaps"].append(f"{slug}: {c['sha'][:8]} is in no build of {job}'s last {len(builds)} (not built yet, or older than the window)"); continue
+                other = carrying_build(c["sha"], builds, is_anc)
+                rec["unbuilt"].append({"service": slug, "sha": c["sha"]})
+                rec["gaps"].append(f"{slug}: {c['sha'][:8]} is carried only by builds of {other.get('branch')} (from #{other['number']}), another ticket's branch — on no line yet"
+                                   if other else
+                                   f"{slug}: {c['sha'][:8]} is in no build of {job}'s last {len(builds)} (not built yet, or older than the window)"); continue
             rec["builds"].append({"service": slug, "sha": c["sha"], "job": job, "number": b["number"],
                                   "version": R.vlabel(build_parsed(b)) if build_parsed(b) else b.get("version"), "result": b.get("result"),
-                                  "ledger": bool(b.get("ledger"))})
+                                  "branch": b.get("branch") or "", "ledger": bool(b.get("ledger"))})
             missing = untestable_before(path, builds, b["number"])
             if missing:
                 rec["gaps"].append(f"{slug}: #{b['number']} is the earliest verifiable carrier of {c['sha'][:8]}; "
@@ -407,7 +476,74 @@ def chain(a, key, repos_cache, builds_cache):
             if unjudged:
                 rec["gaps"].append(f"{slug} on {host}: {', '.join(sorted(set(unjudged)))} run a build outside Jenkins' last {len(builds)} — not compared")
     rec["compare"] = compare(rec["current"], rec["draft"])
+    rec["auto"] = auto_verdict(rec)
     return rec
+
+
+# ── auto: the closed test for a write nobody reads first ─────────────────────
+# The runner fills an empty Fixed In by itself only when two first-hand sources agree: the commits that name the key
+# in their subject, each carried by a successful build of one line, and the version a developer declared on the
+# ticket. One source alone is a draft for a person. Every condition that fails is named in `why`.
+AUTO_STATUSES = ("Review", "Done")
+SUPPRESSOR_LABELS = ("flag:no-version", "flag:non-carrier")
+
+
+def base_version(value):
+    """`<slug>@2.2.173+239` or `2.2.173` → (2, 2, 173): the declared and the derived version compared without the build."""
+    pv = R.parse_version(value.split("@", 1)[-1].lstrip("v"))
+    return tuple(pv[:4]) if pv else None
+
+
+def auto_verdict(rec):
+    why = []
+    if rec.get("status") not in AUTO_STATUSES:
+        why.append(f"status is {rec.get('status') or 'unread'}, not Review or Done")
+    if rec.get("current"):
+        why.append("Fixed In is not empty")
+    if rec.get("subtasks"):
+        why.append("a parent with sub-tasks")
+    held = [l for l in rec.get("labels") or [] if l in SUPPRESSOR_LABELS]
+    if held:
+        why.append("labelled " + ", ".join(held))
+    commits = rec.get("commits") or []
+    if not commits:
+        why.append("no commit names the key")
+    elif any(c.get("via") != "message" or c.get("role") != "fix" for c in commits):
+        why.append("a counted commit does not name the key in its subject (a body mention, a branch tip, a linked ticket or a hint)")
+    if any(d.get("why") == "revert" for d in rec.get("dropped") or []):
+        why.append("a revert names the key")
+    if rec.get("predated"):
+        why.append("a commit naming the key predates the ticket")
+    if rec.get("unbuilt"):
+        why.append(f"{len(rec['unbuilt'])} counted commit(s) not in a build of a line yet")
+    builds = rec.get("builds") or []
+    if any(b.get("result") != "SUCCESS" for b in builds):
+        why.append("a carrying build did not succeed")
+    if any(not b.get("branch") for b in builds):
+        why.append("a carrying build has no recorded branch")
+    if any(key_rx(rec["key"]).search(b.get("branch") or "") for b in builds):
+        why.append("carried by a build of the ticket's own branch, not a line")
+    if any(g for g in rec.get("gaps") or [] if "unmapped" in g or "no checkout" in g or "unreadable" in g or "no survey cache" in g):
+        why.append("a service's checkout, job or builds could not be read")
+    draft = rec.get("draft") or []
+    services = {c["service"] for c in commits}
+    if commits and services != {d["service"] for d in draft}:
+        why.append("a service with a counted commit has no carrying build")
+    if len(draft) != len({d["service"] for d in draft}):
+        why.append("the fix is on more than one line of a service")
+    declared = (rec.get("declared") or {}).get("declared") or []
+    by = {d["service"]: d for d in declared}
+    for d in draft:
+        dec = by.get(d["service"])
+        if not dec:
+            why.append(f"no developer declared a version for {d['service']}")
+        elif base_version(dec["value"]) is None or base_version(dec["value"]) != base_version(d["value"]):
+            why.append(f"declared {dec['value']} differs from the derived {d['value']}")
+    outside = sorted(set(by) - {d["service"] for d in draft})
+    if outside and draft:
+        why.append("declared for a service the commits do not cover: " + ", ".join(outside))
+    ok = not why and bool(draft)
+    return {"ok": ok, "value": "; ".join(d["value"] for d in draft) if ok else "", "why": why}
 
 
 def attach_evidence(a, recs):
@@ -905,6 +1041,9 @@ def print_text(recs):
         print(f"## {r['key']}  [{r['status'] or '?'}]  {(r['summary'] or '')[:90]}")
         print(f"   current   {r['current'] or '—'}")
         print(f"   draft     {'; '.join(d['value'] for d in r['draft']) or '—'}   ({r['compare'] or 'unread'})")
+        au = r.get("auto") or {}
+        if au:
+            print("   auto      " + (f"yes: {au['value']}" if au.get("ok") else "no: " + "; ".join(au.get("why") or [])[:300]))
         for c in r["commits"]:
             via = f"  [branch {', '.join(c['branches'])}]" if c.get("branches") else ""
             hint = f"  [via {c['via']}]" if c.get("via") not in (None, "message", "branch") else ""
@@ -912,7 +1051,7 @@ def print_text(recs):
         for x in (r.get("declared") or {}).get("declared") or []:
             print(f"   declared  {x['value']:<44} {x['author']} {x['date']}  via {x['via']}  (unverified)")
         for b in r["builds"]:
-            print(f"   build     {b['service']:<24} {b['job']} #{b['number']} {b['version']} {b['result'] or ''}  ← {b['sha'][:8]}{'  (ledger)' if b.get('ledger') else ''}")
+            print(f"   build     {b['service']:<24} {b['job']} #{b['number']} {b['version']} {b['result'] or ''} {b.get('branch') or ''}  ← {b['sha'][:8]}{'  (ledger)' if b.get('ledger') else ''}")
         for x in r["lanes"]:
             print(f"   lane      {x['service']:<24} {x['lane']:<12} {x['version']}  ({x['host']})  ← {x['carries']}")
         ev = r.get("evidence")
@@ -982,12 +1121,12 @@ def cmd_draft(a):
     if a.json:
         print(json.dumps({"keys": [dict({f: r.get(f) for f in ("key", "summary", "status", "labels", "current", "compare", "draft",
                                                                "commits", "builds", "lanes", "evidence", "gaps", "declared", "assignee", "issuetype", "parent",
-                                                               "created", "updated", "url", "subtasks", "reporter")}, group=group_of(r)) for r in recs]}, ensure_ascii=False))
+                                                               "created", "updated", "url", "subtasks", "reporter", "auto", "dropped", "exit")}, group=group_of(r)) for r in recs]}, ensure_ascii=False))
     else:
         print_text(recs)
         if a.group or len(recs) > 1:
             print_groups(recs)
-    codes = {r.get("exit") for r in recs}
+    codes = set() if a.keep_going else {r.get("exit") for r in recs}   # --keep-going: each record carries its own exit
     if EX_REMOTE in codes:
         sys.exit(EX_REMOTE)
     if EX_NOTFOUND in codes:
@@ -1014,6 +1153,7 @@ def main():
     p.add_argument("--path", help="hint: also take commits touching this path since --since as candidates")
     p.add_argument("--thread", help="hint: also take commits whose message carries this Slack permalink")
     p.add_argument("--group", action="store_true", help="end with the four groups a batch sorts into (always on for more than one key)")
+    p.add_argument("--keep-going", action="store_true", help="exit 0 for the batch; each record carries its own `exit` (a timer reads the whole batch)")
     p.add_argument("--json", action="store_true")
     p = sub.add_parser("declared", help="what the developers' comments declare was built (unverified) — no checkout, no Jenkins")
     p.add_argument("keys", nargs="*"); p.add_argument("--json", action="store_true")
